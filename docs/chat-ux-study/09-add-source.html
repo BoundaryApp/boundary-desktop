@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>I · Add source — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --ok: #86c089;
+      --warn: #c4843a;
+      --bad: #e8a0a0;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --bad: #8a3a3a;
+      --deny-line: #d4b4b4;
+      --deny-hover: #f3e8e4;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .stage {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      position: relative;
+      background: var(--bg);
+    }
+
+    .left {
+      width: 220px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      background: #c4a574;
+      flex-shrink: 0;
+    }
+
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+
+    .row {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--text);
+      background: var(--hover);
+      text-align: left;
+    }
+
+    .dim {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+    }
+
+    body:not([data-step="inspect"]):not([data-step="ready"]) .dim {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .fake-center { flex: 1; padding: 20px 24px; color: var(--muted); }
+    .fake-center h1 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .bubble {
+      margin-top: 16px;
+      max-width: 56ch;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+    }
+
+    .right {
+      width: 312px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .right-head { padding: 14px 14px 8px; }
+    .right-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+    .right-head .host { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    .hint {
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .src {
+      margin: 2px 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
+
+    .src .id { display: block; font-weight: 580; }
+    .src .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+
+    .add-row {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 8px 8px 4px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px dashed var(--line);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .add-row:hover { background: var(--hover); }
+
+    .pill {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .pill.ok { color: var(--ok); }
+    .pill.bad { color: var(--bad); }
+    .pill.warn { color: var(--warn); }
+
+    .sheet {
+      position: absolute;
+      inset: 24px 24px 24px 24px;
+      max-width: 520px;
+      margin: auto;
+      height: fit-content;
+      max-height: calc(100% - 48px);
+      overflow: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px 22px 18px;
+      z-index: 5;
+    }
+
+    .sheet .kicker {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      font-weight: 650;
+      margin-bottom: 8px;
+    }
+
+    .sheet h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+    }
+
+    .sheet p { margin: 0 0 16px; color: var(--muted); line-height: 1.5; }
+
+    .choice {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      margin-bottom: 8px;
+    }
+
+    .choice:hover { background: var(--hover); }
+    .choice b { display: block; font-weight: 580; }
+    .choice span { display: block; color: var(--faint); font-size: 12px; margin-top: 3px; }
+    .choice.is-off {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .sheet-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .btn-solid {
+      background: var(--text);
+      color: var(--bg);
+      font-weight: 580;
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    .btn-ghost:hover { background: var(--hover); }
+
+    .card {
+      margin: 8px 14px 12px;
+      padding: 12px;
+      border-radius: 10px;
+    }
+
+    .card.bad {
+      border: 1px solid var(--deny-line);
+      background: var(--deny-hover);
+    }
+
+    .card.warn {
+      border: 1px solid var(--warn-line);
+      background: var(--warn-bg);
+    }
+
+    .card.ok {
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+
+    .card h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .card p { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .card ol { margin: 0 0 10px; padding-left: 18px; font-size: 12px; }
+    .card pre {
+      margin: 0 0 10px;
+      padding: 8px;
+      border-radius: 7px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+    }
+
+    .btn-tiny:hover { color: var(--text); background: var(--hover); }
+
+    body:not([data-step="inspect"]) [data-step="inspect"],
+    body:not([data-step="pick"]) [data-step="pick"],
+    body:not([data-step="blocked"]) [data-step="blocked"],
+    body:not([data-step="writable"]) [data-step="writable"],
+    body:not([data-step="refresh"]) [data-step="refresh"],
+    body:not([data-step="ready"]) [data-step="ready"] {
+      display: none;
+    }
+
+    body[data-step="pick"] .sheet[data-step="pick"],
+    body[data-step="blocked"] .sheet[data-step="blocked"] {
+      display: block;
+    }
+  </style>
+</head>
+<body data-step="inspect">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a class="is-current" href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Add source flow">
+        <button class="is-on" data-go="inspect">Inspect</button>
+        <button data-go="pick">Pick</button>
+        <button data-go="blocked">Not visible</button>
+        <button data-go="writable">Writable</button>
+        <button data-go="refresh">Refresh</button>
+        <button data-go="ready">Ready</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <div class="stage">
+        <div class="dim">
+          <aside class="left">
+            <div class="proj-trigger">
+              <span class="glyph">J</span>
+              <span class="proj-copy">
+                <span class="name">Job Search</span>
+                <span class="path mono">~/Documents/Job Search</span>
+              </span>
+            </div>
+            <button class="row" type="button">Resume summary</button>
+          </aside>
+          <div class="fake-center">
+            <h1>Resume summary · Job Search</h1>
+            <p>The transcript stays put. Adding a source is an inspector job, not a new project and not a new chat.</p>
+            <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+          </div>
+        </div>
+
+        <aside class="right">
+          <div class="right-head">
+            <h2>Job Search</h2>
+            <div class="host mono">~/Documents/Job Search</div>
+          </div>
+          <p class="hint">Extra folders attach here. They do not appear in the project picker.</p>
+
+          <div class="src">
+            <span class="id">project</span>
+            <span class="path mono">. · this folder</span>
+            <span class="pill ok">Hub</span>
+          </div>
+
+          <div class="src" data-step="blocked">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="pill bad">Not visible</span>
+          </div>
+          <div class="src" data-step="writable">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="pill warn">Writable</span>
+          </div>
+          <div class="src" data-step="refresh">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="pill ok">Read-only</span>
+          </div>
+          <div class="src" data-step="ready">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="pill ok">Read-only</span>
+          </div>
+
+          <button class="add-row" type="button" data-go="pick" data-step="inspect">Add folder…</button>
+          <button class="add-row" type="button" data-go="pick" data-step="ready">Add folder…</button>
+
+          <div class="card bad" data-step="blocked">
+            <h3>Listed, not readable</h3>
+            <p>sources.yaml now includes this path. Hermes still cannot open it. Boundary remounts extra folders from this screen — try Add folder again, then Refresh index. Do not pretend the agent can.</p>
+            <button class="btn-tiny" type="button" data-go="refresh">Try remount again</button>
+          </div>
+
+          <div class="card warn" data-step="writable">
+            <h3>This folder is writable</h3>
+            <p>It is already under a coding root, so Hermes can see it — and write to it. Prefer a dedicated read-only notes folder. Never mount the home folder.</p>
+            <button class="btn-tiny" type="button" data-go="refresh">Use anyway</button>
+            <button class="btn-tiny" type="button" data-go="pick">Choose another</button>
+          </div>
+
+          <div class="card ok" data-step="refresh">
+            <h3>Folder is visible. Index is stale.</h3>
+            <p>Rewrite INDEX.md from sources.yaml so the agent has a map. Use Refresh index. Extra roots are checked on this Mac.</p>
+            <button class="btn-tiny" type="button" data-go="ready">Refresh index</button>
+          </div>
+
+          <div class="card ok" data-step="ready">
+            <h3>Ready</h3>
+            <p>The agent can open INDEX.md, then one or two files. Brief stays AGENTS.md. Nothing was copied into the app.</p>
+            <a class="btn-tiny" href="08-sources.html?state=ready" style="text-decoration:none">Open the inspector</a>
+          </div>
+
+          <span class="note" style="top: 16px; left: 8px" data-tip="Add folder is not New project. The hub path does not change.">1</span>
+        </aside>
+
+        <div class="sheet" data-step="pick">
+          <div class="kicker">Attach a source</div>
+          <h2>Choose a folder on this Mac</h2>
+          <p>This is file context for Job Search — not a second project, and not LightRAG. Extra paths must be absolute. Do not pick the hub or another library project.</p>
+          <button class="choice" type="button" data-go="blocked">
+            <b>this-project</b>
+            <span class="mono">~/Notes/this-project · not a context root yet</span>
+          </button>
+          <button class="choice" type="button" data-go="writable">
+            <b>job-search-notes</b>
+            <span class="mono">~/Code/job-search-notes · already a coding root</span>
+          </button>
+          <button class="choice is-off" type="button" disabled>
+            <b>Job Search</b>
+            <span class="mono">~/Documents/Job Search · this is the hub</span>
+          </button>
+          <button class="choice is-off" type="button" disabled>
+            <b>Home</b>
+            <span class="mono">~ · never mount the home folder</span>
+          </button>
+          <div class="sheet-actions">
+            <button class="btn-ghost" type="button" data-go="inspect">Cancel</button>
+          </div>
+          <span class="note" style="top: 12px; right: 12px" data-tip="Picker writes an absolute host path. Refuse the hub, other library projects, $HOME, and /.">2</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const apply = (step) => {
+      document.body.dataset.step = step;
+      document.querySelectorAll(".states [data-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.go === step);
+      });
+    };
+
+    const start = params.get("step");
+    if (start) apply(start);
+
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply(btn.dataset.go));
+    });
+  </script>
+</body>
+</html>

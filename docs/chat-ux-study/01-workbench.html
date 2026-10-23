@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A · Workbench — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --tool-bg: #171914;
+      --tool-line: #3a4330;
+      --ok: #86c089;
+      --solid-fg: #111;
+      --overhead: #c4843a;
+      --gen: #5b8def;
+      --wait: #93c5fd;
+      --gauge-track: #2a2a30;
+      --input: #161618;
+      --deny-line: #5a3030;
+      --deny-text: #e8a0a0;
+      --deny-hover: #2a1818;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --tool-bg: #eef0e6;
+      --tool-line: #c5cbb0;
+      --ok: #3d6b40;
+      --solid-fg: #fffcf6;
+      --overhead: #c4843a;
+      --gen: #3b82f6;
+      --wait: #3b6ea5;
+      --gauge-track: #e3dfd3;
+      --input: #f3f1ea;
+      --deny-line: #d4b4b4;
+      --deny-text: #8a3a3a;
+      --deny-hover: #f3e8e4;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+    html.light .btn-solid { color: var(--solid-fg); background: var(--text); }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+    }
+
+    .shell {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .app-stage {
+      background: var(--bg);
+    }
+
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .phases {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .phases button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .phases button.is-on { color: var(--text); background: var(--hover); }
+
+    /* App chrome */
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+      position: relative;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    /* Chat chrome */
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .sect {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 6px 4px 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .sect:first-child { padding-top: 12px; }
+
+    .time-group { margin-top: 2px; }
+    .time-group:first-child { margin-top: 0; }
+    .time {
+      padding: 6px 12px 2px;
+      font-size: 11px;
+      font-weight: 550;
+      color: var(--faint);
+    }
+    .time-group:first-child .time { padding-top: 2px; }
+
+    .sect-add {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--faint);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .sect-add:hover { color: var(--text); background: var(--hover); }
+
+    .btn-solid,
+    .btn-ghost,
+    .btn-tiny {
+      border-radius: 7px;
+      text-align: left;
+      padding: 7px 9px;
+    }
+
+    .btn-solid {
+      background: var(--text);
+      color: var(--solid-fg);
+      font-weight: 580;
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .btn-ghost:hover { background: var(--hover); }
+
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .btn-tiny:hover { color: var(--text); background: var(--hover); }
+
+
+    .proj-picker {
+      position: relative;
+      margin: 10px 8px 6px;
+    }
+
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: 100%;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+    }
+
+    .proj-trigger:hover { background: var(--hover); }
+
+    .proj-trigger .chev {
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .glyph.is-none {
+      background: var(--hover);
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+
+    .proj-copy { min-width: 0; text-align: left; flex: 1; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .proj-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 20;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      padding: 6px;
+      display: none;
+    }
+
+    .proj-menu.is-open { display: block; }
+
+    .proj-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .proj-menu-item:hover { background: var(--hover); color: var(--text); }
+    .proj-menu-item.is-on { color: var(--text); background: var(--accent-dim); }
+
+    .proj-menu-item .check {
+      width: 14px;
+      flex-shrink: 0;
+      color: var(--accent);
+      font-size: 12px;
+    }
+
+    .proj-menu-sep {
+      height: 1px;
+      background: var(--line);
+      margin: 4px 6px;
+    }
+
+    .proj-menu-action {
+      display: block;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--text);
+      text-align: left;
+      font-weight: 550;
+    }
+
+    .proj-menu-action:hover { background: var(--hover); }
+
+    .proj-empty {
+      margin: 4px 8px 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .proj-empty button {
+      display: block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .proj-empty button:hover { background: var(--hover); }
+
+    .row {
+      display: flex;
+      align-items: center;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .row:hover,
+    .row.is-on { background: var(--hover); color: var(--text); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .usage {
+      flex: 1;
+      height: 8px;
+      background: var(--gauge-track);
+      border-radius: 99px;
+      overflow: hidden;
+      display: flex;
+      max-width: 280px;
+    }
+
+    .usage .oh { width: 58.8%; background: var(--overhead); }
+    .usage .out { width: 2.2%; background: var(--gen); }
+
+    .key { display: flex; gap: 12px; }
+    .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+    .k-oh { background: var(--overhead); }
+    .k-out { background: var(--gen); }
+
+    .log {
+      flex: 1;
+      overflow: auto;
+      padding: 28px 36px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .msg { max-width: 720px; }
+    .msg .who {
+      font-size: 12px;
+      color: var(--faint);
+      margin-bottom: 10px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: var(--user);
+      border: 1px solid var(--line);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .tool {
+      background: var(--tool-bg);
+      border: 1px solid var(--tool-line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .tool .meta { color: var(--ok); font-size: 12px; font-weight: 580; }
+    .tool ul { margin: 8px 0 0; padding: 0 0 0 16px; color: var(--muted); }
+    .prose {
+      color: var(--text);
+      max-width: 62ch;
+      font-family: var(--font-prose);
+      font-size: 16.5px;
+      font-weight: 400;
+      line-height: 1.68;
+    }
+    .prose p { margin: 0 0 0.85em; }
+    .prose p:last-child { margin-bottom: 0; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, max-content);
+      gap: 18px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stats b { display: block; color: var(--text); font-weight: 600; font-size: 14px; }
+
+    .phase-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--wait);
+      font-size: 13px;
+      font-weight: 580;
+    }
+
+    .spin {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--wait);
+    }
+
+    .callout {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+      position: relative;
+      background: var(--panel);
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 64px;
+      resize: none;
+      background: var(--input);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      outline: none;
+      font-family: var(--font-ui);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { color: var(--muted); }
+
+    .phase-slot { color: var(--text); font-weight: 580; }
+    .phase-slot .dim { color: var(--faint); font-weight: 500; }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .switch {
+      width: 26px;
+      height: 14px;
+      border-radius: 99px;
+      background: var(--accent);
+      position: relative;
+    }
+
+    .switch i {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--bg);
+    }
+
+    .stop {
+      margin-left: auto;
+      padding: 5px 10px;
+      border-radius: 7px;
+      background: var(--hover);
+      color: var(--text);
+      font-weight: 580;
+    }
+
+    /* Consent interrupt — composer-adjacent, not a modal (proposed 0006). */
+    .approve {
+      border-top: 1px solid var(--tool-line);
+      background: var(--tool-bg);
+      padding: 12px 16px 14px;
+      position: relative;
+    }
+
+    .approve .kicker {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ok);
+    }
+
+    .approve .kicker .count {
+      color: var(--faint);
+      letter-spacing: 0.04em;
+    }
+
+    .approve .why {
+      margin: 8px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      max-width: 62ch;
+    }
+
+    .approve .cmd {
+      margin: 10px 0 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    .approve-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .approve-actions .run {
+      background: var(--text);
+      color: var(--solid-fg);
+      font-weight: 580;
+      border-radius: 7px;
+      padding: 6px 12px;
+    }
+
+    .approve-actions .run kbd {
+      margin-left: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.55;
+    }
+
+    .approve-actions .reject {
+      border: 1px solid var(--deny-line);
+      color: var(--deny-text);
+      background: transparent;
+      border-radius: 7px;
+      padding: 6px 10px;
+    }
+
+    .approve-actions .reject:hover { background: var(--deny-hover); }
+
+    .approve-actions .more {
+      margin-left: auto;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 7px;
+      padding: 6px 10px;
+    }
+
+    .approve-actions .more:hover { color: var(--text); background: var(--hover); }
+
+    .approve-menu {
+      position: absolute;
+      right: 16px;
+      bottom: 52px;
+      min-width: 200px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 4px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+
+    .approve-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 7px;
+      color: var(--text);
+    }
+
+    .approve-menu button:hover { background: var(--hover); }
+    .approve-menu button span {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    body[data-phase="approve"] .composer textarea {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    body:not([data-phase="preparing"]) [data-phase="preparing"],
+    body:not([data-phase="tool"]) [data-phase="tool"],
+    body:not([data-phase="done"]) [data-phase="done"],
+    body:not([data-phase="unknown"]) [data-phase="unknown"],
+    body:not([data-phase="approve"]) [data-phase="approve"] {
+      display: none;
+    }
+
+    body[data-phase="unknown"] .usage > * { display: none; }
+
+    .right {
+      width: 280px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .right-head { padding: 14px 14px 10px; }
+    .right-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
+    .right-head .host { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .right-actions { display: flex; gap: 6px; padding: 0 14px 12px; }
+    .hint { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
+
+    .tree { padding: 4px 8px 16px; overflow: auto; }
+    .tree button {
+      display: flex;
+      width: 100%;
+      text-align: left;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .tree button:hover { background: var(--hover); }
+    .tree .dir { color: var(--muted); }
+    .tree .pad { padding-left: 22px; }
+
+    /* Destinations */
+    .dest {
+      flex: 1;
+      flex-direction: column;
+      padding: 28px 40px;
+      overflow: auto;
+    }
+
+    .dest h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .dest p.lead { color: var(--muted); margin: 0 0 22px; max-width: 52ch; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      max-width: 860px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: left;
+    }
+
+    .card b { display: block; margin-bottom: 6px; }
+    .card span { color: var(--muted); font-size: 12px; }
+    .card code { display: block; margin-top: 10px; color: var(--faint); font-size: 11px; }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 560px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .settings-row span { color: var(--muted); }
+  </style>
+</head>
+<body data-screen="chat" data-phase="tool">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a class="is-current" href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="phases" aria-label="Turn phase">
+        <button data-phase-go="preparing">Preparing</button>
+        <button class="is-on" data-phase-go="tool">Tool</button>
+        <button data-phase-go="approve">Approve</button>
+        <button data-phase-go="done">Done</button>
+        <button data-phase-go="unknown">No max</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" data-go="chat" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" data-go="services" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" data-go="resources" title="Resources">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg>
+        </button>
+        <button class="icon-btn end" data-go="settings" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+        <span class="note" style="top: 48px; left: 34px" data-tip="App chrome lives outside chat. Settings is never a thread or a project.">1</span>
+      </nav>
+
+      <section class="screen chat" style="flex:1">
+        <aside class="left">
+          <div class="proj-picker">
+            <button class="proj-trigger" type="button" aria-haspopup="listbox" aria-expanded="true" title="Current project">
+              <span class="glyph" style="background:#c4a574">J</span>
+              <span class="proj-copy">
+                <span class="name">Job Search</span>
+                <span class="path mono">~/Documents/Job Search</span>
+              </span>
+              <span class="chev" aria-hidden="true">▾</span>
+            </button>
+            <div class="proj-menu is-open" role="listbox" aria-label="Choose project">
+              <button class="proj-menu-item" type="button" role="option">
+                <span class="check" aria-hidden="true"></span>
+                <span class="glyph is-none" aria-hidden="true">—</span>
+                <span class="proj-copy"><span class="name">No project</span></span>
+              </button>
+              <button class="proj-menu-item is-on" type="button" role="option" aria-selected="true">
+                <span class="check" aria-hidden="true">✓</span>
+                <span class="glyph" style="background:#c4a574">J</span>
+                <span class="proj-copy">
+                  <span class="name">Job Search</span>
+                  <span class="path mono">~/Documents/Job Search</span>
+                </span>
+              </button>
+              <button class="proj-menu-item" type="button" role="option">
+                <span class="check" aria-hidden="true"></span>
+                <span class="glyph" style="background:#6f8fa3">N</span>
+                <span class="proj-copy">
+                  <span class="name">Notes</span>
+                  <span class="path mono">~/Documents/Boundary Notes</span>
+                </span>
+              </button>
+              <div class="proj-menu-sep" role="separator"></div>
+              <button class="proj-menu-action" type="button">New project…</button>
+            </div>
+          </div>
+          <div class="sect">
+            <span>Chats</span>
+            <button class="sect-add" type="button" title="New chat" aria-label="New chat">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="time-group" role="group" aria-labelledby="time-today">
+            <div id="time-today" class="time">Today</div>
+            <button class="row is-on">Name one primary color</button>
+            <button class="row">Draft outreach for Acme</button>
+          </div>
+          <div class="time-group" role="group" aria-labelledby="time-yesterday">
+            <div id="time-yesterday" class="time">Yesterday</div>
+            <button class="row">Resume summary for product design</button>
+          </div>
+          <div class="time-group" role="group" aria-labelledby="time-last-week">
+            <div id="time-last-week" class="time">Last week</div>
+            <button class="row">Clean applications folder</button>
+          </div>
+          <span class="note" style="top: 18px; right: 8px" data-tip="Project is context, not a destination: one trigger + shared menu (No project, recents, New project…). Chats keep the section plus. Zero projects use Choose folder… — do not bury the first attach.">2</span>
+        </aside>
+
+        <main class="center">
+          <div class="thread-head">
+            <span><strong>Resume summary</strong> · Job Search</span>
+            <button class="btn-tiny">Move to project</button>
+          </div>
+          <div class="meter">
+            <span class="mono" data-phase="preparing">— / —</span>
+            <span class="mono" data-phase="tool">18,823 / 32,000</span>
+            <span class="mono" data-phase="approve">18,823 / 32,000</span>
+            <span class="mono" data-phase="done">18,823 / 32,000</span>
+            <span class="mono" data-phase="unknown">context max unknown</span>
+            <div class="usage" aria-hidden="true"><i class="oh"></i><i class="out"></i></div>
+            <div class="key">
+              <span><i class="k-oh"></i>system / tools</span>
+              <span><i class="k-out"></i>generated</span>
+            </div>
+          </div>
+          <div class="log" role="log" aria-label="Transcript">
+            <div class="msg" data-phase="preparing">
+              <div class="who">You</div>
+              <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="msg" data-phase="tool">
+              <div class="who">You</div>
+              <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="msg" data-phase="done">
+              <div class="who">You</div>
+              <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="msg" data-phase="unknown">
+              <div class="who">You</div>
+              <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="msg" data-phase="approve">
+              <div class="who">You</div>
+              <div class="bubble">Remove the scratch drafts under applications/ so I can start a clean pass.</div>
+            </div>
+            <div class="msg" data-phase="preparing">
+              <div class="callout">There is no LLM processing percent. Show elapsed time until the first real event.</div>
+              <div class="phase-line"><i class="spin"></i> Preparing… 3s</div>
+            </div>
+            <div class="msg" data-phase="tool">
+              <div class="who">Assistant</div>
+              <div class="tool">
+                <div class="meta">Reading search_files · turn 2 of 20</div>
+                <ul>
+                  <li>resume.pdf</li>
+                  <li>cover-notes.md</li>
+                </ul>
+              </div>
+            </div>
+            <div class="msg" data-phase="done">
+              <div class="who">Assistant</div>
+              <div class="prose">
+                <p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes, and applications into a single working set — scoped to files on disk, not an uploaded copy.</p>
+                <p>The through-line is the same: keep the working set local, name the tools as they run, and leave the human in the loop when something dangerous is about to execute.</p>
+              </div>
+              <div class="stats">
+                <div><b>18,823</b>prompt</div>
+                <div><b>708</b>generated</div>
+                <div><b>7</b>visible</div>
+                <div><b>1.2s</b>TTFT</div>
+              </div>
+            </div>
+            <div class="msg" data-phase="unknown">
+              <div class="callout">Omit the percent when context_max is missing. Never render 0%.</div>
+              <div class="prose"><p>Product designer with eight years shipping research-backed interfaces…</p></div>
+            </div>
+            <div class="msg" data-phase="approve">
+              <div class="who">Assistant</div>
+              <div class="tool">
+                <div class="meta">Waiting terminal · turn 3 of 20</div>
+                <ul>
+                  <li>applications/scratch</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="approve" data-phase="approve" role="alertdialog" aria-labelledby="approve-title">
+            <div class="kicker">
+              <span id="approve-title">Approval needed · terminal</span>
+            </div>
+            <p class="why">The agent wants to run a command that can change files in this folder.</p>
+            <pre class="cmd mono">rm -rf applications/scratch</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+              <button class="more">More</button>
+            </div>
+            <span class="note" style="top: 8px; right: 12px" data-tip="Consent interrupt sits on the composer, not in the transcript. Tool card above is progress; this card is a decision. Variants on E.">5</span>
+          </div>
+          <footer class="composer">
+            <textarea placeholder="Ask about this folder…" data-phase-placeholder></textarea>
+            <div class="cluster">
+              <button class="chip" type="button" title="Current project — opens the same picker as the left rail"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+              <button class="chip">@</button>
+              <span class="phase-slot">
+                <span data-phase="preparing">Preparing · 3s</span>
+                <span data-phase="tool">search_files · 2 / 20</span>
+                <span data-phase="approve">Waiting for approval</span>
+                <span data-phase="done">42 tok · 35/s</span>
+                <span class="dim" data-phase="unknown">Generating · % hidden</span>
+              </span>
+              <label class="toggle">Tools <span class="switch"><i></i></span></label>
+              <button class="stop">Stop</button>
+            </div>
+            <span class="note" style="bottom: 14px; left: 220px" data-tip="Instrument composer: project chip opens the same current-project menu as the left rail. Then @, named phase, tools, Stop. Gauge lives in the strip above.">3</span>
+          </footer>
+        </main>
+
+        <aside class="right">
+          <div class="right-head">
+            <h2>Job Search</h2>
+            <div class="host mono">~/Documents/Job Search</div>
+          </div>
+          <div class="right-actions">
+            <button class="btn-tiny">Change folder</button>
+            <button class="btn-tiny">Reveal in Finder</button>
+          </div>
+          <p class="hint">The agent can read this folder. Files stay on disk. Nothing is copied into the app.</p>
+          <div class="tree">
+            <button>resume.pdf</button>
+            <button>cover-notes.md</button>
+            <button class="dir">applications/</button>
+            <button class="pad">acme.md</button>
+            <button class="pad">northwind.md</button>
+            <button class="dir">portfolio/</button>
+            <button class="pad">case-study.md</button>
+          </div>
+          <span class="note" style="top: 20px; left: 8px" data-tip="Right rail is the host path, not an upload well and not Application Support.">4</span>
+        </aside>
+      </section>
+
+      <section class="dest screen services">
+        <h1>Services</h1>
+        <p class="lead">Secondary destination. Same app chrome. These are not projects and not chats.</p>
+        <div class="cards">
+          <button class="card"><b>WebUI</b><span>Model and session console in the browser.</span><code>localhost:8080</code></button>
+          <button class="card"><b>SearXNG</b><span>Local search used by the agent when tools are on.</span><code>localhost:8081</code></button>
+          <button class="card"><b>LightRAG</b><span>Optional retrieval. Silent RAG is a failure mode.</span><code>localhost:9621</code></button>
+          <button class="card"><b>n8n</b><span>Workflows on this machine.</span><code>localhost:5678</code></button>
+          <button class="card"><b>OpenCode</b><span>Code session UI, demoted from home.</span><code>localhost:4096</code></button>
+        </div>
+      </section>
+
+      <section class="dest screen resources">
+        <h1>Resources</h1>
+        <p class="lead">This machine’s load. Not a project and not a thread. Living spec is the resources study (0011).</p>
+        <div class="settings-row"><b>CPU</b><span>Share of host · four buckets</span></div>
+        <div class="settings-row"><b>Memory</b><span>RSS versus total RAM</span></div>
+        <div class="settings-row"><b>Disk</b><span>Capacity, not I/O. GPU is out.</span></div>
+      </section>
+
+      <section class="dest screen settings">
+        <h1>Settings</h1>
+        <p class="lead">Full destination. Back returns to chat. Model and onboarding pieces stay here — not in the Projects rail. Theme will live here; Light in the study bar is the preview.</p>
+        <div class="settings-row"><b>Model</b><span>Local endpoint · change in this screen</span></div>
+        <div class="settings-row"><b>Appearance</b><span>Dark default. Light remaps Quiet Hub paper tokens.</span></div>
+        <div class="settings-row"><b>Tools</b><span>Default on. Speed escape lives on the composer.</span></div>
+        <div class="settings-row"><b>Devices</b><span>Scoped as Resources on the icon rail (0011).</span></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.body.dataset.screen = btn.dataset.go;
+        document.querySelectorAll(".icon-btn").forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle("is-on", on);
+          if (on) b.setAttribute("aria-current", "page");
+          else b.removeAttribute("aria-current");
+        });
+      });
+    });
+    const applyPhase = (phase) => {
+      document.body.dataset.phase = phase;
+      document.querySelectorAll("[data-phase-go]").forEach((b) => b.classList.toggle("is-on", b.dataset.phaseGo === phase));
+      const ta = document.querySelector(".composer textarea");
+      if (ta) {
+        ta.placeholder = phase === "approve"
+          ? "Answer the approval to continue…"
+          : "Ask about this folder…";
+      }
+    };
+
+    const startPhase = params.get("phase");
+    if (startPhase) applyPhase(startPhase);
+
+    document.querySelectorAll("[data-phase-go]").forEach((btn) => {
+      btn.addEventListener("click", () => applyPhase(btn.dataset.phaseGo));
+    });
+  </script>
+</body>
+</html>

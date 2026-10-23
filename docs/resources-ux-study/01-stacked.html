@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A · Stacked — Boundary resources UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --solid-fg: #111;
+      --bucket-app: #8b87f8;
+      --bucket-stack: #5b8def;
+      --bucket-llm: #c4843a;
+      --bucket-rest: #3a3a42;
+      --ok: #86c089;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --solid-fg: #fffcf6;
+      --bucket-app: #1c1b17;
+      --bucket-stack: #3b82f6;
+      --bucket-llm: #c4843a;
+      --bucket-rest: #d4d0c4;
+      --ok: #3d6b40;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .app-stage { background: var(--bg); }
+
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .shell {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+      position: relative;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .dest {
+      flex: 1;
+      flex-direction: column;
+      padding: 28px 40px 40px;
+      overflow: auto;
+      position: relative;
+    }
+
+    .dest h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+      font-weight: 560;
+    }
+
+    .dest p.lead { color: var(--muted); margin: 0 0 22px; max-width: 56ch; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      max-width: 860px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: left;
+    }
+
+    .card b { display: block; margin-bottom: 6px; }
+    .card span { color: var(--muted); font-size: 12px; }
+    .card code { display: block; margin-top: 10px; color: var(--faint); font-size: 11px; }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 560px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .settings-row span { color: var(--muted); }
+
+    .machine {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 24px;
+      max-width: 720px;
+      margin-bottom: 22px;
+    }
+
+    .machine .host {
+      color: var(--faint);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .facts {
+      display: flex;
+      gap: 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .facts b {
+      display: block;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 560;
+      letter-spacing: -0.02em;
+    }
+
+    .meters {
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .meter-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .meter-head .name { font-weight: 580; }
+    .meter-head .readout { color: var(--muted); }
+
+    .bar {
+      display: flex;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--line);
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .bar .app { background: var(--bucket-app); }
+    .bar .stack { background: var(--bucket-stack); }
+    .bar .llm { background: var(--bucket-llm); }
+    .bar .rest { background: var(--bucket-rest); }
+
+    body[data-load="typical"] {
+      --cpu-app: 4%; --cpu-stack: 11%; --cpu-llm: 37%; --cpu-rest: 48%;
+      --mem-app: 2.5%; --mem-stack: 13.1%; --mem-llm: 26.9%; --mem-rest: 57.5%;
+      --disk-app: 0.4%; --disk-stack: 3.6%; --disk-llm: 8.2%; --disk-rest: 87.8%;
+    }
+
+    body[data-load="llm-off"] {
+      --cpu-app: 5%; --cpu-stack: 12%; --cpu-llm: 0%; --cpu-rest: 83%;
+      --mem-app: 2.5%; --mem-stack: 13.1%; --mem-llm: 0%; --mem-rest: 84.4%;
+      --disk-app: 0.4%; --disk-stack: 3.6%; --disk-llm: 8.2%; --disk-rest: 87.8%;
+    }
+
+    body[data-load="stack-down"] {
+      --cpu-app: 4%; --cpu-stack: 0%; --cpu-llm: 41%; --cpu-rest: 55%;
+      --mem-app: 2.5%; --mem-stack: 0%; --mem-llm: 26.9%; --mem-rest: 70.6%;
+      --disk-app: 0.4%; --disk-stack: 3.6%; --disk-llm: 8.2%; --disk-rest: 87.8%;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      max-width: 720px;
+      margin-bottom: 28px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .legend i {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 6px;
+      vertical-align: 1px;
+    }
+
+    .legend .app { background: var(--bucket-app); }
+    .legend .stack { background: var(--bucket-stack); }
+    .legend .llm { background: var(--bucket-llm); }
+    .legend .rest { background: var(--bucket-rest); }
+
+    .rows {
+      max-width: 720px;
+      border-top: 1px solid var(--line);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+      align-items: baseline;
+    }
+
+    .row .who { font-weight: 560; }
+    .row .who > span {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 450;
+      margin-top: 2px;
+    }
+
+    .row .n {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      min-width: 72px;
+    }
+
+    .caveat {
+      max-width: 720px;
+      margin-top: 18px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    [data-show] { display: none; }
+    body[data-load="typical"] [data-show="typical"] { display: inline; }
+    body[data-load="llm-off"] [data-show="llm-off"] { display: inline; }
+    body[data-load="stack-down"] [data-show="stack-down"] { display: inline; }
+    .row [data-show] { display: none; }
+    body[data-load="typical"] .row [data-show="typical"] { display: inline; }
+    body[data-load="llm-off"] .row [data-show="llm-off"] { display: inline; }
+    body[data-load="stack-down"] .row [data-show="stack-down"] { display: inline; }
+  </style>
+</head>
+<body data-screen="resources" data-load="typical">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary resources</a>
+    <nav>
+      <a class="is-current" href="01-stacked.html">A Stacked</a>
+      <a href="02-quiet-meters.html">B Quiet meters</a>
+      <a href="03-share-cards.html">C Share cards</a>
+      <a href="04-compose-inventory.html">D Compose</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Load fixture">
+        <button class="is-on" data-load-go="typical">Typical</button>
+        <button data-load-go="llm-off">LLM off</button>
+        <button data-load-go="stack-down">Stack down</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn" data-go="chat" title="Chat">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" data-go="services" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn is-on" data-go="resources" title="Resources" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg>
+        </button>
+        <button class="icon-btn end" data-go="settings" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+        <span class="note" style="top: 116px; left: 34px" data-tip="Resources sits after Services. Settings stays pinned at the bottom. Not a project. Not a thread.">1</span>
+      </nav>
+
+      <section class="dest screen chat">
+        <h1>Chat</h1>
+        <p class="lead">Default home after ready. Resources does not replace this view.</p>
+      </section>
+
+      <section class="dest screen services">
+        <h1>Services</h1>
+        <p class="lead">Open these endpoints. They are not this machine’s load.</p>
+        <div class="cards">
+          <button class="card"><b>WebUI</b><span>Model and session console in the browser.</span><code>localhost:8080</code></button>
+          <button class="card"><b>SearXNG</b><span>Local search used by the agent when tools are on.</span><code>localhost:8081</code></button>
+          <button class="card"><b>LightRAG</b><span>Optional retrieval.</span><code>localhost:9621</code></button>
+        </div>
+      </section>
+
+      <section class="dest screen resources">
+        <div class="machine">
+          <div>
+            <h1>Resources</h1>
+            <div class="host mono">This Mac · updated just now</div>
+          </div>
+          <div class="facts">
+            <div><b>10</b>cores</div>
+            <div><b>32 GB</b>memory</div>
+            <div><b>512 GB</b>disk</div>
+          </div>
+          <span class="note" style="top: 8px; right: 8px" data-tip="Header is host capacity from capability probes. Bars below are share, not setup thresholds.">2</span>
+        </div>
+
+        <div class="meters">
+          <div>
+            <div class="meter-head">
+              <span class="name">CPU</span>
+              <span class="readout mono">
+                <span data-show="typical">52% attributed</span>
+                <span data-show="llm-off">17% attributed</span>
+                <span data-show="stack-down">45% attributed</span>
+                · 10 cores
+              </span>
+            </div>
+            <div class="bar" aria-label="CPU share of host">
+              <i class="app" style="width: var(--cpu-app)"></i>
+              <i class="stack" style="width: var(--cpu-stack)"></i>
+              <i class="llm" style="width: var(--cpu-llm)"></i>
+              <i class="rest" style="width: var(--cpu-rest)"></i>
+            </div>
+          </div>
+          <div>
+            <div class="meter-head">
+              <span class="name">Memory</span>
+              <span class="readout mono">
+                <span data-show="typical">13.6 GB attributed</span>
+                <span data-show="llm-off">5.0 GB attributed</span>
+                <span data-show="stack-down">9.4 GB attributed</span>
+                · 32 GB
+              </span>
+            </div>
+            <div class="bar" aria-label="Memory share of host">
+              <i class="app" style="width: var(--mem-app)"></i>
+              <i class="stack" style="width: var(--mem-stack)"></i>
+              <i class="llm" style="width: var(--mem-llm)"></i>
+              <i class="rest" style="width: var(--mem-rest)"></i>
+            </div>
+          </div>
+          <div>
+            <div class="meter-head">
+              <span class="name">Disk</span>
+              <span class="readout mono">62.5 GB attributed · 512 GB</span>
+            </div>
+            <div class="bar" aria-label="Disk capacity share">
+              <i class="app" style="width: var(--disk-app)"></i>
+              <i class="stack" style="width: var(--disk-stack)"></i>
+              <i class="llm" style="width: var(--disk-llm)"></i>
+              <i class="rest" style="width: var(--disk-rest)"></i>
+            </div>
+          </div>
+          <span class="note" style="top: 4px; left: -28px" data-tip="Stacked 100% bars. Rest is estimated. A missing live bucket collapses; disk files can remain.">3</span>
+        </div>
+
+        <div class="legend">
+          <span><i class="app"></i>Boundary app</span>
+          <span><i class="stack"></i>Assistant stack</span>
+          <span><i class="llm"></i>Local LLM</span>
+          <span><i class="rest"></i>Rest of computer <em style="font-style: normal; color: var(--faint)">(estimated)</em></span>
+        </div>
+
+        <div class="rows">
+          <div class="row">
+            <div class="who">Boundary app<span>Electron main and renderers</span></div>
+            <div class="n mono"><span data-show="typical">4%</span><span data-show="llm-off">5%</span><span data-show="stack-down">4%</span></div>
+            <div class="n mono">0.8 GB</div>
+            <div class="n mono">2.1 GB</div>
+          </div>
+          <div class="row">
+            <div class="who">Assistant stack<span>
+              <span data-show="typical">boundary-assistant · running</span>
+              <span data-show="llm-off">boundary-assistant · running</span>
+              <span data-show="stack-down">not running</span>
+            </span></div>
+            <div class="n mono"><span data-show="typical">11%</span><span data-show="llm-off">12%</span><span data-show="stack-down">0%</span></div>
+            <div class="n mono"><span data-show="typical">4.2 GB</span><span data-show="llm-off">4.2 GB</span><span data-show="stack-down">0 GB</span></div>
+            <div class="n mono">18.4 GB</div>
+          </div>
+          <div class="row">
+            <div class="who">Local LLM<span>
+              <span data-show="typical">Ollama on :11434</span>
+              <span data-show="llm-off">not detected</span>
+              <span data-show="stack-down">Ollama on :11434</span>
+            </span></div>
+            <div class="n mono"><span data-show="typical">37%</span><span data-show="llm-off">0%</span><span data-show="stack-down">41%</span></div>
+            <div class="n mono"><span data-show="typical">8.6 GB</span><span data-show="llm-off">0 GB</span><span data-show="stack-down">8.6 GB</span></div>
+            <div class="n mono">42.0 GB</div>
+          </div>
+          <div class="row">
+            <div class="who">Rest of computer<span>Estimated · includes free disk</span></div>
+            <div class="n mono"><span data-show="typical">48%</span><span data-show="llm-off">83%</span><span data-show="stack-down">55%</span></div>
+            <div class="n mono"><span data-show="typical">18.4 GB</span><span data-show="llm-off">27.0 GB</span><span data-show="stack-down">22.6 GB</span></div>
+            <div class="n mono">449.5 GB</div>
+          </div>
+        </div>
+
+        <p class="caveat">
+          Study fixtures, not a live sample. Disk is capacity, not I/O. GPU is out of this cut.
+          Engine VM overhead is not a fifth bucket.
+        </p>
+      </section>
+
+      <section class="dest screen settings">
+        <h1>Settings</h1>
+        <p class="lead">Full destination. Back returns to chat. Resources is not a row here — it has its own rail slot.</p>
+        <div class="settings-row"><b>Model</b><span>Local endpoint · change in this screen</span></div>
+        <div class="settings-row"><b>Appearance</b><span>Dark default. Light remaps Quiet Hub paper tokens.</span></div>
+        <div class="settings-row"><b>Devices</b><span>Scoped as Resources on the icon rail. Not a second screen.</span></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-resources-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-resources-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.body.dataset.screen = btn.dataset.go;
+        document.querySelectorAll(".icon-btn").forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle("is-on", on);
+          if (on) b.setAttribute("aria-current", "page");
+          else b.removeAttribute("aria-current");
+        });
+      });
+    });
+
+    const applyLoad = (load) => {
+      document.body.dataset.load = load;
+      document.querySelectorAll("[data-load-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.loadGo === load);
+      });
+    };
+
+    const startLoad = params.get("load");
+    if (startLoad) applyLoad(startLoad);
+
+    document.querySelectorAll("[data-load-go]").forEach((btn) => {
+      btn.addEventListener("click", () => applyLoad(btn.dataset.loadGo));
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat types — Boundary chat-types study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    /* Type marks: one shape per conversation type, used everywhere a conversation is named. */
+    :root { --hermes: #8b87f8; --ana: #4f9d8f; --ben: #c07a52; --cass: #8a6fc0; }
+    html.light { --hermes: #4b47c4; }
+    .tm { width: 18px; height: 18px; flex-shrink: 0; display: grid; place-items: center; font-size: 10px; font-weight: 650; color: #fff; }
+    .tm.lg { width: 24px; height: 24px; font-size: 12px; }
+    .tm.hermes { border-radius: 6px; background: var(--hermes); }
+    .tm.hermes svg { width: 11px; height: 11px; }
+    .tm.lg.hermes svg { width: 14px; height: 14px; }
+    .tm.chan { border-radius: 5px; border: 1.5px solid var(--faint); color: var(--muted); font-family: var(--font-mono); font-weight: 500; font-size: 11px; }
+    .tm.lg.chan { font-size: 13px; }
+    .tm.dm { border-radius: 50%; }
+    .tm.side { border-radius: 50%; background: transparent !important; border: 1.5px dashed currentColor; }
+
+    /* Left rail */
+    .left .nav { flex: 1; overflow: auto; padding-bottom: 12px; }
+    .left .row { position: relative; }
+    .row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .src { font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+    .row .count { margin-left: auto; font-size: 10px; font-weight: 650; color: var(--solid-fg); background: var(--text); border-radius: 999px; padding: 0 6px; }
+    .row svg.ico { width: 16px; height: 16px; color: var(--faint); flex-shrink: 0; }
+    .row .sub { display: block; font-size: 11px; color: var(--faint); }
+    .row .dmcopy { flex: 1; min-width: 0; }
+    .sect { display: flex; align-items: center; gap: 6px; padding-right: 10px; margin-top: 8px; }
+    .sect .add { margin-left: auto; width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--faint); font-size: 14px; }
+    .sect .add:hover { background: var(--hover); color: var(--text); }
+    .sect .kb { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--faint); }
+    .linkrow { display: block; margin: 2px 8px 0; padding: 5px 8px; color: var(--faint); font-size: 12px; text-align: left; width: calc(100% - 16px); border-radius: 7px; }
+    .linkrow:hover { background: var(--hover); color: var(--text); }
+    .rail-top { padding: 2px 0 4px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+
+    /* Head identity strip */
+    .thead { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 52px; border-bottom: 1px solid var(--line); flex-shrink: 0; position: relative; }
+    .thead .id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .thead .name { font-weight: 600; color: var(--text); font-size: 14px; }
+    .thead .kind { display: block; font-size: 11px; color: var(--faint); margin-top: 1px; }
+    .thead .grow { flex: 1; }
+    .thead .stack { display: flex; }
+    .thead .stack .tm { margin-left: -5px; border: 2px solid var(--bg); box-sizing: content-box; }
+    .tabs { display: flex; gap: 2px; margin-left: 18px; align-self: stretch; }
+    .tabs button { padding: 0 10px; color: var(--faint); border-bottom: 2px solid transparent; font-size: 13px; }
+    .tabs button.is-on { color: var(--text); border-bottom-color: var(--text); }
+    .tabs .n { font-size: 11px; color: var(--faint); margin-left: 3px; }
+
+    .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pane .log { position: relative; }
+    .mention { color: var(--hermes); font-weight: 560; background: color-mix(in srgb, var(--hermes) 14%, transparent); border-radius: 4px; padding: 0 3px; }
+    .who .tm { width: 16px; height: 16px; font-size: 9px; }
+    .who b { color: var(--text); font-weight: 580; }
+    .posted { font-size: 11px; color: var(--faint); margin-top: 6px; text-align: right; }
+    .msg.u { display: flex; flex-direction: column; align-items: flex-end; }
+    .msg.u .bubble { max-width: 80%; }
+
+    /* DM context horizon */
+    .outside { opacity: 0.55; }
+    .horizon { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; position: relative; }
+    .horizon::before, .horizon::after { content: ""; flex: 1; height: 0; border-top: 1px dashed var(--line-strong); }
+    .horizon .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--panel); }
+    .horizon .pill button { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+    .earlier { text-align: center; color: var(--faint); font-size: 12px; }
+    .earlier button { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+
+    /* Composer chips */
+    .ctx-chip { position: relative; }
+    .ctx-menu { bottom: calc(100% + 6px); left: 0; display: none; }
+    .ctx-chip.open .ctx-menu { display: block; }
+    .composer { position: relative; }
+
+    /* Lists: All chats + Mentions */
+    .listwrap { flex: 1; overflow: auto; padding: 20px 36px 40px; }
+    .listcol { max-width: 760px; margin: 0 auto; }
+    .search { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); outline: none; }
+    .filters { display: flex; gap: 6px; margin: 12px 0 16px; flex-wrap: wrap; align-items: center; }
+    .fchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .fchip .tm { width: 14px; height: 14px; font-size: 8px; }
+    .fchip.is-on { background: var(--hover); color: var(--text); border-color: var(--line-strong); }
+    .fsep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+    .grp { margin-bottom: 18px; }
+    .grp h4 { margin: 0 0 6px; font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+    .jump { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border-radius: 9px; text-align: left; }
+    .jump:hover { background: var(--hover); }
+    .jump .tt { flex: 1; min-width: 0; }
+    .jump .tt b { display: block; font-weight: 520; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .jump .tt span { display: block; color: var(--faint); font-size: 12px; margin-top: 1px; }
+    .jump .when { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .jump.hide { display: none; }
+
+    .card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin-bottom: 12px; }
+    .card .top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--faint); margin-bottom: 8px; }
+    .card .top b { color: var(--muted); font-weight: 560; font-family: var(--font-mono); }
+    .card .top .st { margin-left: auto; font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+    .card .top .st.wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+    .card .top .st.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+    .card .you { font-size: 14px; line-height: 1.5; padding-left: 10px; border-left: 2px solid var(--line-strong); }
+    .card .reply { display: flex; gap: 8px; margin-top: 10px; }
+    .card .reply .prose { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card .foot { display: flex; gap: 6px; margin-top: 10px; }
+    .card.hide { display: none; }
+    .intro { color: var(--faint); font-size: 13px; margin: 0 0 14px; max-width: 66ch; }
+
+    .note.at-r { right: -24px; top: 6px; }
+  </style>
+</head>
+<body data-state="hermes">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-hermes" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0.8l1.7 5.5L15.2 8l-5.5 1.7L8 15.2l-1.7-5.5L0.8 8l5.5-1.7z"/></symbol>
+      <symbol id="i-list" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.6" cy="4" r=".6" fill="currentColor"/><circle cx="2.6" cy="8" r=".6" fill="currentColor"/><circle cx="2.6" cy="12" r=".6" fill="currentColor"/></symbol>
+      <symbol id="i-at" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 8v1.2a1.9 1.9 0 0 0 3.8 0V8A6.4 6.4 0 1 0 11.6 13.4"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></symbol>
+      <symbol id="i-box" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 5L8 2.5 13.5 5v6L8 13.5 2.5 11z"/><path d="M2.5 5L8 7.5 13.5 5M8 7.5v6"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="study-bar">
+    <a class="brand" href="index.html">Chat types</a>
+    <nav>
+      <a href="index.html">Board</a>
+      <a class="is-current" href="01-chat-types.html">Mock</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+    <label><input type="checkbox" id="theme" /> Light</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp">
+          <button data-state-go="hermes">Hermes chat</button>
+          <button data-state-go="all">All chats</button>
+          <button data-state-go="channel">#research</button>
+          <button data-state-go="dm">DM · Ana</button>
+          <button data-state-go="dm-ch">Ana · In channels</button>
+          <button data-state-go="mentions">Mentions</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <div class="icon-rail">
+        <div class="mark"></div>
+        <button class="icon-btn is-on" title="Chat"><svg width="16" height="16"><use href="#i-chat"/></svg></button>
+        <button class="icon-btn" title="Apps"><svg width="16" height="16"><use href="#i-box"/></svg></button>
+        <button class="icon-btn end" title="Settings"><svg width="16" height="16"><use href="#i-gear"/></svg></button>
+      </div>
+
+      <!-- LEFT RAIL ========================================================= -->
+      <aside class="left">
+        <button class="proj-trigger">
+          <span class="glyph">B</span>
+          <span class="proj-copy"><span class="name">boundary-desktop</span><span class="path">~/code/…</span></span>
+        </button>
+
+        <div class="nav">
+          <div class="rail-top">
+            <button class="row" data-state-go="all" data-filter="all">
+              <svg class="ico"><use href="#i-list"/></svg><span class="t">All chats</span>
+              <span class="note" style="right:6px" data-tip="Was “Recent”. Hermes’s full history: every Hermes chat, channel, DM and side chat, typed by shape. Search lives here.">1</span>
+            </button>
+            <button class="row" data-state-go="mentions">
+              <svg class="ico"><use href="#i-at"/></svg><span class="t">Mentions</span><span class="count">1</span>
+              <span class="note" style="right:32px" data-tip="Your @s to agents across channels, with their replies. Count = replies you haven’t seen. Never counts posts.">2</span>
+            </button>
+          </div>
+
+          <div class="sect">
+            <span class="tm hermes" style="width:14px;height:14px;border-radius:4px"><svg style="width:8px;height:8px"><use href="#i-hermes"/></svg></span>
+            Hermes <span class="kb">⌘N</span>
+            <button class="add" title="New Hermes chat (⌘N)">+</button>
+          </div>
+          <button class="row" data-state-go="hermes">
+            <span class="tm hermes"><svg><use href="#i-hermes"/></svg></span><span class="t">Plan the channels refactor</span>
+            <span class="note" style="right:-2px" data-tip="Hermes is a place, not a DM. Many discrete chats, newest first. Last 5 inline, the rest in All chats.">3</span>
+          </button>
+          <button class="row" data-state-go="hermes"><span class="tm hermes"><svg><use href="#i-hermes"/></svg></span><span class="t">Why is Podman slow on first run?</span></button>
+          <button class="row" data-state-go="hermes"><span class="tm hermes"><svg><use href="#i-hermes"/></svg></span><span class="t">Grocery list</span><span class="src">Telegram</span></button>
+          <button class="linkrow" data-state-go="all" data-filter="hermes">All Hermes chats…</button>
+
+          <div class="sect">
+            <span class="tm chan" style="width:14px;height:14px;font-size:9px;border-radius:4px">#</span>
+            Channels
+            <button class="add" title="New channel">+</button>
+          </div>
+          <button class="row" data-state-go="channel"><span class="tm chan">#</span><span class="t mono">research</span></button>
+          <button class="row" data-state-go="channel"><span class="tm chan">#</span><span class="t mono">launch</span></button>
+          <button class="row" data-state-go="channel"><span class="tm chan">#</span><span class="t mono">general</span></button>
+
+          <div class="sect">
+            <span class="tm dm" style="width:14px;height:14px;background:var(--faint)"></span>
+            Direct messages
+            <button class="add" title="Message an agent…">+</button>
+          </div>
+          <button class="row" data-state-go="dm" id="row-ana">
+            <span class="tm dm" style="background:var(--ana)">A</span>
+            <span class="dmcopy"><span class="t" style="display:block">Ana</span><span class="sub">Researcher</span></span>
+            <span class="note" style="right:-2px" data-tip="One row per agent, one ongoing thread per row. + picks an agent to message; it never forks a new thread.">4</span>
+          </button>
+          <button class="row" data-state-go="dm">
+            <span class="tm dm" style="background:var(--ben)">B</span>
+            <span class="dmcopy"><span class="t" style="display:block">Ben</span><span class="sub">Editor</span></span>
+          </button>
+          <button class="row" data-state-go="dm">
+            <span class="tm dm" style="background:var(--cass)">C</span>
+            <span class="dmcopy"><span class="t" style="display:block">Cass</span><span class="sub">Ops</span></span>
+          </button>
+          <button class="linkrow">All agents…</button>
+        </div>
+      </aside>
+
+      <!-- CENTER ============================================================ -->
+      <main class="center">
+
+        <!-- Hermes chat -->
+        <section class="pane" data-show="hermes">
+          <div class="thead">
+            <div class="id">
+              <span class="tm lg hermes"><svg><use href="#i-hermes"/></svg></span>
+              <div><span class="name">Plan the channels refactor</span><span class="kind">Hermes chat · started today 9:12</span></div>
+            </div>
+            <span class="grow"></span>
+            <button class="btn">New chat <span class="kbd" style="margin-left:6px">⌘N</span></button>
+            <span class="note" style="right:130px;top:16px" data-tip="Every header answers “where am I”: type mark + type word. Hermes chats are titled; the type word says Hermes chat.">5</span>
+          </div>
+          <div class="log"><div class="col">
+            <div class="msg u"><div class="bubble">What files would change if channels got threads?</div></div>
+            <div class="msg">
+              <div class="who"><span class="tm hermes"><svg style="width:9px;height:9px"><use href="#i-hermes"/></svg></span><b>Hermes</b></div>
+              <div class="prose"><p>Three places. The channel overlay in <code>hermesChannels.ts</code> would need a parent id per post. The Workbench thread would need a reply rail. And the mention index would have to look inside replies.</p><p>I’d keep threads out until mentions ship. The Mentions view already gives you a focused list of each exchange.</p></div>
+            </div>
+          </div></div>
+          <div class="composer"><div class="col">
+            <textarea placeholder="Ask Hermes anything"></textarea>
+            <div class="cluster">
+              <button class="chip"><b>boundary-desktop</b></button>
+              <button class="chip">@</button>
+              <span class="hint">Hermes chat · ⌘N starts a new one</span>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- All chats -->
+        <section class="pane" data-show="all">
+          <div class="thead">
+            <div class="id">
+              <svg width="20" height="20" style="color:var(--muted)"><use href="#i-list"/></svg>
+              <div><span class="name">All chats</span><span class="kind">Everything you’ve said to Hermes and its agents</span></div>
+            </div>
+          </div>
+          <div class="listwrap"><div class="listcol">
+            <input class="search" placeholder="Search all chats" />
+            <div class="filters" id="type-filters">
+              <button class="fchip is-on" data-f="all">All</button>
+              <button class="fchip" data-f="hermes"><span class="tm hermes"><svg style="width:7px;height:7px"><use href="#i-hermes"/></svg></span>Hermes</button>
+              <button class="fchip" data-f="chan"><span class="tm chan">#</span>Channels</button>
+              <button class="fchip" data-f="dm"><span class="tm dm" style="background:var(--faint)"></span>DMs</button>
+              <button class="fchip" data-f="side"><span class="tm dm side" style="color:var(--faint)"></span>Side chats</button>
+              <span class="fsep"></span>
+              <button class="fchip">Any agent ▾</button>
+              <button class="fchip">Any source ▾</button>
+            </div>
+            <div class="grp">
+              <h4>Today</h4>
+              <button class="jump" data-t="dm" data-state-go="dm"><span class="tm lg dm" style="background:var(--ana)">A</span><span class="tt"><b>Ana</b><span>Direct message · ongoing</span></span><span class="when">11:05</span></button>
+              <button class="jump" data-t="chan" data-state-go="channel"><span class="tm lg chan">#</span><span class="tt"><b class="mono">research</b><span>Channel · Ana and Ben replied</span></span><span class="when">10:42</span></button>
+              <button class="jump" data-t="hermes" data-state-go="hermes"><span class="tm lg hermes"><svg><use href="#i-hermes"/></svg></span><span class="tt"><b>Plan the channels refactor</b><span>Hermes chat</span></span><span class="when">9:12</span></button>
+            </div>
+            <div class="grp">
+              <h4>Yesterday</h4>
+              <button class="jump" data-t="side"><span class="tm lg dm side" style="color:var(--ana)"></span><span class="tt"><b>Pricing sources · branch</b><span>Side chat with Ana · branched from your DM</span></span><span class="when">16:20</span></button>
+              <button class="jump" data-t="hermes"><span class="tm lg hermes"><svg><use href="#i-hermes"/></svg></span><span class="tt"><b>Grocery list</b><span>Hermes chat · from Telegram</span></span><span class="when">08:03</span></button>
+              <button class="jump" data-t="hermes"><span class="tm lg hermes"><svg><use href="#i-hermes"/></svg></span><span class="tt"><b>Why is Podman slow on first run?</b><span>Hermes chat</span></span><span class="when">07:41</span></button>
+            </div>
+            <div class="grp">
+              <h4>Last week</h4>
+              <button class="jump" data-t="side"><span class="tm lg dm side" style="color:var(--ben)"></span><span class="tt"><b>Untitled</b><span>Side chat with Ben · earlier session, before DMs became one thread</span></span><span class="when">Sep 24</span></button>
+              <button class="jump" data-t="chan"><span class="tm lg chan">#</span><span class="tt"><b class="mono">launch</b><span>Channel · 4 posts, no @</span></span><span class="when">Sep 23</span></button>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Channel -->
+        <section class="pane" data-show="channel">
+          <div class="thead">
+            <div class="id">
+              <span class="tm lg chan">#</span>
+              <div><span class="name mono">research</span><span class="kind">Channel · posts are for the room, @ asks someone now</span></div>
+            </div>
+            <span class="grow"></span>
+            <span class="stack"><span class="tm hermes"><svg style="width:9px;height:9px"><use href="#i-hermes"/></svg></span><span class="tm dm" style="background:var(--ana)">A</span><span class="tm dm" style="background:var(--ben)">B</span></span>
+            <button class="btn">Members</button>
+          </div>
+          <div class="log"><div class="col">
+            <div class="msg u"><div class="bubble">Dropping the competitor pricing sheet here for later.</div><div class="posted">Posted · nobody asked</div></div>
+            <div class="msg u"><div class="bubble"><span class="mention">@Ana</span> which of these three vendors publishes per-seat pricing?</div></div>
+            <div class="msg">
+              <div class="who"><span class="tm dm" style="background:var(--ana)">A</span><b>Ana</b> · Researcher</div>
+              <div class="prose"><p>Two of them do. Northwind lists per-seat tiers on its site; Tallis puts them in the docs FAQ. The third only quotes on request.</p></div>
+            </div>
+            <div class="msg">
+              <div class="who"><span class="tm dm" style="background:var(--ben)">B</span><b>Ben</b> · Editor <span style="color:var(--faint)">· woken by Ana</span></div>
+              <div class="prose"><p>I’ll fold those into the comparison table.</p></div>
+            </div>
+            <div class="msg u"><div class="bubble"><span class="mention">@Hermes</span> summarise where this room landed for the weekly notes.</div></div>
+            <div class="msg" style="position:relative">
+              <div class="who"><span class="tm hermes"><svg style="width:9px;height:9px"><use href="#i-hermes"/></svg></span><b>Hermes</b> · member</div>
+              <div class="prose"><p>Two vendors publish per-seat pricing; Ben is adding both to the comparison table.</p></div>
+              <span class="note" style="left:-26px;top:0" data-tip="Hermes is an ordinary member: same @-wake, same post rules, never the room's voice. New channel pre-checks it so a no-personality user can still @ someone.">8</span>
+            </div>
+          </div></div>
+          <div class="composer"><div class="col">
+            <textarea placeholder="Post to #research · @ to ask someone now"></textarea>
+            <div class="cluster"><button class="chip"><b>boundary-desktop</b></button><button class="chip">@</button><span class="hint">Channel</span></div>
+          </div></div>
+        </section>
+
+        <!-- DM (Messages + In channels share the head) -->
+        <section class="pane" data-show="dm dm-ch">
+          <div class="thead">
+            <div class="id">
+              <span class="tm lg dm" style="background:var(--ana)">A</span>
+              <div><span class="name">Ana</span><span class="kind">Direct message · one ongoing thread since Sep 22</span></div>
+            </div>
+            <div class="tabs">
+              <button data-state-go="dm">Messages</button>
+              <button data-state-go="dm-ch">In channels<span class="n">3</span></button>
+            </div>
+            <span class="note" style="left:340px;top:6px" data-tip="The per-agent @ screen lives on the agent, next to the DM. Same agent, two lenses: private thread and public exchanges.">6</span>
+            <span class="grow"></span>
+            <button class="btn">Agent</button>
+          </div>
+
+          <div class="log" data-show="dm"><div class="col">
+            <div class="earlier">Ongoing since Sep 22 · <button>Jump to date</button> · <button>Search this DM</button></div>
+            <div class="day">Sep 29</div>
+            <div class="msg u outside"><div class="bubble">Keep a running list of pricing sources you trust.</div></div>
+            <div class="msg outside">
+              <div class="who"><span class="tm dm" style="background:var(--ana)">A</span><b>Ana</b></div>
+              <div class="prose"><p>Started one. Vendor sites first, then analyst notes, then forums last.</p></div>
+            </div>
+            <div class="horizon">
+              <span class="pill">Ana’s next reply sees from here down · about 6k of 8k tokens · <button id="incl">Include earlier</button></span>
+              <span class="note" style="right:-24px" data-tip="Context horizon. Above the line stays readable but dimmed, so the cut is honest. The stack reports the first included row; desktop never estimates it. Move with the thread; never a modal.">7</span>
+            </div>
+            <div class="day">Today</div>
+            <div class="msg u"><div class="bubble">Can you check the list against what we found in #research?</div></div>
+            <div class="msg">
+              <div class="who"><span class="tm dm" style="background:var(--ana)">A</span><b>Ana</b></div>
+              <div class="prose"><p>Yes. Two of the sources in #research are already on the list. I’ve added Tallis’s docs FAQ as a fourth.</p></div>
+            </div>
+          </div></div>
+          <div class="composer" data-show="dm"><div class="col">
+            <textarea placeholder="Message Ana"></textarea>
+            <div class="cluster">
+              <button class="chip"><b>boundary-desktop</b></button>
+              <span class="ctx-chip" id="ctx">
+                <button class="chip"><b>Context: recent · 8k</b> ▾</button>
+                <div class="menu ctx-menu">
+                  <div class="kicker">Ana’s next reply sees</div>
+                  <button class="is-on">Recent, up to 8k tokens <small>Default. The budget is set by the stack.</small></button>
+                  <button>The whole thread, once <small>Slower. Resets after this reply.</small></button>
+                  <button>Pick messages… <small>Pin specific older messages for this reply.</small></button>
+                </div>
+              </span>
+              <span class="hint">Direct message · one thread</span>
+            </div>
+          </div></div>
+
+          <div class="listwrap" data-show="dm-ch"><div class="listcol">
+            <p class="intro">Everything you’ve <span class="mention">@Ana</span>’d in channels, newest first, with her reply. Open it in the room, or carry it into your DM.</p>
+            <div class="filters">
+              <button class="fchip is-on">All channels</button>
+              <button class="fchip"><span class="mono">#research</span></button>
+              <button class="fchip"><span class="mono">#launch</span></button>
+              <span class="fsep"></span>
+              <button class="fchip">Waiting on Ana</button>
+            </div>
+            <div class="card">
+              <div class="top"><b>#research</b> · Today 10:42 <span class="st ok">Replied</span></div>
+              <div class="you"><span class="mention">@Ana</span> which of these three vendors publishes per-seat pricing?</div>
+              <div class="reply"><span class="tm dm" style="background:var(--ana)">A</span><div class="prose">Two of them do. Northwind lists per-seat tiers on its site; Tallis puts them in the docs FAQ. The third only quotes on request.</div></div>
+              <div class="foot"><button class="btn" data-state-go="channel">Open in #research</button><button class="btn">Continue in DM</button></div>
+            </div>
+            <div class="card">
+              <div class="top"><b>#launch</b> · Yesterday 17:10 <span class="st wait">No reply yet</span></div>
+              <div class="you"><span class="mention">@Ana</span> can you find launch dates for the last two competitor releases?</div>
+              <div class="foot"><button class="btn">Open in #launch</button><button class="btn">Ask again</button></div>
+            </div>
+            <div class="card">
+              <div class="top"><b>#research</b> · Sep 27 <span class="st">Replied later</span></div>
+              <div class="you">Posted the analyst PDF — <span class="mention">@Ana</span> when you get to it, pull the market sizes.</div>
+              <div class="reply"><span class="tm dm" style="background:var(--ana)">A</span><div class="prose">Read it this morning. The report sizes the market at three tiers; I’ve put the numbers in a table in the channel.</div></div>
+              <div class="foot"><button class="btn">Open in #research</button><button class="btn">Continue in DM</button></div>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Mentions (all agents) -->
+        <section class="pane" data-show="mentions">
+          <div class="thead">
+            <div class="id">
+              <svg width="20" height="20" style="color:var(--muted)"><use href="#i-at"/></svg>
+              <div><span class="name">Mentions</span><span class="kind">Your @s in channels, and what came back</span></div>
+            </div>
+          </div>
+          <div class="listwrap"><div class="listcol">
+            <div class="filters" id="agent-filters">
+              <button class="fchip is-on" data-a="all">All agents</button>
+              <button class="fchip" data-a="hermes"><span class="tm hermes"><svg style="width:7px;height:7px"><use href="#i-hermes"/></svg></span>Hermes</button>
+              <button class="fchip" data-a="ana"><span class="tm dm" style="background:var(--ana)">A</span>Ana</button>
+              <button class="fchip" data-a="ben"><span class="tm dm" style="background:var(--ben)">B</span>Ben</button>
+              <button class="fchip" data-a="cass"><span class="tm dm" style="background:var(--cass)">C</span>Cass</button>
+              <span class="fsep"></span>
+              <button class="fchip">Unseen</button>
+              <button class="fchip">Waiting</button>
+            </div>
+            <div class="card" data-a="ben">
+              <div class="top"><span class="tm dm" style="background:var(--ben)">B</span>Ben in <b>#launch</b> · Today 11:30 <span class="st ok">New reply</span></div>
+              <div class="you"><span class="mention">@Ben</span> tighten the launch post to under 200 words.</div>
+              <div class="reply"><span class="tm dm" style="background:var(--ben)">B</span><div class="prose">Done — 184 words. I cut the second feature list and kept the pricing line.</div></div>
+              <div class="foot"><button class="btn">Open in #launch</button><button class="btn">Continue in DM with Ben</button></div>
+            </div>
+            <div class="card" data-a="hermes">
+              <div class="top"><span class="tm hermes"><svg style="width:9px;height:9px"><use href="#i-hermes"/></svg></span>Hermes in <b>#research</b> · Today 11:12 <span class="st ok">Replied</span></div>
+              <div class="you"><span class="mention">@Hermes</span> summarise where this room landed for the weekly notes.</div>
+              <div class="reply"><span class="tm hermes"><svg style="width:9px;height:9px"><use href="#i-hermes"/></svg></span><div class="prose">Two vendors publish per-seat pricing; Ben is adding both to the comparison table.</div></div>
+              <div class="foot"><button class="btn" data-state-go="channel">Open in #research</button><button class="btn">Continue in a Hermes chat</button></div>
+            </div>
+            <div class="card" data-a="ana">
+              <div class="top"><span class="tm dm" style="background:var(--ana)">A</span>Ana in <b>#research</b> · Today 10:42 <span class="st ok">Replied</span></div>
+              <div class="you"><span class="mention">@Ana</span> which of these three vendors publishes per-seat pricing?</div>
+              <div class="reply"><span class="tm dm" style="background:var(--ana)">A</span><div class="prose">Two of them do. Northwind lists per-seat tiers on its site; Tallis puts them in the docs FAQ.</div></div>
+              <div class="foot"><button class="btn" data-state-go="channel">Open in #research</button><button class="btn" data-state-go="dm-ch">All of Ana’s</button></div>
+            </div>
+            <div class="card" data-a="ana">
+              <div class="top"><span class="tm dm" style="background:var(--ana)">A</span>Ana in <b>#launch</b> · Yesterday 17:10 <span class="st wait">No reply yet</span></div>
+              <div class="you"><span class="mention">@Ana</span> can you find launch dates for the last two competitor releases?</div>
+              <div class="foot"><button class="btn">Open in #launch</button><button class="btn">Ask again</button></div>
+            </div>
+          </div></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="study.js"></script>
+  <script>
+    // Filters on All chats (by type) and Mentions (by agent); Ana's row stays lit on both DM tabs.
+    const setFilter = (group, attr, val, items) => {
+      document.querySelectorAll(`${group} .fchip[data-${attr}]`).forEach((b) => b.classList.toggle("is-on", b.dataset[attr] === val));
+      document.querySelectorAll(items).forEach((el) => el.classList.toggle("hide", val !== "all" && el.dataset[attr] !== val));
+    };
+    document.addEventListener("click", (e) => {
+      const f = e.target.closest("#type-filters .fchip[data-f]");
+      if (f) setFilter("#type-filters", "f", f.dataset.f, "[data-show='all'] .jump");
+      const a = e.target.closest("#agent-filters .fchip[data-a]");
+      if (a) setFilter("#agent-filters", "a", a.dataset.a, "[data-show='mentions'] .card");
+      const r = e.target.closest("[data-filter]");
+      if (r) {
+        document.querySelectorAll("[data-show='all'] .jump").forEach((el) => { el.dataset.f = el.dataset.t; });
+        setFilter("#type-filters", "f", r.dataset.filter, "[data-show='all'] .jump");
+      }
+      const c = e.target.closest("#ctx > .chip");
+      document.getElementById("ctx").classList.toggle("open", Boolean(c) && !document.getElementById("ctx").classList.contains("open"));
+      if (e.target.closest("#incl")) document.querySelectorAll(".outside").forEach((el) => el.classList.remove("outside"));
+    });
+    // Jump rows use data-t; mirror into data-f so the type filter can read it.
+    document.querySelectorAll("[data-show='all'] .jump").forEach((el) => { el.dataset.f = el.dataset.t; });
+    study.init({
+      render() {
+        const s = document.body.dataset.state;
+        requestAnimationFrame(() => {
+          document.getElementById("row-ana").classList.toggle("is-on", s === "dm" || s === "dm-ch");
+          document.querySelectorAll(".left .row[data-state-go='hermes']").forEach((b, i) => { if (i > 0) b.classList.remove("is-on"); });
+          document.querySelectorAll(".left .row[data-state-go='dm']:not(#row-ana), .left .row[data-state-go='channel']").forEach((b, i) => {
+            if (b.id !== "row-ana" && !(b.dataset.stateGo === "channel" && b.querySelector(".t").textContent === "research")) b.classList.remove("is-on");
+          });
+        });
+      },
+    });
+  </script>
+</body>
+</html>

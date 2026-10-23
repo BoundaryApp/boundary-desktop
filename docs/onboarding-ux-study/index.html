@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary onboarding study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;560;650&display=swap" />
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--surface-0); color: var(--text); font: var(--size-ui)/var(--leading-ui) var(--font-ui); -webkit-font-smoothing: antialiased; }
+    .page { max-width: 1120px; margin: 0 auto; padding: var(--space-8) var(--space-6) 80px; }
+    .kicker { color: var(--brand); font-size: var(--size-2xs); font-weight: var(--weight-strong); letter-spacing: 0.08em; text-transform: uppercase; }
+    h1 { margin: var(--space-2) 0; font-size: var(--size-heading); font-weight: var(--weight-medium); letter-spacing: -0.03em; }
+    .lede { color: var(--text-muted); max-width: 72ch; margin: 0 0 var(--space-6); }
+    h2 { margin: var(--space-10) 0 var(--space-2); font-size: var(--size-title); font-weight: var(--weight-medium); }
+    h2 + p { margin: 0 0 var(--space-4); color: var(--text-faint); max-width: 72ch; }
+    ol.flow { display: flex; gap: var(--space-2); padding: 0; margin: 0 0 var(--space-6); list-style: none; flex-wrap: wrap; color: var(--text-muted); font-size: var(--size-xs); }
+    ol.flow li { border: 1px solid var(--line); border-radius: var(--radius-full); padding: 2px 10px; }
+
+    /* Frame: a scaled workbench window */
+    .win { display: flex; height: 460px; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface-0); }
+    .rail { width: 48px; background: var(--surface-rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 0; }
+    .rail i { width: 16px; height: 16px; border-radius: 4px; background: var(--text-muted); opacity: 0.3; }
+    .rail i.mark { width: 22px; height: 22px; background: none; border: 1px solid var(--line); opacity: 1; border-radius: 6px; margin-bottom: 8px; }
+    .rail i.on { background: var(--brand); opacity: 0.6; }
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .head { height: 42px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: var(--size-xs); gap: 8px; color: var(--text-faint); }
+    .head .done { color: var(--text-muted); } .head .cur { color: var(--text); font-weight: var(--weight-medium); }
+    .head .n { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--line); border-radius: 50%; font-size: 10px; margin-right: 4px; }
+    .head .done .n { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+    .head .cur .n { color: var(--brand); border-color: var(--brand); }
+    .head .sep { width: 20px; height: 1px; background: var(--line); }
+    .body { flex: 1; overflow: hidden; padding: 28px 0; }
+    .col { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+    .col h3 { margin: 0; font-size: 18px; font-weight: var(--weight-medium); }
+    .col .sub { color: var(--text-muted); font-size: var(--size-xs); margin: 0 0 8px; }
+    .foot { border-top: 1px solid var(--line); padding: 10px 0; }
+    .foot .col { flex-direction: row; justify-content: space-between; align-items: center; }
+    .btn { font: inherit; font-size: var(--size-xs); font-weight: var(--weight-medium); height: 26px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid transparent; display: inline-flex; align-items: center; }
+    .btn.solid { background: var(--solid-bg); color: var(--solid-fg); }
+    .btn.brand { background: var(--brand); color: var(--solid-fg); }
+    .btn.outline { border-color: var(--line); color: var(--text); background: transparent; }
+    .btn.ghost { color: var(--text-muted); background: transparent; }
+    .checks { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+    .checks div { display: flex; justify-content: space-between; padding: 8px 12px; border-top: 1px solid var(--line); font-size: var(--size-xs); }
+    .checks div:first-child { border-top: 0; }
+    .checks b { font-weight: var(--weight-medium); } .checks b::before { content: "✓"; color: var(--ok); margin-right: 8px; }
+    .checks span { color: var(--text-faint); }
+    .callout { border-radius: var(--radius-md); padding: 7px 10px; font-size: var(--size-xs); border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); background: color-mix(in srgb, var(--brand-dim) 60%, transparent); }
+    .row { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+    .row.rec { border-color: color-mix(in srgb, var(--brand) 55%, transparent); }
+    .row .t { flex: 1; min-width: 0; } .row .t b { font-weight: var(--weight-medium); } .row .t p { margin: 2px 0 0; font-size: var(--size-2xs); color: var(--text-faint); }
+    .pill { font-size: 10px; padding: 1px 6px; border-radius: var(--radius-full); margin-left: 6px; border: 1px solid; }
+    .pill.b { color: var(--brand); background: var(--brand-dim); border-color: color-mix(in srgb, var(--brand) 40%, transparent); }
+    .pill.o { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .chev { color: var(--text-faint); }
+    .left { width: 200px; background: var(--surface-1); border-right: 1px solid var(--line); padding: 50px 16px; display: flex; flex-direction: column; gap: 12px; }
+    .left i { height: 8px; border-radius: 99px; background: var(--surface-hover); }
+    .thread { flex: 1; display: flex; flex-direction: column; }
+    .thread .th { height: 42px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; font-weight: var(--weight-medium); font-size: var(--size-xs); }
+    .thread .sp { flex: 1; }
+    .strip { margin: 0 auto 12px; width: 80%; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); padding: 10px 12px; font-size: var(--size-xs); color: var(--text-muted); display: flex; flex-direction: column; gap: 8px; }
+    .strip .stages { display: flex; gap: 12px; color: var(--text-faint); font-size: var(--size-2xs); flex-wrap: wrap; }
+    .strip .stages .d { color: var(--text-muted); } .strip .stages .d::before { content: "✓ "; color: var(--ok); }
+    .strip .stages .a { color: var(--brand); }
+    .composer { border-top: 1px solid var(--line); background: var(--surface-1); padding: 10px 14px; }
+    .composer div { border: 1px solid var(--line); border-radius: 10px; height: 44px; padding: 10px 12px; color: var(--text-faint); font-size: var(--size-xs); opacity: 0.6; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    .cap { font-size: var(--size-xs); color: var(--text-faint); margin-top: 6px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <span class="kicker">ADR 0019 · onboarding study</span>
+    <h1>Setup is the workbench, not ready yet</h1>
+    <p class="lede">First launch uses the same frame, type and tokens as the app it hands off to. The rail stays visible but inert, a stepper shows where you are, and starting the assistant looks like the workbench loading rather than a separate page.</p>
+    <ol class="flow"><li>1 · Machine</li><li>2 · Model</li><li>3 · Assistant</li><li>Workbench</li></ol>
+
+    <div class="grid">
+      <figure style="margin:0">
+        <div class="win">
+          <div class="rail"><i class="mark"></i><i></i><i></i><i></i></div>
+          <div class="main">
+            <div class="head"><span class="cur"><span class="n">1</span>Machine</span><span class="sep"></span><span><span class="n">2</span>Model</span><span class="sep"></span><span><span class="n">3</span>Assistant</span></div>
+            <div class="body"><div class="col">
+              <h3>Check this Mac</h3>
+              <p class="sub">Boundary runs its assistant on this machine. This checks memory, CPU, disk, and the container runtime.</p>
+              <div class="callout">Ollama detected. You can use it as your model on the next step.</div>
+              <div class="checks"><div><b>Container runtime</b><span>Running</span></div><div><b>System memory</b><span>32 GB / ≥ 16 GB</span></div><div><b>CPU cores</b><span>10 / ≥ 4</span></div><div><b>Free disk</b><span>212 GB / ≥ 30 GB</span></div></div>
+            </div></div>
+            <div class="foot"><div class="col"><span></span><span class="btn solid">Continue</span></div></div>
+          </div>
+        </div>
+        <figcaption class="cap">Step 1: checks as one list; implementation detail stays in the rows.</figcaption>
+      </figure>
+
+      <figure style="margin:0">
+        <div class="win">
+          <div class="rail"><i class="mark"></i><i></i><i></i><i></i></div>
+          <div class="main">
+            <div class="head"><span class="done"><span class="n">✓</span>Machine</span><span class="sep"></span><span class="cur"><span class="n">2</span>Model</span><span class="sep"></span><span><span class="n">3</span>Assistant</span></div>
+            <div class="body"><div class="col">
+              <h3>Choose a model</h3>
+              <p class="sub">Pick where replies come from. You can add or switch models later in Settings.</p>
+              <div class="row rec"><div class="t"><b>OpenRouter</b><span class="pill b">Recommended</span><p>Works in under a minute · many models · no GPU setup</p></div><span class="btn brand">Sign in</span></div>
+              <div class="row"><div class="t"><b>Ollama on this Mac</b><span class="pill o">Detected</span><p>llama3.1:8b loaded</p></div><span class="btn outline">Use Ollama</span></div>
+              <div class="row"><div class="t"><b>I already have a URL / API key</b><p>Any OpenAI-compatible endpoint</p></div><span class="chev">›</span></div>
+            </div></div>
+          </div>
+        </div>
+        <figcaption class="cap">Step 2: one list, recommended first, one brand button in the view.</figcaption>
+      </figure>
+    </div>
+
+    <h2>Starting the assistant</h2>
+    <p>Setup step 3 and every later launch. The real rails and composer render greyed out; progress sits above the composer; services open on demand. When the stack is ready the live workbench replaces it in the same frame.</p>
+    <figure style="margin:0">
+      <div class="win">
+        <div class="rail"><i class="mark"></i><i class="on"></i><i></i><i></i></div>
+        <div class="left"><i style="width:70%"></i><i style="width:40%;opacity:.6;margin-top:10px"></i><i style="width:80%"></i><i style="width:60%"></i><i style="width:74%"></i></div>
+        <div class="thread">
+          <div class="th">Starting your assistant</div>
+          <div class="sp"></div>
+          <div class="strip">
+            <div>◌ Starting containers (3 of 6)… <span style="float:right;color:var(--text-faint)">› Show services</span></div>
+            <div class="stages"><span class="d">Download stack</span><span class="d">Host setup</span><span class="d">Initialize Hermes</span><span class="a">Start containers</span><span>Health checks</span><span>Configure LLM</span><span>Ready</span></div>
+          </div>
+          <div class="composer"><div>You can chat as soon as your assistant is ready.</div></div>
+        </div>
+      </div>
+      <figcaption class="cap">WorkbenchSkeleton: no screen swap at ready, just the app coming alive.</figcaption>
+    </figure>
+  </div>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C · Share cards — Boundary resources UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --bucket-app: #8b87f8;
+      --bucket-stack: #5b8def;
+      --bucket-llm: #c4843a;
+      --bucket-rest: #3a3a42;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --bucket-app: #1c1b17;
+      --bucket-stack: #3b82f6;
+      --bucket-llm: #c4843a;
+      --bucket-rest: #d4d0c4;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .dest {
+      flex: 1;
+      flex-direction: column;
+      padding: 28px 40px 40px;
+      overflow: auto;
+      position: relative;
+    }
+
+    .dest h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      font-weight: 560;
+      letter-spacing: -0.03em;
+    }
+
+    .dest p.lead { color: var(--muted); margin: 0 0 22px; max-width: 52ch; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      max-width: 720px;
+    }
+
+    .tile {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: left;
+    }
+
+    .tile .name { font-weight: 580; margin-bottom: 2px; }
+    .tile .sub { color: var(--faint); font-size: 11px; margin-bottom: 14px; }
+
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .stat b { color: var(--text); font-weight: 560; }
+
+    .mini {
+      height: 4px;
+      border-radius: 2px;
+      background: var(--line);
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .mini i { display: block; height: 100%; }
+
+    .tile.app .mini i { background: var(--bucket-app); }
+    .tile.stack .mini i { background: var(--bucket-stack); }
+    .tile.llm .mini i { background: var(--bucket-llm); }
+    .tile.rest .mini i { background: var(--bucket-rest); }
+  </style>
+</head>
+<body data-screen="resources">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary resources</a>
+    <nav>
+      <a href="01-stacked.html">A Stacked</a>
+      <a href="02-quiet-meters.html">B Quiet meters</a>
+      <a class="is-current" href="03-share-cards.html">C Share cards</a>
+      <a href="04-compose-inventory.html">D Compose</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+    </div>
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn" title="Chat">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn is-on" title="Resources" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <section class="dest screen resources">
+        <h1>Resources</h1>
+        <p class="lead">One card per bucket. Keep as a foil — it reads as four products, not one machine.</p>
+        <span class="note" style="top: 28px; right: 40px" data-tip="Reject this direction. Equal cards flatten the share story A is meant to tell.">1</span>
+        <div class="grid">
+          <div class="tile app">
+            <div class="name">Boundary app</div>
+            <div class="sub">Electron main and renderers</div>
+            <div class="stat">CPU <b class="mono">4%</b></div>
+            <div class="mini"><i style="width: 4%"></i></div>
+            <div class="stat">Memory <b class="mono">0.8 GB</b></div>
+            <div class="mini"><i style="width: 2.5%"></i></div>
+            <div class="stat">Disk <b class="mono">2.1 GB</b></div>
+            <div class="mini"><i style="width: 4%"></i></div>
+          </div>
+          <div class="tile stack">
+            <div class="name">Assistant stack</div>
+            <div class="sub">boundary-assistant</div>
+            <div class="stat">CPU <b class="mono">11%</b></div>
+            <div class="mini"><i style="width: 11%"></i></div>
+            <div class="stat">Memory <b class="mono">4.2 GB</b></div>
+            <div class="mini"><i style="width: 13%"></i></div>
+            <div class="stat">Disk <b class="mono">18.4 GB</b></div>
+            <div class="mini"><i style="width: 18%"></i></div>
+          </div>
+          <div class="tile llm">
+            <div class="name">Local LLM</div>
+            <div class="sub">Ollama on :11434</div>
+            <div class="stat">CPU <b class="mono">37%</b></div>
+            <div class="mini"><i style="width: 37%"></i></div>
+            <div class="stat">Memory <b class="mono">8.6 GB</b></div>
+            <div class="mini"><i style="width: 27%"></i></div>
+            <div class="stat">Disk <b class="mono">42.0 GB</b></div>
+            <div class="mini"><i style="width: 42%"></i></div>
+          </div>
+          <div class="tile rest">
+            <div class="name">Rest of computer</div>
+            <div class="sub">Estimated</div>
+            <div class="stat">CPU <b class="mono">48%</b></div>
+            <div class="mini"><i style="width: 48%"></i></div>
+            <div class="stat">Memory <b class="mono">18.4 GB</b></div>
+            <div class="mini"><i style="width: 58%"></i></div>
+            <div class="stat">Disk <b class="mono">449.5 GB</b></div>
+            <div class="mini"><i style="width: 88%"></i></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-resources-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-resources-theme", themeBox.checked ? "light" : "dark");
+    });
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+  </script>
+</body>
+</html>

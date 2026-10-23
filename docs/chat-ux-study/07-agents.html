@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>G · Agents — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --solid-fg: #111;
+      --input: #161618;
+      --se: #6f8fa3;
+      --de: #8a7aa8;
+      --re: #6d9470;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --solid-fg: #fffcf6;
+      --input: #f3f1ea;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+    html.light .btn-solid { color: var(--solid-fg); background: var(--text); }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .phases { display: flex; gap: 6px; margin-left: auto; }
+    .phases button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .phases button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .stage {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .page {
+      flex: 1;
+      overflow: auto;
+      padding: 32px 40px 64px;
+    }
+
+    .kicker {
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 8px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 560;
+      letter-spacing: -0.03em;
+    }
+    .lede {
+      color: var(--muted);
+      max-width: 58ch;
+      line-height: 1.5;
+      margin: 0 0 24px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .btn-solid, .btn-ghost, .btn-tiny {
+      border-radius: 7px;
+      padding: 7px 12px;
+      text-align: left;
+    }
+    .btn-solid {
+      background: var(--text);
+      color: var(--solid-fg);
+      font-weight: 580;
+    }
+    .btn-ghost {
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: var(--hover); }
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .btn-tiny:hover { color: var(--text); background: var(--hover); }
+
+    .list { display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
+    .agent {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      text-align: left;
+      width: 100%;
+      color: var(--text);
+    }
+    .agent:hover { background: var(--hover); }
+    .glyph {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .agent-copy { min-width: 0; flex: 1; }
+    .agent-copy b { display: block; font-weight: 580; }
+    .agent-copy span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .agent-copy .handle { color: var(--faint); font-size: 11px; }
+    .agent-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .sheet {
+      max-width: 480px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      padding: 20px 22px 22px;
+    }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 6px;
+    }
+    .field input, .field textarea {
+      width: 100%;
+      background: var(--input);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 11px;
+      outline: none;
+    }
+    .field textarea { min-height: 88px; resize: none; line-height: 1.45; }
+    .help { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0 0 16px; }
+    .sheet-actions { display: flex; gap: 8px; align-items: center; }
+    .sheet-actions .ghost-link { color: var(--muted); font-size: 13px; }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 24px;
+      align-items: start;
+      max-width: 980px;
+    }
+    .log {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .msg .who { font-size: 12px; color: var(--faint); margin-bottom: 8px; font-weight: 500; }
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: var(--user);
+      border: 1px solid var(--line);
+      font-size: 15px;
+      line-height: 1.55;
+      max-width: 62ch;
+    }
+    .prose {
+      font-family: var(--font-prose);
+      font-size: 16px;
+      line-height: 1.65;
+      max-width: 62ch;
+    }
+    .draft {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      background: var(--panel);
+    }
+    .draft h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+    .draft .handle { color: var(--faint); font-size: 12px; margin-bottom: 10px; }
+    .draft p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .draft-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .only-roster, .only-create, .only-draft { display: none; }
+    body[data-view="roster"] .only-roster,
+    body[data-view="create"] .only-create,
+    body[data-view="draft"] .only-draft { display: block; }
+
+    .screen.chat { display: flex; flex: 1; min-height: 0; }
+  </style>
+</head>
+<body data-view="roster">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a class="is-current" href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary · exploration</span>
+      <div class="phases" aria-label="Agent flow">
+        <button class="is-on" data-view-go="roster">Roster</button>
+        <button data-view-go="create">Create</button>
+        <button data-view-go="draft">Draft from chat</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <a class="icon-btn is-on" href="06-channels.html" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </a>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <section class="screen chat">
+        <div class="stage">
+          <div class="page only-roster">
+            <div class="kicker">Inside Chat · not a fourth app destination</div>
+            <h1>Agents</h1>
+            <p class="lede">People you can DM or @ in a channel. Each has private memory and a role. They share the bound folder. Nothing here is a thread list — history lives in Recent on the chat rail.</p>
+            <div class="toolbar">
+              <button class="btn-solid" data-view-go="create">New agent</button>
+              <a class="btn-ghost" href="06-channels.html">Back to #launch-prep</a>
+            </div>
+            <div class="list">
+              <div class="agent">
+                <span class="glyph" style="background:#3a3a44">A</span>
+                <span class="agent-copy">
+                  <b>Assistant</b>
+                  <span>Default agent on this machine. Today’s single chat, named.</span>
+                  <span class="handle mono">built-in</span>
+                </span>
+                <span class="agent-actions">
+                  <a class="btn-tiny" href="06-channels.html">DM</a>
+                </span>
+              </div>
+              <div class="agent">
+                <span class="glyph" style="background:var(--de)">D</span>
+                <span class="agent-copy">
+                  <b>UI/UX Designer</b>
+                  <span>Own UX and visual design. Coordinate via project files and shared rooms.</span>
+                  <span class="handle mono">@UI/UX Designer</span>
+                </span>
+                <span class="agent-actions">
+                  <a class="btn-tiny" href="06-channels.html">DM</a>
+                  <button class="btn-tiny">Add to channel</button>
+                </span>
+              </div>
+              <div class="agent">
+                <span class="glyph" style="background:var(--se)">E</span>
+                <span class="agent-copy">
+                  <b>Software Engineer</b>
+                  <span>Implement features. Defer visual design to siblings.</span>
+                  <span class="handle mono">@Software Engineer</span>
+                </span>
+                <span class="agent-actions">
+                  <a class="btn-tiny" href="06-channels.html">DM</a>
+                  <button class="btn-tiny">Add to channel</button>
+                </span>
+              </div>
+              <div class="agent">
+                <span class="glyph" style="background:var(--re)">R</span>
+                <span class="agent-copy">
+                  <b>Researcher</b>
+                  <span>Company and role research from the bound folder. Keep claims sourced.</span>
+                  <span class="handle mono">@Researcher</span>
+                </span>
+                <span class="agent-actions">
+                  <a class="btn-tiny" href="06-channels.html">DM</a>
+                  <button class="btn-tiny">Add to channel</button>
+                </span>
+              </div>
+            </div>
+            <span class="note" style="top: 120px; left: 720px" data-tip="Roster is identity, not history. DM opens a 1:1. Add to channel is membership, the same rule as Buzz private rooms.">1</span>
+          </div>
+
+          <div class="page only-create">
+            <div class="kicker">Create · name + role</div>
+            <h1>New agent</h1>
+            <p class="lede">Display name is the @ handle. Role is standing instructions. Skip harness, model, and effort — those are not the product yet.</p>
+            <div class="sheet">
+              <div class="field">
+                <label for="display">Display name</label>
+                <input id="display" value="Staff Recruiter" />
+              </div>
+              <div class="field">
+                <label for="handle">Handle</label>
+                <input id="handle" class="mono" value="staff-recruiter" />
+              </div>
+              <div class="field">
+                <label for="role">Role</label>
+                <textarea id="role">Own outreach and interview prep. Defer portfolio visuals to Designer. Keep private notes out of shared rooms.</textarea>
+              </div>
+              <p class="help">This agent gets private memory. It can read the Job Search folder. In a channel it can read posts later; @ is how you ask it to reply now.</p>
+              <div class="sheet-actions">
+                <button class="btn-solid">Create agent</button>
+                <button class="btn-ghost" data-view-go="roster">Cancel</button>
+              </div>
+            </div>
+            <span class="note" style="top: 280px; left: 520px" data-tip="Maps onto make agent-create NAME DISPLAY_NAME ROLE. Recreate hermes is an implementation wait — chrome can say Starting…, not a fake percent.">2</span>
+          </div>
+
+          <div class="page only-draft">
+            <div class="kicker">Ask an agent you already have</div>
+            <h1>Draft from a DM</h1>
+            <p class="lede">Ask an agent you already have. It proposes a card. Nothing starts until you create.</p>
+            <div class="split">
+              <div class="log">
+                <div class="msg">
+                  <div class="who">You</div>
+                  <div class="bubble">Make me an agent that triages applications in this folder. Keep it out of design-review unless I add it.</div>
+                </div>
+                <div class="msg">
+                  <div class="who">UI/UX Designer</div>
+                  <div class="prose">Here is a draft. I would not give it my visual work. Confirm or edit before it exists.</div>
+                </div>
+              </div>
+              <div class="draft">
+                <div class="kicker">Proposed agent</div>
+                <h2>Staff Recruiter</h2>
+                <div class="handle mono">@Staff Recruiter · staff-recruiter</div>
+                <p>Own outreach and interview prep. Read applications/ and companies.md. Defer portfolio visuals to Designer. Do not post into #design-review unless added.</p>
+                <p>Private memory. Shared folder: Job Search. Not in any channel yet.</p>
+                <div class="draft-actions">
+                  <button class="btn-solid">Create agent</button>
+                  <button class="btn-ghost" data-view-go="create">Edit first</button>
+                  <button class="btn-tiny">Dismiss</button>
+                </div>
+              </div>
+            </div>
+            <span class="note" style="top: 200px; left: 64%" data-tip="Owner gate. The existing agent drafts; you save. Same create path as the form.">3</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const go = (view) => {
+      document.body.dataset.view = view;
+      document.querySelectorAll("[data-view-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.viewGo === view);
+      });
+    };
+    document.querySelectorAll("[data-view-go]").forEach((btn) => {
+      btn.addEventListener("click", () => go(btn.dataset.viewGo));
+    });
+  </script>
+</body>
+</html>

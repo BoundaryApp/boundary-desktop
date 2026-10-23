@@ -1,0 +1,52 @@
+model_name: Boundary Llama 3.3 70B Instruct
+
+model_metadata:
+  example_model_input:
+    model: meta-llama/Llama-3.3-70B-Instruct
+    messages:
+      - role: user
+        content: Hello
+    stream: true
+    max_tokens: 256
+    temperature: 0.7
+  tags:
+    - openai-compatible
+
+base_image:
+  image: vllm/vllm-openai:v0.21.0
+
+weights:
+  - source: hf://meta-llama/Llama-3.3-70B-Instruct@main
+    mount_location: /app/checkpoint/llama
+    auth_secret_name: hf_access_token
+
+docker_server:
+  start_command: >-
+    sh -c "GPU_COUNT=$(nvidia-smi --list-gpus | wc -l) && vllm serve /app/checkpoint/llama
+    --tensor-parallel-size $GPU_COUNT
+    --served-model-name meta-llama/Llama-3.3-70B-Instruct
+    --max-num-seqs 16
+    --max-model-len 8192
+    --gpu-memory-utilization 0.9
+    --trust-remote-code"
+  readiness_endpoint: /health
+  liveness_endpoint: /health
+  predict_endpoint: /v1/chat/completions
+  server_port: 8000
+
+environment_variables:
+  VLLM_LOGGING_LEVEL: INFO
+
+resources:
+  accelerator: H100:2
+  use_gpu: true
+
+secrets:
+  hf_access_token: null
+
+runtime:
+  predict_concurrency: 4
+  health_checks:
+    startup_threshold_seconds: 3000
+    restart_threshold_seconds: 300
+    stop_traffic_threshold_seconds: 120

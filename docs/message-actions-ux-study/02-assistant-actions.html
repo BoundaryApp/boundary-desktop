@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B · Reply actions — Boundary message-actions study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    .acts.under { position: absolute; top: 100%; left: -6px; right: 0; margin-top: 2px; gap: 4px; }
+    .acts.under .act { height: 24px; }
+    .acts.under .meta { margin-left: auto; color: var(--faint); font-size: 12px; }
+    .acts .anchor { position: relative; display: inline-flex; }
+    .act.is-open { background: var(--hover); color: var(--text); }
+
+    .menu.up { bottom: calc(100% + 6px); left: 0; }
+
+    /* Code block: copy is always visible, not hover-gated. */
+    .code {
+      border: 1px solid var(--line); border-radius: 10px; background: var(--rail);
+      margin: 14px 0; font-family: var(--font-mono); font-size: 13px; overflow: hidden;
+    }
+    .code-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 2px 4px 2px 12px; border-bottom: 1px solid var(--line); color: var(--faint);
+      font-family: var(--font-ui); font-size: 12px;
+    }
+    .code-head .act .lbl { display: inline; }
+    .code pre { margin: 0; padding: 12px 14px; color: var(--muted); white-space: pre-wrap; }
+
+    /* Tool card, as in WorkbenchThread's .wb-tool */
+    .tool {
+      display: flex; align-items: center; gap: 8px; margin: 12px 0; padding: 7px 6px 7px 10px;
+      border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 12px;
+      font-family: var(--font-ui);
+    }
+    .tool .dur { color: var(--faint); }
+    .tool .tacts { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity 120ms; }
+    .tool:hover .tacts, .tool.force-hover .tacts { opacity: 1; }
+    .tool .act .lbl { display: inline; }
+
+    /* Selection → quote */
+    .sel { background: color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 2px; }
+    .sel-pop {
+      position: absolute; z-index: 8; display: flex; gap: 2px; padding: 2px; border-radius: 9px;
+      border: 1px solid var(--line); background: var(--rail); box-shadow: var(--shadow);
+      font-family: var(--font-ui);
+    }
+    .sel-pop .act .lbl { display: inline; }
+
+    .quote-chip {
+      display: flex; gap: 10px; align-items: flex-start; margin-bottom: 6px; padding: 8px 8px 8px 12px;
+      border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px;
+      background: var(--panel); color: var(--muted); font-family: var(--font-prose); font-size: 14px;
+    }
+    .quote-chip span { flex: 1; }
+
+    .cursor {
+      display: inline-block; width: 7px; height: 15px; margin-left: 2px; vertical-align: -2px;
+      background: var(--muted); animation: blink 1s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .phase { color: var(--faint); font-size: 12px; font-family: var(--font-ui); margin-top: 10px; }
+    .stop { margin-left: auto; }
+
+    .msg .note { top: 0; }
+  </style>
+</head>
+<body data-state="rest">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="4.5" r="1.5"/><path d="M4.5 5v6M11.5 6v.5c0 2.5-7 1.5-7 4"/></symbol>
+      <symbol id="i-retry" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 2.5v3h-3"/></symbol>
+      <symbol id="i-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.5l3 3 3-3"/></symbol>
+      <symbol id="i-more" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></symbol>
+      <symbol id="i-quote" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v10M6.5 4.5h6.5M6.5 8h6.5M6.5 11.5h4"/></symbol>
+      <symbol id="i-save" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><path d="M8 7.5v4M6.3 9.8L8 11.5l1.7-1.7"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-text" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h7"/></symbol>
+      <symbol id="i-left" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></symbol>
+      <symbol id="i-right" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="study-bar">
+    <a class="brand" href="index.html">Message actions</a>
+    <nav>
+      <a href="01-user-actions.html">A Prompt actions</a>
+      <a class="is-current" href="02-assistant-actions.html">B Reply actions</a>
+      <a href="03-shortcuts.html">C Keyboard</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp" aria-label="State">
+          <button data-state-go="rest">Rest</button>
+          <button data-state-go="hover">Hover older</button>
+          <button data-state-go="retry">Retry menu</button>
+          <button data-state-go="regen">Regenerated</button>
+          <button data-state-go="more">More</button>
+          <button data-state-go="quote">Quote</button>
+          <button data-state-go="code">Code copied</button>
+          <button data-state-go="streaming">Streaming</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg></button>
+        <button class="icon-btn" title="Services"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg></button>
+        <button class="icon-btn" title="Resources"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg></button>
+        <button class="icon-btn end" title="Settings"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg></button>
+      </nav>
+
+      <aside class="left">
+        <button class="proj-trigger" type="button">
+          <span class="glyph">J</span>
+          <span class="proj-copy"><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+        </button>
+        <div class="sect">Chats</div>
+        <button class="row is-on">Draft outreach for Acme</button>
+        <button class="row">Portfolio order</button>
+        <button class="row">Name one primary color</button>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head"><span><strong>Assistant</strong> <span class="role">· Job Search</span></span></div>
+        <div class="log" role="log" aria-label="Transcript"><div class="col" id="log"></div></div>
+        <footer class="composer">
+          <div class="col">
+            <div class="quote-chip" data-show="quote">
+              <span>“Acme's recruiting platform is the product I want to build next.”</span>
+              <button class="act" aria-label="Remove quote"><svg><use href="#i-x"/></svg></button>
+            </div>
+            <textarea id="composer" placeholder="Reply to Assistant…"></textarea>
+            <div class="cluster">
+              <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+              <button class="chip is-on" type="button"><b>Local · qwen3:14b</b><span>from project default</span></button>
+              <button class="btn stop" type="button" data-show="streaming">Stop <span class="kbd">Esc</span></button>
+            </div>
+          </div>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <script src="study.js"></script>
+  <script>
+    const ico = (id) => `<svg><use href="#i-${id}"/></svg>`;
+    const note = (n, style, tip) => `<span class="note" style="${style}" data-tip="${tip}">${n}</span>`;
+
+    const OLD = {
+      time: "2:09 PM", full: "Tuesday, 29 September 2026 at 2:09:58 PM",
+      html: `<p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes and applications into one working set.</p>`,
+    };
+
+    const LAST_V1 = (sel) => `
+      <p>I've spent eight years designing tools that help hiring teams make better calls — most recently a job-search system that turns a folder of resumes, notes and applications into one working set. ${sel ? `<span class="sel" id="sel">Acme's recruiting platform is the product I want to build next.</span>` : "Acme's recruiting platform is the product I want to build next."}</p>`;
+    const LAST_V2 = `
+      <p>Hiring tools are where I do my best work. Most recently I designed a job-search system that turns a folder of resumes, notes and applications into one working set, and I'd like to bring that research-first habit to Acme.</p>`;
+
+    const TOOL = (hover) => `
+      <div class="tool${hover ? " force-hover" : ""}">
+        <span>Wrote file · <span class="mono">cover-letter-acme.md</span></span><span class="dur">0.4s</span>
+        <span class="tacts">
+          <button class="act" data-tt="Show in Finder">${ico("folder")}<span class="lbl">Reveal</span></button>
+          <button class="act" data-act="copy-path" data-tt="Copy path">${ico("copy")}<span class="lbl">Path</span></button>
+        </span>
+      </div>`;
+
+    const CODE = (copied) => `
+      <p>To send it as a PDF:</p>
+      <div class="code">
+        <div class="code-head"><span>bash</span>
+          <button class="act ${copied ? "is-done" : ""}" data-act="copy-code" data-tt="Copy code  ⌘⇧;">${ico(copied ? "check" : "copy")}<span class="lbl">${copied ? "Copied" : "Copy"}</span></button>
+        </div>
+        <pre>pandoc cover-letter-acme.md -o cover-letter-acme.pdf</pre>
+      </div>`;
+
+    function userMsg(text, time, full) {
+      return `<div class="msg u rb">
+        <div class="bubble">${text}</div>
+        <div class="acts under"><span class="acts reveal">
+          <span class="stamp" title="${full}">${time}</span>
+          <button class="act" data-act="copy" data-tt="Copy">${ico("copy")}<span class="lbl">Copied</span></button>
+          <button class="act" data-tt="Edit">${ico("edit")}</button>
+          <button class="act" data-tt="Branch to new chat">${ico("branch")}</button>
+        </span></div>
+      </div>`;
+    }
+
+    function replyActs(o) {
+      const retryMenu = o.retryOpen ? `
+        <div class="menu up">
+          <div class="kicker">Retry this reply</div>
+          <button class="is-on">${ico("retry")}<span>Retry<small>Local · qwen3:14b · this machine</small></span><kbd>⌘⇧R</kbd></button>
+          <button>${ico("retry")}<span>Retry with OpenRouter · sonnet-4<small>about $0.01 · leaves this machine</small></span></button>
+          <hr />
+          <button>${ico("retry")}<span>Retry as another agent…<small>@Recruiter, @Editor</small></span></button>
+        </div>` : "";
+      const moreMenu = o.moreOpen ? `
+        <div class="menu up">
+          <button>${ico("text")}<span>Copy as plain text</span></button>
+          <button>${ico("quote")}<span>Quote in reply<small>or select text to quote part of it</small></span></button>
+          <button>${ico("save")}<span>Save to Job Search…<small>writes a .md file into the project folder</small></span></button>
+        </div>` : "";
+      const versions = o.versions ? `
+        <span class="versions" aria-label="Version 2 of 2">
+          <button class="act" aria-label="Previous version" data-state-go="rest">${ico("left")}</button> 2 / 2
+          <button class="act" aria-label="Next version">${ico("right")}</button>
+        </span>` : "";
+      return `
+        <div class="acts under">
+          ${versions}
+          <span class="acts ${o.pinned ? "" : "reveal"}">
+            <button class="act" data-act="copy" data-tt="Copy  ⌘⇧C">${ico("copy")}<span class="lbl">Copied</span></button>
+            <span class="anchor">
+              <button class="act" data-tt="Retry  ⌘⇧R">${ico("retry")}</button>
+              <button class="act caret ${o.retryOpen ? "is-open" : ""}" data-state-go="${o.retryOpen ? "rest" : "retry"}" aria-label="Retry options">${ico("caret")}</button>
+              ${retryMenu}
+            </span>
+            <button class="act" data-tt="Branch to new chat">${ico("branch")}</button>
+            <span class="anchor">
+              <button class="act ${o.moreOpen ? "is-open" : ""}" data-state-go="${o.moreOpen ? "rest" : "more"}" aria-label="More">${ico("more")}</button>
+              ${moreMenu}
+            </span>
+          </span>
+          <span class="meta reveal" title="${o.full}">${o.model} · ${o.time}</span>
+        </div>`;
+    }
+
+    function render() {
+      const s = document.body.dataset.state;
+      const log = document.getElementById("log");
+
+      const older = `<div class="msg a${s === "hover" ? " force-hover" : ""}">
+        <div class="who">Assistant</div>
+        <div class="prose">${OLD.html}</div>
+        ${replyActs({ model: "qwen3:14b", time: OLD.time, full: OLD.full })}
+        ${note(1, "left:-28px;top:calc(100% + 4px)", "Older replies: verbs on hover only, same row and order as the prompt row in A. Model and time sit at the far end, on hover.")}
+      </div>`;
+
+      let last;
+      if (s === "streaming") {
+        last = `<div class="msg a">
+          <div class="who">Assistant</div>
+          <div class="prose"><p>I've spent eight years designing tools that help hiring teams make better calls — most recently a job-search<span class="cursor"></span></p></div>
+          <div class="phase">Writing · 64 tok · 35/s</div>
+          ${note(2, "left:-28px;top:calc(100% - 18px)", "No action row while a reply streams. Copying half a reply invites mistakes. Stop lives in the composer (Esc).")}
+        </div>`;
+      } else {
+        const body = s === "regen" ? LAST_V2 : LAST_V1(s === "quote");
+        last = `<div class="msg a" id="last">
+          <div class="who">Assistant</div>
+          <div class="prose">${body}${TOOL(s === "hover")}${CODE(s === "code")}</div>
+          ${replyActs({
+            pinned: true,
+            model: "qwen3:14b",
+            time: s === "regen" ? "2:15 PM" : "2:14 PM",
+            full: "Tuesday, 29 September 2026 at 2:14:31 PM",
+            retryOpen: s === "retry",
+            moreOpen: s === "more",
+            versions: s === "regen",
+          })}
+          ${note(2, "left:-28px;top:calc(100% + 4px)", "Latest reply: the row stays visible, because Copy and Retry are the two most common next moves. It drops to hover-only once a newer message lands.")}
+          ${s === "retry" ? note(3, "left:180px;top:calc(100% - 150px)", "Retry keeps the chat's provider by default. The other provider is one row down, with cost and a leaves-this-machine line, and is disabled in a privacy-locked project (inference study, 0017).") : ""}
+          ${s === "more" ? note(3, "left:220px;top:calc(100% - 120px)", "Overflow holds the rarer verbs. Save to project folder is the Boundary-specific one: the reply becomes a file in the bound folder.") : ""}
+          ${s === "code" ? note(3, "right:-28px;top:calc(100% - 150px)", "Code blocks carry their own Copy, always visible, not hover-gated. It is the single most-used copy target in assistant chat.") : ""}
+          ${s === "hover" ? note(3, "right:-28px;top:calc(100% - 200px)", "Tool cards get Reveal and Copy path on hover. Files the agent wrote are one click from Finder.") : ""}
+        </div>`;
+      }
+
+      log.innerHTML = `
+        <div class="day">Today</div>
+        ${userMsg("Look through this folder and draft a one-paragraph summary of my resume for a product design role.", "2:09 PM", "Tuesday, 29 September 2026 at 2:09:41 PM")}
+        ${older}
+        ${userMsg("Now tighten that into a cover-letter opener for Acme, save it next to the resume, and tell me how to send it as a PDF.", "2:14 PM", "Tuesday, 29 September 2026 at 2:14:08 PM")}
+        ${last}`;
+
+      if (s === "quote") {
+        const sel = document.getElementById("sel");
+        const lastEl = document.getElementById("last");
+        const r = sel.getBoundingClientRect();
+        const lr = lastEl.getBoundingClientRect();
+        lastEl.insertAdjacentHTML("beforeend", `
+          <div class="sel-pop" style="left:${r.left - lr.left + 20}px;top:${r.top - lr.top - 40}px">
+            <button class="act" data-tt="Quote  ⌘⇧'">${ico("quote")}<span class="lbl">Quote</span></button>
+            <button class="act">${ico("copy")}<span class="lbl">Copy</span></button>
+          </div>
+          ${note(4, `left:${r.left - lr.left + 180}px;top:${r.top - lr.top - 36}px`, "Selecting reply text offers Quote. The quote lands above the composer as a removable block and is sent as a markdown blockquote.")}`);
+      }
+
+      const scroller = log.parentElement;
+      scroller.scrollTop = s === "hover"
+        ? log.querySelector(".force-hover").offsetTop - 60
+        : scroller.scrollHeight;
+    }
+
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".act[data-act]");
+      if (!btn) return;
+      const msg = btn.closest(".msg");
+      const text = btn.dataset.act === "copy-code"
+        ? btn.closest(".code").querySelector("pre").textContent
+        : btn.dataset.act === "copy-path"
+          ? "~/Documents/Job Search/cover-letter-acme.md"
+          : (msg.querySelector(".bubble, .prose")?.innerText ?? "");
+      try { await navigator.clipboard.writeText(text); } catch { /* clipboard may be blocked */ }
+      const use = btn.querySelector("use");
+      const lbl = btn.querySelector(".lbl");
+      const prev = lbl?.textContent;
+      btn.classList.add("is-done");
+      use.setAttribute("href", "#i-check");
+      if (lbl && btn.dataset.act !== "copy") lbl.textContent = "Copied";
+      setTimeout(() => {
+        btn.classList.remove("is-done");
+        use.setAttribute("href", "#i-copy");
+        if (lbl && btn.dataset.act !== "copy") lbl.textContent = prev;
+      }, 1400);
+    });
+
+    study.init({ render });
+  </script>
+</body>
+</html>

@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C · Project default — Boundary inference UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f5f5f7;
+      --muted: #c4c4cc;
+      --faint: #9e9ea8;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #e0b36a;
+      --bad: #f0b4b4;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --solid-fg: #111;
+      --de: #8a7aa8;
+      --se: #6f8fa3;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #5c594f;
+      --faint: #7a766c;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --bad: #8a3a3a;
+      --deny-line: #d4b4b4;
+      --deny-hover: #f3e8e4;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+      --solid-fg: #fffcf6;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .proj-picker { margin: 10px 8px 6px; }
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: 100%;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+      position: relative;
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+      background: #c4a574;
+      position: relative;
+    }
+
+    .glyph.notes { background: #6f8fa3; }
+
+    .pin {
+      position: absolute;
+      right: -3px;
+      bottom: -3px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--panel);
+    }
+
+    .pin.local { background: var(--ok); }
+    .pin.cloud { background: var(--accent); }
+
+    .proj-copy { min-width: 0; flex: 1; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .proj-trigger .chev { margin-left: auto; color: var(--faint); font-size: 11px; }
+
+    .proj-menu {
+      margin: 4px 8px 0;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--rail);
+    }
+
+    .proj-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 7px 8px;
+      border-radius: 8px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .proj-menu-item:hover,
+    .proj-menu-item.is-on { background: var(--hover); }
+
+    .sect {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 6px 4px 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .row:hover, .row.is-on { background: var(--hover); color: var(--text); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+    .thread-head .role { color: var(--faint); font-weight: 400; }
+
+    .log { flex: 1; overflow: auto; padding: 20px 24px; }
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+
+    .bubble {
+      background: var(--user);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 64ch;
+      margin-bottom: 16px;
+    }
+
+    .prose {
+      font-family: var(--font-prose);
+      max-width: 64ch;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 52px;
+      resize: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { display: block; color: var(--faint); font-size: 10px; }
+
+    .create {
+      max-width: 420px;
+      margin: 36px auto;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .create h2 {
+      margin: 0 0 4px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .create .lead {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .field { margin-bottom: 12px; }
+    .field label {
+      display: block;
+      font-size: 11px;
+      color: var(--faint);
+      margin-bottom: 5px;
+    }
+
+    .field .box {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+    }
+
+    .choice {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      text-align: left;
+      color: var(--text);
+    }
+
+    .choice:hover { background: var(--hover); }
+    .choice.is-on { background: var(--accent-dim); }
+    .choice .radio {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1.5px solid var(--faint);
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .choice.is-on .radio {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 3px var(--accent);
+    }
+
+    .choice b { display: block; font-weight: 550; }
+    .choice span { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    .btn {
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .btn:hover { background: var(--hover); }
+    .btn.solid {
+      background: var(--text);
+      color: var(--solid-fg);
+      border-color: var(--text);
+    }
+
+    .right {
+      width: 304px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 2px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 11px 10px 10px;
+      color: var(--faint);
+      font-size: 13px;
+      font-weight: 550;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab.is-on {
+      color: var(--text);
+      border-bottom-color: var(--text);
+    }
+
+    .pane {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 0 24px;
+    }
+
+    .ident {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 0 14px 12px;
+    }
+
+    .ident .who-name { display: block; font-weight: 600; letter-spacing: -0.02em; }
+    .ident .who-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .hed {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 14px 14px 6px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .opt-list { padding: 0 8px; }
+    .opt-list button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    .opt-list button:hover,
+    .opt-list button.is-on { background: var(--hover); }
+    .opt-list small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    .lock {
+      margin: 10px 14px 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg);
+    }
+
+    .lock.is-on {
+      border-color: color-mix(in srgb, var(--ok) 40%, var(--line));
+    }
+
+    .lock b { display: block; font-weight: 580; }
+    .lock span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+    .resolve {
+      margin: 10px 14px 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg);
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .resolve ol {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--text);
+    }
+
+    .resolve li[aria-current="true"] { font-weight: 600; }
+    .resolve .win { color: var(--ok); margin-top: 8px; }
+
+    .src {
+      margin: 2px 8px;
+      padding: 9px 10px;
+      border-radius: 9px;
+    }
+
+    .src .id { display: block; font-weight: 580; }
+    .src .path { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    body:not([data-state="inherit"]) [data-state="inherit"],
+    body:not([data-state="local"]) [data-state="local"],
+    body:not([data-state="openrouter"]) [data-state="openrouter"],
+    body:not([data-state="privacy"]) [data-state="privacy"],
+    body:not([data-state="create"]) [data-state="create"] {
+      display: none;
+    }
+  </style>
+</head>
+<body data-state="local">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary inference</a>
+    <nav>
+      <a href="01-settings.html">A Settings</a>
+      <a href="02-chat-switch.html">B Chat switch</a>
+      <a class="is-current" href="03-project-default.html">C Project default</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Project default states">
+        <button data-state-go="inherit">Inherit</button>
+        <button class="is-on" data-state-go="local">Local</button>
+        <button data-state-go="openrouter">OpenRouter</button>
+        <button data-state-go="privacy">Privacy</button>
+        <button data-state-go="create">New project</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" title="Resources">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <aside class="left">
+        <div class="proj-picker">
+          <button class="proj-trigger" type="button" title="Current project" data-state="inherit">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-state="local">
+            <span class="glyph">J<span class="pin local" title="Local default"></span></span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-state="privacy">
+            <span class="glyph">J<span class="pin local" title="Local only"></span></span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-state="openrouter">
+            <span class="glyph notes">N<span class="pin cloud" title="OpenRouter default"></span></span>
+            <span class="proj-copy">
+              <span class="name">Notes</span>
+              <span class="path mono">~/Documents/Boundary Notes</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-state="create">
+            <span class="glyph" style="background:#7a7a84">+</span>
+            <span class="proj-copy">
+              <span class="name">New project</span>
+              <span class="path">Choose a folder</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+        </div>
+
+        <div class="proj-menu" data-state="local">
+          <button class="proj-menu-item is-on" type="button">
+            <span class="glyph">J<span class="pin local"></span></span>
+            <span class="proj-copy"><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+          </button>
+          <button class="proj-menu-item" type="button">
+            <span class="glyph notes">N<span class="pin cloud"></span></span>
+            <span class="proj-copy"><span class="name">Notes</span><span class="path mono">~/Documents/Boundary Notes</span></span>
+          </button>
+        </div>
+        <div class="proj-menu" data-state="openrouter">
+          <button class="proj-menu-item" type="button">
+            <span class="glyph">J<span class="pin local"></span></span>
+            <span class="proj-copy"><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+          </button>
+          <button class="proj-menu-item is-on" type="button">
+            <span class="glyph notes">N<span class="pin cloud"></span></span>
+            <span class="proj-copy"><span class="name">Notes</span><span class="path mono">~/Documents/Boundary Notes</span></span>
+          </button>
+        </div>
+        <span class="note" style="top: 18px; left: 220px" data-tip="A pin appears only when the project differs from the app default. Inherit stays quiet.">1</span>
+
+        <div class="sect"><span>Chats</span></div>
+        <button class="row is-on" data-state="inherit">Draft outreach for Acme</button>
+        <button class="row is-on" data-state="local">Draft outreach for Acme</button>
+        <button class="row is-on" data-state="privacy">Draft outreach for Acme</button>
+        <button class="row is-on" data-state="openrouter">Weekly note sweep</button>
+        <button class="row" data-state="create">Nothing here yet</button>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head" data-state="inherit">
+          <span><strong>Assistant</strong> <span class="role">· Job Search</span></span>
+        </div>
+        <div class="thread-head" data-state="local">
+          <span><strong>Assistant</strong> <span class="role">· Job Search</span></span>
+        </div>
+        <div class="thread-head" data-state="privacy">
+          <span><strong>Assistant</strong> <span class="role">· Job Search · local only</span></span>
+        </div>
+        <div class="thread-head" data-state="openrouter">
+          <span><strong>Assistant</strong> <span class="role">· Notes</span></span>
+        </div>
+        <div class="thread-head" data-state="create">
+          <span><strong>New project</strong> <span class="role">· Bind a folder</span></span>
+        </div>
+
+        <div class="log" role="log" data-state="inherit">
+          <div class="who">You</div>
+          <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume.</div>
+          <div class="who">Assistant</div>
+          <div class="prose"><p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools.</p></div>
+        </div>
+        <div class="log" role="log" data-state="local">
+          <div class="who">You</div>
+          <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume.</div>
+          <div class="who">Assistant</div>
+          <div class="prose"><p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools.</p></div>
+        </div>
+        <div class="log" role="log" data-state="privacy">
+          <div class="who">You</div>
+          <div class="bubble">Keep this folder on the machine. Do not send it to a cloud model.</div>
+          <div class="who">Assistant</div>
+          <div class="prose"><p>Understood. This project is locked to Local. Cloud overrides stay off until you lift the lock.</p></div>
+        </div>
+        <div class="log" role="log" data-state="openrouter">
+          <div class="who">You</div>
+          <div class="bubble">Sweep this week’s notes and pull out decisions I still owe.</div>
+          <div class="who">Assistant</div>
+          <div class="prose"><p>Three open decisions: the inspector tab order, the compose inventory empty state, and whether GPU belongs on Resources.</p></div>
+        </div>
+
+        <div class="create" data-state="create">
+          <h2>New project</h2>
+          <p class="lead">Folder first. Inference defaults to inherit. Do not force a model on create.</p>
+          <div class="field">
+            <label>Folder</label>
+            <div class="box mono">~/Documents/Launch Prep</div>
+          </div>
+          <div class="field">
+            <label>Inference</label>
+            <button class="choice is-on" type="button">
+              <span class="radio" aria-hidden="true"></span>
+              <span><b>Inherit app default</b><span>Local · qwen3:14b · change later on the Project tab</span></span>
+            </button>
+            <button class="choice" type="button">
+              <span class="radio" aria-hidden="true"></span>
+              <span><b>Local · qwen3:14b</b><span>Pin this project to the machine</span></span>
+            </button>
+            <button class="choice" type="button">
+              <span class="radio" aria-hidden="true"></span>
+              <span><b>OpenRouter · anthropic/claude-sonnet-4</b><span>Pin this project to cloud</span></span>
+            </button>
+          </div>
+          <button class="btn solid" type="button">Create project</button>
+          <span class="note" style="top: 12px; right: 12px; left: auto" data-tip="Create stays folder-first (0005). Inference is an optional row, not a second wizard.">2</span>
+        </div>
+
+        <footer class="composer" data-state="inherit">
+          <textarea placeholder="Continue with the app default…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button"><b>Local · qwen3:14b</b><span>from app default</span></button>
+            <button class="chip">@</button>
+          </div>
+        </footer>
+        <footer class="composer" data-state="local">
+          <textarea placeholder="Ask about this folder…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button"><b>Local · qwen3:14b</b><span>from project default</span></button>
+            <button class="chip">@</button>
+          </div>
+        </footer>
+        <footer class="composer" data-state="privacy">
+          <textarea placeholder="Ask about this folder…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button"><b>Local · qwen3:14b</b><span>local only · cloud locked</span></button>
+            <button class="chip">@</button>
+          </div>
+        </footer>
+        <footer class="composer" data-state="openrouter">
+          <textarea placeholder="Ask about this folder…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button"><b>Notes</b><span class="mono">~/Documents/Boundary Notes</span></button>
+            <button class="chip" type="button"><b>OpenRouter · sonnet-4</b><span>from project default</span></button>
+            <button class="chip">@</button>
+            <span>~$0.04 this send</span>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <nav class="tabs" aria-label="Inspector">
+          <button class="tab">Agent</button>
+          <button class="tab is-on">Project</button>
+        </nav>
+
+        <div class="pane" data-state="create">
+          <div class="ident">
+            <span class="glyph" style="background:#7a7a84">+</span>
+            <span>
+              <span class="who-name">New project</span>
+              <span class="who-meta">No folder bound yet</span>
+            </span>
+          </div>
+          <p class="resolve">The Project tab stays empty until a folder is bound. Inference is collected on create, then edited here.</p>
+        </div>
+
+        <div class="pane" data-state="inherit">
+          <div class="ident">
+            <span class="glyph">J</span>
+            <span>
+              <span class="who-name">Job Search</span>
+              <span class="who-meta mono">~/Documents/Job Search</span>
+            </span>
+          </div>
+          <div class="hed">Inference</div>
+          <div class="opt-list">
+            <button class="is-on" type="button">Inherit app default<small>Local · qwen3:14b</small></button>
+            <button type="button">Local · qwen3:14b<small>pin this project</small></button>
+            <button type="button">OpenRouter · anthropic/claude-sonnet-4<small>pin this project</small></button>
+          </div>
+          <div class="lock">
+            <b>Privacy: local only</b>
+            <span>Off. Cloud overrides stay available on chats in this project.</span>
+          </div>
+          <div class="resolve">
+            How this chat resolves
+            <ol>
+              <li>Chat override — none</li>
+              <li>Project default — inherit</li>
+              <li aria-current="true">App default — Local · qwen3:14b</li>
+            </ol>
+            <div class="win">Sends as Local · qwen3:14b</div>
+          </div>
+        </div>
+
+        <div class="pane" data-state="local">
+          <div class="ident">
+            <span class="glyph">J<span class="pin local"></span></span>
+            <span>
+              <span class="who-name">Job Search</span>
+              <span class="who-meta mono">~/Documents/Job Search</span>
+            </span>
+          </div>
+          <div class="hed">Inference</div>
+          <div class="opt-list">
+            <button type="button">Inherit app default<small>Local · qwen3:14b</small></button>
+            <button class="is-on" type="button">Local · qwen3:14b<small>pinned for this project</small></button>
+            <button type="button">OpenRouter · anthropic/claude-sonnet-4<small>pin this project</small></button>
+          </div>
+          <div class="lock">
+            <b>Privacy: local only</b>
+            <span>Off. A chat can still override to OpenRouter after a confirm.</span>
+          </div>
+          <div class="resolve">
+            How this chat resolves
+            <ol>
+              <li>Chat override — none</li>
+              <li aria-current="true">Project default — Local · qwen3:14b</li>
+              <li>App default — Local · qwen3:14b</li>
+            </ol>
+            <div class="win">Sends as Local · qwen3:14b</div>
+          </div>
+          <div class="hed">Sources</div>
+          <div class="src">
+            <span class="id">Job Search</span>
+            <span class="path mono">~/Documents/Job Search</span>
+          </div>
+        </div>
+
+        <div class="pane" data-state="openrouter">
+          <div class="ident">
+            <span class="glyph notes">N<span class="pin cloud"></span></span>
+            <span>
+              <span class="who-name">Notes</span>
+              <span class="who-meta mono">~/Documents/Boundary Notes</span>
+            </span>
+          </div>
+          <div class="hed">Inference</div>
+          <div class="opt-list">
+            <button type="button">Inherit app default<small>Local · qwen3:14b</small></button>
+            <button type="button">Local · qwen3:14b<small>pin this project</small></button>
+            <button class="is-on" type="button">OpenRouter · anthropic/claude-sonnet-4<small>pinned for this project</small></button>
+          </div>
+          <div class="lock">
+            <b>Privacy: local only</b>
+            <span>Off. This project chose cloud as its default.</span>
+          </div>
+          <div class="resolve">
+            How this chat resolves
+            <ol>
+              <li>Chat override — none</li>
+              <li aria-current="true">Project default — OpenRouter · anthropic/claude-sonnet-4</li>
+              <li>App default — Local · qwen3:14b</li>
+            </ol>
+            <div class="win">Sends as OpenRouter · anthropic/claude-sonnet-4</div>
+          </div>
+          <span class="note" style="top: 86px; left: 8px" data-tip="Resolution is shown, not implied. The first present value wins. App default is last.">3</span>
+        </div>
+
+        <div class="pane" data-state="privacy">
+          <div class="ident">
+            <span class="glyph">J<span class="pin local"></span></span>
+            <span>
+              <span class="who-name">Job Search</span>
+              <span class="who-meta mono">~/Documents/Job Search</span>
+            </span>
+          </div>
+          <div class="hed">Inference</div>
+          <div class="opt-list">
+            <button type="button">Inherit app default<small>unavailable while locked</small></button>
+            <button class="is-on" type="button">Local · qwen3:14b<small>pinned · required by lock</small></button>
+            <button type="button" style="opacity:.45">OpenRouter · anthropic/claude-sonnet-4<small>disabled on this project</small></button>
+          </div>
+          <div class="lock is-on">
+            <b>Privacy: local only</b>
+            <span>On. Cloud overrides are off for every chat in this project.</span>
+          </div>
+          <div class="resolve">
+            How this chat resolves
+            <ol>
+              <li>Chat override — blocked</li>
+              <li aria-current="true">Project default — Local · qwen3:14b</li>
+              <li>App default — ignored while locked</li>
+            </ol>
+            <div class="win">Sends as Local · qwen3:14b · cloud locked</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const apply = (state) => {
+      document.body.dataset.state = state;
+      document.querySelectorAll(".states [data-state-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.stateGo === state);
+      });
+    };
+
+    if (params.get("state")) apply(params.get("state"));
+
+    document.querySelectorAll("[data-state-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply(btn.dataset.stateGo));
+    });
+  </script>
+</body>
+</html>

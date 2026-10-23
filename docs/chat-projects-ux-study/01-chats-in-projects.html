@@ -1,0 +1,933 @@
+<title>Chats in Projects</title>
+<meta name="description" content="Boundary study: chats belong to a project, the picker navigates, and Move is the one way to re-file a chat." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+<style>
+/* Layout: study chrome (rules, scenario bar) above one Workbench window; notes for the current state below it.
+   Tokens are Boundary's own (src/renderer/styles/tokens.css): dark first, Quiet Hub paper for light. */
+:root {
+  color-scheme: dark;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-prose: "IBM Plex Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --page: #09090b;
+  --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+  --hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+  --text: #f5f5f7; --muted: #c4c4cc; --faint: #9e9ea8;
+  --brand: #8b87f8; --brand-dim: #26244a;
+  --solid-bg: #f5f5f7; --solid-fg: #111;
+  --ok: #86c089; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+  --gen: #5b8def;
+  --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.35); --shadow-over: 0 18px 48px rgb(0 0 0 / 0.45);
+  --scrim: rgb(0 0 0 / 0.45);
+  --on-glyph: #fff;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --page: #e9e6dc;
+    --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+    --hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+    --text: #1c1b17; --muted: #6d6a60; --faint: #8a8679;
+    --brand: #5b56d6; --brand-dim: #e6e4fb;
+    --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+    --ok: #3f7d44; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+    --gen: #3b6fd8;
+    --shadow-pop: 0 12px 32px rgb(40 32 16 / 0.12); --shadow-over: 0 18px 48px rgb(40 32 16 / 0.16);
+    --scrim: rgb(40 32 16 / 0.18);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #e9e6dc;
+  --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+  --hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+  --text: #1c1b17; --muted: #6d6a60; --faint: #8a8679;
+  --brand: #5b56d6; --brand-dim: #e6e4fb;
+  --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+  --ok: #3f7d44; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+  --gen: #3b6fd8;
+  --shadow-pop: 0 12px 32px rgb(40 32 16 / 0.12); --shadow-over: 0 18px 48px rgb(40 32 16 / 0.16);
+  --scrim: rgb(40 32 16 / 0.18);
+}
+
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--text); font: 13px/1.45 var(--font-ui); margin: 0; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+
+/* ---------- Study chrome ---------- */
+.study { max-width: 1320px; margin: 0 auto; padding: 28px 20px 48px; display: grid; gap: 20px; }
+.study h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 72ch; margin: 6px 0 0; font-size: 14px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.rule { border: 1px solid var(--line); background: var(--surface-1); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.rule b { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.rule p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bar .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin-right: 6px; }
+.sc { border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--muted); background: var(--surface-1); transition: border-color 120ms var(--ease), color 120ms var(--ease); }
+.sc:hover { border-color: var(--line-strong); color: var(--text); }
+.sc.is-on { border-color: var(--brand); color: var(--text); background: var(--brand-dim); }
+.sc .n { font-family: var(--font-mono); color: var(--faint); margin-right: 5px; font-size: 11px; }
+.bar .grow { flex: 1; }
+.stage { overflow-x: auto; border-radius: 14px; }
+.notes { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 860px) { .notes { grid-template-columns: 1fr; } }
+.card { border: 1px solid var(--line); background: var(--surface-1); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+.card h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); font-weight: 500; margin: 0 0 8px; }
+.card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--muted); }
+.card li b { color: var(--text); font-weight: 600; }
+.card + .card { margin-top: 0; }
+.stack { display: grid; gap: 20px; align-content: start; }
+
+/* ---------- Window ---------- */
+.win { width: 1260px; height: 780px; display: grid; grid-template-columns: 48px 248px minmax(0, 1fr) 296px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; position: relative; }
+.icorail { background: var(--surface-rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 6px; }
+.icorail .logo { width: 26px; height: 26px; border-radius: 8px; background: var(--text); color: var(--surface-0); display: grid; place-items: center; font-weight: 650; font-size: 13px; margin-bottom: 10px; }
+.icorail .ic { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--faint); }
+.icorail .ic.is-on { background: var(--brand-dim); color: var(--brand); }
+.icorail .ic svg { width: 18px; height: 18px; }
+.icorail .sp { flex: 1; }
+
+/* Left rail */
+.rail { background: var(--surface-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; position: relative; }
+.picker { margin: 10px 8px 6px; padding: 8px; border-radius: 12px; display: flex; align-items: center; gap: 10px; border: 1px solid transparent; width: calc(100% - 16px); }
+.picker:hover, .picker.is-open { background: var(--hover); border-color: var(--line); }
+.picker .pt { flex: 1; min-width: 0; }
+.picker .pk { display: block; font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.picker .pn { display: block; font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker .pp { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chev { color: var(--faint); width: 14px; height: 14px; flex-shrink: 0; }
+.glyph { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--on-glyph); font-weight: 650; font-size: 13px; flex-shrink: 0; }
+.glyph.sm { width: 16px; height: 16px; border-radius: 5px; font-size: 9.5px; }
+.glyph.xs { width: 14px; height: 14px; border-radius: 4px; font-size: 8.5px; }
+.glyph.none { background: transparent; border: 1.5px dashed var(--line-strong); color: var(--faint); }
+.nav { flex: 1; overflow: auto; padding: 2px 0 12px; }
+.row { display: flex; align-items: center; gap: 8px; margin: 1px 8px; padding: 5px 8px; border-radius: 8px; width: calc(100% - 16px); color: var(--muted); min-height: 30px; transition: background 120ms var(--ease); }
+.row:hover { background: var(--hover); color: var(--text); }
+.row.is-on { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .hint { font-size: 11px; color: var(--faint); }
+.row svg.ico { width: 16px; height: 16px; color: var(--faint); flex-shrink: 0; }
+.row .src { font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.row .sub { display: block; font-size: 11px; color: var(--faint); }
+.sect { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 16px; margin: 14px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.sect .scope { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--faint); }
+.sect .kb { margin-left: auto; font-family: var(--font-mono); font-size: 10px; text-transform: none; letter-spacing: 0; }
+.sect .add { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 15px; color: var(--faint); }
+.sect .add:hover { background: var(--hover); color: var(--text); }
+.sect .kb + .add { margin-left: 4px; }
+.sect > .add:first-of-type:not(.kb + .add) { margin-left: auto; }
+.linkrow { display: block; margin: 2px 8px 0; padding: 4px 8px; color: var(--faint); font-size: 12px; border-radius: 7px; width: calc(100% - 16px); }
+.linkrow:hover { background: var(--hover); color: var(--text); }
+.divline { height: 1px; background: var(--line); margin: 6px 12px; }
+.emptyline { margin: 2px 16px; font-size: 12px; color: var(--faint); }
+
+/* Kind marks (ADR 0023) */
+.tm { width: 18px; height: 18px; flex-shrink: 0; display: grid; place-items: center; font-size: 10px; font-weight: 650; color: var(--on-glyph); }
+.tm.lg { width: 24px; height: 24px; font-size: 12px; }
+.tm.hermes { border-radius: 6px; background: var(--brand); }
+.tm.hermes svg { width: 11px; height: 11px; }
+.tm.lg.hermes svg { width: 14px; height: 14px; }
+.tm.chan { border-radius: 5px; border: 1.5px solid var(--faint); color: var(--muted); font-family: var(--font-mono); font-weight: 500; }
+.tm.dm { border-radius: 50%; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gen); flex-shrink: 0; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+/* Center */
+.center { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+.head { height: 52px; flex-shrink: 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px; position: relative; }
+.head .id { min-width: 0; flex: 1; }
+.crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 14px; }
+.crumb { display: inline-flex; align-items: center; gap: 6px; padding: 1px 5px; margin-left: -5px; border-radius: 6px; color: var(--muted); white-space: nowrap; }
+.crumb:hover { background: var(--hover); color: var(--text); }
+.crumbs .sl { color: var(--faint); }
+.ttl { display: inline-flex; align-items: center; gap: 4px; padding: 1px 5px; border-radius: 6px; font-weight: 600; color: var(--text); min-width: 0; }
+.ttl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ttl:hover, .ttl.is-open { background: var(--hover); }
+.ttl.static:hover { background: none; cursor: default; }
+.kindline { display: block; font-size: 11px; color: var(--faint); margin-top: 1px; padding-left: 0; }
+.hbtn { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.hbtn:hover { border-color: var(--line-strong); color: var(--text); }
+.scroll { flex: 1; overflow: auto; min-height: 0; }
+.col { max-width: 720px; margin: 0 auto; padding: 24px 36px 12px; display: grid; gap: 18px; }
+
+.msg.u { display: flex; justify-content: flex-end; }
+.bubble { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 13px; max-width: 80%; color: var(--text); font-size: 13.5px; }
+.who { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); margin-bottom: 4px; }
+.who .tm { width: 16px; height: 16px; font-size: 9px; }
+.who .tm svg { width: 10px; height: 10px; }
+.who b { color: var(--text); font-weight: 600; }
+.prose { font-family: var(--font-prose); font-size: 16px; line-height: 1.68; color: var(--text); }
+.prose p { margin: 0 0 8px; }
+.prose code { font-size: 13px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.marker { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+.marker::before, .marker::after { content: ""; flex: 1; border-top: 1px dashed var(--line-strong); }
+.marker .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface-1); border-radius: 999px; padding: 3px 10px; color: var(--muted); max-width: 80%; }
+.marker .pill .mono { color: var(--faint); }
+.marker.day .pill { background: transparent; border: 0; }
+.marker.is-new .pill { border-color: var(--brand); }
+
+/* Composer */
+.composer-wrap { padding: 8px 36px 18px; flex-shrink: 0; }
+.composer { max-width: 720px; margin: 0 auto; border: 1px solid var(--line); background: var(--surface-1); border-radius: 12px; padding: 10px 10px 8px 14px; }
+.composer:focus-within { border-color: var(--line-strong); }
+.composer textarea { width: 100%; resize: none; border: 0; background: transparent; color: var(--text); font: 14px/1.5 var(--font-ui); min-height: 44px; outline: none; }
+.composer textarea::placeholder { color: var(--faint); }
+.cluster { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; position: relative; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.chip:hover { border-color: var(--line-strong); color: var(--text); }
+.chip b { color: var(--text); font-weight: 600; }
+.chip .mono { color: var(--faint); font-size: 11px; }
+.chip.is-fixed { border-style: solid; background: transparent; }
+.chip.is-fixed .lk { color: var(--faint); }
+.chip.ghost { border-color: transparent; color: var(--faint); }
+.cluster .grow { flex: 1; }
+.run { width: 30px; height: 30px; border-radius: 50%; background: var(--solid-bg); color: var(--solid-fg); display: grid; place-items: center; font-weight: 650; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); }
+.toggle i { width: 24px; height: 14px; border-radius: 999px; background: var(--brand); position: relative; display: inline-block; }
+.toggle i::after { content: ""; position: absolute; right: 2px; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--on-glyph); }
+
+/* Overview */
+.ov { max-width: 760px; margin: 0 auto; padding: 32px 36px 32px; display: grid; gap: 22px; }
+.ov-id { display: flex; align-items: center; gap: 14px; }
+.ov-id .glyph { width: 44px; height: 44px; border-radius: 12px; font-size: 19px; }
+.ov-id h2 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.ov-id .mono { color: var(--faint); font-size: 12px; }
+.ov .composer { margin: 0; max-width: none; }
+.ov h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); font-weight: 500; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+.ov h3 .n { font-family: var(--font-mono); }
+.list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-1); }
+.lrow { display: flex; align-items: center; gap: 10px; padding: 10px 14px; width: 100%; border-top: 1px solid var(--line); }
+.lrow:first-child { border-top: 0; }
+.lrow:hover { background: var(--hover); }
+.lrow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.lrow .when { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lrow .ex { color: var(--faint); font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { padding: 14px; color: var(--faint); font-size: 12.5px; }
+
+/* All chats */
+.all { max-width: 860px; margin: 0 auto; padding: 22px 32px 32px; display: grid; gap: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { flex: 1; min-width: 220px; border: 1px solid var(--line); background: var(--surface-1); border-radius: 8px; padding: 6px 10px; color: var(--faint); font-size: 12.5px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 5px 10px; font-size: 12px; color: var(--muted); border-left: 1px solid var(--line); }
+.seg button:first-child { border-left: 0; }
+.seg button.is-on { background: var(--surface-2); color: var(--text); }
+select.sel { border: 1px solid var(--line); background: var(--surface-1); color: var(--text); border-radius: 8px; padding: 5px 8px; font: 12px var(--font-ui); }
+.grp { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin: 8px 0 4px; }
+.arow { display: grid; grid-template-columns: 22px 18px minmax(0, 1fr) 170px 86px; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); cursor: pointer; }
+.arow:first-child { border-top: 0; }
+.arow:hover { background: var(--hover); }
+.arow.is-sel { background: var(--brand-dim); }
+.arow .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.arow .when { color: var(--faint); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.ptag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+.ptag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptag.none { color: var(--faint); }
+.cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; color: var(--on-glyph); font-size: 10px; opacity: 0.0; transition: opacity 120ms var(--ease); }
+.arow:hover .cb, .all.has-sel .cb { opacity: 1; }
+.arow.is-sel .cb { background: var(--brand); border-color: var(--brand); opacity: 1; }
+.bulk { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px; padding: 6px 6px 6px 14px; box-shadow: var(--shadow-pop); z-index: 5; }
+.btn { border-radius: 8px; padding: 6px 12px; font-size: 12.5px; font-weight: 560; border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+.btn:hover { border-color: var(--line-strong); }
+.btn.solid { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.btn.solid:hover { opacity: 0.9; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* Inspector */
+.insp { background: var(--surface-1); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.tabs { height: 52px; border-bottom: 1px solid var(--line); display: flex; align-items: stretch; gap: 2px; padding: 0 12px; flex-shrink: 0; }
+.tabs button { padding: 0 10px; color: var(--faint); border-bottom: 2px solid transparent; font-size: 13px; }
+.tabs button.is-on { color: var(--text); border-bottom-color: var(--text); }
+.ibody { padding: 16px; display: grid; gap: 18px; overflow: auto; align-content: start; }
+.ilab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin-bottom: 6px; display: flex; align-items: center; }
+.ilab .act { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--muted); }
+.ilab .act:hover { color: var(--text); }
+.pcard { display: flex; align-items: center; gap: 10px; }
+.pcard .pt { min-width: 0; }
+.pcard b { display: block; font-weight: 600; }
+.pcard .mono { color: var(--faint); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.irow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.irow + .irow { margin-top: 6px; }
+.irow .grow { flex: 1; min-width: 0; }
+.irow .s { display: block; font-size: 11px; color: var(--faint); }
+.pill { font-size: 10.5px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; color: var(--muted); white-space: nowrap; }
+.pill.ok { color: var(--ok); }
+.pill.cloud { color: var(--warn); border-color: var(--warn-line); }
+.ihelp { font-size: 12px; color: var(--faint); margin: 6px 0 0; }
+
+/* Popovers, sheet, toast */
+.pop { position: absolute; z-index: 20; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 6px; min-width: 260px; }
+.pop .ph { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px 4px; }
+.mi { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; width: 100%; color: var(--text); }
+.mi:hover { background: var(--hover); }
+.mi .ck { width: 14px; color: var(--brand); font-size: 12px; }
+.mi .grow { flex: 1; min-width: 0; }
+.mi .s { display: block; font-size: 11px; color: var(--faint); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi .ct { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.mi[disabled] { color: var(--faint); cursor: not-allowed; }
+.mi[disabled]:hover { background: none; }
+.mi .kb { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+.msep { height: 1px; background: var(--line); margin: 5px 4px; }
+.mnote { font-size: 11.5px; color: var(--warn); padding: 2px 8px 6px 32px; max-width: 280px; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 30; display: grid; place-items: center; }
+.sheet { width: 520px; max-width: calc(100% - 40px); background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-over); display: grid; }
+.sheet-h { padding: 18px 20px 6px; }
+.sheet-h .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.sheet-h h3 { font-size: 15px; font-weight: 600; margin: 4px 0 0; }
+.dest { padding: 8px 12px; display: grid; gap: 2px; max-height: 230px; overflow: auto; }
+.dest .mi.is-on { background: var(--brand-dim); }
+.dest .cur { font-size: 11px; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.effects { margin: 4px 20px 0; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.effects .h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.eff { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; font-size: 12.5px; color: var(--muted); }
+.eff svg { width: 14px; height: 14px; margin-top: 2px; color: var(--faint); }
+.eff b { color: var(--text); font-weight: 600; }
+.eff.warn { background: var(--warn-dim); border: 1px solid var(--warn-line); border-radius: 8px; padding: 8px 10px; color: var(--text); grid-template-columns: 16px minmax(0, 1fr); }
+.eff.warn svg { color: var(--warn); }
+.sheet-f { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 18px; }
+.toast { position: absolute; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--solid-bg); color: var(--solid-fg); border-radius: 10px; padding: 8px 8px 8px 14px; display: flex; align-items: center; gap: 12px; font-size: 12.5px; box-shadow: var(--shadow-pop); }
+.toast button { font-weight: 600; padding: 3px 8px; border-radius: 6px; }
+.toast button:hover { background: color-mix(in srgb, var(--solid-fg) 12%, transparent); }
+</style>
+
+<div class="study">
+  <header>
+    <h1>Chats belong to projects</h1>
+    <p class="lede">A study for Boundary's chat workbench. Today a chat has no project of its own and adopts whichever project is active, so switching projects silently rewires the chat you're in. This proposal gives every conversation a home and makes changing that home a deliberate act.</p>
+  </header>
+
+  <section class="rules" aria-label="The model">
+    <div class="rule"><b>A chat lives in one project, or in none</b><p>The project is set when the chat starts and stored on the chat. Its folder, sources and inference pin come from that project, every time.</p></div>
+    <div class="rule"><b>The picker navigates</b><p>Choosing a project in the rail takes you to that project. It never changes the chat you were in. Opening a chat from another project switches the rail to follow it.</p></div>
+    <div class="rule"><b>Move is the only way to re-file</b><p>Move to project… says what will change before it happens and leaves a line in the transcript. Undo is one click away.</p></div>
+    <div class="rule"><b>DMs stay global</b><p>A DM is one ongoing thread per agent, so it can't live in one project. It has its own folder setting, and every change to it is logged in the thread.</p></div>
+  </section>
+
+  <nav class="bar" aria-label="Scenarios">
+    <span class="lab">Start from</span>
+    <span id="scenarios" class="bar"></span>
+    <span class="grow"></span>
+    <button class="sc" id="themeBtn" type="button">Light</button>
+  </nav>
+
+  <div class="stage"><div class="win" id="win"></div></div>
+
+  <section class="notes">
+    <div class="card" id="noteCard"></div>
+    <div class="stack">
+      <div class="card">
+        <h3>How each kind of conversation behaves</h3>
+        <ul>
+          <li><b>Hermes chat</b> lives in a project or in none. Breadcrumb, movable.</li>
+          <li><b>Channel</b> lives in a project or in none. A room is a topic, and topics usually belong to a project. Movable.</li>
+          <li><b>Side chat</b> starts in its parent's project. It's movable like a Hermes chat. A DM's side chat starts in the DM's current folder.</li>
+          <li><b>Direct message</b> is global and always listed. It has a folder setting, logged when it changes.</li>
+          <li><b>Branch</b> and <b>Make channel</b> keep the source chat's project.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Open questions</h3>
+        <ul>
+          <li>Telegram, WebUI and API chats arrive outside the app. Do they land in <b>No project</b>, or in a project set in Settings → Sources?</li>
+          <li>Removing a project: do its chats go to <b>No project</b> (proposed) or get archived with it?</li>
+          <li>Should Mentions follow the rail's project, or stay global like All chats (proposed)?</li>
+          <li>Should the chat's own inference override survive a move? Proposed: yes. It belongs to the chat, and Move warns when the effective model changes.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const ICON = {
+    chat: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h7A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-3.5 3v-3A2.5 2.5 0 0 1 4 10.5z"/></svg>',
+    grid: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="5" height="5" rx="1"/><rect x="11.5" y="3.5" width="5" height="5" rx="1"/><rect x="3.5" y="11.5" width="5" height="5" rx="1"/><rect x="11.5" y="11.5" width="5" height="5" rx="1"/></svg>',
+    bars: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 16V9M10 16V4M15 16v-5"/></svg>',
+    gear: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>',
+    list: '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.7" cy="4" r=".7" fill="currentColor"/><circle cx="2.7" cy="8" r=".7" fill="currentColor"/><circle cx="2.7" cy="12" r=".7" fill="currentColor"/></svg>',
+    at: '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 8v1.1a1.9 1.9 0 0 0 3.8 0V8A6.4 6.4 0 1 0 11.6 13.3"/></svg>',
+    home: '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 7.2 8 2.8l5.5 4.4V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z"/><path d="M6.5 13.5v-3.5h3v3.5"/></svg>',
+    chev: '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>',
+    spark: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.2 9.5 6.5 14.8 8 9.5 9.5 8 14.8 6.5 9.5 1.2 8 6.5 6.5z"/></svg>',
+    folder: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.5 1.6h4.7A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>',
+    history: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.8v2.6h2.6M8 5v3.2l2 1.3"/></svg>',
+    chip: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2"/></svg>',
+    cloud: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 12.5a3 3 0 0 1-.3-6 4 4 0 0 1 7.7 1A2.5 2.5 0 0 1 11.5 12.5z"/></svg>',
+    book: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3.5A1.5 1.5 0 0 1 4.5 2H13v10H4.5A1.5 1.5 0 0 0 3 13.5zM3 13.5A1.5 1.5 0 0 0 4.5 15H13v-3"/></svg>',
+  };
+
+  const APP_DEFAULT = { label: 'OpenRouter · deepseek-v3.2', cloud: true };
+  const SEED = () => ({
+    projects: [
+      { id: 'boundary', name: 'Boundary', path: '~/code/boundary-desktop', color: '#6f8fa3', pin: { label: 'Local · qwen3-32b', cloud: false }, sources: ['This folder', '~/code/assistant (read-only)'] },
+      { id: 'site', name: 'Landing site', path: '~/code/landing-site', color: '#a17c45', pin: null, sources: ['This folder'] },
+      { id: 'taxes', name: 'Taxes 2026', path: '~/Documents/Taxes 2026', color: '#5f9a63', pin: { label: 'Local · qwen3-32b', cloud: false }, sources: ['This folder', '~/Downloads/1099s (read-only)'] },
+    ],
+    agents: [
+      { id: 'ana', name: 'Ana', role: 'Researcher', color: '#4f9d8f', folder: 'boundary' },
+      { id: 'ben', name: 'Ben', role: 'Editor', color: '#b07a5a', folder: null },
+    ],
+    chats: [
+      { id: 'c1', kind: 'hermes', project: 'boundary', title: 'Fix login timeout in onboarding', when: '3:04 PM', grp: 'Today', started: 'started today 3:04 PM', ex: 'Raise LOGIN_TIMEOUT_MS to 60s and retry once',
+        log: [
+          { r: 'u', t: 'The onboarding login times out after 30 seconds on slow networks. Can you find where that’s set?' },
+          { r: 'a', t: '<p>It’s in <code>src/main/services/auth/session.ts</code>, line 48: <code>LOGIN_TIMEOUT_MS = 30_000</code>. The onboarding step calls it without a retry, so one slow handshake fails the whole step.</p><p>I’d raise it to 60 seconds and add one retry with backoff. Want me to draft the change?</p>' },
+          { r: 'u', t: 'Yes, draft it. Keep the retry quiet in the UI.' },
+          { r: 'a', t: '<p>Drafted in <code>session.ts</code> and <code>OnboardingLogin.tsx</code>. The retry shows nothing unless the second attempt also fails, and then the existing “Couldn’t reach the server” callout appears.</p>' },
+        ] },
+      { id: 'c2', kind: 'hermes', project: 'boundary', title: 'Credential prompt copy', when: '11:20 AM', grp: 'Today', started: 'started today 11:20 AM', busy: true, ex: 'Reading CredentialPrompt.tsx',
+        log: [
+          { r: 'u', t: 'Review every string in the credential prompt against the project's writing rules and propose fixes.' },
+          { r: 'w', t: 'Reading <code>src/renderer/product/credentials/CredentialPrompt.tsx</code>…' },
+        ] },
+      { id: 'c3', kind: 'hermes', project: 'boundary', title: 'Draft release notes for 0.9', when: 'Yesterday', grp: 'Yesterday', started: 'started yesterday 4:40 PM', ex: 'Grouped 31 commits into five headings' },
+      { id: 'c4', kind: 'hermes', project: 'site', title: 'Hero section rewrite', when: '9:12 AM', grp: 'Today', started: 'started today 9:12 AM', ex: 'Three headline options under 8 words' },
+      { id: 'c5', kind: 'hermes', project: 'site', title: 'Compare static hosts', when: 'Mon', grp: 'Earlier this week', started: 'started Monday', ex: 'Cloudflare Pages vs Netlify for a 40-page site' },
+      { id: 'c6', kind: 'hermes', project: 'taxes', title: 'Sort 1099s by payer', when: 'Tue', grp: 'Earlier this week', started: 'started Tuesday', ex: '11 forms, 2 duplicates flagged' },
+      { id: 'c7', kind: 'hermes', project: null, title: 'Plan my week', when: '8:02 AM', grp: 'Today', started: 'started today 8:02 AM', ex: 'Three focus blocks, Thursday kept clear' },
+      { id: 'c8', kind: 'hermes', project: null, title: 'Saturday dinner ideas', when: 'Yesterday', grp: 'Yesterday', started: 'started yesterday from Telegram', src: 'Telegram', ex: 'Something with the leftover squash' },
+      { id: 'h1', kind: 'channel', project: 'boundary', title: 'release', when: '1:15 PM', grp: 'Today', started: 'Channel · posts are for the room, @ asks someone now', ex: 'Ben: changelog is in, waiting on notarization' },
+      { id: 'h2', kind: 'channel', project: 'site', title: 'copy-review', when: 'Mon', grp: 'Earlier this week', started: 'Channel · posts are for the room, @ asks someone now', ex: 'Ana posted 4 competitor headlines' },
+      { id: 'h3', kind: 'channel', project: null, title: 'general', when: 'Tue', grp: 'Earlier this week', started: 'Channel · posts are for the room, @ asks someone now', ex: 'Weekly notes' },
+    ],
+  });
+
+  let D = SEED();
+  let S = {};
+  const freshState = () => ({ scope: 'boundary', view: 'overview', chatId: null, dmId: null, pop: null, sheet: null, toast: null, sel: new Set(), fProject: 'any', fKind: 'all', draftProject: 'boundary', tab: 'project', newMarker: null });
+
+  const P = id => D.projects.find(p => p.id === id) || null;
+  const C = id => D.chats.find(c => c.id === id);
+  const A = id => D.agents.find(a => a.id === id);
+  const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  const pName = id => (P(id) ? P(id).name : 'No project');
+  const effInf = (projId, chat) => (chat && chat.override) || (P(projId) && P(projId).pin) || APP_DEFAULT;
+  const glyph = (id, cls = '') => {
+    const p = P(id);
+    if (!p) return `<span class="glyph none ${cls}">–</span>`;
+    return `<span class="glyph ${cls}" style="background:${p.color}">${esc(p.name[0])}</span>`;
+  };
+  const mark = (c, lg) => {
+    if (c.kind === 'channel') return `<span class="tm chan ${lg ? 'lg' : ''}">#</span>`;
+    return `<span class="tm hermes ${lg ? 'lg' : ''}">${ICON.spark}</span>`;
+  };
+  const dmMark = (a, lg) => `<span class="tm dm ${lg ? 'lg' : ''}" style="background:${a.color}">${a.name[0]}</span>`;
+  const chatTitle = c => (c.kind === 'channel' ? '#' + c.title : c.title);
+
+  // ---------- Scenarios ----------
+  const SCENARIOS = [
+    { id: 'overview', label: 'Project page', set: () => {} },
+    { id: 'chat', label: 'Chat in a project', set: () => openChat('c1') },
+    { id: 'switch', label: 'Switch project', set: () => { openChat('c1'); S.pop = { kind: 'picker' }; } },
+    { id: 'move', label: 'Move a chat', set: () => { openChat('c1'); openMove(['c1'], 'site'); } },
+    { id: 'draft', label: 'New chat', set: () => newDraft() },
+    { id: 'all', label: 'All chats', set: () => { S.view = 'all'; S.sel = new Set(['c7', 'c8']); } },
+    { id: 'dm', label: 'DM with a folder', set: () => openDm('ana') },
+    { id: 'busy', label: 'Chat mid-reply', set: () => { openChat('c2'); S.pop = { kind: 'title' }; } },
+  ];
+  let scenario = 'overview';
+  function runScenario(id) {
+    D = SEED(); S = freshState(); scenario = id;
+    SCENARIOS.find(s => s.id === id).set();
+    render();
+  }
+
+  // ---------- Actions ----------
+  function openChat(id) {
+    const c = C(id);
+    S.view = 'chat'; S.chatId = id; S.pop = null; S.newMarker = null;
+    S.scope = c.project === null ? 'none' : c.project; // the rail follows the chat
+    S.tab = 'project';
+  }
+  function openDm(id) { S.view = 'dm'; S.dmId = id; S.pop = null; S.tab = 'agent'; }
+  function goProject(id) { S.scope = id === null ? 'none' : id; S.view = 'overview'; S.pop = null; S.tab = 'project'; }
+  function newDraft() { S.view = 'draft'; S.draftProject = S.scope === 'none' ? null : S.scope; S.pop = null; S.tab = 'project'; }
+  function openMove(ids, dest) {
+    const cur = C(ids[0]).project;
+    S.pop = null;
+    S.sheet = { ids, dest: dest !== undefined ? dest : (D.projects.find(p => p.id !== cur) || {}).id };
+  }
+  function doMove() {
+    const { ids, dest } = S.sheet;
+    const undo = ids.map(id => ({ id, from: C(id).project, logLen: (C(id).log || []).length }));
+    ids.forEach(id => {
+      const c = C(id);
+      const from = c.project;
+      if (from === dest) return;
+      c.project = dest;
+      if (c.log) c.log.push({ r: 'move', from, to: dest });
+    });
+    S.sheet = null;
+    S.sel = new Set();
+    if (S.view === 'chat' && ids.includes(S.chatId)) { S.scope = dest === null ? 'none' : dest; S.newMarker = S.chatId; }
+    const label = ids.length > 1 ? `Moved ${ids.length} chats to ${pName(dest)}` : `Moved to ${pName(dest)}`;
+    S.toast = { text: label, undo };
+  }
+  function undoMove() {
+    S.toast.undo.forEach(u => {
+      const c = C(u.id); c.project = u.from;
+      if (c.log) c.log.length = u.logLen;
+    });
+    if (S.view === 'chat') { const c = C(S.chatId); S.scope = c.project === null ? 'none' : c.project; }
+    S.newMarker = null;
+    S.toast = { text: 'Move undone' };
+  }
+  function send(text) {
+    text = text.trim(); if (!text) return;
+    const proj = S.view === 'draft' ? S.draftProject : (S.scope === 'none' ? null : S.scope);
+    const id = 'n' + Date.now();
+    const words = text.split(/\s+/).slice(0, 6).join(' ');
+    const p = P(proj);
+    D.chats.unshift({ id, kind: 'hermes', project: proj, title: words.charAt(0).toUpperCase() + words.slice(1), when: 'Now', grp: 'Today', started: 'started just now', ex: text,
+      log: [ { r: 'u', t: esc(text) }, { r: 'a', t: `<p>${p ? `I’ll work in <code>${esc(p.path)}</code>.` : 'This chat has no folder, so I’ll answer without project files.'} (This mock doesn’t run Hermes, so the reply stops here.)</p>` } ] });
+    openChat(id);
+  }
+  function setDmFolder(agentId, projId) {
+    const a = A(agentId);
+    if (a.folder === projId) { S.pop = null; return; }
+    a.folder = projId;
+    DM_LOG[agentId].push({ r: 'folder', to: projId, isNew: true });
+    S.pop = null;
+    S.toast = { text: projId ? `${a.name} now works in ${pName(projId)}` : `${a.name} now works without a folder` };
+  }
+
+  const DM_LOG = {};
+  const seedDm = () => {
+    DM_LOG.ana = [
+      { r: 'day', t: 'Mon 28 Sept' },
+      { r: 'folder', to: 'site' },
+      { r: 'u', t: 'Pull four competitor headlines for the landing page and post them in #copy-review.' },
+      { r: 'a', who: 'ana', t: '<p>Posted. Two of them lead with privacy, which is the angle you’ve been avoiding. Worth a look.</p>' },
+      { r: 'day', t: 'Today' },
+      { r: 'folder', to: 'boundary' },
+      { r: 'u', t: 'Different job. How do other desktop agent apps handle per-project chat history?' },
+      { r: 'a', who: 'ana', t: '<p>Most file chats under a project and keep one global history list beside it. The ones that let a chat change folders mid-thread all mark the change in the transcript. Notes are in <code>research/chat-history.md</code> in this folder.</p>' },
+    ];
+    DM_LOG.ben = [ { r: 'day', t: 'Tue 29 Sept' }, { r: 'u', t: 'Tighten the 0.9 changelog to one line per item.' }, { r: 'a', who: 'ben', t: '<p>Done. Thirty-one lines became nineteen.</p>' } ];
+  };
+
+  // ---------- Render: rail ----------
+  function renderRail() {
+    const scope = S.scope === 'none' ? null : S.scope;
+    const p = P(scope);
+    const inScope = D.chats.filter(c => c.project === scope);
+    const hermes = inScope.filter(c => c.kind === 'hermes');
+    const chans = inScope.filter(c => c.kind === 'channel');
+    const isOn = id => (S.view === 'chat' && S.chatId === id ? 'is-on' : '');
+    return `
+      <button class="picker ${S.pop && S.pop.kind === 'picker' ? 'is-open' : ''}" data-act="picker" aria-label="Project" aria-haspopup="menu">
+        ${glyph(scope)}
+        <span class="pt"><span class="pn">${esc(pName(scope))}</span><span class="pp">${p ? esc(p.path) : 'Chats without a folder'}</span></span>
+        ${ICON.chev}
+      </button>
+      <div class="nav">
+        <button class="row ${S.view === 'overview' ? 'is-on' : ''}" data-act="overview">${ICON.home}<span class="t">${p ? 'Project page' : 'All chats with no project'}</span></button>
+        <button class="row ${S.view === 'all' ? 'is-on' : ''}" data-act="all">${ICON.list}<span class="t">All chats</span><span class="hint">every project</span></button>
+        <button class="row" data-act="na" data-what="Mentions">${ICON.at}<span class="t">Mentions</span></button>
+
+        <div class="sect">${'Hermes'}<span class="kb">⌘N</span><button class="add" data-act="new" title="New Hermes chat in ${esc(pName(scope))} (⌘N)">+</button></div>
+        ${hermes.slice(0, 5).map(c => `<button class="row ${isOn(c.id)}" data-act="chat" data-id="${c.id}">${mark(c)}<span class="t">${esc(c.title)}</span>${c.busy ? '<span class="dot" title="Working"></span>' : ''}${c.src ? `<span class="src">${c.src}</span>` : ''}</button>`).join('') || `<p class="emptyline">No chats in ${esc(pName(scope))} yet.</p>`}
+        ${hermes.length ? `<button class="linkrow" data-act="allscope">All chats in ${esc(pName(scope))}…</button>` : ''}
+
+        <div class="sect">Channels<button class="add" data-act="na" data-what="New channel" style="margin-left:auto">+</button></div>
+        ${chans.map(c => `<button class="row ${isOn(c.id)}" data-act="chat" data-id="${c.id}">${mark(c)}<span class="t mono">${esc(c.title)}</span></button>`).join('') || `<p class="emptyline">No channels here.</p>`}
+
+        <div class="divline"></div>
+        <div class="sect">Direct messages <span class="scope">· any project</span><button class="add" data-act="na" data-what="Message an agent" style="margin-left:auto">+</button></div>
+        ${D.agents.map(a => `<button class="row ${S.view === 'dm' && S.dmId === a.id ? 'is-on' : ''}" data-act="dm" data-id="${a.id}">${dmMark(a)}<span class="t">${a.name}<span class="sub">${a.role} · ${a.folder ? 'in ' + esc(pName(a.folder)) : 'no folder'}</span></span></button>`).join('')}
+      </div>`;
+  }
+
+  // ---------- Render: center ----------
+  function msgHtml(m, c) {
+    if (m.r === 'u') return `<div class="msg u"><div class="bubble">${m.t}</div></div>`;
+    if (m.r === 'a') {
+      const a = m.who ? A(m.who) : null;
+      return `<div class="msg"><div class="who">${a ? dmMark(a) : `<span class="tm hermes">${ICON.spark}</span>`}<b>${a ? a.name : 'Hermes'}</b></div><div class="prose">${m.t}</div></div>`;
+    }
+    if (m.r === 'w') return `<div class="working"><span class="dot"></span><span>${m.t}</span></div>`;
+    if (m.r === 'day') return `<div class="marker day"><span class="pill">${m.t}</span></div>`;
+    if (m.r === 'move') {
+      const to = P(m.to);
+      const isNew = S.newMarker === (c && c.id);
+      return `<div class="marker ${isNew ? 'is-new' : ''}"><span class="pill">${glyph(m.to, 'xs')} Moved from ${esc(pName(m.from))} to ${esc(pName(m.to))} · <span class="mono">${to ? esc(to.path) : 'no folder'}</span></span></div>`;
+    }
+    if (m.r === 'folder') {
+      const to = P(m.to);
+      return `<div class="marker ${m.isNew ? 'is-new' : ''}"><span class="pill">${glyph(m.to, 'xs')} ${to ? `Now working in ${esc(to.name)} · <span class="mono">${esc(to.path)}</span>` : 'Now working without a folder'}</span></div>`;
+    }
+    return '';
+  }
+
+  function composer({ placeholder, chipHtml, inf }) {
+    return `<div class="composer-wrap"><div class="composer">
+      <textarea id="composer" rows="2" placeholder="${esc(placeholder)}"></textarea>
+      <div class="cluster">
+        ${chipHtml}
+        <button class="chip" data-act="na" data-what="Inference menu">${inf.cloud ? ICON.cloud.replace('<svg', '<svg width="12" height="12"') : ICON.chip.replace('<svg', '<svg width="12" height="12"')} ${esc(inf.label)}</button>
+        <button class="chip ghost" data-act="na" data-what="@ menu">@</button>
+        <span class="grow"></span>
+        <span class="toggle">Tools <i></i></span>
+        <button class="run" data-act="send" aria-label="Send">↑</button>
+      </div></div></div>`;
+  }
+
+  function renderChat() {
+    const c = C(S.chatId);
+    const p = P(c.project);
+    const log = c.log || [ { r: 'u', t: esc(c.ex) + '?' }, { r: 'a', t: `<p>${esc(c.ex)}. (Sample conversation.)</p>` } ];
+    const kind = c.kind === 'channel' ? c.started : `Hermes chat · ${c.started}`;
+    const head = `
+      <div class="head">
+        ${mark(c, true)}
+        <div class="id">
+          <div class="crumbs">
+            <button class="crumb" data-act="goproj" data-id="${c.project ?? ''}" title="Open ${esc(pName(c.project))}">${glyph(c.project, 'sm')}${esc(pName(c.project))}</button>
+            <span class="sl">/</span>
+            <button class="ttl ${S.pop && S.pop.kind === 'title' ? 'is-open' : ''}" data-act="title"><span>${esc(chatTitle(c))}</span>${ICON.chev}</button>
+          </div>
+          <span class="kindline">${esc(kind)}</span>
+        </div>
+        <button class="hbtn" data-act="new">New chat</button>
+      </div>`;
+    const chip = `<button class="chip is-fixed" data-act="movechip" title="This chat lives in ${esc(pName(c.project))}. Move it to work in another folder.">${glyph(c.project, 'xs')} <b>${esc(pName(c.project))}</b>${p ? ` <span class="mono">${esc(p.path)}</span>` : ''}</button>`;
+    return head + `<div class="scroll"><div class="col">${log.map(m => msgHtml(m, c)).join('')}</div></div>` +
+      composer({ placeholder: c.kind === 'channel' ? `Post in #${c.title}` : 'Ask Hermes anything', chipHtml: chip, inf: effInf(c.project, c) });
+  }
+
+  function renderDraft() {
+    const p = P(S.draftProject);
+    const head = `
+      <div class="head">
+        <span class="tm hermes lg">${ICON.spark}</span>
+        <div class="id">
+          <div class="crumbs">
+            <button class="crumb" data-act="goproj" data-id="${S.draftProject ?? ''}">${glyph(S.draftProject, 'sm')}${esc(pName(S.draftProject))}</button>
+            <span class="sl">/</span><span class="ttl static"><span>New chat</span></span>
+          </div>
+          <span class="kindline">Hermes chat · not started</span>
+        </div>
+      </div>`;
+    const chip = `<button class="chip" data-act="draftchip" title="Choose where this chat lives">${glyph(S.draftProject, 'xs')} <b>${esc(pName(S.draftProject))}</b>${p ? ` <span class="mono">${esc(p.path)}</span>` : ''} ${ICON.chev.replace('class="chev"', 'class="chev" width="12" height="12"')}</button>`;
+    const empty = `<div class="col" style="padding-top:120px;text-align:center"><div style="display:grid;gap:6px;justify-items:center"><span class="tm hermes lg">${ICON.spark}</span><div style="font-size:22px;font-weight:600">${p ? 'Ask about ' + esc(p.name) : 'What can I help with?'}</div><div style="color:var(--faint)">${p ? 'Files stay on disk. Your assistant reads them where they are.' : 'Replies come from your assistant on this Mac.'}</div></div></div>`;
+    return head + `<div class="scroll">${empty}</div>` + composer({ placeholder: 'Ask Hermes anything', chipHtml: chip, inf: effInf(S.draftProject) });
+  }
+
+  function renderOverview() {
+    const scope = S.scope === 'none' ? null : S.scope;
+    const p = P(scope);
+    const items = D.chats.filter(c => c.project === scope);
+    const hermes = items.filter(c => c.kind === 'hermes');
+    const chans = items.filter(c => c.kind === 'channel');
+    const lrow = c => `<button class="lrow" data-act="chat" data-id="${c.id}">${mark(c)}<span class="t">${esc(chatTitle(c))}<span class="ex">${esc(c.ex)}</span></span>${c.busy ? '<span class="dot"></span>' : ''}${c.src ? `<span class="pill">${c.src}</span>` : ''}<span class="when">${esc(c.when)}</span></button>`;
+    const head = `<div class="head">${glyph(scope)}<div class="id"><div class="crumbs"><span class="ttl static"><span>${esc(pName(scope))}</span></span></div><span class="kindline">${p ? 'Project · ' + esc(p.path) : 'Chats that don’t belong to a project'}</span></div>${p ? '<button class="hbtn" data-act="na" data-what="Open in Finder">Open in Finder</button>' : ''}</div>`;
+    return head + `<div class="scroll"><div class="ov">
+      <div class="ov-id">${glyph(scope)}<div><h2>${esc(pName(scope))}</h2><div class="mono">${p ? esc(p.path) : 'Hermes works without a folder in these chats.'}</div></div></div>
+      <div class="composer"><textarea id="composer" rows="2" placeholder="${p ? 'Start a chat in ' + esc(p.name) : 'Start a chat with no project'}"></textarea>
+        <div class="cluster"><span class="chip is-fixed">${glyph(scope, 'xs')} <b>${esc(pName(scope))}</b></span><span class="chip">${esc(effInf(scope).label)}</span><span class="grow"></span><button class="run" data-act="send" aria-label="Start chat">↑</button></div></div>
+      <div><h3>Chats <span class="n">${hermes.length}</span></h3><div class="list">${hermes.map(lrow).join('') || '<div class="empty">No chats yet. Start one above, or move one here from All chats.</div>'}</div></div>
+      <div><h3>Channels <span class="n">${chans.length}</span></h3><div class="list">${chans.map(lrow).join('') || '<div class="empty">No channels in this project.</div>'}</div></div>
+    </div></div>`;
+  }
+
+  function renderAll() {
+    const rows = D.chats.filter(c =>
+      (S.fKind === 'all' || (S.fKind === 'hermes' ? c.kind === 'hermes' : c.kind === 'channel')) &&
+      (S.fProject === 'any' || (S.fProject === 'none' ? c.project === null : c.project === S.fProject)));
+    const groups = ['Today', 'Yesterday', 'Earlier this week'];
+    const opt = (v, l) => `<option value="${v}" ${S.fProject === v ? 'selected' : ''}>${esc(l)}</option>`;
+    const body = groups.map(g => {
+      const gr = rows.filter(c => c.grp === g);
+      if (!gr.length) return '';
+      return `<div class="grp">${g}</div><div class="list">${gr.map(c => `
+        <div class="arow ${S.sel.has(c.id) ? 'is-sel' : ''}" data-act="chat" data-id="${c.id}">
+          <button class="cb" data-act="sel" data-id="${c.id}" aria-label="Select ${esc(c.title)}">${S.sel.has(c.id) ? '✓' : ''}</button>
+          ${mark(c)}
+          <span class="t">${esc(chatTitle(c))}${c.src ? ` <span class="pill">${c.src}</span>` : ''}</span>
+          <span class="ptag ${c.project ? '' : 'none'}">${glyph(c.project, 'xs')}<span>${esc(pName(c.project))}</span></span>
+          <span class="when">${esc(c.when)}</span>
+        </div>`).join('')}</div>`;
+    }).join('') || '<div class="empty">No chats match these filters.</div>';
+    const n = S.sel.size;
+    return `<div class="head"><div class="id"><div class="crumbs"><span class="ttl static"><span>All chats</span></span></div><span class="kindline">Every conversation, across every project</span></div></div>
+      <div class="scroll"><div class="all ${n ? 'has-sel' : ''}">
+        <div class="filters">
+          <span class="search">Search titles, agents and rooms</span>
+          <div class="seg">${[['all', 'All'], ['hermes', 'Hermes'], ['channel', 'Channels']].map(([v, l]) => `<button class="${S.fKind === v ? 'is-on' : ''}" data-act="fkind" data-v="${v}">${l}</button>`).join('')}</div>
+          <select class="sel" id="fProject" aria-label="Project">${opt('any', 'Any project')}${D.projects.map(p => opt(p.id, p.name)).join('')}${opt('none', 'No project')}</select>
+        </div>
+        ${body}
+      </div></div>
+      ${n ? `<div class="bulk"><span>${n} selected</span><button class="btn solid" data-act="bulkmove">Move to project…</button><button class="btn" data-act="clearsel">Clear</button></div>` : ''}`;
+  }
+
+  function renderDm() {
+    const a = A(S.dmId);
+    const p = P(a.folder);
+    const head = `<div class="head">${dmMark(a, true)}<div class="id"><div class="crumbs"><span class="ttl static"><span>${a.name}</span></span></div><span class="kindline">Direct message · one ongoing thread since 22 Sept · not in a project</span></div><button class="hbtn" data-act="na" data-what="Add to channel">Add to channel</button></div>`;
+    const chip = `<button class="chip" data-act="dmfolder" title="Folder ${a.name} works in. Changes are noted in the thread.">${ICON.folder.replace('<svg', '<svg width="12" height="12"')} Works in <b>${esc(pName(a.folder))}</b>${p ? ` <span class="mono">${esc(p.path)}</span>` : ''} ${ICON.chev.replace('class="chev"', 'class="chev" width="12" height="12"')}</button>`;
+    return head + `<div class="scroll"><div class="col">${DM_LOG[a.id].map(m => msgHtml(m)).join('')}</div></div>` +
+      composer({ placeholder: `Message ${a.name}`, chipHtml: chip, inf: effInf(a.folder) });
+  }
+
+  // ---------- Render: inspector ----------
+  function projectBlock(projId, { chat, label }) {
+    const p = P(projId);
+    const inf = effInf(projId, chat);
+    return `
+      <div><div class="ilab">${label}${chat ? `<button class="act" data-act="movechip" ${chat.busy ? 'disabled title="Wait for Hermes to finish"' : ''}>Move…</button>` : ''}</div>
+        <div class="pcard">${glyph(projId)}<span class="pt"><b>${esc(pName(projId))}</b><span class="mono">${p ? esc(p.path) : 'No folder bound'}</span></span></div>
+        ${p ? '' : '<p class="ihelp">Chat works without a folder. Move this chat to a project to give Hermes files and sources.</p>'}
+      </div>
+      <div><div class="ilab">Inference</div>
+        <div class="irow"><span class="grow">${esc(inf.label)}<span class="s">${chat && chat.override ? 'Set on this chat' : p && p.pin ? 'Pinned for this project' : 'App default'}</span></span><span class="pill ${inf.cloud ? 'cloud' : 'ok'}">${inf.cloud ? 'Cloud' : 'On this Mac'}</span></div>
+      </div>
+      ${p ? `<div><div class="ilab">Sources<span class="act">Add</span></div>${p.sources.map(s => `<div class="irow"><span class="grow">${esc(s)}</span><span class="pill">${s.includes('read-only') ? 'Read-only' : 'Writable'}</span></div>`).join('')}</div>` : ''}`;
+  }
+  function renderInsp() {
+    if (S.view === 'all') {
+      return `<div class="tabs"><button class="is-on">Projects</button></div><div class="ibody"><div><div class="ilab">Chats by project</div>${D.projects.map(p => `<button class="irow" style="width:100%" data-act="fproj" data-id="${p.id}">${glyph(p.id, 'sm')}<span class="grow">${esc(p.name)}</span><span class="pill">${D.chats.filter(c => c.project === p.id).length}</span></button>`).join('')}<button class="irow" style="width:100%" data-act="fproj" data-id="none">${glyph(null, 'sm')}<span class="grow">No project</span><span class="pill">${D.chats.filter(c => c.project === null).length}</span></button></div><p class="ihelp">Select chats to move several at once.</p></div>`;
+    }
+    if (S.view === 'dm') {
+      const a = A(S.dmId);
+      return `<div class="tabs"><button class="is-on">Agent</button><button>Folder</button></div><div class="ibody">
+        <div class="pcard">${dmMark(a, true)}<span class="pt"><b>${a.name}</b><span class="mono">${a.role}</span></span></div>
+        ${projectBlock(a.folder, { label: 'Works in' })}
+        <p class="ihelp">A DM isn’t filed in a project. ${a.name} works in one folder at a time, and each change is marked in the thread.</p></div>`;
+    }
+    if (S.view === 'draft') return `<div class="tabs"><button>Session</button><button class="is-on">Project</button></div><div class="ibody">${projectBlock(S.draftProject, { label: 'This chat will live in' })}</div>`;
+    if (S.view === 'chat') {
+      const c = C(S.chatId);
+      return `<div class="tabs"><button>${c.kind === 'channel' ? 'Room' : 'Session'}</button><button class="is-on">Project</button></div><div class="ibody">${projectBlock(c.project, { chat: c, label: 'This chat lives in' })}</div>`;
+    }
+    const scope = S.scope === 'none' ? null : S.scope;
+    return `<div class="tabs"><button class="is-on">Project</button></div><div class="ibody">${projectBlock(scope, { label: 'Project' })}</div>`;
+  }
+
+  // ---------- Render: overlays ----------
+  function projMenu({ current, act, title, extra = '' }) {
+    const item = (id, i) => {
+      const p = P(id);
+      const n = D.chats.filter(c => c.project === id).length;
+      return `<button class="mi" data-act="${act}" data-id="${id ?? ''}"><span class="ck">${current === id ? '✓' : ''}</span>${glyph(id, 'sm')}<span class="grow">${esc(pName(id))}<span class="s">${p ? esc(p.path) : 'Chats without a folder'}</span></span>${act === 'pickproj' ? `<span class="ct">${n}</span>` : ''}</button>`;
+    };
+    return `<div class="ph">${title}</div>${D.projects.map(p => item(p.id)).join('')}<div class="msep"></div>${item(null)}${extra}`;
+  }
+  function renderPop() {
+    if (!S.pop) return '';
+    const k = S.pop.kind;
+    if (k === 'picker') {
+      return `<div class="pop" style="left:56px;top:62px;width:280px">${projMenu({ current: S.scope === 'none' ? null : S.scope, act: 'pickproj', title: 'Go to project' , extra: '<div class="msep"></div><button class="mi" data-act="na" data-what="New project"><span class="ck"></span><span class="grow">New project…</span></button>'})}</div>`;
+    }
+    if (k === 'title') {
+      const c = C(S.chatId);
+      const busy = !!c.busy;
+      return `<div class="pop" style="left:400px;top:46px;width:280px">
+        <button class="mi" data-act="na" data-what="Rename"><span class="ck"></span><span class="grow">Rename</span></button>
+        <button class="mi" data-act="movechip" ${busy ? 'disabled' : ''}><span class="ck"></span><span class="grow">Move to project…</span><span class="kb">⇧⌘M</span></button>
+        ${busy ? '<div class="mnote">Hermes is replying. Stop it or wait for it to finish, then move.</div>' : ''}
+        <button class="mi" data-act="na" data-what="Branch"><span class="ck"></span><span class="grow">Branch</span></button>
+        ${c.kind === 'hermes' ? '<button class="mi" data-act="na" data-what="Make channel"><span class="ck"></span><span class="grow">Make channel</span></button>' : ''}
+        <div class="msep"></div>
+        <button class="mi" data-act="na" data-what="Delete"><span class="ck"></span><span class="grow">Delete chat…</span></button>
+      </div>`;
+    }
+    if (k === 'draftchip') {
+      return `<div class="pop" style="left:340px;bottom:96px;width:280px">${projMenu({ current: S.draftProject, act: 'draftproj', title: 'Start this chat in' })}</div>`;
+    }
+    if (k === 'dmfolder') {
+      const a = A(S.dmId);
+      return `<div class="pop" style="left:340px;bottom:96px;width:290px">${projMenu({ current: a.folder, act: 'dmproj', title: `${a.name} works in` })}<div class="mnote" style="color:var(--faint);padding-left:8px">The change is marked in the thread. Earlier messages stay as written.</div></div>`;
+    }
+    return '';
+  }
+
+  function effects(ids, dest) {
+    const from = C(ids[0]).project;
+    const sameFrom = ids.every(id => C(id).project === from);
+    const fp = P(from), tp = P(dest);
+    const fi = effInf(from, C(ids[0])), ti = effInf(dest, C(ids[0]));
+    const out = [];
+    out.push(`<div class="eff">${ICON.folder}<span>${tp ? `Hermes works in <b class="mono">${esc(tp.path)}</b> from the next message.` : 'Hermes works without a folder from the next message. Project files and sources won’t be available.'}</span></div>`);
+    if (tp) out.push(`<div class="eff">${ICON.book}<span>Sources: ${tp.sources.map(esc).join(', ')}.</span></div>`);
+    out.push(`<div class="eff">${ICON.history}<span>Earlier messages stay as written.${fp && sameFrom ? ` Links to files in <span class="mono">${esc(fp.path)}</span> still open.` : ''} A line in the transcript marks the move.</span></div>`);
+    if (fi.label !== ti.label) {
+      if (ti.cloud && !fi.cloud) {
+        out.push(`<div class="eff warn">${ICON.cloud}<span><b>Inference moves to the cloud.</b> ${esc(pName(dest))} uses ${esc(ti.label)}, so the next reply sends this chat’s history and any files Hermes reads to OpenRouter.</span></div>`);
+      } else {
+        out.push(`<div class="eff">${ICON.chip}<span>Inference changes from ${esc(fi.label)} to <b>${esc(ti.label)}</b>.</span></div>`);
+      }
+    } else {
+      out.push(`<div class="eff">${ICON.chip}<span>Inference stays ${esc(ti.label)}.</span></div>`);
+    }
+    return out.join('');
+  }
+  function renderSheet() {
+    if (!S.sheet) return '';
+    const { ids, dest } = S.sheet;
+    const cur = ids.length === 1 ? C(ids[0]).project : undefined;
+    const title = ids.length === 1 ? `Move “${esc(chatTitle(C(ids[0])))}”` : `Move ${ids.length} chats`;
+    const item = id => `<button class="mi ${dest === id ? 'is-on' : ''}" data-act="dest" data-id="${id ?? ''}" ${cur === id ? 'disabled' : ''}><span class="ck">${dest === id ? '✓' : ''}</span>${glyph(id, 'sm')}<span class="grow">${esc(pName(id))}<span class="s">${P(id) ? esc(P(id).path) : 'Chats without a folder'}</span></span>${cur === id ? '<span class="cur">Current</span>' : ''}</button>`;
+    const same = ids.every(id => C(id).project === dest);
+    return `<div class="scrim" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Move to project" data-stop="1">
+      <div class="sheet-h"><div class="k">Move to project</div><h3>${title}</h3></div>
+      <div class="dest">${D.projects.map(p => item(p.id)).join('')}${item(null)}</div>
+      ${same ? '' : `<div class="effects"><div class="h">What changes</div>${effects(ids, dest)}</div>`}
+      <div class="sheet-f"><button class="btn" data-act="closesheet">Cancel</button><button class="btn solid" data-act="domove" ${same ? 'disabled' : ''}>Move to ${esc(pName(dest))}</button></div>
+    </div></div>`;
+  }
+
+  // ---------- Notes ----------
+  const NOTES = {
+    overview: ['Project page', [
+      'Picking a project in the rail opens this page. It’s the project’s home: start a chat here and it’s filed here.',
+      'Chats and channels in this project are listed in full. The rail shows the five most recent.',
+      'Pick <b>No project</b> in the rail to see the chats that aren’t in any project. It works the same way.',
+      'The inspector keeps today’s Project tab (inference pin, sources). Only its place changes: it describes the project you’re looking at.',
+    ]],
+    chat: ['Chat in a project', [
+      'The breadcrumb names the chat’s project. Click it to go to the project page. The title opens the chat menu, which holds <b>Move to project…</b>.',
+      'The project chip in the composer is fixed for a started chat. Clicking it opens Move instead of a picker, because changing it is a move.',
+      'The inspector says <b>This chat lives in</b>, so its sources and inference clearly belong to this chat’s project.',
+      'Open a chat from All chats that lives in another project, and the rail follows it. Try <b>Plan my week</b> in All chats.',
+    ]],
+    switch: ['Switching projects navigates', [
+      'Today this menu rewrites the open chat’s working folder. Here it takes you to the project page and leaves the chat alone.',
+      'Each row shows how many chats live in that project.',
+      'The menu is titled <b>Go to project</b>. It no longer claims to be the current project of whatever is open.',
+      'Hermes keeps working in the chat you left, in its own folder.',
+    ]],
+    move: ['Move says what changes first', [
+      'The sheet lists what the move changes: folder, sources, and the inference that applies afterwards.',
+      'Boundary is pinned to a local model and Landing site uses the cloud default, so the sheet warns that the next reply sends this chat’s history to OpenRouter. This matches the recent “say what leaves the machine” work.',
+      'After the move, a line in the transcript records it, the rail follows the chat, and a toast offers Undo.',
+      'Try picking Taxes 2026 (local stays local) or No project (no folder).',
+    ]],
+    draft: ['A new chat starts where you are', [
+      '⌘N and the Hermes + start a chat in the rail’s current project. The breadcrumb shows it before you type.',
+      'Until the first message is sent, the composer chip is a real picker. Changing it re-files a draft that has no history yet.',
+      'After the first send the chip becomes fixed, and changing the project means Move.',
+      'Type something and press Enter (or ↑) to start the chat.',
+    ]],
+    all: ['All chats is the global list', [
+      'Every row has a Project column. The filter adds <b>Any project</b>, each project, and <b>No project</b>.',
+      'Hover a row to show its checkbox. Select several, then <b>Move to project…</b> to file them together. Two chats are already selected here.',
+      'Clicking a row opens the chat, and the rail switches to that chat’s project.',
+      'This is the place to clean up chats from Telegram and earlier versions that arrive without a project.',
+    ]],
+    dm: ['DMs aren’t filed in a project', [
+      'Ana has one ongoing thread, so the DM can’t live in one project. Direct messages show in the rail whichever project you’re looking at.',
+      'The DM has its own setting, <b>Works in</b>, stored on the DM and never read from the rail. The rail row says where each agent works.',
+      'Every change is marked in the thread, so it’s clear which folder each reply came from. Try changing it with the composer chip.',
+      'A side chat branched from this DM starts in the folder it works in at that moment.',
+    ]],
+    busy: ['You can’t move a chat while Hermes is replying', [
+      'Moving mid-turn would change Hermes’s working folder under a running tool call, so Move is disabled and the menu says why.',
+      'The inspector’s Move… is disabled the same way.',
+      'Once the turn finishes, Move works again. Nothing is queued.',
+    ]],
+  };
+  function noteKey() {
+    if (S.sheet) return 'move';
+    if (S.pop && S.pop.kind === 'picker') return 'switch';
+    if (S.view === 'chat' && C(S.chatId).busy) return 'busy';
+    return { overview: 'overview', chat: 'chat', draft: 'draft', all: 'all', dm: 'dm' }[S.view];
+  }
+
+  // ---------- Render ----------
+  const win = document.getElementById('win');
+  function render() {
+    const center = { overview: renderOverview, chat: renderChat, draft: renderDraft, all: renderAll, dm: renderDm }[S.view]();
+    win.innerHTML = `
+      <div class="icorail"><span class="logo">B</span><span class="ic is-on" title="Chat ⌘1">${ICON.chat}</span><span class="ic" title="Services ⌘2">${ICON.grid}</span><span class="ic" title="Resources ⌘3">${ICON.bars}</span><span class="sp"></span><span class="ic" title="Settings">${ICON.gear}</span></div>
+      <aside class="rail">${renderRail()}</aside>
+      <main class="center">${center}</main>
+      <aside class="insp">${renderInsp()}</aside>
+      ${renderPop()}${renderSheet()}
+      ${S.toast ? `<div class="toast" role="status"><span>${esc(S.toast.text)}</span>${S.toast.undo ? '<button data-act="undo">Undo</button>' : ''}<button data-act="closetoast" aria-label="Dismiss">✕</button></div>` : ''}`;
+    const [title, items] = NOTES[noteKey()];
+    document.getElementById('noteCard').innerHTML = `<h3>What this state shows</h3><h2>${title}</h2><ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+    document.getElementById('scenarios').innerHTML = SCENARIOS.map((s, i) => `<button class="sc ${scenario === s.id ? 'is-on' : ''}" data-sc="${s.id}"><span class="n">${i + 1}</span>${s.label}</button>`).join('');
+    const ta = document.getElementById('composer');
+    if (ta) ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta.value); render(); } });
+    const fp = document.getElementById('fProject');
+    if (fp) fp.addEventListener('change', () => { S.fProject = fp.value; render(); });
+  }
+
+  let toastTimer;
+  win.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) { if (S.pop) { S.pop = null; render(); } return; }
+    if (el.disabled) return;
+    const act = el.dataset.act;
+    const id = el.dataset.id === '' ? null : el.dataset.id;
+    if (act === 'closesheet' && e.target.closest('[data-stop]') && el.classList.contains('scrim')) return;
+    const keepToast = ['undo'].includes(act);
+    if (!keepToast && act !== 'closetoast' && S.toast && !['domove', 'dmproj'].includes(act)) S.toast = null;
+    switch (act) {
+      case 'picker': S.pop = S.pop && S.pop.kind === 'picker' ? null : { kind: 'picker' }; break;
+      case 'pickproj': goProject(id); break;
+      case 'overview': S.view = 'overview'; S.pop = null; break;
+      case 'goproj': goProject(id); break;
+      case 'all': S.view = 'all'; S.pop = null; S.fProject = 'any'; break;
+      case 'allscope': S.view = 'all'; S.pop = null; S.fProject = S.scope; break;
+      case 'fproj': S.fProject = id === null ? 'none' : id; break;
+      case 'fkind': S.fKind = el.dataset.v; break;
+      case 'chat': if (e.target.closest('[data-act="sel"]')) return; openChat(id); break;
+      case 'sel': e.stopPropagation(); S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); break;
+      case 'clearsel': S.sel = new Set(); break;
+      case 'bulkmove': openMove([...S.sel], null); { const firstFrom = C([...S.sel][0]).project; S.sheet.dest = firstFrom === 'boundary' ? 'site' : 'boundary'; } break;
+      case 'dm': openDm(id); break;
+      case 'new': newDraft(); break;
+      case 'title': S.pop = S.pop && S.pop.kind === 'title' ? null : { kind: 'title' }; break;
+      case 'movechip': if (C(S.chatId).busy) { S.pop = { kind: 'title' }; break; } openMove([S.chatId]); break;
+      case 'draftchip': S.pop = S.pop && S.pop.kind === 'draftchip' ? null : { kind: 'draftchip' }; break;
+      case 'draftproj': S.draftProject = id; S.scope = id === null ? 'none' : id; S.pop = null; break;
+      case 'dmfolder': S.pop = S.pop && S.pop.kind === 'dmfolder' ? null : { kind: 'dmfolder' }; break;
+      case 'dmproj': setDmFolder(S.dmId, id); break;
+      case 'dest': S.sheet.dest = id; break;
+      case 'domove': doMove(); break;
+      case 'closesheet': S.sheet = null; break;
+      case 'undo': undoMove(); break;
+      case 'closetoast': S.toast = null; break;
+      case 'send': { const ta = document.getElementById('composer'); send(ta ? ta.value : ''); break; }
+      case 'na': S.pop = null; S.toast = { text: `${el.dataset.what || 'That'} isn’t part of this study` }; break;
+    }
+    render();
+    clearTimeout(toastTimer);
+    if (S.toast) toastTimer = setTimeout(() => { S.toast = null; render(); }, S.toast.undo ? 8000 : 2600);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && (S.pop || S.sheet)) { S.pop = null; S.sheet = null; render(); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); newDraft(); render(); }
+  });
+  document.querySelector('.study').addEventListener('click', e => {
+    const b = e.target.closest('[data-sc]');
+    if (b) { seedDm(); runScenario(b.dataset.sc); }
+  });
+
+  // Theme toggle mirrors Settings → Appearance.
+  const themeBtn = document.getElementById('themeBtn');
+  const isLight = () => {
+    const t = document.documentElement.getAttribute('data-theme');
+    return t ? t === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+  };
+  const syncThemeBtn = () => { themeBtn.textContent = isLight() ? 'Dark' : 'Light'; };
+  themeBtn.addEventListener('click', () => { document.documentElement.setAttribute('data-theme', isLight() ? 'dark' : 'light'); syncThemeBtn(); });
+  syncThemeBtn();
+
+  seedDm();
+  S = freshState();
+  render();
+})();
+</script>

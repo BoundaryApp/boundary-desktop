@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>K · Prose serif — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=Literata:ital,opsz,wght@0,7..72,400..600;1,7..72,400..600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..600;1,8..60,400..600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f5f5f7;
+      --muted: #c4c4cc;
+      --faint: #9e9ea8;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #e0b36a;
+      --bad: #f0b4b4;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --solid-fg: #111;
+      --de: #8a7aa8;
+      --re: #6d9470;
+      --se: #6f8fa3;
+      --tool-bg: #171914;
+      --tool-line: #3a4330;
+      --prose-size: 16.5px;
+      --prose-weight: 400;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #5c594f;
+      --faint: #7a766c;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --bad: #8a3a3a;
+      --deny-line: #d4b4b4;
+      --deny-hover: #f3e8e4;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+      --solid-fg: #fffcf6;
+      --tool-bg: #eef0e6;
+      --tool-line: #c5cbb0;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      height: auto;
+      min-height: 38px;
+      flex-wrap: wrap;
+      row-gap: 6px;
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+
+    .states {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      flex: 1 1 100%;
+      margin-left: 0;
+    }
+
+    .states .lbl {
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin: 0 2px 0 4px;
+    }
+
+    .states .grp {
+      display: flex;
+      gap: 4px;
+    }
+
+    .states .sep {
+      width: 1px;
+      height: 16px;
+      background: var(--line);
+      margin: 0 4px;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .proj-picker { margin: 10px 8px 6px; }
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: 100%;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+      background: #c4a574;
+    }
+
+    .proj-copy { min-width: 0; flex: 1; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .proj-trigger .chev { margin-left: auto; color: var(--faint); font-size: 11px; }
+
+    .sect {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 6px 4px 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .row:hover, .row.is-on { background: var(--hover); color: var(--text); }
+    .row .mini {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+    .thread-head .role { color: var(--faint); font-weight: 400; }
+
+    .log { flex: 1; overflow: auto; padding: 20px 24px 28px; position: relative; }
+
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+
+    .bubble {
+      background: var(--user);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 64ch;
+      margin-bottom: 16px;
+    }
+
+    .tool {
+      background: var(--tool-bg);
+      border: 1px solid var(--tool-line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 62ch;
+      margin-bottom: 16px;
+    }
+
+    .tool .meta { color: var(--ok); font-size: 12px; font-weight: 580; }
+    .tool ul { margin: 8px 0 0; padding: 0 0 0 16px; color: var(--muted); }
+
+    .prose {
+      color: var(--text);
+      max-width: 62ch;
+      font-family: var(--font-prose);
+      font-size: var(--prose-size);
+      font-weight: var(--prose-weight);
+      line-height: 1.68;
+      font-kerning: normal;
+      font-optical-sizing: auto;
+    }
+
+    .prose :is(p, li, blockquote, h2, h3) { font-family: inherit; }
+
+    .prose > :first-child { margin-top: 0; }
+    .prose > :last-child { margin-bottom: 0; }
+
+    .prose p { margin: 0 0 0.85em; }
+
+    .prose h2,
+    .prose h3 {
+      font-family: var(--font-prose);
+      font-weight: 600;
+      line-height: 1.3;
+      letter-spacing: -0.015em;
+      margin: 1.15em 0 0.4em;
+    }
+
+    .prose h2 { font-size: 1.2em; }
+    .prose h3 { font-size: 1.08em; }
+
+    .prose ul,
+    .prose ol {
+      margin: 0 0 0.85em;
+      padding: 0 0 0 1.2em;
+    }
+
+    .prose li { margin: 0.35em 0; }
+
+    .prose blockquote {
+      margin: 0 0 0.85em;
+      padding: 0 0 0 0.9em;
+      border-left: 2px solid var(--line);
+      color: var(--muted);
+    }
+
+    .prose code,
+    .prose pre { font-family: var(--font-mono); }
+
+    .prose code { font-size: 0.86em; }
+
+    .prose pre {
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 0 0 0.85em;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      overflow-x: auto;
+    }
+
+    .prose pre code { font-size: inherit; }
+
+    .prose table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 0.85em;
+      font-size: 0.92em;
+    }
+
+    .prose th,
+    .prose td {
+      border: 1px solid var(--line);
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    .prose th {
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .font-rationale {
+      display: none;
+      max-width: 62ch;
+      margin: 0 0 16px;
+      padding: 9px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+
+    .font-rationale strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .font-rationale p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    html.notes-on body[data-font="plex"] .font-rationale[data-font="plex"],
+    html.notes-on body[data-font="source"] .font-rationale[data-font="source"],
+    html.notes-on body[data-font="literata"] .font-rationale[data-font="literata"],
+    html.notes-on body[data-font="newsreader"] .font-rationale[data-font="newsreader"],
+    html.notes-on body[data-font="charter"] .font-rationale[data-font="charter"] {
+      display: block;
+    }
+
+    body[data-font="plex"] {
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --prose-size: 16.5px;
+      --prose-weight: 400;
+    }
+
+    body[data-font="source"] {
+      --font-prose: "Source Serif 4", Charter, Georgia, serif;
+      --prose-size: 17px;
+      --prose-weight: 420;
+    }
+
+    body[data-font="literata"] {
+      --font-prose: "Literata", Charter, Georgia, serif;
+      --prose-size: 16.5px;
+      --prose-weight: 400;
+    }
+
+    body[data-font="newsreader"] {
+      --font-prose: "Newsreader", Charter, Georgia, serif;
+      --prose-size: 17.5px;
+      --prose-weight: 400;
+    }
+
+    body[data-font="charter"] {
+      --font-prose: Charter, "XCharter", Georgia, "Times New Roman", serif;
+      --prose-size: 16.5px;
+      --prose-weight: 400;
+    }
+
+    body[data-baseline="off"] {
+      --font-ui: var(--font-prose);
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 52px;
+      resize: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { display: block; color: var(--faint); font-size: 10px; }
+
+    /* Right inspector ---------------------------------------------------- */
+
+    .right {
+      width: 304px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 2px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 11px 10px 10px;
+      color: var(--faint);
+      font-size: 13px;
+      font-weight: 550;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab:hover { color: var(--muted); }
+    .tab.is-on {
+      color: var(--text);
+      border-bottom-color: var(--text);
+    }
+
+    .pane {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 0 24px;
+    }
+
+    .ident {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 0 14px 12px;
+    }
+
+    .ident .glyph { margin-top: 1px; }
+    .ident .who-name { display: block; font-weight: 600; letter-spacing: -0.02em; }
+    .ident .who-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .ident button.who-meta {
+      padding: 0;
+      text-align: left;
+    }
+
+    .ident button.who-meta:hover { color: var(--text); }
+
+    .ident-actions { margin-left: auto; position: relative; }
+
+    .icon-more {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-more:hover, .icon-more.is-on {
+      background: var(--hover);
+      color: var(--text);
+    }
+
+    .menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 32px;
+      width: 168px;
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--rail);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+      z-index: 6;
+    }
+
+    .menu.is-open { display: block; }
+
+    .menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--text);
+    }
+
+    .menu button:hover { background: var(--hover); }
+
+    .hed {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 14px 14px 6px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .hed:first-child { padding-top: 2px; }
+
+    .hed .act {
+      letter-spacing: 0;
+      text-transform: none;
+      font-size: 12px;
+      font-weight: 550;
+      color: var(--muted);
+    }
+
+    .hed .act:hover { color: var(--text); }
+
+    .src {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 10px;
+      margin: 2px 8px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      text-align: left;
+      color: var(--text);
+    }
+
+    .src:hover { background: var(--hover); }
+    .src .id { font-weight: 580; }
+    .src .path {
+      grid-column: 1;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .src .meta {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      align-self: center;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      text-align: right;
+    }
+
+    .src-act {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: var(--faint);
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .src-act:hover { color: var(--text); }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 10px;
+      font-weight: 550;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+    .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+    .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+
+    .banner {
+      margin: 6px 14px 10px;
+      padding: 9px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .banner p {
+      margin: 0;
+      flex: 1;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .banner.warn {
+      border-color: var(--warn-line);
+      background: var(--warn-bg);
+    }
+
+    .banner.bad {
+      border-color: var(--deny-line);
+      background: var(--deny-hover);
+    }
+
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .btn-tiny:hover { background: var(--hover); }
+
+    .idx-group {
+      padding: 8px 14px 2px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .idx {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 1px 8px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      text-align: left;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .idx:hover, .idx.is-on { background: var(--hover); }
+
+    .opens {
+      margin: 10px 14px 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .opens b { color: var(--text); font-weight: 580; }
+
+    .member {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 1px 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
+
+    .member .mini {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .member .name { display: block; font-weight: 550; }
+    .member .sub { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .member .sub.live { color: var(--ok); }
+
+    .soul {
+      margin: 0 14px 12px;
+    }
+
+    .soul .kicker {
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 6px;
+    }
+
+    .soul p {
+      margin: 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .soul.prose-block p {
+      font-family: var(--font-prose);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .foot-note {
+      padding: 4px 14px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 12px 14px 0;
+    }
+
+    .bind {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: calc(100% - 16px);
+      margin: 12px 8px 0;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      text-align: left;
+      color: var(--text);
+    }
+
+    .bind:hover { background: var(--hover); }
+    .bind .name { display: block; font-weight: 580; }
+    .bind .path { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .bind .go { margin-left: auto; color: var(--faint); font-size: 12px; }
+
+    .empty {
+      padding: 18px 16px 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .tree {
+      padding: 4px 8px 8px;
+    }
+
+    .tree button {
+      display: flex;
+      width: 100%;
+      text-align: left;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+
+    .tree button:hover { background: var(--hover); }
+    .tree .dir { color: var(--muted); }
+    .tree .pad { padding-left: 22px; }
+
+    body:not([data-view="channel"]) [data-view="channel"],
+    body:not([data-view="dm"]) [data-view="dm"],
+    body:not([data-view="assistant"]) [data-view="assistant"],
+    body:not([data-view="leftover"]) [data-view="leftover"],
+    body:not([data-view="none"]) [data-view="none"] {
+      display: none;
+    }
+
+    body:not([data-tab="project"]) [data-tab="project"],
+    body:not([data-tab="agent"]) [data-tab="agent"],
+    body:not([data-tab="room"]) [data-tab="room"],
+    body:not([data-tab="session"]) [data-tab="session"] {
+      display: none;
+    }
+
+    body:not([data-src="hub"]) [data-src="hub"],
+    body:not([data-src="unmounted"]) [data-src="unmounted"],
+    body:not([data-src="writable"]) [data-src="writable"],
+    body:not([data-src="ready"]) [data-src="ready"],
+    body:not([data-src="stale"]) [data-src="stale"] {
+      display: none;
+    }
+
+    body[data-view="none"] .states .src-states { opacity: 0.35; pointer-events: none; }
+    body[data-view="none"] .needs-project { display: none; }
+    body:not([data-view="none"]) .needs-empty { display: none; }
+  </style>
+</head>
+<body data-view="dm" data-tab="project" data-src="ready" data-font="plex" data-baseline="on">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+      <a class="is-current" href="11-prose-serif.html">K Prose</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+    <label title="Keep rails and chrome on IBM Plex Sans. Uncheck to try the selected serif on chrome too."><input type="checkbox" id="baseline" checked /> Plex baseline</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Prose fonts and inspector states">
+        <span class="lbl">Prose</span>
+        <div class="grp" aria-label="Prose font">
+          <button class="is-on" data-font-go="plex" title="1 · Production face">Plex Serif</button>
+          <button data-font-go="source" title="2 · Recommended">Source Serif 4</button>
+          <button data-font-go="literata" title="3 · E-reader">Literata</button>
+          <button data-font-go="newsreader" title="4 · Newspaper">Newsreader</button>
+          <button data-font-go="charter" title="5 · macOS system font; Georgia elsewhere">Charter</button>
+        </div>
+        <span class="sep" aria-hidden="true"></span>
+        <div class="grp" aria-label="Conversation">
+          <button class="is-on" data-view-go="dm">DM</button>
+          <button data-view-go="channel">Channel</button>
+          <button data-view-go="leftover">Untitled</button>
+          <button data-view-go="assistant">Assistant</button>
+          <button data-view-go="none">No folder</button>
+        </div>
+        <span class="sep" aria-hidden="true"></span>
+        <div class="grp src-states" aria-label="Sources">
+          <button data-src-go="hub">Hub only</button>
+          <button data-src-go="unmounted">Not visible</button>
+          <button data-src-go="writable">Writable</button>
+          <button class="is-on" data-src-go="ready">Ready</button>
+          <button data-src-go="stale">Stale</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <aside class="left">
+        <div class="proj-picker">
+          <button class="proj-trigger" type="button" title="Current project" data-view="dm">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-view="channel">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-view="leftover">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-view="assistant">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button class="proj-trigger" type="button" title="Current project" data-view="none">
+            <span class="glyph" style="background:#3a3a44">—</span>
+            <span class="proj-copy">
+              <span class="name">No project</span>
+              <span class="path">Choose a folder to bind</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        <div class="sect"><span>Direct messages</span></div>
+        <button class="row" data-row="assistant" data-view-go="assistant"><span class="mini" style="background:#6f8fa3">A</span> Assistant</button>
+        <button class="row is-on" data-row="dm" data-view-go="dm"><span class="mini" style="background:var(--de)">D</span> UI/UX Designer</button>
+        <div class="sect"><span>Channels</span></div>
+        <button class="row" data-row="channel" data-view-go="channel">#launch-prep</button>
+        <button class="row" data-row="leftover" data-view-go="leftover">Recent · Untitled</button>
+        <span class="note" style="top: 18px; right: 8px" data-tip="Picker still chooses the hub. Extra folders never become rows here — 0013 stays.">1</span>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head" data-view="dm">
+          <span><strong>UI/UX Designer</strong> <span class="role">· Own UX and visual design</span></span>
+        </div>
+        <div class="thread-head" data-view="channel">
+          <span><strong>#launch-prep</strong> <span class="role">· 3 members</span></span>
+        </div>
+        <div class="thread-head" data-view="leftover">
+          <span><strong>Untitled session</strong> <span class="role">· Recent</span></span>
+        </div>
+        <div class="thread-head" data-view="assistant">
+          <span><strong>Assistant</strong> <span class="role">· Default agent on this machine</span></span>
+        </div>
+        <div class="thread-head" data-view="none">
+          <span><strong>UI/UX Designer</strong> <span class="role">· No folder bound</span></span>
+        </div>
+
+        <div class="log" role="log">
+          <div class="who">You</div>
+          <div class="bubble">Look through this folder and draft a resume brief for a product design role — summary, strengths, and how to talk about the job-search system.</div>
+          <div class="who" data-view="dm">UI/UX Designer</div>
+          <div class="who" data-view="channel">Researcher</div>
+          <div class="who" data-view="leftover">Assistant</div>
+          <div class="who" data-view="assistant">Assistant</div>
+          <div class="who" data-view="none">UI/UX Designer</div>
+          <div class="tool">
+            <div class="meta">Reading search_files · turn 2 of 20</div>
+            <ul>
+              <li>resume.pdf</li>
+              <li>cover-notes.md</li>
+            </ul>
+          </div>
+          <aside class="font-rationale" data-font="plex">
+            <strong>IBM Plex Serif · current production</strong>
+            <p>Squared serifs pair with Plex Sans and Mono. Feels mechanical over several paragraphs. Only weights 400 and 600 are loaded, so dark-mode thinning cannot be tuned. Keys 1–5 switch faces.</p>
+          </aside>
+          <aside class="font-rationale" data-font="source">
+            <strong>Source Serif 4 · recommended</strong>
+            <p>Built for screen reading. Variable weight plus optical size, so 17px uses the text cut. Slightly heavier (420) to offset antialiasing on dark. Pairs cleanly with Plex Sans. OFL / Fontsource.</p>
+          </aside>
+          <aside class="font-rationale" data-font="literata">
+            <strong>Literata · e-reader</strong>
+            <p>Designed for Google Play Books. Large, calm lowercase; holds up on dark backgrounds. Warmer and more bookish than a tool UI usually wants. Also has weight and optical-size axes.</p>
+          </aside>
+          <aside class="font-rationale" data-font="newsreader">
+            <strong>Newsreader · newspaper</strong>
+            <p>Elegant, with a news-text tone and optical sizes. Gets delicate at body size and weaker on dark. Shown at 17.5px so the thin strokes have a chance.</p>
+          </aside>
+          <aside class="font-rationale" data-font="charter">
+            <strong>Charter · macOS system</strong>
+            <p>Very sturdy and readable, with nothing to bundle on this machine. Ships with macOS only — Windows and Linux fall back to Georgia. XCharter can be bundled later if this wins.</p>
+          </aside>
+          <span class="note" style="top: 168px; left: 8px" data-tip="Keys 1–5 switch Plex, Source Serif 4, Literata, Newsreader, Charter. Light matters: weights are tuned for dark. Plex baseline keeps chrome on Plex Sans.">6</span>
+          <div class="prose">
+            <p>Product designer with <strong>eight years</strong> shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes, and applications into a <em>single working set</em> — scoped to files on disk, not an uploaded copy.</p>
+            <h2>How to talk about the through-line</h2>
+            <p>Keep the working set local, name the tools as they run, and leave the human in the loop when something dangerous is about to execute. The one-liner is: <em>I design systems that stay on the person’s machine.</em></p>
+            <h3>What the folder actually shows</h3>
+            <p>The resume and <code>cover-notes.md</code> agree on three strengths. Use these in the first screen, not buried under a tools list:</p>
+            <ul>
+              <li>Research that becomes a shipped surface, not a slide.</li>
+              <li>Local-first product sense — folders, mounts, and honest empty states.</li>
+              <li>Visual critique that asks before rewriting a whole deck.</li>
+            </ul>
+            <blockquote>
+              <p>Prefer a dedicated read-only notes folder. Never mount the home folder. The path stays visible so the person always knows what the agent can see.</p>
+            </blockquote>
+            <p>If a hiring manager asks how the system is wired, walk the sequence — do not invent a cloud sync story:</p>
+            <ol>
+              <li>Choose a folder on disk and bind it.</li>
+              <li>Index only what is mounted.</li>
+              <li>Open files in the native manager, not a fake tree.</li>
+            </ol>
+            <pre><code>boundary project bind "~/Documents/Job Search"
+boundary sources add "~/Notes/this-project" --read-only</code></pre>
+            <table>
+              <thead>
+                <tr><th>Signal</th><th>Where</th><th>Use in interview</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Local folder</td><td>resume.pdf</td><td>Ownership of the working set</td></tr>
+                <tr><td>Read-only notes</td><td>cover-notes.md</td><td>Consent and mount honesty</td></tr>
+                <tr><td>Named tools</td><td>transcript</td><td>No fake progress bar</td></tr>
+              </tbody>
+            </table>
+            <p>Close on the same sentence you would put at the top of a portfolio case: the interface is a reading surface first, chrome second.</p>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <textarea data-view="dm" placeholder="Message UI/UX Designer…"></textarea>
+          <textarea data-view="channel" placeholder="Post to #launch-prep · @ to address someone now"></textarea>
+          <textarea data-view="leftover" placeholder="Continue this session…"></textarea>
+          <textarea data-view="assistant" placeholder="Ask about this folder…"></textarea>
+          <textarea data-view="none" placeholder="Message UI/UX Designer…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button" data-view="dm"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button" data-view="channel"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button" data-view="leftover"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button" data-view="assistant"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip" type="button" data-view="none"><b>No project</b><span>Bind a folder</span></button>
+            <button class="chip">@</button>
+            <span>42 tok · 35/s</span>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <nav class="tabs" aria-label="Inspector">
+          <button class="tab" data-tab-go="room" data-view="channel">Room</button>
+          <button class="tab" data-tab-go="agent" data-view="dm">Agent</button>
+          <button class="tab" data-tab-go="agent" data-view="assistant">Agent</button>
+          <button class="tab" data-tab-go="agent" data-view="none">Agent</button>
+          <button class="tab" data-tab-go="session" data-view="leftover">Session</button>
+          <button class="tab" data-tab-go="project" data-view="dm">Project</button>
+          <button class="tab" data-tab-go="project" data-view="channel">Project</button>
+          <button class="tab" data-tab-go="project" data-view="leftover">Project</button>
+          <button class="tab" data-tab-go="project" data-view="assistant">Project</button>
+          <button class="tab" data-tab-go="project" data-view="none">Project</button>
+        </nav>
+        <span class="note" style="top: 10px; left: 8px" data-tip="Tabs split conversation identity from folder context. Do not stack members, role, and sources in one scroll.">2</span>
+
+        <div class="pane" data-tab="agent">
+          <div class="ident" data-view="dm">
+            <span class="glyph" style="background:var(--de)">D</span>
+            <span>
+              <span class="who-name">UI/UX Designer</span>
+              <span class="who-meta">@designer · Direct message</span>
+            </span>
+          </div>
+          <div class="ident" data-view="assistant">
+            <span class="glyph" style="background:var(--se)">A</span>
+            <span>
+              <span class="who-name">Assistant</span>
+              <span class="who-meta">Built-in · this machine</span>
+            </span>
+          </div>
+          <div class="ident" data-view="none">
+            <span class="glyph" style="background:var(--de)">D</span>
+            <span>
+              <span class="who-name">UI/UX Designer</span>
+              <span class="who-meta">@designer · Direct message</span>
+            </span>
+          </div>
+
+          <div class="soul">
+            <div class="kicker">Role</div>
+            <p data-view="dm">Own UX and visual design. Coordinate through project files and shared rooms.</p>
+            <p data-view="assistant">Default agent on this machine. Reads the bound folder when one is set.</p>
+            <p data-view="none">Own UX and visual design. Coordinate through project files and shared rooms.</p>
+          </div>
+
+          <div class="soul prose-block" data-view="dm">
+            <div class="kicker">Soul</div>
+            <p>Prefers concise visual critique. Asks before rewriting a whole deck. Speaks as a design partner, not a recruiter.</p>
+          </div>
+          <div class="soul prose-block" data-view="none">
+            <div class="kicker">Soul</div>
+            <p>Prefers concise visual critique. Asks before rewriting a whole deck. Speaks as a design partner, not a recruiter.</p>
+          </div>
+
+          <p class="foot-note">Private memory. Shared folder only when a project is bound.</p>
+          <div class="actions">
+            <button class="btn-tiny" type="button">Add to channel</button>
+            <button class="btn-tiny" type="button" data-view="dm">Open SOUL.md</button>
+            <button class="btn-tiny" type="button" data-view="none">Open SOUL.md</button>
+          </div>
+          <span class="note" style="top: 168px; left: 8px" data-tip="Role is the roster one-liner. Soul is the profile file — a document, not a second identity system. Skip Soul on Assistant until it has one.">3</span>
+        </div>
+
+        <div class="pane" data-tab="room">
+          <div class="ident">
+            <span>
+              <span class="who-name">#launch-prep</span>
+              <span class="who-meta">3 members · posts stay in the room</span>
+            </span>
+          </div>
+
+          <div class="hed">
+            <span>Members</span>
+            <button class="act" type="button">Add</button>
+          </div>
+          <div class="member">
+            <span class="mini" style="background:var(--re)">R</span>
+            <span>
+              <span class="name">Researcher</span>
+              <span class="sub live">Just now · companies.md</span>
+            </span>
+          </div>
+          <div class="member">
+            <span class="mini" style="background:var(--de)">D</span>
+            <span>
+              <span class="name">UI/UX Designer</span>
+              <span class="sub">Replied</span>
+            </span>
+          </div>
+          <div class="member">
+            <span class="mini" style="background:var(--se)">E</span>
+            <span>
+              <span class="name">Software Engineer</span>
+              <span class="sub">Quiet</span>
+            </span>
+          </div>
+
+          <button class="bind" type="button" data-tab-go="project">
+            <span>
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="go">Project →</span>
+          </button>
+          <span class="note" style="top: 248px; left: 8px" data-tip="Room tab is people. The bound folder is a chip that jumps to Project — not a second inspector stacked underneath.">4</span>
+        </div>
+
+        <div class="pane" data-tab="session">
+          <div class="ident">
+            <span>
+              <span class="who-name">Untitled session</span>
+              <span class="who-meta">Found in Recent · no standing row</span>
+            </span>
+          </div>
+          <div class="actions" style="padding-top: 4px">
+            <button class="btn-tiny" type="button">Keep as DM</button>
+            <button class="btn-tiny" type="button">Make channel</button>
+          </div>
+        </div>
+
+        <div class="pane" data-tab="project">
+          <div class="ident needs-project">
+            <span class="glyph">J</span>
+            <span>
+              <span class="who-name">Job Search</span>
+              <button class="who-meta mono" type="button" title="Open in Finder">~/Documents/Job Search</button>
+            </span>
+            <div class="ident-actions">
+              <button class="icon-more" type="button" id="more-btn" aria-label="Project actions">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7" cy="3" r="0.9"/><circle cx="7" cy="7" r="0.9"/><circle cx="7" cy="11" r="0.9"/></svg>
+              </button>
+              <div class="menu" id="more-menu">
+                <button type="button">Change folder</button>
+                <button type="button">Open in Finder</button>
+                <button type="button" data-src="stale" data-src-go="ready">Refresh index</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="needs-empty">
+            <p class="empty">No folder bound. Chat still works. Choose a project to attach sources.</p>
+            <div class="actions">
+              <button class="btn-tiny" type="button">Choose folder…</button>
+            </div>
+          </div>
+
+          <div class="needs-project">
+            <div class="banner bad" data-src="unmounted">
+              <p>notes-vault isn’t visible yet.</p>
+              <button class="btn-tiny" type="button" data-src-go="ready">Remount</button>
+            </div>
+            <div class="banner warn" data-src="writable">
+              <p>This extra folder is writable.</p>
+              <button class="btn-tiny" type="button" data-src-go="ready">Keep</button>
+            </div>
+            <div class="banner warn" data-src="stale">
+              <p>Index is behind the files.</p>
+              <button class="btn-tiny" type="button" data-src-go="ready">Refresh</button>
+            </div>
+
+            <div class="hed">
+              <span>Sources</span>
+              <a class="act" href="09-add-source.html">Add</a>
+            </div>
+
+            <div class="src">
+              <span class="id">project</span>
+              <span class="path">This folder</span>
+              <span class="meta">
+                <span class="pill ok">Hub</span>
+                <button class="src-act" type="button">Open</button>
+              </span>
+            </div>
+
+            <div class="src" data-src="unmounted">
+              <span class="id">notes-vault</span>
+              <span class="path mono">~/Notes/this-project</span>
+              <span class="meta">
+                <span class="pill bad">Not visible</span>
+                <button class="src-act" type="button">Open</button>
+                <button class="src-act" type="button">Remove</button>
+              </span>
+            </div>
+            <div class="src" data-src="writable">
+              <span class="id">notes-vault</span>
+              <span class="path mono">~/Notes/this-project</span>
+              <span class="meta">
+                <span class="pill warn">Writable</span>
+                <button class="src-act" type="button">Open</button>
+                <button class="src-act" type="button">Remove</button>
+              </span>
+            </div>
+            <div class="src" data-src="ready">
+              <span class="id">notes-vault</span>
+              <span class="path mono">~/Notes/this-project</span>
+              <span class="meta">
+                <span class="pill ok">Read-only</span>
+                <button class="src-act" type="button">Open</button>
+                <button class="src-act" type="button">Remove</button>
+              </span>
+            </div>
+            <div class="src" data-src="stale">
+              <span class="id">notes-vault</span>
+              <span class="path mono">~/Notes/this-project</span>
+              <span class="meta">
+                <span class="pill ok">Read-only</span>
+                <button class="src-act" type="button">Open</button>
+                <button class="src-act" type="button">Remove</button>
+              </span>
+            </div>
+          </div>
+
+          <span class="note" style="top: 86px; left: 8px" data-tip="Happy path is silent. Banners appear only for Not visible, Writable, or Stale — one line, one action. No Files / Live rows. No Coming soon.">5</span>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const defaultTab = {
+      dm: "agent",
+      channel: "room",
+      leftover: "session",
+      assistant: "project",
+      none: "agent",
+    };
+
+    const fonts = ["plex", "source", "literata", "newsreader", "charter"];
+
+    const apply = ({ view, tab, src, font } = {}) => {
+      if (view) document.body.dataset.view = view;
+      if (src) document.body.dataset.src = src;
+      if (font && fonts.includes(font)) document.body.dataset.font = font;
+      const nextView = document.body.dataset.view;
+      const allowed = {
+        dm: ["agent", "project"],
+        channel: ["room", "project"],
+        leftover: ["session", "project"],
+        assistant: ["agent", "project"],
+        none: ["agent", "project"],
+      };
+      let nextTab = tab || document.body.dataset.tab;
+      if (!allowed[nextView].includes(nextTab)) nextTab = defaultTab[nextView];
+      document.body.dataset.tab = nextTab;
+
+      document.querySelectorAll(".states [data-view-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.viewGo === nextView);
+      });
+      document.querySelectorAll(".states [data-src-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.srcGo === document.body.dataset.src);
+      });
+      document.querySelectorAll(".tabs .tab").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.view === nextView && b.dataset.tabGo === nextTab);
+      });
+      document.querySelectorAll(".left .row[data-row]").forEach((b) => {
+        const on = b.dataset.row === nextView || (nextView === "none" && b.dataset.row === "dm");
+        b.classList.toggle("is-on", on);
+      });
+      document.querySelectorAll(".states [data-font-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.fontGo === document.body.dataset.font);
+      });
+    };
+
+    if (params.get("view")) apply({ view: params.get("view") });
+    if (params.get("tab")) apply({ tab: params.get("tab") });
+    if (params.get("state") || params.get("src")) {
+      apply({ src: params.get("src") || params.get("state") });
+    }
+    if (params.get("font")) apply({ font: params.get("font") });
+
+    document.querySelectorAll("[data-view-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ view: btn.dataset.viewGo, tab: defaultTab[btn.dataset.viewGo] }));
+    });
+    document.querySelectorAll("[data-src-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ src: btn.dataset.srcGo, tab: "project" }));
+    });
+    document.querySelectorAll("[data-tab-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ tab: btn.dataset.tabGo }));
+    });
+    document.querySelectorAll("[data-font-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ font: btn.dataset.fontGo }));
+    });
+
+    const baselineBox = document.getElementById("baseline");
+    baselineBox.addEventListener("change", () => {
+      document.body.dataset.baseline = baselineBox.checked ? "on" : "off";
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = e.target.tagName;
+      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      const index = Number(e.key) - 1;
+      if (index >= 0 && index < fonts.length) apply({ font: fonts[index] });
+    });
+
+    const moreBtn = document.getElementById("more-btn");
+    const moreMenu = document.getElementById("more-menu");
+    moreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      moreMenu.classList.toggle("is-open");
+      moreBtn.classList.toggle("is-on", moreMenu.classList.contains("is-open"));
+    });
+    document.addEventListener("click", () => {
+      moreMenu.classList.remove("is-open");
+      moreBtn.classList.remove("is-on");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A · Prompt actions — Boundary message-actions study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    /* A · Under: verbs in the 28px gap below the bubble, time in the "You" row. */
+    .acts.under { position: absolute; top: 100%; left: -6px; margin-top: 2px; gap: 4px; }
+    .acts.under .act { height: 24px; } /* 2px + 24px fits the 28px message gap */
+
+    /* B · Floating: Slack-style toolbar straddling the bubble's top edge. */
+    .bwrap { position: relative; }
+    .toolbar {
+      position: absolute; top: -17px; right: 10px; display: flex; align-items: center; gap: 2px;
+      padding: 2px 2px 2px 8px; border-radius: 9px; border: 1px solid var(--line);
+      background: var(--rail); box-shadow: var(--shadow);
+    }
+    .toolbar .stamp { margin-right: 4px; }
+    .toolbar .div { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
+
+    /* C · Head row: time and verbs share the speaker line. */
+    .who.head { height: 20px; align-items: center; }
+    .who.head .acts { margin-left: auto; margin-block: -4px; }
+    .who.head .versions { margin-left: 4px; }
+    .who.head .versions + .acts { margin-left: auto; }
+
+    .who .sep-dot { color: var(--faint); }
+
+    /* Editing */
+    .editor { border: 1px solid var(--line-strong); border-radius: 12px; background: var(--user); }
+    .editor textarea {
+      display: block; width: 100%; min-height: 76px; resize: none; border: 0; outline: 0;
+      background: transparent; padding: 12px 16px 4px; font-size: 15px; line-height: 1.55;
+    }
+    .editor-foot { display: flex; align-items: center; gap: 6px; padding: 6px 8px 8px 16px; }
+    .editor-foot .cap { color: var(--faint); font-size: 12px; margin-right: auto; }
+    .dim { opacity: 0.38; transition: opacity 150ms; }
+
+    .msg .note { top: 0; }
+  </style>
+</head>
+<body data-variant="right" data-state="rest">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="4.5" r="1.5"/><path d="M4.5 5v6M11.5 6v.5c0 2.5-7 1.5-7 4"/></symbol>
+      <symbol id="i-left" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></symbol>
+      <symbol id="i-right" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="study-bar">
+    <a class="brand" href="index.html">Message actions</a>
+    <nav>
+      <a class="is-current" href="01-user-actions.html">A Prompt actions</a>
+      <a href="02-assistant-actions.html">B Reply actions</a>
+      <a href="03-shortcuts.html">C Keyboard</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp" aria-label="Placement">
+          <button data-variant-go="under">A Under</button>
+          <button data-variant-go="float">B Floating</button>
+          <button data-variant-go="head">C Head row</button>
+          <button data-variant-go="right">D Right bubble</button>
+        </div>
+        <span class="sep" aria-hidden="true"></span>
+        <div class="grp" aria-label="State">
+          <button data-state-go="rest">Rest</button>
+          <button data-state-go="hover">Hover</button>
+          <button data-state-go="copied">Copied</button>
+          <button data-state-go="keyboard">Keyboard</button>
+          <button data-state-go="editing">Editing</button>
+          <button data-state-go="edited">Edited</button>
+          <button data-state-go="branched">Branched</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg></button>
+        <button class="icon-btn" title="Services"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg></button>
+        <button class="icon-btn" title="Resources"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg></button>
+        <button class="icon-btn end" title="Settings"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg></button>
+      </nav>
+
+      <aside class="left">
+        <button class="proj-trigger" type="button">
+          <span class="glyph">J</span>
+          <span class="proj-copy"><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+        </button>
+        <div class="sect">Chats</div>
+        <div id="rows"></div>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head" id="head"></div>
+        <div class="log" role="log" aria-label="Transcript"><div class="col" id="log"></div></div>
+        <footer class="composer">
+          <div class="col">
+            <textarea id="composer" placeholder="Reply to Assistant…"></textarea>
+            <div class="cluster">
+              <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+              <button class="chip is-on" type="button"><b>Local · qwen3:14b</b><span>from project default</span></button>
+              <span class="hint"><kbd>↑</kbd> edits your last message</span>
+            </div>
+          </div>
+        </footer>
+        <div class="toast" data-show="branched">Branched into a new chat <button type="button" data-state-go="rest">Go back</button></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="study.js"></script>
+  <script>
+    const FULL = (day, t) => `${day} 2026 at ${t}`;
+    const M = {
+      y1: { who: "You", time: "4:52 PM", full: FULL("Monday, 28 September", "4:52:17 PM"),
+            text: "Which of my three portfolio case studies should lead for product design roles?" },
+      ya: { who: "Assistant", time: "4:52 PM", full: FULL("Monday, 28 September", "4:52:30 PM"),
+            text: ["Lead with the hiring-tools project. It has the clearest research-to-ship story and the numbers to back it."] },
+      m1: { who: "You", time: "2:09 PM", full: FULL("Tuesday, 29 September", "2:09:41 PM"),
+            text: "Look through this folder and draft a one-paragraph summary of my resume for a product design role." },
+      a1: { who: "Assistant", time: "2:09 PM", full: FULL("Tuesday, 29 September", "2:09:58 PM"),
+            text: ["Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes and applications into one working set."] },
+      m2: { who: "You", time: "2:14 PM", full: FULL("Tuesday, 29 September", "2:14:08 PM"),
+            text: "Now tighten that into a cover-letter opener for Acme. Use the stronger voice and mention the hiring-tools work." },
+      a2: { who: "Assistant", time: "2:14 PM", full: FULL("Tuesday, 29 September", "2:14:31 PM"),
+            text: ["I've spent eight years designing tools that help hiring teams make better calls — most recently a job-search system that turns a folder of resumes, notes and applications into one working set. Acme's recruiting platform is the product I want to build next."] },
+      m2b: { who: "You", time: "2:16 PM", full: FULL("Tuesday, 29 September", "2:16:02 PM"),
+            text: "Now tighten that into a cover-letter opener for Acme. Keep it under 60 words and lead with the hiring-tools work." },
+      a2b: { who: "Assistant", time: "2:16 PM", full: FULL("Tuesday, 29 September", "2:16:19 PM"),
+            text: ["Hiring tools are where I do my best work. Most recently I designed a job-search system that turns a folder of resumes, notes and applications into one working set. I'd like to bring that research-first, ship-it habit to Acme."] },
+    };
+
+    const ico = (id) => `<svg><use href="#i-${id}"/></svg>`;
+    const note = (n, style, tip) => `<span class="note" style="${style}" data-tip="${tip}">${n}</span>`;
+    const stamp = (m, reveal = true) =>
+      `<span class="stamp${reveal ? " reveal" : ""}" title="${m.full}">${m.time}</span>`;
+
+    function buttons(m, o) {
+      const last = o.target;
+      return `
+        <button class="act ${o.copied ? "is-done" : ""}" data-act="copy" aria-label="Copy" data-tt="Copy">${ico(o.copied ? "check" : "copy")}<span class="lbl">Copied</span></button>
+        <button class="act ${o.kb ? "kb" : ""}" data-act="edit" aria-label="Edit" data-tt="${last ? "Edit  ↑" : "Edit"}">${ico("edit")}</button>
+        <button class="act" data-act="branch" aria-label="Branch into a new chat" data-tt="Branch to new chat">${ico("branch")}</button>`;
+    }
+
+    const versionPicker = (n, of) => `
+      <span class="versions" aria-label="Version ${n} of ${of}">
+        <button class="act" aria-label="Previous version" data-state-go="${n > 1 ? "rest" : ""}">${ico("left")}</button>
+        ${n} / ${of}
+        <button class="act" aria-label="Next version" data-state-go="${n < of ? "edited" : ""}">${ico("right")}</button>
+      </span>`;
+
+    function userMsg(m, o = {}) {
+      const v = document.body.dataset.variant;
+      const cls = `msg u${o.hover ? " force-hover" : ""}`;
+      const edited = o.edited ? `<span class="edited">· edited</span>` : "";
+      const vp = o.versions ? versionPicker(...o.versions) : "";
+      const target = o.target ? ` data-target="1"` : "";
+      const notes = o.target ? notesFor(v) : "";
+
+      if (o.editing) {
+        return `<div class="msg u"${target}>
+          <div class="who">${v === "right" ? "Editing" : `You <span class="sep-dot">·</span> editing`}</div>
+          <div class="editor">
+            <textarea aria-label="Edit message">${m.text}</textarea>
+            <div class="editor-foot">
+              <span class="cap">Sends as version 2. The reply below stays with version 1.</span>
+              <button class="btn" type="button" data-state-go="rest">Cancel <span class="kbd">Esc</span></button>
+              <button class="btn solid" type="button" data-state-go="edited">Send <span class="kbd" style="color:inherit;opacity:.6">⌘↵</span></button>
+            </div>
+          </div>
+          ${note(3, "left:-28px;top:40px", "Edit is inline, in place. Esc cancels, ⌘↵ resends. The old reply dims so it is clear it will be replaced in the new version, not deleted.")}
+        </div>`;
+      }
+
+      if (v === "right") {
+        // D · Right bubble (recommended)
+        const mark = o.edited ? `<span class="edited">edited</span>` : "";
+        return `<div class="${cls} rb"${target}>
+          <div class="bubble">${m.text}</div>
+          <div class="acts under">${mark}${vp}<span class="acts reveal">${stamp(m, false)}${buttons(m, o)}</span></div>
+          ${notes}
+        </div>`;
+      }
+
+      if (v === "float") {
+        return `<div class="${cls}"${target}>
+          <div class="who">You ${edited}</div>
+          <div class="bwrap">
+            <div class="bubble">${m.text}</div>
+            <div class="toolbar reveal">${stamp(m, false)}<span class="div"></span>${buttons(m, o)}</div>
+          </div>
+          ${vp ? `<div class="acts under">${vp}</div>` : ""}
+          ${notes}
+        </div>`;
+      }
+
+      if (v === "head") {
+        return `<div class="${cls}"${target}>
+          <div class="who head">You ${edited} <span class="sep-dot reveal">·</span> ${stamp(m)} ${vp}
+            <span class="acts reveal">${buttons(m, o)}</span></div>
+          <div class="bubble">${m.text}</div>
+          ${notes}
+        </div>`;
+      }
+
+      // A · Under
+      return `<div class="${cls}"${target}>
+        <div class="who">You ${edited} <span class="sep-dot reveal">·</span> ${stamp(m)}</div>
+        <div class="bubble">${m.text}</div>
+        <div class="acts under">${vp}<span class="acts reveal">${buttons(m, o)}</span></div>
+        ${notes}
+      </div>`;
+    }
+
+    function notesFor(v) {
+      const time = note(2, "left:-28px;top:-2px", "Time shows on hover; the tooltip has the full date and seconds. Day dividers carry the date. A persistent time appears only after a gap of an hour or more, so the log stays quiet.");
+      if (v === "right") return note(2, "right:-28px;top:0", "No 'You' label: the right edge says who spoke. Time moves into the hover row, with the full date and seconds in its tooltip. Day dividers carry the date.") +
+        note(1, "right:-28px;top:calc(100% + 6px)", "D (recommended): your turns hug the right edge, fit to their text, up to 80% of the column. Text stays left-aligned inside. The row lines up with the bubble's right edge (time, then Copy / Edit / Branch) in the 28px gap, so nothing reflows. Very long pastes collapse behind Show more.") +
+        note(4, "right:-28px;top:calc(100% + 34px)", "Branch opens a new chat holding everything above this prompt, with this prompt back in the composer unsent. No tokens are spent until you send.");
+      if (v === "float") return time.replace("top:-2px", "top:22px") +
+        note(1, "right:-28px;top:14px", "B: toolbar floats over the bubble's top edge (Slack, Discord). Compact, but it covers the previous message's last line on tight spacing and reads as chat-room chrome. Keep as a foil.");
+      if (v === "head") return time +
+        note(1, "right:-28px;top:-2px", "C: time and verbs share the speaker line. Zero overlap, but verbs are above the text you just read, and the row gets busy once the version picker appears.");
+      return time +
+        note(1, "left:-28px;top:calc(100% + 6px)", "A (previous pick, now a foil): full-width bubble with verbs on the left in the 28px gap. Calm, but prompts and replies share one edge, so the log does not read as turns. Nothing reflows on hover; a 60ms show delay stops flicker as the pointer crosses the log.") +
+        note(4, "left:112px;top:calc(100% + 34px)", "Branch opens a new chat holding everything above this prompt, with this prompt back in the composer unsent. No tokens are spent until you send.");
+    }
+
+    function assistantMsg(m, o = {}) {
+      return `<div class="msg a${o.dim ? " dim" : ""}${o.hover ? " force-hover" : ""}">
+        <div class="who">Assistant <span class="sep-dot reveal">·</span> ${stamp(m)}</div>
+        <div class="prose">${m.text.map((p) => `<p>${p}</p>`).join("")}</div>
+      </div>`;
+    }
+
+    function render() {
+      const s = document.body.dataset.state;
+      const log = document.getElementById("log");
+      const rows = document.getElementById("rows");
+      const head = document.getElementById("head");
+      const composer = document.getElementById("composer");
+      const branched = s === "branched";
+
+      rows.innerHTML = `
+        <button class="row ${branched ? "" : "is-on"}">Draft outreach for Acme</button>
+        ${branched ? `<button class="row child is-on">Draft outreach for Acme <span class="badge">branch</span></button>` : ""}
+        <button class="row">Portfolio order</button>
+        <button class="row">Name one primary color</button>`;
+
+      head.innerHTML = branched
+        ? `<span><strong>Draft outreach for Acme</strong> <span class="role">· branch</span></span>
+           <a class="from" href="#" data-state-go="rest">from Draft outreach for Acme, 2:14 PM</a>`
+        : `<span><strong>Assistant</strong> <span class="role">· Job Search</span></span><span></span>`;
+
+      const earlier = `
+        <div class="day">Yesterday</div>
+        ${userMsg(M.y1)}
+        ${assistantMsg(M.ya)}
+        <div class="day">Today</div>
+        ${userMsg(M.m1)}
+        ${assistantMsg(M.a1)}`;
+
+      if (branched) {
+        log.innerHTML = `${earlier}
+          <div class="msg"><div class="mark-line">Branched from <a href="#" data-state-go="rest">Draft outreach for Acme</a> · 2:17 PM</div>
+          ${note(4, "left:-28px;top:-2px", "The branch copies history above the prompt, puts the prompt back in the composer unsent, and nests under its parent on the rail. The original chat is untouched. Uses the same divider as a provider switch.")}</div>`;
+        composer.value = M.m2.text;
+        composer.placeholder = "";
+        log.parentElement.scrollTop = log.parentElement.scrollHeight;
+        return;
+      }
+
+      composer.value = "";
+      composer.placeholder = "Reply to Assistant…";
+
+      const t = {
+        target: true,
+        hover: ["hover", "copied", "keyboard"].includes(s),
+        copied: s === "copied",
+        kb: s === "keyboard",
+        editing: s === "editing",
+      };
+
+      if (s === "edited") {
+        log.innerHTML = `${earlier}
+          ${userMsg(M.m2b, { target: true, edited: true, versions: [2, 2] })}
+          ${assistantMsg(M.a2b)}`;
+      } else {
+        log.innerHTML = `${earlier}
+          ${userMsg(M.m2, t)}
+          ${assistantMsg(M.a2, { dim: t.editing })}`;
+      }
+
+      log.parentElement.scrollTop = log.parentElement.scrollHeight;
+      if (t.editing) {
+        const ta = log.querySelector(".editor textarea");
+        requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+      }
+    }
+
+    // Live behaviour on top of the forced review states.
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".act[data-act]");
+      if (!btn) return;
+      const msg = btn.closest(".msg");
+      const act = btn.dataset.act;
+      if (act === "copy") {
+        const text = msg.querySelector(".bubble")?.textContent ?? "";
+        try { await navigator.clipboard.writeText(text); } catch { /* file:// may block clipboard */ }
+        btn.classList.add("is-done");
+        btn.querySelector("use").setAttribute("href", "#i-check");
+        setTimeout(() => {
+          btn.classList.remove("is-done");
+          btn.querySelector("use").setAttribute("href", "#i-copy");
+        }, 1400);
+      } else if (msg.dataset.target) {
+        study.apply({ state: act === "edit" ? "editing" : "branched" });
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      const s = document.body.dataset.state;
+      if (s === "editing" && e.key === "Escape") study.apply({ state: "rest" });
+      if (s === "editing" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) study.apply({ state: "edited" });
+      const c = document.getElementById("composer");
+      if (e.key === "ArrowUp" && document.activeElement === c && !c.value) {
+        e.preventDefault();
+        study.apply({ state: "editing" });
+      }
+    });
+
+    study.init({ render });
+  </script>
+</body>
+</html>

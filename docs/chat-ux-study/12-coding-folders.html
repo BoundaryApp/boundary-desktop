@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Boundary Coding Folders</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    /* Layout: the kit's app window (icon rail, project rail, thread, inspector) with a
+       flow switcher in the title bar and a review caption docked under the window. */
+    :root {
+      color-scheme: dark;
+      --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #c4843a;
+      --bad: #e8a0a0;
+      --code: #7fb2e8;
+      --code-dim: #16222f;
+      --code-line: #2b4258;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --scrim: rgba(5, 5, 8, 0.55);
+      --solid-fg: #111;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]):not(.dark) {
+        color-scheme: light;
+        --bg: #f3f1ea; --rail: #fffcf6; --panel: #fffcf6; --hover: #ece8dc; --line: #e3dfd3;
+        --text: #1c1b17; --muted: #6d6a60; --faint: #9a968a; --accent: #1c1b17; --accent-dim: #ece8dc;
+        --user: #fffcf6; --ok: #3d6b40; --warn: #8a5a1a; --bad: #8a3a3a;
+        --code: #2c5d8f; --code-dim: #e6eef5; --code-line: #b9cde0;
+        --deny-line: #d4b4b4; --deny-hover: #f3e8e4; --warn-line: #d4c4a0; --warn-bg: #f3eee4;
+        --scrim: rgba(40, 36, 28, 0.25); --solid-fg: #fffcf6;
+      }
+    }
+
+    :root[data-theme="light"], html.light {
+      color-scheme: light;
+      --bg: #f3f1ea; --rail: #fffcf6; --panel: #fffcf6; --hover: #ece8dc; --line: #e3dfd3;
+      --text: #1c1b17; --muted: #6d6a60; --faint: #9a968a; --accent: #1c1b17; --accent-dim: #ece8dc;
+      --user: #fffcf6; --ok: #3d6b40; --warn: #8a5a1a; --bad: #8a3a3a;
+      --code: #2c5d8f; --code-dim: #e6eef5; --code-line: #b9cde0;
+      --deny-line: #d4b4b4; --deny-hover: #f3e8e4; --warn-line: #d4c4a0; --warn-bg: #f3eee4;
+      --scrim: rgba(40, 36, 28, 0.25); --solid-fg: #fffcf6;
+    }
+
+    [hidden] { display: none !important; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font-ui); }
+    .mono { font-family: var(--font-mono); }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .study-bar { background: var(--rail); color: var(--muted); border-bottom-color: var(--line); }
+    .study-bar .brand { color: var(--text); }
+    .study-bar nav a { color: var(--muted); }
+    .study-bar nav a.is-current, .study-bar nav a:hover { color: var(--text); background: var(--hover); }
+    .study-bar label { color: var(--muted); }
+
+    /* Narrow screens: the window keeps its desktop width and scrolls inside its own box. */
+    .viewport { overflow-x: auto; }
+    .app-stage { background: var(--bg); min-width: 1080px; height: calc(100vh - 36px); }
+    .titlebar { background: var(--rail); border-bottom: 1px solid var(--line); color: var(--muted); gap: 14px; }
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    .flows { display: flex; gap: 4px; margin-left: 12px; }
+    .flows button {
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+      color: var(--muted); font-size: 12px;
+    }
+    .flows button.is-on { color: var(--text); background: var(--hover); border-color: var(--faint); }
+    .steps { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+    .steps button {
+      padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
+      color: var(--faint); font-size: 11px;
+    }
+    .steps button.branch { border-style: dashed; }
+    .steps button.is-on { color: var(--text); background: var(--hover); }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+
+    /* Icon rail ------------------------------------------------------------ */
+    .icon-rail {
+      width: 48px; background: var(--rail); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; align-items: center; padding: 10px 0 12px; gap: 4px;
+    }
+    .icon-rail .mark { width: 22px; height: 22px; margin: 2px 0 10px; border: 1px solid var(--line); border-radius: 6px; }
+    .icon-btn { width: 32px; height: 32px; border-radius: 8px; color: var(--muted); display: grid; place-items: center; }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .stage { flex: 1; min-width: 0; display: flex; position: relative; background: var(--bg); }
+    .screen-chat, .screen-settings { flex: 1; min-width: 0; display: flex; }
+
+    /* Left rail ------------------------------------------------------------- */
+    .left { width: 228px; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+    .proj-trigger { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--accent-dim); border: 1px solid var(--line); margin-bottom: 10px; }
+    .glyph { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 650; color: #fff; background: #6f8fb8; flex-shrink: 0; position: relative; }
+    .glyph.alt { background: #8f7bb8; }
+    .proj-copy { min-width: 0; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+    .rail-hed { font-size: 11px; color: var(--faint); padding: 8px 8px 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .chat-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 7px; color: var(--muted); text-align: left; }
+    .chat-row.is-on { color: var(--text); background: var(--hover); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--code); flex-shrink: 0; }
+    .dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.25; } }
+
+    /* Thread ---------------------------------------------------------------- */
+    .center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .thread-head { padding: 12px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 8px; }
+    .thread-head h1 { margin: 0; font-size: 14px; font-weight: 600; }
+    .thread-head span { color: var(--faint); font-size: 12px; }
+    .thread { flex: 1; overflow: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+    .msg-user { align-self: flex-end; max-width: 52ch; padding: 9px 12px; border-radius: 12px; background: var(--user); border: 1px solid var(--line); }
+    .msg-bot { max-width: 62ch; line-height: 1.55; }
+    .msg-bot p { margin: 0 0 8px; }
+    .msg-bot code { font-size: 12px; padding: 1px 4px; border-radius: 4px; background: var(--hover); }
+    .tool {
+      max-width: 62ch; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+      border: 1px solid var(--code-line); background: var(--code-dim); color: var(--code); font-size: 12px;
+    }
+    .tool .mono { color: var(--text); }
+    .tool .sp { margin-left: auto; color: var(--muted); }
+    .composer { margin: 0 24px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 10px 12px; color: var(--faint); display: flex; align-items: center; gap: 8px; }
+    .composer .chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .composer .sp { margin-left: auto; }
+
+    /* Interrupt card (0006 family) */
+    .interrupt { max-width: 62ch; border: 1px solid var(--code-line); border-radius: 12px; background: var(--panel); padding: 14px 16px; }
+    .interrupt .kicker { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--code); font-weight: 650; margin-bottom: 6px; }
+    .interrupt h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; text-wrap: balance; }
+    .interrupt p { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+    .interrupt .path-line { display: inline-block; margin-bottom: 10px; padding: 3px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 12px; }
+    .interrupt ul { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+    .interrupt .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .interrupt.done { border-color: var(--line); padding: 10px 14px; }
+    .interrupt.done p { margin: 0; }
+
+    /* Inspector ------------------------------------------------------------- */
+    .right { width: 320px; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; position: relative; overflow: auto; }
+    .tabs { display: flex; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }
+    .tabs span { padding: 6px 10px; font-size: 12px; color: var(--faint); border-bottom: 2px solid transparent; }
+    .tabs span.is-on { color: var(--text); border-bottom-color: var(--text); }
+    .ident { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+    .ident .name { display: block; font-weight: 600; }
+    .ident .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+    .sec-hed { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 6px; font-size: 11px; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; }
+    .sec-hed button { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); padding: 2px 6px; border-radius: 6px; }
+    .sec-hed button:hover { background: var(--hover); }
+    .src { display: flex; align-items: flex-start; gap: 10px; margin: 2px 8px; padding: 8px 8px; border-radius: 8px; }
+    .src.fresh { background: var(--code-dim); box-shadow: inset 0 0 0 1px var(--code-line); }
+    .src-main { flex: 1; min-width: 0; }
+    .src .id { display: block; font-weight: 580; }
+    .src .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+    .src .who { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .src-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .src-meta .link { font-size: 11px; color: var(--muted); }
+    .src-meta .link:hover { color: var(--text); }
+
+    .pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+    .pill.ok { color: var(--ok); }
+    .pill.bad { color: var(--bad); border-color: var(--deny-line); }
+    .pill.warn { color: var(--warn); }
+    .pill.code { color: var(--code); border-color: var(--code-line); background: var(--code-dim); }
+    .pill.off { color: var(--faint); border-style: dashed; }
+    .spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .legend { margin: 6px 14px 4px; display: grid; gap: 4px; font-size: 11px; color: var(--faint); }
+    .legend div { display: flex; gap: 6px; align-items: center; }
+
+    .banner { margin: 8px 12px; padding: 10px 12px; border-radius: 10px; font-size: 12px; }
+    .banner h4 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; }
+    .banner p { margin: 0 0 8px; color: var(--muted); line-height: 1.45; }
+    .banner.bad { border: 1px solid var(--deny-line); background: var(--deny-hover); }
+    .banner.warn { border: 1px solid var(--warn-line); background: var(--warn-bg); }
+    .banner.code { border: 1px solid var(--code-line); background: var(--code-dim); }
+    .banner .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .checklist { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 5px; }
+    .checklist li { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+    .checklist li.done { color: var(--text); }
+    .checklist .tick { width: 12px; text-align: center; color: var(--ok); }
+    .checklist li.now .tick { color: var(--code); }
+
+    .popover {
+      position: absolute; top: 150px; left: 12px; right: 12px; z-index: 6; padding: 14px; border-radius: 12px;
+      background: var(--panel); border: 1px solid var(--code-line); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .popover h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .popover p { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .popover ul { margin: 0 0 12px; padding-left: 16px; color: var(--muted); font-size: 12px; }
+
+    /* Buttons ----------------------------------------------------------------- */
+    .btn-solid { background: var(--text); color: var(--bg); font-weight: 580; padding: 7px 12px; border-radius: 8px; }
+    .btn-code { background: var(--code); color: var(--solid-fg); font-weight: 580; padding: 7px 12px; border-radius: 8px; }
+    .btn-ghost { border: 1px solid var(--line); padding: 7px 12px; border-radius: 8px; color: var(--text); }
+    .btn-ghost:hover { background: var(--hover); }
+    .btn-tiny { padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); }
+    .btn-tiny:hover { color: var(--text); background: var(--hover); }
+    .btn-tiny.primary { color: var(--text); border-color: var(--faint); }
+
+    /* Sheets ------------------------------------------------------------------ */
+    .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 4; }
+    .sheet {
+      position: absolute; inset: 24px; max-width: 540px; margin: auto; height: fit-content; max-height: calc(100% - 48px);
+      overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 22px 18px; z-index: 5;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+    }
+    .sheet .kicker { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 650; margin-bottom: 8px; display: flex; justify-content: space-between; }
+    .sheet h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+    .sheet > p { margin: 0 0 16px; color: var(--muted); line-height: 1.5; }
+    .choice { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 8px; }
+    .choice:hover { background: var(--hover); }
+    .choice b { display: block; font-weight: 580; }
+    .choice .sub { display: block; color: var(--faint); font-size: 12px; margin-top: 3px; }
+    .choice .tag { margin-left: auto; align-self: center; }
+    .choice.is-off { opacity: 0.5; cursor: not-allowed; }
+    .choice.is-off:hover { background: none; }
+    .choice.is-sel { border-color: var(--code-line); background: var(--code-dim); }
+    .radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--faint); margin-top: 2px; flex-shrink: 0; }
+    .choice.is-sel .radio { border-color: var(--code); box-shadow: inset 0 0 0 3px var(--panel), inset 0 0 0 8px var(--code); }
+    .choice .can { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 12px; }
+    .facts { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 14px; }
+    .sheet-actions { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
+    .sheet-actions .sp { flex: 1; }
+    .sheet-actions small { color: var(--faint); font-size: 11.5px; }
+    .grant { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+    .grant h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .grant ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; display: grid; gap: 3px; }
+    .grant.reach { background: var(--bg); }
+    .field { display: grid; gap: 4px; margin-bottom: 12px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    .field .input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .toggle-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--code-line); background: var(--code-dim); border-radius: 10px; }
+    .toggle-row b { display: block; font-weight: 580; }
+    .toggle-row span.sub { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .switch { width: 30px; height: 18px; border-radius: 999px; background: var(--code); position: relative; flex-shrink: 0; margin-top: 2px; }
+    .switch::after { content: ""; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: var(--solid-fg); }
+
+    .toast {
+      position: absolute; bottom: 86px; left: 50%; transform: translateX(-50%); z-index: 6;
+      display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
+      background: var(--panel); border: 1px solid var(--code-line); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3); font-size: 12.5px;
+    }
+    .toast .ok { color: var(--ok); }
+
+    /* New-folder form ----------------------------------------------------------- */
+    .field-row { display: flex; gap: 8px; align-items: stretch; }
+    .field-row .input { flex: 1; min-width: 0; }
+    .field .input.is-bad { border-color: var(--deny-line); }
+    .field .err { font-size: 12px; color: var(--bad); }
+    .will { display: flex; align-items: center; gap: 8px; margin: -2px 0 14px; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
+    .will .mono { color: var(--text); }
+    .will .pill { margin-left: auto; }
+    .check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+    .check .box { width: 14px; height: 14px; border-radius: 4px; background: var(--code); flex-shrink: 0; margin-top: 2px; display: grid; place-items: center; color: var(--solid-fg); font-size: 10px; font-weight: 700; }
+    .check b { display: block; font-weight: 580; }
+    .check .sub { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+    .seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-bottom: 12px; }
+    .seg span { flex: 1; padding: 7px 10px; font-size: 12px; color: var(--muted); text-align: center; }
+    .seg span.is-on { background: var(--code-dim); color: var(--code); box-shadow: inset 0 0 0 1px var(--code-line); }
+    .interrupt .mini { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .interrupt .mini .input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); font-size: 12px; }
+    .interrupt .opt { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; font-size: 12.5px; color: var(--muted); }
+    .interrupt .opt .box { width: 13px; height: 13px; border-radius: 4px; background: var(--code); color: var(--solid-fg); font-size: 9px; font-weight: 700; display: grid; place-items: center; }
+
+    /* Settings ------------------------------------------------------------------ */
+    .set-nav { width: 220px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+    .set-nav h2 { margin: 0 8px 10px; font-size: 14px; font-weight: 600; }
+    .set-nav span { padding: 7px 10px; border-radius: 7px; color: var(--muted); }
+    .set-nav span.is-on { background: var(--hover); color: var(--text); }
+    .set-main { flex: 1; min-width: 0; padding: 26px 32px; overflow: auto; position: relative; }
+    .set-main h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+    .set-main .lede { margin: 0 0 18px; color: var(--muted); max-width: 66ch; line-height: 1.5; }
+    .table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-width: 860px; }
+    .tr { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 110px 110px 84px; gap: 12px; align-items: center; padding: 11px 14px; border-top: 1px solid var(--line); }
+    .tr:first-child { border-top: 0; }
+    .tr.th { font-size: 11px; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; background: var(--rail); }
+    .tr .p { font-size: 12px; overflow-wrap: anywhere; }
+    .tr .proj { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .tr .proj .glyph { width: 18px; height: 18px; font-size: 9px; border-radius: 5px; }
+    .tr.gone { opacity: 0.45; text-decoration: line-through; }
+    .tr .act { justify-self: end; }
+    .never { margin-top: 18px; max-width: 860px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .never div { border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+    .never b { display: block; color: var(--text); font-weight: 580; margin-bottom: 2px; }
+    .set-main .banner { max-width: 860px; margin: 0 0 16px; }
+
+    /* Review caption ---------------------------------------------------------- */
+    .caption {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 24px; align-items: start;
+      padding: 12px 18px; border-top: 1px solid var(--line); background: var(--rail); flex-shrink: 0;
+    }
+    .caption .count { font-size: 11px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
+    .caption h2 { margin: 2px 0 4px; font-size: 14px; font-weight: 600; }
+    .caption p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; max-width: 70ch; }
+    .caption .why-l { font-size: 11px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+    .caption .nav { display: flex; gap: 6px; align-self: center; }
+    html.notes-off .caption .why { display: none; }
+    html.notes-off .caption { grid-template-columns: minmax(0, 1fr) auto; }
+
+    /* Delete review --------------------------------------------------------- */
+    .btn-danger { background: var(--bad); color: var(--solid-fg); font-weight: 580; padding: 7px 12px; border-radius: 8px; }
+    .btn-danger[disabled] { opacity: 0.4; cursor: not-allowed; }
+    .inv { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; }
+    .inv-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+    .inv-row:first-child { border-top: 0; }
+    .inv-row > span:first-child { color: var(--faint); }
+    .inv-row .mono { overflow-wrap: anywhere; }
+    .risk { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+    .risk li { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--deny-line); background: var(--deny-hover); }
+    .risk li.warn { border-color: var(--warn-line); background: var(--warn-bg); }
+    .risk li.ok { border-color: var(--line); background: var(--bg); }
+    .risk .ic { width: 14px; flex-shrink: 0; text-align: center; font-weight: 700; color: var(--bad); }
+    .risk li.warn .ic { color: var(--warn); }
+    .risk li.ok .ic { color: var(--ok); }
+    .typed { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .typed .ok { margin-left: auto; color: var(--ok); font-size: 12px; }
+    .trash-note { font-size: 12px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .spin, .dot.pulse { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+      <a class="is-current" href="12-coding-folders.html">L Coding folders</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" checked /> Design notes</label>
+  </div>
+
+  <div class="viewport">
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="flows" id="flows" aria-label="Flow"></div>
+      <div class="steps" id="steps" aria-label="Step"></div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn" data-on="add.* hub.* ask.*" data-cls="is-on" title="Chat" data-go="add.inspect">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn end" data-on="settings.* del.choose del.review del.clean del.busy del.deleting del.done" data-cls="is-on" title="Settings" data-go="settings.list">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <div class="stage">
+
+        <!-- ==================== CHAT SCREEN ==================== -->
+        <div class="screen-chat" data-on="add.* hub.* ask.*">
+          <aside class="left">
+            <div class="proj-trigger">
+              <span class="glyph">P</span>
+              <span class="proj-copy">
+                <span class="name">Portfolio</span>
+                <span class="path mono">~/Projects/portfolio</span>
+              </span>
+            </div>
+            <div class="rail-hed">Chats</div>
+            <button class="chat-row" data-on="add.* hub.*" data-cls="is-on" type="button">Refresh the case studies</button>
+            <button class="chat-row is-on" data-on="ask.*" data-v="new" type="button">Landing page</button>
+            <button class="chat-row" data-on="ask.*" data-v="existing" data-cls="is-on" type="button">Contact form backend</button>
+            <button class="chat-row" type="button"><span class="dot pulse" data-on="add.busy"></span>Fix header layout</button>
+            <button class="chat-row" type="button">Pick a type pairing</button>
+          </aside>
+
+          <div class="center">
+            <!-- Thread: add / hub flows -->
+            <div class="thread-head" data-on="add.* hub.*"><h1>Refresh the case studies</h1><span>Portfolio</span></div>
+            <div class="thread" data-on="add.* hub.*">
+              <div class="msg-user">Rewrite the three case study intros so they lead with the outcome. Keep them under 80 words.</div>
+              <div class="msg-bot">
+                <p>Done. I rewrote the intros in <code>content/work/*.md</code>. Each now opens with the result, then the role and timeline.</p>
+                <p>The Northwind one was 112 words, so I cut the tooling list. Want me to move it into the body instead?</p>
+              </div>
+              <div class="msg-user" data-on="add.ready hub.ready">Yes. Then update the card colours in design-tokens to match the new palette.</div>
+              <div class="msg-user" data-on="add.ready" data-v="new">Set up landing-page as an Astro site and port the hero section into it.</div>
+              <div class="tool" data-on="add.ready" data-v="existing">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 7.5 5 11M10 4l3.5 3.5L10 11"/></svg>
+                Coding agent · <span class="mono">~/Code/design-tokens</span><span class="sp">editing 2 files…</span>
+              </div>
+              <div class="tool" data-on="add.ready" data-v="new">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 7.5 5 11M10 4l3.5 3.5L10 11"/></svg>
+                Coding agent · <span class="mono">~/Code/landing-page</span><span class="sp">scaffolding Astro…</span>
+              </div>
+              <div class="tool" data-on="hub.ready">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 7.5 5 11M10 4l3.5 3.5L10 11"/></svg>
+                Coding agent · <span class="mono">~/Projects/portfolio</span><span class="sp">running npm test…</span>
+              </div>
+            </div>
+
+            <!-- Thread: ask flow -->
+            <div class="thread-head" data-on="ask.*" data-v="existing"><h1>Contact form backend</h1><span>Portfolio</span></div>
+            <div class="thread-head" data-on="ask.*" data-v="new"><h1>Landing page</h1><span>Portfolio</span></div>
+            <div class="thread" data-on="ask.*">
+              <div class="msg-user" data-v="existing">The contact form posts to the API in <span class="mono">~/Code/contact-api</span>. Bump express to v5 there and fix whatever tests break.</div>
+              <div class="msg-user" data-v="new">Start a new Astro site for the landing page. Keep it in its own repo, separate from portfolio.</div>
+              <div class="msg-bot" data-on="ask.declined ask.ask ask.granting ask.resumed" data-v="existing">
+                <p>That repo is outside Portfolio’s folders, so the coding agent can’t open it yet.</p>
+              </div>
+              <div class="msg-bot" data-on="ask.newask ask.granting ask.resumed" data-v="new">
+                <p>There’s no folder for it yet. I can set one up, but you choose where it goes.</p>
+              </div>
+
+              <div class="interrupt" data-on="ask.newask">
+                <div class="kicker">New folder</div>
+                <h3>Create a folder for the landing page?</h3>
+                <div class="mini">
+                  <span class="input mono">~/Code/portfolio-landing</span>
+                  <button class="btn-tiny" type="button">Change…</button>
+                </div>
+                <div class="opt"><span class="box">✓</span>Start a git repo so every change can be undone</div>
+                <ul>
+                  <li>Boundary creates the folder and adds it to Portfolio.</li>
+                  <li>The coding agent can edit files and run commands there without asking.</li>
+                  <li>Adding it restarts the coding agent, which takes about 10 seconds.</li>
+                </ul>
+                <div class="actions">
+                  <button class="btn-code" type="button" data-go="granting">Create and add for coding</button>
+                  <button class="btn-ghost" type="button" data-go="declined">Not now</button>
+                </div>
+              </div>
+
+              <div class="interrupt" data-on="ask.ask">
+                <div class="kicker">Coding access</div>
+                <h3>Let the coding agent work in contact-api?</h3>
+                <span class="path-line mono">~/Code/contact-api · git · main</span>
+                <ul>
+                  <li>It can edit files and run commands there, such as <span class="mono">npm install</span> and tests.</li>
+                  <li>It won’t ask before each change. Git keeps every change reversible.</li>
+                  <li>Adding it restarts the coding agent, which takes about 10 seconds.</li>
+                </ul>
+                <div class="actions">
+                  <button class="btn-code" type="button" data-go="granting">Add to Portfolio for coding</button>
+                  <button class="btn-ghost" type="button" data-go="declined">Not now</button>
+                </div>
+              </div>
+
+              <div class="interrupt done" data-on="ask.granting" data-v="existing">
+                <p><span class="pill code"><span class="spin"></span>Connecting</span>&nbsp; Adding <span class="mono">~/Code/contact-api</span> to Portfolio. This chat will pick up where it stopped.</p>
+              </div>
+              <div class="interrupt done" data-on="ask.resumed" data-v="existing">
+                <p><span class="pill code">Coding</span>&nbsp; Added <span class="mono">~/Code/contact-api</span> to Portfolio.</p>
+              </div>
+              <div class="interrupt done" data-on="ask.granting" data-v="new">
+                <p><span class="pill code"><span class="spin"></span>Connecting</span>&nbsp; Created <span class="mono">~/Code/portfolio-landing</span> with a git repo. Adding it to Portfolio.</p>
+              </div>
+              <div class="interrupt done" data-on="ask.resumed" data-v="new">
+                <p><span class="pill code">Coding</span>&nbsp; Created <span class="mono">~/Code/portfolio-landing</span> and added it to Portfolio.</p>
+              </div>
+              <div class="tool" data-on="ask.resumed" data-v="new">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 7.5 5 11M10 4l3.5 3.5L10 11"/></svg>
+                Coding agent · <span class="mono">~/Code/portfolio-landing</span><span class="sp">scaffolding Astro, running npm install…</span>
+              </div>
+              <div class="interrupt done" data-on="ask.declined">
+                <p><span class="pill off">Not added</span>&nbsp; You chose Not now.</p>
+              </div>
+
+              <div class="tool" data-on="ask.resumed" data-v="existing">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 7.5 5 11M10 4l3.5 3.5L10 11"/></svg>
+                Coding agent · <span class="mono">~/Code/contact-api</span><span class="sp">upgrading express, running tests…</span>
+              </div>
+              <div class="msg-bot" data-on="ask.declined" data-v="new">
+                <p>Okay, no new folder. I can sketch the site structure here in chat, or you can create the folder later from the Project tab with Add… › New folder.</p>
+              </div>
+              <div class="msg-bot" data-on="ask.declined" data-v="existing">
+                <p>Okay, I’ll leave contact-api alone. I can still draft the changes here as a patch for you to apply, or you can add the folder later from the Project tab.</p>
+              </div>
+            </div>
+
+            <div class="composer">
+              <span class="chip" data-on="add.* hub.* ask.*">Portfolio</span>
+              <span data-on="add.* hub.* ask.ask ask.declined ask.resumed">Message Hermes…</span>
+              <span data-on="ask.granting">Waiting for the coding agent…</span>
+              <span class="sp mono" style="font-size:11px">⌘↵</span>
+            </div>
+          </div>
+
+          <!-- Inspector -->
+          <aside class="right">
+            <div class="tabs"><span>Session</span><span class="is-on">Project</span></div>
+            <div class="ident">
+              <span class="glyph">P</span>
+              <span style="min-width:0">
+                <span class="name">Portfolio</span>
+                <span class="path mono">~/Projects/portfolio</span>
+              </span>
+            </div>
+
+            <!-- Error banner -->
+            <div class="banner bad" data-on="add.error">
+              <h4>The coding agent can’t see client-api</h4>
+              <p>Boundary’s container engine only shares your home folder. <span class="mono">/Volumes/Work</span> is an external drive, so it isn’t shared.</p>
+              <p>Move the repo under your home folder, or share <span class="mono">/Volumes/Work</span> in Settings › Container engine, then retry.</p>
+              <div class="row">
+                <button class="btn-tiny primary" type="button" data-go="connecting">Retry</button>
+                <button class="btn-tiny" type="button">Container engine settings</button>
+                <button class="btn-tiny" type="button" data-go="inspect">Remove</button>
+              </div>
+            </div>
+
+            <!-- Connecting checklist -->
+            <div class="banner code" data-on="add.connecting hub.connecting ask.granting">
+              <h4>Connecting the coding agent</h4>
+              <ul class="checklist">
+                <li class="done" data-v="new"><span class="tick">✓</span>Created the folder and started a git repo</li>
+                <li class="done"><span class="tick">✓</span>Saved to Portfolio</li>
+                <li class="now"><span class="tick"><span class="spin" style="display:inline-block"></span></span>Restarting the coding agent</li>
+                <li><span class="tick">·</span>Checking it can open the folder</li>
+              </ul>
+              <p style="margin:6px 0 0">Chats keep working. New coding tasks wait until this finishes.</p>
+            </div>
+
+            <div class="sec-hed">
+              <span>Folders</span>
+              <button type="button" data-go="add.pick">Add…</button>
+            </div>
+
+            <!-- Hub row -->
+            <div class="src">
+              <div class="src-main">
+                <span class="id">portfolio</span>
+                <span class="path mono">This folder</span>
+                <span class="who" data-on="add.* ask.* hub.ready">Hermes and the coding agent can edit</span>
+                <span class="who" data-on="hub.off hub.confirm hub.new">Hermes can edit · coding agent can’t</span>
+                <span class="who" data-on="hub.connecting">Turning on the coding agent…</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill code" data-on="add.* ask.* hub.ready">Coding</span>
+                <span class="pill ok" data-on="hub.off hub.confirm hub.new">Hub</span>
+                <span class="pill code" data-on="hub.connecting"><span class="spin"></span>Connecting</span>
+                <button class="link" type="button" data-on="hub.off" data-go="confirm">Allow coding…</button>
+                <button class="link" type="button" data-on="add.* ask.* hub.ready">Open</button>
+              </div>
+            </div>
+
+            <!-- Reference row -->
+            <div class="src">
+              <div class="src-main">
+                <span class="id">brand-notes</span>
+                <span class="path mono">~/Notes/brand</span>
+                <span class="who">Hermes can read</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill ok">Read-only</span>
+                <button class="link" type="button">Open</button>
+              </div>
+            </div>
+
+            <!-- New coding folder row (add flow) -->
+            <div class="src" data-on="add.connecting add.ready" data-v="new" data-cls-ready="fresh">
+              <div class="src-main">
+                <span class="id">landing-page</span>
+                <span class="path mono">~/Code/landing-page</span>
+                <span class="who" data-on="add.ready">New folder · Coding agent can edit · Hermes after its next restart</span>
+                <span class="who" data-on="add.connecting">Restarting the coding agent…</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill code" data-on="add.ready">Coding</span>
+                <span class="pill code" data-on="add.connecting"><span class="spin"></span>Connecting</span>
+                <button class="link" type="button" data-on="add.ready">Open</button>
+              </div>
+            </div>
+            <div class="src" data-on="add.connecting add.ready add.busy" data-v="existing" data-cls-ready="fresh">
+              <div class="src-main">
+                <span class="id">design-tokens</span>
+                <span class="path mono">~/Code/design-tokens</span>
+                <span class="who" data-on="add.ready">Coding agent can edit · Hermes after its next restart <button class="link" type="button" style="color:var(--code)">Restart Hermes now</button></span>
+                <span class="who" data-on="add.connecting">Restarting the coding agent…</span>
+                <span class="who" data-on="add.busy">Waiting for “Fix header layout” to finish</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill code" data-on="add.ready">Coding</span>
+                <span class="pill code" data-on="add.connecting"><span class="spin"></span>Connecting</span>
+                <span class="pill warn" data-on="add.busy">Queued</span>
+                <button class="link" type="button" data-on="add.ready">Open</button>
+              </div>
+            </div>
+            <div class="src" data-on="add.error">
+              <div class="src-main">
+                <span class="id">client-api</span>
+                <span class="path mono">/Volumes/Work/client-api</span>
+                <span class="who">Saved to Portfolio, not visible to agents</span>
+              </div>
+              <div class="src-meta"><span class="pill bad">Not visible</span></div>
+            </div>
+            <!-- New coding folder row (ask flow) -->
+            <div class="src fresh" data-on="ask.granting ask.resumed" data-v="new">
+              <div class="src-main">
+                <span class="id">portfolio-landing</span>
+                <span class="path mono">~/Code/portfolio-landing</span>
+                <span class="who" data-on="ask.resumed">Created from “Landing page”</span>
+                <span class="who" data-on="ask.granting">Restarting the coding agent…</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill code" data-on="ask.resumed">Coding</span>
+                <span class="pill code" data-on="ask.granting"><span class="spin"></span>Connecting</span>
+              </div>
+            </div>
+            <div class="src fresh" data-on="ask.granting ask.resumed" data-v="existing">
+              <div class="src-main">
+                <span class="id">contact-api</span>
+                <span class="path mono">~/Code/contact-api</span>
+                <span class="who" data-on="ask.resumed">Added from “Contact form backend”</span>
+                <span class="who" data-on="ask.granting">Restarting the coding agent…</span>
+              </div>
+              <div class="src-meta">
+                <span class="pill code" data-on="ask.resumed">Coding</span>
+                <span class="pill code" data-on="ask.granting"><span class="spin"></span>Connecting</span>
+              </div>
+            </div>
+
+            <div class="legend">
+              <div><span class="pill code">Coding</span> edit files and run commands</div>
+              <div><span class="pill ok">Read-only</span> Hermes reads, nothing writes</div>
+            </div>
+
+            <!-- Hub confirm popover -->
+            <div class="popover" data-on="hub.confirm">
+              <h4>Let the coding agent work in portfolio?</h4>
+              <p>Hermes can already edit this folder, and it asks before risky commands. The coding agent works without asking.</p>
+              <ul>
+                <li>Edits and deletes files in <span class="mono">~/Projects/portfolio</span></li>
+                <li>Runs commands such as <span class="mono">npm test</span> and <span class="mono">git commit</span></li>
+              </ul>
+              <div class="row" style="display:flex;gap:8px">
+                <button class="btn-code" type="button" data-go="connecting">Allow coding</button>
+                <button class="btn-ghost" type="button" data-go="off">Not now</button>
+              </div>
+            </div>
+          </aside>
+
+          <!-- Toasts -->
+          <div class="toast" data-on="add.ready" data-v="existing"><span class="ok">✓</span> design-tokens is ready for coding <button class="btn-tiny" type="button">Undo</button></div>
+          <div class="toast" data-on="add.ready" data-v="new"><span class="ok">✓</span> Created landing-page and it’s ready for coding <button class="btn-tiny" type="button">Undo</button></div>
+          <div class="toast" data-on="hub.ready"><span class="ok">✓</span> The coding agent can now work in portfolio</div>
+        </div>
+
+        <!-- ==================== SETTINGS SCREEN ==================== -->
+        <div class="screen-settings" data-on="settings.* del.choose del.review del.clean del.busy del.deleting del.done">
+          <nav class="set-nav">
+            <h2>Settings</h2>
+            <span>General</span>
+            <span>Models</span>
+            <span class="is-on">Coding agent</span>
+            <span>Passwords &amp; logins</span>
+            <span>Services</span>
+            <span>Container engine</span>
+          </nav>
+          <div class="set-main">
+            <h1>Folders the coding agent can reach</h1>
+            <p class="lede">You add folders from a project’s Folders list. They all land in one coding agent, so a folder added for one project is also reachable from chats in your other projects.</p>
+
+            <div class="banner code" data-on="settings.removing">
+              <h4>Removing contact-api</h4>
+              <ul class="checklist">
+                <li class="done"><span class="tick">✓</span>Removed from Portfolio</li>
+                <li class="now"><span class="tick"><span class="spin" style="display:inline-block"></span></span>Restarting the coding agent</li>
+              </ul>
+            </div>
+
+            <div class="banner bad" data-on="del.deleting">
+              <h4>Deleting contact-api</h4>
+              <ul class="checklist">
+                <li class="done"><span class="tick">✓</span>Removed coding access</li>
+                <li class="now"><span class="tick"><span class="spin" style="display:inline-block"></span></span>Restarting the coding agent so nothing has the folder open</li>
+                <li><span class="tick">·</span>Moving the folder to the Trash</li>
+              </ul>
+            </div>
+
+            <div class="table" role="table">
+              <div class="tr th" role="row"><span>Folder</span><span>Added from</span><span>Status</span><span>Hermes</span><span></span></div>
+              <div class="tr" role="row">
+                <span class="p mono">~/Projects/portfolio</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio · project folder</span>
+                <span><span class="pill code">Coding</span></span>
+                <span class="proj">Can edit</span>
+                <span class="act"><button class="btn-tiny" type="button">Turn off</button></span>
+              </div>
+              <div class="tr" role="row">
+                <span class="p mono">~/Code/design-tokens</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio</span>
+                <span><span class="pill code">Coding</span></span>
+                <span class="proj">Can edit</span>
+                <span class="act"><button class="btn-tiny" type="button">Remove</button></span>
+              </div>
+              <div class="tr" role="row" data-on="settings.list settings.confirm del.choose del.review del.busy del.clean" >
+                <span class="p mono">~/Code/contact-api</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio · from a chat</span>
+                <span><span class="pill code">Coding</span></span>
+                <span class="proj">Can edit</span>
+                <span class="act"><button class="btn-tiny" type="button" data-go="settings.confirm">Remove</button></span>
+              </div>
+              <div class="tr gone" role="row" data-on="del.deleting">
+                <span class="p mono">~/Code/contact-api</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio</span>
+                <span><span class="pill bad"><span class="spin"></span>Deleting</span></span>
+                <span class="proj">–</span>
+                <span class="act"></span>
+              </div>
+              <div class="tr gone" role="row" data-on="settings.removing">
+                <span class="p mono">~/Code/contact-api</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio</span>
+                <span><span class="pill code"><span class="spin"></span>Removing</span></span>
+                <span class="proj">–</span>
+                <span class="act"></span>
+              </div>
+              <div class="tr" role="row">
+                <span class="p mono">~/Code/landing-page</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio · new folder</span>
+                <span><span class="pill code">Coding</span></span>
+                <span class="proj">Can edit</span>
+                <span class="act"><button class="btn-tiny" type="button" data-go="del.clean">Remove</button></span>
+              </div>
+              <div class="tr" role="row">
+                <span class="p mono">~/Code/household-scripts</span>
+                <span class="proj"><span class="glyph alt">H</span>Home admin</span>
+                <span><span class="pill code">Coding</span></span>
+                <span class="proj">Can edit</span>
+                <span class="act"><button class="btn-tiny" type="button">Remove</button></span>
+              </div>
+              <div class="tr" role="row">
+                <span class="p mono">/Volumes/Work/client-api</span>
+                <span class="proj"><span class="glyph">P</span>Portfolio</span>
+                <span><span class="pill bad">Not visible</span></span>
+                <span class="proj">–</span>
+                <span class="act"><button class="btn-tiny" type="button">Fix…</button></span>
+              </div>
+            </div>
+
+            <div class="never">
+              <div><b>Your home folder</b><span class="mono">~</span> is never shared whole.</div>
+              <div><b>The whole disk</b><span class="mono">/</span> and system folders are refused.</div>
+              <div><b>Boundary’s own data</b>Keys, chats and app state stay out of reach.</div>
+            </div>
+
+            <div class="scrim" data-on="settings.confirm del.choose del.review del.clean del.busy"></div>
+            <div class="sheet" data-on="settings.confirm del.choose" style="max-width:460px">
+              <div class="kicker"><span>Remove coding access</span></div>
+              <h2>Stop the coding agent working in contact-api?</h2>
+              <p>Files stay where they are. Portfolio can keep the folder as read-only reference, or drop it entirely.</p>
+              <button class="choice" type="button" data-on="settings.confirm" data-cls="is-sel" data-go="settings.confirm">
+                <span class="radio"></span>
+                <span><b>Keep as read-only reference</b><span class="sub">Hermes can still read it in Portfolio chats</span></span>
+              </button>
+              <button class="choice" type="button">
+                <span class="radio"></span>
+                <span><b>Remove from Portfolio</b><span class="sub">Agents can’t see it at all</span></span>
+              </button>
+              <button class="choice" type="button" data-on="del.choose" data-cls="is-sel" data-go="del.choose">
+                <span class="radio"></span>
+                <span><b>Delete the folder from this Mac…</b><span class="sub">Moves it to the Trash after you review what’s in it</span></span>
+              </button>
+              <div class="sheet-actions">
+                <small>Restarts the coding agent</small><span class="sp"></span>
+                <button class="btn-ghost" type="button" data-go="settings.list">Cancel</button>
+                <button class="btn-solid" type="button" data-on="settings.confirm" data-go="settings.removing">Remove access</button>
+                <button class="btn-solid" type="button" data-on="del.choose" data-go="del.review">Review folder…</button>
+              </div>
+            </div>
+
+            <div class="sheet" data-on="del.review del.busy" style="max-width:500px">
+              <div class="kicker"><span>Delete folder</span><span>Review</span></div>
+              <h2>Move contact-api to the Trash?</h2>
+              <div class="inv">
+                <div class="inv-row"><span>Folder</span><span class="mono">~/Code/contact-api</span></div>
+                <div class="inv-row"><span>Contents</span><span>214 files · 38 MB, of which 31 MB is <span class="mono">node_modules</span></span></div>
+                <div class="inv-row"><span>Last changed</span><span>Today, 10:42, by the coding agent</span></div>
+                <div class="inv-row"><span>Added</span><span>From the “Contact form backend” chat, 6 Oct</span></div>
+              </div>
+              <ul class="risk">
+                <li><span class="ic">!</span><span><b>2 commits exist only on this Mac.</b> They aren’t on any remote, so the Trash is the only copy.</span></li>
+                <li><span class="ic">!</span><span><b>3 files have uncommitted changes:</b> <span class="mono">package.json</span>, <span class="mono">src/server.ts</span>, <span class="mono">test/contact.test.ts</span></span></li>
+                <li class="warn"><span class="ic">i</span><span>Boundary didn’t create this folder. It existed before you gave the coding agent access.</span></li>
+              </ul>
+              <div class="banner warn" data-on="del.busy" style="margin:0 0 12px">
+                <h4>The coding agent is working in this folder</h4>
+                <p>“Contact form backend” has a task running here. Stop it before deleting, so nothing writes to the folder while it moves.</p>
+                <div class="row"><button class="btn-tiny primary" type="button" data-go="del.review">Stop task</button></div>
+              </div>
+              <p class="trash-note">Boundary removes coding access first, then moves the folder to the Trash. You can put it back from the Trash in Finder until you empty it. Boundary never empties the Trash.</p>
+              <div class="field" style="margin-bottom:0">
+                <label for="del-confirm">Type <span class="mono">contact-api</span> to confirm</label>
+                <div class="typed" id="del-confirm"><span class="mono">contact-api</span><span class="ok" data-on="del.review">✓ matches</span></div>
+              </div>
+              <div class="sheet-actions">
+                <small>Restarts the coding agent</small><span class="sp"></span>
+                <button class="btn-ghost" type="button" data-go="settings.list">Cancel</button>
+                <button class="btn-danger" type="button" data-on="del.review" data-go="del.deleting">Move to Trash</button>
+                <button class="btn-danger" type="button" data-on="del.busy" disabled>Move to Trash</button>
+              </div>
+            </div>
+
+            <div class="sheet" data-on="del.clean" style="max-width:460px">
+              <div class="kicker"><span>Delete folder</span><span>Review</span></div>
+              <h2>Move landing-page to the Trash?</h2>
+              <div class="inv">
+                <div class="inv-row"><span>Folder</span><span class="mono">~/Code/landing-page</span></div>
+                <div class="inv-row"><span>Contents</span><span>12 files · 84 KB</span></div>
+              </div>
+              <ul class="risk">
+                <li class="ok"><span class="ic">✓</span><span>Boundary created this folder on 6 Oct.</span></li>
+                <li class="ok"><span class="ic">✓</span><span>Every commit is on <span class="mono">origin</span>, and there are no uncommitted changes.</span></li>
+              </ul>
+              <p class="trash-note">Boundary removes coding access, then moves the folder to the Trash. You can put it back from Finder.</p>
+              <div class="sheet-actions">
+                <small>Restarts the coding agent</small><span class="sp"></span>
+                <button class="btn-ghost" type="button" data-go="settings.list">Cancel</button>
+                <button class="btn-danger" type="button" data-go="del.deleting">Move to Trash</button>
+              </div>
+            </div>
+
+            <div class="toast" data-on="del.done"><span class="ok">✓</span> Moved contact-api to the Trash <button class="btn-tiny" type="button">Show in Trash</button></div>
+          </div>
+        </div>
+
+        <!-- ==================== SHEETS (chat screen) ==================== -->
+        <div class="scrim" data-on="add.pick add.access add.confirm add.busy add.newfolder add.taken hub.new"></div>
+
+        <div class="sheet" data-on="add.pick">
+          <div class="kicker"><span>Add a folder to Portfolio</span><span>1 of 3</span></div>
+          <h2>Choose a folder on this Mac</h2>
+          <p>Pick a repo the coding agent should work in, or a folder of notes Hermes should read. You choose what agents can do with it next.</p>
+          <button class="choice" type="button" data-go="newfolder">
+            <span><b>New folder…</b><span class="sub">Create an empty folder on this Mac, ready for a new repo</span></span>
+            <span class="tag pill code">+ Create</span>
+          </button>
+          <button class="choice" type="button" data-go="access">
+            <span><b>design-tokens</b><span class="sub mono">~/Code/design-tokens</span></span>
+            <span class="tag pill">git repo</span>
+          </button>
+          <button class="choice" type="button" data-go="error">
+            <span><b>client-api</b><span class="sub mono">/Volumes/Work/client-api · external drive</span></span>
+            <span class="tag pill">git repo</span>
+          </button>
+          <button class="choice" type="button" data-go="access">
+            <span><b>brand-notes</b><span class="sub mono">~/Notes/brand · already read-only here</span></span>
+            <span class="tag pill">Change access</span>
+          </button>
+          <button class="choice is-off" type="button" disabled>
+            <span><b>Home</b><span class="sub mono">~ · too broad, choose a folder inside it</span></span>
+          </button>
+          <div class="sheet-actions">
+            <button class="btn-ghost" type="button" data-go="inspect">Cancel</button>
+            <span class="sp"></span>
+            <button class="btn-tiny" type="button">Browse…</button>
+          </div>
+        </div>
+
+        <div class="sheet" data-on="add.access">
+          <div class="kicker"><span>Add a folder to Portfolio</span><span>2 of 3</span></div>
+          <h2>What should agents do with design-tokens?</h2>
+          <div class="facts">
+            <span class="pill mono">~/Code/design-tokens</span>
+            <span class="pill ok">git · main · no uncommitted changes</span>
+          </div>
+          <button class="choice is-sel" type="button">
+            <span class="radio"></span>
+            <span>
+              <b>Code in it</b>
+              <span class="sub">For repos. Recommended because this is a git repo.</span>
+              <ul class="can"><li>The coding agent edits files and runs commands</li><li>Hermes can read and edit</li></ul>
+            </span>
+            <span class="tag pill code">Coding</span>
+          </button>
+          <button class="choice" type="button">
+            <span class="radio"></span>
+            <span>
+              <b>Use as reference</b>
+              <span class="sub">For notes and research. Nothing writes to it.</span>
+              <ul class="can"><li>Hermes reads it and lists it in the project index</li></ul>
+            </span>
+            <span class="tag pill ok">Read-only</span>
+          </button>
+          <div class="sheet-actions">
+            <button class="btn-ghost" type="button" data-go="pick">Back</button>
+            <span class="sp"></span>
+            <button class="btn-solid" type="button" data-go="confirm">Continue</button>
+          </div>
+        </div>
+
+        <div class="sheet" data-on="add.confirm add.busy">
+          <div class="kicker"><span>Add a folder to Portfolio</span><span>3 of 3</span></div>
+          <h2>Give the coding agent access to design-tokens?</h2>
+          <div class="grant">
+            <h3>It will be able to</h3>
+            <ul>
+              <li>Edit, create and delete files in <span class="mono">~/Code/design-tokens</span></li>
+              <li>Run commands there, such as <span class="mono">npm install</span>, tests and <span class="mono">git</span></li>
+              <li>Do both without asking first. Hermes still asks before risky steps.</li>
+              <li>Secrets in top-level <span class="mono">.env</span> files stay hidden from it.</li>
+            </ul>
+          </div>
+          <div class="grant reach">
+            <h3>Where it’s reachable</h3>
+            <ul>
+              <li>Portfolio lists it under Folders.</li>
+              <li>One coding agent serves every project, so chats in Home admin could reach it too.</li>
+            </ul>
+          </div>
+          <div class="banner warn" data-on="add.busy" style="margin:0 0 4px">
+            <h4>A coding task is running</h4>
+            <p>“Fix header layout” is editing <span class="mono">~/Projects/portfolio</span>. Adding a folder restarts the coding agent, which stops that task.</p>
+          </div>
+          <div class="sheet-actions">
+            <small data-on="add.confirm">Restarts the coding agent, about 10 seconds</small>
+            <span class="sp"></span>
+            <button class="btn-ghost" type="button" data-go="access">Back</button>
+            <button class="btn-code" type="button" data-on="add.confirm" data-go="connecting">Give coding access</button>
+            <button class="btn-ghost" type="button" data-on="add.busy" data-go="connecting">Stop task and add</button>
+            <button class="btn-code" type="button" data-on="add.busy" data-go="connecting">Add when it finishes</button>
+          </div>
+        </div>
+
+        <div class="sheet" data-on="add.newfolder add.taken">
+          <div class="kicker"><span>Add a folder to Portfolio</span><span>New folder</span></div>
+          <h2>Create a folder on this Mac</h2>
+          <div class="field">
+            <label for="nf-name">Name</label>
+            <div class="input mono" id="nf-name" data-on="add.newfolder">landing-page</div>
+            <div class="input mono is-bad" data-on="add.taken">design-tokens</div>
+            <span class="err" data-on="add.taken">~/Code/design-tokens already exists. It’s a git repo with 214 files.</span>
+          </div>
+          <div class="field">
+            <label for="nf-loc">Location</label>
+            <div class="field-row">
+              <div class="input mono" id="nf-loc">~/Code</div>
+              <button class="btn-tiny" type="button">Change…</button>
+            </div>
+          </div>
+          <div class="will" data-on="add.newfolder">Will create <span class="mono">~/Code/landing-page</span><span class="pill code">new</span></div>
+          <div class="banner warn" data-on="add.taken" style="margin:-2px 0 14px">
+            <p style="margin-bottom:8px">Use the existing folder instead, or pick another name.</p>
+            <div class="row">
+              <button class="btn-tiny primary" type="button" data-go="access">Use existing folder</button>
+              <button class="btn-tiny" type="button" data-go="newfolder">Pick another name</button>
+            </div>
+          </div>
+          <div class="check">
+            <span class="box">✓</span>
+            <span><b>Start a git repo</b><span class="sub">Adds an empty first commit, so every change the coding agent makes can be undone.</span></span>
+          </div>
+          <div class="seg" role="radiogroup" aria-label="Access">
+            <span class="is-on">Code in it</span>
+            <span>Use as reference</span>
+          </div>
+          <div class="grant" style="margin-bottom:0">
+            <ul>
+              <li>The coding agent can edit files and run commands here without asking.</li>
+              <li>Like any coding folder, chats in your other projects can reach it too.</li>
+            </ul>
+          </div>
+          <div class="sheet-actions">
+            <small>Restarts the coding agent</small><span class="sp"></span>
+            <button class="btn-ghost" type="button" data-go="pick">Back</button>
+            <button class="btn-code" type="button" data-on="add.newfolder" data-go="connecting">Create and add</button>
+            <button class="btn-code" type="button" data-on="add.taken" disabled style="opacity:0.4;cursor:not-allowed">Create and add</button>
+          </div>
+        </div>
+
+        <div class="sheet" data-on="hub.new">
+          <div class="kicker"><span>New project</span></div>
+          <h2>Start a project from contact-api</h2>
+          <div class="field">
+            <label for="pname">Name</label>
+            <div class="input" id="pname">contact-api</div>
+          </div>
+          <div class="field">
+            <label>Folder</label>
+            <div class="input mono">~/Code/contact-api</div>
+          </div>
+          <div class="toggle-row">
+            <span class="switch" aria-hidden="true"></span>
+            <span>
+              <b>Let the coding agent work here</b>
+              <span class="sub">On because this is a git repo. It can edit files and run commands without asking. You can turn it off from the Project tab.</span>
+            </span>
+          </div>
+          <div class="sheet-actions">
+            <small>Restarts the coding agent</small><span class="sp"></span>
+            <button class="btn-ghost" type="button" data-go="off">Cancel</button>
+            <button class="btn-solid" type="button" data-go="connecting">Create project</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Review caption -->
+    <div class="caption">
+      <div>
+        <div class="count" id="cap-count"></div>
+        <h2 id="cap-title"></h2>
+        <p id="cap-what"></p>
+      </div>
+      <div class="why">
+        <div class="why-l">Why</div>
+        <p id="cap-why"></p>
+      </div>
+      <div class="nav">
+        <button class="btn-tiny" type="button" id="prev">Back</button>
+        <button class="btn-tiny primary" type="button" id="next">Next</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script>
+    const FLOWS = {
+      add: {
+        label: "Add a coding folder",
+        steps: [
+          { id: "inspect", label: "Project tab", next: "pick",
+            what: "The Project tab’s Sources list becomes Folders. Every row says who can do what, and the pill gives it a single word: Coding or Read-only.",
+            why: "Users don’t know OpenCode is a separate container. They know Hermes, and “the coding agent” is the plainest name for the part that edits repos. Showing access per row keeps this an extension of the 0013 inspector, not a new place." },
+          { id: "pick", label: "Pick", next: "access",
+            what: "Add… opens the folder picker. It refuses home and the whole disk inline, and offers Change access for a folder that’s already here.",
+            why: "One Add button for both kinds of folder. Splitting into Add reference and Add repo would make users decide before they’ve picked, and they often don’t know which the agent will need." },
+          { id: "access", label: "Access", next: "confirm",
+            what: "Second step: Code in it, or Use as reference. Boundary detects a git repo and preselects Code.",
+            why: "The access choice is the actual decision, so it gets its own step with plain consequences under each option. Git detection gives a sensible default without hiding the choice. A folder that isn’t a repo would default to Reference and warn that edits can’t be rolled back." },
+          { id: "confirm", label: "Confirm", next: "connecting",
+            what: "A consent step spells out what the coding agent can do and where the folder is reachable, and says a restart is coming.",
+            why: "OpenCode runs headless with every permission allowed, so this is a bigger grant than Hermes’ approval-gated edits. All projects share one mount, which is a system fact the UI shouldn’t hide. Saying so here prevents a surprise later." },
+          { id: "busy", label: "Task running", branch: true, next: "connecting",
+            what: "Variant: a delegated coding task is mid-run. Boundary offers to wait or to stop it.",
+            why: "Recreating the opencode container kills in-flight tasks. Defaulting to “Add when it finishes” protects work; the folder row shows Queued until then." },
+          { id: "connecting", label: "Connecting", next: "ready",
+            what: "The row appears right away with a Connecting pill, and a checklist shows the restart. Chats keep working, because only the coding agent restarts.",
+            why: "Mirrors 0013’s rule: never show success before the remount is verified. The last step checks that the agent can actually open the path, not just that compose came back up." },
+          { id: "ready", label: "Ready", next: null,
+            what: "The pill turns to Coding, a toast offers Undo, and the next request is delegated straight into the new folder.",
+            why: "Undo is cheap here because it’s one more restart. The tool line in the thread shows the agent working in the folder that was just granted." },
+          { id: "error", label: "Not visible", branch: true, next: null,
+            what: "Variant: the container engine can’t see an external drive. The row stays as Not visible and the banner says how to fix it.",
+            why: "Podman and Docker Desktop share only the home folder by default. That failure is common and the user can fix it, so name the cause and the two remedies instead of a generic mount error." },
+          { id: "newfolder", label: "New folder", branch: true, next: "connecting",
+            what: "Variant: New folder… in the picker opens a short form. Name, location (defaults to the parent of your last coding folder), start a git repo, and access, with a live preview of the path it will create.",
+            why: "A folder that doesn’t exist can’t be picked, so this needs its own short form. Git is on by default because it makes a headless coding agent safe to undo. The form folds in the access and consent steps: an empty folder has nothing to protect yet, so a three-step wizard would be ceremony." },
+          { id: "taken", label: "Name taken", branch: true, next: null,
+            what: "Variant: the name is already in use. The form says what’s there and offers to use it instead.",
+            why: "Never create over, or quietly reuse, an existing folder. Boundary only ever creates new empty folders, and an existing one goes through the normal access step so the user sees what they’re granting." },
+        ],
+      },
+      hub: {
+        label: "Project folder",
+        steps: [
+          { id: "off", label: "Coding off", next: "confirm",
+            what: "Today a host-folder project is mounted into Hermes but not into OpenCode. The hub row says so and offers Allow coding…",
+            why: "This is the gap you hit first: Hermes delegates a task in the project and the coding agent can’t find the files. Showing “coding agent can’t” on the hub row makes the gap visible where people already look." },
+          { id: "confirm", label: "Confirm", next: "connecting",
+            what: "A small popover on the row, not a full sheet. It explains how this differs from what Hermes can already do.",
+            why: "The folder and the project already exist, so the only new decision is the permission level. A lighter surface matches the smaller decision." },
+          { id: "connecting", label: "Connecting", next: "ready",
+            what: "Same Connecting pill and checklist as adding a folder.",
+            why: "One restart pattern everywhere, so people learn it once." },
+          { id: "ready", label: "Ready", next: null,
+            what: "The hub row now reads Coding, and delegated work runs in the project folder.",
+            why: "Implementation note (ADR 0028 §4): the hub keeps its /opt/projects/<slug> bind for Hermes and gains an identity bind at its host path on opencode and the terminal service, because coding roots are host paths everywhere." },
+          { id: "new", label: "New project", branch: true, next: "connecting",
+            what: "Variant: creating a project from a git repo turns coding on by default, with the consequence stated beside the switch.",
+            why: "Most people who make a project from a repo want it coded in. Defaulting on for repos and off otherwise means users rarely have to come back and flip it." },
+        ],
+      },
+      ask: {
+        label: "Ask in chat",
+        steps: [
+          { id: "ask", label: "Hermes asks", next: "granting",
+            what: "The user names a repo outside the project. Hermes stops and shows a coding-access card in the thread, in the same family as the tool-approval interrupt.",
+            why: "This replaces today’s “run make coding-root-add” reply, which packaged users can’t act on. Asking at the moment of need is when the reason is obvious. Hermes never grants itself access; the button is the user’s." },
+          { id: "granting", label: "Connecting", next: "resumed",
+            what: "The card collapses into a status line, the folder appears in the Project tab, and the composer shows it’s waiting.",
+            why: "The thread is paused, not cancelled. Showing the new row in the inspector at the same time teaches where to manage it later." },
+          { id: "resumed", label: "Resumed", next: null,
+            what: "Hermes picks up the original request and delegates to the coding agent in the new folder.",
+            why: "Resuming without a re-prompt is what makes the in-chat grant worth having. The status line in the thread is the record of when access was granted." },
+          { id: "declined", label: "Not now", branch: true, next: null,
+            what: "Variant: the user declines. Hermes offers a fallback and says where to add the folder later.",
+            why: "Declining shouldn’t be a dead end. The status line records the decision so Hermes doesn’t ask again in the same turn." },
+          { id: "newask", label: "New folder", branch: true, next: "granting",
+            what: "Variant: the request needs a folder that doesn’t exist yet. Hermes proposes a path; the user can change it, keep git on, and create it in one click.",
+            why: "Hermes suggests the name but never picks the location without asking. The card states every side effect (create, add to project, restart), because this one click both makes something on disk and grants access to it. Connecting and Resumed then follow the same path as granting an existing folder." },
+        ],
+      },
+      settings: {
+        label: "Settings overview",
+        steps: [
+          { id: "list", label: "All folders", next: "confirm",
+            what: "Settings › Coding agent lists every folder the coding agent can reach, which project added it, and its status.",
+            why: "Folders are granted per project but mounted for every project. This is the one place that shows the real, machine-wide picture, and the place to audit it." },
+          { id: "confirm", label: "Remove", next: "removing",
+            what: "Removing access asks whether to keep the folder as read-only reference in its project.",
+            why: "Downgrading is more common than forgetting a folder entirely, so it’s the default. Files on disk are never touched, and the sheet says so." },
+          { id: "removing", label: "Removing", next: null,
+            what: "The row strikes through while the coding agent restarts.",
+            why: "Same restart pattern as adding: the row only disappears after the coding agent comes back without the mount." },
+        ],
+      },
+    };
+
+    FLOWS.del = {
+      label: "Delete a folder",
+      steps: [
+        { id: "choose", label: "Remove options", next: "review",
+          what: "Removing a folder in Settings, or Delete folder… in a Project tab row’s menu, now offers a third choice: delete the folder from this Mac.",
+          why: "Deleting is a different act from removing access, so it’s never the default and never one click away. It sits last in the list, and choosing it leads to a review instead of acting." },
+        { id: "review", label: "Review", next: "deleting",
+          what: "The review lists what’s in the folder and what would be lost: commits on no remote, uncommitted files, and whether Boundary created it. Typing the folder name enables Move to Trash.",
+          why: "The prompt is only meaningful if it shows what’s at stake. Git state is the real measure of loss, so it leads. Friction grows with risk: unpushed work or a folder Boundary didn’t create needs the typed name." },
+        { id: "clean", label: "Low risk", branch: true, next: "deleting",
+          what: "Variant: a folder Boundary created, fully pushed and clean. The review still lists what’s in it, but one click confirms.",
+          why: "Asking someone to type a name for an 84 KB scaffold teaches them to type without reading. Saving the typed check for real risk keeps it meaningful." },
+        { id: "busy", label: "Task running", branch: true, next: "review",
+          what: "Variant: a coding task is running in the folder. Delete stays disabled until the task stops.",
+          why: "Moving a folder out from under a running agent invites half-written files and confusing errors. Here there’s no wait option, because the user asked to delete." },
+        { id: "deleting", label: "Deleting", next: "done",
+          what: "Boundary removes the grant, restarts the coding agent so no container holds the mount, then moves the folder to the Trash.",
+          why: "Unmount first, so the containers never see a folder vanish under a live bind. The checklist shows each step, and a failure stops before anything moves." },
+        { id: "done", label: "Done", next: null,
+          what: "The row is gone and a toast confirms the folder is in the Trash.",
+          why: "The macOS Trash is the undo. Boundary uses shell.trashItem and never deletes permanently or empties the Trash, so every deletion can be recovered in Finder." },
+      ],
+    };
+
+    const flowsEl = document.getElementById("flows");
+    const stepsEl = document.getElementById("steps");
+    let flow = "add";
+    let step = "inspect";
+    // Which version of a shared step to show: an existing folder or one Boundary just created.
+    let variant = "existing";
+    const VARIANT_OF = {
+      "add.newfolder": "new", "add.taken": "new",
+      "add.inspect": "existing", "add.pick": "existing", "add.access": "existing",
+      "add.confirm": "existing", "add.busy": "existing", "add.error": "existing",
+      "ask.newask": "new", "ask.ask": "existing",
+    };
+
+    const store = {
+      get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+    };
+
+    function matches(el) {
+      if (el.dataset.v && el.dataset.v !== variant) return false;
+      if (!el.dataset.on) return true;
+      const keys = el.dataset.on.split(/\s+/);
+      return keys.includes(`${flow}.${step}`) || keys.includes(`${flow}.*`);
+    }
+
+    function render() {
+      document.querySelectorAll("[data-on], [data-v]").forEach((el) => {
+        const on = matches(el);
+        if (el.dataset.cls) {
+          el.classList.toggle(el.dataset.cls, on);
+        } else {
+          el.hidden = !on;
+        }
+      });
+      document.querySelectorAll("[data-cls-ready]").forEach((el) => {
+        el.classList.toggle(el.dataset.clsReady, step === "ready");
+      });
+
+      flowsEl.querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.flow === flow));
+      const steps = FLOWS[flow].steps;
+      stepsEl.innerHTML = "";
+      steps.forEach((s) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = s.label;
+        if (s.branch) b.classList.add("branch");
+        if (s.id === step) b.classList.add("is-on");
+        b.addEventListener("click", () => go(s.id));
+        stepsEl.appendChild(b);
+      });
+
+      const main = steps.filter((s) => !s.branch);
+      const cur = steps.find((s) => s.id === step);
+      const idx = main.indexOf(cur);
+      document.getElementById("cap-count").textContent =
+        `${FLOWS[flow].label} · ${cur.branch ? "variant" : `step ${idx + 1} of ${main.length}`}`;
+      document.getElementById("cap-title").textContent = cur.label;
+      document.getElementById("cap-what").textContent = cur.what;
+      document.getElementById("cap-why").textContent = cur.why;
+      document.getElementById("next").disabled = !cur.next;
+      document.getElementById("next").style.opacity = cur.next ? "" : "0.4";
+      location.hash = `${flow}-${step}`;
+    }
+
+    function go(target) {
+      if (target.includes(".")) {
+        [flow, step] = target.split(".");
+      } else {
+        step = target;
+      }
+      const v = VARIANT_OF[`${flow}.${step}`];
+      if (v) variant = v;
+      else if (!FLOWS[flow].steps.find((s) => s.id === step).branch && step === FLOWS[flow].steps[0].id) variant = "existing";
+      render();
+    }
+
+    Object.entries(FLOWS).forEach(([id, f]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.flow = id;
+      b.textContent = f.label;
+      b.addEventListener("click", () => go(`${id}.${f.steps[0].id}`));
+      flowsEl.appendChild(b);
+    });
+
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-go]");
+      if (t) go(t.dataset.go);
+    });
+
+    document.getElementById("next").addEventListener("click", () => {
+      const cur = FLOWS[flow].steps.find((s) => s.id === step);
+      if (cur.next) go(cur.next);
+    });
+    document.getElementById("prev").addEventListener("click", () => {
+      const main = FLOWS[flow].steps.filter((s) => !s.branch);
+      const cur = FLOWS[flow].steps.find((s) => s.id === step);
+      const prevMain = main.find((s) => s.next === step);
+      if (prevMain) return go(prevMain.id);
+      if (cur.branch) return go(main[0].id);
+      const keys = Object.keys(FLOWS);
+      const pf = keys[(keys.indexOf(flow) - 1 + keys.length) % keys.length];
+      const ps = FLOWS[pf].steps.filter((s) => !s.branch);
+      go(`${pf}.${ps[ps.length - 1].id}`);
+    });
+
+    // Theme: follows the OS unless toggled; the kit's html.light class is kept in sync.
+    const root = document.documentElement;
+    const themeBox = document.getElementById("theme");
+    const saved = store.get("boundary-chat-theme");
+    const osLight = window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches;
+    const startLight = saved ? saved === "light" : osLight;
+    const applyTheme = (light) => {
+      root.classList.toggle("light", light);
+      root.classList.toggle("dark", !light);
+      themeBox.checked = light;
+    };
+    applyTheme(startLight);
+    themeBox.addEventListener("change", () => {
+      applyTheme(themeBox.checked);
+      store.set("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      root.classList.toggle("notes-off", !e.target.checked);
+    });
+
+    const hash = location.hash.slice(1).split("-");
+    if (hash.length === 2 && FLOWS[hash[0]] && FLOWS[hash[0]].steps.some((s) => s.id === hash[1])) {
+      [flow, step] = hash;
+      variant = VARIANT_OF[`${flow}.${step}`] || "existing";
+    }
+    render();
+  </script>
+</body>
+</html>

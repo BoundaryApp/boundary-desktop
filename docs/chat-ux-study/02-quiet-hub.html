@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B · Quiet Hub — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    html { color-scheme: light; }
+
+    :root {
+      --bg: #f3f1ea;
+      --paper: #fffcf6;
+      --ink: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --line: #e3dfd3;
+      --hover: #ece8dc;
+      --accent: #1c1b17;
+      --warm: #c4a574;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    .study-bar {
+      background: #1c1b17;
+      color: #d8d4c8;
+      border-bottom-color: #2e2c27;
+    }
+
+    .study-bar .brand { color: #fffcf6; }
+    .study-bar nav a { color: #9a968a; }
+    .study-bar nav a:hover,
+    .study-bar nav a.is-current { background: #2e2c27; color: #fffcf6; }
+    .study-bar label { color: #9a968a; }
+
+    .app-stage { background: var(--bg); }
+
+    .titlebar {
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .titlebar .lights i { background: #d4d0c4; }
+
+    .top {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 18px;
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+      position: relative;
+    }
+
+    .wordmark {
+      font-weight: 620;
+      letter-spacing: -0.03em;
+      font-size: 15px;
+    }
+
+    .tabs { display: flex; gap: 4px; }
+    .tabs button {
+      padding: 6px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+    .tabs button.is-on { color: var(--ink); background: var(--hover); }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+
+    .left {
+      width: 248px;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+    }
+
+    .proj {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 10px;
+      border-radius: 12px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .proj:hover { background: #e8e4d8; }
+    .proj.is-on { background: var(--paper); border: 1px solid var(--line); }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .proj .name { font-weight: 580; }
+    .proj .path { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+
+    .new {
+      margin: 4px 10px 14px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .new:hover { color: var(--ink); }
+
+    .label {
+      padding: 12px 10px 6px;
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .thread {
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: left;
+      width: 100%;
+    }
+
+    .thread:hover { background: #e8e4d8; color: var(--ink); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--paper);
+      border-left: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      position: relative;
+    }
+
+    .log {
+      flex: 1;
+      overflow: auto;
+      padding: 36px 56px 8px;
+    }
+
+    .turn { max-width: 640px; margin: 0 auto 28px; }
+    .who { font-size: 12px; font-weight: 620; margin-bottom: 8px; }
+    .you .who { color: var(--muted); }
+    .body { font-size: 15px; line-height: 1.6; }
+    .tool {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .tool b { color: var(--ink); font-weight: 580; }
+    .recap { margin-top: 12px; color: var(--faint); font-size: 12px; }
+
+    .composer-wrap {
+      padding: 8px 28px 22px;
+    }
+
+    .composer {
+      max-width: 720px;
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--paper);
+      padding: 10px 12px 10px;
+      position: relative;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 52px;
+      resize: none;
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-size: 15px;
+    }
+
+    .strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 6px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      background: var(--bg);
+    }
+
+    .chip span { color: var(--muted); }
+
+    .gauge { color: var(--muted); font-size: 12px; margin-left: 4px; }
+    .stop {
+      margin-left: auto;
+      background: var(--ink);
+      color: var(--paper);
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-weight: 580;
+    }
+
+    .right {
+      width: 260px;
+      padding: 22px 18px;
+      position: relative;
+    }
+
+    .right h2 { margin: 0; font-size: 15px; letter-spacing: -0.02em; }
+    .right .host { color: var(--muted); font-size: 12px; margin: 6px 0 14px; }
+    .right p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 16px; }
+
+    .links { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 18px; }
+    .links button { color: var(--muted); }
+    .links button:hover { color: var(--ink); }
+
+    .file {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 0;
+      border-top: 1px solid var(--line);
+      color: var(--ink);
+    }
+
+    .dest {
+      flex: 1;
+      flex-direction: column;
+      padding: 40px 56px;
+      background: var(--paper);
+      border-left: 1px solid var(--line);
+    }
+
+    .dest h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.04em; font-weight: 560; }
+    .dest .lead { color: var(--muted); max-width: 48ch; margin: 0 0 24px; font-size: 15px; }
+
+    .svc {
+      display: grid;
+      grid-template-columns: repeat(2, 280px);
+      gap: 12px;
+    }
+
+    .svc button {
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      background: var(--bg);
+    }
+
+    .svc b { display: block; margin-bottom: 4px; }
+    .svc span { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body data-screen="chat">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a class="is-current" href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+    </div>
+
+    <header class="top">
+      <div class="wordmark">Boundary</div>
+      <nav class="tabs" aria-label="App">
+        <button class="is-on" data-go="chat">Chat</button>
+        <button data-go="services">Services</button>
+        <button data-go="settings">Settings</button>
+      </nav>
+      <span class="note" style="top: 16px; left: 210px" data-tip="Header cluster instead of an icon rail. Same two-layer rule: destinations are not project rows.">1</span>
+    </header>
+
+    <div class="shell">
+      <section class="screen chat" style="flex:1">
+        <aside class="left">
+          <button class="new">New project</button>
+          <button class="proj is-on">
+            <span class="glyph" style="background:#c4a574">J</span>
+            <span><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+          </button>
+          <button class="proj">
+            <span class="glyph" style="background:#6f8fa3">N</span>
+            <span><span class="name">Notes</span><span class="path mono">~/Documents/Boundary Notes</span></span>
+          </button>
+          <div class="label">In this project</div>
+          <button class="thread">Resume summary</button>
+          <button class="thread">Cover letter, Acme</button>
+          <div class="label">Other chats</div>
+          <button class="thread">Name one primary color</button>
+          <span class="note" style="top: 8px; right: 8px" data-tip="Projects as named hubs with a color mark. Threads belong to the hub; leftovers stay Other chats.">2</span>
+        </aside>
+
+        <main class="center">
+          <div class="log" role="log">
+            <div class="turn you">
+              <div class="who">You</div>
+              <div class="body">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="turn">
+              <div class="who">Assistant</div>
+              <div class="tool"><b>Looked at two files</b> · resume.pdf, cover-notes.md</div>
+              <div class="body">Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes, and applications into a single working set — scoped to files on disk, not an uploaded copy.</div>
+              <div class="recap">18.8k in · 708 out · 7 visible</div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea placeholder="Message this project…"></textarea>
+              <div class="strip">
+                <button class="chip">Job Search <span class="mono">~/Documents/Job Search</span></button>
+                <button class="chip">@</button>
+                <span class="gauge mono">18.8k / 32k</span>
+                <span class="gauge">Tools on</span>
+                <button class="stop">Stop</button>
+              </div>
+              <span class="note" style="top: -8px; right: -8px" data-tip="Composer is a card, still always on screen. Same controls, less instrument density.">3</span>
+            </div>
+          </div>
+        </main>
+
+        <aside class="right">
+          <h2>This folder</h2>
+          <div class="host mono">~/Documents/Job Search</div>
+          <p>Looks up files as needed. No index bar. No claim that the model has “loaded” the folder.</p>
+          <div class="links">
+            <button>Change folder</button>
+            <button>Reveal in Finder</button>
+          </div>
+          <button class="file">resume.pdf</button>
+          <button class="file">cover-notes.md</button>
+          <button class="file">applications/</button>
+          <button class="file">portfolio/</button>
+          <span class="note" style="top: 18px; left: 0" data-tip="Claude-style honesty: the tree is a map, not a capacity gauge.">4</span>
+        </aside>
+      </section>
+
+      <section class="dest screen services">
+        <h1>Services</h1>
+        <p class="lead">Quiet Hub keeps service cards as a page you visit, not a home you live on.</p>
+        <div class="svc">
+          <button><b>WebUI</b><span>Browser console for the local stack.</span></button>
+          <button><b>SearXNG</b><span>Search the agent can call.</span></button>
+          <button><b>LightRAG</b><span>Optional retrieval. Keep it optional.</span></button>
+          <button><b>n8n</b><span>Workflows on this Mac.</span></button>
+        </div>
+      </section>
+
+      <section class="dest screen settings">
+        <h1>Settings</h1>
+        <p class="lead">Same cut as today: a destination, large type, then back to the conversation.</p>
+        <p class="lead">Model, tools default, and a reserved Devices slot. Nothing here appears in the project list.</p>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    if (new URLSearchParams(location.search).has("embed")) document.documentElement.classList.add("embed");
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.body.dataset.screen = btn.dataset.go;
+        document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("is-on", b === btn));
+      });
+    });
+  </script>
+</body>
+</html>

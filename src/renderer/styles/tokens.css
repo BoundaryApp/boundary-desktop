@@ -1,0 +1,144 @@
+/* Boundary design tokens — ADR 0018, living sheet docs/design-system/index.html.
+   Every color, size, radius and duration in product chrome comes from here.
+   Raw values live only in this file; components use the semantic names.
+   Tailwind utilities read the same values through @theme in src/index.css. */
+
+:root {
+  color-scheme: dark;
+
+  /* Type ------------------------------------------------------------------ */
+  --font-ui: "IBM Plex Sans Variable", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --size-2xs: 11px; /* section labels, meta, pills */
+  --size-xs: 12px; /* secondary rows, captions, tiny buttons */
+  --size-ui: 13px; /* default chrome text */
+  --size-title: 15px; /* sheet and card titles */
+  --size-heading: 22px; /* destination headings */
+  --size-prose: 16.5px; /* assistant reading face only */
+
+  --leading-ui: 1.45;
+  --leading-prose: 1.68;
+
+  --weight-regular: 400;
+  --weight-medium: 560;
+  --weight-strong: 650;
+
+  /* Shape ----------------------------------------------------------------- */
+  --radius-sm: 6px; /* chips, pills with text, small controls */
+  --radius-md: 8px; /* buttons, inputs, rows */
+  --radius-lg: 12px; /* cards, sheets, composer */
+  --radius-full: 999px;
+
+  /* Space: multiples of 4 ------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Transcript column ----------------------------------------------------- */
+  --chat-column: 720px; /* transcript, composer and approval share this width */
+  --chat-gutter: 36px; /* minimum inline gutter once the pane is narrower */
+
+  /* Motion ---------------------------------------------------------------- */
+  --dur-fast: 120ms; /* hover, press, color */
+  --dur-panel: 200ms; /* sheets, tabs, disclosure */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Color: surfaces ------------------------------------------------------- */
+  --surface-0: #0d0d0f; /* window, transcript */
+  --surface-rail: #111113; /* icon rail */
+  --surface-1: #161618; /* side rails, cards, inputs */
+  --surface-2: #1c1c22; /* raised: user bubble, popovers */
+  --surface-hover: #1d1d22;
+  --line: #2a2a30;
+  --line-strong: #3a3a44; /* hover borders */
+
+  /* Color: text ----------------------------------------------------------- */
+  --text: #f5f5f7;
+  --text-muted: #c4c4cc;
+  --text-faint: #9e9ea8;
+
+  /* Color: brand and actions ---------------------------------------------- */
+  --brand: #8b87f8; /* selection, active destination, recommended */
+  --brand-dim: #26244a;
+  --solid-bg: var(--text); /* primary button */
+  --solid-fg: #111;
+
+  /* Color: status --------------------------------------------------------- */
+  --ok: #86c089;
+  --ok-dim: #17231a;
+  --warn: #e8c27a;
+  --warn-dim: #2a2415;
+  --warn-line: #5a4a2a;
+  --danger: #e8a0a0;
+  --danger-line: #5a3030;
+  --danger-dim: #2a1818;
+
+  /* Color: transcript instruments (0004) ---------------------------------- */
+  --tool-bg: #171914;
+  --tool-line: #3a4330;
+  --overhead: #c4843a;
+  --gen: #5b8def;
+  --wait: #93c5fd;
+  --gauge-track: #2a2a30;
+
+  /* Elevation: popovers and sheets only; depth elsewhere comes from surfaces */
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.35);
+  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+
+  /* Text on colored agent/project glyphs */
+  --on-glyph: #fff;
+
+  /* Focus ----------------------------------------------------------------- */
+  --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px color-mix(in srgb, var(--brand) 75%, transparent);
+}
+
+/* Light theme — Quiet Hub paper values accepted in ADR 0003. Chosen in Settings →
+   Appearance (src/renderer/theme.ts sets <html data-theme>). */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --surface-0: #f3f1ea;
+  --surface-rail: #ece8dc;
+  --surface-1: #fffcf6;
+  --surface-2: #f7f4ec;
+  --surface-hover: #ece8dc;
+  --line: #e3dfd3;
+  --line-strong: #cfc9b8;
+  --text: #1c1b17;
+  --text-muted: #6d6a60;
+  --text-faint: #9a968a;
+  --brand: #5b56d6;
+  --brand-dim: #e6e4fb;
+  --solid-bg: #1c1b17;
+  --solid-fg: #fffcf6;
+  --ok: #3f7d44;
+  --ok-dim: #e5f0e3;
+  --warn: #8a6415;
+  --warn-dim: #f6ecd6;
+  --warn-line: #e3cf9f;
+  --shadow-popover: 0 12px 32px rgb(40 32 16 / 0.12);
+  --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+  --danger: #a83a3a;
+  --danger-line: #e2b4b4;
+  --danger-dim: #f8e6e4;
+  --tool-bg: #f1f3ea;
+  --tool-line: #cfd6c1;
+  --overhead: #a8641f;
+  --gen: #3b6fd8;
+  --wait: #2f7fd1;
+  --gauge-track: #e3dfd3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-panel: 0ms;
+  }
+}

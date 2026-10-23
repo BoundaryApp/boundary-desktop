@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary chat types — UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    body { background: #0e0e10; color: #ececee; height: auto; min-height: 100%; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .page { max-width: 1080px; margin: 0 auto; padding: 28px 24px 80px; }
+    .kicker { color: #8b87f8; font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+    h1 { margin: 0 0 10px; font-size: 32px; font-weight: 560; letter-spacing: -0.04em; }
+    .lede { color: #9a9aa3; max-width: 68ch; font-size: 15px; line-height: 1.55; margin: 0 0 28px; }
+    .lede a, .rec a, .open a { color: #ececee; }
+    h2 { margin: 36px 0 12px; font-size: 16px; font-weight: 620; letter-spacing: -0.02em; }
+    .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .rules div { border: 1px solid #2a2a30; background: #161618; border-radius: 10px; padding: 12px 14px; }
+    .rules b { display: block; margin-bottom: 4px; font-weight: 600; }
+    .rules span { color: #8e8e96; font-size: 12px; line-height: 1.45; }
+    .rec { border: 1px solid #3a3658; background: #16141f; border-radius: 12px; padding: 16px 18px; margin: 8px 0; }
+    .rec strong { color: #c7c4f4; }
+    .rec p { margin: 8px 0 0; color: #b4b4bc; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .dir { border: 1px solid #2a2a30; background: #141416; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .frame { height: 190px; overflow: hidden; background: #0b0b0d; border-bottom: 1px solid #2a2a30; pointer-events: none; }
+    .frame iframe { width: 1440px; height: 900px; transform: scale(0.24); transform-origin: top left; border: 0; }
+    .copy { padding: 14px 14px 16px; }
+    .copy .tag { font-size: 11px; color: #8b87f8; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+    .copy h3 { margin: 4px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .copy h3 a { color: #ececee; }
+    .copy p { margin: 0 0 10px; color: #9a9aa3; font-size: 13px; line-height: 1.45; }
+    .meta { display: flex; gap: 16px; color: #6a6a72; font-size: 12px; flex-wrap: wrap; }
+    .meta b { color: #b4b4bc; font-weight: 550; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: #6a6a72; font-weight: 550; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid #2a2a30; }
+    td { padding: 9px 10px; border-bottom: 1px solid #1f1f24; color: #b4b4bc; vertical-align: top; line-height: 1.45; }
+    td:first-child { color: #ececee; font-weight: 520; width: 30%; }
+    td.where { color: #8e8e96; white-space: nowrap; }
+    .v { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid #2a2a30; white-space: nowrap; }
+    .v.now { color: #86c089; border-color: #2f4a31; }
+    .v.next { color: #c7c4f4; border-color: #3a3658; }
+    .v.later { color: #e0b36a; border-color: #5a4a2a; }
+    .v.skip { color: #8e8e96; }
+
+    .open { margin: 10px 0 0; padding: 0 0 0 18px; color: #8e8e96; font-size: 13px; line-height: 1.5; }
+    .open li { margin: 0 0 8px; }
+    .open b { color: #ececee; font-weight: 550; }
+    code { font-size: 12px; color: #c4c4cc; }
+    footer.note-line { margin-top: 40px; color: #6a6a72; font-size: 12px; }
+
+    .tm { width: 18px; height: 18px; display: inline-grid; place-items: center; font-size: 10px; font-weight: 650; color: #fff; }
+    .tm.hermes { border-radius: 6px; background: #8b87f8; }
+    .tm.chan { border-radius: 5px; border: 1.5px solid #9e9ea8; color: #c4c4cc; font-family: ui-monospace, monospace; }
+    .tm.dm { border-radius: 50%; }
+    .tm.side { border-radius: 50%; border: 1.5px dashed currentColor; }
+    .wrap td.where { white-space: normal; width: 30%; }
+    .types td:first-child { width: 22%; }
+    .types .tm { display:inline-grid; vertical-align:-3px; margin-right:6px; }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 860px) {
+      .grid, .grid.two, .rules { grid-template-columns: 1fr; }
+      td.where { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · reference kit · 1 Oct 2026</div>
+    <h1>Which chat am I in?</h1>
+    <p class="lede">
+      Channels moved every Hermes session into <b>Recent</b>, and now nothing
+      says what kind of conversation you're in or where the others are. The
+      root cause is that <a href="../adr/0007-multi-agent-dms-and-roster.md">0007</a>
+      made the base agent a DM, like the personalities. Pressing <i>New
+      conversation</i> on that DM turns the old session into an “Untitled
+      leftover” that only shows up in Recent. Users think of Hermes as a place
+      with many separate chats, and of each personality as one ongoing
+      thread. This study gives each type its own shape, name and section, and
+      adds a Mentions view. Open the <a href="01-chat-types.html">mock</a>
+      and turn on <b>Notes</b>.
+    </p>
+
+    <h2>The types</h2>
+    <table class="types">
+      <thead><tr><th>Type</th><th>What it is</th><th>Lives in</th><th>“New” means</th><th>Context</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tm hermes">✦</span>Hermes chat</td><td>A titled, standalone session with the base agent. Start one any time with ⌘N.</td><td class="where">Hermes section (last 5), All chats</td><td>A fresh session</td><td>The session</td></tr>
+        <tr><td><span class="tm chan">#</span>Channel</td><td>A topic room. A send with no @ is a post. @ asks a member to reply now (0008, 0009).</td><td class="where">Channels section</td><td>A new room</td><td>Room backlog plus wake</td></tr>
+        <tr><td><span class="tm dm" style="background:#4f9d8f">A</span>Direct message</td><td>One continuous private thread per personality. It is never forked and never “new”.</td><td class="where">Direct messages section</td><td>Pick an agent to message</td><td>A token budget plus that agent's own memory. The cut is shown.</td></tr>
+        <tr><td><span class="tm dm side" style="color:#4f9d8f"></span>Side chat <i style="color:#8b87f8">· the missing one</i></td><td>A short-lived session run by a personality. It comes from branching a DM or channel message, and today's extra per-agent sessions migrate here. Without this type, Branch on a DM would break “one thread”.</td><td class="where">All chats; the agent's page</td><td>Branch from a DM or channel</td><td>The session</td></tr>
+      </tbody>
+    </table>
+    <p class="lede" style="margin-top:14px">
+      <b>All chats</b> (renamed from Recent) is the history the request
+      describes. It lists every type, including channel and DM activity by
+      personalities, with type and agent filters and search.
+      <b>Mentions</b> is a view, not a chat type. It lists your @s across
+      channels and the replies to them.
+    </p>
+
+    <h2>Others you might not be thinking of</h2>
+    <table class="wrap">
+      <thead><tr><th>Candidate</th><th>Why it comes up</th><th>Treatment</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Side chats (branches, old per-agent sessions)</td><td>Branch already ships (message actions P3). Under the current model, DMs with personalities also already have several sessions each.</td><td class="where">Fourth type, dashed avatar</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Chats from elsewhere (Telegram, CLI, WebUI, API)</td><td>Gateway sessions already carry a <code>source</code>. Today they show up in Recent as “Untitled · Telegram”.</td><td class="where">A source tag on Hermes chats (or on side chats when a personality ran them), not a type</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Agent-started messages (scheduled runs, “reads later” replies, chain wakes)</td><td>0009 lets members read posts later and maybe reply. Hermes cron jobs can also post on their own. Nobody asked, so the reply lands with no @ of yours to hang it on.</td><td class="where">Mentions marks “Replied later”. Unprompted runs need a later Activity view.</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>Hermes as a channel member</td><td>Users with no personalities still want someone to @ in a room.</td><td class="where">Yes. A normal member, pre-checked on New channel</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Channel threads (reply in thread)</td><td>The Slack habit.</td><td class="where">Mentions already gives a focused view of each exchange. Add threads only if rooms get noisy.</td><td><span class="v later">Later</span></td></tr>
+        <tr><td>Group DMs (you plus 2 agents, private)</td><td>The Slack habit.</td><td class="where">A channel with no topic. Rejected, since it would be a fifth near-identical type.</td><td><span class="v skip">No</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Held constant</h2>
+    <div class="rules">
+      <div><b>One shape per type</b><span>Sparkle square = Hermes. # = channel. Filled circle = DM. Dashed circle = side chat. The same mark appears in the rail, header, All chats, Mentions, search and @ menus.</span></div>
+      <div><b>Header names the type</b><span>Every header has two lines: the name, then the type in words (“Hermes chat”, “Channel”, “Direct message · one ongoing thread”). The composer placeholder repeats it.</span></div>
+      <div><b>“New” is honest per type</b><span>⌘N and Hermes + make a new session. Channels + makes a room. DMs + picks an agent and never forks a thread.</span></div>
+      <div><b>Never land on a list</b><span>The 0007 rule stays: after ready, open the last-opened conversation or a Hermes chat. Never All chats or Mentions.</span></div>
+      <div><b>Show context cuts honestly</b><span>The DM horizon and context chip appear only once the stack really trims. Messages above the line are dimmed but still readable.</span></div>
+      <div><b>Same rail as today</b><span>The project picker, icon rail, 0014 inspector and 0020 column all stay. Only the left-rail sections and the Recent pane change.</span></div>
+    </div>
+
+    <h2>Recommendation</h2>
+    <div class="rec">
+      <strong>A · Three typed sections: Hermes, Channels, Direct messages. All chats and Mentions sit above them.</strong>
+      <p>
+        Hermes becomes a section with its last five chats inline. Its + is ⌘N
+        from anywhere, and <i>All Hermes chats…</i> opens All chats with the
+        Hermes filter on. Recent is renamed <b>All chats</b>, a typed
+        history of everything with search. Each DM is one ongoing thread.
+        Its header has two tabs: <b>Messages</b> and <b>In channels</b>.
+        In channels is the per-personality @ screen. Each card shows the room,
+        your message, the reply, <i>Open in #room</i> and <i>Continue in
+        DM</i>. A global <b>Mentions</b> row shows the same cards for every
+        agent, with agent chips. Its count is unseen replies, never posts.
+      </p>
+    </div>
+
+    <h2>Directions</h2>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="01-chat-types.html?embed=1&state=hermes" title="Recommended rail" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">A · recommended</div>
+          <h3><a href="01-chat-types.html">Typed sections</a></h3>
+          <p>Each type gets a section with its own shape. Everything is one click away and the rail stays scannable. This reverses two lines in 0007 (below).</p>
+          <div class="meta"><span><b>States</b> Hermes, All chats, #room, DM, In channels, Mentions</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame" style="display:grid;place-items:center;color:#6a6a72;font-size:12px">not mocked</div>
+        <div class="copy">
+          <div class="tag">B · foil · destinations</div>
+          <h3>Tabs per type</h3>
+          <p>Hermes, Channels, DMs and Activity become icon-rail destinations, as in Slack mobile. This separates the types most clearly but hides the others behind a click. It also brings back the tabs 0007 and 0008 rejected.</p>
+          <div class="meta"><span><b>Verdict</b> No</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame" style="display:grid;place-items:center;color:#6a6a72;font-size:12px">not mocked</div>
+        <div class="copy">
+          <div class="tag">C · foil · minimal</div>
+          <h3>Rename and badge</h3>
+          <p>Rename Recent to All chats, add type badges and pin Hermes as the first DM. It's cheap, but Hermes stays a DM and New conversation still turns old chats into leftovers. That's the confusion we're trying to fix.</p>
+          <div class="meta"><span><b>Verdict</b> Fallback only</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>What this changes</h2>
+    <table class="wrap">
+      <thead><tr><th>Today (0007 / 0008)</th><th>Proposed</th><th>Where</th><th>Size</th></tr></thead>
+      <tbody>
+        <tr><td>Assistant is the first DM row. Its old sessions become “Untitled leftovers”.</td><td>Hermes gets its own section of titled chats. The word “leftover” goes away.</td><td class="where">Rail, <code>kind</code> model</td><td><span class="v now">M</span></td></tr>
+        <tr><td>“Reject nesting threads under Assistant as standing nav.”</td><td>Reversed, for Hermes only. The base agent is session-based; personalities are not.</td><td class="where">ADR 0023 supersedes 0007 §1–3</td><td><span class="v now">S</span></td></tr>
+        <tr><td>Recent: “Jump back. Not home.”</td><td>All chats, with type filters, agent filter, source filter and search. It is still never the landing view.</td><td class="where">Center pane</td><td><span class="v now">S</span></td></tr>
+        <tr><td>DM + = New conversation (forks the DM)</td><td>DM + = message an agent. Branch makes a side chat.</td><td class="where"><code>handleNewDm</code>, branch</td><td><span class="v now">S</span></td></tr>
+        <tr><td>No @ history</td><td>An In channels tab on each agent, plus a global Mentions view. Built from <code>delivery: 'woke'</code> lines, <code>parseMemberMentions</code>, and the next replies' <code>agentSlug</code>.</td><td class="where">Desktop index (electron-store)</td><td><span class="v next">M</span></td></tr>
+        <tr><td>DM context is whatever the gateway session holds</td><td>A context horizon line and a <i>Context: last N</i> chip</td><td class="where">Needs a stack change request</td><td><span class="v later">L</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Decided · 1 Oct</h2>
+    <ol class="open">
+      <li><b>0007's rule against nesting is overridden.</b> Hermes is session-based; personalities are not.</li>
+      <li><b>The name is “Hermes”, read from one record.</b> Desktop hardcodes it for now, in the built-in agent record only, never as UI literals. The slug stays <code>assistant</code>. When the stack can swap the base agent, the stack fills the record.</li>
+      <li><b>Hermes can join channels.</b> New channel pre-checks it. It follows the same member rules as everyone else, it shows up in Mentions, and <i>Continue in a Hermes chat</i> takes the place of <i>Continue in DM</i>.</li>
+      <li><b>The DM window is a token budget.</b> The horizon reads “about 6k of 8k tokens”, and the stack reports where the cut falls.</li>
+      <li><b>Old per-agent sessions become side chats.</b></li>
+      <li><b>Mentions covers channels only.</b> DMs never appear there.</li>
+      <li><b>Activity view is deferred.</b> It may grow out of Mentions later, under its own ADR.</li>
+    </ol>
+    <p class="lede" style="margin-top:10px">ADR 0023 accepted 1 Oct 2026. Build plan: <a href="spec.md">spec.md</a>. Stack asks: <a href="../change-requests/0002-dm-context-budget.md">CR 0002</a>.</p>
+
+    <footer class="note-line">Kit: <a href="01-chat-types.html" style="color:inherit">01-chat-types.html</a> · Decision: <a href="../adr/0023-chat-types-and-hermes-home.md" style="color:inherit">ADR 0023 (Accepted)</a> · Plan: <a href="spec.md" style="color:inherit">spec.md</a> · Branch <code>design/chat-types-nav</code></footer>
+  </div>
+</body>
+</html>

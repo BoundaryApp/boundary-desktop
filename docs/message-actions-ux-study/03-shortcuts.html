@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C · Keyboard — Boundary message-actions study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    .acts.under { position: absolute; top: 100%; left: -6px; margin-top: 2px; gap: 4px; }
+    .acts.under .act { height: 24px; }
+
+    /* Shortcut sheet (⌘/) */
+    .scrim { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; }
+    html.light .scrim { background: rgba(60, 50, 30, 0.18); }
+    .sheet {
+      width: min(760px, calc(100% - 48px)); max-height: calc(100% - 48px); overflow: auto;
+      background: var(--rail); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+      padding: 18px 20px 20px;
+    }
+    .sheet-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .sheet-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .sheet-head .filter {
+      margin-left: auto; width: 220px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); outline: none; font-size: 12px;
+    }
+    .groups { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; }
+    .grp-h {
+      font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--faint); margin: 10px 0 4px;
+    }
+    .sc { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+    .sc:last-child { border-bottom: 0; }
+    .sc .what { flex: 1; color: var(--muted); }
+    .sc .keys { display: flex; gap: 3px; }
+    .pill { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); }
+    .pill.new { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+    .sheet-foot { margin-top: 14px; color: var(--faint); font-size: 12px; display: flex; gap: 14px; }
+
+    /* Message focus mode (⌥↑ / ⌥↓) */
+    .msg.focused::before {
+      content: ""; position: absolute; left: -14px; top: 0; bottom: 0; width: 3px; border-radius: 3px; background: var(--accent);
+    }
+    .keyhint { display: inline-flex; align-items: center; gap: 10px; margin-right: 10px; color: var(--faint); font-size: 12px; }
+    .keyhint span { display: inline-flex; align-items: center; gap: 4px; }
+
+    /* Find in chat (⌘F) */
+    .find {
+      display: flex; align-items: center; gap: 8px; padding: 6px 16px; border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .find input {
+      width: 260px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-strong);
+      background: var(--bg); outline: none; font-size: 13px;
+    }
+    .find .count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .find .act svg { width: 14px; height: 14px; }
+    .find .end { margin-left: auto; }
+    mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+    mark.cur { background: color-mix(in srgb, var(--warn) 70%, transparent); color: var(--solid-fg); }
+    html.light mark.cur { color: var(--text); }
+
+    .msg .note { top: 0; }
+  </style>
+</head>
+<body data-state="sheet">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="4.5" r="1.5"/><path d="M4.5 5v6M11.5 6v.5c0 2.5-7 1.5-7 4"/></symbol>
+      <symbol id="i-up" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10L8 5.5l4.5 4.5"/></symbol>
+      <symbol id="i-down" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6L8 10.5 12.5 6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="study-bar">
+    <a class="brand" href="index.html">Message actions</a>
+    <nav>
+      <a href="01-user-actions.html">A Prompt actions</a>
+      <a href="02-assistant-actions.html">B Reply actions</a>
+      <a class="is-current" href="03-shortcuts.html">C Keyboard</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp" aria-label="State">
+          <button data-state-go="sheet">⌘/ Sheet</button>
+          <button data-state-go="focus">⌥↑ Message focus</button>
+          <button data-state-go="find">⌘F Find</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg></button>
+        <button class="icon-btn" title="Services"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg></button>
+        <button class="icon-btn" title="Resources"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg></button>
+        <button class="icon-btn end" title="Settings"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg></button>
+      </nav>
+
+      <aside class="left">
+        <button class="proj-trigger" type="button">
+          <span class="glyph">J</span>
+          <span class="proj-copy"><span class="name">Job Search</span><span class="path mono">~/Documents/Job Search</span></span>
+        </button>
+        <div class="sect">Chats</div>
+        <button class="row is-on">Draft outreach for Acme</button>
+        <button class="row">Portfolio order</button>
+        <button class="row">Name one primary color</button>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head"><span><strong>Assistant</strong> <span class="role">· Job Search</span></span></div>
+
+        <div class="find" data-show="find">
+          <input value="Acme" aria-label="Find in chat" />
+          <span class="count">2 of 3</span>
+          <button class="act" aria-label="Previous match" data-tt="⇧↵">
+            <svg><use href="#i-up"/></svg></button>
+          <button class="act" aria-label="Next match" data-tt="↵"><svg><use href="#i-down"/></svg></button>
+          <span class="count">This chat · <a href="#" style="color:var(--muted)">search all chats</a></span>
+          <button class="act end" aria-label="Close find" data-tt="Esc"><svg><use href="#i-x"/></svg></button>
+        </div>
+
+        <div class="log" role="log" aria-label="Transcript">
+          <div class="col" style="position:relative">
+            <div class="day">Today</div>
+
+            <div class="msg u rb">
+              <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+            </div>
+            <div class="msg a">
+              <div class="who">Assistant</div>
+              <div class="prose"><p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes and applications into one working set.</p></div>
+            </div>
+
+            <div class="msg u rb" id="focusTarget">
+              <div class="bubble">Now tighten that into a cover-letter opener for <span data-hl="1">Acme</span>. Use the stronger voice and mention the hiring-tools work.</div>
+              <div class="acts under" data-show="focus">
+                <span class="keyhint">
+                  <span><kbd>C</kbd> copy</span><span><kbd>E</kbd> edit</span><span><kbd>B</kbd> branch</span>
+                  <span><kbd>⌥</kbd><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Esc</kbd> back to composer</span>
+                </span>
+                <span class="acts">
+                  <span class="stamp">2:14 PM</span>
+                  <button class="act" data-tt="C"><svg><use href="#i-copy"/></svg></button>
+                  <button class="act" data-tt="E"><svg><use href="#i-edit"/></svg></button>
+                  <button class="act" data-tt="B"><svg><use href="#i-branch"/></svg></button>
+                </span>
+              </div>
+              <span class="note" data-show="focus" style="right:-40px;top:0" data-tip="Message focus: ⌥↑ from the composer lands on the last message; ⌥↑/⌥↓ walk the log. The focused message shows its row and single-key verbs. Esc returns to the composer with the draft intact.">1</span>
+            </div>
+            <div class="msg a">
+              <div class="who">Assistant</div>
+              <div class="prose"><p>I've spent eight years designing tools that help hiring teams make better calls — most recently a job-search system that turns a folder of resumes, notes and applications into one working set. <span data-hl="2">Acme</span>'s recruiting platform is the product I want to build next.</p></div>
+            </div>
+            <div class="msg u rb">
+              <div class="bubble">Good. Save that as cover-letter-<span data-hl="3">acme</span>.md.</div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <div class="col">
+            <textarea placeholder="Reply to Assistant…"></textarea>
+            <div class="cluster">
+              <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+              <button class="chip is-on" type="button"><b>Local · qwen3:14b</b><span>from project default</span></button>
+              <span class="hint"><kbd>⌘</kbd><kbd>/</kbd> shortcuts</span>
+            </div>
+          </div>
+        </footer>
+
+        <span class="note" data-show="find" style="left:290px;top:48px" data-tip="⌘F searches this chat, scrolling each hit into view. A second link widens to every chat in the project. Enter / Shift-Enter step through matches.">2</span>
+
+        <div class="scrim" data-show="sheet">
+          <div class="sheet" role="dialog" aria-label="Keyboard shortcuts">
+            <div class="sheet-head">
+              <h2>Keyboard shortcuts</h2>
+              <span class="pill">Shipped</span><span class="pill new">New</span>
+              <input class="filter" placeholder="Filter shortcuts…" />
+            </div>
+            <div class="groups">
+              <div>
+                <div class="grp-h">Messages</div>
+                <div class="sc"><span class="what">Copy last reply</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span></div>
+                <div class="sc"><span class="what">Copy last code block</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>;</kbd></span></div>
+                <div class="sc"><span class="what">Retry last reply</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>R</kbd></span></div>
+                <div class="sc"><span class="what">Edit last message</span><span class="pill new">New</span><span class="keys"><kbd>↑</kbd><span class="kbd">in empty composer</span></span></div>
+                <div class="sc"><span class="what">Focus previous / next message</span><span class="pill new">New</span><span class="keys"><kbd>⌥</kbd><kbd>↑</kbd><kbd>↓</kbd></span></div>
+                <div class="sc"><span class="what">On focused message: copy, edit, branch</span><span class="pill new">New</span><span class="keys"><kbd>C</kbd><kbd>E</kbd><kbd>B</kbd></span></div>
+
+                <div class="grp-h">Composer</div>
+                <div class="sc"><span class="what">Send</span><span class="keys"><kbd>↵</kbd></span></div>
+                <div class="sc"><span class="what">New line</span><span class="keys"><kbd>⇧</kbd><kbd>↵</kbd></span></div>
+                <div class="sc"><span class="what">Mention an agent or file</span><span class="keys"><kbd>@</kbd></span></div>
+                <div class="sc"><span class="what">Stop generating</span><span class="pill new">New</span><span class="keys"><kbd>Esc</kbd></span></div>
+                <div class="sc"><span class="what">Focus composer</span><span class="pill new">New</span><span class="keys"><kbd>⇧</kbd><kbd>Esc</kbd></span></div>
+              </div>
+              <div>
+                <div class="grp-h">Chats</div>
+                <div class="sc"><span class="what">New chat</span><span class="keys"><kbd>⌘</kbd><kbd>N</kbd></span></div>
+                <div class="sc"><span class="what">Previous / next chat</span><span class="keys"><kbd>⌘</kbd><kbd>[</kbd><kbd>]</kbd></span></div>
+                <div class="sc"><span class="what">Find in chat</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span></div>
+                <div class="sc"><span class="what">Jump to chat or project</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>K</kbd></span></div>
+
+                <div class="grp-h">App</div>
+                <div class="sc"><span class="what">Chat · Services · Resources</span><span class="keys"><kbd>⌘</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
+                <div class="sc"><span class="what">Settings</span><span class="keys"><kbd>⌘</kbd><kbd>,</kbd></span></div>
+                <div class="sc"><span class="what">Keyboard shortcuts</span><span class="pill new">New</span><span class="keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
+              </div>
+            </div>
+            <div class="sheet-foot"><span>Same keys appear in the menu bar and in button tooltips.</span><span style="margin-left:auto"><kbd>Esc</kbd> close</span></div>
+          </div>
+          <span class="note" style="left:calc(50% - 400px);top:calc(50% - 200px)" data-tip="⌘/ opens the sheet (ChatGPT and Slack use the same key). Shipped keys come from useAppShortcuts.ts; New keys are proposals from this study. The copy keys and ⌘/ follow ChatGPT, so muscle memory transfers.">3</span>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="study.js"></script>
+  <script>
+    function render() {
+      const s = document.body.dataset.state;
+      const target = document.getElementById("focusTarget");
+      target.classList.toggle("focused", s === "focus");
+      target.classList.toggle("force-hover", s === "focus");
+      document.querySelectorAll("[data-hl]").forEach((el) => {
+        el.innerHTML = el.textContent;
+        if (s === "find") el.innerHTML = `<mark class="${el.dataset.hl === "2" ? "cur" : ""}">${el.textContent}</mark>`;
+      });
+      const scroller = document.querySelector(".log");
+      scroller.scrollTop = scroller.scrollHeight;
+    }
+
+    document.addEventListener("keydown", (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "/") { e.preventDefault(); study.apply({ state: "sheet" }); }
+      if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); study.apply({ state: "find" }); }
+      if (e.altKey && e.key === "ArrowUp") { e.preventDefault(); study.apply({ state: "focus" }); }
+      if (e.key === "Escape") study.apply({ state: "none" });
+    });
+    document.querySelector(".scrim").addEventListener("click", (e) => {
+      if (e.target.classList.contains("scrim")) study.apply({ state: "none" });
+    });
+
+    study.init({ render });
+  </script>
+</body>
+</html>

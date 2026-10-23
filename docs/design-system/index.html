@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary design system</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;560;650&family=IBM+Plex+Serif:wght@400;600&display=swap" />
+  <!-- Live tokens: the same file the app imports. Edit there, reload here. -->
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--surface-0);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: var(--size-ui);
+      line-height: var(--leading-ui);
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) 80px; }
+    .bar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-8); }
+    .bar .spacer { flex: 1; }
+    .kicker { color: var(--brand); font-size: var(--size-2xs); font-weight: var(--weight-strong); letter-spacing: 0.08em; text-transform: uppercase; }
+    h1 { margin: var(--space-2) 0; font-size: var(--size-heading); font-weight: var(--weight-medium); letter-spacing: -0.03em; }
+    .lede { color: var(--text-muted); max-width: 68ch; margin: 0 0 var(--space-8); }
+    h2 { margin: var(--space-10) 0 var(--space-3); font-size: var(--size-title); font-weight: var(--weight-medium); }
+    h2 + p { margin: 0 0 var(--space-4); color: var(--text-faint); max-width: 72ch; }
+    code { font-family: var(--font-mono); font-size: var(--size-xs); color: var(--text-muted); }
+
+    .grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .swatch { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-1); }
+    .swatch .chip { height: 56px; border-bottom: 1px solid var(--line); }
+    .swatch .meta { padding: var(--space-2) var(--space-3); }
+    .swatch .meta b { display: block; font-weight: var(--weight-medium); }
+
+    .rows { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+    .row { display: grid; grid-template-columns: 160px 1fr 120px; gap: var(--space-4); align-items: baseline; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
+    .row:first-child { border-top: 0; }
+    .row .note { color: var(--text-faint); font-size: var(--size-xs); }
+
+    .shapes { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+    .shape { width: 96px; height: 64px; border: 1px solid var(--line); background: var(--surface-1); display: grid; place-items: center; color: var(--text-faint); font-size: var(--size-xs); }
+
+    .stage { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-5); background: var(--surface-1); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+    .stage.col { flex-direction: column; align-items: stretch; }
+
+    /* Primitive previews — mirror components/ui class recipes with plain CSS. */
+    .btn { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; font: inherit; font-weight: var(--weight-medium); cursor: pointer; transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+    .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .btn.solid { background: var(--solid-bg); color: var(--solid-fg); }
+    .btn.solid:hover { background: color-mix(in srgb, var(--solid-bg) 90%, transparent); }
+    .btn.brand { background: var(--brand); color: var(--solid-fg); }
+    .btn.outline { border-color: var(--line); background: transparent; color: var(--text); }
+    .btn.outline:hover, .btn.ghost:hover { background: var(--surface-hover); color: var(--text); }
+    .btn.ghost { background: transparent; color: var(--text-muted); }
+    .btn.danger { border-color: var(--danger-line); color: var(--danger); background: transparent; }
+    .btn.danger:hover { background: var(--danger-dim); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: var(--radius-full); border: 1px solid var(--line); font-size: var(--size-2xs); font-weight: var(--weight-medium); color: var(--text-muted); background: var(--surface-1); }
+    .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .pill.brand { color: var(--brand); background: var(--brand-dim); border-color: color-mix(in srgb, var(--brand) 40%, transparent); }
+    .pill.ok { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .pill.warn { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+    .pill.bad { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-line); }
+
+    .callout { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 10px var(--space-3); background: var(--surface-0); color: var(--text-muted); }
+    .callout.info { border-color: color-mix(in srgb, var(--brand) 35%, transparent); background: color-mix(in srgb, var(--brand-dim) 60%, transparent); color: var(--text); }
+    .callout.warn { border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-dim); color: var(--text); }
+    .callout.bad { border-color: var(--danger-line); background: var(--danger-dim); color: var(--danger); }
+
+    .field { display: grid; gap: 6px; max-width: 360px; }
+    .field label { font-size: var(--size-xs); color: var(--text-muted); font-weight: var(--weight-medium); }
+    .input { height: 32px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface-1); color: var(--text); font: inherit; transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+    .input::placeholder { color: var(--text-faint); }
+    .input:focus-visible { outline: none; border-color: color-mix(in srgb, var(--brand) 60%, transparent); box-shadow: var(--focus-ring); }
+
+    .choice { display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-4); align-items: center; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); text-align: left; font: inherit; color: var(--text); cursor: pointer; transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+    .choice:hover { background: var(--surface-hover); }
+    .choice.is-recommended { border-color: color-mix(in srgb, var(--brand) 55%, transparent); }
+    .choice b { font-weight: var(--weight-medium); }
+    .choice .desc { color: var(--text-faint); font-size: var(--size-xs); grid-column: 1; }
+    .choice .pill { grid-column: 2; grid-row: 1 / span 2; justify-self: end; }
+
+    .stepper { display: flex; gap: var(--space-2); align-items: center; font-size: var(--size-xs); color: var(--text-faint); }
+    .stepper .step { display: inline-flex; align-items: center; gap: 6px; }
+    .stepper .n { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-size: var(--size-2xs); }
+    .stepper .done { color: var(--text-muted); }
+    .stepper .done .n { background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); }
+    .stepper .current { color: var(--text); font-weight: var(--weight-medium); }
+    .stepper .current .n { border-color: var(--brand); color: var(--brand); }
+    .stepper .sep { width: 24px; height: 1px; background: var(--line); }
+
+    .rules { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .rules div { border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); background: var(--surface-1); color: var(--text-muted); }
+    .rules b { color: var(--text); display: block; margin-bottom: var(--space-1); font-weight: var(--weight-medium); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="bar">
+      <span class="kicker">ADR 0018 · living sheet</span>
+      <span class="spacer"></span>
+      <button class="btn outline" type="button" id="theme">Preview light theme</button>
+    </div>
+    <h1>Boundary design system</h1>
+    <p class="lede">Tokens and primitives shared by setup, the workbench, Services, Resources and Settings. This page loads <code>src/renderer/styles/tokens.css</code> directly, so it always shows what ships. Tailwind names in parentheses come from <code>@theme</code> in <code>src/index.css</code>.</p>
+
+    <h2>Rules</h2>
+    <div class="rules">
+      <div><b>One solid action per view</b>The light solid button is the primary action. Everything else is outline or ghost.</div>
+      <div><b>Violet means “you are here” or “we recommend”</b>Selection, the active destination, a recommended option. Not a default button color.</div>
+      <div><b>No raw values outside tokens.css</b>No hex, no Tailwind palette colors (<code>zinc-*</code>, <code>indigo-*</code>…), no off-scale px sizes in product code.</div>
+      <div><b>Same frame everywhere</b>Setup, starting and ready states share the workbench surface, type and rail.</div>
+      <div><b>Motion is quiet</b>120 ms for hover and press, 200 ms for panels. Nothing bounces. Reduced motion turns it off.</div>
+      <div><b>Every control shows focus</b>Keyboard focus always draws <code>--focus-ring</code>. Never <code>outline: none</code> without a replacement.</div>
+    </div>
+
+    <h2>Surfaces and lines</h2>
+    <p>Depth comes from surface steps and 1px lines, not shadows.</p>
+    <div class="grid">
+      <div class="swatch"><div class="chip" style="background:var(--surface-0)"></div><div class="meta"><b>surface-0</b><code>bg-surface-0</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-rail)"></div><div class="meta"><b>surface-rail</b><code>bg-surface-rail</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-1)"></div><div class="meta"><b>surface-1</b><code>bg-surface-1</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-2)"></div><div class="meta"><b>surface-2</b><code>bg-surface-2</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--surface-hover)"></div><div class="meta"><b>surface-hover</b><code>bg-surface-hover</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--line)"></div><div class="meta"><b>line</b><code>border-line</code></div></div>
+    </div>
+
+    <h2>Text, brand and status</h2>
+    <p>Three text steps. Status colors come with a dim fill for callouts and pills.</p>
+    <div class="grid">
+      <div class="swatch"><div class="chip" style="background:var(--text)"></div><div class="meta"><b>text</b><code>text-fg</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-muted)"></div><div class="meta"><b>text-muted</b><code>text-fg-muted</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-faint)"></div><div class="meta"><b>text-faint</b><code>text-fg-faint</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--brand)"></div><div class="meta"><b>brand</b><code>bg-brand</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--brand-dim)"></div><div class="meta"><b>brand-dim</b><code>bg-brand-dim</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--ok)"></div><div class="meta"><b>ok</b><code>text-ok</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--warn)"></div><div class="meta"><b>warn</b><code>text-warn</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--danger)"></div><div class="meta"><b>danger</b><code>text-danger</code></div></div>
+    </div>
+
+    <h2>Type</h2>
+    <p>IBM Plex Sans for chrome, IBM Plex Serif for assistant prose, IBM Plex Mono for code and paths.</p>
+    <div class="rows">
+      <div class="row"><code>--size-heading · 22</code><span style="font-size:var(--size-heading);font-weight:var(--weight-medium);letter-spacing:-0.03em">Connect a model</span><span class="note">text-heading</span></div>
+      <div class="row"><code>--size-title · 15</code><span style="font-size:var(--size-title);font-weight:var(--weight-medium)">Sheet and card titles</span><span class="note">text-title</span></div>
+      <div class="row"><code>--size-ui · 13</code><span>Default chrome text, rows and buttons</span><span class="note">text-ui</span></div>
+      <div class="row"><code>--size-xs · 12</code><span style="font-size:var(--size-xs);color:var(--text-muted)">Secondary rows, captions, tiny buttons</span><span class="note">text-xs</span></div>
+      <div class="row"><code>--size-2xs · 11</code><span style="font-size:var(--size-2xs);font-weight:var(--weight-strong);letter-spacing:0.08em;text-transform:uppercase;color:var(--text-faint)">Section label</span><span class="note">text-2xs</span></div>
+      <div class="row"><code>--size-prose · 16.5</code><span style="font-family:var(--font-prose);font-size:var(--size-prose);line-height:var(--leading-prose)">Assistant replies read like a page, not a log.</span><span class="note">transcript only</span></div>
+      <div class="row"><code>weights</code><span><span style="font-weight:var(--weight-regular)">400 regular</span> · <span style="font-weight:var(--weight-medium)">560 medium</span> · <span style="font-weight:var(--weight-strong)">650 strong</span></span><span class="note">three only</span></div>
+    </div>
+
+    <h2>Shape and space</h2>
+    <p>Three radii and a pill. Space steps in multiples of 4.</p>
+    <div class="shapes">
+      <div class="shape" style="border-radius:var(--radius-sm)">sm · 6</div>
+      <div class="shape" style="border-radius:var(--radius-md)">md · 8</div>
+      <div class="shape" style="border-radius:var(--radius-lg)">lg · 12</div>
+      <div class="shape" style="border-radius:var(--radius-full);width:140px">full</div>
+    </div>
+
+    <h2>Buttons</h2>
+    <p><code>components/ui/button.tsx</code>. Tab through them to see the focus ring.</p>
+    <div class="stage">
+      <button class="btn solid" type="button">Continue</button>
+      <button class="btn brand" type="button">Sign in with OpenRouter</button>
+      <button class="btn outline" type="button">Retry check</button>
+      <button class="btn ghost" type="button">Back</button>
+      <button class="btn danger" type="button">Disconnect</button>
+      <button class="btn solid" type="button" disabled>Disabled</button>
+    </div>
+
+    <h2>Pills and callouts</h2>
+    <p><code>Pill</code> (Badge with <code>dot</code>) and <code>Callout</code> (Alert). One shape per tone.</p>
+    <div class="stage">
+      <span class="pill">Not set</span>
+      <span class="pill brand">Recommended</span>
+      <span class="pill ok">Connected</span>
+      <span class="pill warn">Unreachable</span>
+      <span class="pill bad">Unauthorized</span>
+    </div>
+    <div class="stage col" style="margin-top:var(--space-3)">
+      <div class="callout">Boundary uses its own Compose project so your local checkout keeps running.</div>
+      <div class="callout info">Ollama detected. You can use it as your model on the next step.</div>
+      <div class="callout warn">Free disk is 18 GB; 30 GB is recommended. You can continue anyway.</div>
+      <div class="callout bad">Could not reach the endpoint. Check the URL and try again.</div>
+    </div>
+
+    <h2>Fields</h2>
+    <div class="stage col">
+      <div class="field"><label for="u">Base URL</label><input class="input" id="u" placeholder="http://localhost:11434/v1" /></div>
+    </div>
+
+    <h2>Keyboard</h2>
+    <p>Defined once in <code>src/shared/appCommands.ts</code>; shown in the menu bar and rail tooltips, handled by <code>useAppShortcuts</code>. Esc closes any sheet.</p>
+    <div class="rows">
+      <div class="row"><code>⌘N</code><span>New chat in the current project</span><span class="note">File</span></div>
+      <div class="row"><code>⌘1 · ⌘2 · ⌘3</code><span>Chat · Services · Resources</span><span class="note">Go</span></div>
+      <div class="row"><code>⌘,</code><span>Settings</span><span class="note">Boundary</span></div>
+      <div class="row"><code>⌘[ · ⌘]</code><span>Previous / next conversation (Recent order)</span><span class="note">Go</span></div>
+      <div class="row"><code>Esc</code><span>Close the open sheet or dialog</span><span class="note">—</span></div>
+    </div>
+
+    <h2>Setup patterns (ADR 0019)</h2>
+    <p>Stepper and choice rows used by onboarding inside the workbench frame.</p>
+    <div class="stage col">
+      <div class="stepper" aria-label="Setup progress">
+        <span class="step done"><span class="n">✓</span>Machine</span><span class="sep"></span>
+        <span class="step current"><span class="n">2</span>Model</span><span class="sep"></span>
+        <span class="step"><span class="n">3</span>Assistant</span>
+      </div>
+      <button class="choice is-recommended" type="button"><b>OpenRouter</b><span class="pill brand">Recommended</span><span class="desc">Works in under a minute · many models · no GPU setup</span></button>
+      <button class="choice" type="button"><b>Ollama on this Mac</b><span class="pill ok">Detected</span><span class="desc">llama3.1:8b and 3 more models</span></button>
+      <button class="choice" type="button"><b>I have a URL and API key</b><span class="desc">Any OpenAI-compatible endpoint</span></button>
+    </div>
+  </div>
+  <script>
+    document.getElementById('theme').addEventListener('click', (e) => {
+      const root = document.documentElement;
+      const light = root.dataset.theme === 'light';
+      if (light) delete root.dataset.theme; else root.dataset.theme = 'light';
+      e.currentTarget.textContent = light ? 'Preview light theme' : 'Back to dark';
+    });
+  </script>
+</body>
+</html>

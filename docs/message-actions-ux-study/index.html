@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary message actions — UX study directions</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    body { background: #0e0e10; color: #ececee; height: auto; min-height: 100%; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .page { max-width: 1080px; margin: 0 auto; padding: 28px 24px 80px; }
+    .kicker { color: #8b87f8; font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+    h1 { margin: 0 0 10px; font-size: 32px; font-weight: 560; letter-spacing: -0.04em; }
+    .lede { color: #9a9aa3; max-width: 68ch; font-size: 15px; line-height: 1.55; margin: 0 0 28px; }
+    .lede a, .rec a, .open a { color: #ececee; }
+    h2 { margin: 36px 0 12px; font-size: 16px; font-weight: 620; letter-spacing: -0.02em; }
+    .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .rules div { border: 1px solid #2a2a30; background: #161618; border-radius: 10px; padding: 12px 14px; }
+    .rules b { display: block; margin-bottom: 4px; font-weight: 600; }
+    .rules span { color: #8e8e96; font-size: 12px; line-height: 1.45; }
+    .rec { border: 1px solid #3a3658; background: #16141f; border-radius: 12px; padding: 16px 18px; margin: 8px 0; }
+    .rec strong { color: #c7c4f4; }
+    .rec p { margin: 8px 0 0; color: #b4b4bc; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .dir { border: 1px solid #2a2a30; background: #141416; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .frame { height: 190px; overflow: hidden; background: #0b0b0d; border-bottom: 1px solid #2a2a30; pointer-events: none; }
+    .frame iframe { width: 1440px; height: 900px; transform: scale(0.24); transform-origin: top left; border: 0; }
+    .copy { padding: 14px 14px 16px; }
+    .copy .tag { font-size: 11px; color: #8b87f8; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+    .copy h3 { margin: 4px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .copy h3 a { color: #ececee; }
+    .copy p { margin: 0 0 10px; color: #9a9aa3; font-size: 13px; line-height: 1.45; }
+    .meta { display: flex; gap: 16px; color: #6a6a72; font-size: 12px; flex-wrap: wrap; }
+    .meta b { color: #b4b4bc; font-weight: 550; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: #6a6a72; font-weight: 550; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid #2a2a30; }
+    td { padding: 9px 10px; border-bottom: 1px solid #1f1f24; color: #b4b4bc; vertical-align: top; line-height: 1.45; }
+    td:first-child { color: #ececee; font-weight: 520; width: 30%; }
+    td.where { color: #8e8e96; white-space: nowrap; }
+    .v { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid #2a2a30; white-space: nowrap; }
+    .v.now { color: #86c089; border-color: #2f4a31; }
+    .v.next { color: #c7c4f4; border-color: #3a3658; }
+    .v.later { color: #e0b36a; border-color: #5a4a2a; }
+    .v.skip { color: #8e8e96; }
+
+    .open { margin: 10px 0 0; padding: 0 0 0 18px; color: #8e8e96; font-size: 13px; line-height: 1.5; }
+    .open li { margin: 0 0 8px; }
+    .open b { color: #ececee; font-weight: 550; }
+    code { font-size: 12px; color: #c4c4cc; }
+    footer.note-line { margin-top: 40px; color: #6a6a72; font-size: 12px; }
+
+    @media (max-width: 860px) {
+      .grid, .rules { grid-template-columns: 1fr; }
+      td.where { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · reference kit · 29 Sep 2026</div>
+    <h1>Directions for message actions</h1>
+    <p class="lede">
+      Hover verbs and timestamps on chat messages, plus the keyboard layer
+      that goes with them. A covers the request: copy, edit and branch on your
+      prompts, with a timestamp. B applies the same row to assistant replies.
+      C is the keyboard version of both. Mocks follow the centered column from
+      <a href="../adr/0020-centered-transcript-column.md">ADR 0020</a> and the
+      tokens from <a href="../adr/0018-design-tokens-and-primitives.md">0018</a>.
+      Open any file and use the title-bar states. Turn on <b>Notes</b> for callouts.
+    </p>
+
+    <h2>Held constant</h2>
+    <div class="rules">
+      <div><b>Quiet at rest</b><span>Older messages show only who spoke. Verbs and time appear on hover or keyboard focus. The latest reply keeps its row visible.</span></div>
+      <div><b>No reflow on hover</b><span>The action row sits in the existing 28px gap between messages. Showing it never moves text.</span></div>
+      <div><b>Rows follow their message</b><span>Your prompts sit on the right, so their row aligns right. Replies span the column, so theirs aligns left. The order is always Copy, then Edit or Retry, then Branch, then overflow.</span></div>
+      <div><b>Keyboard parity</b><span>Every hover verb is reachable by Tab (<code>:focus-within</code>) and by a named shortcut. Tooltips show the key.</span></div>
+      <div><b>Nothing silently lost</b><span>Edit and Retry add versions (‹ 2 / 2 ›) and do not overwrite. Branch copies into a new chat. Delete is not offered.</span></div>
+      <div><b>Local-first honesty</b><span>Retry on another provider says it leaves the machine and what it costs, and follows the project privacy lock.</span></div>
+    </div>
+
+    <h2>Recommendation</h2>
+    <div class="rec">
+      <strong>D · Right bubble. Time goes in the hover row. Pin the latest reply's row. Ship the ChatGPT-compatible keys.</strong>
+      <p>
+        Your prompts hug the right edge of the column, sized to their text, up
+        to 80% of its width. Text stays left-aligned inside the bubble. Replies
+        keep the full column on the left, so the log reads as back-and-forth
+        turns, as in Hermes WebUI and ChatGPT. Alignment says who spoke, so the
+        “You” label goes. Under each prompt, a hover row lines up with the
+        bubble's right edge: time (full date in the tooltip), then Copy, Edit
+        and Branch. Edit makes a version in place and widens to the full column.
+        Branch opens a new chat with the history above and the prompt back in
+        the composer, unsent. Replies get Copy / Retry ▾ / Branch / ⋯ on the
+        left, and code blocks keep their own Copy. A (Under), B (Floating) and
+        C (Head row) stay as foils in the A file.
+      </p>
+    </div>
+
+    <h2>Directions</h2>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="01-user-actions.html?embed=1&state=hover" title="Prompt actions preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">A · the ask · prompts</div>
+          <h3><a href="01-user-actions.html">Prompt actions</a></h3>
+          <p>Copy, edit, branch and time on your messages. Four placements. States: rest, hover, copied, keyboard, editing, edited, branched.</p>
+          <div class="meta"><span><b>Take</b> D · Right bubble</span><span><b>Foils</b> Under, Floating, Head row</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="02-assistant-actions.html?embed=1&state=retry" title="Reply actions preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">B · extension · replies</div>
+          <h3><a href="02-assistant-actions.html">Reply actions</a></h3>
+          <p>Copy, retry with a provider menu, branch, and overflow. Also code-block copy, tool-card reveal, quote-a-selection and streaming.</p>
+          <div class="meta"><span><b>Pinned</b> latest reply</span><span><b>Overflow</b> plain text, quote, save</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="03-shortcuts.html?embed=1&state=sheet" title="Keyboard preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">C · extension · keyboard</div>
+          <h3><a href="03-shortcuts.html">Keyboard</a></h3>
+          <p>A ⌘/ shortcut sheet that marks each key Shipped or New. Message focus with ⌥↑ and single-key verbs. ⌘F to find in the chat.</p>
+          <div class="meta"><span><b>Copy keys</b> match ChatGPT</span><span><b>No clash</b> with useAppShortcuts</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Other shortcuts considered</h2>
+    <table>
+      <thead><tr><th>Shortcut</th><th>Why</th><th>Where</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Retry ▾ on replies</td><td>The most-used verb after Copy. The caret opens a provider menu, the same model as the inference chip.</td><td class="where">B</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Version picker ‹ 2 / 2 ›</td><td>Edit and Retry should not destroy the old answer. Once a message has two versions the picker stays visible.</td><td class="where">A, B</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Code-block Copy (always visible)</td><td>The most-copied thing in assistant chat. Hover-gating it only adds friction.</td><td class="where">B</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>↑ in empty composer edits last prompt</td><td>Slack, Discord and ChatGPT habit. Fixes typos without reaching for the mouse.</td><td class="where">A, C</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Esc stops generating</td><td>Expected everywhere. Stop moves to the composer while a reply streams.</td><td class="where">B, C</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>⌘⇧C copy last reply · ⌘⇧; last code · ⌘⇧R retry</td><td>The copy keys and ⌘/ match ChatGPT, so muscle memory transfers. ⌘⇧R is ours. None clash with the shipped ⌘N / ⌘1–3 / ⌘, / ⌘[ ].</td><td class="where">C</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>⌘/ shortcut sheet</td><td>Makes the rest discoverable. Costs almost nothing.</td><td class="where">C</td><td><span class="v now">Now</span></td></tr>
+        <tr><td>Quote a selection into the reply</td><td>Precise follow-ups (“change just this sentence”). ChatGPT offers Quote on selected reply text.</td><td class="where">B</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>Tool card: Reveal in Finder / Copy path</td><td>Boundary agents write real files. The next move is usually opening one.</td><td class="where">B</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>Save reply to project folder</td><td>Boundary-specific. A good answer becomes a file next to the work.</td><td class="where">B ⋯</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>⌘F find in chat</td><td>Long agent threads get hard to scan. Widens to all chats in the project.</td><td class="where">C</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>⌥↑ / ⌥↓ message focus + C / E / B</td><td>Full keyboard reach for power users and screen-reader users.</td><td class="where">C</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>“Jump to latest” pill</td><td>While you read history during a stream, a pill shows new tokens below. Not mocked.</td><td class="where">—</td><td><span class="v next">Next</span></td></tr>
+        <tr><td>⌘K jump to chat or project</td><td>Valuable, but a switcher is its own study. Listed in the sheet as a placeholder.</td><td class="where">C</td><td><span class="v later">Later</span></td></tr>
+        <tr><td>Retry as another agent</td><td>Nice with channels (0008), but it depends on agent routing.</td><td class="where">B ▾</td><td><span class="v later">Later</span></td></tr>
+        <tr><td>Pin / bookmark a message</td><td>Useful in long threads. Overlaps with Save to folder, so wait for demand.</td><td class="where">—</td><td><span class="v later">Later</span></td></tr>
+        <tr><td>Read aloud</td><td>Needs a local TTS service first.</td><td class="where">—</td><td><span class="v later">Later</span></td></tr>
+        <tr><td>Thumbs up / down</td><td>No one receives the signal in a local-first app, unless it feeds agent memory later.</td><td class="where">—</td><td><span class="v skip">Skip</span></td></tr>
+        <tr><td>Delete message</td><td>Destructive, and it desyncs the agent's context. Edit and Branch cover the need.</td><td class="where">—</td><td><span class="v skip">Skip</span></td></tr>
+        <tr><td>Share link</td><td>No hosted share surface in the desktop app. Copy and Save cover it.</td><td class="where">—</td><td><span class="v skip">Skip</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Open questions</h2>
+    <ul class="open">
+      <li><b>Where do timestamps come from?</b> <code>HermesChatMessage</code> has no time field, and history hydrates only <code>role</code> + <code>content</code>. Does the Hermes gateway store per-message times? If it does not, live turns can be stamped in the renderer, but reloaded history has no times.</li>
+      <li><b>Does edit rewrite the agent's memory?</b> <code>useLocalRuntime</code> can hold client-side versions (<code>BranchPickerPrimitive</code>). The Hermes session is linear, though, and the agent would still see version 1. Edit may need a gateway “rewind to message N” or a fork call.</li>
+      <li><b>Branch semantics.</b> Proposed: history above the prompt, and the prompt back in the composer unsent. The alternative sends right away. Also decide whether a branch keeps its project, agent and inference override (proposed: yes, all three).</li>
+      <li><b>Copy format.</b> Proposed: Copy gives markdown, and plain text is in the overflow. Does anyone paste into tools that choke on markdown?</li>
+      <li><b>ADR 0020 amendment.</b> Right-aligned prompts keep “text stays left-aligned”, but the ADR puts every message on one left edge. Add a line: user turns align right at up to 80% of the column, and agent turns stay full width.</li>
+      <li><b>Long prompts.</b> At 80% width, a pasted document is cramped. Proposed: collapse past about 12 lines behind Show more, and do not widen the bubble. Not mocked yet.</li>
+      <li><b>Channels.</b> In a room (0008), is Edit allowed after other agents have replied? Proposed: Branch only, no Edit, once someone else has spoken. Your turns stay on the right and every agent stays on the left, like a group chat.</li>
+    </ul>
+
+    <h2>Implementation notes</h2>
+    <ul class="open">
+      <li><b>Primitives exist.</b> <code>@assistant-ui/react</code> ships <code>ActionBarPrimitive</code> (Copy, Edit, Reload). Its <code>autohide="not-last"</code> gives the pinned-latest-reply behaviour in B and <code>BranchPickerPrimitive</code>. <code>UserMessage</code> / <code>AssistantMessage</code> in <code>WorkbenchThread.tsx</code> only need the row added.</li>
+      <li><b>Shortcuts.</b> Add message commands next to <code>KEY_TO_COMMAND</code> in <code>useAppShortcuts.ts</code>. <code>matchShortcut</code> rejects Shift today, so the ⌘⇧ keys need a second map.</li>
+      <li><b>Branch.</b> This needs a “new session from history” IPC. The rail then needs a parent link to nest the branch under its source.</li>
+    </ul>
+
+    <footer class="note-line">
+      Companion to the chat, inference and resources study kits. These HTML files are the visual record.
+      Copy text, names and times are study fixtures.
+    </footer>
+  </div>
+</body>
+</html>

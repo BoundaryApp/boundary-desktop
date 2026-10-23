@@ -1,0 +1,938 @@
+<meta charset="utf-8">
+<title>Boundary Calendar Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400&display=swap">
+<style>
+/* Layout: review bar on top, a Boundary window mock in the middle, the design rationale for the current scene underneath.
+   Tokens mirror src/renderer/styles/tokens.css. Dark is Boundary's default, so dark sits on bare :root. */
+:root {
+  color-scheme: dark;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-prose: "IBM Plex Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --page: #08080a;
+  --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22; --hover: #1d1d22;
+  --line: #2a2a30; --line-strong: #3a3a44;
+  --text: #f5f5f7; --muted: #c4c4cc; --faint: #9e9ea8;
+  --brand: #8b87f8; --brand-dim: #26244a;
+  --solid-bg: #f5f5f7; --solid-fg: #111;
+  --ok: #86c089; --ok-dim: #17231a;
+  --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+  --danger: #e8a0a0; --danger-dim: #2a1818; --danger-line: #5a3030;
+  --lights: #3a3a40;
+  --shadow: 0 18px 48px rgb(0 0 0 / 0.45);
+  --backdrop: rgb(0 0 0 / 0.5);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --page: #e9e6dc;
+    --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec; --hover: #ece8dc;
+    --line: #e3dfd3; --line-strong: #cfc9b8;
+    --text: #1c1b17; --muted: #6d6a60; --faint: #9a968a;
+    --brand: #5b56d6; --brand-dim: #e6e4fb;
+    --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+    --ok: #3f7d44; --ok-dim: #e5f0e3;
+    --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+    --danger: #a83a3a; --danger-dim: #f8e6e4; --danger-line: #e2b4b4;
+    --lights: #d4d0c4;
+    --shadow: 0 18px 48px rgb(40 32 16 / 0.16);
+    --backdrop: rgb(40 32 16 / 0.22);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #e9e6dc;
+  --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec; --hover: #ece8dc;
+  --line: #e3dfd3; --line-strong: #cfc9b8;
+  --text: #1c1b17; --muted: #6d6a60; --faint: #9a968a;
+  --brand: #5b56d6; --brand-dim: #e6e4fb;
+  --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+  --ok: #3f7d44; --ok-dim: #e5f0e3;
+  --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+  --danger: #a83a3a; --danger-dim: #f8e6e4; --danger-line: #e2b4b4;
+  --lights: #d4d0c4;
+  --shadow: 0 18px 48px rgb(40 32 16 / 0.16);
+  --backdrop: rgb(40 32 16 / 0.22);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--text);
+  font-family: var(--font-ui); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: none; box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px color-mix(in srgb, var(--brand) 75%, transparent); border-radius: 6px;
+}
+a { color: inherit; }
+.mono { font-family: var(--font-mono); }
+svg { flex-shrink: 0; }
+
+/* Review bar ------------------------------------------------------------ */
+.study {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--surface-rail); border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 8px;
+}
+.study-in { max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.study .brand { font-weight: 600; letter-spacing: -0.01em; }
+.study .brand span { color: var(--faint); font-weight: 400; }
+.scenes { display: flex; flex-wrap: wrap; gap: 4px; }
+.scenes button {
+  padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.scenes button:hover { color: var(--text); background: var(--hover); }
+.scenes button.is-on { color: var(--text); background: var(--brand-dim); border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }
+.study .spacer { flex: 1; }
+.sim { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; }
+.sim input { accent-color: var(--brand); margin: 0; }
+
+/* Page ------------------------------------------------------------------ */
+.page {
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 56px;
+}
+.page-in { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+
+/* Window mock ----------------------------------------------------------- */
+.window {
+  position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-strong);
+  background: var(--surface-0); box-shadow: var(--shadow); height: min(760px, 88vh); min-height: 560px;
+  display: flex; flex-direction: column;
+}
+.titlebar {
+  height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; flex-shrink: 0;
+  background: var(--surface-rail); border-bottom: 1px solid var(--line); color: var(--faint); font-size: 12px;
+}
+.lights { display: flex; gap: 6px; }
+.lights i { width: 10px; height: 10px; border-radius: 50%; background: var(--lights); }
+.shell { flex: 1; display: flex; min-height: 0; }
+.rail {
+  width: 48px; flex-shrink: 0; background: var(--surface-rail); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0;
+}
+.rail .mark { width: 22px; height: 22px; border: 1px solid var(--line-strong); border-radius: 6px; margin-bottom: 10px; }
+.rail .end { margin-top: auto; }
+.icon-btn { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn.is-on { background: var(--brand-dim); color: var(--brand); }
+.icon-btn svg { width: 17px; height: 17px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+
+/* Chat ------------------------------------------------------------------ */
+.thread-head {
+  height: 42px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px;
+  border-bottom: 1px solid var(--line); color: var(--faint);
+}
+.thread-head strong { color: var(--text); font-weight: 560; }
+.log { flex: 1; overflow: auto; padding: 28px 24px 24px; }
+.col { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.turn-user { align-self: flex-end; max-width: 80%; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: 14px; }
+.who { font-size: 12px; color: var(--faint); margin-bottom: 8px; font-weight: 500; }
+.prose { font-family: var(--font-prose); font-size: 15.5px; line-height: 1.62; }
+.prose p { margin: 0 0 10px; max-width: 62ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose ul { margin: 0 0 10px; padding-left: 20px; }
+.prose li { margin: 2px 0; }
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; margin-bottom: 10px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--faint); font-size: 12px;
+}
+.tool-chip svg { width: 13px; height: 13px; }
+.tool-chip.is-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.inline-card {
+  margin-top: 12px; display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px;
+  background: var(--surface-1); border: 1px solid var(--line); max-width: 520px;
+}
+.inline-card .ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
+.inline-card .ic svg { width: 17px; height: 17px; }
+.inline-card h4 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.inline-card p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.composer { padding: 0 24px 16px; flex-shrink: 0; }
+.composer .box {
+  max-width: 680px; margin: 0 auto; min-height: 56px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-1); padding: 12px 14px; color: var(--faint); font-size: 14px;
+}
+
+/* Approval card (ADR 0006 slot) */
+.approve {
+  border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface-1); overflow: hidden; max-width: 560px;
+}
+.approve .top { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.approve .top b { color: var(--text); font-weight: 600; }
+.approve .body { padding: 12px 14px; display: grid; gap: 4px; }
+.approve .ev-title { font-size: 14px; font-weight: 600; }
+.approve .ev-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.approve .ev-cal { color: var(--faint); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.approve .acts { padding: 10px 14px; display: flex; gap: 8px; justify-content: flex-end; background: var(--surface-2); border-top: 1px solid var(--line); }
+.swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* Settings -------------------------------------------------------------- */
+.settings { flex: 1; overflow: auto; padding: 20px 28px 40px; }
+.settings-in { max-width: 920px; }
+.back { color: var(--faint); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.back:hover { color: var(--text); }
+.settings h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 10px 0 14px; }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 22px; overflow-x: auto; }
+.tabs button { padding: 8px 0 10px; color: var(--faint); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs button.is-on { color: var(--text); border-bottom-color: var(--text); }
+.tabs .new { font-size: 10px; color: var(--brand); margin-left: 4px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.section-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.section-h h2 { margin: 0 0 4px; font-size: 15px; font-weight: 560; }
+.lead { margin: 0; color: var(--muted); max-width: 64ch; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 8px;
+  border: 1px solid var(--line); color: var(--text); font-size: 12px; white-space: nowrap;
+}
+.btn:hover { background: var(--hover); }
+.btn svg { width: 14px; height: 14px; }
+.btn.solid { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); font-weight: 560; }
+.btn.solid:hover { opacity: 0.9; background: var(--solid-bg); }
+.btn.ghost { border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); }
+.btn.danger { color: var(--danger); border-color: var(--danger-line); }
+.btn.danger:hover { background: var(--danger-dim); }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.btn.lg { height: 34px; padding: 0 14px; font-size: 13px; }
+
+.empty {
+  border: 1px dashed var(--line-strong); border-radius: 12px; padding: 28px; display: grid; gap: 14px; justify-items: start;
+}
+.empty h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; }
+.steps li { counter-increment: s; display: flex; gap: 10px; color: var(--muted); }
+.steps li::before {
+  content: counter(s); width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong);
+  display: grid; place-items: center; font-size: 11px; color: var(--faint); flex-shrink: 0; font-variant-numeric: tabular-nums;
+}
+
+.cards { display: grid; gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); padding: 16px; display: grid; gap: 14px; }
+.card .hed { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.card .sub { color: var(--faint); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--danger); }
+.dot.busy { background: var(--brand); animation: pulse 1.2s var(--ease, ease) infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.pill { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 560; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); background: var(--ok-dim); }
+.pill.bad { color: var(--danger); border-color: var(--danger-line); background: var(--danger-dim); }
+.pill.busy { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); background: var(--brand-dim); }
+.meta { margin: 0; display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; }
+.meta dt { color: var(--faint); }
+.meta dd { margin: 0; min-width: 0; color: var(--muted); }
+.meta dd .mono { font-size: 12px; }
+.cal-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.cal-tag { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 6px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; border: 1px solid; font-size: 12.5px; }
+.banner svg { width: 15px; height: 15px; margin-top: 1px; }
+.banner.ok { background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); color: var(--text); }
+.banner.ok svg { color: var(--ok); }
+.banner.warn { background: var(--warn-dim); border-color: var(--warn-line); }
+.banner.warn svg { color: var(--warn); }
+.banner.bad { background: var(--danger-dim); border-color: var(--danger-line); }
+.banner.bad svg { color: var(--danger); }
+.banner p { margin: 0; }
+.banner p + p { margin-top: 4px; color: var(--muted); }
+.banner .grow { flex: 1; min-width: 0; }
+
+.progress { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.progress li { display: flex; align-items: center; gap: 10px; color: var(--faint); }
+.progress li .st { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; }
+.progress li .st svg { width: 11px; height: 11px; }
+.progress li.done { color: var(--muted); }
+.progress li.done .st { background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); color: var(--ok); }
+.progress li.now { color: var(--text); }
+.progress li.now .st { border-color: var(--brand); border-top-color: transparent; animation: spin 0.9s linear infinite; }
+.progress li small { color: var(--faint); margin-left: auto; font-variant-numeric: tabular-nums; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.confirm { border: 1px solid var(--danger-line); background: var(--danger-dim); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+.confirm p { margin: 0; }
+.confirm p.sm { color: var(--muted); font-size: 12px; }
+
+/* Sheet ----------------------------------------------------------------- */
+.backdrop { position: absolute; inset: 0; background: var(--backdrop); z-index: 5; display: grid; place-items: center; padding: 16px; }
+.sheet {
+  width: min(520px, 100%); max-height: 100%; display: flex; flex-direction: column; border-radius: 12px;
+  background: var(--surface-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow); overflow: hidden;
+}
+.sheet-body { padding: 20px 20px 16px; overflow: auto; display: grid; gap: 16px; }
+.kicker { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); display: flex; gap: 8px; align-items: center; }
+.pips { display: inline-flex; gap: 4px; }
+.pips i { width: 14px; height: 3px; border-radius: 2px; background: var(--line-strong); }
+.pips i.on { background: var(--text); }
+.sheet h2 { margin: 6px 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); }
+.sheet-foot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; background: var(--surface-2); }
+.sheet-foot .hint { color: var(--faint); font-size: 12px; margin-right: auto; }
+
+.choices { display: grid; gap: 6px; }
+.choice {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; text-align: left; width: 100%;
+}
+.choice:hover { background: var(--hover); }
+.choice.is-on { border-color: color-mix(in srgb, var(--brand) 60%, var(--line)); background: var(--brand-dim); }
+.choice .logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-weight: 600; font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.choice .t { display: block; font-weight: 560; }
+.choice .d { display: block; color: var(--faint); font-size: 12px; }
+.choice .radio { margin-left: auto; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-strong); }
+.choice.is-on .radio { border: 5px solid var(--brand); }
+.choice[disabled] { cursor: default; opacity: 0.7; }
+.choice[disabled]:hover { background: none; }
+.choice[disabled] .radio { display: none; }
+.subhead { font-size: 11px; color: var(--faint); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 4px; }
+
+.help { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); padding: 12px 14px; display: grid; gap: 8px; }
+.help b { font-weight: 600; }
+.help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px; }
+.help .link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+.field { display: grid; gap: 5px; }
+.field label { font-weight: 560; font-size: 12px; }
+.field .hint { color: var(--faint); font-size: 12px; }
+.input {
+  height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-0); padding: 0 10px; width: 100%; min-width: 0;
+}
+.input:focus { outline: none; border-color: var(--line-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent); }
+.input-wrap { display: flex; gap: 6px; }
+.input.mono { font-size: 13px; letter-spacing: 0.02em; }
+details.adv summary { cursor: pointer; color: var(--faint); font-size: 12px; list-style: none; display: inline-flex; gap: 4px; align-items: center; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary::before { content: "▸"; font-size: 10px; }
+details.adv[open] summary::before { content: "▾"; }
+details.adv .field { margin-top: 8px; }
+.lockline { display: flex; gap: 8px; color: var(--faint); font-size: 12px; align-items: flex-start; }
+.lockline svg { width: 13px; height: 13px; margin-top: 2px; }
+.found { display: grid; gap: 4px; margin-top: 2px; }
+.found div { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.found small { color: var(--faint); margin-left: auto; }
+
+.agents { display: grid; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.agent-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; flex-wrap: wrap; }
+.agent-row + .agent-row { border-top: 1px solid var(--line); }
+.glyph { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 650; color: #fff; }
+.agent-row .nm { font-weight: 560; display: block; }
+.agent-row .rl { color: var(--faint); font-size: 12px; display: block; }
+.seg { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; background: var(--surface-0); }
+.seg button { padding: 3px 9px; border-radius: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.seg button.is-on { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+.toast {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 9; max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--line-strong); box-shadow: var(--shadow); font-size: 13px;
+}
+.toast svg { width: 15px; height: 15px; color: var(--ok); }
+
+/* Services -------------------------------------------------------------- */
+.svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.svc { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); padding: 14px; display: grid; gap: 6px; }
+.svc .hed { display: flex; gap: 8px; align-items: center; font-weight: 560; }
+.svc p { margin: 0; color: var(--faint); font-size: 12px; }
+
+/* Rationale ------------------------------------------------------------- */
+.notes { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.panel { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+.panel h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; text-wrap: balance; }
+.panel .eyebrow { font-size: 11px; color: var(--faint); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+.panel p { margin: 0 0 10px; color: var(--muted); max-width: 68ch; }
+.panel ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 6px; }
+.panel code { font-family: var(--font-mono); font-size: 12px; color: var(--text); background: var(--surface-2); padding: 0 4px; border-radius: 4px; overflow-wrap: anywhere; }
+.gaps { display: grid; gap: 0; margin-top: 8px; }
+.gap { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.gap .tag { font-size: 11px; font-weight: 600; height: fit-content; padding: 2px 6px; border-radius: 6px; text-align: center; border: 1px solid var(--line); color: var(--muted); }
+.gap .tag.stack { color: var(--warn); border-color: var(--warn-line); background: var(--warn-dim); }
+.gap .tag.app { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); background: var(--brand-dim); }
+.gap .tag.check { color: var(--danger); border-color: var(--danger-line); background: var(--danger-dim); }
+.gap b { font-weight: 600; display: block; margin-bottom: 2px; }
+.gap span.t { color: var(--muted); }
+
+@media (max-width: 860px) {
+  .notes { grid-template-columns: minmax(0, 1fr); }
+  .settings { padding: 16px 16px 32px; }
+  .log { padding: 20px 14px; }
+  .composer { padding: 0 14px 12px; }
+  .meta { grid-template-columns: 1fr; gap: 2px; }
+  .meta dd { margin-bottom: 6px; }
+  .turn-user { max-width: 92%; }
+}
+@media (max-width: 520px) {
+  .rail { width: 40px; }
+  .icon-btn { width: 30px; height: 30px; }
+  .window { height: 82vh; }
+  .seg { margin-left: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.busy, .progress li.now .st { animation: none; }
+}
+</style>
+
+<header class="study">
+  <div class="study-in">
+    <div class="brand">Calendar connect <span>· Boundary UX study</span></div>
+    <nav class="scenes" id="scenes" aria-label="Scenes"></nav>
+    <div class="spacer"></div>
+    <label class="sim"><input type="checkbox" id="simReject"> iCloud rejects the password</label>
+    <label class="sim"><input type="checkbox" id="simBroken"> Password stops working later</label>
+  </div>
+</header>
+
+<main class="page">
+  <div class="page-in">
+    <section class="window" aria-label="Boundary window mock">
+      <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><span id="winTitle">Boundary</span></div>
+      <div class="shell">
+        <nav class="rail" aria-label="Destinations">
+          <div class="mark"></div>
+          <button class="icon-btn" data-dest="chat" title="Chat"></button>
+          <button class="icon-btn" data-dest="services" title="Services"></button>
+          <button class="icon-btn" data-dest="resources" title="Resources"></button>
+          <button class="icon-btn end" data-dest="settings" title="Settings"></button>
+        </nav>
+        <div class="main" id="main"></div>
+      </div>
+    </section>
+
+    <section class="notes">
+      <article class="panel" id="why"></article>
+      <article class="panel">
+        <div class="eyebrow">What this needs</div>
+        <h2>Gaps between this design and today's code</h2>
+        <p>Checked against the stack (the agent stack and the caldav-mcp v0.1.1 source) and the Hermes gateway Boundary already talks to. Details in <code>spec.md</code> and change request 0006.</p>
+        <div class="gaps">
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Register calendars per agent, like the host bridge</b><span class="t">Per agent: the password goes into the profile's <code>.env</code>, and <code>hermes config set</code> writes a <code>calendar-&lt;slug&gt;</code> entry with the CalDAV headers, the read or full tool list and <code>trust: untrusted</code>. New chats pick it up with no restart; <code>reload.mcp</code> updates open ones. The bootstrap only prunes <code>caldav-*</code>, so it leaves these alone.</span></div></div>
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Start caldav-mcp when the connect sheet opens</b><span class="t">Add the <code>calendar</code> Compose profile then, not at install. Since stack v0.3.3 the image is built from source, natively on arm64, so the first start includes a build that overlaps with steps 1 and 2.</span></div></div>
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Test the sign-in inside caldav-mcp</b><span class="t">A probe script runs through <code>docker compose exec -T caldav-mcp python -</code> with the credentials on stdin, using the agent's own client and network. It follows <code>/.well-known/caldav</code> and returns the calendar names for the sheet.</span></div></div>
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Set caldav-mcp's time zone</b><span class="t">caldav-mcp reads a start time with no offset in its own zone, and the stack defaults it to UTC. The spike stored "11:00" as 11:00 UTC. Boundary's overlay sets <code>TZ</code> to the Mac's zone.</span></div></div>
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Event details in the approval</b><span class="t">Since stack v0.3.3 the approval carries <code>mcp.arguments</code> and offers only once or deny. Boundary renders a calendar variant of the approval card from them.</span></div></div>
+          <div class="gap"><span class="tag app">Boundary</span><div><b>Keep calendar passwords off new agents</b><span class="t">New agents are created with <code>mirror_exclude: ["BOUNDARY_CALENDAR_*"]</code> (stack v0.3.3), so an agent set to Off never holds a calendar password.</span></div></div>
+          <div class="gap"><span class="tag stack">CR R5</span><div><b>Choose calendars per account</b><span class="t">caldav-mcp shows every calendar on the login. A calendar allowlist would let the sheet's list become checkboxes.</span></div></div>
+          <div class="gap"><span class="tag check">Limit</span><div><b>Board workers can't change calendars</b><span class="t">The trust gate fails closed with no person to ask, so kanban and cron runs get reads only. That is the safe default; the access step should say so if it confuses people.</span></div></div>
+        </div>
+      </article>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const I = {
+    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    services: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+    resources: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>',
+    left: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  };
+
+  const PROVIDERS = {
+    icloud: { name: 'iCloud', logo: '', d: 'Needs an app-specific password', url: 'https://caldav.icloud.com/', userLabel: 'Apple ID email', passLabel: 'App-specific password', ph: 'abcd-efgh-ijkl-mnop', host: 'caldav.icloud.com' },
+    fastmail: { name: 'Fastmail', logo: 'Fm', d: 'Needs an app password with CalDAV access', url: 'https://caldav.fastmail.com/dav/calendars/user/', userLabel: 'Fastmail address', passLabel: 'App password', ph: 'App password from Settings → Privacy & Security', host: 'caldav.fastmail.com' },
+    nextcloud: { name: 'Nextcloud', logo: 'Nc', d: 'Your server address and an app password', url: '', userLabel: 'Username', passLabel: 'App password', ph: 'From Personal settings → Security', host: 'your server' },
+    other: { name: 'Other CalDAV server', logo: '…', d: 'Radicale, Baïkal, Synology and others', url: '', userLabel: 'Username', passLabel: 'Password', ph: '', host: 'your server' },
+  };
+  PROVIDERS.icloud.logo = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 18h10a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.1 9.6 4.2 4.2 0 0 0 7 18z"/></svg>';
+
+  const AGENTS = [
+    { id: 'hermes', name: 'Hermes', role: 'Your main agent', color: '#7a74e0', g: 'H' },
+    { id: 'orch', name: 'Orchestrator', role: 'Files and runs board tasks', color: '#c4a574', g: 'O' },
+    { id: 'res', name: 'Researcher', role: 'Web research, cloud model', color: '#5f9a8a', g: 'R' },
+  ];
+  const CALS = [
+    { n: 'Home', c: '#5b9bd5' }, { n: 'Work', c: '#d88a4a' },
+    { n: 'Family', c: '#8bbf6a', note: 'Shared by Alex' }, { n: 'Book club', c: '#c47ab8' },
+  ];
+
+  const SCENES = [
+    { id: 'ask', label: '1 Ask in chat' },
+    { id: 'empty', label: '2 Settings' },
+    { id: 'provider', label: '3 Provider' },
+    { id: 'signin', label: '4 Sign in' },
+    { id: 'access', label: '5 Access' },
+    { id: 'connecting', label: '6 Connecting' },
+    { id: 'list', label: '7 Connected' },
+    { id: 'answer', label: '8 Back in chat' },
+    { id: 'services', label: 'Services' },
+  ];
+
+  const fresh = () => ({
+    scene: 'ask', provider: 'icloud', user: 'sam@example.com', pass: 'wxyz-tqpm-bhsl-kvra', name: 'Personal', url: PROVIDERS.icloud.url,
+    show: false, test: 'idle', formatOk: true, access: { hermes: 'rw', orch: 'off', res: 'off' },
+    progress: 0, connected: false, confirmRemove: false, toast: '', approved: null, replacing: false, fromChat: false,
+  });
+  let S = fresh();
+  let timer = null;
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const slug = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const prov = () => PROVIDERS[S.provider];
+  const accessText = (v) => ({ off: 'No access', r: 'Read', rw: 'Read and change' }[v]);
+  const brokenSim = () => $('#simBroken').checked;
+
+  document.querySelectorAll('.rail [data-dest]').forEach((b) => { b.innerHTML = I[b.dataset.dest]; });
+
+  function go(scene, patch = {}) {
+    clearInterval(timer);
+    Object.assign(S, patch, { scene });
+    if (scene === 'connecting') runProgress();
+    render();
+  }
+
+  function renderScenes() {
+    $('#scenes').innerHTML = SCENES.map((s) => `<button data-scene="${s.id}" class="${s.id === S.scene ? 'is-on' : ''}">${s.label}</button>`).join('');
+  }
+
+  function destOf(scene) {
+    if (scene === 'ask' || scene === 'answer') return 'chat';
+    if (scene === 'services') return 'services';
+    return 'settings';
+  }
+
+  /* --- Chat --- */
+  function chatHead() {
+    return `<div class="thread-head"><strong>Hermes</strong><span>· Direct message</span></div>`;
+  }
+  function viewAsk() {
+    return `${chatHead()}
+    <div class="log"><div class="col">
+      <div class="turn-user">What do I have on Thursday?</div>
+      <div class="msg">
+        <div class="who">Hermes</div>
+        <div class="prose"><p>I can't see a calendar yet. If you connect one, I can tell you what's on and, if you allow it, add or move events for you.</p></div>
+        <div class="inline-card">
+          <div class="ic">${I.cal}</div>
+          <div>
+            <h4>Connect a calendar</h4>
+            <p>iCloud, Fastmail, Nextcloud or any CalDAV server. You'll need an app password from your provider.</p>
+            <div class="actions"><button class="btn solid" data-act="connect-from-chat">Connect calendar</button><button class="btn ghost" data-act="noop">Not now</button></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <div class="composer"><div class="box">Message Hermes</div></div>`;
+  }
+
+  function viewAnswer() {
+    const canWrite = S.access.hermes === 'rw';
+    let approval = '';
+    if (canWrite) {
+      if (S.approved === null) {
+        approval = `<div class="approve" role="group" aria-label="Approval request">
+          <div class="top">${I.cal.replace('<svg', '<svg width="14" height="14"')}<span><b>Hermes</b> wants to add an event to your calendar</span></div>
+          <div class="body">
+            <div class="ev-title">Call with Jordan</div>
+            <div class="ev-when">Friday, Oct 24 · 11:00–11:30 AM</div>
+            <div class="ev-cal"><span class="swatch" style="background:${CALS[1].c}"></span>${esc(S.name)} › Work</div>
+          </div>
+          <div class="acts"><button class="btn ghost" data-act="deny">Don't add</button><button class="btn solid" data-act="approve">Add event</button></div>
+        </div>`;
+      } else if (S.approved) {
+        approval = `<div class="msg"><div class="who">Hermes</div><span class="tool-chip is-ok">${I.check}Added to ${esc(S.name)} › Work</span><div class="prose"><p>Done. Call with Jordan is on Friday from 11:00 to 11:30 in your Work calendar.</p></div></div>`;
+      } else {
+        approval = `<div class="msg"><div class="who">Hermes</div><div class="prose"><p>Okay, I didn't add it.</p></div></div>`;
+      }
+    }
+    return `${chatHead()}
+    <div class="log"><div class="col">
+      <div class="turn-user">What do I have on Thursday?</div>
+      <div class="msg">
+        <div class="who">Hermes</div>
+        <span class="tool-chip">${I.cal}Read ${esc(S.name)} · Thu Oct 23</span>
+        <div class="prose">
+          <p>Thursday has three things:</p>
+          <ul>
+            <li>Standup, 9:30–9:45 AM (Work)</li>
+            <li>Dentist, 2:00–3:00 PM (Home)</li>
+            <li>Book club at Priya's, 7:00 PM (Book club)</li>
+          </ul>
+          <p>You're free from 10:00 until 2:00.</p>
+        </div>
+      </div>
+      ${canWrite ? `<div class="turn-user">Add a 30 minute call with Jordan on Friday at 11.</div>
+      <div class="msg"><div class="who">Hermes</div>${S.approved === null ? approval : ''}</div>${S.approved !== null ? approval : ''}` :
+      `<div class="turn-user">Add a 30 minute call with Jordan on Friday at 11.</div>
+      <div class="msg"><div class="who">Hermes</div><div class="prose"><p>I can read ${esc(S.name)} but not change it. You can let me add events in Settings.</p></div>
+      <div class="actions" style="margin-top:10px"><button class="btn" data-act="to-list">Open calendar settings</button></div></div>`}
+    </div></div>
+    <div class="composer"><div class="box">Message Hermes</div></div>`;
+  }
+
+  /* --- Settings --- */
+  function settingsFrame(inner) {
+    return `<div class="settings"><div class="settings-in">
+      <button class="back" data-act="to-chat">${I.left}Back to chat</button>
+      <h1>Settings</h1>
+      <div class="tabs" role="tablist">
+        <button>General</button><button>Passwords &amp; Logins</button><button class="is-on">Calendars<span class="new">New</span></button><button>Coding agent</button><button>Agent browser</button><button>Computer access</button>
+      </div>
+      ${inner}
+    </div></div>`;
+  }
+
+  function sectionHead(withButton) {
+    return `<div class="section-h"><div><h2>Calendars</h2>
+      <p class="lead">Connect a calendar so your agents can read your schedule and, where you allow it, add or change events. Boundary connects over CalDAV, which iCloud, Fastmail and Nextcloud all support.</p></div>
+      ${withButton ? `<button class="btn" data-act="start">${I.plus}Connect another calendar</button>` : ''}</div>`;
+  }
+
+  function viewEmpty() {
+    return settingsFrame(`${sectionHead(false)}
+      <div class="empty">
+        <h3>No calendars connected</h3>
+        <ol class="steps">
+          <li>Pick where your calendar lives.</li>
+          <li>Sign in with an app password from that provider.</li>
+          <li>Choose which agents can use it.</li>
+        </ol>
+        <button class="btn solid lg" data-act="start">${I.plus}Connect calendar</button>
+      </div>`);
+  }
+
+  function accountCard() {
+    const broken = brokenSim();
+    const pv = prov();
+    const tail = S.pass.slice(-4);
+    const accessLine = AGENTS.map((a) => `${a.name}: ${accessText(S.access[a.id]).toLowerCase()}`).join(' · ');
+    if (S.scene === 'connecting') {
+      const steps = [
+        ['Saved the sign-in', ''],
+        [`Gave ${AGENTS.filter((a) => S.access[a.id] !== 'off').map((a) => a.name).join(' and ') || 'no agents'} access`, ''],
+        [`Checking Hermes can read ${S.name}`, ''],
+      ];
+      return `<div class="card">
+        <div class="hed"><span class="dot busy"></span><h3>${esc(S.name)}</h3><span class="pill busy">Connecting</span><span class="sub">${esc(pv.name)} · ${esc(S.user)}</span></div>
+        <ul class="progress">${steps.map((s, i) => {
+          const st = i < S.progress ? 'done' : i === S.progress ? 'now' : '';
+          return `<li class="${st}"><span class="st">${st === 'done' ? I.check : ''}</span>${s[0]}${s[1] ? `<small>${s[1]}</small>` : ''}</li>`;
+        }).join('')}</ul>
+        <div class="lockline">${I.check}<span>Chats keep working while this runs. The assistant doesn't restart.</span></div>
+      </div>`;
+    }
+    const banner = broken ? `<div class="banner bad">${I.alert}<div class="grow"><p>iCloud stopped accepting this password on Oct 19. Agents can't read ${esc(S.name)} until you replace it.</p>
+      <p>This usually happens after an Apple ID password change, which cancels every app-specific password.</p></div></div>` : '';
+    const confirm = S.confirmRemove ? `<div class="confirm" role="alertdialog" aria-label="Remove calendar">
+        <p>Remove ${esc(S.name)}? Agents lose access to it right away.</p>
+        <p class="sm">Your calendar and its events stay as they are. You can also revoke the app-specific password at account.apple.com.</p>
+        <div class="actions"><button class="btn ghost" data-act="cancel-remove">Cancel</button><button class="btn danger" data-act="do-remove">Remove ${esc(S.name)}</button></div>
+      </div>` : '';
+    return `<div class="card">
+      <div class="hed"><span class="dot ${broken ? 'bad' : 'ok'}"></span><h3>${esc(S.name)}</h3>
+        <span class="pill ${broken ? 'bad' : 'ok'}">${broken ? 'Sign-in failed' : 'Connected'}</span>
+        <span class="sub">${broken ? 'Last worked Oct 18' : 'Checked 2 minutes ago'}</span></div>
+      ${banner}
+      <dl class="meta">
+        <dt>Provider</dt><dd>${esc(pv.name)} <span class="mono" style="color:var(--faint)">${esc(S.url || pv.host)}</span></dd>
+        <dt>Account</dt><dd>${esc(S.user)}</dd>
+        <dt>Password</dt><dd class="mono">••••-••••-••••-${esc(tail)}</dd>
+        <dt>Calendars</dt><dd><div class="cal-tags">${CALS.map((c) => `<span class="cal-tag"><span class="swatch" style="background:${c.c}"></span>${c.n}</span>`).join('')}</div></dd>
+        <dt>Access</dt><dd>${accessLine}</dd>
+        <dt>In chat</dt><dd>"Check my ${esc(S.name)} calendar"</dd>
+      </dl>
+      ${confirm}
+      ${S.confirmRemove ? '' : `<div class="actions">
+        ${broken ? `<button class="btn solid" data-act="replace">Replace password</button>` : `<button class="btn" data-act="test-again">Test</button>`}
+        <button class="btn" data-act="edit-access">Change access</button>
+        ${broken ? '' : `<button class="btn" data-act="replace">Replace password</button>`}
+        <button class="btn ghost" data-act="remove">Remove</button>
+      </div>`}
+    </div>`;
+  }
+
+  function viewList() {
+    const inner = `${sectionHead(S.scene === 'list')}<div class="cards">${accountCard()}</div>`;
+    return settingsFrame(inner) + (S.toast ? `<div class="toast" role="status">${I.check}${esc(S.toast)}</div>` : '');
+  }
+
+  function backdrop(sheet) {
+    const under = S.connected ? viewList() : viewEmpty();
+    return under + `<div class="backdrop">${sheet}</div>`;
+  }
+
+  function kicker(n) {
+    return `<div class="kicker">Connect a calendar <span class="pips">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span> ${n} of 3</div>`;
+  }
+
+  function viewProvider() {
+    const opts = Object.entries(PROVIDERS).map(([k, p]) => `<button class="choice ${S.provider === k ? 'is-on' : ''}" data-provider="${k}">
+      <span class="logo">${p.logo}</span><span><span class="t">${p.name}</span><span class="d">${p.d}</span></span><span class="radio"></span></button>`).join('');
+    return backdrop(`<div class="sheet" role="dialog" aria-label="Connect a calendar">
+      <div class="sheet-body">
+        <div>${kicker(1)}<h2>Where is your calendar?</h2><p class="lede">You can connect more than one. Each shows up in chat under its own name.</p></div>
+        <div class="choices">${opts}</div>
+        <div class="subhead">Not supported yet</div>
+        <div class="choices">
+          <button class="choice" disabled><span class="logo">G</span><span><span class="t">Google Calendar</span><span class="d">Google's CalDAV needs a Google sign-in, which Boundary can't do yet.</span></span></button>
+          <button class="choice" disabled><span class="logo">O</span><span><span class="t">Outlook and Microsoft 365</span><span class="d">Microsoft doesn't offer CalDAV.</span></span></button>
+        </div>
+      </div>
+      <div class="sheet-foot"><button class="btn ghost" data-act="cancel">Cancel</button><span class="hint"></span><button class="btn solid" data-act="to-signin">Continue</button></div>
+    </div>`);
+  }
+
+  function signinHelp() {
+    if (S.provider === 'icloud') {
+      return `<div class="help"><b>Get an app-specific password</b>
+        <ol><li>Sign in at <span class="link mono">account.apple.com</span>.</li>
+        <li>Open Sign-In and Security, then App-Specific Passwords.</li>
+        <li>Create one called "Boundary" and paste it below.</li></ol>
+        <span style="color:var(--faint);font-size:12px">Your Apple ID needs two-factor authentication turned on first. <a class="link" href="https://support.apple.com/en-us/102654" target="_blank" rel="noopener">Apple's instructions</a></span></div>`;
+    }
+    if (S.provider === 'fastmail') {
+      return `<div class="help"><b>Get an app password</b><ol><li>In Fastmail, open Settings, then Privacy &amp; Security.</li><li>Create a new app password with access to Calendars (CalDAV).</li><li>Paste it below.</li></ol></div>`;
+    }
+    if (S.provider === 'nextcloud') {
+      return `<div class="help"><b>Get an app password</b><ol><li>In Nextcloud, open Personal settings, then Security.</li><li>Under Devices &amp; sessions, create an app password called "Boundary".</li><li>Paste it below with your server address.</li></ol></div>`;
+    }
+    return `<div class="help"><b>You'll need the server address</b><ol><li>Use the CalDAV address your server shows, or just its host name. Boundary looks for the calendar address from there.</li></ol></div>`;
+  }
+
+  function testBlock() {
+    const pv = prov();
+    if (S.test === 'checking') return `<div class="banner ok" style="background:var(--surface-2);border-color:var(--line)"><span class="dot busy" style="margin-top:5px"></span><div class="grow"><p>Signing in to ${esc(pv.host)}…</p></div></div>`;
+    if (S.test === 'format') return `<div class="banner warn">${I.alert}<div class="grow"><p>That doesn't look like an app-specific password. Those are four groups of four letters, like abcd-efgh-ijkl-mnop.</p><p>Your normal Apple ID password won't work here.</p></div><button class="btn" data-act="test-anyway">Test anyway</button></div>`;
+    if (S.test === 'rejected') return `<div class="banner bad">${I.alert}<div class="grow"><p>${esc(pv.name)} didn't accept this email and password.</p><p>Check that you pasted the app-specific password, not your Apple ID password. If you changed your Apple ID password since you made it, make a new one.</p></div></div>`;
+    if (S.test === 'ok') return `<div class="banner ok">${I.check}<div class="grow"><p>Signed in. Agents will see these ${CALS.length} calendars:</p>
+      <div class="found">${CALS.map((c) => `<div><span class="swatch" style="background:${c.c}"></span>${c.n}${c.note ? `<small>${c.note}</small>` : ''}</div>`).join('')}</div></div></div>`;
+    return '';
+  }
+
+  function viewSignin() {
+    const pv = prov();
+    const needsUrl = S.provider === 'nextcloud' || S.provider === 'other';
+    const slugOk = slug(S.name).length > 0;
+    const ready = S.user.trim() && S.pass.trim() && slugOk && (!needsUrl || S.url.trim());
+    const primary = S.test === 'ok'
+      ? `<button class="btn solid" data-act="to-access">Continue</button>`
+      : `<button class="btn solid" data-act="test" ${ready && S.test !== 'checking' ? '' : 'disabled'}>${S.test === 'checking' ? 'Checking…' : S.test === 'rejected' ? 'Try again' : 'Test sign-in'}</button>`;
+    const title = S.replacing ? `Replace the ${esc(S.name)} password` : `Sign in to ${esc(pv.name)}`;
+    return backdrop(`<div class="sheet" role="dialog" aria-label="${title}">
+      <div class="sheet-body">
+        <div>${S.replacing ? '<div class="kicker">Replace password</div>' : kicker(2)}<h2>${title}</h2>
+          <p class="lede">${S.provider === 'icloud' ? 'iCloud only accepts an app-specific password here. Your Apple ID password won\'t work.' : 'Use an app password if your provider offers one, so you can revoke it without changing your main password.'}</p></div>
+        ${signinHelp()}
+        ${needsUrl && !S.replacing ? `<div class="field"><label for="f-url">Server address</label><input class="input mono" id="f-url" data-f="url" value="${esc(S.url)}" placeholder="${S.provider === 'nextcloud' ? 'cloud.example.com' : 'dav.example.com'}" autocomplete="off"></div>` : ''}
+        <div class="field"><label for="f-user">${pv.userLabel}</label><input class="input" id="f-user" data-f="user" value="${esc(S.user)}" autocomplete="off" ${S.replacing ? 'disabled' : ''}></div>
+        <div class="field"><label for="f-pass">${pv.passLabel}</label>
+          <div class="input-wrap"><input class="input mono" id="f-pass" data-f="pass" type="${S.show ? 'text' : 'password'}" value="${esc(S.pass)}" placeholder="${esc(pv.ph)}" autocomplete="off" spellcheck="false">
+          <button class="btn" data-act="toggle-show" aria-label="${S.show ? 'Hide' : 'Show'} password" title="${S.show ? 'Hide' : 'Show'}">${I.eye}</button></div></div>
+        ${S.replacing ? '' : `<div class="field"><label for="f-name">Name</label><input class="input" id="f-name" data-f="name" value="${esc(S.name)}" autocomplete="off">
+          <span class="hint">${slugOk ? `What you call it in chat: "check my ${esc(S.name.trim())} calendar".` : 'Give it a name with at least one letter or number.'}</span></div>`}
+        ${!needsUrl && !S.replacing ? `<details class="adv"><summary>Server address</summary><div class="field"><label for="f-url2">CalDAV address</label><input class="input mono" id="f-url2" data-f="url" value="${esc(S.url)}"><span class="hint">Change this only if your provider gave you a different address.</span></div></details>` : ''}
+        <div id="testSlot">${testBlock()}</div>
+        <div class="lockline">${I.lock}<span>The password stays on this Mac and goes only to ${esc(pv.name)}. The model never sees it; agents reach your calendar through calendar tools.</span></div>
+      </div>
+      <div class="sheet-foot"><button class="btn ghost" data-act="${S.replacing ? 'cancel' : 'to-provider'}">${S.replacing ? 'Cancel' : 'Back'}</button><span class="hint"></span>${S.replacing && S.test === 'ok' ? `<button class="btn solid" data-act="apply-replace">Save password</button>` : primary}</div>
+    </div>`);
+  }
+
+  function viewAccess() {
+    const rows = AGENTS.map((a) => `<div class="agent-row">
+      <span class="glyph" style="background:${a.color}">${a.g}</span>
+      <span><span class="nm">${a.name}</span><span class="rl">${a.role}</span></span>
+      <span class="seg" role="radiogroup" aria-label="${a.name} access">
+        ${['off', 'r', 'rw'].map((v) => `<button role="radio" aria-checked="${S.access[a.id] === v}" class="${S.access[a.id] === v ? 'is-on' : ''}" data-agent="${a.id}" data-level="${v}">${{ off: 'Off', r: 'Read', rw: 'Read and change' }[v]}</button>`).join('')}
+      </span></div>`).join('');
+    const anyWrite = Object.values(S.access).includes('rw');
+    const cloudReader = S.access.res !== 'off';
+    const editing = S.connected;
+    return backdrop(`<div class="sheet" role="dialog" aria-label="Choose access">
+      <div class="sheet-body">
+        <div>${editing ? '<div class="kicker">Access</div>' : kicker(3)}<h2>Who can use ${esc(S.name)}?</h2>
+          <p class="lede">Each agent gets its own access. New agents start with Off.</p></div>
+        <div class="agents">${rows}</div>
+        ${anyWrite ? `<div class="lockline">${I.check}<span>An agent with Read and change asks you before it adds, moves, changes or deletes an event, and before it invites anyone.</span></div>` : ''}
+        ${cloudReader ? `<div class="banner warn">${I.alert}<div class="grow"><p>Researcher runs on a cloud model. Events it reads, including titles, notes and attendees, are sent to OpenRouter.</p></div></div>` : ''}
+      </div>
+      <div class="sheet-foot"><button class="btn ghost" data-act="${editing ? 'cancel' : 'to-signin'}">${editing ? 'Cancel' : 'Back'}</button>
+        <span class="hint">Takes a few seconds</span>
+        <button class="btn solid" data-act="connect">${editing ? 'Save' : 'Connect'}</button></div>
+    </div>`);
+  }
+
+  function viewServices() {
+    const svcs = [
+      ['Hermes', 'Agent runtime and API', 'ok'], ['LLM proxy', 'Holds the model key in memory', 'ok'],
+      ['SearXNG', 'Private web search', 'ok'], ['Todos', 'Vikunja task lists', 'ok'],
+      ['Calendar', S.connected ? `CalDAV bridge · ${S.name}` : 'Starts when you connect a calendar', S.connected ? (brokenSim() ? 'bad' : 'ok') : 'off'],
+    ];
+    return `<div class="settings"><div class="settings-in">
+      <h1>Services</h1>
+      <p class="lead" style="margin-bottom:16px">The calendar service only runs once a calendar is connected, so people who never use it don't download it.</p>
+      <div class="svc-grid">${svcs.map(([n, d, st]) => `<div class="svc"><div class="hed"><span class="dot ${st === 'off' ? '' : st}"></span>${n}</div><p>${d}</p>
+        ${n === 'Calendar' ? `<div><button class="btn" data-act="${S.connected ? 'to-list' : 'start'}">${S.connected ? 'Manage calendars' : 'Connect calendar'}</button></div>` : ''}</div>`).join('')}</div>
+    </div></div>`;
+  }
+
+  /* --- Rationale per scene --- */
+  const WHY = {
+    ask: ['Entry point', 'Offer the connection where the need shows up',
+      `<p>Most people will discover the calendar by asking for it. When Hermes has no calendar tools, it says so plainly and shows a card that opens the connect sheet over Settings → Calendars. Closing the sheet returns to the chat.</p>
+       <p>The card names the one thing people need to fetch first, an app password, so nobody starts the flow and stalls on step 2.</p>`],
+    empty: ['Home for calendars', 'A Calendars tab next to Passwords & Logins',
+      `<p>Calendars get their own Settings tab, because like logins they are real accounts with a secret attached. The tab follows the Passwords &amp; Logins pattern: a list of accounts, an add sheet, and a menu of actions on each one.</p>
+       <p>The empty state lists the three steps, so people know before they start that they need an app password from their provider.</p>`],
+    provider: ['Step 1', 'Pick a provider, not a server URL',
+      `<p>The stack wants a full CalDAV URL and has no discovery. Picking a provider lets Boundary fill the URL in and show that provider's own instructions for app passwords.</p>
+       <p>Google and Microsoft are listed but disabled with the reason. People look for them first, and a missing row reads as a bug.</p>`],
+    signin: ['Step 2', 'Test before anything restarts',
+      `<p>Wrong passwords are the most common failure. The stack's own path only finds out after a two-minute reload, and it logs a warning nobody sees. The sheet tests the sign-in from Boundary's main process before saving anything.</p>
+       <p>The iCloud copy says up front that the Apple ID password won't work. If the pasted value doesn't match the app-specific format, a warning appears before the network call. Turn on <b>iCloud rejects the password</b> in the bar above to see the failure.</p>
+       <p>A successful test lists the calendars found, because the stack gives agents every calendar on the account. Showing the list makes that visible before the user commits.</p>`],
+    access: ['Step 3', 'Access per agent, with Off as the default',
+      `<p>Calendar data is personal, and invites are text other people write, which makes them a prompt-injection route. Only Hermes gets access by default. Every other agent starts at Off.</p>
+       <p>The stack already has two tool sets: 8 read tools and 14 with writes. The control maps directly onto them. Choosing an agent on a cloud model shows what leaves the machine, using the wording from the cloud inference notice.</p>`],
+    connecting: ['Apply', 'Show the restart honestly',
+      `<p>Boundary writes the calendar's entry and password into each agent that has access, the way it already provisions the host bridge, then calls <code>reload.mcp</code> so open chats see it. Hermes doesn't restart, so this takes seconds. The stack's own path, an account file plus <code>make hermes-reload</code>, takes about two minutes and pauses chats.</p>
+       <p>caldav-mcp is already running by this point: the sheet started it when it opened, so the sign-in test could run inside it. The last step reads <code>mcp.servers.status</code> to confirm Hermes connected and loaded the tools. The spec's Phase 0 confirmed this path in a sandbox.</p>`],
+    list: ['Connected', 'One card per account',
+      `<p>The card uses the inference-card layout: a status dot and pill, a list of fields with the password masked to its last four characters, then actions. The "In chat" row tells people how to address this account when they have several.</p>
+       <p>Turn on <b>Password stops working later</b> to see the broken state. Apple cancels all app-specific passwords when the Apple ID password changes, so this will happen. The card leads with Replace password, which reuses the sign-in sheet with the test.</p>
+       <p>Remove asks for confirmation inline, says the calendar itself is untouched, and points to where the app password can be revoked.</p>`],
+    answer: ['Payoff', 'Calendar work in chat, with approval for changes',
+      `<p>Reads show as a tool chip naming the account and the day. Writes appear in the ADR 0006 approval slot as an event preview, with the account and calendar it will land in, and the user approves or declines.</p>
+       <p>Hermes already asks before write tools on a server marked <code>trust: untrusted</code>, and caldav-mcp marks which tools only read. Since stack v0.3.3 the request carries the call's arguments, so the card can show the event itself, with only Add event and Don't add.</p>
+       <p>If Hermes has Read only, it says it can't add the event and links to the access settings, so the user doesn't get a failed tool call. Set Hermes to Read in step 5 to see that version.</p>`],
+    services: ['Secondary entry', 'Services shows the bridge, Settings owns the setup',
+      `<p>Services lists caldav-mcp as "Calendar", with its status, and links to Settings. The setup stays in Settings so there is one place to manage accounts.</p>`],
+  };
+
+  function renderWhy() {
+    const [eye, h, body] = WHY[S.scene];
+    $('#why').innerHTML = `<div class="eyebrow">${eye}</div><h2>${h}</h2>${body}`;
+  }
+
+  function render() {
+    renderScenes();
+    const dest = destOf(S.scene);
+    document.querySelectorAll('.rail [data-dest]').forEach((b) => b.classList.toggle('is-on', b.dataset.dest === dest));
+    const views = { ask: viewAsk, empty: viewEmpty, provider: viewProvider, signin: viewSignin, access: viewAccess, connecting: viewList, list: viewList, answer: viewAnswer, services: viewServices };
+    $('#main').innerHTML = views[S.scene]();
+    $('#winTitle').textContent = dest === 'chat' ? 'Boundary — Hermes' : dest === 'services' ? 'Boundary — Services' : 'Boundary — Settings';
+    renderWhy();
+  }
+
+  function runProgress() {
+    S.progress = 0;
+    timer = setInterval(() => {
+      S.progress += 1;
+      if (S.progress >= 4) {
+        clearInterval(timer);
+        S.connected = true;
+        const hermes = accessText(S.access.hermes).toLowerCase();
+        S.toast = S.access.hermes === 'off' ? `${S.name} connected.` : `${S.name} connected. Hermes can ${hermes === 'read' ? 'read it' : 'read and change it'}.`;
+        S.scene = 'list';
+        render();
+        setTimeout(() => { if (S.toast) { S.toast = ''; if (S.scene === 'list') render(); } }, 4000);
+        return;
+      }
+      render();
+    }, 1100);
+  }
+
+  function doTest(skipFormat) {
+    if (!skipFormat && S.provider === 'icloud' && !/^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/.test(S.pass.trim())) {
+      S.test = 'format'; render(); return;
+    }
+    S.test = 'checking'; render();
+    setTimeout(() => {
+      if (S.scene !== 'signin') return;
+      S.test = $('#simReject').checked ? 'rejected' : 'ok';
+      render();
+    }, 1200);
+  }
+
+  /* --- Events --- */
+  document.addEventListener('click', (e) => {
+    const sc = e.target.closest('[data-scene]');
+    if (sc) {
+      const id = sc.dataset.scene;
+      const patch = {};
+      if (['list', 'answer', 'connecting'].includes(id)) patch.connected = true;
+      if (['empty', 'provider', 'signin', 'access', 'ask'].includes(id)) { patch.connected = false; patch.replacing = false; }
+      if (id === 'signin') patch.test = 'idle';
+      if (id === 'answer') patch.approved = null;
+      patch.confirmRemove = false; patch.toast = '';
+      go(id, patch);
+      return;
+    }
+    const dest = e.target.closest('[data-dest]');
+    if (dest) {
+      const d = dest.dataset.dest;
+      if (d === 'chat') go(S.connected ? 'answer' : 'ask');
+      else if (d === 'services') go('services');
+      else if (d === 'settings') go(S.connected ? 'list' : 'empty');
+      return;
+    }
+    const pv = e.target.closest('[data-provider]');
+    if (pv && !pv.disabled) {
+      const k = pv.dataset.provider;
+      const p = PROVIDERS[k];
+      const samples = { icloud: ['sam@example.com', 'Personal'], fastmail: ['sam@example.com', 'Work'], nextcloud: ['sam', 'Family'], other: ['sam', 'Home server'] };
+      Object.assign(S, { provider: k, url: p.url, user: samples[k][0], name: samples[k][1], pass: k === 'icloud' ? 'wxyz-tqpm-bhsl-kvra' : '', test: 'idle' });
+      render(); return;
+    }
+    const ag = e.target.closest('[data-agent]');
+    if (ag) { S.access[ag.dataset.agent] = ag.dataset.level; render(); return; }
+    const a = e.target.closest('[data-act]');
+    if (!a || a.disabled) return;
+    switch (a.dataset.act) {
+      case 'connect-from-chat': go('provider', { fromChat: true }); break;
+      case 'start': go('provider', { replacing: false, test: 'idle', ...(S.connected ? {} : {}) }); break;
+      case 'cancel': go(S.connected ? 'list' : (S.fromChat ? 'ask' : 'empty'), { replacing: false }); break;
+      case 'to-provider': go('provider'); break;
+      case 'to-signin': go('signin', { test: S.test === 'ok' ? 'ok' : 'idle' }); break;
+      case 'to-access': go('access'); break;
+      case 'test': doTest(false); break;
+      case 'test-anyway': doTest(true); break;
+      case 'toggle-show': S.show = !S.show; render(); $('#f-pass')?.focus(); break;
+      case 'connect': go('connecting', { connected: true, confirmRemove: false }); break;
+      case 'to-chat': go(S.connected ? 'answer' : 'ask'); break;
+      case 'to-list': go('list'); break;
+      case 'test-again': S.toast = brokenSim() ? '' : `${S.name} is working. Found ${CALS.length} calendars.`; render(); break;
+      case 'edit-access': go('access'); break;
+      case 'replace': go('signin', { replacing: true, pass: '', test: 'idle', show: false }); break;
+      case 'apply-replace': $('#simBroken').checked = false; go('connecting', { replacing: false }); break;
+      case 'remove': S.confirmRemove = true; render(); break;
+      case 'cancel-remove': S.confirmRemove = false; render(); break;
+      case 'do-remove': $('#simBroken').checked = false; go('empty', { connected: false, confirmRemove: false }); break;
+      case 'approve': S.approved = true; render(); break;
+      case 'deny': S.approved = false; render(); break;
+      default: break;
+    }
+  });
+
+  document.addEventListener('input', (e) => {
+    const f = e.target.dataset && e.target.dataset.f;
+    if (!f) return;
+    S[f] = e.target.value;
+    if (S.test !== 'idle' && S.test !== 'checking') S.test = 'idle';
+    // Update dependent bits without re-rendering the focused input.
+    const slot = $('#testSlot'); if (slot) slot.innerHTML = testBlock();
+    const btn = document.querySelector('[data-act="test"]');
+    const needsUrl = S.provider === 'nextcloud' || S.provider === 'other';
+    const ready = S.user.trim() && S.pass.trim() && slug(S.name).length && (!needsUrl || S.url.trim());
+    if (btn) { btn.disabled = !ready; btn.textContent = 'Test sign-in'; }
+    const cont = document.querySelector('[data-act="to-access"], [data-act="apply-replace"]');
+    if (cont) { render(); const el = document.getElementById(e.target.id); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+    if (f === 'name') { const h = e.target.parentElement.querySelector('.hint'); if (h) h.textContent = slug(S.name) ? `What you call it in chat: "check my ${S.name.trim()} calendar".` : 'Give it a name with at least one letter or number.'; }
+  });
+
+  $('#simBroken').addEventListener('change', () => { if (['list', 'services'].includes(S.scene)) render(); else go('list', { connected: true }); });
+  $('#simReject').addEventListener('change', () => { if (S.scene === 'signin' && (S.test === 'ok' || S.test === 'rejected')) { S.test = 'idle'; render(); } });
+
+  render();
+})();
+</script>

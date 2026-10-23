@@ -1,0 +1,66 @@
+{
+  "id": "cerebrium-vllm-llama4-maverick-fp8",
+  "modelId": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "provider": "cerebrium",
+  "displayName": "Cerebrium vLLM (Llama 4 Maverick FP8)",
+  "description": "Deploy Llama 4 Maverick FP8 on Cerebrium with vLLM using four H200 GPUs.",
+  "driver": {
+    "kind": "cerebrium-api",
+    "config": {
+      "app_name": "boundary-llama4-maverick-fp8",
+      "served_model_name": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+      "compute": "HOPPER_H200",
+      "gpu_count": 4,
+      "cpu": 32,
+      "memory": 512,
+      "region": "aws.us-east-1",
+      "port": 8000,
+      "max_model_len": 32768,
+      "gpu_memory_utilization": 0.9,
+      "tensor_parallel_size": 4,
+      "extra_vllm_args": ["--dtype", "auto"],
+      "hf_secret_name": "HF_TOKEN"
+    }
+  },
+  "secrets": [
+    {
+      "name": "cerebrium_service_account_token",
+      "type": "string",
+      "description": "Cerebrium service account token from the Cerebrium dashboard API Keys page",
+      "required": true,
+      "sensitive": true,
+      "group": "Credentials"
+    },
+    {
+      "name": "cerebrium_project_id",
+      "type": "string",
+      "description": "Cerebrium project ID, for example p-xxxxxxxx",
+      "required": true,
+      "sensitive": false,
+      "group": "Credentials"
+    },
+    {
+      "name": "hf_token",
+      "type": "string",
+      "description": "Hugging Face access token with access to the gated Llama 4 model",
+      "required": true,
+      "sensitive": true,
+      "group": "Credentials"
+    }
+  ],
+  "readiness": {
+    "probe": "openai-models",
+    "warmupPost": true,
+    "verifyChatCompletion": true,
+    "warmingTimeoutMs": 3600000,
+    "pollIntervalMs": {
+      "warming": 45000,
+      "active": 60000,
+      "degraded": 120000
+    }
+  },
+  "outputs": {
+    "authSecret": "cerebrium_inference_api_key",
+    "openaiBaseUrlKey": "openai_base_url"
+  }
+}

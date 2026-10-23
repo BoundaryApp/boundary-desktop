@@ -1,0 +1,769 @@
+<title>Passwords &amp; Logins</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+<style>
+  /* Layout: a scene stepper over a mock Boundary window, with design notes beside it.
+     Tokens are copied from src/renderer/styles/tokens.css (dark-first, Quiet Hub light). */
+  :root {
+    color-scheme: dark;
+    --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --surface-0: #0d0d0f;
+    --surface-rail: #111113;
+    --surface-1: #161618;
+    --surface-2: #1c1c22;
+    --surface-hover: #1d1d22;
+    --line: #2a2a30;
+    --line-strong: #3a3a44;
+    --text: #f5f5f7;
+    --text-muted: #c4c4cc;
+    --text-faint: #9e9ea8;
+    --brand: #8b87f8;
+    --brand-dim: #26244a;
+    --solid-bg: #f5f5f7;
+    --solid-fg: #111;
+    --ok: #86c089;
+    --ok-dim: #17231a;
+    --warn: #e8c27a;
+    --warn-dim: #2a2415;
+    --warn-line: #5a4a2a;
+    --danger: #e8a0a0;
+    --danger-line: #5a3030;
+    --danger-dim: #2a1818;
+    --tool-bg: #171914;
+    --tool-line: #3a4330;
+    --page: #08080a;
+    --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+    --shadow-window: 0 24px 64px rgb(0 0 0 / 0.5);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
+      --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+      --surface-hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+      --text: #1c1b17; --text-muted: #6d6a60; --text-faint: #9a968a;
+      --brand: #5b56d6; --brand-dim: #e6e4fb; --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+      --ok: #3f7d44; --ok-dim: #e5f0e3; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+      --danger: #a83a3a; --danger-line: #e2b4b4; --danger-dim: #f8e6e4;
+      --tool-bg: #f1f3ea; --tool-line: #cfd6c1; --page: #e6e2d6;
+      --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+      --shadow-window: 0 24px 64px rgb(40 32 16 / 0.18);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+    --surface-hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+    --text: #1c1b17; --text-muted: #6d6a60; --text-faint: #9a968a;
+    --brand: #5b56d6; --brand-dim: #e6e4fb; --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+    --ok: #3f7d44; --ok-dim: #e5f0e3; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+    --danger: #a83a3a; --danger-line: #e2b4b4; --danger-dim: #f8e6e4;
+    --tool-bg: #f1f3ea; --tool-line: #cfd6c1; --page: #e6e2d6;
+    --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+    --shadow-window: 0 24px 64px rgb(40 32 16 / 0.18);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--text);
+    font: 13px/1.45 var(--font-ui);
+    padding: 24px 20px 48px;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: none; box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px color-mix(in srgb, var(--brand) 75%, transparent); }
+  .mono { font-family: var(--font-mono); }
+  svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Page header + stepper ------------------------------------------------- */
+  .frame { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+  .head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+  .head p { margin: 0; color: var(--text-faint); max-width: 70ch; }
+  .steps { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+  .steps button {
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    border: 1px solid var(--line); background: var(--surface-1); color: var(--text-muted);
+    border-radius: 999px; padding: 5px 12px 5px 6px; font-size: 12px;
+  }
+  .steps button .n {
+    display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-faint); font: 500 11px var(--font-mono);
+  }
+  .steps button:hover { border-color: var(--line-strong); color: var(--text); }
+  .steps button[aria-current="step"] { border-color: var(--brand); color: var(--text); background: var(--brand-dim); }
+  .steps button[aria-current="step"] .n { background: var(--brand); color: var(--surface-0); }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  @media (max-width: 980px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Mock window ----------------------------------------------------------- */
+  .win {
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    background: var(--surface-0); box-shadow: var(--shadow-window);
+    display: flex; flex-direction: column; height: 680px; position: relative;
+  }
+  .titlebar {
+    height: 36px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    background: var(--surface-rail); border-bottom: 1px solid var(--line); color: var(--text-faint); font-size: 12px;
+  }
+  .lights { display: flex; gap: 7px; }
+  .lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-strong); display: block; }
+  .titlebar .t { margin: 0 auto; transform: translateX(-30px); }
+  .body { flex: 1; min-height: 0; display: flex; }
+  .rail {
+    width: 52px; flex: none; background: var(--surface-rail); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0;
+  }
+  .rail button {
+    width: 34px; height: 34px; border-radius: 8px; border: 0; background: transparent; color: var(--text-faint);
+    display: grid; place-items: center;
+  }
+  .rail button:hover { background: var(--surface-hover); color: var(--text); }
+  .rail button[aria-pressed="true"] { background: var(--brand-dim); color: var(--brand); }
+  .rail .sp { flex: 1; }
+  .main { flex: 1; min-width: 0; overflow-y: auto; position: relative; }
+  @media (max-width: 560px) { .rail { display: none; } .titlebar .t { transform: none; } }
+
+  /* Settings page --------------------------------------------------------- */
+  .settings { max-width: 720px; margin: 0 auto; padding: 24px 28px 48px; display: grid; gap: 20px; }
+  @media (max-width: 560px) { .settings { padding: 18px 16px 40px; } }
+  .back { justify-self: start; border: 0; background: none; color: var(--text-faint); padding: 0; font-size: 12px; }
+  .back:hover { color: var(--text); }
+  .settings h1 { margin: -8px 0 0; font-size: 22px; font-weight: 600; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button {
+    border: 0; background: none; padding: 8px 10px; color: var(--text-faint); white-space: nowrap;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--brand); }
+  .lead { margin: 0; color: var(--text-muted); max-width: 62ch; }
+  .lead strong { color: var(--text); font-weight: 500; }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .agentpick { display: flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
+  .agentpick select {
+    background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 6px 28px 6px 10px;
+    color: var(--text); font-size: 13px;
+  }
+  .toolbar .grow { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; padding: 6px 12px;
+    border: 1px solid var(--line); background: var(--surface-1); color: var(--text); font-size: 13px;
+  }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.solid { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); font-weight: 500; }
+  .btn.solid:hover { filter: brightness(0.92); }
+  .btn.danger { background: var(--danger-dim); border-color: var(--danger-line); color: var(--danger); }
+  .btn.ghost { background: none; border-color: transparent; color: var(--text-faint); }
+  .btn.ghost:hover { color: var(--text); background: var(--surface-hover); }
+  .btn[disabled] { opacity: 0.45; cursor: not-allowed; filter: none; }
+  .btn.sm { padding: 3px 9px; font-size: 12px; }
+
+  .sec-label {
+    margin: 4px 0 -8px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint);
+  }
+  .list { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  .row + .row, .row + .confirm, .confirm + .row { border-top: 1px solid var(--line); }
+  .fav {
+    width: 30px; height: 30px; border-radius: 8px; flex: none; display: grid; place-items: center;
+    background: var(--surface-2); color: var(--text-muted); font: 600 13px var(--font-ui); border: 1px solid var(--line);
+  }
+  .row .meta { flex: 1; min-width: 0; display: grid; gap: 1px; }
+  .row .name { font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row .sub { color: var(--text-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .sub .mono { font-size: 11.5px; }
+  .pill {
+    font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-faint); font-weight: 400;
+  }
+  .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-dim); }
+  .pill.warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-dim); }
+  .pill.brand { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, transparent); background: var(--brand-dim); }
+  .used { color: var(--text-faint); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @media (max-width: 640px) { .used { display: none; } }
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 180px; padding: 4px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-overlay);
+  }
+  .menu button { display: flex; width: 100%; gap: 8px; align-items: center; border: 0; background: none; padding: 6px 8px; border-radius: 6px; text-align: left; }
+  .menu button:hover { background: var(--surface-hover); }
+  .menu button.bad { color: var(--danger); }
+
+  .confirm { padding: 12px 14px; background: var(--danger-dim); display: grid; gap: 10px; }
+  .confirm p { margin: 0; }
+  .confirm .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+  .empty { padding: 28px 24px; display: grid; gap: 14px; justify-items: start; }
+  .empty h3 { margin: 0; font-size: 15px; font-weight: 500; }
+  .empty ol { margin: 0; padding-left: 18px; color: var(--text-muted); display: grid; gap: 6px; max-width: 58ch; }
+
+  .unlock { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 12px 56px; }
+  .unlock input { flex: 1; min-width: 160px; }
+  .unlock .note { flex-basis: 100%; color: var(--text-faint); font-size: 12px; margin: 0; }
+
+  /* Fields ---------------------------------------------------------------- */
+  .field { display: grid; gap: 6px; }
+  .field > label, .field > .lbl { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  input.in {
+    width: 100%; background: var(--surface-0); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  }
+  input.in:focus { border-color: var(--brand); outline: none; }
+  .pw { position: relative; }
+  .pw input { padding-right: 38px; }
+  .pw button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--text-faint); padding: 5px; border-radius: 6px; display: grid; }
+  .pw button:hover { color: var(--text); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--surface-0); gap: 2px; }
+  .seg button { border: 0; background: none; padding: 3px 10px; border-radius: 6px; color: var(--text-faint); font-size: 12px; }
+  .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+  .hint { margin: 0; font-size: 12px; color: var(--text-faint); }
+  .origin-line { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-faint); flex-wrap: wrap; }
+  .origin-line .mono { color: var(--text); }
+  .suggest { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); padding: 4px; display: grid; }
+  .suggest button { display: flex; gap: 10px; align-items: center; border: 0; background: none; padding: 6px 8px; border-radius: 6px; text-align: left; }
+  .suggest button:hover { background: var(--surface-hover); }
+  .suggest .mono { color: var(--text-faint); font-size: 11.5px; margin-left: auto; }
+  .warnbox { border: 1px solid var(--warn-line); background: var(--warn-dim); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; }
+  .warnbox p { margin: 0; color: var(--text); }
+  .warnbox .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Sheet ----------------------------------------------------------------- */
+  .scrim { position: absolute; inset: 36px 0 0 0; background: color-mix(in srgb, var(--surface-0) 70%, transparent); display: grid; place-items: center; padding: 16px; z-index: 10; }
+  .sheet {
+    width: min(460px, 100%); max-height: 100%; overflow-y: auto; background: var(--surface-1); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow-overlay); display: grid; gap: 16px; padding: 18px;
+  }
+  .sheet header { display: flex; align-items: center; gap: 10px; }
+  .sheet header h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+  .sheet footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .lockline { display: flex; gap: 8px; align-items: flex-start; color: var(--text-faint); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; margin: 0; }
+  .lockline svg { margin-top: 1px; }
+
+  .toast {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 20;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-overlay);
+    padding: 8px 12px; display: flex; gap: 10px; align-items: center; white-space: nowrap; max-width: calc(100% - 32px);
+  }
+  .toast svg { color: var(--ok); }
+  .toast span { overflow: hidden; text-overflow: ellipsis; }
+
+  /* Chat ------------------------------------------------------------------ */
+  .chat { max-width: 720px; margin: 0 auto; padding: 24px 28px 40px; display: grid; gap: 16px; }
+  @media (max-width: 560px) { .chat { padding: 18px 16px; } }
+  .chathead { display: flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .chathead b { color: var(--text); font-weight: 500; }
+  .bubble { justify-self: end; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; max-width: 80%; }
+  .agent { display: grid; gap: 8px; max-width: 62ch; }
+  .agent .who { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-faint); }
+  .agent .who i { width: 18px; height: 18px; border-radius: 6px; background: var(--brand); display: block; }
+  .agent p { margin: 0; font-size: 15px; line-height: 1.6; }
+  .tool { display: flex; gap: 8px; align-items: center; background: var(--tool-bg); border: 1px solid var(--tool-line); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+  .tool .mono { font-size: 11.5px; }
+  .card { border: 1px solid var(--line-strong); background: var(--surface-1); border-radius: 12px; padding: 14px; display: grid; gap: 12px; }
+  .kicker { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brand); font-weight: 500; display: flex; gap: 6px; align-items: center; }
+  .card .why { margin: 0; color: var(--text); }
+  .card footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .link { border: 0; background: none; padding: 0; color: var(--brand); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* Notes ----------------------------------------------------------------- */
+  .notes { display: grid; gap: 14px; position: sticky; top: 16px; }
+  .notes .scene-t { margin: 0; font-size: 15px; font-weight: 600; text-wrap: balance; }
+  .notes p, .notes li { margin: 0; color: var(--text-muted); }
+  .notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+  .notes h4 { margin: 0; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+  .wire { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+  .wire code { font: 11.5px/1.55 var(--font-mono); white-space: pre; color: var(--text-muted); display: block; }
+  .nav { display: flex; gap: 8px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .sheet, .toast, .menu, .confirm, .card { animation: rise 160ms cubic-bezier(0.2, 0, 0, 1); }
+    @keyframes rise { from { transform: translateY(4px); opacity: 0.4; } }
+    .toast { animation-name: riseToast; }
+    @keyframes riseToast { from { transform: translate(-50%, 4px); opacity: 0.4; } }
+  }
+</style>
+
+<div class="frame">
+  <div class="head">
+    <h1>Passwords &amp; Logins</h1>
+    <p>Click-through for saving website logins your agents can use. Click inside the window to move through it, or jump to a scene.</p>
+  </div>
+  <nav class="steps" id="steps" aria-label="Scenes"></nav>
+  <div class="stage">
+    <div class="win" id="win" aria-label="Boundary window mock"></div>
+    <aside class="notes" id="notes" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const ICON = {
+    chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+    services: '<rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    eyeoff: '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    refresh: '<path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3M4 4v4h4M20 20v-4h-4"/>',
+  };
+  const ic = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* Where each site's sign-in form actually lives. Hermes fills only on the exact origin,
+     so Boundary resolves names and pasted URLs to these. */
+  const SITES = [
+    { name: 'LinkedIn', domain: 'linkedin.com', origin: 'https://www.linkedin.com', letter: 'in' },
+    { name: 'GitHub', domain: 'github.com', origin: 'https://github.com', letter: 'G' },
+    { name: 'Google', domain: 'google.com', origin: 'https://accounts.google.com', letter: 'G' },
+    { name: 'Amazon', domain: 'amazon.com', origin: 'https://www.amazon.com', letter: 'a' },
+    { name: 'X', domain: 'x.com', origin: 'https://x.com', letter: 'X' },
+  ];
+  const AGENTS = [
+    { id: 'default', name: 'Hermes' },
+    { id: 'software-engineer', name: 'Software engineer' },
+    { id: 'browser', name: 'Browser' },
+  ];
+  const ID_TYPES = [['email', 'Email'], ['username', 'Username'], ['phone', 'Phone']];
+
+  const LINKEDIN = { id: 'v_8f2c', label: 'LinkedIn', origin: 'https://www.linkedin.com', identifier: 'sam@example.com', identifier_type: 'email', added: 'Just now', used: 'Not used yet', source: 'settings', backend: 'local' };
+  const GITHUB = { id: 'v_31ad', label: 'GitHub', origin: 'https://github.com', identifier: 'samrivera', identifier_type: 'username', added: 'Sep 28', used: 'Used Oct 2', source: 'chat', backend: 'local' };
+  const ONEPW = { id: 'op_77', label: 'Notion', origin: 'https://www.notion.so', identifier: 'sam@example.com', identifier_type: 'email', added: '', used: '', source: 'manager', backend: '1password' };
+
+  const blankSheet = () => ({ mode: 'add', site: '', origin: '', idType: 'email', identifier: '', password: '', show: false, focus: 'site', replacing: null });
+
+  const SCENES = [
+    { key: 'empty', label: 'First visit', state: () => ({ view: 'settings', items: { default: [] } }) },
+    { key: 'add', label: 'Add a login', state: () => ({ view: 'settings', items: { default: [] }, sheet: { ...blankSheet(), site: 'link', focus: 'site' } }) },
+    { key: 'fix', label: 'Pasted the wrong page', state: () => ({ view: 'settings', items: { default: [] }, sheet: { ...blankSheet(), site: 'https://linkedin.com/in/samrivera', origin: 'https://linkedin.com', identifier: 'sam@example.com', password: 'correct-horse-battery', focus: 'identifier' } }) },
+    { key: 'saved', label: 'Saved', state: () => ({ view: 'settings', items: { default: [LINKEDIN, GITHUB] }, toast: 'Saved the LinkedIn login for Hermes' }) },
+    { key: 'manage', label: 'Replace or remove', state: () => ({ view: 'settings', items: { default: [LINKEDIN, GITHUB] }, confirm: 'v_8f2c' }) },
+    { key: 'managers', label: 'Password manager', state: () => ({ view: 'settings', items: { default: [LINKEDIN, GITHUB] }, pm: '1password-unlocking' }) },
+    { key: 'ask', label: 'Agent asks in chat', state: () => ({ view: 'chat', chat: 1, items: { default: [GITHUB] } }) },
+    { key: 'signed', label: 'Signed in', state: () => ({ view: 'chat', chat: 2, items: { default: [{ ...LINKEDIN, source: 'chat' }, GITHUB] } }) },
+  ];
+
+  const NOTES = {
+    empty: {
+      t: 'A first visit explains both ways in',
+      p: 'Most people meet this screen after an agent has already asked them for a login in chat. The empty state says that\'s the normal path, so adding ahead of time reads as optional.',
+      li: ['Logins belong to one agent, because each Hermes profile has its own vault. The picker defaults to the agent you chat with most.', 'Password managers sit below the list. They are detected, not configured, so they only show status and Unlock.'],
+      wire: 'vault.list    { profile: "default" }\nvault.sources { profile: "default" }',
+      next: 'Click Add login.',
+    },
+    add: {
+      t: 'Type a site name, not a URL',
+      p: 'People know "LinkedIn", not https://www.linkedin.com. Suggestions come from a small table of known sign-in origins, and the exact origin is always shown before saving.',
+      li: ['Pasting any URL also works. Boundary reduces it to the origin.', 'Email, Username or Phone sets identifier_type, which Hermes uses to decide where to type it.', 'The agent can see the email or username, which it types itself. Only the password is secret.'],
+      wire: '// nothing sent yet',
+      next: 'Pick LinkedIn from the suggestions.',
+    },
+    fix: {
+      t: 'Catch the origin mismatch before it fails silently',
+      p: 'Hermes fills a password only on the exact origin it was saved for. A profile link gives https://linkedin.com, but the sign-in form is on www.linkedin.com, so the agent would never find the login. This is the bug that is easiest to hit, so the form says so in words.',
+      li: ['Only shown for sites in the known table. Unknown sites save the origin you entered.', 'One click switches to the right origin. Saving as typed stays possible.'],
+      wire: '// still local; validation runs in the renderer',
+      next: 'Use www.linkedin.com, then Save login.',
+    },
+    saved: {
+      t: 'The list shows what an agent can do, not the secret',
+      p: 'Each row shows the site, the exact origin, the username and where the login came from. There is no reveal button. Once a password is saved, Boundary can\'t read it back, and the screen shouldn\'t suggest it can.',
+      li: ['"Saved from chat" marks logins the agent asked for, so a surprise row explains itself.', 'The password goes from the renderer to main to the WebSocket once, the same path as the chat prompt. The form state is cleared after the reply.'],
+      wire: 'vault.add {\n  profile: "default",\n  kind: "login",\n  label: "LinkedIn",\n  origin: "https://www.linkedin.com",\n  secret: {\n    identifier_type: "email",\n    identifier: "sam@example.com",\n    password: "••••"\n  }\n}  →  { id: "v_8f2c" }',
+      next: 'Open a row\'s menu to replace or remove it.',
+    },
+    manage: {
+      t: 'Removing says what stops working',
+      p: 'The confirmation sits inline on the row instead of in a modal, and it names the consequence in terms of the agent and the site.',
+      li: ['Hermes has no edit call. Replace password opens the form with the site and username filled in. Boundary adds the new item first and removes the old one only after that succeeds, so a failure never loses the login.', 'Logins from a password manager can\'t be removed here. Their menu says to change them in that app.'],
+      wire: 'vault.remove { profile: "default", id: "v_8f2c" }\n  →  { removed: true }\n\n// Replace password\nvault.add    {...}   →  { id: "v_9a01" }\nvault.remove { id: "v_8f2c" }',
+      next: 'Remove, or move on to password managers.',
+    },
+    managers: {
+      t: 'Unlock a manager without leaving the screen',
+      p: 'If 1Password or Bitwarden is installed in the agent stack, its logins can be used after an unlock. The master password goes straight to the manager\'s CLI and isn\'t stored.',
+      li: ['Unlocked lasts until the agent stack restarts or you click Lock.', 'Once unlocked, its logins join the list with a 1Password badge.', 'If the CLI isn\'t installed, the row says so plainly instead of offering a button that can\'t work.'],
+      wire: 'vault.unlock { profile: "default",\n               name: "1password",\n               password: "••••" }\nvault.lock   { name: "1password" }\nvault.source.set { name: "bitwarden", enabled: false }',
+      next: 'Enter anything and click Unlock.',
+    },
+    ask: {
+      t: 'The common path: the agent asks on the sign-in page',
+      p: 'This card already exists (CredentialInterrupt). It only appears once the agent has opened the sign-in page, because Hermes ties the login to that page\'s origin. The agent\'s instructions need to say: open the page first, then ask.',
+      li: ['The card names the exact origin, so the person can check it\'s the real site.', '"Skip" answers with an empty value, and the agent stops and says why.'],
+      wire: '← server request  vault.save_login\n   { session_id, origin: "https://www.linkedin.com",\n     site: "www.linkedin.com" }\n→ response  { value: "{identifier, password}" }',
+      next: 'Fill in the card and click Save and sign in.',
+    },
+    signed: {
+      t: 'Close the loop: show the fill, link to the saved login',
+      p: 'The tool row shows what happened, without the value: which fields were filled and on which origin. A link takes the person to the saved login, where the row is marked "Saved from chat".',
+      li: ['If the site then asks for a one-time code, the same card slot asks for it (vault.code). The code is used once and not saved.'],
+      wire: 'tool  browser_vault_save_login\n  →  { success: true, handle: "v_8f2c",\n       origin: "https://www.linkedin.com",\n       identifier: "sam@example.com" }',
+      next: 'Click "Manage in Passwords & Logins".',
+    },
+  };
+
+  let scene = 0;
+  let S = {};
+  const W = document.getElementById('win');
+  const N = document.getElementById('notes');
+  const STEPS = document.getElementById('steps');
+
+  function go(i) {
+    scene = Math.max(0, Math.min(SCENES.length - 1, i));
+    S = Object.assign({ view: 'settings', agent: 'default', items: { default: [] }, sheet: null, menu: null, confirm: null, toast: null, pm: '1password-locked', chat: 0 }, SCENES[scene].state());
+    render();
+  }
+  function set(patch) { S = { ...S, ...patch }; render(); }
+  const items = () => S.items[S.agent] || [];
+  const agentName = (id = S.agent) => AGENTS.find((a) => a.id === id).name;
+  const siteFor = (origin) => SITES.find((s) => s.origin === origin);
+  const letterFor = (it) => (siteFor(it.origin)?.letter) || it.label.slice(0, 1).toUpperCase();
+
+  function originOf(text) {
+    const t = text.trim();
+    if (!t || !/[./:]/.test(t)) return '';
+    try {
+      const u = new URL(/^[a-z]+:\/\//i.test(t) ? t : 'https://' + t);
+      return u.hostname.includes('.') ? u.origin : '';
+    } catch { return ''; }
+  }
+  function mismatch(origin) {
+    if (!origin) return null;
+    const host = new URL(origin).hostname.replace(/^www\./, '');
+    const s = SITES.find((x) => host === x.domain || host.endsWith('.' + x.domain));
+    return s && s.origin !== origin ? s : null;
+  }
+
+  /* --- Steps + notes ------------------------------------------------------ */
+  function renderSteps() {
+    STEPS.innerHTML = SCENES.map((s, i) =>
+      `<button type="button" data-scene="${i}" ${i === scene ? 'aria-current="step"' : ''}><span class="n">${i + 1}</span>${esc(s.label)}</button>`).join('');
+  }
+  function renderNotes() {
+    const n = NOTES[SCENES[scene].key];
+    N.innerHTML = `
+      <h2 class="scene-t">${esc(n.t)}</h2>
+      <p>${esc(n.p)}</p>
+      <ul>${n.li.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <h4>Hermes gateway</h4>
+      <div class="wire"><code>${esc(n.wire)}</code></div>
+      <h4>Next</h4>
+      <p>${esc(n.next)}</p>
+      <div class="nav">
+        <button type="button" class="btn sm" data-act="prev" ${scene === 0 ? 'disabled' : ''}>Back</button>
+        <button type="button" class="btn sm solid" data-act="next" ${scene === SCENES.length - 1 ? 'disabled' : ''}>Next scene</button>
+      </div>`;
+  }
+
+  /* --- Window ------------------------------------------------------------- */
+  function renderWin() {
+    const settings = S.view === 'settings';
+    W.innerHTML = `
+      <div class="titlebar"><span class="lights"><i></i><i></i><i></i></span><span class="t">Boundary</span></div>
+      <div class="body">
+        <nav class="rail" aria-label="App">
+          <button type="button" data-act="view-chat" aria-label="Chat" aria-pressed="${!settings}">${ic('chat')}</button>
+          <button type="button" aria-label="Services" aria-pressed="false">${ic('services')}</button>
+          <button type="button" aria-label="Resources" aria-pressed="false">${ic('folder')}</button>
+          <span class="sp"></span>
+          <button type="button" data-act="view-settings" aria-label="Settings" aria-pressed="${settings}">${ic('gear')}</button>
+        </nav>
+        <div class="main">${settings ? renderSettings() : renderChat()}</div>
+      </div>
+      ${S.sheet ? renderSheet() : ''}
+      ${S.toast ? `<div class="toast" role="status">${ic('check')}<span>${esc(S.toast)}</span></div>` : ''}`;
+    const f = S.sheet && W.querySelector(`[data-focus="${S.sheet.focus}"]`);
+    if (f) { f.focus(); const v = f.value; f.value = ''; f.value = v; }
+  }
+
+  function renderSettings() {
+    const list = items();
+    const managerItems = S.pm === '1password-unlocked' && S.agent === 'default' ? [ONEPW] : [];
+    const all = [...list, ...managerItems];
+    return `
+      <section class="settings" aria-label="Settings">
+        <button type="button" class="back" data-act="view-chat">← Back to chat</button>
+        <h1>Settings</h1>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" aria-selected="false">Appearance</button>
+          <button type="button" role="tab" aria-selected="false">Inference</button>
+          <button type="button" role="tab" aria-selected="true">Passwords &amp; Logins</button>
+        </div>
+        <p class="lead">Logins your agents can use to sign in to websites. The agent types the username. The password is filled straight into the page, and <strong>the model never sees it</strong>.</p>
+        <div class="toolbar">
+          <label class="agentpick" for="agent">Logins for
+            <select id="agent" data-act="agent">${AGENTS.map((a) => `<option value="${a.id}" ${a.id === S.agent ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+          </label>
+          <span class="grow"></span>
+          <button type="button" class="btn solid" data-act="add">${ic('plus')}Add login</button>
+        </div>
+        ${all.length ? `<div class="list" role="list">${all.map(renderRow).join('')}</div>` : renderEmpty()}
+        <p class="sec-label">Password managers</p>
+        <div class="list">${renderManagers()}</div>
+      </section>`;
+  }
+
+  function renderEmpty() {
+    return `
+      <div class="list"><div class="empty">
+        <h3>${esc(agentName())} has no saved logins</h3>
+        <ol>
+          <li>Ask ${esc(agentName())} to sign in somewhere. When it reaches the sign-in page, it asks you for the login in chat and saves it here.</li>
+          <li>Or add one now, so it can sign in without asking.</li>
+        </ol>
+        <button type="button" class="btn" data-act="add">${ic('plus')}Add login</button>
+      </div></div>`;
+  }
+
+  function renderRow(it) {
+    const fromManager = it.backend !== 'local';
+    const badge = fromManager ? '<span class="pill brand">1Password</span>' : it.source === 'chat' ? '<span class="pill">Saved from chat</span>' : '';
+    const row = `
+      <div class="row" role="listitem">
+        <span class="fav" aria-hidden="true">${esc(letterFor(it))}</span>
+        <div class="meta">
+          <span class="name">${esc(it.label)} ${badge}</span>
+          <span class="sub"><span class="mono">${esc(it.origin)}</span> · ${esc(it.identifier)}</span>
+        </div>
+        <span class="used">${esc(it.used || '')}</span>
+        <div class="menu-wrap">
+          <button type="button" class="btn ghost sm" data-act="menu" data-id="${it.id}" aria-label="More for ${esc(it.label)}" aria-expanded="${S.menu === it.id}">${ic('more')}</button>
+          ${S.menu === it.id ? (fromManager
+            ? `<div class="menu" role="menu"><button type="button" role="menuitem" disabled>${ic('lock')}Change it in 1Password</button></div>`
+            : `<div class="menu" role="menu">
+                <button type="button" role="menuitem" data-act="replace" data-id="${it.id}">${ic('refresh')}Replace password</button>
+                <button type="button" role="menuitem" class="bad" data-act="ask-remove" data-id="${it.id}">${ic('trash')}Remove</button>
+              </div>`) : ''}
+        </div>
+      </div>`;
+    if (S.confirm !== it.id) return row;
+    const host = new URL(it.origin).host;
+    return row + `
+      <div class="confirm" role="alertdialog" aria-label="Remove ${esc(it.label)} login">
+        <p>Remove the ${esc(it.label)} login? ${esc(agentName())} will ask you for it again the next time it signs in to <span class="mono">${esc(host)}</span>.</p>
+        <div class="acts">
+          <button type="button" class="btn sm" data-act="cancel-remove">Cancel</button>
+          <button type="button" class="btn sm danger" data-act="remove" data-id="${it.id}">Remove login</button>
+        </div>
+      </div>`;
+  }
+
+  function renderManagers() {
+    const st = S.pm;
+    const op = st === '1password-unlocked'
+      ? `<span class="pill ok">Unlocked</span>`
+      : `<span class="pill warn">Locked</span>`;
+    const opBtn = st === '1password-unlocked'
+      ? `<button type="button" class="btn sm" data-act="pm-lock">${ic('lock')}Lock</button>`
+      : st === '1password-unlocking' ? '' : `<button type="button" class="btn sm" data-act="pm-start">${ic('unlock')}Unlock</button>`;
+    return `
+      <div class="row">
+        <span class="fav" aria-hidden="true">${ic('key')}</span>
+        <div class="meta"><span class="name">1Password ${op}</span>
+          <span class="sub">${st === '1password-unlocked' ? '3 logins available to Hermes until the agent stack restarts' : 'Found in the agent stack. Unlock to let agents use its logins.'}</span></div>
+        ${opBtn}
+      </div>
+      ${st === '1password-unlocking' ? `
+      <form class="unlock" data-form="pm">
+        <input class="in" id="pm-pass" type="password" placeholder="1Password master password" autocomplete="off" data-focus="pm" aria-label="1Password master password" />
+        <button type="button" class="btn sm" data-act="pm-cancel">Cancel</button>
+        <button type="submit" class="btn sm solid">Unlock</button>
+        <p class="note">Sent to 1Password to unlock it. Boundary and Hermes don't store it.</p>
+      </form>` : ''}
+      <div class="row">
+        <span class="fav" aria-hidden="true">${ic('key')}</span>
+        <div class="meta"><span class="name">Bitwarden <span class="pill">Not installed</span></span>
+          <span class="sub">The Bitwarden CLI isn't in the agent stack, so its logins can't be used.</span></div>
+      </div>`;
+  }
+
+  function renderSheet() {
+    const sh = S.sheet;
+    const q = sh.site.trim().toLowerCase();
+    const typedOrigin = originOf(sh.site);
+    const origin = sh.origin || typedOrigin;
+    const suggestions = !sh.origin && q && !typedOrigin ? SITES.filter((s) => s.name.toLowerCase().startsWith(q) || s.domain.startsWith(q)) : [];
+    const bad = sh.kept ? null : mismatch(origin);
+    const ready = origin && sh.identifier.trim() && sh.password;
+    const replacing = sh.mode === 'replace';
+    return `
+      <div class="scrim" data-act="scrim">
+        <form class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-t" data-form="sheet">
+          <header>
+            <h2 id="sheet-t">${replacing ? `Replace ${esc(sh.label)} password` : `Add a login for ${esc(agentName())}`}</h2>
+            <button type="button" class="btn ghost sm" data-act="close" aria-label="Close">${ic('x')}</button>
+          </header>
+          <div class="field">
+            <label for="site">Site</label>
+            <input class="in" id="site" data-field="site" data-focus="site" value="${esc(sh.site)}" placeholder="LinkedIn, or paste the sign-in page URL" autocomplete="off" ${replacing ? 'disabled' : ''} />
+            ${suggestions.length ? `<div class="suggest" role="listbox" aria-label="Known sites">${suggestions.map((s) =>
+              `<button type="button" role="option" data-act="pick" data-origin="${s.origin}"><span class="fav" aria-hidden="true">${esc(s.letter)}</span>${esc(s.name)}<span class="mono">${esc(s.origin)}</span></button>`).join('')}</div>` : ''}
+            ${origin && !bad ? `<div class="origin-line">${ic('globe')}Fills only on <span class="mono">${esc(origin)}</span></div>` : ''}
+            ${!origin && !suggestions.length ? `<p class="hint">Use the page where the sign-in form is, not a profile or home page.</p>` : ''}
+            ${bad ? `<div class="warnbox" role="alert">
+                <p>${esc(bad.name)}'s sign-in form is on <span class="mono">${esc(bad.origin)}</span>. A login saved for <span class="mono">${esc(origin)}</span> won't be filled there.</p>
+                <div class="acts">
+                  <button type="button" class="btn sm solid" data-act="pick" data-origin="${bad.origin}">Use ${esc(new URL(bad.origin).host)}</button>
+                  <button type="button" class="btn sm ghost" data-act="keep-origin">Keep ${esc(new URL(origin).host)}</button>
+                </div></div>` : ''}
+          </div>
+          <div class="field">
+            <span class="lbl" id="idtype-l">Signs in with</span>
+            <div class="seg" role="group" aria-labelledby="idtype-l">${ID_TYPES.map(([v, l]) =>
+              `<button type="button" data-act="idtype" data-v="${v}" aria-pressed="${sh.idType === v}" ${replacing ? 'disabled' : ''}>${l}</button>`).join('')}</div>
+          </div>
+          <div class="field">
+            <label for="identifier">${esc(ID_TYPES.find((x) => x[0] === sh.idType)[1])}</label>
+            <input class="in" id="identifier" data-field="identifier" data-focus="identifier" value="${esc(sh.identifier)}" autocomplete="off" placeholder="${sh.idType === 'email' ? 'you@example.com' : sh.idType === 'phone' ? '+1 555 0100' : 'username'}" ${replacing ? 'disabled' : ''} />
+          </div>
+          <div class="field">
+            <label for="password">${replacing ? 'New password' : 'Password'}</label>
+            <div class="pw">
+              <input class="in" id="password" data-field="password" data-focus="password" type="${sh.show ? 'text' : 'password'}" value="${esc(sh.password)}" autocomplete="new-password" />
+              <button type="button" data-act="toggle-pw" aria-label="${sh.show ? 'Hide password' : 'Show password'}">${ic(sh.show ? 'eyeoff' : 'eye')}</button>
+            </div>
+          </div>
+          <p class="lockline">${ic('lock')}<span>Saved encrypted in ${esc(agentName())}'s vault. Boundary can't show it again, and the model never sees it.</span></p>
+          <footer>
+            <button type="button" class="btn" data-act="close">Cancel</button>
+            <button type="submit" class="btn solid" ${ready ? '' : 'disabled'}>${replacing ? 'Replace password' : 'Save login'}</button>
+          </footer>
+        </form>
+      </div>`;
+  }
+
+  function renderChat() {
+    const stage = S.chat;
+    const card = stage === 1 ? `
+      <div class="card" role="group" aria-label="Save login for www.linkedin.com">
+        <span class="kicker">${ic('key')}Save login · www.linkedin.com</span>
+        <p class="why">The agent reached a sign-in page at <span class="mono">https://www.linkedin.com</span>. Save a login so it can sign in.</p>
+        <div class="field"><label for="c-id">Email or username</label><input class="in" id="c-id" data-cfield="id" value="${esc(S.cId ?? '')}" placeholder="you@example.com" autocomplete="off" /></div>
+        <div class="field"><label for="c-pw">Password</label><input class="in" id="c-pw" type="password" data-cfield="pw" value="${esc(S.cPw ?? '')}" autocomplete="new-password" /></div>
+        <p class="hint">Saved in the agent vault and filled only on this exact site. The model never sees the password.</p>
+        <footer>
+          <button type="button" class="btn" data-act="chat-skip">Skip</button>
+          <button type="button" class="btn solid" data-act="chat-save">Save and sign in</button>
+        </footer>
+      </div>` : '';
+    const done = stage === 2 ? `
+      <div class="tool">${ic('check')}<span>Saved login</span><span class="mono">LinkedIn · https://www.linkedin.com</span></div>
+      <div class="tool">${ic('key')}<span>Filled from vault</span><span class="mono">password · www.linkedin.com</span></div>
+      <div class="agent"><div class="who"><i></i>Hermes</div>
+        <p>I'm signed in to LinkedIn as sam@example.com. What would you like me to do there?</p>
+        <div><button type="button" class="link" data-act="to-settings">Manage in Passwords &amp; Logins</button></div>
+      </div>` : '';
+    const skipped = stage === 3 ? `
+      <div class="tool">${ic('x')}<span>Login skipped</span><span class="mono">www.linkedin.com</span></div>
+      <div class="agent"><div class="who"><i></i>Hermes</div>
+        <p>OK, I won't sign in. You can add a LinkedIn login in Settings → Passwords &amp; Logins whenever you want me to.</p></div>` : '';
+    return `
+      <section class="chat" aria-label="Chat">
+        <div class="chathead"><b>Hermes</b> · Direct message</div>
+        <div class="bubble">Can you log into LinkedIn on my behalf?</div>
+        <div class="agent"><div class="who"><i></i>Hermes</div>
+          <p>You don't have a LinkedIn login saved, so I'll open the sign-in page and ask you for one there.</p></div>
+        <div class="tool">${ic('globe')}<span>browser</span><span class="mono">opened https://www.linkedin.com/login</span></div>
+        ${card}${done}${skipped}
+      </section>`;
+  }
+
+  function render() { renderSteps(); renderNotes(); renderWin(); }
+
+  /* --- Events ------------------------------------------------------------- */
+  document.addEventListener('click', (e) => {
+    const sc = e.target.closest('[data-scene]');
+    if (sc) return go(+sc.dataset.scene);
+    const el = e.target.closest('[data-act]');
+    if (!el) { if (S.menu) set({ menu: null }); return; }
+    const a = el.dataset.act;
+    const id = el.dataset.id;
+    const sh = S.sheet;
+    switch (a) {
+      case 'prev': return go(scene - 1);
+      case 'next': return go(scene + 1);
+      case 'view-chat': if (!S.chat) scene = 6; return set({ view: 'chat', chat: S.chat || 1, sheet: null, toast: null });
+      case 'view-settings': case 'to-settings':
+        if (a === 'to-settings') scene = 7;
+        return set({ view: 'settings', toast: null });
+      case 'add': if (scene < 1) { scene = 1; } return set({ sheet: blankSheet(), menu: null, toast: null });
+      case 'scrim': if (e.target === el) set({ sheet: null }); return;
+      case 'close': return set({ sheet: null });
+      case 'pick': return set({ sheet: { ...sh, origin: el.dataset.origin, site: (siteFor(el.dataset.origin)?.name) || sh.site, focus: sh.identifier ? 'password' : 'identifier' } });
+      case 'keep-origin': return set({ sheet: { ...sh, origin: originOf(sh.site) || sh.origin, kept: true, site: sh.site } });
+      case 'idtype': return set({ sheet: { ...sh, idType: el.dataset.v, focus: 'identifier' } });
+      case 'toggle-pw': return set({ sheet: { ...sh, show: !sh.show, focus: 'password' } });
+      case 'menu': return set({ menu: S.menu === id ? null : id, confirm: null });
+      case 'ask-remove': if (scene < 4) scene = 4; return set({ confirm: id, menu: null, toast: null });
+      case 'cancel-remove': return set({ confirm: null });
+      case 'remove': {
+        const it = items().find((x) => x.id === id);
+        return set({ items: { ...S.items, [S.agent]: items().filter((x) => x.id !== id) }, confirm: null, toast: `Removed the ${it.label} login` });
+      }
+      case 'replace': {
+        const it = items().find((x) => x.id === id);
+        return set({ menu: null, toast: null, sheet: { ...blankSheet(), mode: 'replace', replacing: id, label: it.label, site: siteFor(it.origin)?.name || it.label, origin: it.origin, idType: it.identifier_type, identifier: it.identifier, focus: 'password' } });
+      }
+      case 'pm-start': scene = 5; return set({ pm: '1password-unlocking', toast: null });
+      case 'pm-cancel': return set({ pm: '1password-locked' });
+      case 'pm-lock': return set({ pm: '1password-locked', toast: 'Locked 1Password' });
+      case 'chat-skip': return set({ chat: 3 });
+      case 'chat-save':
+        scene = 7;
+        return set({ chat: 2, cPw: '', items: { ...S.items, default: [{ ...LINKEDIN, source: 'chat', identifier: (S.cId || '').trim() || LINKEDIN.identifier }, ...(S.items.default || []).filter((x) => x.id !== LINKEDIN.id)] } });
+    }
+  });
+
+  document.addEventListener('input', (e) => {
+    const f = e.target.dataset.field;
+    if (f && S.sheet) {
+      const patch = { ...S.sheet, [f]: e.target.value, focus: f };
+      if (f === 'site') { patch.origin = ''; patch.kept = false; }
+      S.sheet = patch;
+      renderWin();
+      return;
+    }
+    const c = e.target.dataset.cfield;
+    if (c) S[c === 'id' ? 'cId' : 'cPw'] = e.target.value;
+  });
+
+  document.addEventListener('change', (e) => {
+    if (e.target.dataset.act === 'agent') set({ agent: e.target.value, menu: null, confirm: null, toast: null });
+  });
+
+  document.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target.dataset.form;
+    if (form === 'pm') { scene = 5; return set({ pm: '1password-unlocked', toast: 'Unlocked 1Password until the agent stack restarts' }); }
+    if (form !== 'sheet') return;
+    const sh = S.sheet;
+    const origin = sh.origin || originOf(sh.site);
+    if (!origin || !sh.identifier.trim() || !sh.password) return;
+    if (sh.mode === 'replace') {
+      const list = items().map((x) => (x.id === sh.replacing ? { ...x, id: x.id + 'r', added: 'Just now' } : x));
+      return set({ sheet: null, items: { ...S.items, [S.agent]: list }, toast: `Replaced the ${sh.label} password` });
+    }
+    const known = siteFor(origin);
+    const label = known?.name || new URL(origin).hostname.replace(/^www\./, '');
+    const item = { id: 'v_' + Math.random().toString(16).slice(2, 6), label, origin, identifier: sh.identifier.trim(), identifier_type: sh.idType, added: 'Just now', used: 'Not used yet', source: 'settings', backend: 'local' };
+    scene = Math.max(scene, 3);
+    set({ sheet: null, items: { ...S.items, [S.agent]: [item, ...items()] }, toast: `Saved the ${label} login for ${agentName()}` });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { if (S.sheet) set({ sheet: null }); else if (S.menu || S.confirm) set({ menu: null, confirm: null }); }
+  });
+
+  go(0);
+})();
+</script>

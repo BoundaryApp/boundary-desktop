@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>E · Approval — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --tool-bg: #171914;
+      --tool-line: #3a4330;
+      --ok: #86c089;
+      --solid-fg: #111;
+      --overhead: #c4843a;
+      --gen: #5b8def;
+      --wait: #93c5fd;
+      --gauge-track: #2a2a30;
+      --input: #161618;
+      --deny-line: #5a3030;
+      --deny-text: #e8a0a0;
+      --deny-hover: #2a1818;
+      --warn: #e8c27a;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --tool-bg: #eef0e6;
+      --tool-line: #c5cbb0;
+      --ok: #3d6b40;
+      --solid-fg: #fffcf6;
+      --overhead: #c4843a;
+      --gen: #3b82f6;
+      --wait: #3b6ea5;
+      --gauge-track: #e3dfd3;
+      --input: #f3f1ea;
+      --deny-line: #d4b4b4;
+      --deny-text: #8a3a3a;
+      --deny-hover: #f3e8e4;
+      --warn: #8a5a12;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+    html.light .btn-solid { color: var(--solid-fg); background: var(--text); }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .left-actions {
+      padding: 10px 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .btn-solid,
+    .btn-ghost,
+    .btn-tiny {
+      border-radius: 7px;
+      text-align: left;
+      padding: 7px 9px;
+    }
+
+    .btn-solid {
+      background: var(--text);
+      color: var(--solid-fg);
+      font-weight: 580;
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .sect {
+      padding: 14px 12px 6px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .proj {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 2px 8px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: calc(100% - 16px);
+    }
+
+    .proj.is-on { background: var(--accent-dim); border: 1px solid var(--line); }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+      background: #c4a574;
+    }
+
+    .proj-copy { min-width: 0; text-align: left; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .usage {
+      flex: 1;
+      height: 8px;
+      background: var(--gauge-track);
+      border-radius: 99px;
+      overflow: hidden;
+      display: flex;
+      max-width: 280px;
+    }
+
+    .usage .oh { width: 58.8%; background: var(--overhead); }
+    .usage .out { width: 2.2%; background: var(--gen); }
+
+    .key { display: flex; gap: 12px; }
+    .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+    .k-oh { background: var(--overhead); }
+    .k-out { background: var(--gen); }
+
+    .log {
+      flex: 1;
+      overflow: auto;
+      padding: 28px 36px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .msg { max-width: 720px; }
+    .msg .who {
+      font-size: 12px;
+      color: var(--faint);
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: var(--user);
+      border: 1px solid var(--line);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .tool {
+      background: var(--tool-bg);
+      border: 1px solid var(--tool-line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .tool .meta { color: var(--ok); font-size: 12px; font-weight: 580; }
+    .tool .meta.blocked { color: var(--deny-text); }
+    .tool ul { margin: 8px 0 0; padding: 0 0 0 16px; color: var(--muted); }
+    .tool .summary {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .callout {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+      position: relative;
+      background: var(--panel);
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 64px;
+      resize: none;
+      background: var(--input);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      outline: none;
+      font-family: var(--font-ui);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    body:not([data-state="fallback"]) .composer textarea {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { color: var(--muted); }
+
+    .phase-slot { color: var(--text); font-weight: 580; }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .switch {
+      width: 26px;
+      height: 14px;
+      border-radius: 99px;
+      background: var(--accent);
+      position: relative;
+    }
+
+    .switch i {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--bg);
+    }
+
+    .stop {
+      margin-left: auto;
+      padding: 5px 10px;
+      border-radius: 7px;
+      background: var(--hover);
+      color: var(--text);
+      font-weight: 580;
+    }
+
+    .right {
+      width: 280px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .right-head { padding: 14px 14px 10px; }
+    .right-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
+    .right-head .host { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .right-actions { display: flex; gap: 6px; padding: 0 14px 12px; }
+    .hint { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
+
+    .tree { padding: 4px 8px 16px; overflow: auto; }
+    .tree button {
+      display: flex;
+      width: 100%;
+      text-align: left;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .tree .dir { color: var(--muted); }
+    .tree .pad { padding-left: 22px; }
+
+    /* Approval interrupt ------------------------------------------------- */
+
+    .approve-host {
+      position: relative;
+      z-index: 2;
+    }
+
+    .approve {
+      border-top: 1px solid var(--tool-line);
+      background: var(--tool-bg);
+      padding: 12px 16px 14px;
+      position: relative;
+    }
+
+    .approve.is-stack::before {
+      content: "";
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: -7px;
+      height: 10px;
+      border-radius: 10px 10px 0 0;
+      background: var(--panel);
+      border: 1px solid var(--tool-line);
+      border-bottom: 0;
+      opacity: 0.7;
+    }
+
+    .approve .kicker {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ok);
+    }
+
+    .approve .kicker .count { color: var(--faint); letter-spacing: 0.04em; }
+    .approve .kicker .warn-label { color: var(--warn); }
+
+    .approve .why {
+      margin: 8px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      max-width: 62ch;
+    }
+
+    .cmd-toggle {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 580;
+    }
+
+    .cmd-toggle:hover { color: var(--text); }
+
+    .approve .cmd {
+      margin: 8px 0 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    .approve-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .approve-actions .run {
+      background: var(--text);
+      color: var(--solid-fg);
+      font-weight: 580;
+      border-radius: 7px;
+      padding: 6px 12px;
+    }
+
+    .approve-actions .run kbd {
+      margin-left: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.55;
+    }
+
+    .approve-actions .reject {
+      border: 1px solid var(--deny-line);
+      color: var(--deny-text);
+      background: transparent;
+      border-radius: 7px;
+      padding: 6px 10px;
+    }
+
+    .approve-actions .more {
+      margin-left: auto;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 7px;
+      padding: 6px 10px;
+    }
+
+    .approve-menu {
+      display: none;
+      position: absolute;
+      right: 16px;
+      bottom: calc(100% + 8px);
+      min-width: 220px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 4px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+      z-index: 5;
+    }
+
+    .approve.is-menu .approve-menu { display: block; }
+
+    .approve-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 7px;
+      color: var(--text);
+    }
+
+    .approve-menu button:hover { background: var(--hover); }
+    .approve-menu button em {
+      display: block;
+      color: var(--faint);
+      font-style: normal;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .confirm {
+      display: none;
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 14px 16px 16px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+      z-index: 4;
+    }
+
+    body[data-state="always"] .confirm { display: block; }
+
+    .confirm h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 620;
+      letter-spacing: -0.02em;
+    }
+
+    .confirm p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .confirm .cmd { margin-top: 10px; }
+
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .confirm-actions .ghost {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 6px 10px;
+      color: var(--muted);
+    }
+
+    .confirm-actions .danger {
+      background: var(--deny-hover);
+      border: 1px solid var(--deny-line);
+      color: var(--deny-text);
+      border-radius: 7px;
+      padding: 6px 10px;
+      font-weight: 580;
+    }
+
+    body:not([data-state="command"]) [data-state="command"],
+    body:not([data-state="code"]) [data-state="code"],
+    body:not([data-state="smart"]) [data-state="smart"],
+    body:not([data-state="always"]) [data-state="always"],
+    body:not([data-state="protected"]) [data-state="protected"],
+    body:not([data-state="queue"]) [data-state="queue"],
+    body:not([data-state="fallback"]) [data-state="fallback"] {
+      display: none;
+    }
+
+    /* Confirm is toggled by body state, not the generic hide rule. */
+    body[data-state="always"] .confirm[data-state="always"] { display: block; }
+    body[data-state="fallback"] .approve-host { display: none; }
+  </style>
+</head>
+<body data-state="command">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a class="is-current" href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Approval variant">
+        <button class="is-on" data-state-go="command">Command</button>
+        <button data-state-go="code">Code</button>
+        <button data-state-go="smart">Smart deny</button>
+        <button data-state-go="always">Always</button>
+        <button data-state-go="protected">Protected</button>
+        <button data-state-go="queue">Queue</button>
+        <button data-state-go="fallback">Offline</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <aside class="left">
+        <div class="left-actions">
+          <button class="btn-solid">New project</button>
+          <button class="btn-ghost">New chat</button>
+        </div>
+        <div class="sect">Projects</div>
+        <button class="proj is-on">
+          <span class="glyph">J</span>
+          <span class="proj-copy">
+            <span class="name">Job Search</span>
+            <span class="path mono">~/Documents/Job Search</span>
+          </span>
+        </button>
+        <div class="sect">Chats</div>
+        <button class="row">Clean pass on applications</button>
+        <button class="row">Resume summary</button>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head">
+          <span><strong>Clean pass on applications</strong> · Job Search</span>
+          <button class="btn-tiny">Move to project</button>
+        </div>
+        <div class="meter">
+          <span class="mono">18,823 / 32,000</span>
+          <div class="usage" aria-hidden="true"><i class="oh"></i><i class="out"></i></div>
+          <div class="key">
+            <span><i class="k-oh"></i>system / tools</span>
+            <span><i class="k-out"></i>generated</span>
+          </div>
+        </div>
+
+        <div class="log" role="log" aria-label="Transcript">
+          <div class="msg" data-state="command">
+            <div class="who">You</div>
+            <div class="bubble">Remove the scratch drafts under applications/ so I can start a clean pass.</div>
+          </div>
+          <div class="msg" data-state="code">
+            <div class="who">You</div>
+            <div class="bubble">Rename every PDF in this folder to lastname-firstname.pdf and list what changed.</div>
+          </div>
+          <div class="msg" data-state="smart">
+            <div class="who">You</div>
+            <div class="bubble">Push the applications folder to the remote so I have a backup.</div>
+          </div>
+          <div class="msg" data-state="always">
+            <div class="who">You</div>
+            <div class="bubble">Remove the scratch drafts under applications/ so I can start a clean pass.</div>
+          </div>
+          <div class="msg" data-state="protected">
+            <div class="who">You</div>
+            <div class="bubble">Update AGENTS.md so future chats know this folder is job-search only.</div>
+          </div>
+          <div class="msg" data-state="queue">
+            <div class="who">You</div>
+            <div class="bubble">Wipe scratch, then run a Python rename on the leftover PDFs.</div>
+          </div>
+          <div class="msg" data-state="fallback">
+            <div class="who">You</div>
+            <div class="bubble">Remove the scratch drafts under applications/ so I can start a clean pass.</div>
+          </div>
+
+          <div class="msg" data-state="command">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting terminal · turn 3 of 20</div>
+              <ul><li>applications/scratch</li></ul>
+            </div>
+          </div>
+          <div class="msg" data-state="code">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting execute_code · turn 2 of 20</div>
+              <p class="summary">A whole-script gate. The script can spawn other programs without a second shell check.</p>
+            </div>
+          </div>
+          <div class="msg" data-state="smart">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting terminal · turn 1 of 20</div>
+              <ul><li>.git</li></ul>
+            </div>
+          </div>
+          <div class="msg" data-state="always">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting terminal · turn 3 of 20</div>
+              <ul><li>applications/scratch</li></ul>
+            </div>
+          </div>
+          <div class="msg" data-state="protected">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting write_file · turn 1 of 20</div>
+              <ul><li>AGENTS.md</li></ul>
+            </div>
+          </div>
+          <div class="msg" data-state="queue">
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta">Waiting terminal · turn 2 of 20</div>
+              <ul><li>applications/scratch</li></ul>
+            </div>
+          </div>
+          <div class="msg" data-state="fallback">
+            <div class="callout">HTTP fallback has no approval channel. Do not invent a card. Show the deny as a tool result.</div>
+            <div class="who">Assistant</div>
+            <div class="tool">
+              <div class="meta blocked">Blocked terminal · turn 3 of 20</div>
+              <p class="summary">A dangerous command was not run. Interactive approval needs the live assistant connection.</p>
+              <ul><li>applications/scratch</li></ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="approve-host">
+          <div class="approve" data-state="command" role="alertdialog" aria-labelledby="a-cmd">
+            <div class="kicker"><span id="a-cmd">Approval needed · terminal</span></div>
+            <p class="why">The agent wants to run a command that can change files in this folder.</p>
+            <button class="cmd-toggle" type="button" data-cmd>Command</button>
+            <pre class="cmd mono">rm -rf applications/scratch</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+              <button class="more" type="button" data-more>More</button>
+            </div>
+            <div class="approve-menu">
+              <button type="button">Allow this session<em>Same pattern until this chat ends.</em></button>
+              <button type="button" data-goto="always">Always allow…<em>Durable allowlist. Confirm next.</em></button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="Primary is Run (once). Reject is deny. Session and Always hide in More because they persist.">1</span>
+          </div>
+
+          <div class="approve" data-state="code" role="alertdialog" aria-labelledby="a-code">
+            <div class="kicker"><span id="a-code">Approval needed · execute_code</span></div>
+            <p class="why">The agent wrote a script that can run other programs or change files without a second shell check. Approval is for this whole run.</p>
+            <pre class="cmd mono">from pathlib import Path
+for pdf in Path(".").glob("*.pdf"):
+    pdf.rename(pdf.name.lower())</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+              <button class="more" type="button" data-more>More</button>
+            </div>
+            <div class="approve-menu">
+              <button type="button">Allow this session<em>Skip the whole-script gate for the rest of this chat.</em></button>
+              <button type="button" data-goto="always">Always allow…</button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="Not every shell prompt. execute_code is the whole-script gate because subprocess bypasses pattern detection.">2</span>
+          </div>
+
+          <div class="approve" data-state="smart" role="alertdialog" aria-labelledby="a-smart">
+            <div class="kicker">
+              <span id="a-smart" class="warn-label">Reviewer flagged · terminal</span>
+            </div>
+            <p class="why">A reviewer marked this as high risk. You can still run it this once, or reject it. It will not be remembered.</p>
+            <pre class="cmd mono">git push --force origin main</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="smart_denied hides Session and Always. The gateway choices list is authoritative.">3</span>
+          </div>
+
+          <div class="approve" data-state="always" role="alertdialog" aria-labelledby="a-alw">
+            <div class="kicker"><span id="a-alw">Approval needed · terminal</span></div>
+            <p class="why">The agent wants to run a command that can change files in this folder.</p>
+            <pre class="cmd mono">rm -rf applications/scratch</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+              <button class="more" type="button">More</button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="Always allow is never one click. Confirm because it writes a durable allowlist.">4</span>
+          </div>
+
+          <div class="approve" data-state="protected" role="alertdialog" aria-labelledby="a-prot">
+            <div class="kicker"><span id="a-prot">Approval needed · write_file</span></div>
+            <p class="why">This file tells the agent how to work in this folder. Edits are one-shot — they are not saved as a standing permission.</p>
+            <pre class="cmd mono">write_file AGENTS.md</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="Protected instruction files: allow_session and allow_permanent are false. Do not invent More.">5</span>
+          </div>
+
+          <div class="approve is-stack" data-state="queue" role="alertdialog" aria-labelledby="a-q">
+            <div class="kicker">
+              <span id="a-q">Approval needed · terminal</span>
+              <span class="count">1 / 2</span>
+            </div>
+            <p class="why">The agent wants to run a command that can change files in this folder. Another approval is waiting behind this one.</p>
+            <pre class="cmd mono">rm -rf applications/scratch</pre>
+            <div class="approve-actions">
+              <button class="run">Run <kbd>↵</kbd></button>
+              <button class="reject">Reject</button>
+              <button class="more" type="button" data-more>More</button>
+            </div>
+            <div class="approve-menu">
+              <button type="button">Allow this session</button>
+              <button type="button">Always allow…</button>
+            </div>
+            <span class="note" style="top: 8px; right: 10px" data-tip="One card at a time. Count is 1 of N. Do not flatten two choice rows.">6</span>
+          </div>
+
+          <div class="confirm" data-state="always">
+            <h3>Always allow this command?</h3>
+            <p>This adds the pattern to a durable allowlist. The agent will not ask again for commands like this — in this chat or later ones.</p>
+            <pre class="cmd mono">rm -rf applications/scratch</pre>
+            <div class="confirm-actions">
+              <button class="ghost" type="button" data-goto="command">Cancel</button>
+              <button class="danger" type="button">Always allow</button>
+            </div>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <textarea id="composer-input" placeholder="Answer the approval to continue…"></textarea>
+          <div class="cluster">
+            <button class="chip"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip">@</button>
+            <span class="phase-slot">
+              <span data-state="command">Waiting for approval</span>
+              <span data-state="code">Waiting for approval</span>
+              <span data-state="smart">Waiting for approval</span>
+              <span data-state="always">Waiting for approval</span>
+              <span data-state="protected">Waiting for approval</span>
+              <span data-state="queue">Waiting for approval · 2</span>
+              <span data-state="fallback">terminal · blocked</span>
+            </span>
+            <label class="toggle">Tools <span class="switch"><i></i></span></label>
+            <button class="stop">Stop</button>
+          </div>
+          <span class="note" style="bottom: 14px; left: 220px" data-tip="Composer stays on screen. Input is locked until the card is answered. Stop still cancels the turn.">7</span>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <div class="right-head">
+          <h2>Job Search</h2>
+          <div class="host mono">~/Documents/Job Search</div>
+        </div>
+        <div class="right-actions">
+          <button class="btn-tiny">Change folder</button>
+          <button class="btn-tiny">Reveal in Finder</button>
+        </div>
+        <p class="hint">Host-folder projects are bind-mounted. Dangerous-command guards stay on because the agent can reach files on disk.</p>
+        <div class="tree">
+          <button>resume.pdf</button>
+          <button class="dir">applications/</button>
+          <button class="pad">scratch/</button>
+          <button class="pad">acme.md</button>
+          <button>AGENTS.md</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const input = document.getElementById("composer-input");
+    const setState = (state) => {
+      document.body.dataset.state = state;
+      document.querySelectorAll("[data-state-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.stateGo === state);
+      });
+      document.querySelectorAll(".approve.is-menu").forEach((el) => el.classList.remove("is-menu"));
+      input.placeholder = state === "fallback"
+        ? "Ask about this folder…"
+        : "Answer the approval to continue…";
+    };
+
+    const start = params.get("state");
+    if (start) setState(start);
+
+    document.querySelectorAll("[data-state-go]").forEach((btn) => {
+      btn.addEventListener("click", () => setState(btn.dataset.stateGo));
+    });
+
+    document.querySelectorAll("[data-more]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.closest(".approve")?.classList.toggle("is-menu");
+      });
+    });
+
+    document.querySelectorAll("[data-cmd]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const pre = btn.parentElement.querySelector(".cmd");
+        if (!pre) return;
+        pre.hidden = !pre.hidden;
+      });
+    });
+
+    document.querySelectorAll("[data-goto]").forEach((btn) => {
+      btn.addEventListener("click", () => setState(btn.dataset.goto));
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Boundary</title>
+    <script>
+      // First paint in the saved theme (src/renderer/theme.ts owns this after load).
+      try {
+        var pref = localStorage.getItem('boundary.theme') || 'system';
+        var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
+    <style>
+      html, body { background: #0d0d0f; }
+      html[data-theme='light'], html[data-theme='light'] body { background: #f3f1ea; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/renderer/index.tsx"></script>
+  </body>
+</html>

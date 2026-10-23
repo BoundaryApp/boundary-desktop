@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary inference — UX study directions</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    body {
+      background: #0e0e10;
+      color: #ececee;
+      height: auto;
+      min-height: 100%;
+    }
+
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 28px 24px 80px;
+    }
+
+    .kicker {
+      color: #8b87f8;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      font-weight: 560;
+      letter-spacing: -0.04em;
+    }
+
+    .lede {
+      color: #9a9aa3;
+      max-width: 68ch;
+      font-size: 15px;
+      line-height: 1.55;
+      margin: 0 0 28px;
+    }
+
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 16px;
+      font-weight: 620;
+      letter-spacing: -0.02em;
+    }
+
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .rules div {
+      border: 1px solid #2a2a30;
+      background: #161618;
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .rules b { display: block; margin-bottom: 4px; font-weight: 600; }
+    .rules span { color: #8e8e96; font-size: 12px; line-height: 1.45; }
+
+    .rec {
+      border: 1px solid #3a3658;
+      background: #16141f;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin: 8px 0 8px;
+    }
+
+    .rec strong { color: #c7c4f4; }
+    .rec p { margin: 8px 0 0; color: #b4b4bc; line-height: 1.5; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .dir {
+      border: 1px solid #2a2a30;
+      background: #141416;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .frame {
+      height: 210px;
+      overflow: hidden;
+      background: #0b0b0d;
+      border-bottom: 1px solid #2a2a30;
+      pointer-events: none;
+    }
+
+    .frame iframe {
+      width: 1440px;
+      height: 900px;
+      transform: scale(0.36);
+      transform-origin: top left;
+      border: 0;
+    }
+
+    .copy { padding: 14px 14px 16px; }
+    .copy .tag {
+      font-size: 11px;
+      color: #8b87f8;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .copy h3 {
+      margin: 4px 0 6px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .copy p { margin: 0 0 10px; color: #9a9aa3; font-size: 13px; line-height: 1.45; }
+    .copy a { color: #ececee; }
+
+    .meta {
+      display: flex;
+      gap: 16px;
+      color: #6a6a72;
+      font-size: 12px;
+    }
+
+    .meta span b { color: #b4b4bc; font-weight: 550; }
+
+    .open {
+      margin: 10px 0 0;
+      padding: 0;
+      color: #8e8e96;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .open li { margin: 0 0 6px; }
+    .open b { color: #ececee; font-weight: 550; }
+
+    footer.note-line {
+      margin-top: 40px;
+      color: #6a6a72;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · reference kit · 27 Sep 2026</div>
+    <h1>Directions for Boundary inference</h1>
+    <p class="lede">
+      A is the Settings sketch for storing a local LLM and OpenRouter at the
+      same time. B compares how a chat picks a provider. C starts the
+      project-default conversation. The implementation spec is
+      <a href="spec.md">spec.md</a>; the decisions are under
+      <a href="../adr/README.md">docs/adr/</a>.
+    </p>
+
+    <h2>Held constant</h2>
+    <div class="rules">
+      <div><b>Two connections, one default</b><span>Settings can hold a local runtime and OpenRouter together. One of them is the app default.</span></div>
+      <div><b>Resolve, then send</b><span>Chat override, then project default, then app default. The first present value wins.</span></div>
+      <div><b>No silent cloud fallback</b><span>A quiet switch from local to OpenRouter would send local-only work to the cloud. The user always confirms.</span></div>
+      <div><b>Switch cost is visible</b><span>Hermes is configured once for the machine. A switch that needs a restart is a named phase, not an instant toggle.</span></div>
+      <div><b>Settings is a destination</b><span>Inference lives on Settings. It is not a project and not a thread. Chat stays home (0002).</span></div>
+      <div><b>J chrome stays</b><span>Do not restyle the rail or tabs away from 0014. Do not list files on the rail. Theme is a remap.</span></div>
+    </div>
+
+    <h2>Accepted</h2>
+    <div class="rec">
+      <strong>A is the Settings living sketch. B recommends the composer chip. C is the project-default source.</strong>
+      <p>
+        Store both providers on Settings. The current chat shows the resolved
+        provider as a composer chip — Local · qwen3:14b — next to the project
+        chip. A project can inherit the app default, pin Local, or pin
+        OpenRouter with a named model. Open A for the six connection states.
+        Open B for A / B / C placement variants, then the honesty states.
+        Open C for inherit / local / cloud / privacy lock / new project.
+      </p>
+    </div>
+
+    <h2>Directions</h2>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="01-settings.html?embed=1" title="Settings preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">A · living sketch · settings</div>
+          <h3><a href="01-settings.html">Settings</a></h3>
+          <p>Two provider cards and an app-default radio. Title-bar states: none, local, OpenRouter, both, offline, revoked.</p>
+          <div class="meta"><span><b>Keep</b> this file</span><span><b>Theme</b> Light in the study bar</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="02-chat-switch.html?embed=1" title="Chat switch preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">B · source · chat switch</div>
+          <h3><a href="02-chat-switch.html">Chat switch</a></h3>
+          <p>Compare composer chip (A, recommended), header segment (B), and inspector Model block (C). Shared honesty states in the title bar.</p>
+          <div class="meta"><span><b>Took</b> composer chip</span><span><b>Skip</b> header segment as default</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="03-project-default.html?embed=1" title="Project default preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">C · source · project default</div>
+          <h3><a href="03-project-default.html">Project default</a></h3>
+          <p>Project tab Inference block, a quiet rail marker when a project differs from the app default, and an optional create-flow row.</p>
+          <div class="meta"><span><b>Keep</b> as a sketch</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Open questions</h2>
+    <ul class="open">
+      <li><b>Per-request model, or restart?</b> Locked for Phase 2: ship the named restart. A later spike may drop restart for same-connection model changes only. See <a href="spec.md">spec.md</a>.</li>
+      <li><b>Where does a chat override live?</b> Locked: composer chip (variant A). B and C stay foils.</li>
+      <li><b>Privacy lock vs. confirm-to-cloud.</b> Locked for Phase 4: hard block. Cloud overrides are off on that project.</li>
+      <li><b>Cost on every send?</b> Still open. Phase 4 decides chip vs popover vs first cloud send.</li>
+    </ul>
+
+    <footer class="note-line">
+      Companion to the chat and resources study kits. These HTML files are the visual record.
+      Open any file in a browser. Turn on Notes for callouts. Numbers are study fixtures, not live host samples.
+    </footer>
+  </div>
+</body>
+</html>

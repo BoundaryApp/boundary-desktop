@@ -1,0 +1,105 @@
+name: Local Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      local:
+        description: 'Running locally with act'
+        type: boolean
+        default: false
+
+jobs:
+  # This job can run in act (Linux)
+  test-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Lint
+        continue-on-error: true
+        run: bun run lint
+
+      - name: Type check
+        continue-on-error: true
+        run: bun run type-check
+
+      - name: Unit tests
+        run: bun run test
+
+  # Simulate the signing setup (without actual signing)
+  test-signing-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate secrets exist
+        env:
+          MAC_CERTS: ${{ secrets.MAC_CERTS }}
+          MAC_CERTS_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "Checking required secrets..."
+
+          if [ -z "$MAC_CERTS" ]; then
+            echo "MAC_CERTS is not set"
+            exit 1
+          else
+            echo "MAC_CERTS is set (length: ${#MAC_CERTS})"
+          fi
+
+          if [ -z "$MAC_CERTS_PASSWORD" ]; then
+            echo "MAC_CERTS_PASSWORD is not set"
+            exit 1
+          else
+            echo "MAC_CERTS_PASSWORD is set"
+          fi
+
+          if [ -z "$APPLE_ID" ]; then
+            echo "APPLE_ID is not set"
+            exit 1
+          else
+            echo "APPLE_ID is set"
+          fi
+
+          if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "APPLE_APP_SPECIFIC_PASSWORD is not set"
+            exit 1
+          else
+            echo "APPLE_APP_SPECIFIC_PASSWORD is set"
+          fi
+
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "APPLE_TEAM_ID is not set"
+            exit 1
+          else
+            echo "APPLE_TEAM_ID is set: $APPLE_TEAM_ID"
+          fi
+
+          echo ""
+          echo "All secrets validated!"
+
+      - name: Test certificate decoding
+        env:
+          MAC_CERTS: ${{ secrets.MAC_CERTS }}
+        run: |
+          echo "$MAC_CERTS" | base64 --decode > /tmp/test-cert.p12
+          echo "Certificate decoded successfully ($(wc -c < /tmp/test-cert.p12) bytes)"
+          rm /tmp/test-cert.p12

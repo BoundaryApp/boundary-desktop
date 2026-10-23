@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B · Chat switch — Boundary inference UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f5f5f7;
+      --muted: #c4c4cc;
+      --faint: #9e9ea8;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #e0b36a;
+      --bad: #f0b4b4;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --solid-fg: #111;
+      --de: #8a7aa8;
+      --se: #6f8fa3;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #5c594f;
+      --faint: #7a766c;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --bad: #8a3a3a;
+      --deny-line: #d4b4b4;
+      --deny-hover: #f3e8e4;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+      --solid-fg: #fffcf6;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .states .grp { display: flex; gap: 4px; }
+    .states .sep {
+      width: 1px;
+      height: 16px;
+      background: var(--line);
+      margin: 0 4px;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .proj-picker { margin: 10px 8px 6px; }
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: 100%;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+      background: #c4a574;
+    }
+
+    .proj-copy { min-width: 0; flex: 1; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .proj-trigger .chev { margin-left: auto; color: var(--faint); font-size: 11px; }
+
+    .sect {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 6px 4px 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .row:hover, .row.is-on { background: var(--hover); color: var(--text); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+    .thread-head .role { color: var(--faint); font-weight: 400; }
+
+    .seg {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+
+    .seg button {
+      padding: 3px 9px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .seg button.is-on { color: var(--text); background: var(--hover); }
+
+    .log { flex: 1; overflow: auto; padding: 20px 24px; }
+
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+
+    .bubble {
+      background: var(--user);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 64ch;
+      margin-bottom: 16px;
+    }
+
+    .prose {
+      font-family: var(--font-prose);
+      max-width: 64ch;
+      font-size: 15px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+
+    .switch-mark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0 18px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .switch-mark::before,
+    .switch-mark::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+      position: relative;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 52px;
+      resize: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      position: relative;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { display: block; color: var(--faint); font-size: 10px; }
+    .chip.is-on { background: var(--accent-dim); }
+
+    .pop {
+      position: absolute;
+      left: 0;
+      bottom: 44px;
+      width: 280px;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--rail);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+      z-index: 6;
+    }
+
+    .pop .kicker {
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      padding: 4px 8px 6px;
+    }
+
+    .pop button.opt {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 7px 8px;
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    .pop button.opt:hover,
+    .pop button.opt.is-on { background: var(--hover); }
+    .pop button.opt small { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+    .pop .reset {
+      width: 100%;
+      margin-top: 4px;
+      padding: 7px 8px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .prompt {
+      margin-top: 8px;
+      padding: 9px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--warn-line);
+      background: var(--warn-bg);
+    }
+
+    .prompt p { margin: 0 0 8px; font-size: 12px; line-height: 1.4; }
+    .prompt .row-act { display: flex; gap: 6px; }
+
+    .btn {
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .btn:hover { background: var(--hover); }
+    .btn.solid {
+      background: var(--text);
+      color: var(--solid-fg);
+      border-color: var(--text);
+    }
+
+    .phase {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .cost {
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .right {
+      width: 304px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 2px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 11px 10px 10px;
+      color: var(--faint);
+      font-size: 13px;
+      font-weight: 550;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab:hover { color: var(--muted); }
+    .tab.is-on {
+      color: var(--text);
+      border-bottom-color: var(--text);
+    }
+
+    .pane {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 0 24px;
+    }
+
+    .ident {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 0 14px 12px;
+    }
+
+    .ident .who-name { display: block; font-weight: 600; letter-spacing: -0.02em; }
+    .ident .who-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .hed {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 14px 14px 6px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .block {
+      margin: 0 14px 12px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+
+    .block b { display: block; font-weight: 580; }
+    .block span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+    .opt-list { padding: 0 8px; }
+    .opt-list button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    .opt-list button:hover,
+    .opt-list button.is-on { background: var(--hover); }
+    .opt-list small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    .foot-note {
+      padding: 4px 14px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    body:not([data-variant="chip"]) [data-variant="chip"],
+    body:not([data-variant="header"]) [data-variant="header"],
+    body:not([data-variant="inspector"]) [data-variant="inspector"] {
+      display: none;
+    }
+
+    body:not([data-state="inherit"]) [data-state="inherit"],
+    body:not([data-state="override"]) [data-state="override"],
+    body:not([data-state="switched"]) [data-state="switched"],
+    body:not([data-state="restart"]) [data-state="restart"],
+    body:not([data-state="offline"]) [data-state="offline"],
+    body:not([data-state="cost"]) [data-state="cost"] {
+      display: none;
+    }
+  </style>
+</head>
+<body data-variant="chip" data-state="inherit">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary inference</a>
+    <nav>
+      <a href="01-settings.html">A Settings</a>
+      <a class="is-current" href="02-chat-switch.html">B Chat switch</a>
+      <a href="03-project-default.html">C Project default</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Chat switch states">
+        <div class="grp" aria-label="Placement">
+          <button class="is-on" data-variant-go="chip">A Chip</button>
+          <button data-variant-go="header">B Header</button>
+          <button data-variant-go="inspector">C Inspector</button>
+        </div>
+        <span class="sep" aria-hidden="true"></span>
+        <div class="grp" aria-label="Honesty">
+          <button class="is-on" data-state-go="inherit">Default</button>
+          <button data-state-go="override">Override</button>
+          <button data-state-go="switched">Switch</button>
+          <button data-state-go="restart">Restart</button>
+          <button data-state-go="offline">Offline</button>
+          <button data-state-go="cost">Cost</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" title="Resources">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <aside class="left">
+        <div class="proj-picker">
+          <button class="proj-trigger" type="button" title="Current project">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        <div class="sect"><span>Chats</span></div>
+        <button class="row is-on">Draft outreach for Acme</button>
+        <button class="row">Name one primary color</button>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head">
+          <span><strong>Assistant</strong> <span class="role">· Job Search</span></span>
+          <div class="seg" data-variant="header">
+            <button class="is-on" data-state="inherit">Local</button>
+            <button data-state="inherit">OpenRouter</button>
+            <button data-state="override">Local</button>
+            <button class="is-on" data-state="override">OpenRouter</button>
+            <button data-state="switched">Local</button>
+            <button class="is-on" data-state="switched">OpenRouter</button>
+            <button data-state="restart">Local</button>
+            <button class="is-on" data-state="restart">OpenRouter</button>
+            <button class="is-on" data-state="offline">Local</button>
+            <button data-state="offline">OpenRouter</button>
+            <button data-state="cost">Local</button>
+            <button class="is-on" data-state="cost">OpenRouter</button>
+          </div>
+        </div>
+
+        <div class="log" role="log">
+          <div class="who">You</div>
+          <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+          <div class="who">Assistant</div>
+          <div class="prose">
+            <p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes, and applications into a single working set.</p>
+          </div>
+
+          <div class="switch-mark" data-state="switched">Switched to OpenRouter · anthropic/claude-sonnet-4</div>
+          <div class="switch-mark" data-state="restart">Switching to OpenRouter · restarting assistant…</div>
+          <div class="switch-mark" data-state="cost">Switched to OpenRouter · anthropic/claude-sonnet-4</div>
+          <div class="who" data-state="switched">You</div>
+          <div class="bubble" data-state="switched">Now tighten that for a cover letter. Use the stronger voice.</div>
+          <div class="who" data-state="cost">You</div>
+          <div class="bubble" data-state="cost">Now tighten that for a cover letter. Use the stronger voice.</div>
+        </div>
+
+        <footer class="composer">
+          <textarea data-state="inherit" placeholder="Continue with the project default…"></textarea>
+          <textarea data-state="override" placeholder="This chat uses OpenRouter until you reset…"></textarea>
+          <textarea data-state="switched" placeholder="Continue with OpenRouter…"></textarea>
+          <textarea data-state="restart" placeholder="Wait for the assistant to come back…" disabled></textarea>
+          <textarea data-state="offline" placeholder="Local model is unreachable…"></textarea>
+          <textarea data-state="cost" placeholder="Continue with OpenRouter…"></textarea>
+
+          <div class="prompt" data-state="offline">
+            <p>Local model unreachable. Retry, or send this message via OpenRouter?</p>
+            <div class="row-act">
+              <button class="btn" type="button">Retry local</button>
+              <button class="btn solid" type="button">Send via OpenRouter</button>
+            </div>
+          </div>
+          <div class="phase" data-state="restart">Restarting assistant to apply OpenRouter…</div>
+
+          <div class="cluster">
+            <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+
+            <button class="chip is-on" type="button" data-variant="chip" data-state="inherit">
+              <b>Local · qwen3:14b</b><span>from project default</span>
+            </button>
+            <button class="chip is-on" type="button" data-variant="chip" data-state="override">
+              <b>OpenRouter · sonnet-4</b><span>overridden for this chat</span>
+            </button>
+            <button class="chip is-on" type="button" data-variant="chip" data-state="switched">
+              <b>OpenRouter · sonnet-4</b><span>overridden for this chat</span>
+            </button>
+            <button class="chip is-on" type="button" data-variant="chip" data-state="restart">
+              <b>OpenRouter · sonnet-4</b><span>applying…</span>
+            </button>
+            <button class="chip is-on" type="button" data-variant="chip" data-state="offline">
+              <b>Local · qwen3:14b</b><span>unreachable</span>
+            </button>
+            <button class="chip is-on" type="button" data-variant="chip" data-state="cost">
+              <b>OpenRouter · sonnet-4</b><span>overridden for this chat</span>
+            </button>
+
+            <div class="pop" data-variant="chip" data-state="inherit">
+              <div class="kicker">This chat</div>
+              <button class="opt is-on" type="button">Local · qwen3:14b<small>from project default</small></button>
+              <button class="opt" type="button">OpenRouter · anthropic/claude-sonnet-4<small>about $0.04 this send</small></button>
+              <button class="reset" type="button">Use project default</button>
+            </div>
+            <div class="pop" data-variant="chip" data-state="override">
+              <div class="kicker">This chat</div>
+              <button class="opt" type="button">Local · qwen3:14b<small>project default</small></button>
+              <button class="opt is-on" type="button">OpenRouter · anthropic/claude-sonnet-4<small>overridden for this chat</small></button>
+              <button class="reset" type="button">Use project default</button>
+            </div>
+            <div class="pop" data-variant="chip" data-state="switched">
+              <div class="kicker">This chat</div>
+              <button class="opt" type="button">Local · qwen3:14b<small>project default</small></button>
+              <button class="opt is-on" type="button">OpenRouter · anthropic/claude-sonnet-4<small>overridden for this chat</small></button>
+              <button class="reset" type="button">Use project default</button>
+            </div>
+            <div class="pop" data-variant="chip" data-state="cost">
+              <div class="kicker">This chat</div>
+              <button class="opt" type="button">Local · qwen3:14b<small>on this machine</small></button>
+              <button class="opt is-on" type="button">OpenRouter · anthropic/claude-sonnet-4<small>about $0.04 this send</small></button>
+              <button class="reset" type="button">Use project default</button>
+            </div>
+
+            <button class="chip">@</button>
+            <span>42 tok · 35/s</span>
+            <span class="cost" data-state="cost">~$0.04 this send</span>
+            <span class="note" style="top: -8px; left: 168px" data-tip="A (recommended): the resolved provider sits next to the project chip. Provenance is a second line, not a toast.">1</span>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <nav class="tabs" aria-label="Inspector">
+          <button class="tab">Agent</button>
+          <button class="tab" data-variant="chip">Project</button>
+          <button class="tab" data-variant="header">Project</button>
+          <button class="tab is-on" data-variant="inspector">Session</button>
+          <button class="tab" data-variant="inspector">Project</button>
+        </nav>
+        <span class="note" style="top: 10px; left: 8px" data-tip="C puts the switch in the Session tab. It is farther from send. Keep as a foil, not the default.">2</span>
+
+        <div class="pane">
+          <div class="ident">
+            <span class="glyph" style="background:var(--se)">A</span>
+            <span>
+              <span class="who-name">Assistant</span>
+              <span class="who-meta">Built-in · this machine</span>
+            </span>
+          </div>
+
+          <div class="hed">Role</div>
+          <div class="block">
+            <b>Default agent on this machine</b>
+            <span>Reads the bound folder when one is set.</span>
+          </div>
+
+          <div data-variant="inspector">
+            <div class="hed">Inference</div>
+            <div class="opt-list">
+              <button class="is-on" type="button" data-state="inherit">Local · qwen3:14b<small>from project default</small></button>
+              <button type="button" data-state="inherit">OpenRouter · anthropic/claude-sonnet-4<small>override this chat</small></button>
+              <button type="button" data-state="override">Local · qwen3:14b<small>project default</small></button>
+              <button class="is-on" type="button" data-state="override">OpenRouter · anthropic/claude-sonnet-4<small>overridden for this chat</small></button>
+              <button type="button" data-state="switched">Local · qwen3:14b<small>project default</small></button>
+              <button class="is-on" type="button" data-state="switched">OpenRouter · anthropic/claude-sonnet-4<small>overridden for this chat</small></button>
+              <button type="button" data-state="restart">Local · qwen3:14b<small>project default</small></button>
+              <button class="is-on" type="button" data-state="restart">OpenRouter · anthropic/claude-sonnet-4<small>applying…</small></button>
+              <button class="is-on" type="button" data-state="offline">Local · qwen3:14b<small>unreachable</small></button>
+              <button type="button" data-state="offline">OpenRouter · anthropic/claude-sonnet-4<small>send via cloud</small></button>
+              <button type="button" data-state="cost">Local · qwen3:14b<small>on this machine</small></button>
+              <button class="is-on" type="button" data-state="cost">OpenRouter · anthropic/claude-sonnet-4<small>about $0.04 this send</small></button>
+            </div>
+            <p class="foot-note" data-state="inherit">Use project default keeps this chat in lockstep with Job Search.</p>
+            <p class="foot-note" data-state="override">This chat no longer follows the project default.</p>
+            <p class="foot-note" data-state="switched">A switch is a line in the log. It is not silent.</p>
+            <p class="foot-note" data-state="restart">Hermes applies one connection to the stack. A provider change can restart the assistant.</p>
+            <p class="foot-note" data-state="offline">Do not silently fall back to cloud. Confirm the send.</p>
+            <p class="foot-note" data-state="cost">Cloud cost is an estimate from listed price × a typical turn.</p>
+          </div>
+
+          <div class="hed">Sources</div>
+          <div class="block">
+            <b>Job Search</b>
+            <span class="mono">~/Documents/Job Search</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const apply = ({ variant, state } = {}) => {
+      if (variant) document.body.dataset.variant = variant;
+      if (state) document.body.dataset.state = state;
+      const nextVariant = document.body.dataset.variant;
+      const nextState = document.body.dataset.state;
+      document.querySelectorAll(".states [data-variant-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.variantGo === nextVariant);
+      });
+      document.querySelectorAll(".states [data-state-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.stateGo === nextState);
+      });
+    };
+
+    if (params.get("variant")) apply({ variant: params.get("variant") });
+    if (params.get("state")) apply({ state: params.get("state") });
+
+    document.querySelectorAll("[data-variant-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ variant: btn.dataset.variantGo }));
+    });
+    document.querySelectorAll("[data-state-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply({ state: btn.dataset.stateGo }));
+    });
+  </script>
+</body>
+</html>

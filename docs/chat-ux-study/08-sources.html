@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>H · Sources — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f0f0f2;
+      --muted: #8e8e96;
+      --faint: #63636c;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #c4843a;
+      --bad: #e8a0a0;
+      --deny-line: #5a3030;
+      --deny-hover: #2a1818;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --solid-fg: #111;
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #6d6a60;
+      --faint: #9a968a;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --bad: #8a3a3a;
+      --deny-line: #d4b4b4;
+      --deny-hover: #f3e8e4;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+      --solid-fg: #fffcf6;
+    }
+
+    html.light .titlebar .lights i { background: #d4d0c4; }
+    html.light .btn-solid { color: var(--solid-fg); background: var(--text); }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+    }
+
+    .mono { font-family: var(--font-mono); }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+    .app-stage { background: var(--bg); }
+    .titlebar {
+      background: var(--rail);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .states {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .states button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .icon-rail {
+      width: 48px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 12px;
+      gap: 4px;
+    }
+
+    .icon-rail .mark {
+      width: 22px;
+      height: 22px;
+      margin: 2px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:hover { background: var(--hover); color: var(--text); }
+    .icon-btn.is-on { background: var(--accent-dim); color: var(--accent); }
+    .icon-rail .end { margin-top: auto; }
+
+    .left {
+      width: 248px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .proj-picker { margin: 10px 8px 6px; }
+    .proj-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-align: left;
+      width: 100%;
+      background: var(--accent-dim);
+      border: 1px solid var(--line);
+    }
+
+    .glyph {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+      color: #fff;
+      flex-shrink: 0;
+      background: #c4a574;
+    }
+
+    .proj-copy { min-width: 0; flex: 1; }
+    .proj-copy .name { display: block; font-weight: 580; }
+    .proj-copy .path {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .proj-trigger .chev { margin-left: auto; color: var(--faint); font-size: 11px; }
+
+    .sect {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 6px 4px 12px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .time {
+      padding: 6px 12px 2px;
+      font-size: 11px;
+      font-weight: 550;
+      color: var(--faint);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      margin: 1px 8px;
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .row:hover, .row.is-on { background: var(--hover); color: var(--text); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    .thread-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .thread-head strong { color: var(--text); font-weight: 580; }
+
+    .log { flex: 1; overflow: auto; padding: 20px 24px; }
+
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+
+    .bubble {
+      background: var(--user);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 64ch;
+      margin-bottom: 16px;
+    }
+
+    .prose {
+      font-family: var(--font-prose);
+      max-width: 64ch;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .tool {
+      border: 1px solid #3a4330;
+      background: #171914;
+      color: #b7c7a4;
+      border-radius: 10px;
+      padding: 10px 12px;
+      max-width: 64ch;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+
+    html.light .tool {
+      background: #eef0e6;
+      border-color: #c5cbb0;
+      color: #3d4a32;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+      position: relative;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 52px;
+      resize: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .chip b { font-weight: 580; }
+    .chip span { display: block; color: var(--faint); font-size: 10px; }
+
+    .btn-tiny {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+    }
+
+    .btn-tiny:hover { color: var(--text); background: var(--hover); }
+
+    .btn-tiny[disabled],
+    .btn-tiny.is-off {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .right {
+      width: 312px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+
+    .right-head { padding: 14px 14px 8px; }
+    .right-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
+    .right-head .host { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    .right-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 0 14px 10px;
+    }
+
+    .hint {
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .rail-scroll {
+      flex: 1;
+      overflow: auto;
+      padding-bottom: 20px;
+    }
+
+    .block-hed {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 8px 14px 6px;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .src {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 8px;
+      margin: 2px 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      text-align: left;
+      color: var(--text);
+    }
+
+    .src:hover { background: var(--hover); }
+    .src .id { font-weight: 580; }
+    .src .path {
+      grid-column: 1;
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .src .meta {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      align-self: center;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      text-align: right;
+    }
+
+    .src-act {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: var(--faint);
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .src-act:hover { color: var(--text); }
+
+    .pill {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+    .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+    .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+
+    .add-row {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 6px 8px 4px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px dashed var(--line);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .add-row:hover { background: var(--hover); }
+
+    .mode-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 2px 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .mode-row.is-live { color: var(--text); }
+    .mode-row .soon { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+    .next {
+      margin: 8px 14px 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--deny-line);
+      background: var(--deny-hover);
+    }
+
+    .next.warn {
+      border-color: var(--warn-line);
+      background: var(--warn-bg);
+    }
+
+    .next h3 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .next p { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .next ol { margin: 0; padding-left: 18px; color: var(--text); font-size: 12px; }
+    .next li { margin-bottom: 4px; }
+    .next pre {
+      margin: 8px 0 0;
+      padding: 8px;
+      border-radius: 7px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .idx-group {
+      padding: 4px 14px 2px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .idx {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 1px 8px;
+      padding: 6px 10px;
+      border-radius: 7px;
+      text-align: left;
+    }
+
+    .idx:hover, .idx.is-on { background: var(--hover); }
+    .idx .file { display: block; color: var(--text); font-size: 12px; }
+    .idx .kind {
+      display: block;
+      color: var(--faint);
+      font-size: 10px;
+      margin-top: 2px;
+    }
+
+    .opens {
+      margin: 8px 14px 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .opens b { color: var(--text); font-weight: 580; }
+
+    .stale {
+      margin-left: 8px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--warn-line);
+      color: var(--warn);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    body:not([data-state="hub"]) [data-state="hub"],
+    body:not([data-state="unmounted"]) [data-state="unmounted"],
+    body:not([data-state="writable"]) [data-state="writable"],
+    body:not([data-state="ready"]) [data-state="ready"],
+    body:not([data-state="stale"]) [data-state="stale"] {
+      display: none;
+    }
+  </style>
+</head>
+<body data-state="unmounted">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a class="is-current" href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states" aria-label="Sources inspector">
+        <button data-go="hub">Hub only</button>
+        <button class="is-on" data-go="unmounted">Not visible</button>
+        <button data-go="writable">Writable</button>
+        <button data-go="ready">Ready</button>
+        <button data-go="stale">Stale</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <div class="mark" aria-hidden="true"></div>
+        <button class="icon-btn is-on" title="Chat" aria-current="page">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+        </button>
+        <button class="icon-btn" title="Services">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        </button>
+        <button class="icon-btn end" title="Settings">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>
+        </button>
+      </nav>
+
+      <aside class="left">
+        <div class="proj-picker">
+          <button class="proj-trigger" type="button" title="Current project">
+            <span class="glyph">J</span>
+            <span class="proj-copy">
+              <span class="name">Job Search</span>
+              <span class="path mono">~/Documents/Job Search</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        <div class="sect"><span>Chats</span></div>
+        <div class="time">Today</div>
+        <button class="row is-on">Resume summary</button>
+        <button class="row">Draft outreach for Acme</button>
+        <span class="note" style="top: 18px; right: 8px" data-tip="Picker still chooses the hub. Extra folders never become rows here.">1</span>
+      </aside>
+
+      <main class="center">
+        <div class="thread-head">
+          <span><strong>Resume summary</strong> · Job Search</span>
+        </div>
+        <div class="log" role="log">
+          <div class="who">You</div>
+          <div class="bubble">Look through this folder and draft a one-paragraph summary of my resume for a product design role.</div>
+          <div class="who">Assistant</div>
+          <div class="tool">Reading INDEX.md · notes/resume.md</div>
+          <div class="prose">
+            <p>Product designer with eight years shipping research-backed interfaces for hiring and ops tools. Recent work includes a job-search system that turns a local folder of resumes, notes, and applications into a single working set — scoped to files on disk, not an uploaded copy.</p>
+          </div>
+        </div>
+        <footer class="composer">
+          <textarea placeholder="Ask about this folder…"></textarea>
+          <div class="cluster">
+            <button class="chip" type="button"><b>Job Search</b><span class="mono">~/Documents/Job Search</span></button>
+            <button class="chip">@</button>
+            <span>42 tok · 35/s</span>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <div class="right-head">
+          <h2>Job Search<span class="stale" data-state="stale">Index stale</span></h2>
+          <div class="host mono">~/Documents/Job Search</div>
+        </div>
+        <div class="right-actions">
+          <button class="btn-tiny">Change folder</button>
+          <button class="btn-tiny">Open in Finder</button>
+          <button class="btn-tiny" data-state="stale" data-go="ready">Refresh index</button>
+          <button class="btn-tiny is-off" data-state="hub" disabled>Refresh index</button>
+        </div>
+        <p class="hint" data-state="hub">
+          The agent reads AGENTS.md and INDEX.md, then opens named files. Extra folders stay on disk. Nothing is copied into the app.
+        </p>
+        <p class="hint" data-state="unmounted">
+          This folder is listed but Hermes cannot see it yet. Boundary remounts extra folders from this screen — try Add folder again, then Refresh index.
+        </p>
+        <p class="hint" data-state="writable">
+          This extra folder is visible because it sits under a coding root. It is writable. Prefer a dedicated read-only notes folder.
+        </p>
+        <p class="hint" data-state="ready">
+          The agent reads a short brief and this file map, then opens one or two files. INDEX is not stuffed into the prompt.
+        </p>
+        <p class="hint" data-state="stale">
+          Files changed since the last index. Refresh rewrites INDEX.md. Extra roots are checked on this Mac, not inside the container.
+        </p>
+
+        <div class="rail-scroll">
+          <div class="block-hed">
+            <span>Sources</span>
+            <span>Retrieval</span>
+          </div>
+
+          <div class="src">
+            <span class="id">project</span>
+            <span class="path mono">. · this folder</span>
+            <span class="meta">
+              <span class="pill ok">Hub</span>
+              <button class="src-act" type="button">Open</button>
+            </span>
+          </div>
+          <div class="mode-row is-live">
+            <span>Files</span>
+            <span>Live</span>
+          </div>
+
+          <div class="src" data-state="unmounted">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="meta">
+              <span class="pill bad">Not visible</span>
+              <button class="src-act" type="button">Open</button>
+              <button class="src-act" type="button">Remove</button>
+            </span>
+          </div>
+          <div class="src" data-state="writable">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="meta">
+              <span class="pill warn">Writable</span>
+              <button class="src-act" type="button">Open</button>
+              <button class="src-act" type="button">Remove</button>
+            </span>
+          </div>
+          <div class="src" data-state="ready">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="meta">
+              <span class="pill ok">Read-only</span>
+              <button class="src-act" type="button">Open</button>
+              <button class="src-act" type="button">Remove</button>
+            </span>
+          </div>
+          <div class="src" data-state="stale">
+            <span class="id">notes-vault</span>
+            <span class="path mono">~/Notes/this-project</span>
+            <span class="meta">
+              <span class="pill ok">Read-only</span>
+              <button class="src-act" type="button">Open</button>
+              <button class="src-act" type="button">Remove</button>
+            </span>
+          </div>
+          <div class="mode-row is-live" data-state="unmounted">
+            <span>Files</span>
+            <span>Live</span>
+          </div>
+          <div class="mode-row is-live" data-state="writable">
+            <span>Files</span>
+            <span>Live</span>
+          </div>
+          <div class="mode-row is-live" data-state="ready">
+            <span>Files</span>
+            <span>Live</span>
+          </div>
+          <div class="mode-row is-live" data-state="stale">
+            <span>Files</span>
+            <span>Live</span>
+          </div>
+
+          <div class="mode-row">
+            <span>Ingest with LightRAG</span>
+            <span class="soon">Coming soon</span>
+          </div>
+          <div class="mode-row">
+            <span>Both</span>
+            <span class="soon">Coming soon</span>
+          </div>
+
+          <a class="add-row" href="09-add-source.html">Add folder…</a>
+
+          <div class="next" data-state="unmounted">
+            <h3>Hermes cannot read this folder yet</h3>
+            <p>Boundary remounts extra folders into Hermes from this screen. Try Add folder again, then Refresh index. Do not leave the inspector for a Makefile.</p>
+          </div>
+
+          <div class="next warn" data-state="writable">
+            <h3>Visible, and writable</h3>
+            <p>This path is already under a coding root. The agent can open it, and it can also write. Prefer a dedicated context root for notes vaults. Never mount the home folder.</p>
+          </div>
+
+        </div>
+        <span class="note" style="top: 20px; left: 8px" data-tip="Right rail is the inspector. Source directories get Open. INDEX.md stays an agent catalog — do not list files here.">2</span>
+        <span class="note" style="top: 280px; left: 8px" data-tip="Mount honesty sits on the source row. Do not show a success state while the path is unmounted.">3</span>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && localStorage.getItem("boundary-chat-theme") === "light");
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark");
+    });
+
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    const apply = (state) => {
+      document.body.dataset.state = state;
+      document.querySelectorAll(".states [data-go]").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.go === state);
+      });
+    };
+
+    const start = params.get("state");
+    if (start) apply(start);
+
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => apply(btn.dataset.go));
+    });
+
+  </script>
+</body>
+</html>

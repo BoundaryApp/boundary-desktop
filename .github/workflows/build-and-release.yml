@@ -1,0 +1,164 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows / Linux packaging disabled for now — uncomment to re-enable.
+        os: [macos-latest]
+        # os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            platform: mac
+            artifact-name: mac
+          # - os: windows-latest
+          #   platform: win
+          #   artifact-name: win
+          # - os: ubuntu-latest
+          #   platform: linux
+          #   artifact-name: linux
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Fetch bundled container runtime (macOS)
+        if: matrix.os == 'macos-latest'
+        run: bun run fetch:container-runtime
+
+      - name: Import Code Signing Certificate (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: Apple-Actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MAC_CERTS }}
+          p12-password: ${{ secrets.MAC_CERTS_PASSWORD }}
+
+      - name: Build distributables
+        shell: bash
+        run: bun run dist:${{ matrix.platform }}
+        env:
+          NODE_ENV: production
+          # Enable Forge osxSign on macOS runners (certs imported above). Omit locally for unsigned builds.
+          OSX_SIGN: ${{ matrix.os == 'macos-latest' && 'true' || '' }}
+          CSC_NAME: ${{ secrets.CSC_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Boundary-${{ matrix.artifact-name }}-${{ github.ref_name }}
+          path: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/*.deb
+            out/make/**/*.rpm
+          retention-days: 30
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          find ./artifacts -type f \( \
+            -name "*.dmg" -o \
+            -name "*.zip" -o \
+            -name "*.exe" -o \
+            -name "*.nupkg" -o \
+            -name "*.deb" -o \
+            -name "*.rpm" \
+          \) -exec cp {} ./release-assets/ \;
+
+          ls -la ./release-assets/
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Boundary ${{ steps.version.outputs.version }}
+          body: |
+            ## Boundary ${{ steps.version.outputs.version }}
+
+            ### Downloads
+
+            **macOS:**
+            - `.dmg` - macOS installer
+            - `.zip` - macOS app archive (auto-update companion)
+
+            **Windows:**
+            - `.exe` - Windows installer (Squirrel)
+
+            **Linux:**
+            - `.deb` - Debian/Ubuntu package
+            - `.rpm` - Red Hat/Fedora package
+
+            ### Installation Instructions
+
+            **macOS:** Download the `.dmg` file, mount it, and drag Boundary to your Applications folder.
+
+            **Windows:** Download the `.exe` installer and run it.
+
+            **Linux:**
+            - For .deb: `sudo dpkg -i Boundary-*.deb`
+            - For .rpm: `sudo rpm -i Boundary-*.rpm`
+          files: ./release-assets/*
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

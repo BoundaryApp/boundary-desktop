@@ -1,0 +1,214 @@
+/* Shared chrome for the Boundary inference UX study kit. Direction skins live in each HTML file. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+code,
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Study review bar ------------------------------------------------------- */
+
+.study-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 36px;
+  padding: 4px 14px;
+  background: #111113;
+  color: #c8c8ce;
+  border-bottom: 1px solid #2a2a30;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.study-bar a {
+  text-decoration: none;
+}
+
+.study-bar .brand {
+  color: #f2f2f4;
+  font-weight: 580;
+  letter-spacing: -0.02em;
+}
+
+.study-bar nav {
+  display: flex;
+  gap: 2px;
+}
+
+.study-bar nav a {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #9a9aa3;
+}
+
+.study-bar nav a:hover,
+.study-bar nav a.is-current {
+  color: #f2f2f4;
+  background: #222228;
+}
+
+.study-bar .spacer {
+  flex: 1;
+}
+
+.study-bar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9a9aa3;
+  cursor: pointer;
+  user-select: none;
+}
+
+.study-bar input {
+  accent-color: #8b87f8;
+}
+
+html.embed .study-bar {
+  display: none;
+}
+
+/* App stage -------------------------------------------------------------- */
+
+.app-stage {
+  height: calc(100vh - 36px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+html.embed .app-stage {
+  height: 100vh;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.lights {
+  display: flex;
+  gap: 6px;
+}
+
+.lights i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3a3a40;
+}
+
+.titlebar .win-title {
+  color: inherit;
+  opacity: 0.55;
+  font-size: 12px;
+}
+
+/* Design notes ----------------------------------------------------------- */
+
+.note {
+  display: none;
+  position: absolute;
+  z-index: 4;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #8b87f8;
+  color: #0d0d10;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.note[data-tip]::after {
+  content: attr(data-tip);
+  display: none;
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #111113;
+  color: #ececf0;
+  border: 1px solid #3a3a44;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+}
+
+.note:hover::after {
+  display: block;
+}
+
+html.notes-on .note {
+  display: block;
+}
+
+/* Shared view switching: only elements marked .screen participate. */
+
+.screen {
+  display: none;
+  min-height: 0;
+}
+
+body[data-screen="chat"] .screen.chat,
+body[data-screen="services"] .screen.services,
+body[data-screen="resources"] .screen.resources,
+body[data-screen="settings"] .screen.settings,
+body[data-screen="empty"] .screen.empty,
+body[data-screen="connecting"] .screen.connecting,
+body[data-screen="ready"] .screen.ready,
+body[data-screen="denied"] .screen.denied {
+  display: flex;
+}

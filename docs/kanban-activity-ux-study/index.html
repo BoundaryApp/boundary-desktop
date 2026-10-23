@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Task activity study</title>
+  <style>
+    :root {
+      --bg: #0e0e10; --card: #141416; --line: #2a2a30; --text: #ececee; --muted: #9a9aa3; --faint: #6a6a72;
+      --accent: #8b87f8; --rec-bg: #16141f; --rec-line: #3a3658; --rec-head: #c7c4f4;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg: #f3f1ea; --card: #fffcf6; --line: #e3dfd3; --text: #1c1b17; --muted: #5c594f; --faint: #7a766c;
+        --accent: #4f4ac9; --rec-bg: #f0eefb; --rec-line: #cfcaf0; --rec-head: #2f2a8a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+    .page { max-width: 1080px; margin: 0 auto; padding: 28px 16px 80px; }
+    .kicker { color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+    h1 { margin: 0 0 10px; font-size: 30px; font-weight: 560; letter-spacing: -0.04em; }
+    .lede { color: var(--muted); max-width: 70ch; font-size: 15px; line-height: 1.55; margin: 0 0 28px; }
+    a { color: var(--text); }
+    h2 { margin: 36px 0 12px; font-size: 16px; font-weight: 620; letter-spacing: -0.02em; }
+    .rec { border: 1px solid var(--rec-line); background: var(--rec-bg); border-radius: 12px; padding: 16px 18px; }
+    .rec strong { color: var(--rec-head); }
+    .rec p, .rec li { color: var(--muted); line-height: 1.5; }
+    .rec p { margin: 8px 0 0; }
+    .rec ol { margin: 8px 0 0; padding-left: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .dir { border: 1px solid var(--line); background: var(--card); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .frame { height: 220px; overflow: hidden; background: #0b0b0d; border-bottom: 1px solid var(--line); position: relative; }
+    .frame iframe { width: 1240px; height: 780px; transform: scale(0.28); transform-origin: top left; border: 0; pointer-events: none; position: absolute; left: 0; top: 0; }
+    .copy { padding: 14px 14px 16px; }
+    .tag { font-size: 11px; color: var(--accent); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+    .copy h3 { margin: 4px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .copy p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+    th { text-align: left; color: var(--faint); font-weight: 550; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--muted); vertical-align: top; line-height: 1.45; }
+    td:first-child { color: var(--text); font-weight: 520; width: 22%; }
+    ol.open { color: var(--muted); line-height: 1.6; padding-left: 20px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · kanban task activity</div>
+    <h1>See what the agents are doing, from anywhere in the app</h1>
+    <p class="lede">
+      When the Orchestrator files kanban tasks, Hermes runs each one as a separate worker process. Boundary watches only the turns it started itself, and the chat lists hide worker sessions. So the app goes silent while LM Studio shows the model hard at work.
+      This study adds four layers, one for each question you have about delegated work. The <a href="01-task-activity.html">live mock</a> steps through them.
+    </p>
+
+    <div class="rec">
+      <strong>Recommendation: four layers, each answering one question</strong>
+      <ol>
+        <li><b>Is anything working?</b> A <b>Working now</b> section at the top of the chat rail, shown only while tasks run. Working dots on the assignee's DM row and on the Chat icon (that dot already exists; it gains worker runs).</li>
+        <li><b>What is it, and where did it come from?</b> Live <b>task cards</b> in the conversation that filed them. Each task page links back with "Filed in …".</li>
+        <li><b>Is it making progress?</b> A <b>task page</b> in the center pane. A liveness strip shows elapsed time, the heartbeat age and a <b>now</b> line (the newest console line). Below it sit the activity timeline, a collapsible console and the result. A composer posts comments that the running worker reads at its next step.</li>
+        <li><b>Does it need me?</b> A <b>Needs you</b> count on the Tasks row and in the list. An inline card on the task page for questions and reviews. An OS notification when the app is in the background.</li>
+      </ol>
+      <p>Everything reads from Hermes's dashboard kanban plugin: <code>/board</code>, the <code>/events</code> WebSocket and <code>/workers/active</code>. Boundary already authenticates to the dashboard. No stack change is needed for Phases 1–3. See <a href="backend-notes.md">backend notes</a>.</p>
+    </div>
+
+    <h2>The moments</h2>
+    <div class="grid">
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=dm" title="Filed in DM" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">1 · Filed</span><h3>Cards where you asked</h3><p>The Orchestrator's <code>kanban_create</code> calls become live task cards. Working now appears in the rail at the same moment.</p></div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=running" title="Running" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">2 · Running</span><h3>Alive, and doing what</h3><p>Heartbeat age and the newest console line answer "is it stuck?" without reading logs. Notes steer the worker mid-run.</p></div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=quiet" title="Quiet" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">3 · Quiet</span><h3>Slow is not dead</h3><p>It turns amber after 3 minutes without a heartbeat and red only when the run crashes or its claim expires, so a long local-model call doesn't look like a failure.</p></div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=needs" title="Needs you" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">4 · Needs you</span><h3>One reply unblocks</h3><p>A <code>needs_input</code> block shows as an interrupt card. <b>Reply and resume</b> comments and moves the task back to Ready.</p></div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=done" title="Done" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">5 · Done</span><h3>The result, up top</h3><p>The summary and the files written, with a link to the finished worker transcript.</p></div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-task-activity.html?embed&state=list" title="Tasks list" loading="lazy"></iframe></div>
+        <div class="copy"><span class="tag">Overview</span><h3>Tasks, grouped by what to do</h3><p>Needs you, Running, Up next and Done, filtered to the rail's project. Drag-and-drop stays in Hermes's board.</p></div>
+      </div>
+    </div>
+
+    <h2>Directions considered</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Direction</th><th>For</th><th>Against</th></tr></thead>
+        <tbody>
+          <tr><td>Link out to Hermes's board</td><td>Nearly free: the dashboard already has a kanban tab.</td><td>Answers none of the four questions inside Boundary. You still have to think to go and look.</td></tr>
+          <tr><td>A Board destination in the icon rail, with columns</td><td>A familiar kanban mental model.</td><td>Columns answer "what's on the board", not "what's happening now". The view is wide and drag-heavy, which clashes with the centered chat workbench (ADR 0020). It also duplicates Hermes's board.</td></tr>
+          <tr><td>Show worker sessions as chats</td><td>Reuses the transcript view.</td><td>Workers aren't conversations. Hermes hides them on purpose. No live stream exists for them (they're subprocesses), and they'd flood the rail.</td></tr>
+          <tr><td><b>Layered: rail signal → cards → task page → list</b></td><td>Each surface answers one question where you already are. It is quiet when nothing runs, and it builds only on existing dashboard APIs.</td><td>More surfaces to build. It needs a WebSocket feed in main, a new pattern next to the gateway connection.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Open questions</h2>
+    <ol class="open">
+      <li><b>Done notifications:</b> always, or only for tasks filed from a conversation you sent from in the last 24 h? The spec proposes the latter.</li>
+      <li><b>Project filter:</b> a task belongs to a project when its <code>workspace_path</code> sits inside the project's folder. Scratch tasks have no folder; they would show only under "All projects". Is that acceptable?</li>
+      <li><b>CR 0005:</b> ask the stack to put the current tool name in <code>heartbeat</code> events, so the <b>now</b> line comes from the push feed instead of polling the log tail?</li>
+    </ol>
+  </div>
+</body>
+</html>

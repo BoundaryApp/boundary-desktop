@@ -1,0 +1,83 @@
+name: Test Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  terraform-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Validate RunPod stack module
+        run: |
+          cd infrastructure/modules/runpod-vllm-llama
+          terraform init -backend=false
+          terraform validate
+
+  test-build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows / Linux packaging disabled for now — uncomment to re-enable.
+        os: [macos-latest]
+        # os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Type check
+        run: bun run type-check
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: Lint
+        run: bun run lint
+        continue-on-error: true
+
+      - name: Fetch bundled container runtime (macOS)
+        if: matrix.os == 'macos-latest'
+        run: bun run fetch:container-runtime
+
+      - name: Package application (no distributables)
+        run: bun run build
+        env:
+          NODE_ENV: production
+
+      - name: Verify Forge package output
+        shell: bash
+        run: |
+          echo "Package completed successfully on ${{ matrix.os }}"
+          ls -la out/ || true
+          ls -la .vite/build/ || true
+          # Expect a packaged app directory under out/
+          if ! ls -d out/* >/dev/null 2>&1; then
+            echo "Expected Forge package output under out/" >&2
+            exit 1
+          fi

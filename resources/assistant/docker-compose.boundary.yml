@@ -1,0 +1,95 @@
+# Boundary-owned overlay for the pinned sovereign-agent-stack project under
+# userData/assistant-stack/project (see github.com/kaxline/sovereign-agent-stack).
+# Applied as: compose -p boundary-assistant -f docker-compose.yml -f <this>
+#   --profile core --profile rag --profile automation --profile coding …
+# Follows the stack's docs/extending.md. Most of what makes this a second copy comes from
+# the compose environment Boundary passes, not from this file:
+#   CONTAINER_PREFIX=boundary-, IMAGE_PREFIX=boundary-assistant, HERMES_TERMINAL_BACKEND=ssh,
+#   and the host-only port variables (SEARXNG_PORT, NEO4J_HTTP_HOST_PORT, N8N_HOST_PORT, …).
+#
+# This file keeps only what those can't express:
+# - Data mounts under BOUNDARY_ASSISTANT_DATA (an absolute path, project/data after
+#   setup.sh). Compose merges `volumes` by container path, so each entry replaces
+#   upstream's for the same target and every other upstream mount stays. Never use
+#   `!override` or `!reset` on a volumes list (extending.md): it drops mounts upstream
+#   adds later, including the Hermes patches.
+# - Host ports for Hermes and LightRAG. Their port variables (HERMES_*_PORT, PORT) are also
+#   read inside the container, so they stay at the defaults and the publishes are replaced.
+# - OpenCode's working directory, config file and per-install data.
+# - llm-proxy waits for Boundary's admin push (ADR 0026): no key is on disk, so until the
+#   push its chat and LightRAG routes answer 503 with the reason instead of reaching the
+#   provider without a key (stack v0.3.0+).
+
+services:
+  hermes-api-bootstrap:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
+
+  hermes-browser-bootstrap:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
+
+  hermes:
+    ports: !override
+      - "127.0.0.1:${BOUNDARY_HERMES_GATEWAY_HOST_PORT:-8642}:8642"
+      - "127.0.0.1:${BOUNDARY_HERMES_API_HOST_PORT:-8643}:8643"
+      - "127.0.0.1:${BOUNDARY_HERMES_DASHBOARD_HOST_PORT:-9119}:9119"
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes/memories:/opt/data/profiles/api-server/memories
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes/memories:/opt/data/profiles/browser/memories
+  llm-proxy:
+    environment:
+      - LLM_PROXY_AWAIT_PUSH=chat,lightrag
+
+  hermes-webui:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
+
+  lightrag:
+    ports: !override
+      - "127.0.0.1:${BOUNDARY_LIGHTRAG_HOST_PORT:-9621}:9621"
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/rag_storage:/app/data/rag_storage
+      - ${BOUNDARY_ASSISTANT_DATA}/inputs:/app/data/inputs
+
+  neo4j:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/neo4j/data:/data
+      - ${BOUNDARY_ASSISTANT_DATA}/neo4j/logs:/logs
+
+  gpt-researcher:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/gptr/outputs:/usr/src/app/outputs
+      - ${BOUNDARY_ASSISTANT_DATA}/inputs:/usr/src/app/my-docs:ro
+
+  # caldav-mcp reads a start time with no offset in its own zone, and the stack defaults it to
+  # UTC (calendar spec, Phase 0 S7). Boundary passes the Mac's zone. Only this service changes:
+  # the stack's other TZ users (hermes, the bootstraps) keep theirs.
+  caldav-mcp:
+    environment:
+      - TZ=${BOUNDARY_CALDAV_TZ:-UTC}
+
+  # n8n-import seeds n8n's SQLite store only when it has no database yet, so it must see
+  # the same /home/node/.n8n as n8n (stack v0.3.3+).
+  n8n-import:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/n8n:/home/node/.n8n
+
+  n8n:
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data/shared
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/n8n:/home/node/.n8n
+      - ${BOUNDARY_ASSISTANT_DATA}/inputs:/data/shared:ro
+
+  opencode:
+    working_dir: ${BOUNDARY_OPENCODE_WORKSPACE}
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/opencode/config:/root/.config/opencode
+      - ${BOUNDARY_ASSISTANT_DATA}/opencode/data:/root/.local/share/opencode
+      - ${BOUNDARY_OPENCODE_WORKSPACE}:${BOUNDARY_OPENCODE_WORKSPACE}
+      - ${BOUNDARY_OPENCODE_CONFIG_FILE}:/etc/opencode/opencode.json:ro

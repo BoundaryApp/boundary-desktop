@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C · Instrument — Boundary chat UX study</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #12151a;
+      --line: #262b33;
+      --text: #e6edf3;
+      --muted: #8b95a1;
+      --faint: #5d6670;
+      --overhead: #d97706;
+      --gen: #3b82f6;
+      --ok: #34d399;
+      --wait: #93c5fd;
+    }
+
+    body { background: var(--bg); color: var(--text); }
+
+    .app-stage { background: var(--bg); }
+
+    .titlebar {
+      background: #0e1116;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .phases {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .phases button {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .phases button.is-on { color: var(--text); border-color: #3d4652; background: #1a2028; }
+
+    .shell { display: flex; flex: 1; min-height: 0; }
+
+    .icon-rail {
+      width: 44px;
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    .dot.on { background: var(--text); }
+
+    .left {
+      width: 200px;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 10px 8px;
+    }
+
+    .left .sect {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      padding: 10px 8px 4px;
+    }
+
+    .left button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: var(--muted);
+    }
+
+    .left button.is-on,
+    .left button:hover { background: #1a2028; color: var(--text); }
+
+    .center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .usage {
+      flex: 1;
+      height: 8px;
+      background: #1c222a;
+      border-radius: 99px;
+      overflow: hidden;
+      display: flex;
+      max-width: 420px;
+    }
+
+    .usage .oh { width: 58.8%; background: var(--overhead); }
+    .usage .out { width: 2.2%; background: var(--gen); }
+
+    .key { display: flex; gap: 12px; }
+    .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+    .k-oh { background: var(--overhead); }
+    .k-out { background: var(--gen); }
+
+    .log { flex: 1; overflow: auto; padding: 18px 22px; }
+
+    .msg { margin-bottom: 16px; max-width: 760px; }
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+    .bubble { border: 1px solid var(--line); background: #151920; border-radius: 8px; padding: 10px 12px; }
+
+    .phase-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--wait);
+      font-size: 13px;
+      font-weight: 580;
+    }
+
+    .spin {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--wait);
+    }
+
+    .tool {
+      border: 1px solid #2a3a2e;
+      background: #121a14;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .tool .meta { color: var(--ok); font-weight: 580; }
+    .tool ul { margin: 8px 0 0; padding-left: 16px; color: var(--muted); }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, max-content);
+      gap: 18px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stats b { display: block; color: var(--text); font-weight: 600; font-size: 14px; }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+      padding: 10px 14px 12px;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 48px;
+      resize: none;
+      background: #0b0d10;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    .cluster {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .phase-readout { color: var(--text); font-weight: 580; }
+    .phase-readout.dim { color: var(--faint); }
+
+    .stop {
+      border: 1px solid var(--line);
+      padding: 4px 10px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+
+    .right {
+      width: 240px;
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .right h2 { margin: 0 0 4px; color: var(--text); font-size: 13px; }
+    .right .host { margin-bottom: 12px; }
+    .right button { display: block; color: var(--muted); margin-bottom: 6px; }
+    .right button:hover { color: var(--text); }
+    .tree { margin-top: 12px; }
+    .tree div { padding: 3px 0; color: var(--text); }
+
+    body:not([data-phase="preparing"]) [data-phase="preparing"],
+    body:not([data-phase="tool"]) [data-phase="tool"],
+    body:not([data-phase="done"]) [data-phase="done"],
+    body:not([data-phase="unknown"]) [data-phase="unknown"] {
+      display: none;
+    }
+
+    body[data-phase="unknown"] .usage > * { display: none; }
+    .dash { color: var(--faint); }
+
+    .callout {
+      border: 1px solid #3d3424;
+      background: #16130e;
+      color: #e8d7b0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body data-phase="tool">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Boundary chat</a>
+    <nav>
+      <a href="01-workbench.html">A Workbench</a>
+      <a href="02-quiet-hub.html">B Quiet Hub</a>
+      <a class="is-current" href="03-instrument.html">C Instrument</a>
+      <a href="04-folder-first.html">D Folder First</a>
+      <a href="05-approval.html">E Approval</a>
+      <a href="06-channels.html">F Channels</a>
+      <a href="07-agents.html">G Agents</a>
+      <a href="08-sources.html">H Sources</a>
+      <a href="09-add-source.html">I Add source</a>
+      <a href="10-inspector.html">J Inspector</a>
+    </nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="phases" aria-label="Turn phase">
+        <button data-phase-go="preparing">Preparing</button>
+        <button class="is-on" data-phase-go="tool">Tool</button>
+        <button data-phase-go="done">Done</button>
+        <button data-phase-go="unknown">No max</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <nav class="icon-rail" aria-label="App">
+        <span class="dot on" title="Chat"></span>
+        <span class="dot" title="Services"></span>
+        <span class="dot" title="Settings" style="margin-top:auto"></span>
+      </nav>
+
+      <aside class="left">
+        <button>New project</button>
+        <div class="sect">Projects</div>
+        <button class="is-on">Job Search</button>
+        <button>Notes</button>
+        <div class="sect">Chats</div>
+        <button>Resume summary</button>
+      </aside>
+
+      <main class="center">
+        <div class="meter">
+          <span class="mono" data-phase="preparing">— / —</span>
+          <span class="mono" data-phase="tool">18,823 / 32,000</span>
+          <span class="mono" data-phase="done">18,823 / 32,000</span>
+          <span class="mono dash" data-phase="unknown">context max unknown</span>
+          <div class="usage" aria-hidden="true">
+            <i class="oh"></i><i class="out"></i>
+          </div>
+          <div class="key">
+            <span><i class="k-oh"></i>system / tools</span>
+            <span><i class="k-out"></i>generated</span>
+          </div>
+          <span class="note" style="top: 44px; left: 200px" data-tip="Orange is fixed overhead. Blue is generated (mostly hidden). Never paint a fake processing %.">1</span>
+        </div>
+
+        <div class="log" role="log">
+          <div class="msg">
+            <div class="who">You</div>
+            <div class="bubble">Name one primary color.</div>
+          </div>
+
+          <div class="msg" data-phase="preparing">
+            <div class="callout">There is no LLM processing percent. Show elapsed time until the first real event. A bar here would be a lie.</div>
+            <div class="phase-line"><i class="spin"></i> Preparing… 3s</div>
+          </div>
+
+          <div class="msg" data-phase="tool">
+            <div class="tool">
+              <div class="meta">Reading web_search · turn 3 of 20</div>
+              <ul>
+                <li>Named tool. Named turn budget. Running, not “thinking.”</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="msg" data-phase="done">
+            <div class="bubble">Blue.</div>
+            <div class="stats">
+              <div><b>18,823</b>prompt</div>
+              <div><b>708</b>generated</div>
+              <div><b>7</b>visible</div>
+              <div><b>1.2s</b>TTFT</div>
+            </div>
+          </div>
+
+          <div class="msg" data-phase="unknown">
+            <div class="callout">Hermes omits context_max when it does not know. Render a dash. Never 0%.</div>
+            <div class="bubble">Blue.</div>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <textarea placeholder="Ask…"></textarea>
+          <div class="cluster">
+            <span>Project <b style="color:var(--text)">Job Search</b> · <span class="mono">~/Documents/Job Search</span> · @</span>
+            <span class="phase-slot">
+              <span class="phase-readout" data-phase="preparing">Preparing · 3s</span>
+              <span class="phase-readout" data-phase="tool">web_search · 3 / 20</span>
+              <span class="phase-readout" data-phase="done">42 tok · 35/s</span>
+              <span class="phase-readout dim" data-phase="unknown">Generating · % hidden</span>
+            </span>
+            <span>Tools on</span>
+            <button class="stop">Stop</button>
+          </div>
+          <span class="note" style="bottom: 10px; left: 12px" data-tip="Phase machine lives in the composer: Preparing, named tool + turn, then tok/s after the first visible delta.">2</span>
+        </footer>
+      </main>
+
+      <aside class="right">
+        <h2>Job Search</h2>
+        <div class="host mono">~/Documents/Job Search</div>
+        <button>Change folder</button>
+        <button>Reveal in Finder</button>
+        <div class="tree">
+          <div>resume.pdf</div>
+          <div>cover-notes.md</div>
+          <div>applications/</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    if (new URLSearchParams(location.search).has("embed")) document.documentElement.classList.add("embed");
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+    document.querySelectorAll("[data-phase-go]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.body.dataset.phase = btn.dataset.phaseGo;
+        document.querySelectorAll("[data-phase-go]").forEach((b) => b.classList.toggle("is-on", b === btn));
+      });
+    });
+  </script>
+</body>
+</html>

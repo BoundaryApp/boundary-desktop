@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boundary chat — UX study directions</title>
+  <link rel="stylesheet" href="study.css" />
+  <style>
+    body {
+      background: #0e0e10;
+      color: #ececee;
+      height: auto;
+      min-height: 100%;
+    }
+
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 28px 24px 80px;
+    }
+
+    .kicker {
+      color: #8b87f8;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      font-weight: 560;
+      letter-spacing: -0.04em;
+    }
+
+    .lede {
+      color: #9a9aa3;
+      max-width: 68ch;
+      font-size: 15px;
+      line-height: 1.55;
+      margin: 0 0 28px;
+    }
+
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 16px;
+      font-weight: 620;
+      letter-spacing: -0.02em;
+    }
+
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .rules div {
+      border: 1px solid #2a2a30;
+      background: #161618;
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .rules b { display: block; margin-bottom: 4px; font-weight: 600; }
+    .rules span { color: #8e8e96; font-size: 12px; line-height: 1.45; }
+
+    .rec {
+      border: 1px solid #3a3658;
+      background: #16141f;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin: 8px 0 8px;
+    }
+
+    .rec strong { color: #c7c4f4; }
+    .rec p { margin: 8px 0 0; color: #b4b4bc; line-height: 1.5; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .dir {
+      border: 1px solid #2a2a30;
+      background: #141416;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .frame {
+      height: 210px;
+      overflow: hidden;
+      background: #0b0b0d;
+      border-bottom: 1px solid #2a2a30;
+      pointer-events: none;
+    }
+
+    .frame iframe {
+      width: 1440px;
+      height: 900px;
+      transform: scale(0.36);
+      transform-origin: top left;
+      border: 0;
+    }
+
+    .copy { padding: 14px 14px 16px; }
+    .copy .tag {
+      font-size: 11px;
+      color: #8b87f8;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .copy h3 {
+      margin: 4px 0 6px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .copy p { margin: 0 0 10px; color: #9a9aa3; font-size: 13px; line-height: 1.45; }
+    .copy a { color: #ececee; }
+
+    .meta {
+      display: flex;
+      gap: 16px;
+      color: #6a6a72;
+      font-size: 12px;
+    }
+
+    .meta span b { color: #b4b4bc; font-weight: 550; }
+
+    footer.note-line {
+      margin-top: 40px;
+      color: #6a6a72;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · reference kit · 21 Sep 2026</div>
+    <h1>Directions for Boundary chat</h1>
+    <p class="lede">
+      A is the living spec. B, C, and D stay as sources.
+      E is the accepted approval interrupt. F and G explore several agents —
+      not accepted, no ADR. Decisions are recorded under
+      <a href="../adr/README.md">docs/adr/</a> (0002–0006). Nothing in the
+      chrome says Hermes.
+    </p>
+
+    <h2>Held constant</h2>
+    <div class="rules">
+      <div><b>Two nav layers</b><span>App chrome (Chat, Services, Settings) sits outside the Projects rail. Destinations are not threads.</span></div>
+      <div><b>Chat is home</b><span>After setup and stack-ready, this is the default view. Services are demoted.</span></div>
+      <div><b>Project = host folder</b><span>Choose on disk, bind-mount, never copy or embed. Path stays visible.</span></div>
+      <div><b>Composer always on</b><span>Project chip, @, gauge, tools lever, Stop. No gear drawer.</span></div>
+      <div><b>Honest telemetry</b><span>No fake processing bar. Dash when context_max is missing. Named tool phases.</span></div>
+      <div><b>Consent is a gate</b><span>Dangerous commands and agent-written scripts park on Run / Reject. Not a modal. Composer stays visible.</span></div>
+      <div><b>Setup stays a cut</b><span>Wizard language stays full-bleed. Chat is a different surface.</span></div>
+    </div>
+
+    <h2>Accepted</h2>
+    <div class="rec">
+      <strong>A is the living spec. B / C / D remain sources.</strong>
+      <p>
+        Workbench layout (0003) with Quiet Hub project glyphs and left-aligned
+        card text. Light theme remaps B’s paper tokens — toggle it on A.
+        Composer is C’s phase machine (0004). Folder First create flow is
+        accepted (0005). Tool approval is accepted (0006) — click Approve
+        on A, or open E for variants. Cite the ADR; do not restyle from these
+        notes in chat.
+      </p>
+    </div>
+
+    <h2>Directions</h2>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="01-workbench.html?embed=1" title="Workbench preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">A · living spec · 0003 + 0004</div>
+          <h3><a href="01-workbench.html">Workbench</a></h3>
+          <p>Accepted chrome. B’s project cards, C’s composer, Light toggle for B’s paper tokens. Click phases in the title bar — including Approve.</p>
+          <div class="meta"><span><b>Keep</b> this file</span><span><b>Theme</b> Light in the study bar</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="02-quiet-hub.html?embed=1" title="Quiet Hub preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">B · source · cards + light tokens</div>
+          <h3><a href="02-quiet-hub.html">Quiet Hub</a></h3>
+          <p>Do not ship this chrome. Keep the file: 28px glyphs, left-aligned path, paper palette that A remaps.</p>
+          <div class="meta"><span><b>Took</b> glyphs + tokens</span><span><b>Skip</b> header tabs</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="03-instrument.html?embed=1" title="Instrument preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">C · source · composer · 0004</div>
+          <h3><a href="03-instrument.html">Instrument</a></h3>
+          <p>Do not ship this as a product. Keep the file: overhead vs generated, named tool + turn, dash when max is unknown.</p>
+          <div class="meta"><span><b>Took</b> phase machine</span><span><b>Skip</b> cockpit chrome</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="04-folder-first.html?embed=1" title="Folder First preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">D · accepted · 0005</div>
+          <h3><a href="04-folder-first.html">Folder First</a></h3>
+          <p>Keep and prototype: Empty → Connecting… → permission or chats in that folder. Do not fold into A until accepted.</p>
+          <div class="meta"><span><b>Keep</b> this file</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="05-approval.html?embed=1" title="Approval preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">E · accepted · 0006</div>
+          <h3><a href="05-approval.html">Approval</a></h3>
+          <p>Consent interrupt on Workbench. Title-bar variants: command, code, smart deny, always-confirm, protected file, queue, offline.</p>
+          <div class="meta"><span><b>Keep</b> this file</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Exploration · several agents</h2>
+    <div class="rec">
+      <strong>Sources for 0007, 0008, and 0009. Do not restyle A from F.</strong>
+      <p>
+        Left rail is project, Recent, channels, DMs. Agents are people you @
+        or DM. A channel send without @ is a post; @ asks a member to speak
+        now. Title-bar phases on F: Channel, DM, Recent, @ picker, Start. On G:
+        Roster, Create, Draft from chat.
+      </p>
+    </div>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="06-channels.html?embed=1" title="Channels preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">F · exploration · channels + DMs</div>
+          <h3><a href="06-channels.html">Channels</a></h3>
+          <p>Left rail is project, Recent, channels, DMs. Named speakers. A channel send without @ is a post; @ asks a member to speak now. Right rail is members, then the host tree.</p>
+          <div class="meta"><span><b>Keep</b> as a sketch</span><span><b>Status</b> Exploration</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="07-agents.html?embed=1" title="Agents preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">G · exploration · roster</div>
+          <h3><a href="07-agents.html">Agents</a></h3>
+          <p>Identity list, not a thread list. Create is name + role. An existing agent can draft a card; nothing starts until you confirm.</p>
+          <div class="meta"><span><b>Keep</b> as a sketch</span><span><b>Status</b> Exploration</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Accepted · project sources</h2>
+    <div class="rec">
+      <strong>H is the living spec for 0013. I is the add-folder source.</strong>
+      <p>
+        A project stays one hub. Extra folders attach as sources on the right
+        rail — a directory plus a retrieval policy, not a second project and
+        not LightRAG. Title-bar states on H: Hub only, Not visible, Writable,
+        Ready, Stale. On I: Inspect, Pick, Not visible, Writable, Refresh, Ready.
+        Do not put extra folders in the project picker. In-app remount ships with Phase 2.
+        J is the living chrome spec for 0014 — tabs, quieter copy, contrast — not a restyle of 0013’s model.
+      </p>
+    </div>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="08-sources.html?embed=1" title="Sources preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">H · 0013 · living spec</div>
+          <h3><a href="08-sources.html">Sources</a></h3>
+          <p>Right rail lists source directories with Open. Mount pills stay honest. Browse files in the native file manager, not in the inspector.</p>
+          <div class="meta"><span><b>Keep</b> as the spec</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+      <article class="dir">
+        <div class="frame"><iframe src="09-add-source.html?embed=1" title="Add source preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">I · 0013 · add flow</div>
+          <h3><a href="09-add-source.html">Add source</a></h3>
+          <p>Add folder is not New project. Pick a path, then stop if it is not mounted. Show the exact next command. Refresh INDEX last.</p>
+          <div class="meta"><span><b>Keep</b> as the source</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Accepted · tabbed inspector</h2>
+    <div class="rec">
+      <strong>J is the living chrome spec for 0014. H stays the 0013 data spec.</strong>
+      <p>
+        The right rail is one inspector with conversation-aware tabs. Happy
+        path is silent. Banners only when a mount is wrong. Retrieval modes
+        that do not exist stay hidden. Dark secondary text meets AA.
+        Title-bar: DM, Channel, Untitled, Assistant, No folder — then Hub only,
+        Not visible, Writable, Ready, Stale.
+      </p>
+    </div>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="10-inspector.html?embed=1" title="Inspector preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">J · 0014 · living spec</div>
+          <h3><a href="10-inspector.html">Inspector</a></h3>
+          <p>Tabs for Room, Agent, Session, and Project. Happy path is silent. Banners only when a mount is wrong. Contrast tokens are the point in Dark.</p>
+          <div class="meta"><span><b>Keep</b> as the spec</span><span><b>Status</b> Accepted</span></div>
+        </div>
+      </article>
+    </div>
+
+    <h2>Exploring · prose type</h2>
+    <div class="rec">
+      <strong>K is a typography sketch. No ADR yet.</strong>
+      <p>
+        Assistant replies stay a reading face. Title-bar pills switch Plex Serif
+        (current), Source Serif 4, Literata, Newsreader, and Charter. Keys 1–5
+        do the same. Chrome stays on Plex Sans unless you uncheck Plex baseline.
+        This page is input for a later typography ADR — do not restyle A from K.
+      </p>
+    </div>
+    <div class="grid">
+      <article class="dir">
+        <div class="frame"><iframe src="11-prose-serif.html?embed=1" title="Prose serif preview" tabindex="-1"></iframe></div>
+        <div class="copy">
+          <div class="tag">K · typography · proposed</div>
+          <h3><a href="11-prose-serif.html">Prose serif</a></h3>
+          <p>Long assistant reply in the current inspector chrome. Toggle faces live. Charter is macOS-only and falls back to Georgia elsewhere.</p>
+          <div class="meta"><span><b>Keep</b> as a sketch</span><span><b>Status</b> Proposed</span></div>
+        </div>
+      </article>
+    </div>
+
+    <footer class="note-line">
+      Companion to the Hermes Chat UX Study canvas and docs/adr/. These HTML files are the visual record.
+      Open any file in a browser. Turn on Notes for callouts. LocalRuntime / assistant-ui is assumed under the transcript.
+    </footer>
+  </div>
+</body>
+</html>

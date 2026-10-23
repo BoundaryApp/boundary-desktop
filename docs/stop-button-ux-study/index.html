@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Run control study</title>
+  <style>
+    :root {
+      --bg: #0e0e10; --card: #141416; --line: #2a2a30; --text: #ececee; --muted: #9a9aa3; --faint: #6a6a72;
+      --accent: #8b87f8; --rec-bg: #16141f; --rec-line: #3a3658; --rec-head: #c7c4f4;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg: #f3f1ea; --card: #fffcf6; --line: #e3dfd3; --text: #1c1b17; --muted: #5c594f; --faint: #7a766c;
+        --accent: #4f4ac9; --rec-bg: #f0eefb; --rec-line: #cfcaf0; --rec-head: #2f2a8a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+    .page { max-width: 1080px; margin: 0 auto; padding: 28px 16px 80px; }
+    .kicker { color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+    h1 { margin: 0 0 10px; font-size: 30px; font-weight: 560; letter-spacing: -0.04em; }
+    .lede { color: var(--muted); max-width: 68ch; font-size: 15px; line-height: 1.55; margin: 0 0 28px; }
+    a { color: var(--text); }
+    h2 { margin: 36px 0 12px; font-size: 16px; font-weight: 620; letter-spacing: -0.02em; }
+    .rec { border: 1px solid var(--rec-line); background: var(--rec-bg); border-radius: 12px; padding: 16px 18px; }
+    .rec strong { color: var(--rec-head); }
+    .rec p, .rec li { color: var(--muted); line-height: 1.5; }
+    .rec p { margin: 8px 0 0; }
+    .rec ul { margin: 8px 0 0; padding-left: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .dir { border: 1px solid var(--line); background: var(--card); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .frame { height: 200px; overflow: hidden; background: #0b0b0d; border-bottom: 1px solid var(--line); position: relative; }
+    .frame iframe { width: 1100px; height: 760px; transform: scale(0.34); transform-origin: bottom left; border: 0; pointer-events: none; position: absolute; left: -88px; bottom: 0; }
+    .copy { padding: 14px 14px 16px; }
+    .tag { font-size: 11px; color: var(--accent); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+    .copy h3 { margin: 4px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .copy p { margin: 0 0 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .copy .pc { font-size: 12px; color: var(--faint); line-height: 1.5; }
+    .copy .pc b { color: var(--muted); font-weight: 550; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+    th { text-align: left; color: var(--faint); font-weight: 550; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--muted); vertical-align: top; line-height: 1.45; }
+    td:first-child { color: var(--text); font-weight: 520; width: 20%; }
+    ol.open { color: var(--muted); line-height: 1.6; padding-left: 20px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="kicker">UX study · composer run control</div>
+    <h1>Stop appears only while the agent is running</h1>
+    <p class="lede">
+      Today the composer always shows a <b>Stop</b> button at the right end of the cluster. Its cancel primitive disables it when idle, but it still reads as a live control. This study removes it and tries three placements where Stop shows up only during a run.
+      The <a href="01-run-control.html">live mock</a> is interactive: type and press Enter to start a fake run, then press Stop or Esc.
+    </p>
+
+    <div class="rec">
+      <strong>Chosen: A · Morph</strong> (1 Oct 2026). The implementation plan is <a href="spec.md">spec.md</a>.
+      <p>One round button in the composer's bottom-right corner. It shows <b>Send ↑</b> when idle and becomes <b>Stop ■</b> during a run. ChatGPT, Claude, LM Studio and Open WebUI all use this pattern, so people already know where to look.</p>
+      <ul>
+        <li>The corner always holds the one action that matters right now. The cluster (project, model, @, phase, Tools) stays put, with no layout shift as a run starts or ends.</li>
+        <li>A ring traces around the button while the agent works. When it waits for approval, the ring pauses and turns amber, so the button itself shows the agent is busy.</li>
+        <li>The composer adds a Send button, which it doesn't have today. That gives mouse users and new users a visible way to send, and Enter still works.</li>
+      </ul>
+    </div>
+
+    <h2>Placements</h2>
+    <div class="grid">
+      <div class="dir">
+        <div class="frame"><iframe src="01-run-control.html?embed&variant=morph&state=streaming" title="A Morph" loading="lazy"></iframe></div>
+        <div class="copy">
+          <div class="tag">A · Chosen</div>
+          <h3><a href="01-run-control.html?variant=morph&state=streaming">Morph</a></h3>
+          <p>Send and Stop are one button in the input's corner. It morphs on run start and run end.</p>
+          <div class="pc"><b>+</b> Familiar from other chat apps, no layout shift, and it adds a Send affordance.<br /><b>−</b> A double-click on Send could hit Stop. The guard below covers this.</div>
+        </div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-run-control.html?embed&variant=cluster&state=streaming" title="B Cluster" loading="lazy"></iframe></div>
+        <div class="copy">
+          <div class="tag">B · Smallest diff</div>
+          <h3><a href="01-run-control.html?variant=cluster&state=streaming">Cluster</a></h3>
+          <p>A Stop chip with an <code>esc</code> hint appears at the right of the cluster, next to the live phase line. When idle, a quiet "↵ send" hint sits there.</p>
+          <div class="pc"><b>+</b> A near one-line change, and Stop sits beside the status it ends.<br /><b>−</b> Small target, and it sits low and away from the input's focus point.</div>
+        </div>
+      </div>
+      <div class="dir">
+        <div class="frame"><iframe src="01-run-control.html?embed&variant=pill&state=streaming" title="C Pill" loading="lazy"></iframe></div>
+        <div class="copy">
+          <div class="tag">C · Most visible</div>
+          <h3><a href="01-run-control.html?variant=pill&state=streaming">Pill</a></h3>
+          <p>A floating "■ Stop · Generating…" pill over the bottom of the transcript, centered on the column. This is the older ChatGPT and Bionic style.</p>
+          <div class="pc"><b>+</b> Hard to miss, and it carries the phase text.<br /><b>−</b> Covers the last lines of streaming text, and it is a second floating layer next to the quote and mention popovers.</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Behavior (applies to whichever placement wins)</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>State</th><th>Run control</th><th>Notes</th></tr>
+        <tr><td>Idle, empty</td><td>Send, dimmed (A) · nothing (B, C)</td><td>No Stop anywhere. The phase slot is empty.</td></tr>
+        <tr><td>Idle, typed</td><td>Send, solid</td><td>Enter or click sends.</td></tr>
+        <tr><td>Thinking / Tool / Streaming</td><td>Stop</td><td>The input stays editable so you can draft your next message. Enter with text opens the <a href="01-run-control.html?state=menu">mid-run menu</a> below. Esc stops from anywhere in the chat pane.</td></tr>
+        <tr><td>Enter mid-run</td><td>Stop + menu</td><td><b>Send now</b> (⌘↵), <b>Queue</b> (↵, the default), and <b>Keep editing</b> (Esc). Queue is the default so pressing Enter twice can never kill a run. If the run ends while the menu is open, the menu closes and the draft stays, so the next Enter just sends.</td></tr>
+        <tr><td>Queued</td><td>Stop</td><td>Queued messages sit as dashed chips above the input ("Next", "Queued 2"), each with Edit and ×. They send in order as each run finishes.</td></tr>
+        <tr><td>Approval</td><td>Stop, ring paused and amber</td><td>Keeps today's behavior: Stop denies the pending request. The tooltip says so.</td></tr>
+        <tr><td>Stopped</td><td>Back to Send</td><td>The partial reply ends with "Stopped by you · 0:07" plus <b>Continue</b> and <b>Retry</b>. Focus returns to the input, and a screen reader hears "Response stopped". Any queue turns <b>Paused</b> (amber): Stop never sends your queued messages, and it never throws them away either.</td></tr>
+        <tr><td>Restarting / connecting</td><td>Neither</td><td>The composer is locked as today, and there is nothing the user can stop.</td></tr>
+      </table>
+    </div>
+
+    <h2>Details that make it feel right</h2>
+    <ol class="open">
+      <li><b>Double-click guard.</b> Ignore Stop for about 350 ms after the send that started the run, so a double-click on Send can't cancel the run on its second click.</li>
+      <li><b>Same element, swapped label.</b> Morph one button rather than mounting two, so keyboard focus survives the swap. Flip <code>aria-label</code> between "Send message" and "Stop response".</li>
+      <li><b>Esc precedence.</b> Esc first closes the mid-run menu, or an open mention or quote popover. Only when nothing is open does it stop the run. Today the composer uses Esc only for mentions (<code>WorkbenchThread.tsx:707</code>).</li>
+      <li><b>Reduced motion.</b> The ring and glyph crossfade turn off under <code>prefers-reduced-motion</code>. The glyph alone still carries the state.</li>
+    </ol>
+
+    <h2>What Hermes already supports (checked in <code>hermes-agent v2026.9.14</code>)</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>UI action</th><th>Gateway call</th><th>What the server does</th></tr>
+        <tr><td>Stop</td><td><code>session.interrupt</code></td><td>Hard interrupt. Any text already streamed is <b>saved to the session</b> as an assistant message. It also <b>clears Hermes's own queue</b> and denies pending approvals.</td></tr>
+        <tr><td>Continue</td><td><code>prompt.submit</code> with <code>display_kind: "hidden"</code></td><td>There's no resume-the-same-generation call. Continue is a new turn that reads the saved partial, and the hidden kind keeps a "continue" bubble out of the transcript. It works. It just isn't token-exact.</td></tr>
+        <tr><td>Send now</td><td><code>prompt.submit</code> while busy</td><td>The default <code>busy_input_mode: interrupt</code> <i>redirects</i> the live turn in place. The model sees "Visible response before the interruption" and then your message. Older agents and messages with attachments fall back to interrupt + queue.</td></tr>
+        <tr><td>Queue</td><td><code>prompt.submit</code> with <code>queued: true</code>, sent on drain</td><td>Hermes notes that <code>queued: true</code> is meant for "client queue drain", so it never becomes a live correction. There's no RPC to edit or remove a queued item, and Stop wipes the server's queue. So <b>the queue lives in the desktop</b>, and each item goes out with <code>queued: true</code> when the run ends.</td></tr>
+        <tr><td><i>Not mocked</i></td><td><code>session.steer</code></td><td>A fourth option: inject the text after the agent's current step, without interrupting. It could become "Add to this run" later.</td></tr>
+      </table>
+    </div>
+    <p class="lede" style="margin-top:12px">The stack doesn't set <code>display.busy_input_mode</code>, so Send now relies on Hermes's default. The bootstrap should pin it to <code>interrupt</code>, so a config change can't silently turn Send now into Queue. Details are in <a href="backend-notes.md">backend-notes.md</a>.</p>
+
+    <h2>Channels: decide the shape now, build it later</h2>
+    <ol class="open">
+      <li><b>This control is per agent.</b> In a channel, the composer's Stop and the Enter menu act only on the agent(s) your last message addressed. Each Hermes member is its own session, so <code>session.interrupt</code> already works per agent.</li>
+      <li><b>Stop all goes somewhere else:</b> the channel header shows "■ Stop all · 3 running" only while two or more members are running. That keeps the composer corner meaning one thing everywhere.</li>
+      <li><b>Each running reply also gets its own small Stop</b> in its live phase line, so you can stop one member you didn't address.</li>
+      <li><b>One thing is worth deciding now:</b> make the queue per session, keyed by the agent the draft addresses. Then a channel's queue is just several per-agent queues, and Stop all can pause all of them using the same Paused state.</li>
+    </ol>
+
+    <h2>Open questions</h2>
+    <ol class="open">
+      <li>Should there be "Don't ask again: always queue" in the mid-run menu, backed by a setting? It would cut friction for people who always pick the same option.</li>
+      <li>Should Send now (redirect) look different from Stop in the transcript? The mock says "Interrupted · you sent a new message" rather than "Stopped by you".</li>
+      <li>Is "Add to this run" (<code>session.steer</code>) worth a fourth menu row, or is it too subtle a difference from Send now?</li>
+    </ol>
+  </div>
+</body>
+</html>

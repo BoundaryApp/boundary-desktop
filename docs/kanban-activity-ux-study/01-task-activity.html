@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Task activity mock</title>
+  <link rel="stylesheet" href="../message-actions-ux-study/study.css" />
+  <style>
+    [hidden] { display: none !important; }
+    /* Working dot, as in workbench.css (.wb-working-dot) */
+    .wdot { position: relative; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+    .wdot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--accent); animation: halo 1.6s ease infinite; }
+    .wdot.warn, .wdot.warn::after { background: var(--warn); }
+    .wdot.bad, .wdot.bad::after { background: #e07a6a; }
+    .wdot.still::after { animation: none; }
+    @keyframes halo { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(2.6); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .wdot::after { animation: none; } }
+    .icon-btn { position: relative; }
+    .icon-btn .wdot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; }
+
+    /* Rail additions */
+    .left { overflow: auto; }
+    .row .count { margin-left: auto; display: flex; gap: 6px; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .row .count .need { color: var(--warn); font-weight: 600; }
+    .wn { margin: 2px 8px 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+    .wn-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 6px; width: 100%; padding: 7px 9px; text-align: left; color: var(--muted); }
+    .wn-row + .wn-row { border-top: 1px solid var(--line); }
+    .wn-row:hover, .wn-row.is-on { background: var(--hover); color: var(--text); }
+    .wn-row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+    .wn-row .who-s { grid-column: 2 / 4; font-size: 11px; color: var(--faint); margin-top: -3px; }
+    .wn-row .el { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .wn-row.need .el { color: var(--warn); }
+    .sect .live { color: var(--accent); margin-left: 4px; letter-spacing: 0; text-transform: none; font-weight: 500; }
+    .av { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 10px; font-weight: 650; color: #111; flex-shrink: 0; }
+    .row .wdot { margin-left: auto; }
+
+    /* Task cards in a transcript */
+    .tcards { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); font-family: var(--font-ui); }
+    .tcards .h { padding: 8px 12px; font-size: 11px; color: var(--faint); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+    .tcard { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; padding: 10px 12px; text-align: left; }
+    .tcard + .tcard { border-top: 1px solid var(--line); }
+    .tcard:hover { background: var(--hover); }
+    .tcard .t { font-size: 14px; color: var(--text); }
+    .tcard .m { font-size: 12px; color: var(--faint); grid-column: 1; }
+    .tcard .pill { grid-row: 1 / 3; grid-column: 2; align-self: center; }
+
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+    .pill.run { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+    .pill.need { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+    .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+
+    /* Task page */
+    .tp { max-width: var(--chat-column); margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+    .crumbs { font-size: 12px; color: var(--faint); display: flex; gap: 6px; align-items: center; }
+    .crumbs a { color: var(--faint); }
+    .tp h1 { margin: 0; font-size: 22px; font-weight: 560; letter-spacing: -.02em; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 12.5px; color: var(--muted); }
+    .meta .sep { color: var(--line-strong); }
+    .meta a { color: var(--muted); }
+    .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .menu-btn { position: relative; }
+
+    .strip { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+    .strip.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+    .strip.ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: color-mix(in srgb, var(--ok) 7%, var(--panel)); }
+    .strip .st { font-weight: 580; }
+    .strip .sub { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .strip .now { grid-column: 2 / 4; font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .strip .now b { color: var(--faint); font-weight: 500; font-family: var(--font-ui); }
+
+    .sec h2 { margin: 0 0 8px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+    .goal { color: var(--muted); font-size: 14px; line-height: 1.55; border-left: 2px solid var(--line-strong); padding-left: 12px; }
+
+    .tl { list-style: none; margin: 0; padding: 0; position: relative; }
+    .tl::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--line); }
+    .tl li { position: relative; padding: 0 0 12px 22px; font-size: 13px; color: var(--muted); }
+    .tl li::before { content: ""; position: absolute; left: 1px; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--bg); border: 1.5px solid var(--line-strong); }
+    .tl li.k-run::before { border-color: var(--accent); }
+    .tl li.k-need::before { border-color: var(--warn); background: var(--warn); }
+    .tl li.k-ok::before { border-color: var(--ok); background: var(--ok); }
+    .tl li.k-you::before { border-color: var(--text); }
+    .tl time { float: right; color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .tl .q { display: block; margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+
+    details.console { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    details.console summary { cursor: pointer; padding: 9px 12px; font-size: 12.5px; color: var(--muted); list-style: none; display: flex; gap: 8px; align-items: center; }
+    details.console summary::-webkit-details-marker { display: none; }
+    details.console summary::before { content: "›"; display: inline-block; transition: transform .15s; color: var(--faint); }
+    details.console[open] summary::before { transform: rotate(90deg); }
+    details.console summary .r { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+    .log-out { margin: 0; padding: 10px 12px; max-height: 220px; overflow: auto; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; }
+    .log-out .tool { color: var(--accent); }
+    .log-out .dim { color: var(--faint); }
+
+    .need-card { border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--warn) 7%, var(--panel)); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .need-card .ask { font-size: 11px; color: var(--warn); font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+    .need-card .q { font-size: 15px; line-height: 1.5; }
+    .need-card textarea { width: 100%; min-height: 56px; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; outline: none; }
+    .need-card .acts2 { display: flex; gap: 8px; }
+    .need-card .acts2 .r { margin-left: auto; }
+
+    .result { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 16px; }
+    .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .files span { font-family: var(--font-mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; color: var(--muted); }
+
+    .tp-composer textarea::placeholder { color: var(--faint); }
+
+    /* Tasks list */
+    .tl-head { display: flex; align-items: center; gap: 10px; }
+    .tl-head h1 { margin: 0; font-size: 20px; font-weight: 560; }
+    .tl-head .r { margin-left: auto; display: flex; gap: 8px; }
+    .grp h2 { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+    .grp h2 .n { color: var(--muted); letter-spacing: 0; }
+    .grp.need h2 { color: var(--warn); }
+    .trow { display: grid; grid-template-columns: 18px 1fr auto auto; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 8px; text-align: left; color: var(--muted); }
+    .trow:hover { background: var(--hover); color: var(--text); }
+    .trow .t { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .trow .s { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .trow.done .t { color: var(--muted); }
+
+    .callout { position: absolute; z-index: 5; max-width: 160px; padding: 7px 9px; border-radius: 8px; background: var(--accent); color: #0d0d10; font-size: 11.5px; line-height: 1.4; font-weight: 500; box-shadow: var(--shadow); }
+    html.light .callout { color: #fff; }
+    .callout::before { content: ""; position: absolute; width: 8px; height: 8px; background: inherit; transform: rotate(45deg); }
+    .callout.l::before { left: -4px; top: 12px; }
+    html:not(.notes-on) .callout { display: none; }
+  </style>
+</head>
+<body data-state="dm">
+  <div class="study-bar">
+    <a class="brand" href="index.html">Task activity study</a>
+    <nav><a href="index.html">Board</a><a class="is-current" href="01-task-activity.html">Live mock</a><a href="spec.md">Spec</a></nav>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="notes" /> Callouts</label>
+    <label><input type="checkbox" id="theme" /> Light</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp">
+          <button data-state-go="dm">1 · Filed in DM</button>
+          <button data-state-go="running">2 · Running</button>
+          <button data-state-go="quiet">3 · Quiet</button>
+          <button data-state-go="needs">4 · Needs you</button>
+          <button data-state-go="done">5 · Done</button>
+          <span class="sep"></span>
+          <button data-state-go="list">Tasks list</button>
+          <button data-state-go="other">Elsewhere</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <!-- Icon rail -->
+      <nav class="icon-rail">
+        <div class="mark"></div>
+        <button class="icon-btn" id="chat-icon" title="Chat">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg>
+          <span class="wdot" data-show="other"></span>
+        </button>
+        <button class="icon-btn" title="Services"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg></button>
+        <button class="icon-btn" title="Resources"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 5.5h11v7h-11zM5 5.5V3.5h6v2"/></svg></button>
+        <button class="icon-btn end" title="Settings"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg></button>
+      </nav>
+
+      <!-- Chat rail -->
+      <aside class="left" data-show="dm running quiet needs done list">
+        <button class="proj-trigger"><span class="glyph">B</span><span class="proj-copy"><span class="name">boundary-desktop</span><span class="path">~/Work/boundary-desktop</span></span></button>
+        <button class="row">All chats</button>
+        <button class="row">Mentions</button>
+        <button class="row" id="tasks-row" data-go="list">Tasks
+          <span class="count"><span class="need" data-show="needs">1 needs you</span><span id="run-count">2 running</span></span>
+        </button>
+
+        <div class="sect">Working now<span class="live" id="wn-live">· 2</span></div>
+        <div class="wn">
+          <button class="wn-row need" data-show="needs" data-go="needs">
+            <span class="wdot warn still"></span><span class="t">Draft release notes for 0.9</span><span class="el">needs you</span>
+            <span class="who-s">Writer · asked a question</span>
+          </button>
+          <button class="wn-row" id="wn-audit" data-go="running">
+            <span class="wdot" id="wn-audit-dot"></span><span class="t">Audit dependency licenses</span><span class="el" id="wn-audit-el">4m</span>
+            <span class="who-s" id="wn-audit-who">Researcher · running license-checker</span>
+          </button>
+          <button class="wn-row" data-show="dm running quiet done list" data-go="needs">
+            <span class="wdot"></span><span class="t">Draft release notes for 0.9</span><span class="el">2m</span>
+            <span class="who-s">Writer · reading CHANGELOG.md</span>
+          </button>
+        </div>
+
+        <div class="sect">Hermes</div>
+        <button class="row">Fix lag probe flake</button>
+        <button class="row">Plan Q4 roadmap</button>
+        <div class="sect">Agents</div>
+        <button class="row" data-go="dm" id="orch-row"><span class="av" style="background:#8b87f8">O</span>Orchestrator</button>
+        <button class="row" title="Working on: Audit dependency licenses"><span class="av" style="background:#86c089">R</span>Researcher<span class="wdot" id="res-dot"></span></button>
+        <button class="row" title="Working on: Draft release notes for 0.9"><span class="av" style="background:#e0b36a">W</span>Writer<span class="wdot" data-show="dm running quiet done list"></span><span class="wdot warn still" data-show="needs"></span></button>
+      </aside>
+
+      <main class="center">
+        <!-- 1 · DM where the tasks were filed -->
+        <div data-show="dm" style="display:contents">
+          <div class="thread-head"><span><strong>Orchestrator</strong> <span class="role">· DM</span></span></div>
+          <div class="log">
+            <div class="col">
+              <div class="msg u rb"><div class="bubble">Before the 0.9 release, audit our dependency licenses and draft release notes from the changelog. Flag anything GPL.</div></div>
+              <div class="msg">
+                <div class="who">Orchestrator</div>
+                <div class="prose">
+                  <p>That's two independent pieces of work, so I've put them on the board. The Researcher takes the license audit in a scratch copy of the repo. The Writer drafts the notes from <code>CHANGELOG.md</code>. I'll tell you when both are done or if either gets stuck.</p>
+                </div>
+                <div class="tcards">
+                  <div class="h">2 tasks filed</div>
+                  <button class="tcard" data-go="running"><span class="t">Audit dependency licenses</span><span class="m">Researcher · worktree of boundary-desktop</span><span class="pill run"><span class="wdot"></span><span class="card-el">Running · 4m</span></span></button>
+                  <button class="tcard" data-go="needs"><span class="t">Draft release notes for 0.9</span><span class="m">Writer · ~/Work/boundary-desktop</span><span class="pill run"><span class="wdot"></span>Running · 2m</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="composer"><div class="col"><textarea placeholder="Message Orchestrator"></textarea></div></div>
+          <div class="callout l" style="left:24px; top:120px">New: <b>Working now</b> appears only while a task runs. Each row opens its task.</div>
+          <div class="callout l" style="left:520px; top:330px">The <code>kanban_create</code> tool calls render as live task cards, right where you asked.</div>
+        </div>
+
+        <!-- 2–5 · Task page -->
+        <div data-show="running quiet needs done" style="display:contents">
+          <div class="log">
+            <div class="tp">
+              <div class="crumbs"><a href="#" data-go="list">Tasks</a> › <span id="crumb-title">Audit dependency licenses</span></div>
+              <div class="head-row">
+                <h1 id="tp-title">Audit dependency licenses</h1>
+                <div class="menu-btn">
+                  <button class="btn" id="run-menu-btn">Run ▾</button>
+                  <div class="menu" id="run-menu" hidden style="right:0; top:34px; min-width:220px">
+                    <button>Stop run<small>Ends the worker. The task goes back to Ready.</small></button>
+                    <button>Retry<small>Releases the claim so it runs again</small></button>
+                    <hr /><button>Open in board ↗</button>
+                  </div>
+                </div>
+              </div>
+              <div class="meta">
+                <span class="pill run" id="tp-pill"><span class="wdot"></span>Running</span>
+                <span><span class="av" style="background:#86c089; display:inline-grid; vertical-align:-4px" id="tp-av">R</span> <span id="tp-agent">Researcher</span></span>
+                <span class="sep">·</span><a href="#" class="mono" id="tp-ws">~/Work/boundary-desktop/.worktrees/t_4f2a</a>
+                <span class="sep">·</span><span>Filed in <a href="#" data-go="dm">Orchestrator DM</a></span>
+              </div>
+
+              <!-- Liveness strip -->
+              <div class="strip" data-show="running" id="strip-run">
+                <span class="wdot"></span>
+                <span><span class="st">Working</span> <span class="sub">· <span id="el">4m 12s</span> · last activity <span id="beat">3s</span> ago</span></span>
+                <span class="sub">run 1</span>
+                <span class="now"><b>now</b> &nbsp;<span id="now-line">$ npx license-checker --json --production</span></span>
+              </div>
+              <div class="strip warn" data-show="quiet">
+                <span class="wdot warn"></span>
+                <span><span class="st">Quiet for 4m</span> <span class="sub">· 11m 40s · the model may be on one long call</span></span>
+                <button class="btn">Ping worker</button>
+                <span class="now"><b>last</b> &nbsp;calling model (qwen3-32b, 38k tokens in context)</span>
+              </div>
+              <div class="strip warn" data-show="needs">
+                <span class="wdot warn still"></span>
+                <span><span class="st">Waiting for you</span> <span class="sub">· paused 6m ago · the worker has stopped</span></span>
+                <span></span>
+              </div>
+              <div class="strip ok" data-show="done">
+                <span style="color:var(--ok)">✓</span>
+                <span><span class="st">Done</span> <span class="sub">· took 18m · finished 2 min ago</span></span>
+                <a href="#" class="sub">View transcript</a>
+              </div>
+
+              <!-- Needs-input card -->
+              <div class="need-card" data-show="needs">
+                <span class="ask">Writer asks</span>
+                <div class="q">The changelog has two entries for the agent roster. Should the notes credit the redesign to 0.9, or treat it as a 0.8.2 fix that ships again?</div>
+                <textarea placeholder="Reply to the Writer"></textarea>
+                <div class="acts2"><button class="btn solid">Reply and resume</button><button class="btn">Mark done</button><a class="btn r" href="#">Open in board ↗</a></div>
+              </div>
+
+              <!-- Result -->
+              <div class="sec" data-show="done">
+                <h2>Result</h2>
+                <div class="result prose">
+                  <p>312 production dependencies checked. No GPL or AGPL licenses. Two need a look: <code>sharp</code> bundles LGPL-3.0 libvips (fine when dynamically linked), and <code>caniuse-lite</code> is CC-BY-4.0 and needs attribution in About.</p>
+                  <div class="files"><span>docs/licenses/audit-0.9.md</span><span>docs/licenses/third-party.csv</span></div>
+                </div>
+              </div>
+
+              <div class="sec">
+                <h2>What done looks like</h2>
+                <div class="goal" id="tp-goal">List every production dependency with its license. Flag GPL, AGPL and unknown licenses with a recommendation for each. Write the table to <code>docs/licenses/</code>.</div>
+              </div>
+
+              <div class="sec">
+                <h2>Activity</h2>
+                <ul class="tl" id="tl">
+                  <li class="k-ok" data-show="done"><time>2m</time>Completed · 2 files written</li>
+                  <li class="k-you" data-show="done"><time>9m</time>You: <span class="q">Skip devDependencies, only what ships.</span></li>
+                  <li class="k-need" data-show="needs"><time>6m</time>Blocked · needs input</li>
+                  <li class="k-run" data-show="quiet"><time>4m</time>Heartbeat · "Summarising 312 packages, this is a long one"</li>
+                  <li class="k-run"><time>3m</time>Heartbeat · "Found 312 packages, grouping by license"</li>
+                  <li class="k-run"><time>4m</time>Worker started on profile <span class="mono" id="tl-profile">researcher</span></li>
+                  <li><time>4m</time>Claimed by the dispatcher</li>
+                  <li><time>5m</time>Created by Orchestrator</li>
+                </ul>
+              </div>
+
+              <details class="console" data-show="running quiet done" id="console">
+                <summary>Console <span class="r" id="console-r">following · 3s ago</span></summary>
+                <pre class="log-out" id="log"><span class="dim">[kanban] task t_4f2a · run 1 · profile researcher</span>
+<span class="tool">┊ terminal</span>  git -C . ls-files package.json
+<span class="tool">┊ read_file</span> package.json (84 lines)
+<span class="tool">┊ terminal</span>  npm ci --ignore-scripts
+added 1204 packages in 41s
+<span class="tool">┊ terminal</span>  npx license-checker --json --production</pre>
+              </details>
+            </div>
+          </div>
+          <div class="composer tp-composer" data-show="running quiet done">
+            <div class="col">
+              <textarea id="steer" placeholder="Add a note for the worker. It reads it at its next step."></textarea>
+              <div class="cluster"><span class="hint">Notes go on the task as comments</span></div>
+            </div>
+          </div>
+          <div class="callout l" data-show="running" style="left:24px; top:240px">Liveness comes from the worker's heartbeat. The <b>now</b> line is the newest console line, so you see what it's doing without opening logs.</div>
+          <div class="callout l" data-show="running" style="left:24px; bottom:120px">Comments reach a running worker at its next step: a real steering control.</div>
+          <div class="callout l" data-show="quiet" style="left:24px; top:240px">Amber after 3 min with no heartbeat. It's quiet, not dead: a local model can take minutes on one call.</div>
+          <div class="callout l" data-show="needs" style="left:24px; top:240px">Styled like the approval interrupt. One reply both answers and puts the task back to Ready.</div>
+        </div>
+
+        <!-- Tasks list -->
+        <div data-show="list" style="display:contents">
+          <div class="log">
+            <div class="tp">
+              <div class="tl-head"><h1>Tasks</h1><span class="pill">boundary-desktop ▾</span><span class="r"><a class="btn" href="#">Open board ↗</a></span></div>
+              <div class="grp need">
+                <h2>Needs you <span class="n">1</span></h2>
+                <button class="trow" data-go="needs"><span class="wdot warn still"></span><span class="t">Draft release notes for 0.9</span><span class="s">Writer · asked a question</span><span class="s">6m</span></button>
+              </div>
+              <div class="grp">
+                <h2>Running <span class="n">1</span></h2>
+                <button class="trow" data-go="running"><span class="wdot"></span><span class="t">Audit dependency licenses</span><span class="s">Researcher · running license-checker</span><span class="s">4m</span></button>
+              </div>
+              <div class="grp">
+                <h2>Up next <span class="n">2</span></h2>
+                <button class="trow"><span style="color:var(--faint)">○</span><span class="t">Add third-party notices to About</span><span class="s">Coder · waits on the audit</span><span class="s"></span></button>
+                <button class="trow"><span style="color:var(--faint)">○</span><span class="t">Tag v0.9.0 and build installers</span><span class="s">Orchestrator · scheduled Fri 9:00</span><span class="s"></span></button>
+              </div>
+              <div class="grp">
+                <h2>Done <span class="n">3</span></h2>
+                <button class="trow done" data-go="done"><span style="color:var(--ok)">✓</span><span class="t">Bump Electron to 39</span><span class="s">Coder</span><span class="s">yesterday</span></button>
+                <button class="trow done"><span style="color:var(--ok)">✓</span><span class="t">Collect crash reports from beta</span><span class="s">Researcher</span><span class="s">Mon</span></button>
+              </div>
+            </div>
+          </div>
+          <div class="callout l" style="left:24px; top:110px">Grouped by what you'd do about it, not by board column. Drag-and-drop stays in Hermes's board.</div>
+        </div>
+
+        <!-- Elsewhere: Settings open, dot on Chat icon -->
+        <div data-show="other" style="display:contents">
+          <div class="thread-head"><span><strong>Settings</strong></span></div>
+          <div class="log"><div class="col" style="color:var(--faint)">You're in Settings. The Chat icon's working dot says an agent is busy. A notification arrives if a task needs you.</div></div>
+          <div class="toast" style="top:auto; bottom:24px; left:auto; right:24px; transform:none"><span><b>Writer needs you</b> · Draft release notes for 0.9</span><button data-go="needs">Open</button></div>
+          <div class="callout l" style="left:18px; top:12px">The existing dot now also counts kanban workers, not just chat turns.</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../message-actions-ux-study/study.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const NEEDS = { title: "Draft release notes for 0.9", agent: "Writer", av: "W", avBg: "#e0b36a", ws: "~/Work/boundary-desktop",
+      goal: "A draft of the 0.9 release notes in docs/release-notes/0.9.md, grouped into New, Changed and Fixed, written for users rather than developers." };
+    const AUDIT = { title: "Audit dependency licenses", agent: "Researcher", av: "R", avBg: "#86c089", ws: "~/Work/boundary-desktop/.worktrees/t_4f2a",
+      goal: $("tp-goal").innerHTML };
+
+    function render() {
+      const s = document.body.dataset.state;
+      const t = s === "needs" ? NEEDS : AUDIT;
+      $("tp-title").textContent = $("crumb-title").textContent = t.title;
+      $("tp-agent").textContent = t.agent; $("tp-av").textContent = t.av; $("tp-av").style.background = t.avBg;
+      $("tl-profile").textContent = t.agent.toLowerCase(); $("tp-ws").textContent = t.ws; $("tp-goal").innerHTML = t.goal;
+      const pill = $("tp-pill");
+      pill.className = "pill " + ({ running: "run", quiet: "need", needs: "need", done: "ok" }[s] || "run");
+      pill.innerHTML = ({ running: '<span class="wdot"></span>Running', quiet: '<span class="wdot warn"></span>Running · quiet',
+        needs: "Blocked · needs input", done: "✓ Done" }[s] || "");
+      // Rail reflects the audit task's state
+      const auditDone = s === "done";
+      $("wn-audit").hidden = auditDone;
+      $("res-dot").hidden = auditDone;
+      $("run-count").textContent = auditDone ? "1 running" : (s === "needs" ? "1 running" : "2 running");
+      $("wn-live").textContent = "· " + (auditDone ? 1 : 2);
+      $("wn-audit-dot").className = "wdot" + (s === "quiet" ? " warn" : "");
+      $("wn-audit-el").textContent = s === "quiet" ? "quiet 4m" : "4m";
+      $("wn-audit-who").textContent = s === "quiet" ? "Researcher · calling model" : "Researcher · running license-checker";
+      $("orch-row").classList.toggle("is-on", s === "dm");
+      $("tasks-row").classList.toggle("is-on", s === "list");
+      $("console").open = s === "running";
+    }
+
+    document.addEventListener("click", (e) => {
+      const go = e.target.closest("[data-go]");
+      if (go) { e.preventDefault(); study.apply({ state: go.dataset.go }); }
+      if (e.target.closest("#run-menu-btn")) $("run-menu").hidden = !$("run-menu").hidden;
+      else if (!e.target.closest("#run-menu")) $("run-menu").hidden = true;
+    });
+
+    // A little life in the running state: the clock, the heartbeat and console lines.
+    let secs = 252, beat = 3, i = 0;
+    const lines = [
+      ["┊ terminal", "npx license-checker --json --production"],
+      ["", "312 packages scanned"],
+      ["┊ python", "group licenses → 14 distinct"],
+      ["┊ read_file", "node_modules/sharp/LICENSE"],
+      ["┊ web_search", "libvips LGPL dynamic linking electron"],
+      ["┊ write_file", "docs/licenses/third-party.csv"],
+    ];
+    setInterval(() => {
+      secs++; beat++;
+      $("el").textContent = `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s`;
+      if (document.body.dataset.state === "running" && beat >= 5) {
+        beat = 0;
+        const [tool, text] = lines[i++ % lines.length];
+        const log = $("log");
+        log.insertAdjacentHTML("beforeend", "\n" + (tool ? `<span class="tool">${tool}</span>  ` : "") + text);
+        log.scrollTop = log.scrollHeight;
+        $("now-line").textContent = (tool ? tool.replace("┊ ", "") + " · " : "") + text;
+      }
+      $("beat").textContent = beat + "s";
+      $("console-r").textContent = `following · ${beat}s ago`;
+    }, 1000);
+
+    study.init({ render });
+  </script>
+</body>
+</html>

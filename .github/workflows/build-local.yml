@@ -1,0 +1,48 @@
+name: Build Local (for act)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Type check
+        run: bun run type-check
+
+      - name: Lint
+        run: bun run lint
+        continue-on-error: true
+
+      - name: Package application (no distributables)
+        run: bun run build
+        env:
+          NODE_ENV: production
+
+      - name: Verify Forge package output
+        run: |
+          echo "Build completed successfully on Linux (act-friendly)"
+          ls -la out/ || true
+          ls -la .vite/build/ || true
+          if ! ls -d out/* >/dev/null 2>&1; then
+            echo "Expected Forge package output under out/" >&2
+            exit 1
+          fi

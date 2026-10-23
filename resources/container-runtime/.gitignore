@@ -1,0 +1,8 @@
+# Ignore downloaded binaries; keep docs and placeholders.
+*
+!README.md
+!.gitignore
+!darwin-arm64/
+!darwin-x64/
+!darwin-arm64/.gitkeep
+!darwin-x64/.gitkeep

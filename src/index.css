@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@import "./renderer/styles/tokens.css";
+@source "../node_modules/streamdown/dist/*.js";
+
+/* Tailwind reads Boundary tokens (src/renderer/styles/tokens.css). `inline` keeps
+   utilities pointing at the live CSS variables, so a theme swap needs no rebuild.
+   shadcn names (background, primary, muted, …) map onto the same tokens so the
+   primitives in components/ui render correctly without per-call overrides. */
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-serif: var(--font-prose);
+
+  --text-2xs: var(--size-2xs);
+  --text-2xs--line-height: 1.4;
+  --text-ui: var(--size-ui);
+  --text-ui--line-height: var(--leading-ui);
+  --text-title: var(--size-title);
+  --text-title--line-height: 1.35;
+  --text-heading: var(--size-heading);
+  --text-heading--line-height: 1.2;
+  --text-heading--letter-spacing: -0.03em;
+
+  --color-surface-0: var(--surface-0);
+  --color-surface-rail: var(--surface-rail);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-line: var(--line);
+  --color-fg: var(--text);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-faint: var(--text-faint);
+  --color-brand: var(--brand);
+  --color-brand-dim: var(--brand-dim);
+  --color-solid: var(--solid-bg);
+  --color-solid-fg: var(--solid-fg);
+  --color-ok: var(--ok);
+  --color-ok-dim: var(--ok-dim);
+  --color-warn: var(--warn);
+  --color-warn-dim: var(--warn-dim);
+  --color-danger: var(--danger);
+  --color-danger-dim: var(--danger-dim);
+  --color-danger-line: var(--danger-line);
+
+  --color-background: var(--surface-0);
+  --color-foreground: var(--text);
+  --color-card: var(--surface-1);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface-2);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--solid-bg);
+  --color-primary-foreground: var(--solid-fg);
+  --color-secondary: var(--surface-hover);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-hover);
+  --color-muted-foreground: var(--text-faint);
+  --color-accent: var(--surface-hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--brand);
+
+  --ease-standard: var(--ease);
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--line);
+  }
+
+  body {
+    background: var(--surface-0);
+    color: var(--text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    font-kerning: normal;
+  }
+}
+
+/* Window drag area for frameless chrome; controls inside stay clickable. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-drag :is(button, a, input, textarea, select, [role='button'], [role='tab']) {
+  -webkit-app-region: no-drag;
+}

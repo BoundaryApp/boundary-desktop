@@ -1,0 +1,110 @@
+{
+  "models": [
+    {
+      "id": "meta-llama/Llama-3.3-70B-Instruct",
+      "displayName": "Llama 3.3 70B Instruct",
+      "description": "Meta Llama 3.3 70B instruction-tuned model with OpenAI-compatible chat.",
+      "gated": true,
+      "deployments": [
+        {
+          "provider": "runpod",
+          "recipeId": "runpod-vllm-llama",
+          "available": true
+        },
+        {
+          "provider": "baseten",
+          "recipeId": "baseten-llama-33-70b",
+          "available": true
+        },
+        {
+          "provider": "modal",
+          "recipeId": "modal-vllm-llama-70b",
+          "available": false
+        },
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-llama-33-70b",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "Qwen/Qwen3-32B",
+      "displayName": "Qwen 3 32B",
+      "description": "Qwen 3 32B instruction model served with vLLM on Cerebrium.",
+      "gated": false,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-qwen3-32b",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "Qwen/Qwen3-235B-A22B",
+      "displayName": "Qwen 3 235B A22B",
+      "description": "Large Qwen 3 MoE model mapped to multi-GPU Cerebrium hardware.",
+      "gated": false,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-qwen3-235b-a22b",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "google/gemma-4-12b-it",
+      "displayName": "Gemma 4 12B IT",
+      "description": "Gemma 4 instruction-tuned model for lower-cost Cerebrium GPU deployment.",
+      "gated": true,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-gemma4-12b-it",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "google/gemma-4-27b-it",
+      "displayName": "Gemma 4 27B IT",
+      "description": "Gemma 4 27B instruction-tuned model served with vLLM on Cerebrium.",
+      "gated": true,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-gemma4-27b-it",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+      "displayName": "Llama 4 Scout 17B 16E Instruct",
+      "description": "Llama 4 Scout MoE instruction model on multi-GPU Cerebrium hardware.",
+      "gated": true,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-llama4-scout",
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+      "displayName": "Llama 4 Maverick 17B 128E Instruct FP8",
+      "description": "Llama 4 Maverick FP8 MoE model mapped to high-memory Cerebrium GPUs.",
+      "gated": true,
+      "deployments": [
+        {
+          "provider": "cerebrium",
+          "recipeId": "cerebrium-vllm-llama4-maverick-fp8",
+          "available": true
+        }
+      ]
+    }
+  ]
+}
