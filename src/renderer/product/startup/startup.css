@@ -1,0 +1,656 @@
+/* Start-up screen (ADR 0029). Full window, no app chrome. ------------------- */
+
+.su-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  overflow-y: auto;
+  background: var(--surface-0);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--size-ui);
+  line-height: var(--leading-ui);
+  -webkit-app-region: drag; /* the whole screen moves the window */
+}
+
+.su-root :is(button, a, summary, [role='button']) {
+  -webkit-app-region: no-drag;
+}
+
+.su-top {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.su-column {
+  margin: auto;
+  width: min(440px, 100% - 2 * var(--space-6));
+  padding: var(--space-10) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+/* Tool ring --------------------------------------------------------------- */
+
+.su-ring {
+  --r: 98px;
+  position: relative;
+  width: 300px;
+  height: 300px;
+  flex-shrink: 0;
+}
+
+.su-boundary {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.su-boundary circle {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 7;
+  stroke-linecap: round;
+  transform-origin: 150px 150px;
+  animation: su-orbit 80s linear infinite;
+  transition: stroke var(--dur-panel) var(--ease);
+}
+
+.su-root[data-state='ready'] .su-boundary circle {
+  stroke: var(--brand);
+  stroke-dasharray: none;
+  animation: none;
+}
+
+.su-root[data-state='error'] .su-boundary circle {
+  animation: none;
+}
+
+@keyframes su-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.su-tiles {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.su-tile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* Out along the ring, then upright again. */
+  transform: translate(-50%, -22px) rotate(var(--a)) translateY(calc(-1 * var(--r)))
+    rotate(calc(-1 * var(--a)));
+}
+
+.su-tile > :is(button, span[role='img']) {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: var(--radius-lg);
+  cursor: default;
+}
+
+.su-tile > button {
+  cursor: pointer;
+}
+
+.su-tile > button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.su-tile-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--line-strong);
+  color: var(--text-faint);
+  transition:
+    background-color var(--dur-panel) var(--ease),
+    border-color var(--dur-panel) var(--ease),
+    color var(--dur-panel) var(--ease),
+    box-shadow var(--dur-panel) var(--ease);
+}
+
+.su-tile-box svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.55;
+}
+
+.su-tile-label {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-0); /* sits over the boundary line */
+  font-size: var(--size-2xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  transition: color var(--dur-panel) var(--ease);
+}
+
+/* Working: a short arc travels round the tile. */
+.su-tile[data-state='working'] .su-tile-box {
+  border-style: solid;
+  border-color: var(--line);
+  background: var(--surface-1);
+  color: var(--text-muted);
+}
+
+.su-tile[data-state='working'] .su-tile-box svg {
+  opacity: 1;
+}
+
+.su-tile[data-state='working'] .su-tile-box::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--su-spin, 0deg), var(--brand) 0 22%, transparent 22%);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: su-spin 1.4s linear infinite;
+}
+
+@property --su-spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes su-spin {
+  to {
+    --su-spin: 360deg;
+  }
+}
+
+/* Done: the tool pops into place with a small ring burst. */
+.su-tile[data-state='done'] .su-tile-box {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  background: var(--brand-dim);
+  color: var(--brand);
+  animation: su-pop 460ms var(--ease) both;
+}
+
+.su-tile[data-state='done'] .su-tile-box svg {
+  opacity: 1;
+}
+
+.su-tile[data-state='done'] .su-tile-box::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1.5px solid var(--brand);
+  opacity: 0;
+  animation: su-burst 620ms var(--ease) both;
+}
+
+.su-tile[data-state='done'] .su-tile-label {
+  color: var(--text-muted);
+}
+
+@keyframes su-pop {
+  0% {
+    transform: scale(0.7);
+  }
+  55% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes su-burst {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+.su-tile[data-state='error'] .su-tile-box {
+  border-style: solid;
+  border-color: var(--warn-line);
+  background: var(--warn-dim);
+  color: var(--warn);
+}
+
+.su-tile[data-state='error'] .su-tile-box svg {
+  opacity: 1;
+}
+
+/* The tool the story card is talking about. */
+.su-tile[data-highlighted] .su-tile-box {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+.su-tile[data-highlighted] .su-tile-label {
+  color: var(--text);
+}
+
+/* Face -------------------------------------------------------------------- */
+
+.su-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84px;
+  height: 84px;
+  transform: translate(-50%, -54%);
+  overflow: visible;
+  animation: su-bob 3.2s ease-in-out infinite;
+}
+
+.su-face-body {
+  fill: var(--surface-2);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.su-face-stalk {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.su-face-bulb {
+  fill: var(--brand);
+  transform-origin: 40px 6px;
+  animation: su-glow 1.6s ease-in-out infinite;
+}
+
+.su-face-eyes {
+  fill: var(--text);
+  stroke: var(--text);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: transform 420ms var(--ease);
+}
+
+.su-face-eyes path {
+  fill: none;
+}
+
+.su-face-eyes rect {
+  stroke: none;
+}
+
+.su-face-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: su-blink 5.5s infinite;
+}
+
+.su-face[data-mood='ready'] {
+  animation: su-hop 520ms var(--ease) both;
+}
+
+.su-face[data-mood='ready'] .su-face-body {
+  stroke: color-mix(in srgb, var(--brand) 60%, transparent);
+}
+
+.su-face[data-mood='ready'] .su-face-bulb {
+  animation: none;
+}
+
+.su-face[data-mood='error'] {
+  animation: none;
+}
+
+.su-face[data-mood='sleeping'] {
+  animation-duration: 5s;
+}
+
+.su-face[data-mood='sleeping'] .su-face-bulb {
+  fill: var(--text-faint);
+  animation: none;
+}
+
+/* Quitting: the screen covers the app until Boundary closes. */
+.su-root.su-overlay {
+  z-index: 100;
+}
+
+.su-face[data-mood='error'] .su-face-bulb {
+  fill: var(--warn);
+  animation: none;
+}
+
+@keyframes su-bob {
+  50% {
+    transform: translate(-50%, -58%);
+  }
+}
+
+@keyframes su-hop {
+  40% {
+    transform: translate(-50%, -66%) scale(1.04);
+  }
+  100% {
+    transform: translate(-50%, -54%);
+  }
+}
+
+@keyframes su-glow {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes su-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* Text and bar ------------------------------------------------------------ */
+
+.su-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  text-align: center;
+}
+
+.su-heading h1 {
+  margin: 0;
+  font-size: var(--size-heading);
+  font-weight: var(--weight-strong);
+  letter-spacing: -0.01em;
+}
+
+.su-heading p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.su-heading .su-hint {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.su-bar {
+  position: relative;
+  width: 280px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--gauge-track);
+  overflow: hidden;
+}
+
+.su-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 700ms var(--ease);
+}
+
+.su-bar > span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--surface-0) 45%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: su-sheen 2.2s var(--ease) infinite;
+}
+
+@keyframes su-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Story ------------------------------------------------------------------- */
+
+.su-story {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  animation: su-fade-in 600ms var(--ease) both;
+}
+
+@keyframes su-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.su-card {
+  width: 100%;
+  min-height: 92px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  animation: su-card-in 320ms var(--ease) both;
+}
+
+@keyframes su-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.su-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+.su-card-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.su-card h2 {
+  margin: 0 0 2px;
+  font-size: var(--size-title);
+  font-weight: var(--weight-medium);
+}
+
+.su-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.su-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.su-dots button {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+  cursor: pointer;
+  transition:
+    width var(--dur-panel) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.su-dots button[aria-current] {
+  width: 18px;
+  background: var(--brand);
+}
+
+.su-dots button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Disclosures ------------------------------------------------------------- */
+
+.su-why,
+.su-details {
+  width: 100%;
+  font-size: var(--size-xs);
+  color: var(--text-faint);
+}
+
+.su-why summary,
+.su-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.su-why summary::-webkit-details-marker {
+  display: none;
+}
+
+.su-why summary:hover,
+.su-disclosure:hover {
+  color: var(--text-muted);
+}
+
+.su-why summary:focus-visible,
+.su-disclosure:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.su-why summary svg,
+.su-disclosure svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.su-why[open] summary svg,
+.su-disclosure[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.su-why {
+  text-align: center;
+}
+
+.su-why p {
+  margin: var(--space-2) 0 0;
+  text-align: left;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.su-details {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.su-details-body {
+  width: min(720px, 100vw - 2 * var(--space-6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  -webkit-app-region: no-drag;
+}
+
+.su-log {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.su-raw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.su-raw pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .su-root *,
+  .su-root *::before,
+  .su-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

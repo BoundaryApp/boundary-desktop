@@ -187,101 +187,49 @@ html[data-platform='darwin'] .wb-icon-rail {
 /* Setup frame (ADR 0019) ------------------------------------------------- */
 
 .wb-setup-head {
-  height: 42px;
+  position: relative;
+  height: 52px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 var(--space-4);
-  border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
 
-/* Start-up skeleton (ADR 0019) ------------------------------------------- */
-
-.wb-skel-rail {
+/* Background start-up status (ADR 0029); right of the stepper, clear of the traffic lights. */
+.wb-setup-head-end {
+  position: absolute;
+  right: var(--space-4);
+  top: 0;
+  bottom: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-4);
+  align-items: center;
 }
 
-.wb-skel-bar,
-.wb-skel-label {
-  display: block;
-  height: 10px;
-  border-radius: var(--radius-full);
-  background: var(--surface-hover);
-  animation: wb-skel-pulse 1.6s var(--ease) infinite;
+.wb-setup-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
-.wb-skel-label {
-  width: 36%;
-  height: 8px;
-  margin-top: var(--space-3);
-  opacity: 0.6;
+/* Below this width the status would collide with the stepper. */
+@media (max-width: 860px) {
+  .wb-setup-head-end {
+    display: none;
+  }
 }
+
+/* Skeleton pulse: loading placeholders in the rails and inspector. */
 
 @keyframes wb-skel-pulse {
   50% {
     opacity: 0.45;
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wb-skel-bar,
-  .wb-skel-label {
-    animation: none;
-  }
-}
-
-.wb-skel-log {
-  flex: 1;
-  min-height: 0;
-}
-
-.wb-skel-status {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin: 0 auto var(--space-4);
-  width: min(720px, calc(100% - 2 * var(--space-6)));
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
-
-.wb-skel-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: 0;
-  background: none;
-  padding: 2px var(--space-1);
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: var(--size-xs);
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: color var(--dur-fast) var(--ease);
-}
-
-.wb-skel-toggle:hover {
-  color: var(--text-muted);
-}
-
-.wb-skel-toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.wb-skel-toggle svg {
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.wb-skel-toggle[aria-expanded='true'] svg {
-  transform: rotate(90deg);
 }
 
 /* Buttons ---------------------------------------------------------------- */

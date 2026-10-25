@@ -3,7 +3,7 @@ import { useSetup } from '../setup/SetupContext';
 import { assistantStackIPC } from '../services/assistantStackIPCService';
 import { createLifecycleSnapshot } from '../../shared/assistantStackLifecycle';
 import type { AssistantStackLifecycleSnapshot } from '../../shared/types/assistantStack';
-import { WorkbenchSkeleton } from './WorkbenchSkeleton';
+import { StartupScreen } from './startup/StartupScreen';
 
 export interface AssistantStackStartingScreenProps {
   lifecycle: AssistantStackLifecycleSnapshot;
@@ -61,10 +61,13 @@ export const AssistantStackStartingScreen: React.FC<AssistantStackStartingScreen
   const isError = lifecycle.phase === 'error' || Boolean(error);
 
   return (
-    <WorkbenchSkeleton
+    <StartupScreen
+      variant="launch"
       stage={isError ? 'error' : lifecycle.stage}
+      stageStartedAt={lifecycle.stageStartedAt}
       message={lifecycle.message}
       services={services}
+      download={lifecycle.download}
       error={error}
       onRetry={isError ? () => void handleRetry() : undefined}
       retrying={retrying}

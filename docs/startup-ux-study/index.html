@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Start-up screen study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;560;650&display=swap" />
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <link rel="stylesheet" href="../../src/renderer/product/startup/startup.css" />
+  <style>
+    body { margin: 0; background: var(--surface-rail); color: var(--text); font-family: var(--font-ui); font-size: var(--size-ui); }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .bar h1 { font-size: var(--size-title); margin: 0 12px 0 0; }
+    .bar button { font: inherit; padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface-1); color: var(--text); cursor: pointer; }
+    .bar button[aria-pressed='true'] { border-color: var(--brand); color: var(--brand); }
+    .bar .sep { flex: 1; }
+    .frame { position: relative; width: min(960px, 100% - 32px); height: 680px; margin: 16px auto; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .frame .su-root { position: absolute; }
+    .su-text { display: contents; }
+    .mock-steps { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+    .mock-steps i { font-style: normal; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; border-radius: 50%; font-size: 11px; border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-dim); color: var(--ok); }
+    .mock-steps b { font-weight: 560; color: var(--text); }
+    .mock-steps b i { border-color: var(--brand); background: none; color: var(--brand); }
+    .mock-steps hr { width: 24px; border: 0; border-top: 1px solid var(--line); margin: 0; }
+    .note { width: min(960px, 100% - 32px); margin: 0 auto 32px; color: var(--text-muted); line-height: 1.55; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <h1>Start-up screen (ADR 0029)</h1>
+    <button data-scenario="first">First run</button>
+    <button data-scenario="launch">Quick launch</button>
+    <button data-scenario="slow">Slow launch</button>
+    <button data-scenario="error">Error</button>
+    <button data-scenario="quit">Quit</button>
+    <span class="sep"></span>
+    <button id="speed">Speed ×8</button>
+    <button id="theme">Light theme</button>
+  </div>
+  <div class="frame" id="frame"></div>
+  <p class="note">Drawn with the live tokens and <code>startup.css</code>; the markup mirrors <code>StartupScreen.tsx</code>. Timings are a compressed simulation: real first runs take minutes, mostly in the download and container stages.</p>
+<script>
+const ICONS = {"MessageCircle": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-message-circle\" aria-hidden=\"true\"><path d=\"M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719\"></path></svg>", "Search": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-search\" aria-hidden=\"true\"><path d=\"m21 21-4.34-4.34\"></path><circle cx=\"11\" cy=\"11\" r=\"8\"></circle></svg>", "BookOpen": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-book-open\" aria-hidden=\"true\"><path d=\"M12 7v14\"></path><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\"></path></svg>", "Network": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-network\" aria-hidden=\"true\"><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\"></rect><rect x=\"2\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\"></rect><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\"></rect><path d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"></path><path d=\"M12 12V8\"></path></svg>", "Workflow": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-workflow\" aria-hidden=\"true\"><rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\"></rect><path d=\"M7 11v4a2 2 0 0 0 2 2h4\"></path><rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\"></rect></svg>", "Code": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-code\" aria-hidden=\"true\"><path d=\"m16 18 6-6-6-6\"></path><path d=\"m8 6-6 6 6 6\"></path></svg>", "KeyRound": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-key-round\" aria-hidden=\"true\"><path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"></path><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"></circle></svg>", "ChevronRight": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-chevron-right\" aria-hidden=\"true\"><path d=\"m9 18 6-6-6-6\"></path></svg>"};
+const TOOLS = [
+  ['assistant','Assistant','Your assistant','Chats with you, plans the work and uses the tools around it. Commands it runs happen in a separate container, not directly on your Mac.','MessageCircle'],
+  ['search','Search','Private web search','Asks many search engines at once from this Mac, with no account or ad profile attached to what you look up.','Search'],
+  ['research','Research','Deep research','Reads dozens of sources on a question and writes you a report with citations.','BookOpen'],
+  ['memory','Memory','Long-term memory','Builds a knowledge graph from what you share, so answers can connect ideas across your documents.','Network'],
+  ['automations','Automations','Automations','Workflows that run on a schedule or when something happens, without you asking each time.','Workflow'],
+  ['coding','Coding','A coding agent','Writes, runs and fixes code in the folders you choose.','Code'],
+  ['model','Model','Your model connection','Routes every tool to the model you picked. Your key stays in memory and is never written to disk.','KeyRound'],
+];
+const STAGE_COPY = { provision: 'Downloading your tools', hostSetup: 'Setting things up on this Mac', hermesInit: 'Preparing your assistant', compose: 'Starting your tools', health: 'Making sure everything works', configureLlm: 'Connecting your model', ready: 'Ready' };
+// Seconds of simulated time per stage, and when each tool finishes within compose+health.
+const SCENARIOS = {
+  first:  { variant: 'first-run', stages: [['provision', 40], ['hostSetup', 12], ['hermesInit', 6], ['compose', 70], ['health', 14], ['configureLlm', 6]], order: [6, 1, 0, 2, 4, 5, 3] },
+  launch: { variant: 'launch', stages: [['provision', 1], ['compose', 2], ['health', 1.5]], order: [6, 1, 0, 2, 4, 5, 3] },
+  slow:   { variant: 'launch', stages: [['provision', 2], ['compose', 30], ['health', 6]], order: [6, 1, 0, 2, 4, 5, 3] },
+  quit:   { variant: 'quit', stages: [['stop', 12]], order: [3, 5, 4, 2, 1, 0, 6] },
+  error:  { variant: 'launch', stages: [['provision', 1], ['compose', 4], ['health', 3]], order: [6, 1, 0, 2, 4, 5, 3], failAt: 6.5 },
+};
+let scenario = 'first', speed = 8, t0 = 0, card = 0, cardAt = 0, high = 0, detailsOpen = false, timer = 0, pickedAt = 0;
+const frame = document.getElementById('frame');
+
+function sim(t) {
+  const sc = SCENARIOS[scenario];
+  if (sc.variant === 'quit') {
+    const f = Math.min(1, t / 12);
+    const states = TOOLS.map((_, i) => {
+      const stopAt = (sc.order.indexOf(i) + 1) / (TOOLS.length + 0.5);
+      return f >= stopAt ? 'pending' : f >= stopAt - 0.3 ? 'working' : 'done';
+    });
+    return { stage: f >= 1 ? 'stopped' : 'stop', inStage: t, states, fill: f };
+  }
+  let acc = 0, stage = 'ready', inStage = 0, composeStart = 0, composeLen = 0;
+  for (const [name, len] of sc.stages) {
+    if (name === 'compose') composeStart = acc;
+    if (name === 'compose' || name === 'health') composeLen += len;
+    if (t < acc + len && stage === 'ready') { stage = name; inStage = t - acc; }
+    acc += len;
+  }
+  if (sc.failAt && t >= sc.failAt) return { stage: 'error', inStage: 0, states: TOOLS.map((_, i) => i === 3 ? 'error' : i < 3 ? 'done' : 'pending'), fill: 0 };
+  const states = TOOLS.map((_, i) => {
+    if (stage === 'ready' || stage === 'configureLlm') return 'done';
+    if (t < composeStart) return 'pending';
+    const k = sc.order.indexOf(i), f = (t - composeStart) / composeLen;
+    const doneAt = (k + 1) / (TOOLS.length + 0.5), startAt = Math.max(0, doneAt - 0.45);
+    return f >= doneAt ? 'done' : f >= startAt ? 'working' : 'pending';
+  });
+  const spans = { provision: [0, .22, 40], hostSetup: [.22, .32, 15], hermesInit: [.32, .37, 10], configureLlm: [.9, .98, 8] };
+  const creep = (s, tau) => 0.9 * (1 - Math.exp(-s / tau));
+  let fill = 0.02;
+  if (stage === 'ready') fill = 1;
+  else if (stage === 'compose' || stage === 'health') fill = .37 + .53 * Math.min(.98, (t - composeStart) / composeLen);
+  else if (spans[stage]) { const [a, b, tau] = spans[stage]; fill = a + (b - a) * creep(inStage * (sc.variant === 'first-run' ? 1 : 10), tau); }
+  return { stage, inStage, states, fill };
+}
+
+function render() {
+  const sc = SCENARIOS[scenario];
+  const t = (performance.now() - t0) / 1000 * speed;
+  const { stage, inStage, states, fill } = sim(t);
+  const isError = stage === 'error', isReady = stage === 'ready';
+  high = Math.max(high, fill);
+  const wall = (performance.now() - t0) / 1000;
+  const quitting = sc.variant === 'quit';
+  const showStory = !quitting && !isError && !isReady && (sc.variant === 'first-run' || t >= 6);
+  if (showStory && performance.now() - cardAt > 9000 && !frame.matches(':hover')) { card = (card + 1) % TOOLS.length; cardAt = performance.now(); }
+  const highlighted = showStory ? card : -1;
+  const lookAt = quitting ? -1 : highlighted >= 0 ? highlighted : states.indexOf('working');
+  const step = 360 / TOOLS.length;
+  const rad = lookAt >= 0 ? (lookAt * step - 90) * Math.PI / 180 : 0;
+  const lx = lookAt >= 0 ? Math.cos(rad) * 3.5 : 0, ly = lookAt >= 0 ? Math.sin(rad) * 2.5 : 0;
+  const mood = quitting ? 'sleeping' : isError ? 'error' : isReady ? 'ready' : 'working';
+  const eyes = mood === 'sleeping' ? '<path d="M24 40 q5 5 10 0"/><path d="M46 40 q5 5 10 0"/>'
+    : mood === 'ready' ? '<path d="M24 42 q5 -7 10 0"/><path d="M46 42 q5 -7 10 0"/>'
+    : mood === 'error' ? '<path d="M25 41 h8"/><path d="M47 41 h8"/>'
+    : '<g class="su-face-blink"><rect x="25" y="34" width="8" height="13" rx="4"/><rect x="47" y="34" width="8" height="13" rx="4"/></g>';
+  const headline = quitting ? 'Shutting down your assistant' : isError ? 'Your assistant didn’t respond in time' : isReady ? 'Your assistant is ready' : sc.variant === 'first-run' ? 'Setting up your assistant' : 'Starting your assistant';
+  const stageLine = quitting ? 'Stopping your tools. Boundary closes when this finishes.' : isError ? 'The assistant didn’t answer its health check before the time limit. A busy or slow Mac can cause this. Try again, and if it happens again, the details show what it was doing.' : stage === 'provision' && sc.variant === 'launch' ? 'Checking your tools' : STAGE_COPY[stage];
+  const [, , title, benefit, icon] = TOOLS[card];
+  const story = showStory ? `<section class="su-story">
+      <div class="su-card" data-key="${card}"><span class="su-card-icon">${ICONS[icon]}</span><div><h2>${title}</h2><p>${benefit}</p></div></div>
+      <div class="su-dots">${TOOLS.map((_, i) => `<button type="button" data-pick="${i}" ${i === card ? 'aria-current="true"' : ''}></button>`).join('')}</div>
+      <details class="su-why"><summary>${ICONS.ChevronRight}Why does this take a while?</summary><p>${sc.variant === 'first-run'
+        ? 'Boundary is installing open-source AI tools that usually take a software developer to set up: web search, deep research, long-term memory, automations and a coding agent. It downloads them once, connects them to each other and runs each one in its own container on this Mac. You don’t need to do anything. Later launches skip the download.'
+        : 'Each tool runs in its own container on this Mac. Boundary starts them and checks that they can reach each other and your model before you start chatting.'}</p></details>
+    </section>` : '';
+  if (!frame.querySelector('.su-root') || frame.dataset.scenario !== scenario + t0) {
+    frame.dataset.scenario = scenario + t0;
+    frame.innerHTML = `<div class="su-root">${sc.variant === 'first-run' ? '<div class="su-top"><div class="mock-steps"><span><i>✓</i>Machine</span><hr><span><i>✓</i>Model</span><hr><b><i>3</i>Assistant</b></div></div>' : ''}<div class="su-column">
+      <div class="su-ring"><svg class="su-boundary" viewBox="0 0 300 300"><circle cx="150" cy="150" r="140"/></svg>
+        <svg class="su-face" viewBox="0 0 80 80"><line class="su-face-stalk" x1="40" y1="14" x2="40" y2="6"/><circle class="su-face-bulb" cx="40" cy="6" r="3.5"/><rect class="su-face-body" x="10" y="14" width="60" height="54" rx="18"/><g class="su-face-eyes"></g></svg>
+        <ul class="su-tiles">${TOOLS.map(([id, label, , , icon], i) => `<li class="su-tile" style="--a:${i * step}deg"><button type="button" data-pick="${i}"><span class="su-tile-box">${ICONS[icon]}</span></button><span class="su-tile-label">${label}</span></li>`).join('')}</ul></div>
+      <div class="su-text"></div></div></div>`;
+  }
+  const root = frame.querySelector('.su-root');
+  root.dataset.state = quitting || mood === 'sleeping' ? 'working' : mood;
+  const face = root.querySelector('.su-face');
+  if (face.dataset.mood !== mood) { face.dataset.mood = mood; face.querySelector('.su-face-eyes').innerHTML = eyes; }
+  face.querySelector('.su-face-eyes').style.transform = `translate(${lx}px,${ly}px)`;
+  root.querySelectorAll('.su-tile').forEach((li, i) => {
+    if (li.dataset.state !== states[i]) li.dataset.state = states[i];
+    li.toggleAttribute('data-highlighted', i === highlighted);
+  });
+  const text = `<div class="su-heading"><h1>${headline}</h1><p>${stageLine}</p><p class="su-hint su-dl"></p></div>
+    ${isError ? '' : '<div class="su-bar"><span></span></div>'}
+    ${story}
+    ${isError ? '<button type="button" id="retry" style="font:inherit;font-weight:560;height:32px;padding:0 12px;border:0;border-radius:var(--radius-md);background:var(--solid-bg);color:var(--solid-fg);cursor:pointer">Try again</button>' : ''}
+    ${isReady || stage === 'stopped' ? '' : `<div class="su-details"><button type="button" class="su-disclosure" aria-expanded="${detailsOpen || isError}">${ICONS.ChevronRight}${detailsOpen || isError ? 'Hide details' : 'Show details'}</button>${detailsOpen || isError ? `<div class="su-details-body">${isError ? '<div class="su-raw"><pre>Hermes API did not become healthy at http://127.0.0.1:8642/health within 180000ms</pre><button type="button" style="font:inherit;font-size:12px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:var(--radius-md);background:none;color:var(--text);cursor:pointer">Copy details</button></div>' : (quitting ? '<p class="su-log">Quit requested — stopping assistant containers…</p>' : '<p class="su-log">Waiting for Hermes health check… 14s</p>')}</div>` : ''}</div>`}`;
+  const holder = root.querySelector('.su-text');
+  if (holder.dataset.last !== text) {
+    const why = holder.querySelector('.su-why');
+    const whyOpen = why && why.open;
+    const prevWidth = holder.querySelector('.su-bar > span')?.style.width;
+    holder.innerHTML = text;
+    holder.dataset.last = text;
+    const fresh = holder.querySelector('.su-bar > span');
+    if (fresh && prevWidth) { fresh.style.transition = 'none'; fresh.style.width = prevWidth; fresh.offsetWidth; fresh.style.transition = ''; }
+    if (whyOpen && holder.querySelector('.su-why')) holder.querySelector('.su-why').open = true;
+  }
+  // Simulated pull: about 2.4 GB over the compose stage on first run.
+  const dl = holder.querySelector('.su-dl');
+  if (dl) {
+    let line = '';
+    if (sc.variant === 'first-run' && stage === 'compose') {
+      const f = Math.min(1, inStage / 60);
+      const gb = f * 2.4;
+      line = `${gb >= 1 ? gb.toFixed(1) + ' GB' : Math.round(gb * 1000) + ' MB'} downloaded · ${Math.round(2400 / 60 * speed / 8)} MB/s`;
+      if (f >= 1) line = '';
+    }
+    dl.textContent = line;
+    dl.hidden = !line;
+  }
+  const fillEl = holder.querySelector('.su-bar > span');
+  if (fillEl) fillEl.style.width = `${Math.round(high * 100)}%`;
+}
+
+function start(name) {
+  scenario = name; t0 = performance.now(); card = 0; cardAt = t0; high = 0; detailsOpen = false;
+  document.querySelectorAll('[data-scenario]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scenario === name)));
+}
+document.querySelectorAll('[data-scenario]').forEach((b) => b.addEventListener('click', () => start(b.dataset.scenario)));
+frame.addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-pick]');
+  if (pick) { card = Number(pick.dataset.pick); cardAt = performance.now(); }
+  if (e.target.closest('.su-disclosure')) detailsOpen = !detailsOpen;
+  if (e.target.closest('#retry')) start('launch');
+  render();
+});
+document.getElementById('speed').addEventListener('click', (e) => { speed = speed === 8 ? 1 : 8; e.target.textContent = speed === 8 ? 'Speed ×8' : 'Speed ×1'; });
+document.getElementById('theme').addEventListener('click', (e) => {
+  const light = document.documentElement.dataset.theme !== 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  e.target.textContent = light ? 'Dark theme' : 'Light theme';
+});
+start('first');
+setInterval(render, 250);
+render();
+</script>
+</body>
+</html>

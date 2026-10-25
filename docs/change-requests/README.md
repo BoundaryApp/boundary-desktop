@@ -29,3 +29,4 @@ The stack developer updates **Status** in the table below and replies inline und
 | [0004](0004-turn-liveness.md) | Turn liveness: a heartbeat while a turn runs, and a one-session status query | Chat turn state | R1–R2 delivered (unreleased) · Boundary wired, fallback kept |
 | [0005](0005-kanban-task-activity.md) | Kanban task activity: the current tool in heartbeats, an atomic stop, filed task ids in history | [task activity spec](../kanban-activity-ux-study/spec.md) | Open |
 | [0006](0006-calendar-connect.md) | Calendar connect: an arm64 bridge, event details in approvals, credential mirroring, a calendar allowlist | [calendar connect spec](../calendar-ux-study/spec.md) | R1–R3, R6 delivered in v0.3.3 · R4 declined · R5 waiting on upstream · R7 open |
+| [0007](0007-profile-stub-bootstrap.md) | Profile bootstrap: create a gateway profile whose folder exists without config.yaml | First-run start-up | Open |

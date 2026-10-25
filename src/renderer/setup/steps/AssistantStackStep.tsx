@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { SetupShell } from '../SetupShell';
 import { SETUP_STEPS } from './index';
 import { Button } from '../../components/ui/button';
-import { Callout } from '../../components/ui/alert';
-import { WorkbenchSkeleton } from '../../product/WorkbenchSkeleton';
+import { StartupScreen } from '../../product/startup/StartupScreen';
 import { useSetup } from '../SetupContext';
 import type { SetupStepProps } from '../types';
 import { assistantStackIPC } from '../../services/assistantStackIPCService';
@@ -75,53 +74,55 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
     }
   };
 
-  if (assistantStackStatus?.setupComplete && assistantStackStatus.ready && !error) {
-    const offset = assistantStackStatus.isolationMode === 'offset-ports';
-    return (
-      <SetupShell title="Your assistant is ready" centered>
-        <div className="flex items-center gap-3 text-ui text-fg-muted" role="status">
-          <CheckCircle2 className="size-5 text-ok" aria-label="Assistant stack ready" />
-          <span>Opening Boundary…</span>
-        </div>
-        <StackDetails>
-          Hermes API at <code className="font-mono">{assistantStackStatus.apiBaseUrl}</code>
-          {offset ? ' (offset ports — a developer stack is using the defaults)' : ''}. Core, rag,
-          automation, and coding profiles are up.
-        </StackDetails>
-      </SetupShell>
-    );
-  }
-
   const services =
     lifecycle.services?.length > 0
       ? lifecycle.services
       : createLifecycleSnapshot('starting').services;
 
-  if (running || lifecycle.phase === 'starting') {
+  const setupSteps = {
+    steps: SETUP_STEPS.map((step) => ({ id: step.id, label: step.label })),
+    currentId: 'assistant-stack',
+  };
+  const ready = Boolean(assistantStackStatus?.setupComplete && assistantStackStatus.ready);
+  if (!error && (ready || running || lifecycle.phase === 'starting')) {
     return (
-      <WorkbenchSkeleton
-        stage={lifecycle.stage}
-        message={lifecycle.message ?? 'Starting your assistant…'}
+      <StartupScreen
+        variant="first-run"
+        stage={ready ? 'ready' : lifecycle.stage}
+        stageStartedAt={lifecycle.stageStartedAt}
+        message={lifecycle.message}
         services={services}
-        setupSteps={{
-          steps: SETUP_STEPS.map((step) => ({ id: step.id, label: step.label })),
-          currentId: 'assistant-stack',
-        }}
+        download={lifecycle.download}
+        setupSteps={setupSteps}
+      />
+    );
+  }
+
+  if (error) {
+    return (
+      <StartupScreen
+        variant="first-run"
+        stage="error"
+        message={lifecycle.message}
+        services={services}
+        error={error}
+        onRetry={() => void handleRetry()}
+        retrying={running}
+        setupSteps={setupSteps}
       />
     );
   }
 
   return (
     <SetupShell
-      title={error ? 'Your assistant didn’t start' : title}
+      title={title}
       description={description}
       actions={
         <Button type="button" onClick={() => void handleRetry()}>
-          {error ? 'Try again' : 'Start assistant'}
+          Start assistant
         </Button>
       }
     >
-      {error && <Callout variant="destructive">{error}</Callout>}
       <StackDetails>
         Boundary runs a dedicated Compose project (
         <code className="font-mono">boundary-assistant</code>) with its own data directory, so a

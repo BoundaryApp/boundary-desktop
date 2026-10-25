@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLifecycleSnapshot, seedServiceProgress } from '../../../shared/assistantStackLifecycle';
 
@@ -91,6 +91,32 @@ describe('ProductApp gating', () => {
     const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('chat-workbench')).toBeTruthy();
+  });
+
+  it('holds the start-up screen briefly once the stack is ready', async () => {
+    vi.useFakeTimers();
+    useSetup.mockReturnValue({
+      allComplete: true,
+      assistantStackStatus: { setupComplete: true, ready: false },
+    });
+    useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('starting'));
+
+    const { ProductApp, READY_HOLD_MS } = await import('../ProductApp');
+    const { rerender } = render(<ProductApp />);
+    expect(screen.getByText('starting-screen')).toBeTruthy();
+
+    useSetup.mockReturnValue({
+      allComplete: true,
+      assistantStackStatus: { setupComplete: true, ready: true },
+    });
+    useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('ready'));
+    rerender(<ProductApp />);
+    expect(screen.getByText('starting-screen')).toBeTruthy();
+    expect(screen.queryByText('chat-workbench')).toBeNull();
+
+    act(() => vi.advanceTimersByTime(READY_HOLD_MS));
+    expect(screen.getByText('chat-workbench')).toBeTruthy();
+    vi.useRealTimers();
   });
 
   it('shows quit overlay while stopping', async () => {
