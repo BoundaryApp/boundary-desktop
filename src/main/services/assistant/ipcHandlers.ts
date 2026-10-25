@@ -13,6 +13,7 @@ import {
   stopAssistantStack,
 } from './AssistantStackService';
 import { markAssistantStackSetupComplete } from './AssistantStackStore';
+import { createStartupNotifier } from './startupNotice';
 import type {
   ApplyAssistantLlmPayload,
   AssistantStackLifecycleSnapshot,
@@ -26,7 +27,10 @@ function broadcastProgress(message: string): void {
   }
 }
 
+const noticeStartup = createStartupNotifier();
+
 function broadcastLifecycle(snapshot: AssistantStackLifecycleSnapshot): void {
+  noticeStartup(snapshot);
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('assistant-stack:lifecycle', snapshot);

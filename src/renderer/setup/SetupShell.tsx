@@ -1,10 +1,10 @@
 import React from 'react';
-import { ProductIconRail } from '../product/ProductIconRail';
 import { Stepper } from '../components/ui/stepper';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { useOptionalSetup } from './SetupContext';
 import { SETUP_STEPS } from './steps';
+import { SetupBackgroundStatus } from './SetupBackgroundStatus';
 import type { SetupStepId } from './types';
 import '../product/chat/workbench.css';
 
@@ -26,8 +26,8 @@ export interface SetupShellProps {
 }
 
 /**
- * Setup inside the workbench frame (ADR 0019): same surface, type, and icon
- * rail as the ready app, with the rail inert until setup completes.
+ * Setup in the full-window frame (ADR 0029): the workbench's surface and type,
+ * no app chrome, a stepper in the drag area and background start-up status.
  */
 export const SetupShell: React.FC<SetupShellProps> = ({
   children,
@@ -50,10 +50,12 @@ export const SetupShell: React.FC<SetupShellProps> = ({
 
   return (
     <div className="workbench flex h-screen w-screen overflow-hidden">
-      <ProductIconRail active={null} disabled />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="wb-setup-head">
           {currentStep !== null && <Stepper steps={stepperSteps} currentId={currentStep} />}
+          <div className="wb-setup-head-end">
+            <SetupBackgroundStatus />
+          </div>
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto">
@@ -71,7 +73,7 @@ export const SetupShell: React.FC<SetupShellProps> = ({
         </main>
 
         {hasFooter && (
-          <footer className="shrink-0 border-t border-line bg-surface-0">
+          <footer className="shrink-0 bg-surface-0">
             <div className={cn('mx-auto flex w-full items-center gap-2 px-6 py-3', column)}>
               {onBack && (
                 <Button type="button" variant="ghost" onClick={onBack}>

@@ -20,6 +20,7 @@ import {
   buildComposeProfileArgs,
 } from '../../../shared/assistantStackConstants';
 import { buildAssistantUiServiceCards } from '../../../shared/assistantUiServices';
+import { summarizeDownload, tallyDownload, type DownloadTally } from '../../../shared/startupDownload';
 import {
   applyComposeProgressEvent,
   applyLocalImageListing,
@@ -234,6 +235,25 @@ function emitStage(
   });
 }
 
+/**
+ * One debug-log line per finished start-up stage, to tune the start-up screen's
+ * progress curves (ADR 0029) from real runs.
+ */
+function logStageTiming(
+  prev: AssistantStackLifecycleSnapshot,
+  next: AssistantStackLifecycleSnapshot
+): void {
+  if (!prev.stage || !prev.stageStartedAt || prev.phase !== 'starting') return;
+  if (next.stage === undefined || next.stage === prev.stage) return;
+  persistDebugLog('assistant-stack', 'start-up stage finished', {
+    stage: prev.stage,
+    next: next.stage,
+    ms: Date.now() - prev.stageStartedAt,
+    firstRun: startIsFirstRun,
+    ...(prev.download ? { downloadedBytes: prev.download.receivedBytes } : {}),
+  });
+}
+
 function setLifecycle(snapshot: AssistantStackLifecycleSnapshot): void {
   const prev = lifecycleSnapshot;
   const reset = isLifecycleWaveBoundary(prev.phase, snapshot.phase);
@@ -243,6 +263,7 @@ function setLifecycle(snapshot: AssistantStackLifecycleSnapshot): void {
       : mergeServicesById(prev.services, snapshot.services, `setLifecycle:${prev.phase}→${snapshot.phase}`);
   const stageChanged =
     snapshot.stage !== undefined && snapshot.stage !== prev.stage;
+  logStageTiming(prev, snapshot);
   lifecycleSnapshot = {
     ...snapshot,
     services,
@@ -272,13 +293,23 @@ function markAllServicesDone(
   );
 }
 
+/** Layer bytes for the current start; reset when an ensure begins. */
+let downloadTally: DownloadTally = {};
+/** Whether the current start includes host setup, for the stage-timing log. */
+let startIsFirstRun = false;
+
 function handleProgressLine(line: string): void {
   const event = parseComposeProgressLine(line);
   if (!event) return;
   const nextServices = applyComposeProgressEvent(lifecycleSnapshot.services, event);
-  if (nextServices !== lifecycleSnapshot.services) {
-    setLifecycle({ ...lifecycleSnapshot, services: nextServices });
-  }
+  const nextTally = tallyDownload(downloadTally, event);
+  if (nextServices === lifecycleSnapshot.services && nextTally === downloadTally) return;
+  downloadTally = nextTally;
+  setLifecycle({
+    ...lifecycleSnapshot,
+    services: nextServices,
+    download: summarizeDownload(downloadTally),
+  });
 }
 
 function offsetPorts(base: AssistantStackPorts, offset: number): AssistantStackPorts {
@@ -1049,6 +1080,8 @@ export function ensureAssistantStackRunningInBackground(): void {
 }
 
 async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackResult> {
+  downloadTally = {};
+  startIsFirstRun = !isHostSetupComplete();
   try {
     setLifecycle(
       createLifecycleSnapshot('starting', {

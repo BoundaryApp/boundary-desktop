@@ -20,6 +20,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    │    └── 0021 Right-aligned user turns and message hover rows
  │    │    └── 0018 Design tokens and primitives
  │    │         └── 0019 Onboarding in the workbench frame
+ │    │              └── 0029 A full-window start-up screen (supersedes 0019 §6)
  │    ├── 0004 Instrument composer (steal C)
  │    │    └── 0022 Run control in the composer
  │    ├── 0005 Folder-first create flow (D)
@@ -57,7 +58,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0016](0016-chat-inference-override.md) | Accepted | Chat inference override and honest apply |
 | [0017](0017-project-inference-pin.md) | Accepted | Project inference pin and resolve order |
 | [0018](0018-design-tokens-and-primitives.md) | Accepted | Design tokens and primitives |
-| [0019](0019-onboarding-in-workbench-frame.md) | Accepted | Onboarding in the workbench frame |
+| [0019](0019-onboarding-in-workbench-frame.md) | Accepted · §6 and part of §1 superseded by 0029 | Onboarding in the workbench frame |
 | [0020](0020-centered-transcript-column.md) | Proposed | Centered transcript column |
 | [0021](0021-right-aligned-user-turns.md) | Proposed | Right-aligned user turns and message hover rows |
 | [0022](0022-run-control-in-the-composer.md) | Proposed | Run control in the composer |
@@ -67,6 +68,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0026](0026-model-key-lives-in-proxy-memory.md) | Accepted | The model key lives in the proxy's memory, not on disk |
 | [0027](0027-host-bridge.md) | Accepted | A host bridge gives Hermes the host's browser and capabilities |
 | [0028](0028-coding-folders.md) | Proposed · amended 2026-10-07 | Coding folders: the coding agent works in folders the user grants |
+| [0029](0029-full-window-startup-screen.md) | Proposed | A full-window start-up screen |
 
 ## Host bridge research
 

@@ -9,6 +9,8 @@ export function useAssistantStackLifecycle(): AssistantStackLifecycleSnapshot {
   );
 
   useEffect(() => {
+    // Isolated renderer tests mount setup screens without the preload bridge.
+    if (!window.electronAPI?.assistantStack) return;
     let cancelled = false;
     void assistantStackIPC.getLifecycle().then((snapshot) => {
       if (!cancelled && snapshot) {

@@ -1,7 +1,7 @@
 # 0019. Onboarding in the workbench frame
 
 - Date: 2026-09-28
-- Status: Accepted
+- Status: Accepted · §6 and the icon rail and header border in §1 superseded by [0029](0029-full-window-startup-screen.md)
 - Parent: [0018](0018-design-tokens-and-primitives.md)
 - Sources: [`docs/onboarding-ux-study/index.html`](../onboarding-ux-study/index.html), [`docs/design-system/index.html`](../design-system/index.html) (Setup patterns)
 

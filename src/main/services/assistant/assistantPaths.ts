@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
 import { BOUNDARY_ASSISTANT_OVERLAY_FILENAME } from '../../../shared/assistantStackConstants';
+import { persistDebugLog } from '../../persistDebugLog';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -242,18 +243,53 @@ export async function ensureOpenCodeConfigFile(
 const HERMES_GATEWAY_PROFILES = ['api-server', 'browser'] as const;
 
 /**
+ * Errors seen right after a container that mounted the stub exits (`hermes setup` leaves
+ * `profiles/<name>/memories` as a mount point), while Docker Desktop releases it.
+ * Node's own `maxRetries` doesn't cover EACCES.
+ */
+const TRANSIENT_RM_CODES = new Set(['EACCES', 'EPERM', 'EBUSY', 'ENOTEMPTY']);
+const PROFILE_RM_ATTEMPTS = 5;
+
+async function rmWithRetry(target: string, retryDelayMs: number): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await fs.promises.rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (!TRANSIENT_RM_CODES.has(code) || attempt >= PROFILE_RM_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+    }
+  }
+}
+
+/**
  * Hermes bootstrap assumes each listed profile has a config.yaml (cloned from
  * default). Stub dirs without config.yaml make `hermes profile list` report the
  * profile, bootstrap skips clone, then set_yaml_list exits 1.
+ *
+ * A stub that still can't be removed after retries is logged and left in place rather
+ * than failing start-up here; the next start tries again.
  */
-export async function removeIncompleteHermesProfiles(dataRoot: string): Promise<string[]> {
+export async function removeIncompleteHermesProfiles(
+  dataRoot: string,
+  options: { retryDelayMs?: number } = {}
+): Promise<string[]> {
   const removed: string[] = [];
   for (const profile of HERMES_GATEWAY_PROFILES) {
     const profileDir = path.join(dataRoot, 'hermes', 'profiles', profile);
     const profileConfig = path.join(profileDir, 'config.yaml');
     if (fs.existsSync(profileDir) && !fs.existsSync(profileConfig)) {
-      await fs.promises.rm(profileDir, { recursive: true, force: true });
-      removed.push(profile);
+      try {
+        await rmWithRetry(profileDir, options.retryDelayMs ?? 250);
+        removed.push(profile);
+      } catch (error) {
+        persistDebugLog('assistant-stack', 'could not remove incomplete Hermes profile', {
+          profileDir,
+          code: (error as NodeJS.ErrnoException).code,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
   return removed;

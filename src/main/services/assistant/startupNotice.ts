@@ -1,0 +1,84 @@
+import { app, BrowserWindow, Notification } from 'electron';
+import { describeStartupError } from '../../../shared/startupErrors';
+import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
+
+/**
+ * Tells the user when a long start-up finishes while Boundary is in the
+ * background (ADR 0029). First run takes minutes, so people switch away.
+ */
+
+/** Starts shorter than this end before anyone has switched away; no notice. */
+export const STARTUP_NOTICE_MIN_MS = 15_000;
+
+export interface StartupNotice {
+  title: string;
+  body: string;
+}
+
+export function startupNoticeFor(
+  prev: AssistantStackLifecycleSnapshot['phase'],
+  next: AssistantStackLifecycleSnapshot,
+  elapsedMs: number
+): StartupNotice | null {
+  if (prev !== 'starting' || elapsedMs < STARTUP_NOTICE_MIN_MS) return null;
+  if (next.phase === 'ready') {
+    return { title: 'Your assistant is ready', body: 'Your tools are running. Open Boundary to start chatting.' };
+  }
+  if (next.phase === 'error') {
+    const failure = describeStartupError(next.error ?? next.message);
+    return { title: 'Your assistant didn’t start', body: failure.title };
+  }
+  return null;
+}
+
+export interface StartupNoticeDeps {
+  now: () => number;
+  inBackground: () => boolean;
+  notify: (notice: StartupNotice) => void;
+}
+
+/** Held until closed: an unreferenced Notification can be collected before macOS shows it. */
+const liveNotifications = new Set<Notification>();
+
+function firstWindow(): BrowserWindow | undefined {
+  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+}
+
+function showStartupNotification(notice: StartupNotice): void {
+  if (process.platform === 'darwin') app.dock?.bounce('informational');
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title: notice.title, body: notice.body });
+  liveNotifications.add(notification);
+  const release = () => liveNotifications.delete(notification);
+  notification.once('close', release);
+  setTimeout(release, 10 * 60_000).unref();
+  notification.once('click', () => {
+    release();
+    const win = firstWindow();
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+  notification.show();
+}
+
+const defaultDeps: StartupNoticeDeps = {
+  now: () => Date.now(),
+  inBackground: () => BrowserWindow.getAllWindows().every((w) => w.isDestroyed() || !w.isFocused()),
+  notify: showStartupNotification,
+};
+
+/** Returns a lifecycle listener that notifies on a long start's ready or error. */
+export function createStartupNotifier(
+  deps: StartupNoticeDeps = defaultDeps
+): (snapshot: AssistantStackLifecycleSnapshot) => void {
+  let phase: AssistantStackLifecycleSnapshot['phase'] = 'idle';
+  let startedAt = 0;
+  return (snapshot) => {
+    if (snapshot.phase === 'starting' && phase !== 'starting') startedAt = deps.now();
+    const notice = startupNoticeFor(phase, snapshot, deps.now() - startedAt);
+    phase = snapshot.phase;
+    if (notice && deps.inBackground()) deps.notify(notice);
+  };
+}

@@ -33,8 +33,8 @@ export const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
  * so a moved tag can't change what installs get. Read the stack's CHANGELOG.md before
  * bumping; a minor version can add services, required keys, host requirements or mounts.
  */
-export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.3';
-export const SOVEREIGN_AGENT_STACK_REF = '10a6f6ee4630d1a880075cf7589283595962be1a';
+export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.4';
+export const SOVEREIGN_AGENT_STACK_REF = '0c34fd2d8179951f3b910990d6304ab54f737723';
 
 /**
  * SHA-256 of the GitHub zip for SOVEREIGN_AGENT_STACK_REF; a download that doesn't match is
@@ -42,7 +42,7 @@ export const SOVEREIGN_AGENT_STACK_REF = '10a6f6ee4630d1a880075cf7589283595962be
  *   curl -sL https://github.com/kaxline/sovereign-agent-stack/archive/<ref>.zip | shasum -a 256
  */
 export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
-  'fd8f93e15567236bea1e64d263ef212c4f039f8aa3d50c823a03be6945d1f6f8';
+  'eabee1c4782eaf09cd8cf9eec5e6af01af9544ce03ed4230d031cd284f0171d2';
 
 /**
  * Second-copy settings from the stack's docs/extending.md, passed in the compose

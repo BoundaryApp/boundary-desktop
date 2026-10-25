@@ -1,3 +1,4 @@
+import type { StartupDownload } from '../startupDownload';
 export type AssistantStackIsolationMode = 'default-ports' | 'offset-ports';
 
 export interface AssistantStackPorts {
@@ -128,4 +129,6 @@ export interface AssistantStackLifecycleSnapshot {
   message?: string;
   services: AssistantStackServiceProgress[];
   error?: string;
+  /** Image bytes pulled so far in this start (ADR 0029); absent until a pull reports sizes. */
+  download?: StartupDownload;
 }
