@@ -16,6 +16,7 @@ import type {
   CodingRevokePayload,
 } from '../../shared/types/codingFolders';
 import type {
+  KanbanBoardViewResult,
   KanbanSnapshot,
   KanbanTaskAction,
   KanbanTaskActionResult,
@@ -159,8 +160,14 @@ export const hermesChatIPC = {
     return api().kanbanTaskLog(taskId, tailBytes);
   },
 
-  openKanbanBoard(): Promise<void> {
-    return api().openKanbanBoard();
+  /** The board, or one task on it, in the system browser. */
+  openKanbanBoard(taskId?: string): Promise<void> {
+    return api().openKanbanBoard(taskId);
+  },
+
+  /** The signed-in board URL for the Tasks pane's board view. */
+  kanbanBoardView(taskId?: string): Promise<KanbanBoardViewResult> {
+    return api().kanbanBoardView(taskId);
   },
 
   kanbanTaskAction(taskId: string, action: KanbanTaskAction): Promise<KanbanTaskActionResult> {

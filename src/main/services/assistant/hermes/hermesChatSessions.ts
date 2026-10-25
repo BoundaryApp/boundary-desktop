@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import type {
+  AgentProfile,
   HermesChatCancelPayload,
   HermesChatCreateThreadResult,
   HermesChatBranchInfo,
@@ -52,6 +53,7 @@ import {
   DM_HISTORY_BUDGET,
   historyBudgetFor,
   durableSessionId,
+  readAgentSoul,
   resolveProfileForAgent,
 } from './hermesAgents';
 import {
@@ -74,10 +76,16 @@ import {
   setStandingDmSessionId,
   getStoredSessionAlias,
   setStoredSessionAlias,
+  getOrchestratorRecord,
+  getRoomSoulSent,
+  setRoomSoulSent,
   upsertStoredChannel,
 } from './hermesAgentStore';
 import {
+  buildChannelHeader,
   buildChannelWakePrompt,
+  buildMemberSoulContext,
+  buildOrchestratorRoomNote,
   channelForSession,
   mergeChannelTranscript,
   moveChannelSession,
@@ -214,6 +222,9 @@ const TURN_QUIET_HEARTBEATS = 2.5;
 /** Unanswered status checks in a row before a quiet turn is given up on. */
 const TURN_QUIET_CHECK_FAILURES = 2;
 
+/** `prompt.submit` with `context` while a turn runs (stack v0.3.3 client-context overlay). */
+const CONTEXT_TURN_RUNNING = 4082;
+
 async function runJsonRpcTurn(
   sender: WebContents,
   requestId: string,
@@ -232,6 +243,11 @@ async function runJsonRpcTurn(
     displayKind?: 'hidden';
     /** Where to record who spoke; a room's stored id rather than the runtime id. */
     speakerKey?: string;
+    /**
+     * Turn context for the model (a room's header). Sent as `prompt.submit`'s `context` when
+     * the gateway takes it, otherwise put above the message text.
+     */
+    context?: string;
   }
 ): Promise<{ assistantText: string; noReply?: HermesNoReply }> {
   const gateway = getHermesGatewaySession();
@@ -554,10 +570,26 @@ async function runJsonRpcTurn(
   armQuiet();
 
   try {
-    await gateway.submitPrompt(sessionId, userText, {
+    const submitOpts = {
       truncate: opts?.truncate,
       ...(opts?.displayKind ? { displayKind: opts.displayKind } : {}),
-    });
+    };
+    const context = opts?.context;
+    if (context && (await gateway.supportsClientContext())) {
+      try {
+        await gateway.submitPrompt(sessionId, userText, { ...submitOpts, context });
+      } catch (err) {
+        // 4082: a turn is still running, and context can't be queued. Send it inline instead.
+        if ((err as { code?: unknown })?.code !== CONTEXT_TURN_RUNNING) throw err;
+        await gateway.submitPrompt(sessionId, `${context}\n\n${userText}`, submitOpts);
+      }
+    } else {
+      await gateway.submitPrompt(
+        sessionId,
+        context ? `${context}\n\n${userText}` : userText,
+        submitOpts
+      );
+    }
     if (!ended && !signal.aborted) {
       await turnDone;
     }
@@ -633,13 +665,15 @@ async function runChannelWakeTurns(
   memberSlugs: string[],
   wakeSlugs: string[],
   /** The room's stored id: posts and speakers are kept there, not under the runtime id. */
-  roomKey: string = sessionId
+  roomKey: string = sessionId,
+  channelSlug: string = 'room'
 ): Promise<void> {
   const agents = listStoredAgents();
   const members = agents.filter((a) => memberSlugs.includes(a.slug));
-  const combinedUser = buildChannelWakePrompt(consumeUnconsumedPosted(roomKey), userText);
+  const backlog = consumeUnconsumedPosted(roomKey);
 
   let first = true;
+  let lastSpeaker: Pick<AgentProfile, 'displayName' | 'handle'> | null = null;
   const spoken = new Set<string>();
   const queue = [...wakeSlugs];
 
@@ -651,9 +685,19 @@ async function runChannelWakeTurns(
     const display = agent?.displayName ?? slug;
     const isFirst = first;
     first = false;
+    const speaker = agent ?? { displayName: display, handle: display };
+    const header = buildChannelHeader(channelSlug, members, speaker, isFirst ? null : lastSpeaker);
     const promptText = isFirst
-      ? combinedUser
+      ? buildChannelWakePrompt(backlog, userText)
       : `@${display} — please respond to the room.`;
+    const soul = readAgentSoul(slug);
+    const soulHash = soul ? createHash('sha256').update(soul).digest('hex').slice(0, 16) : null;
+    const soulIsNew = soulHash !== null && getRoomSoulSent(roomKey, slug) !== soulHash;
+    const context = [
+      header,
+      ...(soul ? [buildMemberSoulContext(speaker, soulIsNew ? soul : null)] : []),
+      ...(getOrchestratorRecord()?.slug === slug ? [buildOrchestratorRoomNote(speaker)] : []),
+    ].join('\n\n');
 
     const { assistantText } = await runJsonRpcTurn(
       sender,
@@ -670,9 +714,12 @@ async function runChannelWakeTurns(
         emitEnd: false,
         // Chunks carry agentSlug; the renderer starts a new speaker's section from it.
         speakerKey: roomKey,
+        context,
       }
     );
+    if (soulIsNew && soulHash) setRoomSoulSent(roomKey, slug, soulHash);
 
+    lastSpeaker = speaker;
     // Chain-wake: parse reply for other members (not the speaker).
     const next = parseMemberMentions(assistantText, members).filter(
       (s) => s !== slug && !spoken.has(s) && !queue.includes(s)
@@ -1669,7 +1716,8 @@ export async function startHermesChatStream(
             toolsEnabled,
             channel.memberSlugs,
             wakeSlugs,
-            roomKey
+            roomKey,
+            channel.slug
           );
           setChannelPostAssistantCount(
             roomKey,

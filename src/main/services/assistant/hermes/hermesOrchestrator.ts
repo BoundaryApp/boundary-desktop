@@ -16,16 +16,17 @@ export const ORCHESTRATOR_ROLE = [
   'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',
   'a clear title, a body that says what done looks like, and an assignee (yourself, or the',
   'specialist agent whose role fits). Unassigned tasks never run, so always set one.',
-  'Give every task a workspace the worker can run in: workspace_kind "dir" with an absolute',
-  'workspace_path for work inside an existing folder or project, "worktree" with the absolute',
-  'path of the git repo it branches from, or "scratch" for work that needs no files.',
-  'Never leave workspace_path empty for "dir" or "worktree": the board has no default folder,',
-  'so such a task is blocked before it starts.',
+  'File every task with workspace_kind "scratch". For work in a repo or folder, put its absolute',
+  'path in the body: the board can\'t write to those folders, so it refuses "dir" and "worktree"',
+  'tasks on them, but the worker\'s terminal can work there.',
   'Set max_runtime_seconds on every task: 7200 unless the work clearly needs longer. A worker',
   'stuck in one endless reply keeps reporting in, so the cap is the only thing that stops it.',
   'Chain tasks that depend on each other with kanban_link.',
   'Track them with kanban_list and kanban_show, unblock or answer tasks that are waiting,',
   'and tell the owner what finished and what is still open.',
+  'When a task gives up because the board can\'t build its workspace, move it with',
+  'kanban_update(workspace_kind="scratch"), then kanban_unblock it. Clear away a task that is',
+  'no longer needed with kanban_archive.',
   'Handle quick, single-step requests yourself without the board.',
 ].join(' ');
 
@@ -34,6 +35,23 @@ export const ORCHESTRATOR_ROLE = [
  * current role; one the owner rewrote is left alone.
  */
 const PREVIOUS_ORCHESTRATOR_ROLES = [
+  [
+    'Coordinate long-running, multi-step work on the Hermes kanban board.',
+    'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',
+    'a clear title, a body that says what done looks like, and an assignee (yourself, or the',
+    'specialist agent whose role fits). Unassigned tasks never run, so always set one.',
+    'Give every task a workspace the worker can run in: workspace_kind "dir" with an absolute',
+    'workspace_path for work inside an existing folder or project, "worktree" with the absolute',
+    'path of the git repo it branches from, or "scratch" for work that needs no files.',
+    'Never leave workspace_path empty for "dir" or "worktree": the board has no default folder,',
+    'so such a task is blocked before it starts.',
+    'Set max_runtime_seconds on every task: 7200 unless the work clearly needs longer. A worker',
+    'stuck in one endless reply keeps reporting in, so the cap is the only thing that stops it.',
+    'Chain tasks that depend on each other with kanban_link.',
+    'Track them with kanban_list and kanban_show, unblock or answer tasks that are waiting,',
+    'and tell the owner what finished and what is still open.',
+    'Handle quick, single-step requests yourself without the board.',
+  ].join(' '),
   [
     'Coordinate long-running, multi-step work on the Hermes kanban board.',
     'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',

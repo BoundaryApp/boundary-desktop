@@ -13,16 +13,22 @@ import type {
 } from '../../shared/types/capability';
 import type { AssistantStackStatus } from '../../shared/types/assistantStack';
 import type { DiscoveredLocalLlm } from '../../shared/types/onboarding';
+import type {
+  ApplyFirstRunFoldersResult,
+  SetupProgress,
+} from '../../shared/types/setupProgress';
 import { useOnboarding } from '../onboarding/OnboardingContext';
 import { capabilityIPC } from '../services/capabilityIPCService';
 import { onboardingIPC } from '../services/onboardingIPCService';
 import { assistantStackIPC } from '../services/assistantStackIPCService';
+import { setupIPC } from '../services/setupIPCService';
 import { SETUP_STEPS } from './steps';
 import {
   areAllSetupStepsComplete,
   resolveActiveSetupStep,
   type SetupFlowSnapshot,
   type SetupStepDefinition,
+  type SetupStepId,
 } from './types';
 
 interface SetupContextValue {
@@ -39,6 +45,15 @@ interface SetupContextValue {
   provisionProgress: string | null;
   localLlms: DiscoveredLocalLlm[];
   assistantStackStatus: AssistantStackStatus | null;
+  setupProgress: SetupProgress | null;
+  /** Take a progress record the main process returned (after saving a step). */
+  updateSetupProgress: (progress: SetupProgress) => void;
+  /** **Skip for now** on an optional step. */
+  skipStep: (stepId: SetupStepId) => Promise<void>;
+  /** Create the Folders step's projects; call once the stack is ready. */
+  applyFirstRunFolders: () => Promise<ApplyFirstRunFoldersResult | null>;
+  /** Why creating the Folders step's projects failed, for the chat to show. */
+  firstRunFolderError: string | null;
   assessCapability: () => Promise<CapabilityAssessment | null>;
   acknowledgeCapability: () => Promise<AcknowledgeCapabilityResult>;
   refreshAssistantStack: () => Promise<void>;
@@ -67,6 +82,43 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [assistantStackStatus, setAssistantStackStatus] = useState<AssistantStackStatus | null>(
     null
   );
+
+  const [setupProgress, setSetupProgress] = useState<SetupProgress | null>(null);
+  const [setupProgressLoading, setSetupProgressLoading] = useState(true);
+  const [firstRunFolderError, setFirstRunFolderError] = useState<string | null>(null);
+
+  const refreshSetupProgress = useCallback(async () => {
+    try {
+      setSetupProgress(await setupIPC.getProgress());
+    } catch {
+      // Optional steps then count as answered; setup must not stall on them.
+      setSetupProgress(null);
+    } finally {
+      setSetupProgressLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSetupProgress();
+  }, [refreshSetupProgress]);
+
+  const skipStep = useCallback(async (stepId: SetupStepId) => {
+    setSetupProgress(await setupIPC.recordOutcome(stepId, 'skipped'));
+  }, []);
+
+  const applyFirstRunFolders = useCallback(async () => {
+    try {
+      const result = await setupIPC.applyFolders();
+      setFirstRunFolderError(result.success ? null : (result.error ?? null));
+      setSetupProgress(result.progress);
+      return result;
+    } catch (err) {
+      setFirstRunFolderError(err instanceof Error ? err.message : String(err));
+      // Drop the local picks so the app moves on to chat with the error.
+      setSetupProgress((prev) => (prev ? { ...prev, pendingFolders: [] } : prev));
+      return null;
+    }
+  }, []);
 
   const discoverLocalLlms = useCallback(async () => {
     try {
@@ -143,8 +195,13 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const refresh = useCallback(async () => {
-    await Promise.all([refreshOnboarding(), assessCapability(), refreshAssistantStack()]);
-  }, [assessCapability, refreshAssistantStack, refreshOnboarding]);
+    await Promise.all([
+      refreshOnboarding(),
+      assessCapability(),
+      refreshAssistantStack(),
+      refreshSetupProgress(),
+    ]);
+  }, [assessCapability, refreshAssistantStack, refreshOnboarding, refreshSetupProgress]);
 
   useEffect(() => {
     void assessCapability();
@@ -157,6 +214,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       onboardingStatus,
       onboardingLoading,
       assistantStackStatus,
+      setupProgress,
     }),
     [
       assistantStackStatus,
@@ -164,10 +222,12 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       capabilityStatus,
       onboardingLoading,
       onboardingStatus,
+      setupProgress,
     ]
   );
 
-  const loading = capabilityLoading || (onboardingLoading && !onboardingStatus);
+  const loading =
+    capabilityLoading || setupProgressLoading || (onboardingLoading && !onboardingStatus);
 
   const allComplete = useMemo(() => {
     if (loading || !capabilityAssessment) return false;
@@ -194,12 +254,21 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       provisionProgress,
       localLlms,
       assistantStackStatus,
+      setupProgress,
+      updateSetupProgress: setSetupProgress,
+      skipStep,
+      applyFirstRunFolders,
+      firstRunFolderError,
       assessCapability,
       acknowledgeCapability,
       refreshAssistantStack,
       refresh,
     }),
     [
+      applyFirstRunFolders,
+      firstRunFolderError,
+      setupProgress,
+      skipStep,
       acknowledgeCapability,
       activeStep,
       allComplete,

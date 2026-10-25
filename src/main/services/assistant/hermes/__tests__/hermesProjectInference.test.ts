@@ -32,19 +32,19 @@ function seedProject() {
 }
 
 describe('patchHermesProject', () => {
-  beforeEach(() => {
-    clearOpenAiConfig();
+  beforeEach(async () => {
+    await clearOpenAiConfig();
     resetHermesProjectsStoreForTests();
     seedProject();
   });
 
-  it('pins a configured provider and clears back to inherit', () => {
-    saveLocalLlmEndpoint({
+  it('pins a configured provider and clears back to inherit', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    const pinned = patchHermesProject({
+    const pinned = await patchHermesProject({
       projectId: 'p1',
       inference: { mode: 'local' },
     });
@@ -54,7 +54,7 @@ describe('patchHermesProject', () => {
       modelId: 'qwen3:14b',
     });
 
-    const cleared = patchHermesProject({
+    const cleared = await patchHermesProject({
       projectId: 'p1',
       inference: { mode: 'inherit' },
     });
@@ -62,8 +62,8 @@ describe('patchHermesProject', () => {
     expect(cleared.project?.inference).toEqual({ mode: 'inherit' });
   });
 
-  it('rejects a pin when the slot is not connected', () => {
-    const result = patchHermesProject({
+  it('rejects a pin when the slot is not connected', async () => {
+    const result = await patchHermesProject({
       projectId: 'p1',
       inference: { mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
     });
@@ -72,20 +72,20 @@ describe('patchHermesProject', () => {
     expect(getStoredHermesProject('p1')?.inference?.mode).toBe('inherit');
   });
 
-  it('resets pins for a disconnected provider', () => {
-    saveLocalLlmEndpoint({
+  it('resets pins for a disconnected provider', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
       provider: 'openrouter',
       capabilities: OAUTH_LLM_CAPABILITIES,
     });
-    patchHermesProject({
+    await patchHermesProject({
       projectId: 'p1',
       inference: { mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
     });

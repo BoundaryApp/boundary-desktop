@@ -90,9 +90,29 @@ const KICKER: Record<NeedsYouMode, string> = {
   failed: 'Gave up',
 };
 
+/**
+ * The worker couldn't start because the board can't build the workspace the task asked for.
+ * The stack marks only those spawn failures as not retryable; a revoked credential that
+ * can't heal either comes as `crashed` (CR 0008 R3).
+ */
+export function workspaceFailure(trigger: string | null, retryable: boolean | null): boolean {
+  return trigger === 'spawn_failed' && retryable === false;
+}
+
 /** What a gave-up card says happened, before Hermes's own error. */
-function failedLead(trigger: string | null, failures: number): string {
-  const times = failures > 1 ? `${failures} times in a row` : 'again';
+function failedLead(
+  trigger: string | null,
+  failures: number,
+  retryable: boolean | null
+): string {
+  const times =
+    retryable === false ? 'at the first try' : failures > 1 ? `${failures} times in a row` : 'again';
+  if (workspaceFailure(trigger, retryable)) {
+    return `The worker couldn't start ${times}, because the board can't set up the workspace this task asked for. Retrying fails the same way. Run it in a scratch workspace instead: the task keeps its instructions, comments and history, and starts again.`;
+  }
+  if (retryable === false) {
+    return "It can't start until its workspace or configuration changes, so the board stopped at the first try. Fix the cause below, then retry.";
+  }
   if (trigger === 'spawn_failed') {
     return `The worker couldn't start, ${times}, so the board stopped trying. Retrying fails the same way until the cause below is fixed.`;
   }
@@ -113,9 +133,11 @@ export const NeedsYouCard: React.FC<{
   since: string | null;
   /** On a gave-up card: the failure that tripped the limit. */
   trigger?: string | null;
+  /** On a gave-up card: false when the failure can't heal by itself. */
+  retryable?: boolean | null;
   onOpenBoard: () => void;
   onActed?: () => void;
-}> = ({ task, mode, reason, since, trigger = null, onOpenBoard, onActed }) => {
+}> = ({ task, mode, reason, since, trigger = null, retryable = null, onOpenBoard, onActed }) => {
   const [text, setText] = useState('');
   const { busy, error, run } = useTaskAction(task.id, onActed);
   useEffect(() => setText(''), [task.id]);
@@ -137,7 +159,7 @@ export const NeedsYouCard: React.FC<{
         {mode === 'stopped'
           ? 'The run is stopped and the task waits here until you resume it.'
           : mode === 'failed'
-            ? failedLead(trigger, task.failures)
+            ? failedLead(trigger, task.failures, retryable)
             : (reason ?? (mode === 'review' ? 'The worker asks you to check its work.' : 'The worker stopped and is waiting for you.'))}
       </p>
       {mode === 'failed' && reason ? <pre className="cmd mono">{reason}</pre> : null}
@@ -176,9 +198,20 @@ export const NeedsYouCard: React.FC<{
           </button>
         ) : mode === 'failed' ? (
           <>
-            <button type="button" className="run" disabled={busy} onClick={() => void act({ kind: 'resume' })}>
-              Retry
-            </button>
+            {workspaceFailure(trigger, retryable) ? (
+              <button
+                type="button"
+                className="run"
+                disabled={busy}
+                onClick={() => void act({ kind: 'run-in-scratch' })}
+              >
+                Run in a scratch workspace
+              </button>
+            ) : (
+              <button type="button" className="run" disabled={busy} onClick={() => void act({ kind: 'resume' })}>
+                Retry
+              </button>
+            )}
             <button
               type="button"
               className="more is-plain"

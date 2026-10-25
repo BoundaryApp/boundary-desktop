@@ -702,6 +702,17 @@ export interface HermesChatToolEvent {
 
 export type HermesApprovalChoice = 'once' | 'session' | 'always' | 'deny';
 
+/**
+ * The MCP call behind an approval, sent for tools on `trust: untrusted` servers (stack v0.3.3).
+ * Hermes redacts and caps the arguments before sending them.
+ */
+export interface HermesApprovalMcpCall {
+  server: string;
+  tool: string;
+  arguments: Record<string, unknown> | null;
+  toolCallId?: string;
+}
+
 export interface HermesChatApprovalEvent {
   rpcRequestId: string;
   sessionId: string;
@@ -715,6 +726,7 @@ export interface HermesChatApprovalEvent {
   smartDenied?: boolean;
   patternKey?: string;
   replayed?: boolean;
+  mcp?: HermesApprovalMcpCall;
 }
 
 export interface HermesChatApprovalRespondPayload {

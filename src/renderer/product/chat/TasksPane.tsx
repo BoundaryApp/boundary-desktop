@@ -11,6 +11,7 @@ import {
   useNowSeconds,
   type TaskGroupKey,
 } from './kanbanActivity';
+import { TasksBoard } from './TasksBoard';
 import { WorkingDot } from './WorkingDot';
 import { LIVENESS_TONE, assigneeName, taskRowState } from './WorkingNow';
 
@@ -81,24 +82,34 @@ const TaskRow: React.FC<{
       onClick={() => onOpen(task.id)}
     >
       {mark}
-      <span className="wb-tasks-title">{task.title}</span>
-      <span className="wb-tasks-sub">{sub ? `${who} · ${sub}` : who}</span>
+      <span className="wb-tasks-title" title={task.title}>
+        {task.title}
+      </span>
+      <span className="wb-tasks-sub" title={sub ? `${who} · ${sub}` : who}>
+        {sub ? `${who} · ${sub}` : who}
+      </span>
       <span className="wb-tasks-hint">{hint}</span>
     </button>
   );
 };
 
+export type TasksView = 'list' | 'board';
+
 /**
  * Every kanban task, grouped by what you'd do about it (docs/kanban-activity-ux-study,
- * decision 2). Filtered to the rail's project unless "All projects" is on. Drag-and-drop
- * stays in Hermes's board, one click away.
+ * decision 2), or Hermes's own board for drag-and-drop (Phase 4). The list is filtered to the
+ * rail's project unless "All projects" is on. The board shows the whole board.
  */
 export const TasksPane: React.FC<{
   agents: AgentProfile[];
   /** The rail's project; null shows every task. */
   project: HermesProjectRecord | null;
   onOpenTask: (taskId: string) => void;
-}> = ({ agents, project, onOpenTask }) => {
+  view?: TasksView;
+  onViewChange?: (view: TasksView) => void;
+  /** The task the board opened on, from a task page's **Open in board**. */
+  boardTaskId?: string | null;
+}> = ({ agents, project, onOpenTask, view = 'list', onViewChange, boardTaskId = null }) => {
   const { available, tasks } = useKanbanSnapshot();
   const nowS = useNowSeconds(5000);
   const [allProjects, setAllProjects] = useState(false);
@@ -106,12 +117,67 @@ export const TasksPane: React.FC<{
   const shown = scoped ? tasks.filter((t) => taskInProject(t, project)) : tasks;
   const groups = groupTasks(shown);
   const elsewhere = tasks.length - shown.length;
+  const board = view === 'board';
+
+  const viewSwitch = onViewChange ? (
+    <div className="wb-tasks-scope" role="group" aria-label="Show tasks as">
+      <button
+        type="button"
+        className={board ? '' : 'is-on'}
+        aria-pressed={!board}
+        onClick={() => onViewChange('list')}
+      >
+        List
+      </button>
+      <button
+        type="button"
+        className={board ? 'is-on' : ''}
+        aria-pressed={board}
+        onClick={() => onViewChange('board')}
+      >
+        Board
+      </button>
+    </div>
+  ) : null;
+  const openInBrowser = (
+    <button
+      type="button"
+      className="wb-btn-ghost"
+      onClick={() =>
+        void hermesChatIPC
+          .openKanbanBoard(board ? (boardTaskId ?? undefined) : undefined)
+          .catch((): void => undefined)
+      }
+    >
+      Open in browser ↗
+    </button>
+  );
+
+  if (board) {
+    return (
+      <div className="wb-recent-pane wb-tasks-board">
+        <header className="wb-tasks-head wb-tasks-board-head">
+          <h1 className="wb-task-title">Tasks</h1>
+          {viewSwitch}
+          {boardTaskId ? (
+            <button type="button" className="wb-task-link" onClick={() => onOpenTask(boardTaskId)}>
+              Back to task
+            </button>
+          ) : null}
+          <span className="wb-grow" aria-hidden="true" />
+          {openInBrowser}
+        </header>
+        <TasksBoard taskId={boardTaskId} />
+      </div>
+    );
+  }
 
   return (
     <div className="wb-recent-pane">
       <div className="wb-task-page wb-tasks-page">
         <header className="wb-tasks-head">
           <h1 className="wb-task-title">Tasks</h1>
+          {viewSwitch}
           {project ? (
             <div className="wb-tasks-scope" role="group" aria-label="Which tasks">
               <button
@@ -133,13 +199,7 @@ export const TasksPane: React.FC<{
             </div>
           ) : null}
           <span className="wb-grow" aria-hidden="true" />
-          <button
-            type="button"
-            className="wb-btn-ghost"
-            onClick={() => void hermesChatIPC.openKanbanBoard().catch((): void => undefined)}
-          >
-            Open board ↗
-          </button>
+          {openInBrowser}
         </header>
 
         {!available ? (

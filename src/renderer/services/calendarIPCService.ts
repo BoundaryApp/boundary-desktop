@@ -39,6 +39,18 @@ export const calendarIPC = {
     return api().recheck({ slug });
   },
 
+  recheckAll(): Promise<CalendarListResult> {
+    return api().recheckAll();
+  },
+
+  replacePassword(slug: string, password: string): Promise<CalendarActionResult> {
+    return api().replacePassword({ slug, password });
+  },
+
+  onChanged(callback: () => void): () => void {
+    return api().onChanged(callback);
+  },
+
   remove(slug: string): Promise<CalendarActionResult> {
     return api().remove({ slug });
   },

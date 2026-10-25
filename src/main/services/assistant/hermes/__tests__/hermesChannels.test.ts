@@ -388,3 +388,48 @@ describe('buildChannelWakePrompt', () => {
     );
   });
 });
+
+describe('buildChannelHeader', () => {
+  const hermes = { slug: 'assistant', displayName: 'Hermes', handle: 'Hermes', role: 'Default agent on this machine.' };
+  const ana = { slug: 'ana', displayName: 'Ana', handle: '', role: 'Researcher. Finds sources and checks them.' };
+
+  it('names the room, the members with short roles, and who is answering', async () => {
+    const { buildChannelHeader } = await import('../hermesChannels');
+    expect(buildChannelHeader('general-2', [hermes, ana], ana)).toBe(
+      '[Boundary channel #general-2 · members: the user, @Hermes (Default agent on this machine), @Ana (Researcher) · you are @Ana]'
+    );
+  });
+
+  it('says who spoke last on a chain wake', async () => {
+    const { buildChannelHeader } = await import('../hermesChannels');
+    expect(buildChannelHeader('general-2', [hermes], hermes, ana)).toBe(
+      '[Boundary channel #general-2 · members: the user, @Hermes (Default agent on this machine) · you are @Hermes · the last reply was from @Ana]'
+    );
+  });
+
+  it('cuts long roles', async () => {
+    const { buildChannelHeader } = await import('../hermesChannels');
+    const wordy = { ...ana, role: 'x'.repeat(100) };
+    expect(buildChannelHeader('r', [wordy], wordy)).toContain(`@Ana (${'x'.repeat(59)}…)`);
+  });
+});
+
+describe('buildMemberSoulContext', () => {
+  const ana = { displayName: 'Ana', handle: 'Ana' };
+
+  it('carries the soul, and points back to it once it has been sent', async () => {
+    const { buildMemberSoulContext } = await import('../hermesChannels');
+    expect(buildMemberSoulContext(ana, '# Ana\n\nCites sources.')).toMatch(
+      /^Answer as @Ana\. .*\n\n# Ana\n\nCites sources\.$/
+    );
+    expect(buildMemberSoulContext(ana, null)).toBe(
+      "Answer as @Ana, following @Ana's SOUL.md given earlier in this channel."
+    );
+  });
+
+  it('cuts a soul past the limit', async () => {
+    const { buildMemberSoulContext, ROOM_SOUL_MAX_CHARS } = await import('../hermesChannels');
+    const out = buildMemberSoulContext(ana, 'x'.repeat(ROOM_SOUL_MAX_CHARS + 50));
+    expect(out.endsWith(`${'x'.repeat(ROOM_SOUL_MAX_CHARS - 1)}…`)).toBe(true);
+  });
+});

@@ -2,7 +2,7 @@
 
 export type CalendarProvider = 'icloud' | 'fastmail' | 'nextcloud' | 'other';
 
-/** What one agent may do with one calendar account. Phase 1 offers only off and read. */
+/** What one agent may do with one calendar account. `change` asks before every write. */
 export type CalendarAccess = 'off' | 'read' | 'change';
 
 export interface CalendarInfo {
@@ -24,6 +24,8 @@ export interface CalendarAccountView {
   access: Record<string, CalendarAccess>;
   createdAt: string;
   lastCheck: CalendarCheck | null;
+  /** When the sign-in last worked: the connect, a passing check or a replaced password. */
+  lastOkAt: string | null;
 }
 
 export interface CalendarCheck {
@@ -68,6 +70,11 @@ export interface CalendarAccessPayload {
 
 export interface CalendarSlugPayload {
   slug: string;
+}
+
+export interface CalendarReplacePasswordPayload {
+  slug: string;
+  password: string;
 }
 
 export interface CalendarActionResult {

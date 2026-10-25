@@ -1,13 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronRight,
   Code,
+  Database,
   KeyRound,
   MessageCircle,
   Network,
   Search,
   Workflow,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import type {
@@ -39,6 +41,7 @@ const TOOL_ICONS: Record<StartupToolId, LucideIcon> = {
   memory: Network,
   research: BookOpen,
   automations: Workflow,
+  database: Database,
   coding: Code,
 };
 
@@ -63,6 +66,13 @@ export interface StartupScreenProps {
   retrying?: boolean;
   /** Setup's stepper, shown on first run so the last step reads as part of setup. */
   setupSteps?: { steps: StepperStep[]; currentId: string };
+}
+
+/** Matches the startup.css breakpoint where the details panel docks beside the column. */
+const PANEL_BESIDE_QUERY = '(min-width: 1000px)';
+
+function panelFitsBeside(): boolean {
+  return typeof window.matchMedia !== 'function' || window.matchMedia(PANEL_BESIDE_QUERY).matches;
 }
 
 function prefersReducedMotion(): boolean {
@@ -125,7 +135,10 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
   }, [showStory, paused, card]);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const showDetails = detailsOpen || isError;
+  // An error opens the panel once, where it fits beside the column; it can be closed.
+  useEffect(() => {
+    if (isError && panelFitsBeside()) setDetailsOpen(true);
+  }, [isError]);
 
   const states = STARTUP_TOOLS.map((tool) => toolState(tool, services));
   const highlighted = showStory ? card : -1;
@@ -202,7 +215,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
         )}
 
         {!isReady && (
-          <StartupDetails open={showDetails} onToggle={() => setDetailsOpen((open) => !open)}>
+          <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
             {error ? <RawError text={error} /> : message && <p className="su-log">{message}</p>}
             <ServiceProgressCards services={services} tone="start" />
           </StartupDetails>
@@ -260,20 +273,127 @@ const RawError: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-/** Technical progress, one click away. */
+/**
+ * Technical progress, one click away. Opens as a panel on the right edge so the
+ * screen never grows taller than the window.
+ */
 export const StartupDetails: React.FC<{
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
-}> = ({ open, onToggle, children }) => (
-  <div className="su-details">
-    <button type="button" className="su-disclosure" aria-expanded={open} onClick={onToggle}>
-      <ChevronRight aria-hidden="true" className="size-3.5" />
-      {open ? 'Hide details' : 'Show details'}
-    </button>
-    {open && <div className="su-details-body">{children}</div>}
-  </div>
-);
+}> = ({ open, onToggle, children }) => {
+  const panelId = useId();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(open);
+
+  // Focus follows the user's click: into the panel on open, back to the toggle on close.
+  useEffect(() => {
+    if (open && !wasOpen.current) closeRef.current?.focus();
+    if (!open && wasOpen.current && document.activeElement === document.body) {
+      toggleRef.current?.focus();
+    }
+    wasOpen.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onToggle();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onToggle]);
+
+  return (
+    <div className="su-details">
+      <button
+        ref={toggleRef}
+        type="button"
+        className="su-disclosure"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        <ChevronRight aria-hidden="true" className="size-3.5" />
+        {open ? 'Hide details' : 'Show details'}
+      </button>
+      {open && (
+        <aside id={panelId} className="su-panel" aria-label="Details">
+          <header className="su-panel-head">
+            <h2>Details</h2>
+            <button
+              ref={closeRef}
+              type="button"
+              className="su-panel-close"
+              aria-label="Close details"
+              onClick={onToggle}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </header>
+          <div className="su-details-body">{children}</div>
+        </aside>
+      )}
+    </div>
+  );
+};
+
+/** The one-time-setup explanation, as a popover over the story card. */
+const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [open]);
+
+  return (
+    <div className="su-why" ref={rootRef}>
+      <button
+        type="button"
+        className="su-disclosure"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronRight aria-hidden="true" className="size-3.5" />
+        Why does this take a while?
+      </button>
+      {open && (
+        <div id={popoverId} className="su-why-popover" role="note">
+          {firstRun ? (
+            <p>
+              Boundary is installing open-source AI tools that usually take a software developer to
+              set up: web search, deep research, long-term memory, automations and a coding agent.
+              It downloads them once, connects them to each other and runs each one in its own
+              container on this Mac. You don’t need to do anything. Later launches skip the
+              download.
+            </p>
+          ) : (
+            <p>
+              Each tool runs in its own container on this Mac. Boundary starts them and checks that
+              they can reach each other and your model before you start chatting.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export type Mood = 'working' | 'ready' | 'error' | 'sleeping';
 
@@ -417,25 +537,7 @@ const StoryCard: React.FC<{
           />
         ))}
       </div>
-      <details className="su-why">
-        <summary>
-          <ChevronRight aria-hidden="true" className="size-3.5" />
-          Why does this take a while?
-        </summary>
-        {firstRun ? (
-          <p>
-            Boundary is installing open-source AI tools that usually take a software developer to
-            set up: web search, deep research, long-term memory, automations and a coding agent. It
-            downloads them once, connects them to each other and runs each one in its own container
-            on this Mac. You don’t need to do anything. Later launches skip the download.
-          </p>
-        ) : (
-          <p>
-            Each tool runs in its own container on this Mac. Boundary starts them and checks that
-            they can reach each other and your model before you start chatting.
-          </p>
-        )}
-      </details>
+      <WhyPopover firstRun={firstRun} />
     </section>
   );
 };

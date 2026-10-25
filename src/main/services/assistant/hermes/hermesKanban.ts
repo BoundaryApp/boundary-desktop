@@ -15,7 +15,6 @@ import {
   type KanbanTaskSummary,
 } from '../../../../shared/types/hermesKanban';
 import { loginToDashboard, mintDashboardWsTicket } from './hermesDashboardAuth';
-import { resolveHermesStackEndpoints } from './hermesEndpoints';
 import { buildHermesWebSocketUrl } from './vendor';
 import { boardNotices, eventNotice, type KanbanNotice } from './hermesKanbanNotify';
 
@@ -237,6 +236,10 @@ export function toTaskDetail(raw: Json): KanbanTaskDetail | null {
       note: eventNote(e.payload),
       trigger:
         e.payload && typeof e.payload === 'object' ? str((e.payload as Json).trigger_outcome) : null,
+      retryable:
+        e.payload && typeof e.payload === 'object' && typeof (e.payload as Json).retryable === 'boolean'
+          ? ((e.payload as Json).retryable as boolean)
+          : null,
       createdAt: num(e.created_at) ?? 0,
     })
   );
@@ -275,7 +278,7 @@ export function toTaskDetail(raw: Json): KanbanTaskDetail | null {
 
 async function api(
   path: string,
-  write?: { method: 'POST' | 'PATCH'; body: Json }
+  write?: { method: 'POST' | 'PATCH' | 'DELETE'; body: Json }
 ): Promise<Json> {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!cookie) {
@@ -502,12 +505,20 @@ export function getKanbanSnapshot(): KanbanSnapshot {
   return snapshot;
 }
 
-/** Hermes's own board page (the plugin's dashboard tab), for drag-and-drop triage. */
-export function kanbanBoardUrl(): string {
-  return `${resolveHermesStackEndpoints().dashboardBaseUrl}/kanban`;
+/**
+ * The board Boundary reads (`GET /board` with no `board` is Hermes's current one). Task links
+ * name it, because the dashboard otherwise opens the board it last showed. Null when the
+ * dashboard can't say.
+ */
+export async function currentBoardSlug(): Promise<string | null> {
+  try {
+    return str((await api('/boards')).current);
+  } catch {
+    return null;
+  }
 }
 
-function validTaskId(taskId: unknown): taskId is string {
+export function validTaskId(taskId: unknown): taskId is string {
   return typeof taskId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(taskId);
 }
 
@@ -548,6 +559,9 @@ function setStatus(taskId: string, status: 'ready' | 'done' | 'blocked'): Promis
  *   is sticky, so it holds until you resume it.
  * - Retry on a running task is `POST /tasks/{id}/reclaim` (a stuck claim, fresh retry
  *   budget); on anything else it is the same unblock as Resume.
+ * - Running in scratch is one `PATCH` that sets `workspace_kind` and unblocks (stack v0.3.3,
+ *   CR 0008 R2), so the task keeps its id, runs, comments and links. The board checks the
+ *   new workspace and answers 400 if it can't build it.
  */
 export async function kanbanTaskAction(
   taskId: unknown,
@@ -602,6 +616,12 @@ export async function kanbanTaskAction(
         }
         break;
       }
+      case 'run-in-scratch':
+        await api(taskPath(taskId), {
+          method: 'PATCH',
+          body: { workspace_kind: 'scratch', status: 'ready' },
+        });
+        break;
       default:
         return { success: false, error: 'Unknown action.' };
     }
@@ -611,7 +631,7 @@ export async function kanbanTaskAction(
       `[hermesKanban] ${action.kind} on ${taskId} failed:`,
       err instanceof Error ? err.message : err
     );
-    if (err instanceof KanbanHttpError && err.status === 409) {
+    if (err instanceof KanbanHttpError && (err.status === 400 || err.status === 409)) {
       return { success: false, error: err.detail ?? 'The board refused that change.' };
     }
     return { success: false, error: 'The board did not answer. Try again in a moment.' };

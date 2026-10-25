@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable, replaceCiphertext } from '../secrets/osEncryption';
 
 /**
  * Host-bridge state that outlives a launch (ADR 0027 §3, §7): the two bearer tokens (encrypted
@@ -44,24 +44,25 @@ function newToken(): string {
 }
 
 /** The stored token, creating one the first time. */
-export function ensureHostBridgeToken(kind: HostBridgeTokenKind): string {
-  if (!safeStorage.isEncryptionAvailable()) {
+export async function ensureHostBridgeToken(kind: HostBridgeTokenKind): Promise<string> {
+  if (!(await isOsEncryptionAvailable())) {
     sessionTokens[kind] ??= newToken();
     return sessionTokens[kind];
   }
   const encrypted = store.get('tokens')[kind];
   if (encrypted) {
     try {
-      return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+      return await decryptFromBase64(encrypted, (reEncrypted) => {
+        const tokens = replaceCiphertext(store.get('tokens'), encrypted, reEncrypted);
+        if (tokens) store.set('tokens', tokens);
+      });
     } catch {
       // Unreadable (keychain reset): fall through and replace it.
     }
   }
   const token = newToken();
-  store.set('tokens', {
-    ...store.get('tokens'),
-    [kind]: safeStorage.encryptString(token).toString('base64'),
-  });
+  const encryptedToken = await encryptToBase64(token);
+  store.set('tokens', { ...store.get('tokens'), [kind]: encryptedToken });
   return token;
 }
 

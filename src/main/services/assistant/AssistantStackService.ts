@@ -5,6 +5,7 @@ import {
   ASSISTANT_STACK_DOWN_TIMEOUT_MS,
   ASSISTANT_STACK_HEALTH_INTERVAL_MS,
   ASSISTANT_STACK_HEALTH_TIMEOUT_MS,
+  ASSISTANT_STACK_BUILD_UP_TIMEOUT_MS,
   ASSISTANT_STACK_UP_TIMEOUT_MS,
   BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE,
   BOUNDARY_ASSISTANT_COMPOSE_PROFILE,
@@ -123,6 +124,7 @@ import {
   type HermesConfigCompose,
   type HermesProfileLimits,
 } from './hermesProfileLimits';
+import { applyBoundaryPlatformHint } from './hermesPlatformHint';
 import { listStoredAgents } from './hermes/hermesAgentStore';
 import { copyDefaultMcpServers } from './hermesAgentMcpServers';
 import { hasCalendarAccounts } from './calendar/calendarStore';
@@ -131,6 +133,7 @@ import { rewriteLlmUrlForContainer } from './rewriteLlmUrlForContainer';
 import { runSovereignSetup } from './runSovereignSetup';
 import { syncStackImagePins } from './stackImagePins';
 import { persistDebugLog } from '../../persistDebugLog';
+import { ComposeTimeline } from './composeTimeline';
 import { ensureHermesWebuiSyncToInsights } from './hermes/hermesWebuiSync';
 import { activeAssistantStackIdentity } from './assistantStackIdentity';
 import {
@@ -160,6 +163,7 @@ import {
   writeHermesProjectsOverlay,
   resolveHermesProjectsOverlayPath,
 } from './hermes/hermesProjectsOverlay';
+import { recordMountedProjectFolders } from './hermes/projectMountState';
 
 export type AssistantStackProgressCallback = (message: string) => void;
 export type AssistantStackLifecycleCallback = (
@@ -572,6 +576,9 @@ async function buildBoundaryComposeContext(options: {
       // write-safe root, "the app will ask" for coding and context roots, and project aliases.
       ...codingStackEnv(),
       COMPOSE_PROFILES: boundaryComposeProfilesCsv(),
+      // The Hermes bootstraps register the shared database's SQL MCP. setup.sh --db writes
+      // this into .env, but an install already on the pinned tag doesn't re-run setup.
+      SQL_MCP_ENABLED: '1',
       // The overlay gives this to caldav-mcp only (calendar spec, Phase 0 S7).
       BOUNDARY_CALDAV_TZ: hostTimeZone(),
       ...options.env,
@@ -619,8 +626,14 @@ async function runBoundaryComposeWithProgress(
 
   let sawJsonProgress = false;
   let lineCount = 0;
+  const startedAt = Date.now();
+  const timeline = new ComposeTimeline(startedAt);
+  // Filled in as the run ends; logged once in `finally`.
+  const outcome: { code?: number | null; timedOut?: boolean; fallback?: boolean; error?: string } = {};
   const onLine = (line: string) => {
     if (line.trim()) lineCount += 1;
+    const event = parseComposeProgressLine(line);
+    if (event) timeline.record(event);
     const before = lifecycleSnapshot.services;
     handleProgressLine(line);
     if (lifecycleSnapshot.services !== before) {
@@ -645,12 +658,24 @@ async function runBoundaryComposeWithProgress(
       onStdoutLine: onLine,
       onStderrLine: onLine,
     });
+    outcome.code = result.code;
+    outcome.timedOut = result.timedOut;
+
+    if (result.timedOut) {
+      const detail = (result.stderr || result.stdout || '').trim().slice(-2_000);
+      throw new Error(
+        `Compose timed out after ${Math.round((options.timeout ?? 0) / 60_000)} minutes${
+          detail ? `: ${detail}` : ''
+        }`
+      );
+    }
 
     if (result.code !== 0 && result.code != null) {
       const detail = (result.stderr || result.stdout || '').trim().slice(-2_000);
       // Older compose builds may reject `--progress=json`; retry without it,
       // but keep compose ps polling so cards still advance.
       if (/progress|unknown flag|unknown option/i.test(detail)) {
+        outcome.fallback = true;
         let fallbackPoll: ReturnType<typeof setInterval> | undefined;
         if (options.pollPs !== false) {
           fallbackPoll = setInterval(() => {
@@ -689,8 +714,19 @@ async function runBoundaryComposeWithProgress(
     }
 
     return { stdout: result.stdout, stderr: result.stderr };
+  } catch (error) {
+    outcome.error = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+    throw error;
   } finally {
     if (pollTimer) clearInterval(pollTimer);
+    persistDebugLog('assistant-stack', 'compose finished', {
+      args,
+      timeoutMs: options.timeout,
+      ms: Date.now() - startedAt,
+      firstRun: startIsFirstRun,
+      ...outcome,
+      services: timeline.summary(),
+    });
   }
 }
 
@@ -733,7 +769,8 @@ async function primeLocalImageProgress(
       services: next,
       message: lifecycleSnapshot.message ?? 'Starting assistant services…',
     });
-  } catch (err) {
+  } catch {
+    // Best effort: without the listing, cards fill from pull progress instead.
   }
 }
 
@@ -1155,7 +1192,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
         emitProgress('Moved the agent stack’s image pins to this version.');
       }
       await markHostSetupComplete();
-      const llmForEnv = getLlmConnection();
+      const llmForEnv = await getLlmConnection();
       if (llmForEnv?.endpointUrl && llmForEnv.apiKey && llmForEnv.modelId) {
         emitProgress('Writing Boundary LLM settings into project .env…');
         await applyLlmConnectionToProjectFiles(root, llmForEnv);
@@ -1166,10 +1203,15 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     // its admin API, so a proxy created from an old .env must be recreated to drop it.
     const proxyHasStaleKey = boundaryOwned && (await clearLlmKeysFromProjectEnv(root));
 
+    // Host folders in the overlay the coming `up` reads; null when there's no overlay.
+    let overlayHostPaths: string[] | null = null;
     if (boundaryOwned) {
       // A file written by an older Boundary may restate mounts this stack no longer has.
       const projects = listStoredHermesProjects();
       writeHermesProjectsOverlay(projects);
+      overlayHostPaths = projects
+        .filter((project) => project.kind === 'host-folder')
+        .map((project) => project.hostPath);
       ensureProjectMountPoints(projects, path.join(resolveAssistantUserContentRoot(root), 'projects'));
       if (BOUNDARY_HERMES_TERMINAL_BACKEND === 'ssh' && (await ensureHermesWorkerKey(root))) {
         emitProgress('Created a new SSH key for the tool worker.');
@@ -1229,7 +1271,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     await runBoundaryComposeWithProgress(
       [...buildComposeProfileArgs(), 'up', '-d', ...(buildImages ? ['--build'] : [])],
       {
-        timeout: ASSISTANT_STACK_UP_TIMEOUT_MS,
+        timeout: buildImages ? ASSISTANT_STACK_BUILD_UP_TIMEOUT_MS : ASSISTANT_STACK_UP_TIMEOUT_MS,
         openCodeConfigFile,
         workspaceRoot,
       }
@@ -1239,6 +1281,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     await waitUntilAssistantHealthy(ports);
     // `up` recreates hermes and opencode-mcp whenever their coding variables changed.
     recordHermesCodingRoots(currentCodingRoots());
+    if (overlayHostPaths) recordMountedProjectFolders(overlayHostPaths);
     recordAppliedCodingAliases(currentCodingPathAliases());
     if (buildImages) await markImagesBuilt();
 
@@ -1257,6 +1300,11 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     return { success: true, status };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    persistDebugLog('assistant-stack', 'start-up failed', {
+      stage: lifecycleSnapshot.stage,
+      firstRun: startIsFirstRun,
+      error: message.slice(0, 500),
+    });
     setLifecycle(
       createLifecycleSnapshot('error', {
         message,
@@ -1623,7 +1671,7 @@ export async function applyLlmConnectionToHermes(connection?: {
 }): Promise<ApplyAssistantLlmResult> {
   let apiKey: string | undefined;
   try {
-    const llm = connection ?? getLlmConnection();
+    const llm = connection ?? (await getLlmConnection());
     apiKey = llm?.apiKey;
     if (!llm?.endpointUrl || !llm.apiKey || !llm.modelId) {
       return { success: false, error: 'No configured LLM connection to apply.' };
@@ -1764,6 +1812,18 @@ export async function applyLlmConnectionToHermes(connection?: {
       }
       // The bootstrap sizes the stale timeout from LLM_BINDING_HOST only when the stack comes up.
       await applyHermesProfileLimits(runBoundaryCompose, profile, limits);
+      // Rooms and the built-in agent run on the default profile; agents get it in
+      // setUpAgentProfile below.
+      if (profile === '') {
+        try {
+          await applyBoundaryPlatformHint(runBoundaryCompose, profile);
+        } catch (error) {
+          persistDebugLog('assistant-stack', 'platform hint not written', {
+            profile: 'default',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
     }
     // The limits went in above; agents still need the default profile's MCP servers.
@@ -1835,7 +1895,7 @@ async function pushLlmConnectionToProxy(
 }
 
 export async function applyLlmSlotToHermes(slot: InferenceSlotId): Promise<ApplyAssistantLlmResult> {
-  const llm = getSlotLlmConnection(slot);
+  const llm = await getSlotLlmConnection(slot);
   if (!llm) {
     return { success: false, error: 'That provider is not connected.' };
   }
@@ -1879,7 +1939,8 @@ function profileLimitsFor(
 
 /**
  * Give one agent profile the setup the stack's bootstrap never wrote: the model limits (when
- * `limits` is given) and the default profile's MCP servers (hermesAgentMcpServers.ts).
+ * `limits` is given), the default profile's MCP servers (hermesAgentMcpServers.ts) and
+ * Boundary's platform hint (hermesPlatformHint.ts).
  */
 async function setUpAgentProfile(
   compose: HermesConfigCompose,
@@ -1888,6 +1949,7 @@ async function setUpAgentProfile(
 ): Promise<void> {
   if (limits) await applyHermesProfileLimits(compose, profile, limits);
   await copyDefaultMcpServers(compose, profile);
+  await applyBoundaryPlatformHint(compose, profile);
 }
 
 /** Best effort: a profile that can't be written is logged and the rest still are. */
@@ -2000,7 +2062,7 @@ export async function ensureAssistantStackOnLaunch(): Promise<void> {
   if (!isAssistantStackSetupComplete()) {
     return;
   }
-  if (!getLlmConnection()) {
+  if (!(await getLlmConnection())) {
     return;
   }
   // Emit starting immediately so the product UI can gate before compose begins.

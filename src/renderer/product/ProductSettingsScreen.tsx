@@ -10,6 +10,7 @@ import type {
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { ModelPicker } from '../onboarding/ModelPicker';
 import { Segmented } from '../components/ui/segmented';
+import { InfoTip } from '../components/ui/info-tip';
 import { useThemePreference } from '../theme';
 import { onboardingIPC } from '../services/onboardingIPCService';
 import { cloudInferenceNotice, cloudKeyLimitTip } from './cloudInferenceCopy';
@@ -26,6 +27,8 @@ interface ProductSettingsScreenProps {
   initialTab?: SettingsTab;
   /** Passwords & Logins: start on this agent's logins. */
   initialAgentSlug?: string;
+  /** Calendars: start with the connect sheet open; closing it goes back to the chat. */
+  connectCalendarFromChat?: boolean;
 }
 
 function formatLastSeen(iso?: string): string | null {
@@ -81,6 +84,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   onBack,
   initialTab,
   initialAgentSlug,
+  connectCalendarFromChat,
 }) => {
   const [themePreference, setThemePreference] = useThemePreference();
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
@@ -359,7 +363,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         {tab === 'passwords' ? (
           <PasswordsLoginsPanel initialAgentSlug={initialAgentSlug} />
         ) : tab === 'calendars' ? (
-          <CalendarsPanel cloudProvider={status?.appDefault === 'openrouter' ? 'OpenRouter' : null} />
+          <CalendarsPanel
+            cloudProvider={status?.appDefault === 'openrouter' ? 'OpenRouter' : null}
+            onConnectFromChatClosed={connectCalendarFromChat ? onBack : undefined}
+          />
         ) : tab === 'coding' ? (
           <CodingFoldersPanel />
         ) : tab === 'browser' ? (
@@ -374,7 +381,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
             <div className="wb-settings-row">
               <div>
                 <p className="wb-settings-label">Theme</p>
-                <p className="wb-settings-hint">System follows your Mac’s light or dark setting.</p>
               </div>
               <Segmented
                 aria-label="Theme"
@@ -389,11 +395,13 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
             </div>
           </section>
 
-          <h2 className="wb-settings-heading">Inference</h2>
-          <p className="wb-inference-lead">
-            Hold a local runtime and OpenRouter at the same time. One of them is the app default.
-            Projects and chats can override later.
-          </p>
+          <h2 className="wb-settings-heading">
+            Inference
+            <InfoTip label="inference">
+              You can connect a local runtime and OpenRouter at the same time. One of them is the app
+              default; projects and chats can override it.
+            </InfoTip>
+          </h2>
 
           {local && localHealth === 'unreachable' && (
             <div className="wb-inference-banner is-warn">
@@ -440,8 +448,8 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                     <div className="wb-inference-empty">
                       <p>
                         {openrouter
-                          ? 'OpenRouter is connected. A local runtime is optional. Scan if Ollama or LM Studio is running.'
-                          : 'No local runtime is configured. Boundary looks for Ollama and LM Studio on this machine.'}
+                          ? 'Optional. Scan if Ollama or LM Studio is running.'
+                          : 'Boundary looks for Ollama and LM Studio on this Mac.'}
                       </p>
                       <div className="wb-inference-actions">
                         <button
@@ -464,6 +472,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                               type="button"
                               className="wb-inference-btn"
                               disabled={busy}
+                              title={model.id}
                               onClick={() => void handleAdoptLocal(endpoint, model.id)}
                             >
                               Use {model.id}
@@ -559,6 +568,12 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                   <div className="hed">
                     <span className={`wb-inference-dot ${dotClass(openrouter, 'openrouter')}`} />
                     <h3>OpenRouter</h3>
+                    {openrouter ? (
+                      <InfoTip label="OpenRouter">
+                        <p>{cloudInferenceNotice('OpenRouter')}</p>
+                        <p>{cloudKeyLimitTip('OpenRouter')}</p>
+                      </InfoTip>
+                    ) : null}
                     <span className={`wb-inference-pill ${openRouterMeta.tone}`}>
                       {openRouterMeta.label}
                     </span>
@@ -567,8 +582,8 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                     <div className="wb-inference-empty">
                       <p>
                         {local
-                          ? 'Local is enough to chat. Connect OpenRouter if you want a cloud option on some projects.'
-                          : 'Connect with OAuth. Boundary stores one key. Model list and prices come from OpenRouter after connect.'}
+                          ? 'Optional. Adds a cloud model for the projects you choose.'
+                          : 'Connect with OAuth. Boundary stores one key.'}
                       </p>
                       <p className="wb-inference-cloud">{cloudInferenceNotice('OpenRouter')}</p>
                       <div className="wb-inference-actions">
@@ -598,9 +613,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                           <dd>{openrouter.modelId ?? 'None'}</dd>
                         </div>
                       </dl>
-                      <p className="wb-inference-cloud">
-                        {cloudInferenceNotice('OpenRouter')} {cloudKeyLimitTip('OpenRouter')}
-                      </p>
                       {openRouterHealth === 'unauthorized' && (
                         <p className="wb-inference-empty" style={{ marginTop: 10 }}>
                           Model list is from the last successful refresh. Sends will fail until reconnect.
@@ -683,10 +695,12 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
               </div>
 
               <div className={`wb-inference-default ${!local && !openrouter ? 'opacity-50' : ''}`}>
-                <h3>App default</h3>
-                <p className="hint">
-                  Used when a project does not pin a provider and a chat has not overridden it.
-                </p>
+                <h3>
+                  App default
+                  <InfoTip label="the app default">
+                    Used when a project does not pin a provider and a chat has not overridden it.
+                  </InfoTip>
+                </h3>
                 {!local && !openrouter ? (
                   <button type="button" className="wb-inference-choice" disabled>
                     <span className="wb-inference-radio" aria-hidden="true" />

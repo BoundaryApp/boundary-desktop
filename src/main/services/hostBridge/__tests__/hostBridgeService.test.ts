@@ -19,7 +19,7 @@ vi.mock('electron', () => {
   return {
     app: { getPath: () => os.tmpdir() },
     // Keychain unavailable: tokens live for the test only.
-    safeStorage: { isEncryptionAvailable: () => false },
+    safeStorage: { isAsyncEncryptionAvailable: async () => false },
     utilityProcess: { fork },
     BrowserWindow: {
       getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (channel: string, payload: unknown) => sent.push([channel, payload]) } }],

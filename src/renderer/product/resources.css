@@ -218,7 +218,7 @@
 
 .wb-resources-project > summary {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 16px;
   align-items: baseline;
   padding: 12px 0;
@@ -236,6 +236,9 @@
 
 .wb-resources-project .name span {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-faint);
   font-size: var(--size-2xs);
   font-weight: var(--weight-regular);
@@ -273,7 +276,8 @@
 
 .wb-resources-service {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow-wrap: anywhere;
   gap: 12px;
   padding: 6px 0;
   color: var(--text-muted);

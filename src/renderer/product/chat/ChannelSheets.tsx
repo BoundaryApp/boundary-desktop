@@ -7,6 +7,7 @@ import {
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
 import { useEscapeToClose } from '../useAppShortcuts';
+import { InfoTip } from '../../components/ui/info-tip';
 
 interface ChannelCreateSheetProps {
   open: boolean;
@@ -65,11 +66,14 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
         aria-labelledby="wb-channel-create-title"
       >
         <div className="wb-sheet-kicker">New channel · shared transcript</div>
-        <h2 id="wb-channel-create-title">New channel</h2>
+        <h2>
+          <span id="wb-channel-create-title">New channel</span>
+          <InfoTip label="channels">
+            A topic room. You post; members read later. @ is how you ask someone to reply now.
+          </InfoTip>
+        </h2>
         <p className="wb-sheet-lede">
-          A topic room. You post; members read later. @ is how you ask someone to
-          reply now. {builtinAgentName(agents)} starts as a member; uncheck it for a
-          room nobody answers in.
+          {builtinAgentName(agents)} starts as a member; uncheck it for a room nobody answers in.
         </p>
         <label className="wb-field">
           <span>Name</span>
@@ -188,7 +192,6 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
         <h2 id="wb-make-channel-title">Make channel</h2>
         <p className="wb-sheet-lede">
           This chat becomes the room's transcript, and {builtinName} joins as a member.
-          Add others when someone should read it.
         </p>
         <label className="wb-field">
           <span>Name</span>
@@ -265,11 +268,9 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
       <div className="wb-sheet" role="dialog" aria-labelledby="wb-add-channel-title">
         <div className="wb-sheet-kicker">Membership · explicit add</div>
         <h2 id="wb-add-channel-title">Add {agent.displayName} to a channel</h2>
-        <p className="wb-sheet-lede">
-          Members can read posts later. Non-members cannot be addressed with @.
-        </p>
+        <p className="wb-sheet-lede">Only members can be @’d, and they read posts later.</p>
         {channels.length === 0 ? (
-          <p className="wb-sheet-help">No channels yet. Create one from the left rail.</p>
+          <p className="wb-sheet-help">Create a channel from the left rail first.</p>
         ) : (
           <div className="wb-agent-list">
             {channels.map((ch) => {
@@ -277,7 +278,7 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
               return (
                 <div key={ch.id} className="wb-agent-row">
                   <span className="wb-agent-copy">
-                    <b>#{ch.slug}</b>
+                    <b title={`#${ch.slug}`}>#{ch.slug}</b>
                     <span>{ch.title}</span>
                   </span>
                   <button

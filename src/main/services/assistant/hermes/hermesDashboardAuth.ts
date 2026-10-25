@@ -18,28 +18,58 @@ function basicAuthHeader(creds: HermesDashboardCredentials): string {
   return `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}`;
 }
 
-function collectSetCookie(res: Response): string {
+function rawSetCookies(res: Response): string[] {
   const headers = res.headers as Headers & { getSetCookie?: () => string[] };
-  const parts: string[] = [];
-  if (typeof headers.getSetCookie === 'function') {
-    for (const c of headers.getSetCookie()) {
-      const pair = c.split(';')[0]?.trim();
-      if (pair) parts.push(pair);
-    }
-  } else {
-    const single = res.headers.get('set-cookie');
-    if (single) {
-      for (const c of single.split(/,(?=\s*[^;=]+=)/)) {
-        const pair = c.split(';')[0]?.trim();
-        if (pair) parts.push(pair);
-      }
+  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
+  const single = res.headers.get('set-cookie');
+  return single ? single.split(/,(?=\s*[^;=]+=)/) : [];
+}
+
+/** One `Set-Cookie` from the dashboard, with the attributes a browser session needs. */
+export interface DashboardCookie {
+  name: string;
+  value: string;
+  path: string;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'lax' | 'strict' | 'no_restriction' | 'unspecified';
+  /** Seconds from now, or null for a session cookie. */
+  maxAgeS: number | null;
+}
+
+export function parseSetCookie(raw: string): DashboardCookie | null {
+  const [pair, ...attrs] = raw.split(';');
+  const eq = pair?.indexOf('=') ?? -1;
+  if (!pair || eq <= 0) return null;
+  const cookie: DashboardCookie = {
+    name: pair.slice(0, eq).trim(),
+    value: pair.slice(eq + 1).trim(),
+    path: '/',
+    httpOnly: false,
+    secure: false,
+    sameSite: 'unspecified',
+    maxAgeS: null,
+  };
+  for (const attr of attrs) {
+    const [rawKey, ...rest] = attr.split('=');
+    const key = rawKey?.trim().toLowerCase();
+    const val = rest.join('=').trim();
+    if (key === 'path' && val) cookie.path = val;
+    else if (key === 'httponly') cookie.httpOnly = true;
+    else if (key === 'secure') cookie.secure = true;
+    else if (key === 'max-age' && /^-?\d+$/.test(val)) cookie.maxAgeS = Number(val);
+    else if (key === 'samesite') {
+      const s = val.toLowerCase();
+      cookie.sameSite = s === 'lax' ? 'lax' : s === 'strict' ? 'strict' : s === 'none' ? 'no_restriction' : 'unspecified';
     }
   }
-  return parts.join('; ');
+  return cookie;
 }
 
 export interface HermesDashboardLogin {
   cookieHeader: string;
+  /** The same cookies with their attributes, for copying into a browser session. */
+  cookies: DashboardCookie[];
   dashboardBaseUrl: string;
 }
 
@@ -72,7 +102,10 @@ export async function loginToDashboard(): Promise<HermesDashboardLogin> {
     }),
   });
 
-  const cookieHeader = collectSetCookie(loginRes);
+  const cookies = rawSetCookies(loginRes)
+    .map(parseSetCookie)
+    .filter((c): c is DashboardCookie => c !== null && c.maxAgeS !== 0);
+  const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
 
   if (!loginRes.ok) {
     const text = await loginRes.text().catch(() => '');
@@ -85,7 +118,7 @@ export async function loginToDashboard(): Promise<HermesDashboardLogin> {
     throw new Error('Dashboard password-login returned no session cookie');
   }
 
-  return { cookieHeader, dashboardBaseUrl };
+  return { cookieHeader, cookies, dashboardBaseUrl };
 }
 
 /** Mint a single-use WS ticket via the dashboard REST surface. */

@@ -171,7 +171,7 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
         }}
       >
         <div className="kicker">
-          <span>{kicker}</span>
+          <span title={kicker}>{kicker}</span>
           {countLabel ? <span className="count">{countLabel}</span> : null}
         </div>
 

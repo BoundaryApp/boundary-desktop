@@ -23,13 +23,13 @@ describe('SecureConfigStore', () => {
     });
   });
 
-  it('migrates plaintext sensitive config into encrypted storage', () => {
+  it('migrates plaintext sensitive config into encrypted storage', async () => {
     legacyStore.set('apiKey', 'api-secret-value');
     legacyStore.set('secretToken', 'sk-secret-token');
     legacyStore.set('databaseUrl', 'postgresql://user:pass@example.test/db');
 
-    migrateLegacyConfigSecrets(legacyStore);
-    const config = buildPublicConfig(legacyStore);
+    await migrateLegacyConfigSecrets(legacyStore);
+    const config = await buildPublicConfig(legacyStore);
 
     expect(config.apiKey).toEqual({ configured: true, preview: 'api-********alue' });
     expect(config.secretToken).toEqual({ configured: true, preview: 'sk-s*******oken' });
@@ -37,15 +37,15 @@ describe('SecureConfigStore', () => {
     expect(JSON.stringify(config)).not.toContain('api-secret-value');
     expect(JSON.stringify(config)).not.toContain('sk-secret-token');
     expect(legacyStore.get('apiKey')).toBeUndefined();
-    expect(getSecureConfigValue('apiKey')).toBe('api-secret-value');
-    expect(hasRequiredSecureConfig()).toBe(true);
+    expect(await getSecureConfigValue('apiKey')).toBe('api-secret-value');
+    expect(await hasRequiredSecureConfig()).toBe(true);
   });
 
-  it('preserves existing encrypted values when blank values are saved', () => {
-    setSecureConfigValue('apiKey', 'api-secret-value');
-    setSecureConfigValue('apiKey', '');
+  it('preserves existing encrypted values when blank values are saved', async () => {
+    await setSecureConfigValue('apiKey', 'api-secret-value');
+    await setSecureConfigValue('apiKey', '');
 
-    expect(getSecureConfigValue('apiKey')).toBe('api-secret-value');
+    expect(await getSecureConfigValue('apiKey')).toBe('api-secret-value');
   });
 });
 

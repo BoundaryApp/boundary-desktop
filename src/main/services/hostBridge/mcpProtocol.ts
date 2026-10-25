@@ -1,4 +1,4 @@
-import { HOST_TOOLS } from './toolCatalog';
+import { HOST_TOOLS, listedHostTools, type HostToolDefinition } from './toolCatalog';
 
 /**
  * The slice of MCP the host bridge speaks: Streamable HTTP, POST only, one JSON-RPC message per
@@ -24,6 +24,7 @@ export interface ToolCallResult {
 }
 
 export type CallTool = (name: string, args: Record<string, unknown>) => Promise<ToolCallResult>;
+export type ListTools = () => readonly HostToolDefinition[];
 
 /** `undefined` means the message was a notification and gets no response body. */
 export type McpReply = { status: number; body?: unknown };
@@ -64,7 +65,11 @@ export function isReply(value: JsonRpcRequest | McpReply): value is McpReply {
   return 'status' in value;
 }
 
-export async function handleMcpMessage(msg: JsonRpcRequest, callTool: CallTool): Promise<McpReply> {
+export async function handleMcpMessage(
+  msg: JsonRpcRequest,
+  callTool: CallTool,
+  listTools: ListTools = () => listedHostTools({ offerCalendarSetup: false })
+): Promise<McpReply> {
   const isNotification = msg.id === undefined;
   if (isNotification) {
     // notifications/initialized, notifications/cancelled, …: nothing to do.
@@ -90,13 +95,15 @@ export async function handleMcpMessage(msg: JsonRpcRequest, callTool: CallTool):
     case 'ping':
       return result(msg.id, {});
     case 'tools/list':
-      return result(msg.id, { tools: HOST_TOOLS });
+      return result(msg.id, { tools: listTools() });
     case 'tools/call': {
       const name = msg.params?.name;
       const args = msg.params?.arguments ?? {};
       if (typeof name !== 'string' || typeof args !== 'object' || args === null || Array.isArray(args)) {
         return error(msg.id, JSON_RPC_ERRORS.invalidParams, 'tools/call needs a name and an arguments object');
       }
+      // Any tool in the catalog, listed now or not: a Hermes that hasn't reconnected since the
+      // listing changed may still call offer_setup, and main answers that itself.
       if (!HOST_TOOLS.some((tool) => tool.name === name)) {
         return error(msg.id, JSON_RPC_ERRORS.invalidParams, `Unknown tool: ${name}`);
       }

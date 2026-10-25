@@ -31,7 +31,7 @@ const execFileAsync = promisify(execFile);
 const DISK_CACHE_TTL_MS = 90_000;
 const DISK_WALK_BUDGET_MS = 15_000;
 const LOCAL_STACK_NAME_RE =
-  /^(boundary-)?(hermes|lightrag|searxng|neo4j|n8n|opencode|gpt-researcher|gptr|mcp-|ollama|open-webui|calendar|signal)/i;
+  /^(boundary-)?(hermes|lightrag|searxng|neo4j|n8n|opencode|gpt-researcher|gptr|mcp-|ollama|open-webui|calendar|signal|postgres-db|db-provision|sql-mcp)/i;
 
 function workingDirUnderRoot(
   workingDir: string | undefined,

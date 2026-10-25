@@ -159,8 +159,6 @@ export interface TurnLiveness {
   liveStatus: boolean;
 }
 
-const NO_TURN_LIVENESS: TurnLiveness = { heartbeatS: null, liveStatus: false };
-
 export class HermesGatewaySession {
   private client: JsonRpcGatewayClient | null = null;
   private sessionId: string | null = null;
@@ -177,8 +175,11 @@ export class HermesGatewaySession {
   private approvalNotifier: ApprovalNotifier | null = null;
   private credentialRequestNotifier: CredentialRequestNotifier | null = null;
   private sessionsChangedNotifier: SessionsChangedNotifier | null = null;
-  // What this connection's gateway offers for turn liveness, asked once per connection.
-  private liveness: { client: JsonRpcGatewayClient; value: Promise<TurnLiveness> } | null = null;
+  // This connection's `gateway.capabilities`, asked once per connection ({} when unanswered).
+  private capabilities: {
+    client: JsonRpcGatewayClient;
+    value: Promise<Record<string, unknown>>;
+  } | null = null;
 
   get activeSessionId(): string | null {
     return this.sessionId;
@@ -353,6 +354,7 @@ export class HermesGatewaySession {
           allow_permanent: row.allow_permanent as never,
           smart_denied: row.smart_denied as never,
           pattern_key: row.pattern_key as never,
+          mcp: row.mcp as never,
         },
         replayed: true,
         respond: () => undefined,
@@ -920,6 +922,11 @@ export class HermesGatewaySession {
       truncate?: { rowId: number; confirmEmpty: boolean };
       /** `hidden`: Hermes stores the row typed so no client renders it (Continue). */
       displayKind?: 'hidden';
+      /**
+       * Turn context: added to this turn's model input, never to `session.history`. Only
+       * send it when supportsClientContext() is true.
+       */
+      context?: string;
     }
   ): Promise<void> {
     const client = await this.ensureConnected();
@@ -930,6 +937,9 @@ export class HermesGatewaySession {
     if (opts?.displayKind) {
       params.display_kind = opts.displayKind;
     }
+    if (opts?.context) {
+      params.context = opts.context;
+    }
     if (opts?.truncate) {
       params.truncate_before_row_id = opts.truncate.rowId;
       params.confirm_truncate = true;
@@ -938,33 +948,37 @@ export class HermesGatewaySession {
     await client.request('prompt.submit', params);
   }
 
+  private async getCapabilities(): Promise<Record<string, unknown>> {
+    const client = await this.ensureConnected();
+    if (this.capabilities?.client !== client) {
+      const value = client
+        .request('gateway.capabilities', {})
+        .then((caps) => (caps && typeof caps === 'object' ? (caps as Record<string, unknown>) : {}))
+        .catch(() => ({}));
+      this.capabilities = { client, value };
+    }
+    return this.capabilities.value;
+  }
+
   /**
    * Whether the gateway sends `turn.heartbeat` (and how often) and answers
    * `session.live_status`. A stack overlay, so an unpatched gateway offers neither.
    */
   async getTurnLiveness(): Promise<TurnLiveness> {
-    const client = await this.ensureConnected();
-    if (this.liveness?.client !== client) {
-      const value = (async (): Promise<TurnLiveness> => {
-        try {
-          const caps = (await client.request('gateway.capabilities', {})) as {
-            turn_heartbeat?: unknown;
-            turn_heartbeat_s?: unknown;
-            session_live_status?: unknown;
-          };
-          const every = Number(caps.turn_heartbeat_s);
-          return {
-            heartbeatS:
-              caps.turn_heartbeat === true && Number.isFinite(every) && every > 0 ? every : null,
-            liveStatus: caps.session_live_status === true,
-          };
-        } catch {
-          return NO_TURN_LIVENESS;
-        }
-      })();
-      this.liveness = { client, value };
-    }
-    return this.liveness.value;
+    const caps = await this.getCapabilities();
+    const every = Number(caps.turn_heartbeat_s);
+    return {
+      heartbeatS: caps.turn_heartbeat === true && Number.isFinite(every) && every > 0 ? every : null,
+      liveStatus: caps.session_live_status === true,
+    };
+  }
+
+  /**
+   * Whether `prompt.submit` takes a `context` string (stack v0.3.3 overlay). An unpatched
+   * gateway answers the unknown field with `4000`, so check before sending it.
+   */
+  async supportsClientContext(): Promise<boolean> {
+    return (await this.getCapabilities()).client_context === true;
   }
 
   /**

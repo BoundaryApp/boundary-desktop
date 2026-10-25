@@ -16,8 +16,8 @@ The visual source is [click-through.html](click-through.html). What the stack an
 | 0 Spike: the gateway path | Done 21 Oct 2026 (sandbox) | — |
 | Stack pin to `v0.3.3` | Done 21 Oct 2026 (in-app upgrade test pending) | — |
 | 1 Connect and read | Built 21 Oct 2026; in-app check pending | 0, pin |
-| 2 Changes with approval, broken sign-ins | Not started | 1 |
-| 3 Chat entry point, Services | Not started | 1 |
+| 2 Changes with approval, broken sign-ins | Built 25 Oct 2026; in-app check pending | 1 |
+| 3 Chat entry point, Services | Built 25 Oct 2026; in-app check pending | 1 |
 
 ## The problem
 

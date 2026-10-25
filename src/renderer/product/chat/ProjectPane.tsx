@@ -89,15 +89,11 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
           )}
           <span className="wb-thread-id-copy">
             <strong>{name}</strong>
-            <span className="wb-thread-kind">
-              {project ? (
-                <>
-                  Project · <span className="mono">{displayHostPath(project.hostPath)}</span>
-                </>
-              ) : (
-                'Conversations that don’t belong to a project'
-              )}
-            </span>
+            {project ? (
+              <span className="wb-thread-kind">
+                Project · <span className="mono">{displayHostPath(project.hostPath)}</span>
+              </span>
+            ) : null}
           </span>
         </div>
         <span className="wb-grow" aria-hidden="true" />
@@ -146,9 +142,7 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
             Chats <span className="mono">{chats.length}</span>
           </div>
           {chats.length === 0 ? (
-            <p className="wb-quiet">
-              No chats yet. Start one above, or move one here from All chats.
-            </p>
+            <p className="wb-quiet">No chats yet. Start one above.</p>
           ) : (
             chats.map((thread) => (
               <button

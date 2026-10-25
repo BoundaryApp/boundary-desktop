@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { SetupFlowShell } from '../setup/SetupFlowShell';
 import { useSetup } from '../setup/SetupContext';
 import { AssistantStackStartingScreen } from './AssistantStackStartingScreen';
@@ -12,7 +12,7 @@ import { probeLog } from '../debug/lagProbe';
 export const READY_HOLD_MS = 700;
 
 export const ProductApp: React.FC = () => {
-  const { allComplete, assistantStackStatus } = useSetup();
+  const { allComplete, assistantStackStatus, setupProgress, applyFirstRunFolders } = useSetup();
   const lifecycle = useAssistantStackLifecycle();
   const [view, setView] = useState<ProductDestination>('chat');
 
@@ -36,7 +36,18 @@ export const ProductApp: React.FC = () => {
     const timer = setTimeout(() => setHoldingReady(false), READY_HOLD_MS);
     return () => clearTimeout(timer);
   }, [holdingReady]);
-  const starting = showStarting || holdingReady;
+  // Folders picked in setup become projects once the stack is up; chat opens after that, on
+  // the first of them (first-run spec, Phase 2). The start-up screen stays in its ready state.
+  const foldersPending = allComplete && (setupProgress?.pendingFolders.length ?? 0) > 0;
+  const applyingFolders = useRef(false);
+  useEffect(() => {
+    if (!foldersPending || showStarting || quitting || applyingFolders.current) return;
+    applyingFolders.current = true;
+    void applyFirstRunFolders().finally(() => {
+      applyingFolders.current = false;
+    });
+  }, [applyFirstRunFolders, foldersPending, quitting, showStarting]);
+  const starting = showStarting || holdingReady || foldersPending;
   const screen = !allComplete ? 'setup' : starting ? 'starting' : `ready:${view}`;
   // Lag probe: a screen swap unmounts the chat screen and everything in it.
   useEffect(() => {

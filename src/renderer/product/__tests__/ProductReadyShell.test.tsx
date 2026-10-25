@@ -17,14 +17,17 @@ vi.mock('../ProductSettingsScreen', () => ({
     onBack,
     initialTab,
     initialAgentSlug,
+    connectCalendarFromChat,
   }: {
     onBack: () => void;
     initialTab?: string;
     initialAgentSlug?: string;
+    connectCalendarFromChat?: boolean;
   }) => (
     <div>
       <span>settings-screen</span>
       <span>{`tab:${initialTab ?? 'none'} agent:${initialAgentSlug ?? 'none'}`}</span>
+      {connectCalendarFromChat ? <span>connect-from-chat</span> : null}
       <button type="button" onClick={onBack}>
         back-to-chat
       </button>
@@ -48,6 +51,17 @@ describe('ProductReadyShell navigation', () => {
     expect(onNavigate).toHaveBeenCalledWith('settings');
     rerender(<ProductReadyShell view="settings" onNavigate={onNavigate} />);
     expect(screen.getByText('tab:passwords agent:researcher')).toBeTruthy();
+  });
+
+  it('opens Calendars with the connect sheet from the chat card, and back goes to the chat', () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    act(() => openSettings({ tab: 'calendars', connectFromChat: true }));
+    rerender(<ProductReadyShell view="settings" onNavigate={onNavigate} />);
+    expect(screen.getByText('tab:calendars agent:none')).toBeTruthy();
+    expect(screen.getByText('connect-from-chat')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'back-to-chat' }));
+    expect(onNavigate).toHaveBeenLastCalledWith('chat');
   });
 
   it('defaults to chat and switches Services / Settings via the rail', () => {

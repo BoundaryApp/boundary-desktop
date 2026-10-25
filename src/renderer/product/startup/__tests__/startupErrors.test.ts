@@ -15,6 +15,7 @@ describe('describeStartupError', () => {
     ['The agent stack download didn’t match its pinned checksum (expected a, got b): https://example.com', 'checksum'],
     ['Couldn’t stop the agent stack before upgrading it: timeout', 'upgrade'],
     ['Hermes API did not become healthy at http://127.0.0.1:8642/health within 180000ms', 'health'],
+    ['Compose timed out after 10 minutes: {"id":"Container boundary-hermes"}\n/opt/data/config.yaml', 'slow-start'],
     ['setup.sh exited with code 2.\nsomething', 'setup'],
     ['Compose exited with code 1: service "n8n" exited', 'compose'],
     ['Something nobody planned for', 'unknown'],

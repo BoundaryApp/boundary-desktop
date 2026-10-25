@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { toUnixSeconds } from '../../../../shared/messageTime';
 import type {
+  AgentProfile,
   ChannelPostRecord,
   ChannelRecord,
   HermesChannelAddMemberPayload,
@@ -472,6 +473,86 @@ export const WAKE_BACKLOG_TOKEN_BUDGET = 8_000;
 /** Rough token count (about 4 characters per token); close enough for a budget. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+/** Longest role text a header carries per member; roles are free text and can run long. */
+const HEADER_ROLE_MAX_CHARS = 60;
+
+function headerRole(role: string): string {
+  const first = role.trim().split(/(?<=[.!?])\s/)[0] ?? '';
+  const trimmed = first.replace(/[.!?]$/, '');
+  return trimmed.length > HEADER_ROLE_MAX_CHARS
+    ? `${trimmed.slice(0, HEADER_ROLE_MAX_CHARS - 1)}…`
+    : trimmed;
+}
+
+/**
+ * One line of turn context telling a woken agent where it is: Hermes only gets a shared
+ * session and text, so the room's name, its members and which of them is answering exist
+ * only here. `wokenBy` is the agent whose reply @-mentioned this one; the
+ * session's earlier replies carry no speaker names, so the line says who spoke last.
+ */
+export function buildChannelHeader(
+  channelSlug: string,
+  members: readonly Pick<AgentProfile, 'slug' | 'displayName' | 'handle' | 'role'>[],
+  speaker: Pick<AgentProfile, 'displayName' | 'handle'>,
+  wokenBy?: Pick<AgentProfile, 'displayName' | 'handle'> | null
+): string {
+  const at = (a: Pick<AgentProfile, 'displayName' | 'handle'>) => `@${a.handle || a.displayName}`;
+  const roster = members
+    .map((m) => {
+      const role = headerRole(m.role);
+      return role ? `${at(m)} (${role})` : at(m);
+    })
+    .join(', ');
+  const parts = [
+    `Boundary channel #${channelSlug}`,
+    `members: the user${roster ? `, ${roster}` : ''}`,
+    `you are ${at(speaker)}`,
+    ...(wokenBy ? [`the last reply was from ${at(wokenBy)}`] : []),
+  ];
+  return `[${parts.join(' · ')}]`;
+}
+
+/** Most of an agent's SOUL.md a room turn carries; the gateway refuses context over 16,000. */
+export const ROOM_SOUL_MAX_CHARS = 8_000;
+
+/**
+ * Turn context that gives a room member its own SOUL.md. Room turns run on the default
+ * profile, whose system prompt holds the built-in agent's soul, so a member's own soul
+ * reaches the model only here. `soul` is null when it was sent to this session already.
+ */
+export function buildMemberSoulContext(
+  speaker: Pick<AgentProfile, 'displayName' | 'handle'>,
+  soul: string | null
+): string {
+  const at = `@${speaker.handle || speaker.displayName}`;
+  if (!soul) {
+    return `Answer as ${at}, following ${at}'s SOUL.md given earlier in this channel.`;
+  }
+  const body =
+    soul.length > ROOM_SOUL_MAX_CHARS ? `${soul.slice(0, ROOM_SOUL_MAX_CHARS - 1)}…` : soul;
+  return [
+    `Answer as ${at}. ${at}'s SOUL.md follows. For ${at}'s turns in this channel it replaces ` +
+      'the persona in your system prompt; tools and safety rules stay as they are.',
+    body,
+  ].join('\n\n');
+}
+
+/**
+ * Turn context for the orchestrator in a room. Its SOUL.md tells it to work through the
+ * kanban tools, but room turns run on the default profile, which has no kanban toolset
+ * (change request 0011), so without this it may claim tasks it never filed.
+ */
+export function buildOrchestratorRoomNote(
+  speaker: Pick<AgentProfile, 'displayName' | 'handle'>
+): string {
+  const at = `@${speaker.handle || speaker.displayName}`;
+  return (
+    `The kanban tools (kanban_create, kanban_list and the rest) aren't available to ${at} in ` +
+    "channels. Don't say you created, updated or checked a task here. When the user wants work " +
+    `on the board, ask them to message ${at} in its direct chat, where the tools are available.`
+  );
 }
 
 /**

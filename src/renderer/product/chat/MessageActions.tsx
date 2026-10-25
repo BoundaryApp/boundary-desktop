@@ -426,7 +426,9 @@ export const ReplyFiles: React.FC = () => {
       <ul>
         {shown.map((file) => (
           <li key={file} className="wb-file">
-            <span className="mono">{file}</span>
+            <span className="mono" title={file}>
+              {file}
+            </span>
             <FileActions project={project} relativePath={file} onNotice={context.onNotice} />
           </li>
         ))}

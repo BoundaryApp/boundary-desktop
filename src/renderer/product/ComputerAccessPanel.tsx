@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { HostBridgeGrant } from '../../shared/types/hostBridge';
 import { hostBridgeIPC } from '../services/hostBridgeIPCService';
+import { InfoTip } from '../components/ui/info-tip';
 
 /** Settings → Computer access: the host-bridge grants Hermes holds, and revoking them (ADR 0027 §7). */
 
@@ -60,12 +61,22 @@ export const ComputerAccessPanel: React.FC = () => {
 
   return (
     <section className="wb-settings-section wb-computer-access" aria-labelledby="settings-computer-access">
-      <h2 id="settings-computer-access">Computer access</h2>
-      <p className="wb-inference-lead">
-        Hermes can ask Boundary to do things on this computer: show notifications, open pages in your browser, use
-        the clipboard, and read or save files you choose. Each one asks you first. Reading the clipboard and saving
-        files always ask. Below is what you said to always allow.
-      </p>
+      <h2 id="settings-computer-access">
+        Computer access
+        <InfoTip label="computer access">
+          <p>
+            Hermes can ask Boundary to show notifications, open pages in your browser, use the clipboard,
+            and read or save files you choose. Each one asks you first. Reading the clipboard and saving
+            files always ask.
+          </p>
+          <p>
+            Every request, allowed or not, is recorded in <span className="mono">host-bridge/audit.jsonl</span>{' '}
+            in Boundary’s app data folder. The log keeps sizes and file paths, never clipboard text or file
+            contents.
+          </p>
+        </InfoTip>
+      </h2>
+      <p className="wb-inference-lead">What you’ve said Hermes can always do on this computer.</p>
 
       {grants.length === 0 ? (
         <div className="wb-settings-row">
@@ -109,10 +120,6 @@ export const ComputerAccessPanel: React.FC = () => {
         </>
       )}
 
-      <p className="wb-settings-hint wb-agent-browser-foot">
-        Every request, allowed or not, is recorded in <span className="mono">host-bridge/audit.jsonl</span> in
-        Boundary’s app data folder. The log keeps sizes and file paths, never clipboard text or file contents.
-      </p>
     </section>
   );
 };

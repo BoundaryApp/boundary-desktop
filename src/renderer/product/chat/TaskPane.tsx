@@ -26,6 +26,8 @@ interface TaskPaneProps {
   resolveOrigin: (sessionId: string | null) => TaskOrigin | null;
   /** Back to the Tasks list, from the crumb above the title. */
   onOpenTasks?: () => void;
+  /** **Open in board**: the Tasks board view on this task. Without it, the system browser. */
+  onOpenBoard?: (taskId: string) => void;
 }
 
 const LOG_TAIL_BYTES = 16_000;
@@ -115,7 +117,11 @@ export function buildTimeline(detail: KanbanTaskDetail): TimelineItem[] {
       key: `e${e.id}`,
       at: e.createdAt,
       tone: stopped ? 'you' : eventTone(e.kind),
-      label: stopped ? 'Stopped by you' : eventLabel(e.kind),
+      label: stopped
+        ? 'Stopped by you'
+        : e.kind === 'gave_up' && e.retryable === false
+          ? "Gave up: can't start as it is"
+          : eventLabel(e.kind),
       quote: stopped ? null : e.note,
     });
   }
@@ -159,7 +165,13 @@ function ago(nowS: number, at: number | null): string {
  * One kanban task (docs/kanban-activity-ux-study, Phase 1): is it alive, what is it doing,
  * what did it produce. The board answers every question; nothing here is stored.
  */
-export const TaskPane: React.FC<TaskPaneProps> = ({ taskId, agents, resolveOrigin, onOpenTasks }) => {
+export const TaskPane: React.FC<TaskPaneProps> = ({
+  taskId,
+  agents,
+  resolveOrigin,
+  onOpenTasks,
+  onOpenBoard,
+}) => {
   const live = useKanbanSnapshot().tasks.find((t) => t.id === taskId) ?? null;
   const nowS = useNowSeconds(1000);
   const [detail, setDetail] = useState<KanbanTaskDetail | null>(null);
@@ -252,7 +264,10 @@ export const TaskPane: React.FC<TaskPaneProps> = ({ taskId, agents, resolveOrigi
   const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
   const nowLine = log ? lastLogLine(log.text) : null;
   const block = latestEvent(detail, ['blocked', 'review_requested', 'block_loop_detected', 'gave_up']);
-  const openBoard = (): void => void hermesChatIPC.openKanbanBoard().catch((): void => undefined);
+  const openBoard = (): void => {
+    if (onOpenBoard) onOpenBoard(task.id);
+    else void hermesChatIPC.openKanbanBoard(task.id).catch((): void => undefined);
+  };
   const result = detail?.latestSummary ?? detail?.result ?? null;
   const lastBeat = task.lastHeartbeatAt ?? task.startedAt;
 
@@ -331,6 +346,7 @@ export const TaskPane: React.FC<TaskPaneProps> = ({ taskId, agents, resolveOrigi
             reason={block?.note ?? null}
             since={block ? ago(nowS, block.createdAt) : null}
             trigger={block?.trigger ?? null}
+            retryable={block?.retryable ?? null}
             onOpenBoard={openBoard}
             onActed={reload}
           />

@@ -1,6 +1,6 @@
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import type { StackSecretPreviews } from '../../../shared/types/infrastructure';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable, replaceCiphertext } from '../secrets/osEncryption';
 import { secretPreview } from '../secrets/secretPreview';
 
 const store = new Store<{ secrets: Record<string, string> }>({
@@ -12,8 +12,8 @@ function secretKey(instanceId: string, varName: string): string {
   return `${instanceId}:${varName}`;
 }
 
-export function isEncryptionAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable();
+export function isEncryptionAvailable(): Promise<boolean> {
+  return isOsEncryptionAvailable();
 }
 
 export async function setSecret(
@@ -21,10 +21,10 @@ export async function setSecret(
   varName: string,
   value: string
 ): Promise<void> {
-  if (!isEncryptionAvailable()) {
+  if (!(await isEncryptionAvailable())) {
     throw new Error('OS encryption is not available for storing secrets');
   }
-  const encrypted = safeStorage.encryptString(value).toString('base64');
+  const encrypted = await encryptToBase64(value);
   const secrets = { ...store.get('secrets') };
   secrets[secretKey(instanceId, varName)] = encrypted;
   store.set('secrets', secrets);
@@ -34,9 +34,12 @@ export async function getSecret(instanceId: string, varName: string): Promise<st
   const secrets = store.get('secrets');
   const enc = secrets[secretKey(instanceId, varName)];
   if (!enc) return null;
-  if (!isEncryptionAvailable()) return null;
+  if (!(await isEncryptionAvailable())) return null;
   try {
-    return safeStorage.decryptString(Buffer.from(enc, 'base64'));
+    return await decryptFromBase64(enc, (reEncrypted) => {
+      const next = replaceCiphertext(store.get('secrets'), enc, reEncrypted);
+      if (next) store.set('secrets', next);
+    });
   } catch {
     return null;
   }

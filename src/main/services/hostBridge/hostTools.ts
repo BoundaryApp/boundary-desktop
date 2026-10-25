@@ -11,6 +11,7 @@ import {
   PICKED_FILE_GRANT_MS,
   PURPOSE_MAX,
   READ_FILE_MAX_BYTES,
+  SETUP_KINDS,
   URL_MAX,
   WRITE_FILE_MAX_CHARS,
 } from './toolCatalog';
@@ -31,8 +32,8 @@ export interface HostToolDeps {
   /** Resolves `shown` once the OS confirms it, `unconfirmed` if it doesn't say within a few seconds. */
   showNotification(title: string, body: string): Promise<'shown' | 'unconfirmed'>;
   openExternal(url: string): Promise<void>;
-  readClipboard(): string;
-  writeClipboard(text: string): void;
+  readClipboard(): Promise<string>;
+  writeClipboard(text: string): Promise<void>;
   /** Native open dialog; resolves the chosen absolute paths, or none when cancelled. */
   pickFiles(options: { message: string; multiple: boolean; extensions: string[] }): Promise<string[]>;
   /** Native save dialog; resolves the chosen absolute path, or null when cancelled. */
@@ -42,6 +43,8 @@ export interface HostToolDeps {
   readFile(filePath: string): Promise<Buffer>;
   writeFile(filePath: string, content: string): Promise<void>;
   now(): number;
+  /** Whether any calendar is connected in Settings → Calendars. */
+  calendarConnected(): boolean;
   audit(entry: AuditEntry): void;
 }
 
@@ -225,7 +228,7 @@ async function clipboardWrite(args: Record<string, unknown>, deps: HostToolDeps)
   if ('result' in gate) return gate.result;
 
   return attempt(deps, tool, read, 'Boundary could not set the clipboard', async () => {
-    deps.writeClipboard(value);
+    await deps.writeClipboard(value);
     deps.audit({ tool, decision: gate.decision, args: read, outcome: 'copied' });
     return text('Copied to the clipboard.');
   });
@@ -248,7 +251,7 @@ async function clipboardRead(args: Record<string, unknown>, deps: HostToolDeps):
   if ('result' in gate) return gate.result;
 
   return attempt(deps, tool, read, 'Boundary could not read the clipboard', async () => {
-    const value = deps.readClipboard();
+    const value = await deps.readClipboard();
     deps.audit({ tool, decision: gate.decision, args: read, outcome: `${value.length} chars` });
     if (!value) return text('The clipboard has no text.');
     return text(value.length > CLIPBOARD_MAX ? `${value.slice(0, CLIPBOARD_MAX)}\n…(cut at ${CLIPBOARD_MAX} characters)` : value);
@@ -368,6 +371,38 @@ async function writeFile(args: Record<string, unknown>, deps: HostToolDeps): Pro
   });
 }
 
+// ---------------------------------------------------------------------------- offer_setup
+
+/**
+ * Nothing happens on the Mac: the renderer draws the Connect a calendar card from the call itself
+ * (spec decision 7), so this only checks the call and tells the model what the user sees.
+ */
+async function offerSetup(args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {
+  const tool = 'offer_setup';
+  const extra = unexpected(args, ['kind']);
+  if (extra) return invalid(tool, args, extra, deps);
+  if (!(SETUP_KINDS as readonly unknown[]).includes(args.kind)) {
+    return invalid(tool, args, `kind must be one of: ${SETUP_KINDS.join(', ')}`, deps);
+  }
+  const read = { kind: args.kind };
+  // Listed only while no calendar is connected, but a Hermes that hasn't reconnected since may
+  // still have it.
+  if (deps.calendarConnected()) {
+    deps.audit({ tool, decision: 'invalid', args: read, outcome: 'already connected' });
+    return text(
+      'A calendar is already connected in Boundary, so no card was shown. If you have no calendar ' +
+        'tools, the user has not given you access to it: tell them they can change that in ' +
+        'Settings → Calendars.',
+      true
+    );
+  }
+  deps.audit({ tool, decision: 'allowed', args: read, outcome: 'offered' });
+  return text(
+    'Boundary is showing the user a Connect a calendar card under your reply. Say in one sentence ' +
+      "that you can't see a calendar yet; don't explain how to connect one."
+  );
+}
+
 // ---------------------------------------------------------------------------- dispatch
 
 export async function executeHostTool(
@@ -390,6 +425,8 @@ export async function executeHostTool(
       return readFile(args, deps);
     case 'write_file':
       return writeFile(args, deps);
+    case 'offer_setup':
+      return offerSetup(args, deps);
     default:
       deps.audit({ tool: name, decision: 'invalid', args: {}, outcome: 'unknown tool' });
       return text(`Unknown tool: ${name}`, true);

@@ -101,12 +101,12 @@ describe('InferenceChip', () => {
     });
   });
 
-  it('shows app-default provenance and lists both providers', async () => {
+  it('leaves the app default unlabelled and lists both providers', async () => {
     render(<InferenceChip sessionId="s1" />);
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
     });
-    expect(screen.getByText('from app default')).toBeTruthy();
+    expect(screen.queryByText('from app default')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
     expect(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Use project default' })).toBeTruthy();

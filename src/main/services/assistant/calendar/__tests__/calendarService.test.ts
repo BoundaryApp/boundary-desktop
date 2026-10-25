@@ -9,14 +9,16 @@ const h = vi.hoisted(() => ({
   composeWithInput: vi.fn(),
   requestMcp: vi.fn(),
   storeData: {} as Record<string, unknown>,
+  /** `listing:<calendars stored>` when the bridge listing is synced, `reload` for reload.mcp. */
+  events: [] as string[],
 }));
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   safeStorage: {
-    isEncryptionAvailable: () => true,
-    encryptString: (s: string) => Buffer.from(`enc:${s}`),
-    decryptString: (b: Buffer) => b.toString().slice(4),
+    isAsyncEncryptionAvailable: async () => true,
+    encryptStringAsync: async (s: string) => Buffer.from(`enc:${s}`),
+    decryptStringAsync: async (b: Buffer) => ({ result: b.toString().slice(4), shouldReEncrypt: false }),
   },
 }));
 
@@ -56,16 +58,25 @@ vi.mock('../../hermes/hermesAgents', () => ({
   resolveProfileForAgent: (slug: string) => (slug === 'assistant' ? null : slug),
 }));
 
+vi.mock('../../../hostBridge/hostBridgeService', () => ({
+  syncHostToolListing: () => h.events.push(`listing:${(h.storeData.accounts as unknown[]).length}`),
+}));
+
 vi.mock('../../hermes/hermesGatewaySession', () => ({
   getHermesGatewaySession: () => ({ requestMcp: h.requestMcp }),
 }));
 
 import {
   connectCalendar,
+  recheckAllCalendars,
+  recheckCalendar,
   removeCalendar,
+  replaceCalendarPassword,
+  runDailyCalendarCheck,
   setCalendarAccess,
   testCalendarSignIn,
 } from '../calendarService';
+import { CALDAV_CHANGE_TOOLS, CALDAV_READ_TOOLS } from '../calendarModel';
 import { HERMES_CONFIG_SECRET_ENV } from '../../hermesConfigSetExec';
 
 const PW = 'abcd-efgh-ijkl-mnop';
@@ -108,11 +119,13 @@ beforeEach(() => {
   h.storeData.accounts = [];
   h.compose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
   h.composeWithInput.mockReset().mockResolvedValue({ stdout: OK_PROBE, stderr: '', code: 0 });
-  h.requestMcp.mockReset().mockImplementation(async (method: string) =>
-    method === 'mcp.servers.status'
-      ? { servers: [{ name: 'calendar-personal', connected: true, status: 'connected', tools: 12 }] }
-      : {}
-  );
+  h.events = [];
+  h.requestMcp.mockReset().mockImplementation(async (method: string) => {
+    if (method === 'reload.mcp') h.events.push('reload');
+    return method === 'mcp.servers.status'
+      ? { servers: [{ name: 'calendar-personal', connected: true, status: 'connected', tools: 18 }] }
+      : {};
+  });
 });
 
 afterEach(() => {
@@ -155,10 +168,36 @@ describe('connectCalendar', () => {
     expect(h.requestMcp).toHaveBeenCalledWith('reload.mcp', { confirm: true });
   });
 
-  it('does not offer change access in this phase', async () => {
-    await connect({ assistant: 'change' });
+  it('drops offer_setup from the bridge listing before the reload that re-lists it (3.2)', async () => {
+    await connect({ assistant: 'read' });
+    expect(h.events).toEqual(['listing:1', 'reload']);
+  });
+
+  it('leaves the listing alone when the sign-in is rejected', async () => {
+    h.composeWithInput.mockResolvedValue({ stdout: 'CALDAV_PROBE {"status": "rejected"}', stderr: '', code: 0 });
+    await connect({ assistant: 'read' });
+    expect(h.events).toEqual([]);
+  });
+
+  it('gives Read only the query tools and Read and change all 14, every entry untrusted', async () => {
+    await connect({ assistant: 'change', researcher: 'read' });
+    const sets = configSets();
+    expect(sets).toHaveLength(2);
+    const byProfile = Object.fromEntries(sets.map((s) => [s.args.includes('-p') ? 'researcher' : 'default', s.entry]));
+    expect(byProfile.default).toMatchObject({ trust: 'untrusted', tools: { include: [...CALDAV_READ_TOOLS, ...CALDAV_CHANGE_TOOLS] } });
+    expect(byProfile.researcher).toMatchObject({ trust: 'untrusted', tools: { include: [...CALDAV_READ_TOOLS] } });
+    expect(envOf('researcher')).toContain(`BOUNDARY_CALENDAR_PERSONAL_PASSWORD=${PW}`);
+  });
+
+  it('ignores access levels it doesn’t know', async () => {
+    await connect({ assistant: 'admin' as never });
     expect(configSets()).toHaveLength(0);
     expect(envOf('')).not.toContain('BOUNDARY_CALENDAR');
+  });
+
+  it('records when the sign-in last worked', async () => {
+    const result = await connect({ assistant: 'read' });
+    expect(result.account?.lastOkAt).toBeTruthy();
   });
 
   it('saves nothing when the server rejects the sign-in', async () => {
@@ -221,5 +260,92 @@ describe('removeCalendar', () => {
     expect(envOf('')).not.toContain('BOUNDARY_CALENDAR');
     expect(envOf('')).toContain('OPENAI_API_KEY=x');
     expect(h.compose.mock.calls.some(([a]) => (a as string[]).join(' ') === '--profile calendar rm -sf caldav-mcp')).toBe(true);
+  });
+
+  it('lists offer_setup again before reloading once the last calendar goes', async () => {
+    await connect({ assistant: 'read' });
+    h.events = [];
+    await removeCalendar({ slug: 'personal' });
+    expect(h.events).toEqual(['listing:0', 'reload']);
+  });
+});
+
+const REJECTED = { stdout: 'CALDAV_PROBE {"status": "rejected"}', stderr: '', code: 0 };
+
+describe('sign-in checks', () => {
+  it('a rejected check turns the account red and keeps the date it last worked', async () => {
+    const connected = await connect({ assistant: 'read' });
+    const workedAt = connected.account?.lastOkAt;
+    h.composeWithInput.mockResolvedValue(REJECTED);
+    const result = await recheckCalendar({ slug: 'personal' });
+    expect(result.account?.lastCheck?.status).toBe('rejected');
+    expect(result.account?.lastOkAt).toBe(workedAt);
+  });
+
+  it('doesn’t record a check that couldn’t run', async () => {
+    await connect({ assistant: 'read' });
+    h.composeWithInput.mockResolvedValue({ stdout: '', stderr: 'boom', code: 1 });
+    const result = await recheckCalendar({ slug: 'personal' });
+    expect(result.success).toBe(false);
+    expect((h.storeData.accounts as Array<{ lastCheck: { status: string } }>)[0].lastCheck.status).toBe('ok');
+  });
+
+  it('the tab-open check tests every account', async () => {
+    await connect({ assistant: 'read' });
+    h.composeWithInput.mockClear().mockResolvedValue(REJECTED);
+    const result = await recheckAllCalendars();
+    expect(h.composeWithInput).toHaveBeenCalledTimes(1);
+    expect(result.accounts[0].lastCheck?.status).toBe('rejected');
+  });
+
+  it('the daily check skips accounts checked within the day', async () => {
+    await connect({ assistant: 'read' });
+    h.composeWithInput.mockClear().mockResolvedValue(REJECTED);
+    await runDailyCalendarCheck(Date.now() + 60 * 60_000);
+    expect(h.composeWithInput).not.toHaveBeenCalled();
+
+    await runDailyCalendarCheck(Date.now() + 25 * 60 * 60_000);
+    expect(h.composeWithInput).toHaveBeenCalledTimes(1);
+    expect((h.storeData.accounts as Array<{ lastCheck: { status: string } }>)[0].lastCheck.status).toBe('rejected');
+  });
+});
+
+describe('replaceCalendarPassword', () => {
+  const NEW_PW = 'qrst-uvwx-yzab-cdef';
+
+  it('writes nothing when the new password is rejected', async () => {
+    await connect({ assistant: 'read', researcher: 'read' });
+    h.composeWithInput.mockResolvedValue(REJECTED);
+    h.requestMcp.mockClear();
+    const result = await replaceCalendarPassword({ slug: 'personal', password: NEW_PW });
+    expect(result).toMatchObject({ success: false, error: 'The server didn’t accept that password.' });
+    expect(envOf('')).toContain(`BOUNDARY_CALENDAR_PERSONAL_PASSWORD=${PW}`);
+    expect(h.requestMcp).not.toHaveBeenCalledWith('reload.mcp', { confirm: true });
+  });
+
+  it('re-provisions every agent with access and reloads, without a restart', async () => {
+    await connect({ assistant: 'read', researcher: 'read' });
+    h.composeWithInput.mockResolvedValue(REJECTED);
+    await recheckCalendar({ slug: 'personal' });
+
+    h.composeWithInput.mockResolvedValue({ stdout: OK_PROBE, stderr: '', code: 0 });
+    h.requestMcp.mockClear();
+    h.compose.mockClear();
+    const result = await replaceCalendarPassword({ slug: 'personal', password: NEW_PW });
+    expect(result).toMatchObject({ success: true, account: { passwordTail: 'cdef', lastCheck: { status: 'ok' } } });
+    for (const profile of ['', 'researcher']) {
+      expect(envOf(profile)).toContain(`BOUNDARY_CALENDAR_PERSONAL_PASSWORD=${NEW_PW}`);
+      expect(envOf(profile)).not.toContain(PW);
+    }
+    expect(h.requestMcp).toHaveBeenCalledWith('reload.mcp', { confirm: true });
+    expect(h.compose.mock.calls.some(([a]) => (a as string[]).includes('restart'))).toBe(false);
+    expect(configSets().every((s) => !JSON.stringify(s.entry).includes(NEW_PW))).toBe(true);
+  });
+
+  it('refuses a password Hermes can’t read back', async () => {
+    await connect({ assistant: 'read' });
+    const result = await replaceCalendarPassword({ slug: 'personal', password: 'pa$$word' });
+    expect(result.success).toBe(false);
+    expect(envOf('')).toContain(`BOUNDARY_CALENDAR_PERSONAL_PASSWORD=${PW}`);
   });
 });

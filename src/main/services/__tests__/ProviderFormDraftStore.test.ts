@@ -13,14 +13,14 @@ describe('ProviderFormDraftStore', () => {
     clearProviderFormDraft();
   });
 
-  it('returns null when no draft exists', () => {
-    const result = getProviderFormDraft('cerebrium');
+  it('returns null when no draft exists', async () => {
+    const result = await getProviderFormDraft('cerebrium');
     expect(result.success).toBe(true);
     expect(result.draft).toBeNull();
   });
 
-  it('saves and restores sensitive values via safeStorage', () => {
-    const save = saveProviderFormDraft({
+  it('saves and restores sensitive values via safeStorage', async () => {
+    const save = await saveProviderFormDraft({
       providerId: 'cerebrium',
       values: {
         cerebrium_service_account_token: 'sat-secret',
@@ -33,7 +33,7 @@ describe('ProviderFormDraftStore', () => {
 
     expect(save.success).toBe(true);
 
-    const loaded = getProviderFormDraft('cerebrium');
+    const loaded = await getProviderFormDraft('cerebrium');
     expect(loaded.success).toBe(true);
     const values = loaded.draft!.values;
     expect(loaded.draft!.selectedModelId).toBe('Qwen/Qwen3-32B');
@@ -42,40 +42,40 @@ describe('ProviderFormDraftStore', () => {
     expect(JSON.stringify(values)).not.toContain('sat-secret');
     expect(JSON.stringify(values)).not.toContain('hf-secret');
     expect(isStoredSecretToken(values.hf_token)).toBe(true);
-    expect(resolveStoredDraftSecrets('cerebrium', values)).toEqual({
+    expect(await resolveStoredDraftSecrets('cerebrium', values)).toEqual({
       cerebrium_service_account_token: 'sat-secret',
       cerebrium_project_id: 'p-test',
       hf_token: 'hf-secret',
     });
   });
 
-  it('keeps the stored secret when the renderer saves the token back unchanged', () => {
-    saveProviderFormDraft({
+  it('keeps the stored secret when the renderer saves the token back unchanged', async () => {
+    await saveProviderFormDraft({
       providerId: 'baseten',
       values: { baseten_api_key: 'bt-key' },
       sensitiveNames: ['baseten_api_key'],
     });
-    const token = getProviderFormDraft('baseten').draft!.values.baseten_api_key as string;
-    saveProviderFormDraft({
+    const token = (await getProviderFormDraft('baseten')).draft!.values.baseten_api_key as string;
+    await saveProviderFormDraft({
       providerId: 'baseten',
       values: { baseten_api_key: token },
       sensitiveNames: ['baseten_api_key'],
     });
-    expect(resolveStoredDraftSecret('baseten', token)).toBe('bt-key');
+    expect(await resolveStoredDraftSecret('baseten', token)).toBe('bt-key');
   });
 
-  it('resolves an unknown token to an empty string, and leaves plain values alone', () => {
-    expect(resolveStoredDraftSecret('baseten', 'boundary-stored-secret:nope:**')).toBe('');
-    expect(resolveStoredDraftSecret('baseten', 'typed-key')).toBe('typed-key');
+  it('resolves an unknown token to an empty string, and leaves plain values alone', async () => {
+    expect(await resolveStoredDraftSecret('baseten', 'boundary-stored-secret:nope:**')).toBe('');
+    expect(await resolveStoredDraftSecret('baseten', 'typed-key')).toBe('typed-key');
   });
 
-  it('clears a single provider draft', () => {
-    saveProviderFormDraft({
+  it('clears a single provider draft', async () => {
+    await saveProviderFormDraft({
       providerId: 'baseten',
       values: { baseten_api_key: 'bt-key' },
       sensitiveNames: ['baseten_api_key'],
     });
-    saveProviderFormDraft({
+    await saveProviderFormDraft({
       providerId: 'cerebrium',
       values: { cerebrium_project_id: 'p-1' },
       sensitiveNames: [],
@@ -83,7 +83,7 @@ describe('ProviderFormDraftStore', () => {
 
     clearProviderFormDraft('baseten');
 
-    expect(getProviderFormDraft('baseten').draft).toBeNull();
-    expect(getProviderFormDraft('cerebrium').draft?.values.cerebrium_project_id).toBe('p-1');
+    expect((await getProviderFormDraft('baseten')).draft).toBeNull();
+    expect((await getProviderFormDraft('cerebrium')).draft?.values.cerebrium_project_id).toBe('p-1');
   });
 });

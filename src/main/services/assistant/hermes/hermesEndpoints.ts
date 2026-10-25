@@ -76,6 +76,16 @@ export function resolveDashboardCredentials(): HermesDashboardCredentials | null
   return { username, password, secret };
 }
 
+/**
+ * The secret that signs one-time dashboard sign-in links (`GET /auth/handoff`, the stack's
+ * docs/extending.md). The stack's route answers 404 without one of at least 32 characters, so a
+ * shorter value counts as missing.
+ */
+export function resolveDashboardHandoffSecret(): string | null {
+  const secret = readProjectEnv().HERMES_DASHBOARD_HANDOFF_SECRET?.trim() ?? '';
+  return secret.length >= 32 ? secret : null;
+}
+
 export function resolveApiServerKey(): string | null {
   for (const envPath of apiServerEnvCandidates()) {
     try {

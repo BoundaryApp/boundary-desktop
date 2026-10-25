@@ -19,7 +19,8 @@ export const DONE_NOTICE_WINDOW_S = 24 * 3600;
 const FAILURE_BODY: Record<string, string> = {
   crashed: 'The worker crashed',
   timed_out: 'The run timed out',
-  gave_up: 'Gave up after repeated failures',
+  // The board row can't tell a first-claim give-up (stack v0.3.3) from repeated failures.
+  gave_up: 'The board gave up on it',
 };
 
 /** Event kinds that mean a run failed and the owner should look. */
@@ -28,7 +29,7 @@ export const FAILURE_EVENT_KINDS = new Set(Object.keys(FAILURE_BODY));
 function needsYouBody(task: KanbanTaskSummary): string {
   if (task.status === 'review') return 'Waiting for your review';
   if (task.blockKind === 'needs_input') return 'Needs you · asked a question';
-  if (taskGaveUp(task)) return 'Gave up after repeated failures';
+  if (taskGaveUp(task)) return FAILURE_BODY.gave_up;
   return 'Needs you · blocked';
 }
 
@@ -71,9 +72,14 @@ export function boardNotices(
   return out;
 }
 
+function unfixableGiveUp(event: { kind?: unknown; payload?: unknown }): boolean {
+  const payload = event.payload as { retryable?: unknown } | null | undefined;
+  return event.kind === 'gave_up' && payload?.retryable === false;
+}
+
 /** The notice for one pushed event, when it is a failed run of a task on the board. */
 export function eventNotice(
-  event: { id?: unknown; kind?: unknown; task_id?: unknown },
+  event: { id?: unknown; kind?: unknown; task_id?: unknown; payload?: unknown },
   tasks: readonly KanbanTaskSummary[]
 ): KanbanNotice | null {
   if (typeof event.kind !== 'string' || !FAILURE_EVENT_KINDS.has(event.kind)) return null;
@@ -83,6 +89,6 @@ export function eventNotice(
     key: `${task.id}:event:${String(event.id ?? event.kind)}`,
     taskId: task.id,
     title: task.title,
-    body: FAILURE_BODY[event.kind],
+    body: unfixableGiveUp(event) ? "Gave up · can't start until you fix it" : FAILURE_BODY[event.kind],
   };
 }

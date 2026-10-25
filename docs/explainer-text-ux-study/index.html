@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Explainer text study</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;560;650&display=swap" />
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--surface-rail); color: var(--text); font-family: var(--font-ui); font-size: var(--size-ui); line-height: 1.5; }
+    .page { max-width: 1040px; margin: 0 auto; padding: 28px 16px 80px; }
+    .kicker { color: var(--brand); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    h1 { margin: 0 0 10px; font-size: 28px; font-weight: 560; letter-spacing: -0.03em; }
+    h2 { margin: 40px 0 10px; font-size: 16px; font-weight: 620; }
+    .lede, .page > p { color: var(--text-muted); max-width: 72ch; }
+    .rec { border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); background: color-mix(in srgb, var(--brand) 8%, var(--surface-1)); border-radius: 12px; padding: 14px 18px; color: var(--text-muted); }
+    .rec b { color: var(--text); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    .card { border: 1px solid var(--line); background: var(--surface-1); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .card .sk { padding: 14px; background: var(--surface-0); border-bottom: 1px solid var(--line); min-height: 128px; }
+    .card .copy { padding: 12px 14px 14px; }
+    .card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+    .card p { margin: 0 0 6px; color: var(--text-muted); font-size: 13px; }
+    .card .take { color: var(--text); font-size: 12px; }
+    .tag { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+    /* Sketch primitives */
+    .sk-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .sk-row:last-child { border-bottom: 0; }
+    .sk-row .l { flex: 1; min-width: 0; }
+    .sk-row .l small { display: block; color: var(--text-faint); font-size: 11px; }
+    .bar-s { height: 6px; border-radius: 3px; background: var(--line); }
+    .sw { width: 22px; height: 12px; border-radius: 6px; background: var(--brand); flex-shrink: 0; }
+    .sw.off { background: var(--line); }
+    .i { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--text-faint); color: var(--text-faint); font-size: 9px; font-style: normal; font-weight: 650; vertical-align: -1px; margin-left: 4px; }
+    .help { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-size: 11px; color: var(--text-muted); margin-left: auto; }
+    .dotted { border-bottom: 1px dotted var(--text-faint); }
+    .metric { font-size: 20px; font-weight: 560; }
+    .danger { border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: 8px; padding: 8px; }
+    .para { color: var(--text-faint); font-size: 11px; line-height: 1.4; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--text-faint); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 560; }
+    td { color: var(--text-muted); }
+    td:first-child { color: var(--text); white-space: nowrap; }
+    .table-wrap { overflow-x: auto; }
+
+    /* Before / after: drawn in the settings panel's style */
+    .ba { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-0); padding: 20px; }
+    .panel h4 { margin: 0 0 6px; font-size: var(--size-title); font-weight: 600; display: flex; align-items: center; }
+    .panel .lead { margin: 0 0 14px; color: var(--text-muted); font-size: 13px; }
+    .srow { display: flex; align-items: center; gap: 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); margin-bottom: 8px; }
+    .srow > div { flex: 1; min-width: 0; }
+    .srow .lab { margin: 0; font-weight: 560; display: flex; align-items: center; }
+    .srow .hint { margin: 2px 0 0; color: var(--text-faint); font-size: var(--size-xs); }
+    .btn { font: inherit; font-size: var(--size-xs); padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); background: transparent; color: var(--text); flex-shrink: 0; }
+    .h5 { margin: 16px 0 4px; font-size: 13px; font-weight: 600; display: flex; align-items: center; }
+    .ta { width: 100%; height: 64px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; padding: 6px 8px; margin: 4px 0 6px; white-space: pre; overflow: hidden; }
+    .foot { color: var(--text-faint); font-size: var(--size-xs); margin: 12px 0 0; }
+    .count { font-size: 11px; color: var(--text-faint); margin: 6px 2px 0; }
+
+    /* InfoTip */
+    .tip { position: relative; display: inline-flex; }
+    .tip > button { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--text-faint); color: var(--text-faint); font-size: 9px; font-weight: 650; margin-left: 6px; font-family: var(--font-ui); }
+    .tip > button:hover, .tip > button:focus-visible, .tip.is-open > button { color: var(--text); border-color: var(--text); }
+    .tip > button:focus-visible { box-shadow: var(--focus-ring); }
+    .tip .pop { display: none; position: absolute; left: -8px; top: calc(100% + 8px); z-index: 10; width: 280px; padding: 10px 12px; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-2, var(--surface-1)); box-shadow: var(--shadow-popover); color: var(--text-muted); font-size: var(--size-xs); font-weight: 400; line-height: 1.5; }
+    .tip.is-open .pop { display: block; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">UX study · explainer text</div>
+  <h1>Say less by default, explain on request, warn at the decision</h1>
+  <p class="lede">About 130 explainer passages, roughly 2,350 words, sit in view across the app today. Most are accurate and some are needed, but a returning user reads past all of them to find the control. The comps below show how other apps split explanation between what is always shown, what is one hover away, and what appears only when the user is about to commit.</p>
+
+  <div class="rec">
+    <b>Recommendation.</b> Keep at most one short line under a heading. Move reference text into an <b>InfoTip</b> (an ⓘ beside the label that opens on hover or click). Put how-tos behind a disclosure. Keep consequence text inline, but only where the user acts. Label state only when it differs from the default. Applied to the inventory, this removes about two thirds of the always-visible words without deleting any information. Details and phases are in <a href="spec.md">spec.md</a>.
+  </div>
+
+  <h2>How other apps handle it</h2>
+  <p>These are schematic drawings of patterns, not screenshots, described from using the products.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="sk">
+        <div class="sk-row"><span class="l">Automatic updates</span><span class="sw"></span></div>
+        <div class="sk-row"><span class="l">Download new updates when available</span><span class="sw"></span></div>
+        <div class="sk-row"><span class="l">Install security responses</span><span class="sw off"></span></div>
+        <div class="sk-row" style="border:0"><span class="para l">Short footnote under a group, only where a choice has a consequence.</span><span class="help">?</span></div>
+      </div>
+      <div class="copy"><span class="tag">macOS System Settings</span><h3>Grouped rows, rare footnotes, a help button</h3><p>Rows are label plus control. A group gets a footnote only when its settings have side effects. Deeper explanation is behind <b>Details…</b> buttons or the pane's ? button.</p><p class="take">Take: the native baseline our users already know.</p></div>
+    </div>
+    <div class="card">
+      <div class="sk">
+        <div class="sk-row"><span class="l">Auto-assign to self<small>Assign issues you create to yourself</small></span><span class="sw"></span></div>
+        <div class="sk-row"><span class="l">Open in desktop app<small>Links open in the app, not the browser</small></span><span class="sw off"></span></div>
+        <div class="sk-row"><span class="l">Display full names<small>Instead of usernames</small></span><span class="sw"></span></div>
+      </div>
+      <div class="copy"><span class="tag">Linear settings</span><h3>Title plus one muted line, every row</h3><p>Every setting carries one short description and never a paragraph. The page reads as a scannable list.</p><p class="take">Take: the one-line budget for settings rows.</p></div>
+    </div>
+    <div class="card">
+      <div class="sk">
+        <div style="font-size:11px;color:var(--text-faint)"><span class="dotted">Net volume</span><i class="i">i</i></div>
+        <div class="metric">$12,480</div>
+        <div class="bar-s" style="margin:10px 0 12px;width:70%"></div>
+        <div style="font-size:11px;color:var(--text-faint)"><span class="dotted">Gross margin</span><i class="i">i</i></div>
+        <div class="metric">61%</div>
+      </div>
+      <div class="copy"><span class="tag">Stripe Dashboard</span><h3>Definitions behind the label</h3><p>Metric names carry their definition on hover, so the dashboard shows numbers, not glossary text.</p><p class="take">Take: the InfoTip for "what does this mean" text.</p></div>
+    </div>
+    <div class="card">
+      <div class="sk">
+        <div class="sk-row"><span class="l">Default branch<small>The base branch for pull requests</small></span><span class="btn">Edit</span></div>
+        <div class="danger" style="margin-top:8px">
+          <div class="sk-row" style="border:0"><span class="l">Delete this repository<small>Once deleted, it cannot be restored. Type the name to confirm.</small></span><span class="btn" style="color:var(--danger)">Delete</span></div>
+        </div>
+      </div>
+      <div class="copy"><span class="tag">GitHub settings</span><h3>Quiet rows, loud consequences</h3><p>Ordinary settings get a line. Destructive ones keep full consequence text in a fenced zone and repeat it in the confirm.</p><p class="take">Take: consequence text stays inline at the decision.</p></div>
+    </div>
+    <div class="card">
+      <div class="sk">
+        <div class="para" style="margin-bottom:6px"><b style="color:var(--text-muted)">Editor: Word Wrap</b><br />Controls how lines should wrap. Values: off, on, wordWrapColumn, bounded. See also editor.wordWrapColumn…</div>
+        <div class="para"><b style="color:var(--text-muted)">Editor: Word Wrap Column</b><br />Controls the wrapping column of the editor when word wrap is wordWrapColumn or bounded…</div>
+      </div>
+      <div class="copy"><span class="tag">VS Code settings · counterexample</span><h3>Full descriptions everywhere</h3><p>Works because people reach settings by search, read one, and leave. Browsing it is tiring, which is the feeling Boundary's settings give now.</p><p class="take">Take: full text suits search results, not panes people browse.</p></div>
+    </div>
+    <div class="card">
+      <div class="sk">
+        <div style="display:flex;gap:6px;align-items:center;font-size:12px"><span class="btn">B</span><span class="btn">I</span><span class="btn">⌘K</span></div>
+        <div style="margin-top:10px;display:inline-block;padding:4px 8px;border-radius:6px;background:var(--text);color:var(--solid-fg);font-size:11px">Bold &nbsp;<span style="opacity:.6">⌘B</span></div>
+      </div>
+      <div class="copy"><span class="tag">Figma, Notion, most editors</span><h3>Tooltips name, they don't explain</h3><p>Hover tooltips give an icon's name and shortcut in a few words. Anything longer goes to a popover or docs.</p><p class="take">Take: keep <code>title</code> tooltips for names and full values only.</p></div>
+    </div>
+  </div>
+
+  <h2>Rules</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Text</th><th>Treatment</th><th>Example in Boundary</th></tr></thead>
+    <tbody>
+      <tr><td>Restates the label</td><td>Cut</td><td>"Every conversation, across every project" under All chats</td></tr>
+      <tr><td>Reference</td><td>InfoTip on the label</td><td>Browser tab's 33-word lead; agent sheet's private-memory note</td></tr>
+      <tr><td>How-to</td><td>"How do I get this?" disclosure</td><td>Calendar provider help in the connect sheet</td></tr>
+      <tr><td>Consequence</td><td>Inline, at the decision only</td><td>Coding-access bullets; delete-folder facts; cloud notice while connecting</td></tr>
+      <tr><td>Empty state</td><td>One sentence and the action</td><td>Calendars' three-step list becomes one line and <b>Connect calendar</b></td></tr>
+      <tr><td>Default state</td><td>No label; label only overrides and warnings</td><td>Model chip: "from app default" removed</td></tr>
+      <tr><td>Control instructions</td><td>Placeholder or tooltip</td><td>"One per line" becomes the textarea placeholder</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Before and after: Settings › Boundary's browser</h2>
+  <p>Same controls and the same information. The ⓘ icons in the right-hand panel work: hover, or click to pin.</p>
+  <div class="ba">
+    <div>
+      <div class="panel">
+        <h4>Boundary’s browser</h4>
+        <p class="lead">Hermes can browse in a Chrome window Boundary runs on this computer, with its own profile. Sign in there to the sites you want Hermes to use. Your own Chrome and its logins aren’t touched.</p>
+        <div class="srow"><div><p class="lab">Let Hermes use Boundary’s browser</p><p class="hint">When off, Hermes browses in its own browser inside Docker, with no logins.</p></div><span class="sw"></span></div>
+        <div class="srow"><div><p class="lab">Sign in to sites</p><p class="hint">Chrome is closed</p></div><span class="btn">Open browser</span></div>
+        <div class="h5">Blocked sites</div>
+        <p class="hint" style="margin:0;color:var(--text-faint);font-size:var(--size-xs)">Hermes can’t open these sites or their subdomains. This is Boundary’s default list: email, password managers, payments and banks. One per line.</p>
+        <div class="ta">mail.google.com
+1password.com</div>
+        <div class="h5">Allowed sites</div>
+        <p class="hint" style="margin:0;color:var(--text-faint);font-size:var(--size-xs)">Leave empty to let Hermes open any site that isn’t blocked. If you list sites here, Hermes can only open those. One per line.</p>
+        <div class="ta">linkedin.com</div>
+        <p class="foot">Hermes can’t read this browser’s cookies or stored site data, or open files on your computer. It can see and act on any page it opens, so keep sensitive sites blocked. Sites limit automated use; ask Hermes to go at a human pace.</p>
+      </div>
+      <p class="count">Today · about 145 words always in view</p>
+    </div>
+    <div>
+      <div class="panel">
+        <h4>Boundary’s browser<span class="tip"><button aria-label="About Boundary’s browser" aria-expanded="false">i</button><span class="pop" role="note">A Chrome window Boundary runs with its own profile. Sign in there to the sites you want Hermes to use; your own Chrome and its logins aren’t touched. Hermes can’t read this browser’s cookies or open files on your computer, but it can act on any page it opens. Sites limit automated use, so ask it to go at a human pace.</span></span></h4>
+        <p class="lead">Hermes browses here, with the logins you add.</p>
+        <div class="srow"><div><p class="lab">Let Hermes use Boundary’s browser<span class="tip"><button aria-label="About this setting" aria-expanded="false">i</button><span class="pop" role="note">When off, Hermes uses its own browser inside the container, with no logins.</span></span></p></div><span class="sw"></span></div>
+        <div class="srow"><div><p class="lab">Sign in to sites</p><p class="hint">Chrome is closed</p></div><span class="btn">Open browser</span></div>
+        <div class="h5">Blocked sites<span class="tip"><button aria-label="About blocked sites" aria-expanded="false">i</button><span class="pop" role="note">Hermes can’t open these sites or their subdomains. Keep sensitive sites here: it can act on any page it opens.</span></span></div>
+        <div class="ta">mail.google.com
+1password.com</div>
+        <p class="hint" style="margin:0;color:var(--text-faint);font-size:var(--size-xs)">Boundary’s default list</p>
+        <div class="h5">Allowed sites<span class="tip"><button aria-label="About allowed sites" aria-expanded="false">i</button><span class="pop" role="note">Leave empty to allow any site that isn’t blocked. If you list sites, Hermes can open only those.</span></span></div>
+        <div class="ta">Any site that isn’t blocked</div>
+      </div>
+      <p class="count">Proposed · about 15 words always in view; the rest one hover away</p>
+    </div>
+  </div>
+  <p>"Boundary’s default list" is a state label (rule: only when it matters). It reads "You’ve changed the default list" with <b>Restore defaults</b> beside it once the user edits the list. "One per line" becomes the textarea placeholder.</p>
+
+  <h2>InfoTip anatomy</h2>
+  <p>A 14px circled i in <code>--text-faint</code>, 6px after the label. Hover for 400 ms shows the popover; click or Enter pins it; Esc or a click outside closes it and returns focus. The popover is 280px wide at most, <code>--size-xs</code>, about 60 words at most, with one optional link at the end. Explanations never go in a native <code>title</code> tooltip, which keyboard and screen-reader users can't reach reliably; <code>title</code> stays for names and the full text of truncated values.</p>
+</div>
+<script>
+  document.querySelectorAll('.tip').forEach((tip) => {
+    const btn = tip.querySelector('button');
+    let timer = 0, pinned = false;
+    const set = (open) => { tip.classList.toggle('is-open', open); btn.setAttribute('aria-expanded', String(open)); };
+    tip.addEventListener('mouseenter', () => { timer = setTimeout(() => set(true), 400); });
+    tip.addEventListener('mouseleave', () => { clearTimeout(timer); if (!pinned) set(false); });
+    btn.addEventListener('click', () => { pinned = !pinned; set(pinned); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tip.classList.contains('is-open')) { pinned = false; set(false); btn.focus(); } });
+    document.addEventListener('mousedown', (e) => { if (!tip.contains(e.target)) { pinned = false; set(false); } });
+  });
+</script>
+</body>
+</html>

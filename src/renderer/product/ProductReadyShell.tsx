@@ -67,6 +67,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
         key={settingsRequest?.seq ?? 0}
         initialTab={settingsRequest?.tab}
         initialAgentSlug={settingsRequest?.agentSlug}
+        connectCalendarFromChat={settingsRequest?.connectFromChat}
         onBack={() => onNavigate('chat')}
       />
     );
@@ -81,7 +82,11 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   return (
     <div className="workbench flex h-screen w-screen overflow-hidden">
       <ProductIconRail active={view} onNavigate={onNavigate} />
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      {/* Keep this a flex column: screens scroll by taking `flex: 1; min-height: 0` here.
+          As a plain block they grow to their content and the overflow is clipped. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Chat draws its own band from the rail and thread headers. */}
+        {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
         <Profiler id={`screen:${view}`} onRender={onReactRender}>
           {main}
         </Profiler>

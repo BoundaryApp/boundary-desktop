@@ -89,7 +89,9 @@ export const CredentialInterrupt: React.FC<CredentialInterruptProps> = ({
         }}
       >
         <div className="kicker is-warn">
-          <span id="wb-credential-title">{credentialKicker(request)}</span>
+          <span id="wb-credential-title" title={credentialKicker(request)}>
+            {credentialKicker(request)}
+          </span>
           {countLabel ? <span className="count">{countLabel}</span> : null}
         </div>
         <p className="why">{credentialWhy(request)}</p>

@@ -1,4 +1,3 @@
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import type {
   ClearProviderFormDraftResult,
@@ -9,6 +8,7 @@ import type {
   SaveProviderFormDraftResult,
 } from '../../../shared/types/onboarding';
 import { isStoredSecretToken, storedSecretField, storedSecretToken } from '../../../shared/utils/storedSecretToken';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable, replaceCiphertext } from '../secrets/osEncryption';
 
 interface StoredProviderDraft {
   values: Record<string, ProviderSetupValue>;
@@ -27,24 +27,32 @@ const store = new Store<ProviderFormDraftStoreShape>({
   },
 });
 
-export function isProviderFormDraftEncryptionAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable();
+export function isProviderFormDraftEncryptionAvailable(): Promise<boolean> {
+  return isOsEncryptionAvailable();
 }
 
-function encryptSecret(value: string): string {
-  return safeStorage.encryptString(value).toString('base64');
-}
-
-function decryptSecret(encrypted: string): string | null {
-  if (!isProviderFormDraftEncryptionAvailable()) return null;
+async function decryptSecret(encrypted: string): Promise<string | null> {
+  if (!(await isProviderFormDraftEncryptionAvailable())) return null;
   try {
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    return await decryptFromBase64(encrypted, (reEncrypted) => {
+      const drafts = { ...store.get('drafts') };
+      let changed = false;
+      for (const [providerId, draft] of Object.entries(drafts)) {
+        const secrets = replaceCiphertext(draft.encryptedSecrets ?? {}, encrypted, reEncrypted);
+        if (!secrets) continue;
+        drafts[providerId as OnboardingProviderId] = { ...draft, encryptedSecrets: secrets };
+        changed = true;
+      }
+      if (changed) store.set('drafts', drafts);
+    });
   } catch {
     return null;
   }
 }
 
-export function getProviderFormDraft(providerId: OnboardingProviderId): GetProviderFormDraftResult {
+export async function getProviderFormDraft(
+  providerId: OnboardingProviderId
+): Promise<GetProviderFormDraftResult> {
   try {
     const stored = store.get('drafts')[providerId];
     if (!stored) {
@@ -54,7 +62,7 @@ export function getProviderFormDraft(providerId: OnboardingProviderId): GetProvi
     // Secrets stay in main: the renderer gets a token it sends back unchanged.
     const values: Record<string, ProviderSetupValue> = { ...stored.values };
     for (const [name, encrypted] of Object.entries(stored.encryptedSecrets ?? {})) {
-      const decrypted = decryptSecret(encrypted);
+      const decrypted = await decryptSecret(encrypted);
       if (decrypted !== null) {
         values[name] = storedSecretToken(name, decrypted);
       }
@@ -74,18 +82,18 @@ export function getProviderFormDraft(providerId: OnboardingProviderId): GetProvi
   }
 }
 
-export function saveProviderFormDraft(input: {
+export async function saveProviderFormDraft(input: {
   providerId: OnboardingProviderId;
   values: Record<string, ProviderSetupValue>;
   sensitiveNames: string[];
   selectedModelId?: string;
-}): SaveProviderFormDraftResult {
+}): Promise<SaveProviderFormDraftResult> {
   const sensitiveSet = new Set(input.sensitiveNames);
   const hasSensitive = Object.entries(input.values).some(
     ([name, value]) => sensitiveSet.has(name) && value !== undefined && value !== ''
   );
 
-  if (hasSensitive && !isProviderFormDraftEncryptionAvailable()) {
+  if (hasSensitive && !(await isProviderFormDraftEncryptionAvailable())) {
     return {
       success: false,
       error: 'OS encryption is not available for storing API keys.',
@@ -107,7 +115,7 @@ export function saveProviderFormDraft(input: {
       }
       if (sensitiveSet.has(name)) {
         if (typeof value === 'string' && value.trim()) {
-          encryptedSecrets[name] = encryptSecret(value);
+          encryptedSecrets[name] = await encryptToBase64(value);
         }
         continue;
       }
@@ -151,23 +159,26 @@ export function clearProviderFormDraft(
 }
 
 /** Swap stored-secret tokens for the real values. A token that can't be resolved becomes ''. */
-export function resolveStoredDraftSecrets(
+export async function resolveStoredDraftSecrets(
   providerId: OnboardingProviderId,
   values: Record<string, ProviderSetupValue>
-): Record<string, ProviderSetupValue> {
+): Promise<Record<string, ProviderSetupValue>> {
   const out: Record<string, ProviderSetupValue> = {};
   for (const [name, value] of Object.entries(values)) {
     out[name] =
       typeof value === 'string' && isStoredSecretToken(value)
-        ? resolveStoredDraftSecret(providerId, value)
+        ? await resolveStoredDraftSecret(providerId, value)
         : value;
   }
   return out;
 }
 
-export function resolveStoredDraftSecret(providerId: OnboardingProviderId, value: string): string {
+export async function resolveStoredDraftSecret(
+  providerId: OnboardingProviderId,
+  value: string
+): Promise<string> {
   if (!isStoredSecretToken(value)) return value;
   const field = storedSecretField(value);
   const encrypted = field ? store.get('drafts')[providerId]?.encryptedSecrets?.[field] : undefined;
-  return (encrypted && decryptSecret(encrypted)) || '';
+  return (encrypted && (await decryptSecret(encrypted))) || '';
 }

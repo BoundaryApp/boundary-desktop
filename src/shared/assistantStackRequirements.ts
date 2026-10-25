@@ -1,10 +1,11 @@
 /**
  * Host requirements for running the assistant container stack
- * (core + rag + automation + coding) with a remote OpenAI-compatible LLM.
+ * (core + rag + automation + coding + db) with a remote OpenAI-compatible LLM.
  *
  * Memory ballpark from compose limits / tuning, excluding local LLM cost:
  *   hermes 3G + hermes-webui ~0.5G + searxng/mcp ~0.5G + neo4j ~1.5–2G +
- *   lightrag ~0.5–1.5G + n8n/postgres ~1G + gptr ~0.5G + opencode ~0.5G
+ *   lightrag ~0.5–1.5G + n8n/postgres ~1G + gptr ~0.5G + opencode ~0.5G +
+ *   shared postgres + SQL MCP ~0.5G
  *   ≈ 9–12 GB containers → 16 GB host minimum with headroom.
  *
  * Disk is images + volumes for the full UI stack (no Ollama model pulls).
@@ -14,7 +15,7 @@ export const ASSISTANT_STACK_REQUIREMENTS = {
   minTotalMemoryBytes: 16 * 1024 * 1024 * 1024,
   /** Logical CPU cores */
   minCpuCores: 4,
-  /** Free disk space in bytes (images + volumes for core+rag+automation+coding) */
+  /** Free disk space in bytes (images + volumes for core+rag+automation+coding+db) */
   minFreeDiskBytes: 25 * 1024 * 1024 * 1024,
   requireContainerRuntime: true,
   requireComposeV2: true,

@@ -66,7 +66,9 @@ export const HostBridgeApproval: React.FC<HostBridgeApprovalProps> = ({
         onKeyDown={onKeyDown}
       >
         <div className="kicker">
-          <span id="wb-host-approve-title">On this computer · {approval.title}</span>
+          <span id="wb-host-approve-title" title={`On this computer · ${approval.title}`}>
+            On this computer · {approval.title}
+          </span>
           {countLabel ? <span className="count">{countLabel}</span> : null}
         </div>
         <p className="why">Hermes is asking Boundary to do this on your computer.</p>

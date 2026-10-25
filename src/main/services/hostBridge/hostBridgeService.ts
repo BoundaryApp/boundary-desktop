@@ -6,7 +6,8 @@ import { createFileLogger } from '../../../shared/utils/logger';
 import { persistDebugLog } from '../../persistDebugLog';
 import { denyAllHostBridgeApprovals, requestHostBridgeApproval, setHostBridgeApprovalSender } from './approvals';
 import { appendAudit, trimForAudit } from './auditLog';
-import type { BridgeToMain, MainToBridge } from './bridgeMessages';
+import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
+import { hasCalendarAccounts } from '../assistant/calendar/calendarStore';
 import type { BoundaryBrowserState, HostToolsState } from '../../../shared/types/hostBridge';
 import { browserRelayConfigFrom, findGoogleChrome, normalizeBrowserSettings, sitePolicyFrom } from './browserConfig';
 import { DEFAULT_BLOCKED_SITES } from './cdpPolicy';
@@ -155,6 +156,7 @@ const toolDeps: HostToolDeps = {
   readFile: (filePath) => fs.promises.readFile(filePath),
   writeFile: (filePath, content) => fs.promises.writeFile(filePath, content, 'utf8'),
   now: () => Date.now(),
+  calendarConnected: () => hasCalendarAccounts(),
   audit: (entry) => appendAudit({ ...entry, args: trimForAudit(entry.args) }),
 };
 
@@ -221,10 +223,12 @@ function post(target: UtilityProcess, message: MainToBridge): void {
   target.postMessage(message);
 }
 
-function launch(): Promise<HostBridgeEndpoints> {
+async function launch(): Promise<HostBridgeEndpoints> {
   setHostBridgeApprovalSender(broadcast);
-  const mcpToken = ensureHostBridgeToken('mcp');
-  const browserToken = ensureHostBridgeToken('browser');
+  const mcpToken = await ensureHostBridgeToken('mcp');
+  const browserToken = await ensureHostBridgeToken('browser');
+  // Reading the tokens waits on the keychain; Boundary may have started quitting meanwhile.
+  if (quitting) throw new Error('Boundary is quitting.');
   const preferred = getHostBridgePorts();
 
   const proc = utilityProcess.fork(BRIDGE_ENTRY, [], { serviceName: 'Boundary Host Bridge' });
@@ -301,8 +305,21 @@ function launch(): Promise<HostBridgeEndpoints> {
       mcpPort: preferred.mcp,
       browserPort: preferred.browser,
       browser: browserRelayConfigFrom(getHostBridgeBrowserSettings()),
+      listing: hostToolListing(),
     });
   });
+}
+
+function hostToolListing(): HostToolListing {
+  return { offerCalendarSetup: !hasCalendarAccounts() };
+}
+
+/**
+ * Bring the running bridge's tool list in line with the calendars. Call it before the
+ * `reload.mcp` that follows a connect or removal: Hermes lists the tools again as it reconnects.
+ */
+export function syncHostToolListing(): void {
+  if (child) post(child, { type: 'tool-listing', listing: hostToolListing() });
 }
 
 /** Start the bridge once; later calls share the same startup. */

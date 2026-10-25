@@ -1,8 +1,8 @@
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import type { AppConfig, SensitiveConfigKey } from '../../../shared/types/config';
 import { sensitiveConfigKeys } from '../../../shared/types/config';
 import type { SecretPreview } from '../../../shared/types/secrets';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable, replaceCiphertext } from '../secrets/osEncryption';
 import { secretPreview } from '../secrets/secretPreview';
 
 interface SecureConfigStoreShape {
@@ -22,56 +22,61 @@ export function isSensitiveConfigKey(key: string): key is SensitiveConfigKey {
   return (sensitiveConfigKeys as string[]).includes(key);
 }
 
-export function isSecureConfigEncryptionAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable();
+export function isSecureConfigEncryptionAvailable(): Promise<boolean> {
+  return isOsEncryptionAvailable();
 }
 
 function getEncryptedSecrets(): SecureConfigStoreShape['secrets'] {
   return { ...(secureStore.get('secrets') ?? {}) };
 }
 
-function setEncryptedSecret(key: SensitiveConfigKey, value: string): void {
-  if (!isSecureConfigEncryptionAvailable()) {
+async function setEncryptedSecret(key: SensitiveConfigKey, value: string): Promise<void> {
+  if (!(await isSecureConfigEncryptionAvailable())) {
     throw new Error('OS encryption is not available for storing secrets');
   }
+  const encrypted = await encryptToBase64(value);
   const secrets = getEncryptedSecrets();
-  secrets[key] = safeStorage.encryptString(value).toString('base64');
+  secrets[key] = encrypted;
   secureStore.set('secrets', secrets);
 }
 
-export function getSecureConfigValue(key: SensitiveConfigKey): string | null {
+export async function getSecureConfigValue(key: SensitiveConfigKey): Promise<string | null> {
   const encrypted = getEncryptedSecrets()[key];
-  if (!encrypted || !isSecureConfigEncryptionAvailable()) return null;
+  if (!encrypted || !(await isSecureConfigEncryptionAvailable())) return null;
 
   try {
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    return await decryptFromBase64(encrypted, (reEncrypted) => {
+      const secrets = replaceCiphertext(getEncryptedSecrets(), encrypted, reEncrypted);
+      if (secrets) secureStore.set('secrets', secrets);
+    });
   } catch {
     return null;
   }
 }
 
-export function getSecureConfigPreview(key: SensitiveConfigKey): SecretPreview {
-  return secretPreview(getSecureConfigValue(key));
+export async function getSecureConfigPreview(key: SensitiveConfigKey): Promise<SecretPreview> {
+  return secretPreview(await getSecureConfigValue(key));
 }
 
-export function setSecureConfigValue(key: SensitiveConfigKey, value: string): void {
+export async function setSecureConfigValue(key: SensitiveConfigKey, value: string): Promise<void> {
   const trimmed = value.trim();
   if (!trimmed) {
     return;
   }
-  setEncryptedSecret(key, trimmed);
+  await setEncryptedSecret(key, trimmed);
 }
 
-export function hasRequiredSecureConfig(): boolean {
-  return sensitiveConfigKeys.every((key) => getSecureConfigPreview(key).configured);
+export async function hasRequiredSecureConfig(): Promise<boolean> {
+  const previews = await Promise.all(sensitiveConfigKeys.map((key) => getSecureConfigPreview(key)));
+  return previews.every((preview) => preview.configured);
 }
 
 export function clearSecureConfig(): void {
   secureStore.set('secrets', {});
 }
 
-export function migrateLegacyConfigSecrets(configStore: LegacyConfigStore): void {
-  if (!isSecureConfigEncryptionAvailable()) {
+export async function migrateLegacyConfigSecrets(configStore: LegacyConfigStore): Promise<void> {
+  if (!(await isSecureConfigEncryptionAvailable())) {
     return;
   }
 
@@ -80,9 +85,9 @@ export function migrateLegacyConfigSecrets(configStore: LegacyConfigStore): void
     if (
       typeof legacyValue === 'string' &&
       legacyValue.trim() &&
-      !getSecureConfigPreview(key).configured
+      !(await getSecureConfigPreview(key)).configured
     ) {
-      setSecureConfigValue(key, legacyValue);
+      await setSecureConfigValue(key, legacyValue);
     }
 
     if (typeof configStore.delete === 'function') {
@@ -93,12 +98,12 @@ export function migrateLegacyConfigSecrets(configStore: LegacyConfigStore): void
   }
 }
 
-export function buildPublicConfig(configStore: Store<Record<string, unknown>>): AppConfig {
+export async function buildPublicConfig(configStore: Store<Record<string, unknown>>): Promise<AppConfig> {
   return {
-    apiKey: getSecureConfigPreview('apiKey'),
-    secretToken: getSecureConfigPreview('secretToken'),
+    apiKey: await getSecureConfigPreview('apiKey'),
+    secretToken: await getSecureConfigPreview('secretToken'),
     webhookUrl: String(configStore.get('webhookUrl') ?? ''),
-    databaseUrl: getSecureConfigPreview('databaseUrl'),
+    databaseUrl: await getSecureConfigPreview('databaseUrl'),
     registryUrl: String(configStore.get('registryUrl') ?? 'http://localhost:3001'),
   };
 }

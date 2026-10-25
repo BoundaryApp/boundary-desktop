@@ -120,7 +120,7 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
     <div className="wb-sheet-backdrop" role="presentation">
       <div className="wb-sheet wb-add-folder" role="dialog" aria-labelledby="wb-add-folder-title">
         <div className="wb-sheet-kicker wb-sheet-kicker-row">
-          <span>Add a folder to {projectName}</span>
+          <span title={`Add a folder to ${projectName}`}>Add a folder to {projectName}</span>
           <span>
             {step === 'new'
               ? 'New folder'
@@ -180,7 +180,9 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           <>
             <h2 id="wb-add-folder-title">What should agents do with {name}?</h2>
             <div className="wb-facts">
-              <span className="wb-src-pill mono">{shown}</span>
+              <span className="wb-src-pill mono" title={shown}>
+                {shown}
+              </span>
               <span className={`wb-src-pill ${folder?.isGit ? 'ok' : ''}`}>
                 {folder?.isGit ? 'git repo' : 'not a git repo'}
               </span>

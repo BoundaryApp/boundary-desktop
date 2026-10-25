@@ -9,12 +9,40 @@ import {
   approvalKicker,
   approvalWhy,
 } from './approvalCopy';
+import { calendarApprovalCopy, calendarSlugFromServer } from './calendarApprovalCopy';
+import { calendarIPC } from '../../services/calendarIPCService';
 
 interface ApprovalInterruptProps {
   approval: HermesChatApprovalEvent;
   queueSize: number;
   busy?: boolean;
   onRespond: (choice: HermesApprovalChoice) => void;
+}
+
+/** The account's display name for a `calendar-<slug>` server, once the list has loaded. */
+function useCalendarAccountName(server: string | undefined): string | null {
+  const slug = server ? calendarSlugFromServer(server) : null;
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    setName(null);
+    if (!slug) return;
+    let alive = true;
+    try {
+      void calendarIPC
+        .list()
+        .then((result) => {
+          const account = result.accounts.find((a) => a.slug === slug);
+          if (alive && account) setName(account.name);
+        })
+        .catch((): void => undefined);
+    } catch {
+      /* No calendar API in this window: the card falls back to the slug. */
+    }
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
+  return name;
 }
 
 export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
@@ -31,10 +59,13 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runRef = useRef<HTMLButtonElement | null>(null);
 
+  const accountName = useCalendarAccountName(approval.mcp?.server);
+  // Calendar writes get their own layout and only the two choices the gateway offers them.
+  const calendar = useMemo(() => calendarApprovalCopy(approval.mcp, accountName), [approval.mcp, accountName]);
   const canOnce = approval.choices.includes('once');
   const canDeny = approval.choices.includes('deny');
-  const canSession = approval.choices.includes('session');
-  const canAlways = approval.choices.includes('always');
+  const canSession = !calendar && approval.choices.includes('session');
+  const canAlways = !calendar && approval.choices.includes('always');
   const hasMore = canSession || canAlways;
   const command = approval.command?.trim() || '';
   const kicker = approvalKicker(approval);
@@ -112,11 +143,27 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
         onKeyDown={onKeyDown}
       >
         <div className={kickerClass}>
-          <span id="wb-approve-title">{kicker}</span>
+          <span id="wb-approve-title">{calendar ? calendar.kicker : kicker}</span>
           {countLabel ? <span className="count">{countLabel}</span> : null}
         </div>
-        <p className="why">{why}</p>
-        {command ? (
+        {calendar ? (
+          <div className="wb-approve-event">
+            {calendar.title ? <p className="title">{calendar.title}</p> : null}
+            {calendar.rows.length ? (
+              <dl>
+                {calendar.rows.map((row) => (
+                  <React.Fragment key={row.label}>
+                    <dt>{row.label}</dt>
+                    <dd className={row.mono ? 'mono' : undefined}>{row.value}</dd>
+                  </React.Fragment>
+                ))}
+              </dl>
+            ) : null}
+          </div>
+        ) : (
+          <p className="why">{why}</p>
+        )}
+        {command && !calendar ? (
           <>
             {approvalCommandCollapsed(approval.command) ? (
               <button
@@ -141,7 +188,7 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
               disabled={busy}
               onClick={() => respond('once')}
             >
-              Run <kbd>↵</kbd>
+              {calendar ? calendar.once : 'Run'} <kbd>↵</kbd>
             </button>
           ) : null}
           {canDeny ? (
@@ -151,7 +198,7 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
               disabled={busy}
               onClick={() => respond('deny')}
             >
-              Reject
+              {calendar ? calendar.deny : 'Reject'}
             </button>
           ) : null}
           {hasMore ? (

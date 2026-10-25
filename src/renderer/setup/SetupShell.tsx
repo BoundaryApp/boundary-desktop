@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { useOptionalSetup } from './SetupContext';
 import { SETUP_STEPS } from './steps';
 import { SetupBackgroundStatus } from './SetupBackgroundStatus';
-import type { SetupStepId } from './types';
+import { visibleSetupSteps, type SetupStepId } from './types';
 import '../product/chat/workbench.css';
 
 export interface SetupShellProps {
@@ -40,13 +40,23 @@ export const SetupShell: React.FC<SetupShellProps> = ({
   width = 'default',
   centered = false,
 }) => {
-  const activeStep = useOptionalSetup()?.activeStep ?? null;
+  const setup = useOptionalSetup();
+  const activeStep = setup?.activeStep ?? null;
   // Read inside render: steps/ imports this module, so SETUP_STEPS is not
   // initialised yet while this file evaluates.
-  const stepperSteps = SETUP_STEPS.map((item) => ({ id: item.id, label: item.label }));
+  const shownSteps = setup ? visibleSetupSteps(SETUP_STEPS, setup.snapshot) : SETUP_STEPS;
+  // Optional steps carry the same weight in the stepper as required ones.
+  const stepperSteps = shownSteps.map((item) => ({ id: item.id, label: item.label }));
   const currentStep = step === undefined ? (activeStep?.id ?? null) : step;
   const column = width === 'wide' ? 'max-w-[720px]' : 'max-w-[560px]';
-  const hasFooter = Boolean(onBack || actions);
+  const skippable = Boolean(activeStep?.optional) && currentStep === activeStep?.id;
+  const [skipping, setSkipping] = React.useState(false);
+  const skip = () => {
+    if (!setup || !currentStep) return;
+    setSkipping(true);
+    void setup.skipStep(currentStep).finally(() => setSkipping(false));
+  };
+  const hasFooter = Boolean(onBack || actions || skippable);
 
   return (
     <div className="workbench flex h-screen w-screen overflow-hidden">
@@ -80,7 +90,14 @@ export const SetupShell: React.FC<SetupShellProps> = ({
                   {backLabel}
                 </Button>
               )}
-              <div className="ml-auto flex items-center gap-2">{actions}</div>
+              <div className="ml-auto flex items-center gap-2">
+                {skippable && (
+                  <Button type="button" variant="ghost" disabled={skipping} onClick={skip}>
+                    Skip for now
+                  </Button>
+                )}
+                {actions}
+              </div>
             </div>
           </footer>
         )}

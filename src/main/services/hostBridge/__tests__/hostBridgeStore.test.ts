@@ -14,17 +14,17 @@ beforeEach(() => {
 });
 
 describe('host-bridge tokens', () => {
-  it('creates a long random token once and keeps it', () => {
-    const first = ensureHostBridgeToken('mcp');
+  it('creates a long random token once and keeps it', async () => {
+    const first = await ensureHostBridgeToken('mcp');
     expect(first.length).toBeGreaterThanOrEqual(43); // 32 bytes, base64url
-    expect(ensureHostBridgeToken('mcp')).toBe(first);
-    expect(ensureHostBridgeToken('browser')).not.toBe(first);
+    expect(await ensureHostBridgeToken('mcp')).toBe(first);
+    expect(await ensureHostBridgeToken('browser')).not.toBe(first);
   });
 
-  it('issues new tokens after rotation', () => {
-    const before = ensureHostBridgeToken('mcp');
+  it('issues new tokens after rotation', async () => {
+    const before = await ensureHostBridgeToken('mcp');
     rotateHostBridgeTokens();
-    expect(ensureHostBridgeToken('mcp')).not.toBe(before);
+    expect(await ensureHostBridgeToken('mcp')).not.toBe(before);
   });
 });
 

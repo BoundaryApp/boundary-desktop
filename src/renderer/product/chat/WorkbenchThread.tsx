@@ -51,6 +51,8 @@ import { useHostBridgeApprovals } from './useHostBridgeApprovals';
 import { useHostToolsState } from './useHostToolsState';
 import { useCodingAccessRequests } from './useCodingAccessRequests';
 import { CodingAccessInterrupt } from './CodingAccessInterrupt';
+import { SetupOfferCard } from './SetupOfferCard';
+import { clearSetupOffer, recordSetupOffer, setupOfferKind, useSetupOffer } from './setupOffers';
 import { CredentialInterrupt } from './CredentialInterrupt';
 import { openSettings } from '../settingsNavigation';
 import { ProjectPicker } from './ProjectPicker';
@@ -117,6 +119,7 @@ import {
 } from './chatTelemetryFormat';
 import { projectMarkText } from './projectMove';
 import { onReactRender } from '../../debug/lagProbe';
+import { InfoTip } from '../../components/ui/info-tip';
 import { formatInferenceChipTitle, inferenceSlotLabel } from '../../../shared/inferenceDisplay';
 import type {
   HermesConversationKind,
@@ -396,6 +399,12 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   const hostApprovals = useHostBridgeApprovals();
   const hostTools = useHostToolsState();
   const codingAccess = useCodingAccessRequests(sessionId, sameChat);
+  const setupOffer = useSetupOffer(sessionId, sameChat);
+  // The phase and tool listeners below are set up once, so they read the chat from here.
+  const chatIdRef = useRef(sessionId);
+  chatIdRef.current = sessionId;
+  const sameChatRef = useRef(sameChat);
+  sameChatRef.current = sameChat;
   const [credentialRequests, setCredentialRequests] = useState<HermesChatCredentialRequestEvent[]>([]);
   // After a login is saved from chat: where it went, with a way to manage it.
   const [savedLogin, setSavedLogin] = useState<{ site: string; agentSlug: string } | null>(null);
@@ -606,6 +615,8 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         if (event.phase === 'preparing') {
           setToolCards([]);
           setTurnStats(null);
+          const chatId = event.sessionId ?? chatIdRef.current;
+          if (chatId) clearSetupOffer(chatId, sameChatRef.current);
         }
       }
       if (event.phase === 'done' && event.sessionId) {
@@ -650,6 +661,11 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     const unsubTool = hermesChatIPC.onChatTool((event) => {
       if (!isThisChatsTurn.current(event)) return;
       setActiveRequestId(event.requestId);
+      const offerKind = setupOfferKind(event);
+      const offerChat = event.sessionId ?? chatIdRef.current;
+      if (offerKind && offerChat) {
+        recordSetupOffer({ chatId: offerChat, requestId: event.requestId, kind: offerKind }, sameChatRef.current);
+      }
       setToolCards((prev) => {
         const idx = prev.findIndex((c) => c.toolId === event.toolId);
         const relativePaths = (event.paths ?? []).map((p) =>
@@ -1282,7 +1298,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                   title={`Open ${activeProject?.name ?? 'No project'}`}
                 >
                   <ProjectGlyph project={activeProject} />
-                  {activeProject?.name ?? 'No project'}
+                  <span className="wb-crumb-name" title={activeProject?.name ?? 'No project'}>
+                    {activeProject?.name ?? 'No project'}
+                  </span>
                 </button>
                 <span className="wb-crumb-sep" aria-hidden="true">
                   /
@@ -1295,7 +1313,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                     aria-expanded={titleMenuOpen}
                     onClick={() => setTitleMenuOpen((open) => !open)}
                   >
-                    <strong className={isChannel ? 'mono' : undefined}>{headTitle}</strong>
+                    <strong className={isChannel ? 'mono' : undefined} title={headTitle}>
+                      {headTitle}
+                    </strong>
                     <span className="wb-proj-chev" aria-hidden="true">
                       ▾
                     </span>
@@ -1358,7 +1378,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 </span>
               </span>
             ) : (
-              <strong className={isChannel ? 'mono' : undefined}>{headTitle}</strong>
+              <strong className={isChannel ? 'mono' : undefined} title={headTitle}>
+                {headTitle}
+              </strong>
             )}
             <span className="wb-thread-kind">
               {headKind}
@@ -1471,7 +1493,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               <>
                 <h2>#{channel?.slug ?? 'channel'} is quiet</h2>
                 <p className="wb-log-empty-sub">
-                  Post for the room. Use @ to ask a member to reply.
+                  Post for the room; @ a member to ask for a reply.
                 </p>
               </>
             ) : (
@@ -1575,6 +1597,12 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
           </div>
         ) : null}
 
+        {setupOffer ? (
+          <div className="wb-msg">
+            <SetupOfferCard onDismiss={() => clearSetupOffer(setupOffer.chatId)} />
+          </div>
+        ) : null}
+
         {statsRows.length > 0 ? (
           <div className="wb-msg">
             <div className="wb-stats">
@@ -1659,8 +1687,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         // well before Boundary's tools are. Say so rather than let Hermes improvise.
         <div className="wb-host-tools-note" role="status">
           {hostTools === 'waiting'
-            ? "Connecting Hermes to Boundary's tools. Until then it can't send notifications, open links or use your files and clipboard. This usually takes a few seconds, but can take a few minutes on an older stack."
-            : "Boundary's tools aren't running, so Hermes can't send notifications, open links or use your files and clipboard. Restart Boundary to try again."}
+            ? "Connecting Hermes to Boundary's tools…"
+            : "Boundary's tools aren't running. Restart Boundary to try again."}
+          <InfoTip label="Boundary's tools">
+            {hostTools === 'waiting'
+              ? "Until then Hermes can't send notifications, open links or use your files and clipboard. This usually takes a few seconds, but can take a few minutes on an older stack."
+              : "Until they are, Hermes can't send notifications, open links or use your files and clipboard."}
+          </InfoTip>
         </div>
       ) : null}
 
@@ -1716,7 +1749,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                     insertMention(item);
                   }}
                 >
-                  <span className="mono">{item.display ?? item.text}</span>
+                  <span className="mono" title={item.display ?? item.text}>
+                    {item.display ?? item.text}
+                  </span>
                   {item.meta ? <span className="meta">{item.meta}</span> : null}
                 </button>
               );
@@ -1854,7 +1889,10 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 @
               </button>
               {composerPhase ? (
-                <span className={`wb-phase-slot${livePhase || waitingForApproval ? ' is-live' : ''}`}>
+                <span
+                  className={`wb-phase-slot${livePhase || waitingForApproval ? ' is-live' : ''}`}
+                  title={typeof composerPhase === 'string' ? composerPhase : undefined}
+                >
                   {composerPhase}
                 </span>
               ) : null}
@@ -2178,7 +2216,9 @@ const ToolPath: React.FC<{
       <FileActions project={project} relativePath={path} onNotice={onNotice} />
     </li>
   ) : (
-    <li className="mono">{path}</li>
+    <li className="mono" title={path}>
+      {path}
+    </li>
   );
 
 const ToolCard: React.FC<{
@@ -2211,7 +2251,9 @@ const ToolCard: React.FC<{
     <div className="wb-tool">
       <button type="button" onClick={onToggle} className="meta">
         {running ? <i className="wb-spin" aria-hidden /> : null}
-        <span>{meta}</span>
+        <span className="label" title={meta}>
+          {meta}
+        </span>
         {card.durationSec != null && !running ? (
           <span className="dur">{card.durationSec.toFixed(1)}s</span>
         ) : null}

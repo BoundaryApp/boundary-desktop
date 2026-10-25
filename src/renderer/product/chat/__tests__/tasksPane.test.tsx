@@ -1,13 +1,15 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import type { AgentProfile, HermesProjectRecord } from '../../../../shared/types/hermesChat';
 
-const openKanbanBoard = vi.fn(() => Promise.resolve());
+const openKanbanBoard = vi.fn((_taskId?: string) => Promise.resolve());
+const kanbanBoardView = vi.fn();
 vi.mock('../../../services/hermesChatIPCService', () => ({
   hermesChatIPC: {
-    openKanbanBoard: () => openKanbanBoard(),
+    openKanbanBoard: (taskId?: string) => openKanbanBoard(taskId),
+    kanbanBoardView: (taskId?: string) => kanbanBoardView(taskId),
     kanbanSnapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
     onKanbanSnapshot: () => () => undefined,
   },
@@ -67,6 +69,7 @@ describe('TasksPane', () => {
     setKanbanSnapshotForTests({ available: false, tasks: [], checkedAt: 0 });
     cleanup();
     openKanbanBoard.mockClear();
+    kanbanBoardView.mockReset();
   });
 
   it('groups the project\'s tasks by what you would do about them', () => {
@@ -98,8 +101,60 @@ describe('TasksPane', () => {
     const running = screen.getByRole('region', { name: 'Running' });
     expect(within(running).getByText('Plan the offsite')).toBeTruthy();
     expect(within(running).getByText(/Running/).textContent).toContain('2');
-    fireEvent.click(screen.getByRole('button', { name: 'Open board ↗' }));
-    expect(openKanbanBoard).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open in browser ↗' }));
+    expect(openKanbanBoard).toHaveBeenCalledWith(undefined);
+  });
+
+  it('switches to the board, signed in, on its own partition', async () => {
+    setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: board });
+    kanbanBoardView.mockResolvedValue({
+      success: true,
+      url: 'http://127.0.0.1:9119/kanban?embed=1&task=t_2&board=default',
+      partition: 'persist:hermes-board',
+    });
+    const onViewChange = vi.fn();
+    const onOpenTask = vi.fn();
+    const { container, rerender } = render(
+      <TasksPane agents={agents} project={project} onOpenTask={onOpenTask} onViewChange={onViewChange} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+    expect(onViewChange).toHaveBeenCalledWith('board');
+
+    rerender(
+      <TasksPane
+        agents={agents}
+        project={project}
+        onOpenTask={onOpenTask}
+        onViewChange={onViewChange}
+        view="board"
+        boardTaskId="t_2"
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Board' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('region', { name: 'Running' })).toBeNull();
+    expect(kanbanBoardView).toHaveBeenCalledWith('t_2');
+    await waitFor(() => expect(container.querySelector('webview')).not.toBeNull());
+    const view = container.querySelector('webview');
+    expect(view?.getAttribute('partition')).toBe('persist:hermes-board');
+    expect(view?.getAttribute('src')).toContain('task=t_2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to task' }));
+    expect(onOpenTask).toHaveBeenCalledWith('t_2');
+    fireEvent.click(screen.getByRole('button', { name: 'Open in browser ↗' }));
+    expect(openKanbanBoard).toHaveBeenCalledWith('t_2');
+  });
+
+  it('says why the board could not open, and tries again', async () => {
+    setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: board });
+    kanbanBoardView.mockResolvedValueOnce({ success: false, error: 'Dashboard credentials missing.' });
+    kanbanBoardView.mockResolvedValueOnce({ success: true, url: 'http://127.0.0.1:9119/kanban?embed=1', partition: 'persist:hermes-board' });
+    const { container } = render(
+      <TasksPane agents={agents} project={project} onOpenTask={vi.fn()} onViewChange={vi.fn()} view="board" />
+    );
+    expect(await screen.findByText('Dashboard credentials missing.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(container.querySelector('webview')).not.toBeNull());
+    expect(kanbanBoardView).toHaveBeenCalledTimes(2);
   });
 
   it('says where the tasks are when the project has none', () => {

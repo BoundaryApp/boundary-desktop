@@ -192,7 +192,7 @@ async function startProviderSetup(
     return { success: false, error: 'The selected model is not deployable for this provider.' };
   }
 
-  input = { ...input, values: resolveStoredDraftSecrets(input.providerId, input.values) };
+  input = { ...input, values: await resolveStoredDraftSecrets(input.providerId, input.values) };
   const missing = recipe.secrets.find((field) => {
     if (!field.required) return false;
     const value = input.values[field.name];
@@ -253,7 +253,7 @@ async function startProviderSetup(
     taskId: apply.taskId,
     startedAt: new Date().toISOString(),
   };
-  setPendingProviderSetup(pending);
+  await setPendingProviderSetup(pending);
 
   return { success: true, pending };
 }
@@ -265,7 +265,7 @@ async function discoverProviderEndpoints(
     return { success: false, endpoints: [], error: 'Endpoint discovery is not available for this provider.' };
   }
 
-  const apiKey = resolveStoredDraftSecrets(input.providerId, input.values).baseten_api_key;
+  const apiKey = (await resolveStoredDraftSecrets(input.providerId, input.values)).baseten_api_key;
   if (typeof apiKey !== 'string' || !apiKey.trim()) {
     return { success: false, endpoints: [], error: 'Enter a Baseten API key.' };
   }
@@ -280,7 +280,7 @@ async function listProviderDeployments(
     return { success: false, endpoints: [], error: 'Deployment listing is not available for this provider.' };
   }
 
-  const apiKey = resolveStoredDraftSecrets(input.providerId, input.values).baseten_api_key;
+  const apiKey = (await resolveStoredDraftSecrets(input.providerId, input.values)).baseten_api_key;
   if (typeof apiKey !== 'string' || !apiKey.trim()) {
     return { success: false, endpoints: [], error: 'Enter a Baseten API key.' };
   }
@@ -291,7 +291,7 @@ async function listProviderDeployments(
 async function listProviderDeployableModels(
   input: ListDeployableModelsInput
 ): Promise<ListDeployableModelsResult> {
-  return listDeployableModels(input.providerId, resolveStoredDraftSecrets(input.providerId, input.values));
+  return listDeployableModels(input.providerId, await resolveStoredDraftSecrets(input.providerId, input.values));
 }
 
 async function adoptProviderEndpoint(
@@ -300,7 +300,7 @@ async function adoptProviderEndpoint(
   if (input.providerId !== 'baseten') {
     return { success: false, error: 'Endpoint adoption is not available for this provider.' };
   }
-  input = { ...input, apiKey: resolveStoredDraftSecret(input.providerId, input.apiKey) };
+  input = { ...input, apiKey: await resolveStoredDraftSecret(input.providerId, input.apiKey) };
   if (!input.apiKey.trim()) {
     return { success: false, error: 'Enter a Baseten API key.' };
   }
@@ -364,7 +364,7 @@ async function adoptLocalLlm(input: AdoptLocalLlmInput): Promise<AdoptLocalLlmRe
     };
   }
 
-  const result = saveLocalLlmEndpoint({
+  const result = await saveLocalLlmEndpoint({
     runtime: input.runtime,
     endpointUrl: input.endpointUrl,
     modelId,
@@ -402,7 +402,7 @@ async function applyHermesIfDefaultSlot(writtenSlot?: InferenceSlotId): Promise<
   const appDefault = getAppDefaultSlot();
   if (!appDefault) return;
   if (writtenSlot && writtenSlot !== appDefault) return;
-  if (!getLlmConnection()) return;
+  if (!(await getLlmConnection())) return;
 
   try {
     const { applyLlmConnectionToHermes, isAssistantStackReady } = await import(
@@ -428,7 +428,7 @@ async function saveLlmConnectionHandler(
   input: SaveLlmConnectionInput
 ): Promise<SaveLlmConnectionResult> {
   const slot = resolveSaveSlot(input);
-  const stored = getSlotConnectionMaterial(slot) ?? getStoredLlmConnectionMaterial();
+  const stored = (await getSlotConnectionMaterial(slot)) ?? (await getStoredLlmConnectionMaterial());
   const apiKey = input.apiKey?.trim() || stored?.apiKey;
   const authScheme = input.authScheme ?? stored?.authScheme;
   const verification = await verifyChatCompletionEndpoint({
@@ -442,11 +442,11 @@ async function saveLlmConnectionHandler(
     return {
       success: false,
       error: verification.error ?? 'The selected endpoint did not return a valid chat response.',
-      status: getOpenAiOnboardingStatus(),
+      status: await getOpenAiOnboardingStatus(),
     };
   }
 
-  const result = saveLlmConnection({
+  const result = await saveLlmConnection({
     ...input,
     slot,
     apiKey,
@@ -463,7 +463,7 @@ async function saveLlmConnectionHandler(
 
 async function updateLlmModelHandler(input: UpdateLlmModelInput): Promise<UpdateLlmModelResult> {
   const slot = input.slot ?? getAppDefaultSlot();
-  const status = getOpenAiOnboardingStatus();
+  const status = await getOpenAiOnboardingStatus();
   const slotStatus = slot ? status.slots[slot] : undefined;
   if (!slot || !slotStatus?.configured || !slotStatus.endpointUrl) {
     return {
@@ -473,7 +473,7 @@ async function updateLlmModelHandler(input: UpdateLlmModelInput): Promise<Update
     };
   }
 
-  const storedKey = getSlotApiKey(slot);
+  const storedKey = await getSlotApiKey(slot);
   const authScheme = slotStatus.provider === 'baseten' ? 'api-key' : slotStatus.authScheme ?? 'bearer';
   const verified = await verifyChatCompletionEndpoint({
     baseUrl: slotStatus.endpointUrl,
@@ -490,7 +490,7 @@ async function updateLlmModelHandler(input: UpdateLlmModelInput): Promise<Update
     };
   }
 
-  const result = updateLlmModel(input.modelId, slot);
+  const result = await updateLlmModel(input.modelId, slot);
   if (result.success) {
     await applyHermesIfDefaultSlot(slot);
   }
@@ -501,7 +501,7 @@ async function listConfiguredEndpointModels(
   input?: ListConfiguredEndpointModelsInput
 ): Promise<ListEndpointModelsResult> {
   const slot = input?.slot ?? getAppDefaultSlot();
-  const connection = slot ? getSlotConnectionMaterial(slot) : getStoredLlmConnectionMaterial();
+  const connection = slot ? await getSlotConnectionMaterial(slot) : await getStoredLlmConnectionMaterial();
   if (!connection) {
     return { success: false, models: [], error: 'No LLM connection is configured.' };
   }
@@ -516,7 +516,7 @@ async function listConfiguredEndpointModels(
 }
 
 async function setAppDefaultHandler(input: SetAppDefaultInput): Promise<SetAppDefaultResult> {
-  const result = setAppDefault(input.slot);
+  const result = await setAppDefault(input.slot);
   if (result.success) {
     await applyHermesIfDefaultSlot(input.slot);
   }
@@ -524,7 +524,7 @@ async function setAppDefaultHandler(input: SetAppDefaultInput): Promise<SetAppDe
 }
 
 async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnectionResult> {
-  const result = clearLlmSlot(input.slot);
+  const result = await clearLlmSlot(input.slot);
   if (result.success) {
     if (isVisibleChatProvider(input.slot)) {
       clearSessionInferenceForProvider(input.slot);
@@ -590,7 +590,7 @@ export function registerOnboardingHandlers(): void {
   ipcMain.handle('onboarding:clear-openai-config', async (_event, input?: ClearLlmSlotInput) => {
     const slot = input?.slot ?? getAppDefaultSlot();
     if (!slot) {
-      return { success: true, status: getOpenAiOnboardingStatus() };
+      return { success: true, status: await getOpenAiOnboardingStatus() };
     }
     return clearSlotHandler({ slot });
   });
@@ -647,7 +647,7 @@ export function registerOnboardingHandlers(): void {
     async (_event, input: StartOAuthPkceInput): Promise<StartOAuthPkceResult> => {
       try {
         const credentials = await startOAuthPkceFlow(input.providerId);
-        const persisted = saveOAuthCredentials({
+        const persisted = await saveOAuthCredentials({
           providerId: credentials.providerId,
           providerDisplayName: credentials.providerDisplayName,
           endpointUrl: credentials.endpointUrl,
@@ -700,7 +700,7 @@ export function registerOnboardingHandlers(): void {
     async (_event, input: ListEndpointModelsInput): Promise<ListEndpointModelsResult> => {
       if (!input.apiKey && input.baseUrl) {
         for (const slot of ['local', 'openrouter', 'infrastructure'] as const) {
-          const stored = getSlotConnectionMaterial(slot);
+          const stored = await getSlotConnectionMaterial(slot);
           if (stored && urlsMatch(stored.endpointUrl, input.baseUrl)) {
             return listEndpointModels({
               ...input,

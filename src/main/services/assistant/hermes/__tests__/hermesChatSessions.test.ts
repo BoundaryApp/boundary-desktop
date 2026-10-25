@@ -13,6 +13,10 @@ const submitPrompt = vi.fn().mockResolvedValue(undefined);
 const storedSessionId = vi.fn((id: string) => id);
 const getLiveStatus = vi.fn();
 const getTurnLiveness = vi.fn();
+const supportsClientContext = vi.fn().mockResolvedValue(false);
+const readAgentSoul = vi.fn((_slug: string): string | null => null);
+const roomSoulsSent = new Map<string, string>();
+const getOrchestratorRecord = vi.fn((): { slug: string; kanbanEnabled: boolean } | null => null);
 // Gateway event handlers, so a test can finish a turn by emitting message.complete.
 type GatewayHandler = (event: { session_id?: string; payload?: unknown }) => void;
 const gatewayHandlers = new Map<string, Set<GatewayHandler>>();
@@ -42,6 +46,7 @@ vi.mock('../hermesGatewaySession', () => ({
     cancelPrompt: vi.fn().mockResolvedValue(undefined),
     getLiveStatus: (...args: unknown[]) => getLiveStatus(...args),
     getTurnLiveness: () => getTurnLiveness(),
+    supportsClientContext: () => supportsClientContext(),
     setApprovalNotifier: vi.fn(),
     setCredentialRequestNotifier: vi.fn(),
     setStoredIdArchive: vi.fn(),
@@ -57,6 +62,10 @@ vi.mock('../hermesWebuiSync', () => ({
 }));
 
 vi.mock('../hermesAgentStore', () => ({
+  getOrchestratorRecord: () => getOrchestratorRecord(),
+  getRoomSoulSent: (room: string, slug: string) => roomSoulsSent.get(`${room}/${slug}`) ?? null,
+  setRoomSoulSent: (room: string, slug: string, hash: string) =>
+    roomSoulsSent.set(`${room}/${slug}`, hash),
   getSessionAgentSlug: vi.fn().mockReturnValue(null),
   setSessionAgentSlug: vi.fn(),
   getSessionChannelId: vi.fn().mockReturnValue(null),
@@ -106,6 +115,7 @@ vi.mock('../hermesChatProjects', () => ({
 }));
 
 vi.mock('../hermesAgents', () => ({
+  readAgentSoul: (slug: string) => readAgentSoul(slug),
   annotateThreadsWithAgents: (threads: unknown[]) => threads,
   resolveProfileForAgent: (slug: string | null | undefined) => resolveProfileForAgent(slug),
   durableSessionId: (id: string) => storedSessionId(id),
@@ -122,6 +132,9 @@ vi.mock('../hermesChannels', async () => {
   const actual = await vi.importActual<typeof import('../hermesChannels')>('../hermesChannels');
   return {
     parseMemberMentions,
+    buildChannelHeader: actual.buildChannelHeader,
+    buildMemberSoulContext: actual.buildMemberSoulContext,
+    buildOrchestratorRoomNote: actual.buildOrchestratorRoomNote,
     buildChannelWakePrompt: actual.buildChannelWakePrompt,
     channelForSession: (id: string | null | undefined) => {
       if (!id) return null;
@@ -1344,7 +1357,11 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     const { result, sender, store } = await wakeRoom(['assistant'], '@Hermes summarise the room');
     expect(result.posted).toBeUndefined();
     expect(speakersSent(sender.send)).toEqual(['assistant']);
-    expect(submitPrompt).toHaveBeenCalledWith('chan-1', '@Hermes summarise the room', expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith(
+      'chan-1',
+      '[Boundary channel #research · members: the user, @Hermes (Default agent on this machine) · you are @Hermes]\n\n@Hermes summarise the room',
+      expect.anything()
+    );
     // The turn runs on the room session's own profile (stack v0.3.3 refuses another one).
     expect(submitPrompt.mock.calls[0][2]).not.toHaveProperty('profile');
     expect(store.appendSessionSpeaker).toHaveBeenCalledWith('chan-1', 'assistant');
@@ -1352,17 +1369,22 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
 
   it('chain-wakes Hermes when a personality @s it, and back again only once', async () => {
     scriptReplies([
-      [/^@Ana look/, 'Two vendors. Asking @Hermes to confirm.'],
-      [/^@Hermes —/, 'Confirmed, @Ana.'],
+      [/^@Ana look/m, 'Two vendors. Asking @Hermes to confirm.'],
+      [/^@Hermes —/m, 'Confirmed, @Ana.'],
     ]);
     const { sender } = await wakeRoom(['assistant', 'ana'], '@Ana look at the pricing sheet');
     expect(speakersSent(sender.send)).toEqual(['ana', 'assistant']);
+    expect(submitPrompt).toHaveBeenLastCalledWith(
+      'chan-1',
+      expect.stringMatching(/you are @Hermes · the last reply was from @Ana\]\n\n@Hermes — /),
+      expect.anything()
+    );
   });
 
   it('streams each speaker’s own text, tagged with who said it (ADR 0010 §1)', async () => {
     scriptReplies([
-      [/^@Ana look/, 'Two vendors. Asking @Hermes to confirm.'],
-      [/^@Hermes —/, 'Confirmed.'],
+      [/^@Ana look/m, 'Two vendors. Asking @Hermes to confirm.'],
+      [/^@Hermes —/m, 'Confirmed.'],
     ]);
     const { sender } = await wakeRoom(['assistant', 'ana'], '@Ana look at the pricing sheet');
     const chunks = sender.send.mock.calls
@@ -1377,8 +1399,82 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     ]);
   });
 
+  it('sends the header as turn context when the gateway takes it', async () => {
+    supportsClientContext.mockResolvedValue(true);
+    scriptReplies([[/.*/, 'ok']]);
+    await wakeRoom(['assistant'], '@Hermes summarise the room');
+    expect(submitPrompt).toHaveBeenCalledWith('chan-1', '@Hermes summarise the room', {
+      truncate: undefined,
+      context:
+        '[Boundary channel #research · members: the user, @Hermes (Default agent on this machine) · you are @Hermes]',
+    });
+    supportsClientContext.mockResolvedValue(false);
+  });
+
+  it('puts the header inline when context is refused because a turn is running', async () => {
+    supportsClientContext.mockResolvedValue(true);
+    scriptReplies([[/.*/, 'ok']]);
+    const impl = submitPrompt.getMockImplementation()!;
+    submitPrompt.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('turn running'), { code: 4082 });
+    });
+    submitPrompt.mockImplementation(impl);
+    await wakeRoom(['assistant'], '@Hermes summarise the room');
+    expect(submitPrompt).toHaveBeenLastCalledWith(
+      'chan-1',
+      expect.stringMatching(/^\[Boundary channel #research .*\]\n\n@Hermes summarise the room$/),
+      { truncate: undefined }
+    );
+    supportsClientContext.mockResolvedValue(false);
+  });
+
+  it('gives a member its own SOUL.md once per room session, and again when it changes', async () => {
+    supportsClientContext.mockResolvedValue(true);
+    roomSoulsSent.clear();
+    readAgentSoul.mockImplementation((slug: string) => (slug === 'ana' ? '# Ana\n\nCites sources.' : null));
+    scriptReplies([[/.*/, 'ok']]);
+    const contextOf = (call: unknown[]) => (call[2] as { context?: string }).context ?? '';
+
+    await wakeRoom(['assistant', 'ana'], '@Ana first');
+    expect(contextOf(submitPrompt.mock.calls.at(-1)!)).toContain('# Ana\n\nCites sources.');
+
+    await wakeRoom(['assistant', 'ana'], '@Ana second');
+    const second = contextOf(submitPrompt.mock.calls.at(-1)!);
+    expect(second).not.toContain('Cites sources.');
+    expect(second).toContain("following @Ana's SOUL.md given earlier");
+
+    readAgentSoul.mockImplementation((slug: string) => (slug === 'ana' ? '# Ana\n\nCites two sources.' : null));
+    await wakeRoom(['assistant', 'ana'], '@Ana third');
+    expect(contextOf(submitPrompt.mock.calls.at(-1)!)).toContain('Cites two sources.');
+
+    // The built-in agent's soul is already the default profile's system prompt.
+    await wakeRoom(['assistant', 'ana'], '@Hermes fourth');
+    expect(contextOf(submitPrompt.mock.calls.at(-1)!)).not.toContain('SOUL.md');
+
+    readAgentSoul.mockImplementation(() => null);
+    supportsClientContext.mockResolvedValue(false);
+  });
+
+  it('tells the orchestrator its kanban tools are missing in a room, and no one else', async () => {
+    supportsClientContext.mockResolvedValue(true);
+    getOrchestratorRecord.mockReturnValue({ slug: 'ana', kanbanEnabled: true });
+    scriptReplies([[/.*/, 'ok']]);
+    const contextOf = (call: unknown[]) => (call[2] as { context?: string }).context ?? '';
+
+    await wakeRoom(['assistant', 'ana'], '@Ana plan it');
+    expect(contextOf(submitPrompt.mock.calls.at(-1)!)).toContain(
+      "The kanban tools (kanban_create, kanban_list and the rest) aren't available to @Ana"
+    );
+
+    await wakeRoom(['assistant', 'ana'], '@Hermes plan it');
+    expect(contextOf(submitPrompt.mock.calls.at(-1)!)).not.toContain('kanban');
+
+    getOrchestratorRecord.mockReturnValue(null);
+    supportsClientContext.mockResolvedValue(false);
+  });
+
   it('chain-wakes a personality from a Hermes reply', async () => {
-    scriptReplies([[/^@Hermes plan/, 'Plan drafted. @Ana can you source it?']]);
+    scriptReplies([[/^@Hermes plan/m, 'Plan drafted. @Ana can you source it?']]);
     const { sender } = await wakeRoom(['assistant', 'ana'], '@Hermes plan the launch');
     expect(speakersSent(sender.send)).toEqual(['assistant', 'ana']);
   });
@@ -1488,7 +1584,7 @@ describe('rooms stay on their stored session (Session not found fix)', () => {
       delivery: 'woke',
     });
     expect(store.appendSessionSpeaker).toHaveBeenCalledWith('stored-general', 'assistant');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-9', '@Hermes hello', expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-9', expect.stringMatching(/\n\n@Hermes hello$/), expect.anything());
   });
 
   it('starts a fresh session for a room Hermes has lost, keeping its posts', async () => {
@@ -1499,7 +1595,7 @@ describe('rooms stay on their stored session (Session not found fix)', () => {
     await send('@Hermes are you there?');
     expect(createSessionWithSeed).toHaveBeenCalledWith({ title: '#general', profile: null });
     expect(channels.moveChannelSession).toHaveBeenCalledWith(general, 'stored-new');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-new', '@Hermes are you there?', expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-new', expect.stringMatching(/\n\n@Hermes are you there\?$/), expect.anything());
   });
 
   it('does not start a new session when resume fails for another reason', async () => {
@@ -1618,7 +1714,7 @@ describe('a renderer holding a room’s old id (Session not found fix)', () => {
       expect(sender.send).toHaveBeenCalledWith('hermes-chat:end', expect.anything())
     );
     expect(resumeSession).toHaveBeenNthCalledWith(2, 'stored-general');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-2', '@Hermes still there?', expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-2', expect.stringMatching(/\n\n@Hermes still there\?$/), expect.anything());
     expect(createSessionWithSeed).not.toHaveBeenCalled();
     expect(store.appendChannelPost).toHaveBeenCalledWith('stored-general', {
       content: '@Hermes still there?',

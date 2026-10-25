@@ -307,7 +307,7 @@ class StackStatusService extends EventEmitter {
     }
 
     if (phase === 'active' && baseUrl && inferenceApiKey && inst.outputs.model_id) {
-      finalizePendingProviderEndpoint({
+      await finalizePendingProviderEndpoint({
         instanceId,
         endpointUrl: baseUrl,
         apiKey: inferenceApiKey,

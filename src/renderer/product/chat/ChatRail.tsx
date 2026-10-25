@@ -221,7 +221,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
       <div className="wb-titlebar-spacer" aria-hidden="true" />
       {projects.length === 0 ? (
         <div className="wb-proj-empty">
-          Choose a folder on this Mac. Chats work without a project.
+          Choose a folder on this Mac, or chat without one.
           <div className="wb-empty-actions">
             <button
               type="button"
@@ -334,7 +334,9 @@ export const ChatRail: React.FC<ChatRailProps> = ({
           <div className="wb-sect">
             <span className="wb-sect-name">
               <ConversationMark kind="hermes" size={14} />
-              {hermesName}
+              <span className="wb-sect-label" title={hermesName}>
+                {hermesName}
+              </span>
               <span className="wb-sect-kbd">⌘N</span>
             </span>
             <button
@@ -368,7 +370,9 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                   onClick={() => onOpenThread(thread.id)}
                 >
                   <ConversationMark kind="hermes" />
-                  <span className="wb-row-title">{thread.title || 'New chat'}</span>
+                  <span className="wb-row-title" title={thread.title || 'New chat'}>
+                    {thread.title || 'New chat'}
+                  </span>
                   {source && source !== 'App' ? (
                     <span className="wb-source">{source}</span>
                   ) : null}
@@ -381,6 +385,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
             <button
               type="button"
               className="wb-link-row is-tight"
+              title={projects.length > 0 ? `All chats in ${shownName}` : undefined}
               onClick={() => onOpenAllChats('hermes')}
             >
               {projects.length > 0 ? `All chats in ${shownName}…` : `All ${hermesName} chats…`}
@@ -405,8 +410,8 @@ export const ChatRail: React.FC<ChatRailProps> = ({
           {channels.length === 0 ? (
             <p className="wb-rail-empty">
               {projects.length > 0
-                ? `No channels in ${shownName}. Rooms are topics — post without talking to anyone.`
-                : 'No channels yet. Rooms are topics — post without talking to anyone.'}
+                ? `No channels in ${shownName}.`
+                : 'No channels yet.'}
             </p>
           ) : (
             channels.map((channel) => {
@@ -419,7 +424,9 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                   onClick={() => onOpenChannel(channel)}
                 >
                   <ConversationMark kind="channel" />
-                  <span className="wb-row-title mono">{channel.slug}</span>
+                  <span className="wb-row-title mono" title={channel.slug}>
+                    {channel.slug}
+                  </span>
                   {isWorking(channel.sessionId) ? (
                     <WorkingDot label={`An agent is working in #${channel.slug}`} />
                   ) : null}
@@ -467,7 +474,9 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               >
                 <ConversationMark kind="dm" agent={agent} />
                 <span className="wb-dm-copy">
-                  <span className="name">{agent.displayName}</span>
+                  <span className="name" title={agent.displayName}>
+                    {agent.displayName}
+                  </span>
                   <span className="sub">
                     {dmFolders && agent.slug in dmFolders
                       ? `${agent.role} · ${dmFolders[agent.slug] ? `in ${dmFolders[agent.slug]}` : 'no folder'}`

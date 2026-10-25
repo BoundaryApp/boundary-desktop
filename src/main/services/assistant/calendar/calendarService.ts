@@ -10,6 +10,7 @@ import type {
   CalendarPrepareResult,
   CalendarProgressEvent,
   CalendarProgressStep,
+  CalendarReplacePasswordPayload,
   CalendarSlugPayload,
   CalendarTestPayload,
   CalendarTestResult,
@@ -18,6 +19,7 @@ import { persistDebugLog } from '../../../persistDebugLog';
 import { getAssistantStackAccess, isAssistantStackReady } from '../AssistantStackService';
 import { buildHermesConfigSetExec, redactSecrets } from '../hermesConfigSetExec';
 import { hermesProfileEnvPath, upsertEnvLines } from '../../hostBridge/hermesProvision';
+import { syncHostToolListing } from '../../hostBridge/hostBridgeService';
 import { resolveProfileForAgent } from '../hermes/hermesAgents';
 import { listStoredAgents } from '../hermes/hermesAgentStore';
 import { getHermesGatewaySession } from '../hermes/hermesGatewaySession';
@@ -45,12 +47,13 @@ import {
   hasCalendarAccounts,
   listCalendarAccounts,
   saveCalendarAccount,
+  lastWorkedAt,
   toCalendarAccountView,
   type StoredCalendarAccount,
 } from './calendarStore';
 
 /**
- * Settings → Calendars (docs/calendar-ux-study/spec.md, Phase 1). Boundary writes each calendar
+ * Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). Boundary writes each calendar
  * into the profiles of the agents that may use it, the way it provisions the host bridge: the
  * password into the profile's `.env`, the `calendar-<slug>` entry with `hermes config set`. Hermes
  * connects new sessions to it on its own, and `reload.mcp` brings open chats and changed entries up
@@ -59,13 +62,17 @@ import {
  * Payloads carry a password. Never log a payload, and scrub the password from any error text.
  */
 
-/** Phase 1 offers no write access; Phase 2 adds `change` with approvals. */
-const OFFERED_ACCESS: ReadonlySet<CalendarAccess> = new Set(['off', 'read']);
+/** `change` is safe to offer because every entry is `trust: untrusted` (spec decision 6). */
+const OFFERED_ACCESS: ReadonlySet<CalendarAccess> = new Set(['off', 'read', 'change']);
 const MAX_TEXT = 512;
 /** caldav-mcp is built from source on first start (about 2.5 min on an M-series Mac). */
 const PREPARE_TIMEOUT_MS = 15 * 60_000;
 const PROBE_TIMEOUT_MS = 60_000;
 const CONNECT_CHECK_MS = 30_000;
+/** The background sign-in check (spec Phase 2, item 3). */
+const DAILY_CHECK_MS = 24 * 60 * 60_000;
+const DAILY_CHECK_TICK_MS = 60 * 60_000;
+const FIRST_DAILY_CHECK_MS = 2 * 60_000;
 
 class CalendarInputError extends Error {}
 
@@ -99,7 +106,7 @@ function password(value: unknown): string {
   return v;
 }
 
-/** Access for known agents only, limited to what this phase offers; everyone else is off. */
+/** Access for known agents only, limited to the offered levels; everyone else is off. */
 function cleanAccess(value: unknown): Record<string, CalendarAccess> {
   const known = new Set(listStoredAgents().map((a) => a.slug));
   const out: Record<string, CalendarAccess> = {};
@@ -116,6 +123,13 @@ function cleanAccess(value: unknown): Record<string, CalendarAccess> {
 function broadcast(event: CalendarProgressEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('calendars:progress', event);
+  }
+}
+
+/** Tell an open Calendars tab that a background check changed a card. */
+function broadcastChanged(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('calendars:changed');
   }
 }
 
@@ -311,9 +325,9 @@ async function applyAccess(
 
 // ─── IPC-facing operations ────────────────────────────────────────────────────
 
-export function listCalendars(): CalendarListResult {
+export async function listCalendars(): Promise<CalendarListResult> {
   try {
-    return { success: true, accounts: listCalendarAccounts().map(toCalendarAccountView) };
+    return { success: true, accounts: await Promise.all(listCalendarAccounts().map(toCalendarAccountView)) };
   } catch (error) {
     return { success: false, accounts: [], error: errorText(error) };
   }
@@ -324,7 +338,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
     let pw = '';
     let saved: StoredCalendarAccount | null = null;
     try {
-      if (!canStoreCalendarPasswords()) {
+      if (!(await canStoreCalendarPasswords())) {
         throw new CalendarInputError('Boundary can’t store passwords on this Mac because the keychain isn’t available.');
       }
       if (!isCalendarProvider(payload?.provider)) throw new CalendarInputError('Choose a provider.');
@@ -351,13 +365,16 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
         provider: payload.provider,
         url: probe.url,
         username,
-        password: encryptCalendarPassword(pw),
+        password: await encryptCalendarPassword(pw),
         calendars: probe.calendars,
         access,
         createdAt: new Date().toISOString(),
         lastCheck: { at: new Date().toISOString(), status: 'ok' },
+        lastOkAt: new Date().toISOString(),
       };
       saveCalendarAccount(saved);
+      // offer_setup leaves the bridge's list; the reload in applyAccess makes Hermes list it again.
+      syncHostToolListing();
       const warning = await applyAccess(saved, {}, pw, progress);
       progress('done');
       persistDebugLog('calendars', 'calendar connected', {
@@ -366,14 +383,14 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
         agents: Object.entries(access).filter(([, v]) => v !== 'off').map(([k]) => k),
         calendars: probe.calendars.length,
       });
-      return { success: true, account: toCalendarAccountView(saved), ...(warning ? { error: warning } : {}) };
+      return { success: true, account: await toCalendarAccountView(saved), ...(warning ? { error: warning } : {}) };
     } catch (error) {
       const message = errorText(error, [pw]);
       if (saved) {
         persistDebugLog('calendars', 'calendar saved but not given to every agent', { slug: saved.slug, error: message });
         return {
           success: false,
-          account: toCalendarAccountView(saved),
+          account: await toCalendarAccountView(saved),
           error: `${saved.name} is saved, but not every agent has it yet. ${message} Use Change access to try again.`,
         };
       }
@@ -387,7 +404,7 @@ export function setCalendarAccess(payload: CalendarAccessPayload): Promise<Calen
     try {
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
-      const pw = decryptCalendarPassword(account);
+      const pw = await decryptCalendarPassword(account);
       if (!pw) throw new CalendarInputError('Boundary can’t read this calendar’s password any more. Remove it and connect it again.');
       const previous = account.access;
       const next: StoredCalendarAccount = { ...account, access: cleanAccess(payload.access) };
@@ -395,7 +412,7 @@ export function setCalendarAccess(payload: CalendarAccessPayload): Promise<Calen
       const progress = (step: CalendarProgressStep) => broadcast({ slug: next.slug, step });
       const warning = await applyAccess(next, previous, pw, progress);
       progress('done');
-      return { success: true, account: toCalendarAccountView(next), ...(warning ? { error: warning } : {}) };
+      return { success: true, account: await toCalendarAccountView(next), ...(warning ? { error: warning } : {}) };
     } catch (error) {
       return { success: false, error: errorText(error) };
     }
@@ -410,6 +427,7 @@ export function removeCalendar(payload: CalendarSlugPayload): Promise<CalendarAc
       // Every agent, not only those with access now: an earlier failure may have left one behind.
       for (const agent of listStoredAgents()) await revoke(account.slug, agent.slug);
       deleteCalendarAccount(account.slug);
+      syncHostToolListing();
       await reloadMcp();
       if (!hasCalendarAccounts()) {
         const { compose } = getAssistantStackAccess();
@@ -424,23 +442,138 @@ export function removeCalendar(payload: CalendarSlugPayload): Promise<CalendarAc
   });
 }
 
-/** Run the sign-in test again with the stored password and record the result on the card. */
-export async function recheckCalendar(payload: CalendarSlugPayload): Promise<CalendarActionResult> {
-  const account = getCalendarAccount(String(payload?.slug ?? ''));
-  if (!account) return { success: false, error: 'That calendar isn’t connected any more.' };
-  const pw = decryptCalendarPassword(account);
-  if (!pw) return { success: false, error: 'Boundary can’t read this calendar’s password any more. Remove it and connect it again.' };
+type CheckOutcome = { account: StoredCalendarAccount } | { error: string };
+
+/** Run the sign-in test with the stored password and record the result on the account. */
+async function checkAccount(account: StoredCalendarAccount): Promise<CheckOutcome> {
+  const pw = await decryptCalendarPassword(account);
+  if (!pw) return { error: 'Boundary can’t read this calendar’s password any more. Remove it and connect it again.' };
   const probe = await runProbe({ url: account.url, username: account.username, password: pw });
-  if (probe.status === 'error') return { success: false, error: probe.error };
+  // The stack being down says nothing about the sign-in, so it isn't recorded.
+  if (probe.status === 'error') return { error: probe.error };
+  const current = getCalendarAccount(account.slug);
+  if (!current) return { error: 'That calendar isn’t connected any more.' };
+  const at = new Date().toISOString();
   const next: StoredCalendarAccount = {
-    ...(getCalendarAccount(account.slug) ?? account),
+    ...current,
     lastCheck: {
-      at: new Date().toISOString(),
+      at,
       status: probe.status,
       ...(probe.status === 'unreachable' ? { error: probe.error } : {}),
     },
-    ...(probe.status === 'ok' ? { calendars: probe.calendars } : {}),
+    ...(probe.status === 'ok' ? { calendars: probe.calendars, lastOkAt: at } : { lastOkAt: lastWorkedAt(current) ?? undefined }),
   };
   saveCalendarAccount(next);
-  return { success: true, account: toCalendarAccountView(next) };
+  if (current.lastCheck?.status !== probe.status) {
+    persistDebugLog('calendars', 'sign-in check changed', { slug: account.slug, status: probe.status });
+  }
+  return { account: next };
+}
+
+/** **Test** on the card. */
+export async function recheckCalendar(payload: CalendarSlugPayload): Promise<CalendarActionResult> {
+  const account = getCalendarAccount(String(payload?.slug ?? ''));
+  if (!account) return { success: false, error: 'That calendar isn’t connected any more.' };
+  const outcome = await checkAccount(account);
+  if ('error' in outcome) return { success: false, error: outcome.error };
+  return { success: true, account: await toCalendarAccountView(outcome.account) };
+}
+
+/** Every account, one after another. The Calendars tab runs this when it opens. */
+export async function recheckAllCalendars(): Promise<CalendarListResult> {
+  try {
+    if (!(await isAssistantStackReady())) return listCalendars();
+    for (const account of listCalendarAccounts()) await checkAccount(account);
+    return listCalendars();
+  } catch (error) {
+    return { ...(await listCalendars()), error: errorText(error) };
+  }
+}
+
+let dailyTimer: NodeJS.Timeout | null = null;
+let dailyRunning = false;
+
+/** Check accounts whose last check is a day old. Skipped while the stack is down. */
+export async function runDailyCalendarCheck(now = Date.now()): Promise<void> {
+  if (dailyRunning) return;
+  dailyRunning = true;
+  try {
+    const due = listCalendarAccounts().filter((a) => {
+      const at = a.lastCheck ? Date.parse(a.lastCheck.at) : NaN;
+      return !Number.isFinite(at) || now - at >= DAILY_CHECK_MS;
+    });
+    if (!due.length || !(await isAssistantStackReady())) return;
+    let changed = false;
+    for (const account of due) {
+      const outcome = await checkAccount(account);
+      if ('account' in outcome) changed = true;
+    }
+    if (changed) broadcastChanged();
+  } catch (error) {
+    persistDebugLog('calendars', 'daily sign-in check failed', { error: errorText(error) });
+  } finally {
+    dailyRunning = false;
+  }
+}
+
+/** Once a day while the app runs: an hourly tick checks whichever accounts are due. */
+export function startCalendarHealthChecks(): void {
+  if (dailyTimer) return;
+  const first = setTimeout(() => void runDailyCalendarCheck(), FIRST_DAILY_CHECK_MS);
+  first.unref?.();
+  dailyTimer = setInterval(() => void runDailyCalendarCheck(), DAILY_CHECK_TICK_MS);
+  dailyTimer.unref?.();
+}
+
+export function stopCalendarHealthChecks(): void {
+  if (dailyTimer) clearInterval(dailyTimer);
+  dailyTimer = null;
+}
+
+/**
+ * **Replace password**: test the new password against the stored address and username, then
+ * write it into every profile with access and reload, as a connect does.
+ */
+export function replaceCalendarPassword(payload: CalendarReplacePasswordPayload): Promise<CalendarActionResult> {
+  return serial(async () => {
+    let pw = '';
+    let saved: StoredCalendarAccount | null = null;
+    try {
+      const account = getCalendarAccount(String(payload?.slug ?? ''));
+      if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
+      pw = password(payload.password);
+      const progress = (step: CalendarProgressStep) => broadcast({ slug: account.slug, step });
+
+      progress('saving');
+      const probe = await runProbe({ url: account.url, username: account.username, password: pw });
+      if (probe.status === 'rejected') throw new CalendarInputError('The server didn’t accept that password.');
+      if (probe.status !== 'ok') throw new CalendarInputError(probe.error);
+
+      const at = new Date().toISOString();
+      saved = {
+        ...account,
+        url: probe.url,
+        password: await encryptCalendarPassword(pw),
+        calendars: probe.calendars,
+        lastCheck: { at, status: 'ok' },
+        lastOkAt: at,
+      };
+      saveCalendarAccount(saved);
+      const warning = await applyAccess(saved, saved.access, pw, progress);
+      progress('done');
+      persistDebugLog('calendars', 'calendar password replaced', { slug: saved.slug });
+      return { success: true, account: await toCalendarAccountView(saved), ...(warning ? { error: warning } : {}) };
+    } catch (error) {
+      const message = errorText(error, [pw]);
+      if (saved) {
+        persistDebugLog('calendars', 'password saved but not given to every agent', { slug: saved.slug, error: message });
+        return {
+          success: false,
+          account: await toCalendarAccountView(saved),
+          error: `The new password is saved, but not every agent has it yet. ${message} Use Change access to try again.`,
+        };
+      }
+      return { success: false, error: message };
+    }
+  });
 }

@@ -1,0 +1,60 @@
+import React from 'react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AssistantServicesScreen } from '../AssistantServicesScreen';
+
+vi.mock('../../setup/SetupContext', () => ({
+  useSetup: () => ({
+    assistantStackStatus: { ready: true, uiServices: [] },
+    refreshAssistantStack: async () => undefined,
+  }),
+}));
+
+const calendarsApi = { list: vi.fn(), onChanged: vi.fn() };
+
+const account = (status: 'ok' | 'rejected' | 'unreachable') => ({
+  slug: 'personal',
+  name: 'Personal',
+  lastCheck: { at: '2026-10-25T10:00:00Z', status },
+});
+
+async function calendarCard() {
+  render(<AssistantServicesScreen />);
+  return within(await screen.findByRole('region', { name: 'Calendar' }));
+}
+
+describe('Services: Calendar', () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, 'electronAPI', { value: { calendars: calendarsApi }, configurable: true });
+    calendarsApi.onChanged.mockReturnValue(() => undefined);
+  });
+
+  it('says it starts when you connect a calendar, and links to Settings → Calendars', async () => {
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
+    const opened = vi.fn();
+    const listener = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener('boundary:open-settings', listener);
+    const card = await calendarCard();
+    expect(card.getByText('Starts when you connect a calendar')).toBeTruthy();
+    expect(card.getByText('Off')).toBeTruthy();
+    fireEvent.click(card.getByRole('button', { name: 'Connect calendar' }));
+    window.removeEventListener('boundary:open-settings', listener);
+    expect(opened).toHaveBeenCalledWith({ tab: 'calendars' });
+  });
+
+  it('shows the accounts’ status when connected', async () => {
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [account('ok')] });
+    let card = await calendarCard();
+    expect(card.getByText('CalDAV bridge · Personal')).toBeTruthy();
+    expect(card.getByText('Connected')).toBeTruthy();
+    expect(card.getByRole('button', { name: 'Manage calendars' })).toBeTruthy();
+    cleanup();
+
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [account('rejected')] });
+    card = await calendarCard();
+    expect(card.getByText('Sign-in failed')).toBeTruthy();
+  });
+});

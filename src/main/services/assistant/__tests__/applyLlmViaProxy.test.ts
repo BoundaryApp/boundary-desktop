@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from '../hermesPlatformHint';
 
 const runCompose = vi.fn();
 const applyLlmConnectionToProjectFiles = vi.fn();
@@ -184,6 +185,9 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     expect(configSets('')).toContainEqual(['model.max_tokens', '16384']);
     expect(configSets('browser').map(([key]) => key)).not.toContain('model.max_tokens');
     expect(configSets('browser')).toContainEqual(['model.context_length', '200000']);
+    // Rooms run on the default profile; the stack's other profiles serve no Boundary sessions.
+    expect(configSets('')).toContainEqual([BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT]);
+    expect(configSets('browser').map(([key]) => key)).not.toContain(BOUNDARY_PLATFORM_HINT_KEY);
     // The built-in agent is the default profile, not a profile of its own.
     expect(configSets('assistant')).toEqual([]);
   });
@@ -220,7 +224,7 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     expect(composeText()).not.toContain('mcp_servers.mail');
   });
 
-  it('in local stack mode writes the limits to agent profiles only', async () => {
+  it('in local stack mode writes the limits and platform hint to agent profiles only', async () => {
     process.env.BOUNDARY_LOCAL_STACK = '1';
     storedAgents = [
       { slug: 'assistant', builtIn: true },
@@ -238,6 +242,7 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
       ['agent.local_stream_stale_timeout', '180'],
       ['model.max_tokens', '16384'],
       ['model.context_length', '131072'],
+      [BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT],
     ]);
     expect(configSets('')).toEqual([]);
   });

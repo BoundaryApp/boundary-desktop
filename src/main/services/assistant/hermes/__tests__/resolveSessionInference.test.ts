@@ -16,32 +16,32 @@ import {
 import { resolveSessionInference } from '../resolveSessionInference';
 
 describe('resolveSessionInference', () => {
-  beforeEach(() => {
-    clearOpenAiConfig();
+  beforeEach(async () => {
+    await clearOpenAiConfig();
     resetHermesAgentsStoreForTests();
     clearLastAppliedLlm();
   });
 
-  it('uses the app default when the session has no override', () => {
-    saveLocalLlmEndpoint({
+  it('uses the app default when the session has no override', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('local');
     expect(resolved?.modelId).toBe('qwen3:14b');
     expect(resolved?.provenance).toBe('app-default');
     expect(resolved?.needsRestart).toBe(true);
   });
 
-  it('prefers a configured chat override', () => {
-    saveLocalLlmEndpoint({
+  it('prefers a configured chat override', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
@@ -49,25 +49,25 @@ describe('resolveSessionInference', () => {
       capabilities: OAUTH_LLM_CAPABILITIES,
     });
     setSessionInference('s1', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' });
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('openrouter');
     expect(resolved?.provenance).toBe('chat-override');
   });
 
-  it('falls back to the app default when the override slot is gone', () => {
-    saveLocalLlmEndpoint({
+  it('falls back to the app default when the override slot is gone', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
     setSessionInference('s1', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' });
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('local');
     expect(resolved?.provenance).toBe('app-default');
   });
 
-  it('does not need a restart when last-applied matches', () => {
-    saveLocalLlmEndpoint({
+  it('does not need a restart when last-applied matches', async () => {
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
@@ -78,7 +78,7 @@ describe('resolveSessionInference', () => {
       modelId: 'qwen3:14b',
       appliedAt: '2026-09-28T00:00:00.000Z',
     });
-    expect(resolveSessionInference('s1')?.needsRestart).toBe(false);
+    expect((await resolveSessionInference('s1'))?.needsRestart).toBe(false);
   });
 
   it("uses the chat's own project pin before the app default", async () => {
@@ -89,12 +89,12 @@ describe('resolveSessionInference', () => {
     } = await import('../hermesProjectStore');
     const { setSessionProjectId } = await import('../hermesAgentStore');
     resetHermesProjectsStoreForTests();
-    saveLocalLlmEndpoint({
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
@@ -115,7 +115,7 @@ describe('resolveSessionInference', () => {
     setSessionProjectId('s1', 'p1');
     // The rail showing another project changes nothing for this chat (ADR 0024 §2).
     setActiveHermesProjectId(null);
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('openrouter');
     expect(resolved?.provenance).toBe('project-default');
   });
@@ -128,12 +128,12 @@ describe('resolveSessionInference', () => {
     } = await import('../hermesProjectStore');
     const { setSessionProjectId } = await import('../hermesAgentStore');
     resetHermesProjectsStoreForTests();
-    saveLocalLlmEndpoint({
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
@@ -153,9 +153,9 @@ describe('resolveSessionInference', () => {
     });
     setActiveHermesProjectId('p1');
     setSessionProjectId('s1', null);
-    expect(resolveSessionInference('s1')?.provenance).toBe('app-default');
+    expect((await resolveSessionInference('s1'))?.provenance).toBe('app-default');
     // With no session yet, the chat will start in the rail's project, so its pin shows.
-    expect(resolveSessionInference(null)?.provenance).toBe('project-default');
+    expect((await resolveSessionInference(null))?.provenance).toBe('project-default');
   });
 
   it('prefers chat override over the project pin', async () => {
@@ -165,12 +165,12 @@ describe('resolveSessionInference', () => {
       resetHermesProjectsStoreForTests,
     } = await import('../hermesProjectStore');
     resetHermesProjectsStoreForTests();
-    saveLocalLlmEndpoint({
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
@@ -190,7 +190,7 @@ describe('resolveSessionInference', () => {
     });
     setActiveHermesProjectId('p1');
     setSessionInference('s1', { provider: 'local', modelId: 'qwen3:14b' });
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('local');
     expect(resolved?.provenance).toBe('chat-override');
   });
@@ -202,7 +202,7 @@ describe('resolveSessionInference', () => {
       resetHermesProjectsStoreForTests,
     } = await import('../hermesProjectStore');
     resetHermesProjectsStoreForTests();
-    saveLocalLlmEndpoint({
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
@@ -219,7 +219,7 @@ describe('resolveSessionInference', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
     setActiveHermesProjectId('p1');
-    const resolved = resolveSessionInference('s1');
+    const resolved = await resolveSessionInference('s1');
     expect(resolved?.slot).toBe('local');
     expect(resolved?.provenance).toBe('app-default');
   });

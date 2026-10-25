@@ -42,7 +42,7 @@ import { AllChatsPane } from './AllChatsPane';
 import { ConversationMark } from './ConversationMark';
 import { DmTabs, MentionsPane, type DmTab } from './MentionsPane';
 import { TaskPane, type TaskOrigin } from './TaskPane';
-import { TasksPane } from './TasksPane';
+import { TasksPane, type TasksView } from './TasksPane';
 import { clearTaskOpenRequest, useTaskOpenRequest } from './kanbanActivity';
 import { ChatRail, railOrder } from './ChatRail';
 import { conversationTitle as conversationTitleFor, headKindLine } from './conversationKinds';
@@ -54,6 +54,7 @@ import { inProject, projectCounts as countByProject } from './projectMove';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { readChatScreenSnapshot, saveChatScreenSnapshot } from './chatScreenCache';
 import { probeLog } from '../../debug/lagProbe';
+import { useOptionalSetup } from '../../setup/SetupContext';
 
 // ADR 0024: `activeProjectId` is the project the rail shows (navigation). The open
 // conversation's own project comes from the conversation, never from the rail.
@@ -122,6 +123,10 @@ export const WorkbenchChatScreen: React.FC = () => {
   const [centerMode, setCenterMode] = useState<CenterMode>('conversation');
   /** The kanban task the center pane shows when centerMode is `task`. */
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  // Tasks shows the list or Hermes's board, whichever you used last in this window. The board
+  // opens on a task when a task page's Open in board sent you there.
+  const [tasksView, setTasksView] = useState<TasksView>('list');
+  const [boardTaskId, setBoardTaskId] = useState<string | null>(null);
   // Each open of All chats starts fresh; "All Hermes chats…" starts on the Hermes chip.
   // "All chats in X…" starts on that project (ADR 0024 §8).
   const [allChatsOpen, setAllChatsOpen] = useState<{
@@ -177,7 +182,9 @@ export const WorkbenchChatScreen: React.FC = () => {
   );
   const [connecting, setConnecting] = useState(false);
   const [rpcAvailable, setRpcAvailable] = useState(true);
-  const [projectError, setProjectError] = useState<string | null>(null);
+  // A project from the setup flow's Folders step that couldn't be created shows here.
+  const firstRunFolderError = useOptionalSetup()?.firstRunFolderError ?? null;
+  const [projectError, setProjectError] = useState<string | null>(firstRunFolderError);
   const [sourcesInspect, setSourcesInspect] =
     useState<HermesProjectSourcesInspect | null>(null);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
@@ -1602,6 +1609,17 @@ export const WorkbenchChatScreen: React.FC = () => {
     setCenterMode('task');
   }, []);
 
+  const openTasks = useCallback(() => {
+    setBoardTaskId(null);
+    setCenterMode('tasks');
+  }, []);
+
+  const openBoard = useCallback((taskId: string) => {
+    setBoardTaskId(taskId);
+    setTasksView('board');
+    setCenterMode('tasks');
+  }, []);
+
   // A task notification was clicked.
   const taskOpen = useTaskOpenRequest();
   useEffect(() => {
@@ -1666,7 +1684,7 @@ export const WorkbenchChatScreen: React.FC = () => {
         centerMode={centerMode}
         activeTaskId={activeTaskId}
         onOpenTask={openTask}
-        onOpenTasks={() => setCenterMode('tasks')}
+        onOpenTasks={openTasks}
         mentionsUnseen={mentionsUnseen}
         onOpenMentions={() => void openMentions()}
         onOpenAllChats={(filter) => {
@@ -1714,7 +1732,6 @@ export const WorkbenchChatScreen: React.FC = () => {
                 <span className="wb-all-icon" aria-hidden="true">@</span>
                 <span className="wb-thread-id-copy">
                   <strong>Mentions</strong>
-                  <span className="wb-thread-kind">Your @s in channels, and what came back</span>
                 </span>
               </div>
             </div>
@@ -1764,10 +1781,21 @@ export const WorkbenchChatScreen: React.FC = () => {
             taskId={activeTaskId}
             agents={agents}
             resolveOrigin={resolveTaskOrigin}
-            onOpenTasks={() => setCenterMode('tasks')}
+            onOpenTasks={openTasks}
+            onOpenBoard={openBoard}
           />
         ) : centerMode === 'tasks' ? (
-          <TasksPane agents={agents} project={railProject} onOpenTask={openTask} />
+          <TasksPane
+            agents={agents}
+            project={railProject}
+            onOpenTask={openTask}
+            view={tasksView}
+            onViewChange={(view) => {
+              setTasksView(view);
+              setBoardTaskId(null);
+            }}
+            boardTaskId={boardTaskId}
+          />
         ) : centerMode === 'project' ? (
           <ProjectPane
             project={railProject}
@@ -1906,63 +1934,66 @@ export const WorkbenchChatScreen: React.FC = () => {
         )}
       </main>
 
-      <RightInspector
-        centerMode={centerMode}
-        kind={activeKind}
-        activeChannel={activeChannel}
-        activeAgent={activeAgent}
-        agents={agents}
-        project={activeProject}
-        inspect={sourcesInspect}
-        connecting={connecting}
-        rpcAvailable={rpcAvailable}
-        threadId={activeThreadId}
-        onChangeFolder={() => void handleChangeFolder()}
-        onChooseFolder={() => void handleNewProject()}
-        onRevealHub={() => {
-          if (activeProject) {
-            void hermesChatIPC.revealInFinder({ projectId: activeProject.id });
+      {/* The board needs the inspector's width for its columns. */}
+      {centerMode === 'tasks' && tasksView === 'board' ? null : (
+        <RightInspector
+          centerMode={centerMode}
+          kind={activeKind}
+          activeChannel={activeChannel}
+          activeAgent={activeAgent}
+          agents={agents}
+          project={activeProject}
+          inspect={sourcesInspect}
+          connecting={connecting}
+          rpcAvailable={rpcAvailable}
+          threadId={activeThreadId}
+          onChangeFolder={() => void handleChangeFolder()}
+          onChooseFolder={() => void handleNewProject()}
+          onRevealHub={() => {
+            if (activeProject) {
+              void hermesChatIPC.revealInFinder({ projectId: activeProject.id });
+            }
+          }}
+          onRevealSource={(sourceId) => {
+            if (activeProject) {
+              void hermesChatIPC.revealSource({
+                projectId: activeProject.id,
+                sourceId,
+              });
+            }
+          }}
+          onRefreshIndex={() => void handleRefreshIndex()}
+          onAddFolder={() => {
+            setAddSourceError(null);
+            setAddSourceOpen(true);
+          }}
+          onRemoveSource={(sourceId) => void handleRemoveSource(sourceId)}
+          onProjectsUpdated={(next) => setProjects(next)}
+          onMakeChannel={() => {
+            setMakeChannelError(null);
+            setMakeChannelOpen(true);
+          }}
+          onAddToChannel={openAddToChannel}
+          onEditAgent={startEditAgent}
+          onAddMember={(channelId, slug) => void handleChangeMember('add', channelId, slug)}
+          onRemoveMember={(channelId, slug) => void handleChangeMember('remove', channelId, slug)}
+          projectRole={
+            activeThreadId
+              ? {
+                  label:
+                    activeKind === 'dm'
+                      ? `${activeAgent?.displayName ?? 'This agent'} works in`
+                      : isChannel
+                        ? 'This room lives in'
+                        : 'This chat lives in',
+                  onMove: () => openMove([activeThreadId]),
+                  moveLabel: activeKind === 'dm' ? 'Change…' : 'Move…',
+                  moveDisabledReason: activeRunning ? MOVE_RUNNING_REASON : null,
+                }
+              : { label: 'This chat will start in' }
           }
-        }}
-        onRevealSource={(sourceId) => {
-          if (activeProject) {
-            void hermesChatIPC.revealSource({
-              projectId: activeProject.id,
-              sourceId,
-            });
-          }
-        }}
-        onRefreshIndex={() => void handleRefreshIndex()}
-        onAddFolder={() => {
-          setAddSourceError(null);
-          setAddSourceOpen(true);
-        }}
-        onRemoveSource={(sourceId) => void handleRemoveSource(sourceId)}
-        onProjectsUpdated={(next) => setProjects(next)}
-        onMakeChannel={() => {
-          setMakeChannelError(null);
-          setMakeChannelOpen(true);
-        }}
-        onAddToChannel={openAddToChannel}
-        onEditAgent={startEditAgent}
-        onAddMember={(channelId, slug) => void handleChangeMember('add', channelId, slug)}
-        onRemoveMember={(channelId, slug) => void handleChangeMember('remove', channelId, slug)}
-        projectRole={
-          activeThreadId
-            ? {
-                label:
-                  activeKind === 'dm'
-                    ? `${activeAgent?.displayName ?? 'This agent'} works in`
-                    : isChannel
-                      ? 'This room lives in'
-                      : 'This chat lives in',
-                onMove: () => openMove([activeThreadId]),
-                moveLabel: activeKind === 'dm' ? 'Change…' : 'Move…',
-                moveDisabledReason: activeRunning ? MOVE_RUNNING_REASON : null,
-              }
-            : { label: 'This chat will start in' }
-        }
-      />
+        />
+      )}
 
       <AgentRosterSheet
         open={rosterOpen && !createOpen && !channelCreateOpen}

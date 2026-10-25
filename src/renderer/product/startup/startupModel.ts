@@ -17,6 +17,7 @@ export type StartupToolId =
   | 'memory'
   | 'research'
   | 'automations'
+  | 'database'
   | 'coding';
 
 export type StartupToolState = 'pending' | 'working' | 'done' | 'error';
@@ -70,6 +71,14 @@ export const STARTUP_TOOLS: readonly StartupTool[] = [
     title: 'Automations',
     benefit: 'Workflows that run on a schedule or when something happens, without you asking each time.',
     containers: ['boundary-n8n'],
+  },
+  {
+    id: 'database',
+    label: 'Database',
+    title: 'A shared database',
+    benefit:
+      'Lets your agents keep tables of their own and query them, so the records they track stay in one place.',
+    containers: ['boundary-postgres-db', 'boundary-sql-mcp-ro', 'boundary-sql-mcp-rw'],
   },
   {
     id: 'coding',

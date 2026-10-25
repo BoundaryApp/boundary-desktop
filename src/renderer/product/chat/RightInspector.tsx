@@ -21,6 +21,7 @@ import {
 } from './inspectorTabs';
 import { ProjectSourcesRail, type ProjectRole } from './ProjectSourcesRail';
 import { ConversationMark } from './ConversationMark';
+import { InfoTip } from '../../components/ui/info-tip';
 
 interface RightInspectorProps {
   centerMode: 'conversation' | 'all-chats' | 'mentions' | 'project' | 'task' | 'tasks';
@@ -229,11 +230,16 @@ function RoomPane({
         </span>
       </div>
       <div className="wb-src-hed">
-        <span>Members</span>
+        <span>
+          Members · read later
+          <InfoTip label="room members">
+            Members read the room’s posts later. @ someone to ask them to answer now.
+          </InfoTip>
+        </span>
       </div>
       <div className="wb-members">
         {channel.memberSlugs.length === 0 ? (
-          <p className="wb-empty">No members yet. Posts stay here; add someone to @ them.</p>
+          <p className="wb-empty">No members yet. Add one below to @ them.</p>
         ) : (
           channel.memberSlugs.map((slug) => {
             const member = agents.find((a) => a.slug === slug);
@@ -245,10 +251,10 @@ function RoomPane({
                   agent={{ slug, displayName: name }}
                 />
                 <span className="wb-member-copy">
-                  <span className="name">{name}</span>
-                  <span className="sub">
-                    {member?.builtIn ? 'Default agent · reads later' : 'Member · reads later'}
+                  <span className="name" title={name}>
+                    {name}
                   </span>
+                  {member?.builtIn ? <span className="sub">Default agent</span> : null}
                 </span>
                 {onRemoveMember ? (
                   <button
@@ -284,7 +290,12 @@ function RoomPane({
         </div>
       ) : null}
       {project ? (
-        <button type="button" className="wb-insp-bind" onClick={onOpenProject}>
+        <button
+          type="button"
+          className="wb-insp-bind"
+          title={`${project.name} · ${displayHostPath(project.hostPath)}`}
+          onClick={onOpenProject}
+        >
           <span
             className="wb-glyph"
             style={{ background: projectGlyphColor(project.id) }}

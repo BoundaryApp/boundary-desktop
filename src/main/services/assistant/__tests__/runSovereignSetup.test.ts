@@ -40,6 +40,7 @@ describe('runSovereignSetup helpers', () => {
       '--rag',
       '--automation',
       '--coding',
+      '--db',
       '--non-interactive',
       '--workspace',
       BOUNDARY_SETUP_WORKSPACE,

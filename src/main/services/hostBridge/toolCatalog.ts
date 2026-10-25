@@ -1,6 +1,9 @@
 /**
  * The host tools Boundary offers Hermes. Boundary defines this list; it is never taken from the
- * container, and it doesn't change while a session is connected (ADR 0027 §7).
+ * container, and it doesn't change while a session is connected (ADR 0027 §7). The one exception
+ * is `offer_setup`, listed only while no calendar is connected: the bridge has no stream to send
+ * `tools/list_changed` on, so Boundary changes the listing just before the `reload.mcp` that a
+ * calendar connect or removal already makes, and Hermes lists the tools again as it reconnects.
  */
 
 export interface HostToolDefinition {
@@ -25,6 +28,11 @@ export const READ_FILE_MAX_BYTES = 1024 * 1024;
 export const WRITE_FILE_MAX_CHARS = 5 * 1024 * 1024;
 /** How long a file chosen with pick_files stays readable. */
 export const PICKED_FILE_GRANT_MS = 24 * 60 * 60 * 1000;
+
+export const OFFER_SETUP_TOOL = 'offer_setup';
+/** What `offer_setup` can offer. Only calendars so far. */
+export const SETUP_KINDS = ['calendar'] as const;
+export type SetupKind = (typeof SETUP_KINDS)[number];
 
 const ASKS = 'The user approves it in Boundary; if they decline, do not retry.';
 
@@ -133,4 +141,29 @@ export const HOST_TOOLS: readonly HostToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    // Decision 7 of docs/calendar-ux-study/spec.md: the model decides when someone is asking about
+    // their own schedule, so a question about calendars in general doesn't get the card.
+    name: OFFER_SETUP_TOOL,
+    title: 'Offer to connect a calendar',
+    description:
+      "Show the user a Connect a calendar card in this chat. No calendar is connected, so you can't " +
+      'see their events. Call it when the user asks about their own schedule, events, meetings or ' +
+      'availability, or asks you to add or change an event, then tell them in one sentence that you ' +
+      "can't see a calendar yet. Do not call it for general questions about calendars, dates or " +
+      'time zones. The card asks nothing of the user until they choose to connect.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: [...SETUP_KINDS], description: 'What to set up. Only "calendar".' },
+      },
+      required: ['kind'],
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** The tools `tools/list` returns now. */
+export function listedHostTools(state: { offerCalendarSetup: boolean }): HostToolDefinition[] {
+  return HOST_TOOLS.filter((tool) => tool.name !== OFFER_SETUP_TOOL || state.offerCalendarSetup);
+}

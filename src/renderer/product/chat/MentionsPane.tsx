@@ -109,13 +109,6 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
   return (
     <div className="wb-recent-list wb-mentions-pane">
       <div className="wb-all-tools">
-        {lockedAgent ? (
-          <p className="wb-mentions-intro">
-            Everything you’ve @’d {lockedAgent.displayName} in channels, newest first, with the
-            reply. Open it in the room, or carry it into{' '}
-            {lockedAgent.builtIn ? `a ${lockedAgent.displayName} chat` : 'your DM'}.
-          </p>
-        ) : null}
         <div className="wb-all-filters" role="toolbar" aria-label="Filter mentions">
           {!lockedAgent && agentChips.length > 0 ? (
             <div className="wb-all-chips" role="radiogroup" aria-label="Agent">
@@ -196,7 +189,7 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
           <p className="wb-all-empty">
             {lockedAgent
               ? `You haven’t @’d ${lockedAgent.displayName} in a channel yet.`
-              : 'No mentions yet. @ an agent in a channel and the exchange shows up here.'}
+              : '@ an agent in a channel and the exchange shows up here.'}
           </p>
         ) : null}
         {scoped.length > 0 && shown.length === 0 ? (

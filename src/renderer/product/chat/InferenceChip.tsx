@@ -139,6 +139,12 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
         unreachable: resolved.slot === 'local' && resolved.health === 'unreachable',
       })
     : 'from app default';
+  // The app default is the expected state, so the chip names only a chat or project
+  // override, a restart, or a local server that stopped answering.
+  const note =
+    resolved && (applying || resolved.provenance !== 'app-default' || provenance === 'unreachable')
+      ? provenance
+      : null;
 
   const writable = Boolean(sessionId) && !disabled && !applying;
 
@@ -159,7 +165,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
         }}
       >
         <b>{title}</b>
-        <span>{provenance}</span>
+        {note ? <span>{note}</span> : null}
       </button>
       {open ? (
         <div className="wb-inf-menu" role="listbox" aria-label="This chat">

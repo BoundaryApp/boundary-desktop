@@ -23,7 +23,7 @@ export async function startOnboardingChatStream(
   signal: AbortSignal,
   callbacks: OnboardingChatStreamCallbacks
 ): Promise<void> {
-  const connection = getLlmConnection();
+  const connection = await getLlmConnection();
   if (!connection) {
     callbacks.onError('No LLM connection is configured.');
     return;
@@ -109,7 +109,7 @@ export async function sendOnboardingTestMessage(
   message: string,
   slot?: InferenceSlotId
 ): Promise<{ success: boolean; content?: string; error?: string }> {
-  const connection = slot ? getSlotLlmConnection(slot) : getLlmConnection();
+  const connection = slot ? await getSlotLlmConnection(slot) : await getLlmConnection();
   if (!connection) {
     return { success: false, error: 'No LLM connection is configured.' };
   }

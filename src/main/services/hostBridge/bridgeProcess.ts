@@ -4,14 +4,16 @@
  * to main, which holds policy, approvals and the audit log, and answers with the result.
  */
 import { startBridgeServers, type BridgeServers } from './bridgeServer';
-import type { BridgeToMain, MainToBridge } from './bridgeMessages';
+import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
 import { BrowserRelay } from './browserRelay';
 import type { ToolCallResult } from './mcpProtocol';
+import { listedHostTools } from './toolCatalog';
 
 const port = process.parentPort;
 let servers: BridgeServers | null = null;
 let relay: BrowserRelay | null = null;
 let nextCallId = 1;
+let listing: HostToolListing = { offerCalendarSetup: false };
 const clientsWithTools = new Set<string>();
 const pendingCalls = new Map<number, (result: ToolCallResult) => void>();
 
@@ -49,6 +51,7 @@ port.on('message', (event: { data: MainToBridge }) => {
   switch (message.type) {
     case 'start':
       if (servers) return;
+      listing = message.listing;
       relay = new BrowserRelay(message.browser, log);
       startBridgeServers({
         mcpToken: message.mcpToken,
@@ -56,6 +59,7 @@ port.on('message', (event: { data: MainToBridge }) => {
         mcpPort: message.mcpPort,
         browserPort: message.browserPort,
         callTool,
+        listTools: () => listedHostTools(listing),
         browserRelay: relay,
         log,
         // A Hermes process registers the tools once it has listed them, so that's when they're
@@ -83,6 +87,9 @@ port.on('message', (event: { data: MainToBridge }) => {
     }
     case 'browser-config':
       relay?.configure(message.browser);
+      return;
+    case 'tool-listing':
+      listing = message.listing;
       return;
     case 'browser-open': {
       const { id } = message;
