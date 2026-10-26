@@ -98,11 +98,11 @@ describe('NewFolderForm', () => {
       managed: true,
     });
     renderForm();
-    await waitFor(() =>
-      expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
-    );
+    // The checkbox is disabled while the defaults load too, so wait for the text that only
+    // appears once they have.
+    expect(await screen.findByText(/Git isn’t installed on this Mac/)).toBeTruthy();
+    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByText(/Git isn’t installed on this Mac/)).toBeTruthy();
   });
 
   it('asks to wait or stop when a coding task is running', async () => {
