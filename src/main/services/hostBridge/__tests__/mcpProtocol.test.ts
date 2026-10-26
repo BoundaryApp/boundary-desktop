@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleMcpMessage, isReply, parseJsonRpc, type JsonRpcRequest } from '../mcpProtocol';
+import { listedHostTools } from '../toolCatalog';
 
 const msg = (method: string, params?: Record<string, unknown>, id: number | null = 1): JsonRpcRequest => ({
   jsonrpc: '2.0',
@@ -23,6 +24,24 @@ describe('handleMcpMessage', () => {
     const badArgs = await handleMcpMessage(msg('tools/call', { name: 'desktop_notification', arguments: ['x'] }), callTool);
     expect((badArgs.body as { error: { code: number } }).error.code).toBe(-32602);
     expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it('lists offer_setup only while no calendar is connected', async () => {
+    const names = async (offerCalendarSetup: boolean) => {
+      const reply = await handleMcpMessage(msg('tools/list'), vi.fn(), () => listedHostTools({ offerCalendarSetup }));
+      return (reply.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
+    };
+    expect(await names(true)).toContain('offer_setup');
+    expect(await names(false)).not.toContain('offer_setup');
+    expect(await names(false)).toContain('desktop_notification');
+  });
+
+  it('still passes an offer_setup call to main after the listing drops it', async () => {
+    const callTool = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
+    await handleMcpMessage(msg('tools/call', { name: 'offer_setup', arguments: { kind: 'calendar' } }), callTool, () =>
+      listedHostTools({ offerCalendarSetup: false })
+    );
+    expect(callTool).toHaveBeenCalledWith('offer_setup', { kind: 'calendar' });
   });
 
   it('answers unknown methods with method-not-found', async () => {

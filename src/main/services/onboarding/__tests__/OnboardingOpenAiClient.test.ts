@@ -8,18 +8,18 @@ import {
 import { OAUTH_LLM_CAPABILITIES } from '../../../../shared/llmConnectionDefaults';
 
 describe('sendOnboardingTestMessage', () => {
-  afterEach(() => {
-    clearOpenAiConfig();
+  afterEach(async () => {
+    await clearOpenAiConfig();
     vi.unstubAllGlobals();
   });
 
   it('hits the requested slot endpoint instead of the app-default connection', async () => {
-    saveLocalLlmEndpoint({
+    await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
       modelId: 'qwen3:14b',
     });
-    saveLlmConnection({
+    await saveLlmConnection({
       endpointUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'sk-or-test',
       modelId: 'openai/gpt-4o',

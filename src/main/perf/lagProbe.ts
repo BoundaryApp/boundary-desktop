@@ -5,9 +5,9 @@
  * has to patch ipcMain before any handler is registered.
  *
  * Writes ~/Library/Logs/Boundary/lag-probe/lag-probe.jsonl (one JSON object per line) and,
- * around a severe stall, traces/trace-<time>.json (open in DevTools › Performance ›
- * Load profile, or ui.perfetto.dev) and traces/main-<time>.cpuprofile (main-process JS;
- * open in DevTools › Performance as well).
+ * around a severe stall, traces/trace-<time>.perfetto-trace (Perfetto protobuf; open in
+ * ui.perfetto.dev) and traces/main-<time>.cpuprofile (main-process JS; open in DevTools ›
+ * Performance).
  */
 import { app, contentTracing, ipcMain, session, type BrowserWindow, type WebContents } from 'electron';
 import fs from 'node:fs';
@@ -370,7 +370,7 @@ async function dump(): Promise<void> {
     traceRunning = false;
     try {
       saved.push(
-        await contentTracing.stopRecording(path.join(traceDir!, `trace-${stamp}.json`))
+        await contentTracing.stopRecording(path.join(traceDir!, `trace-${stamp}.perfetto-trace`))
       );
     } catch (err) {
       lagLog({ proc: 'main', kind: 'probe-error', where: 'trace-stop', error: String(err) });
@@ -388,7 +388,7 @@ async function dump(): Promise<void> {
 
 async function pruneRecordings(): Promise<void> {
   try {
-    // trace-<stamp>.json, main-<stamp>.cpuprofile, main-<stamp>-before.cpuprofile
+    // trace-<stamp>.perfetto-trace, main-<stamp>.cpuprofile, main-<stamp>-before.cpuprofile
     const stampOf = (name: string) =>
       name.replace(/^(trace|main)-/, '').split('.')[0].replace(/-before$/, '');
     const names = (await fs.promises.readdir(traceDir!)).filter(

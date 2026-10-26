@@ -192,6 +192,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
               aria-selected={on}
               className={`wb-proj-menu-item${on ? ' is-on' : ''}`}
               onClick={() => pickProject(project.id)}
+              title={`${project.name} · ${displayHostPath(project.hostPath)}`}
             >
               <span className="wb-proj-menu-check" aria-hidden="true">
                 {on ? '✓' : ''}
@@ -265,7 +266,11 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
         aria-expanded={open}
         aria-label={triggerLabel ?? 'Current project'}
         disabled={connecting}
-        title={triggerLabel ?? 'Current project'}
+        title={
+          activeProject
+            ? `${activeProject.name} · ${displayHostPath(activeProject.hostPath)}`
+            : 'No project'
+        }
         onClick={toggle}
       >
         {activeProject ? (

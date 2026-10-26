@@ -1,6 +1,11 @@
 import type { BrowserRelayConfig } from './browserRelay';
 import type { ToolCallResult } from './mcpProtocol';
 
+/** Which conditional tools `tools/list` includes (`listedHostTools`). */
+export interface HostToolListing {
+  offerCalendarSetup: boolean;
+}
+
 /**
  * Messages between main and the bridge utilityProcess. Tokens travel only in `start`, over the
  * parent port, never in argv or the environment.
@@ -14,9 +19,11 @@ export type MainToBridge =
       mcpPort?: number;
       browserPort?: number;
       browser: BrowserRelayConfig;
+      listing: HostToolListing;
     }
   | { type: 'tool-result'; id: number; result: ToolCallResult }
   | { type: 'browser-config'; browser: BrowserRelayConfig }
+  | { type: 'tool-listing'; listing: HostToolListing }
   | { type: 'browser-open'; id: number }
   | { type: 'browser-status'; id: number }
   | { type: 'stop' };

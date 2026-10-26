@@ -16,14 +16,14 @@ import {
 } from './hermesAgentStore';
 import { resolveSessionInference } from './resolveSessionInference';
 
-export function getSessionInferenceSnapshot(
+export async function getSessionInferenceSnapshot(
   sessionId: string
-): HermesSessionInferenceResult {
+): Promise<HermesSessionInferenceResult> {
   if (!sessionId.trim()) {
     return {
       success: false,
       override: null,
-      resolved: resolveSessionInference(null),
+      resolved: await resolveSessionInference(null),
       marks: [],
       error: 'Missing session.',
     };
@@ -31,14 +31,14 @@ export function getSessionInferenceSnapshot(
   return {
     success: true,
     override: getSessionInference(sessionId),
-    resolved: resolveSessionInference(sessionId),
+    resolved: await resolveSessionInference(sessionId),
     marks: listSessionInferenceMarks(sessionId),
   };
 }
 
-export function setSessionInferenceOverride(
+export async function setSessionInferenceOverride(
   payload: HermesSessionInferenceSetPayload
-): HermesSessionInferenceResult {
+): Promise<HermesSessionInferenceResult> {
   const sessionId = payload.sessionId?.trim();
   if (!sessionId) {
     return {
@@ -49,12 +49,12 @@ export function setSessionInferenceOverride(
       error: 'Missing session.',
     };
   }
-  const connection = getSlotLlmConnection(payload.provider);
+  const connection = await getSlotLlmConnection(payload.provider);
   if (!connection) {
     return {
       success: false,
       override: getSessionInference(sessionId),
-      resolved: resolveSessionInference(sessionId),
+      resolved: await resolveSessionInference(sessionId),
       marks: listSessionInferenceMarks(sessionId),
       error: 'That provider is not connected.',
     };
@@ -72,15 +72,15 @@ export function setSessionInferenceOverride(
   return getSessionInferenceSnapshot(sessionId);
 }
 
-export function clearSessionInferenceOverride(
+export async function clearSessionInferenceOverride(
   sessionId: string
-): HermesSessionInferenceResult {
+): Promise<HermesSessionInferenceResult> {
   const id = sessionId.trim();
   if (!id) {
     return {
       success: false,
       override: null,
-      resolved: resolveSessionInference(null),
+      resolved: await resolveSessionInference(null),
       marks: [],
       error: 'Missing session.',
     };
@@ -96,7 +96,7 @@ export async function ensureResolvedInferenceReady(
   | { ok: true; resolved: ResolvedSessionInference }
   | { ok: false; error: string; errorCode?: HermesChatStartErrorCode }
 > {
-  const resolved = resolveSessionInference(sessionId);
+  const resolved = await resolveSessionInference(sessionId);
   if (!resolved?.configured) {
     return { ok: false, error: 'No configured LLM connection.' };
   }
@@ -112,7 +112,7 @@ export async function ensureResolvedInferenceReady(
   }
   if (resolved.needsRestart) {
     onRestarting?.(resolved);
-    const llm = getSlotLlmConnection(resolved.slot);
+    const llm = await getSlotLlmConnection(resolved.slot);
     if (!llm) {
       return {
         ok: false,

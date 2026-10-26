@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>First-run study</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;560;650&display=swap" />
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--surface-rail); color: var(--text); font-family: var(--font-ui); font-size: var(--size-ui); line-height: 1.5; }
+    .page { max-width: 1000px; margin: 0 auto; padding: 28px 16px 80px; }
+    .kicker { color: var(--brand); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    h1 { margin: 0 0 10px; font-size: 28px; font-weight: 560; letter-spacing: -0.03em; }
+    h2 { margin: 36px 0 10px; font-size: 16px; font-weight: 620; }
+    .lede, .page > p { color: var(--text-muted); max-width: 70ch; }
+    .rec { border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); background: color-mix(in srgb, var(--brand) 8%, var(--surface-1)); border-radius: 12px; padding: 14px 18px; color: var(--text-muted); }
+    .rec b { color: var(--text); }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 10px; }
+    .bar button { font: inherit; padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface-1); color: var(--text); cursor: pointer; }
+    .bar button[aria-pressed='true'] { border-color: var(--brand); color: var(--brand); }
+
+    /* Window */
+    .win { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-0); height: 560px; display: flex; flex-direction: column; }
+    .head { height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; padding: 0 16px; }
+    .lights { position: absolute; left: 16px; top: 19px; display: flex; gap: 8px; }
+    .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .lights i + i { background: #febc2e; } .lights i + i + i { background: #28c840; }
+    .steps { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+    .steps span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .steps i { font-style: normal; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; border: 1px solid var(--line); }
+    .steps .done i { border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-dim); color: var(--ok); }
+    .steps .on { color: var(--text); font-weight: 560; } .steps .on i { border-color: var(--brand); color: var(--brand); }
+    .steps hr { width: 20px; border: 0; border-top: 1px solid var(--line); margin: 0; }
+    .status { position: absolute; right: 16px; font-size: var(--size-xs); color: var(--text-muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
+    @media (max-width: 860px) { .status { display: none; } }
+    main { flex: 1; min-height: 0; overflow: auto; }
+    .col { max-width: 560px; margin: 0 auto; padding: 40px 24px; }
+    .col h3 { margin: 0; font-size: var(--size-heading); font-weight: 560; letter-spacing: -0.02em; }
+    .col .desc { margin: 8px 0 24px; color: var(--text-muted); }
+    .pick { display: flex; gap: 8px; align-items: center; }
+    .btn { font: inherit; border-radius: var(--radius-md); padding: 7px 12px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--text); white-space: nowrap; }
+    .btn.solid { background: var(--text); color: var(--solid-fg); border-color: transparent; font-weight: 560; }
+    .btn.solid:disabled { opacity: 0.4; cursor: default; }
+    .btn.quiet { border-color: transparent; color: var(--text-muted); }
+    .rows { display: grid; gap: 6px; margin: 16px 0; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+    .glyph { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 650; color: #fff; flex-shrink: 0; }
+    .row .who { flex: 1; min-width: 0; }
+    .row b { display: block; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .path { display: block; font-family: var(--font-mono); font-size: var(--size-2xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+    .row.bad .path { color: var(--danger); font-family: var(--font-ui); }
+    .x { border: 0; background: none; color: var(--text-faint); cursor: pointer; font-size: 16px; }
+    .note { font-size: var(--size-xs); color: var(--text-faint); margin: 0; }
+    footer { flex-shrink: 0; }
+    footer .col { padding: 12px 24px; display: flex; gap: 8px; align-items: center; }
+    footer .sp { flex: 1; }
+
+    /* Get started */
+    .chatwin { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-0); height: 420px; display: grid; place-items: center; }
+    .gs { width: min(460px, 100% - 32px); }
+    .gs h3 { margin: 0 0 4px; font-size: var(--size-title); font-weight: 560; }
+    .gs .sub { margin: 0 0 14px; color: var(--text-faint); font-size: var(--size-xs); display: flex; justify-content: space-between; }
+    .gs .sub button { font: inherit; background: none; border: 0; color: var(--text-faint); cursor: pointer; padding: 0; }
+    .gs ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+    .gs li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--line); background: var(--surface-1); white-space: nowrap; }
+    .gs li:first-child { border-top: 0; }
+    .gs li .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .gs li .chk { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); flex-shrink: 0; display: grid; place-items: center; font-size: 10px; }
+    .gs li.done .chk { background: var(--ok-dim); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+    .gs li.done .t { color: var(--text-faint); text-decoration: line-through; }
+    .gs li .go { color: var(--text-faint); font-size: var(--size-xs); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--text-faint); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 560; }
+    td { color: var(--text-muted); }
+    td:first-child { color: var(--text); }
+    .table-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">UX study · first run</div>
+  <h1>Ask for a folder inside setup, and let people skip it</h1>
+  <p class="lede">A new user with no project lands in chat with an empty rail. Chats work without a folder, but most of what the assistant does well (reading files, coding) needs one. This study adds a <b>Folders</b> step to the setup flow and moves the rest of the optional setup to a list in the empty chat.</p>
+
+  <div class="rec">
+    <b>Recommendation.</b> Add <b>Folders</b> as a skippable fourth step between Model and Assistant, shown only on first run. It runs while the stack downloads in the background, so it costs the user no extra time. Other optional setup (calendar, logins, computer access) goes in a <b>Get started</b> list under the empty chat rather than into more setup steps. Setup stays at five steps or fewer. See <a href="spec.md">spec.md</a> for the decisions.
+  </div>
+
+  <h2>The Folders step</h2>
+  <div class="bar" role="group" aria-label="State">
+    <button data-state="empty" aria-pressed="true">Nothing picked</button>
+    <button data-state="picked" aria-pressed="false">Folders picked</button>
+    <button data-state="refused" aria-pressed="false">Folder refused</button>
+  </div>
+  <div class="win">
+    <div class="head">
+      <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="steps">
+        <span class="done"><i>✓</i>Machine</span><hr />
+        <span class="done"><i>✓</i>Model</span><hr />
+        <span class="on"><i>3</i>Folders</span><hr />
+        <span><i>4</i>Assistant</span>
+      </div>
+      <div class="status"><span class="dot"></span>Downloading your tools · 1.2 GB</div>
+    </div>
+    <main>
+      <div class="col">
+        <h3>Pick folders to work in</h3>
+        <p class="desc">Your assistant reads files where they are. You can add more later.</p>
+        <div class="pick">
+          <button class="btn">Choose folder…</button>
+          <button class="btn quiet">Create empty project</button>
+        </div>
+        <div class="rows" id="rows"></div>
+        <p class="note">Folders start read-only. Boundary asks before the coding agent edits anything.</p>
+      </div>
+    </main>
+    <footer>
+      <div class="col">
+        <button class="btn quiet">Back</button>
+        <span class="sp"></span>
+        <button class="btn">Skip for now</button>
+        <button class="btn solid" id="continue">Continue</button>
+      </div>
+    </footer>
+  </div>
+  <p>The stepper, footer and status line are the existing <code>SetupShell</code> parts (ADR 0019, ADR 0029 §14–15). The step adds one list and one primary action. <b>Skip for now</b> sits beside Continue, not in the footer's Back slot, because it moves forward.</p>
+
+  <h2>Get started, in the empty chat</h2>
+  <div class="chatwin">
+    <div class="gs">
+      <h3>Get more from your assistant</h3>
+      <p class="sub"><span>2 of 5 done</span><button>Hide</button></p>
+      <ul>
+        <li class="done"><span class="chk">✓</span><span class="t">Choose a model</span></li>
+        <li class="done"><span class="chk">✓</span><span class="t">Add a folder</span></li>
+        <li><span class="chk"></span><span class="t">Connect a calendar</span><span class="go">Settings ›</span></li>
+        <li><span class="chk"></span><span class="t">Save a login your agents can use</span><span class="go">Settings ›</span></li>
+        <li><span class="chk"></span><span class="t">Let the coding agent edit a folder</span><span class="go">Project ›</span></li>
+      </ul>
+    </div>
+  </div>
+  <p>Rows tick from real state, open the screen that does the job, and the list retires once everything is done or the user hides it. The list carries setup that is useful but not needed for a first chat, so setup itself never grows into a long wizard.</p>
+
+  <h2>Where each question belongs</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Question</th><th>Where</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Can this Mac run it?</td><td>Setup (required)</td><td>Nothing works without it.</td></tr>
+      <tr><td>Which model?</td><td>Setup (required)</td><td>No replies without it.</td></tr>
+      <tr><td>Which folders?</td><td>Setup (optional, first run)</td><td>Changes the first chat; fills the download wait.</td></tr>
+      <tr><td>Calendar, logins, computer access</td><td>Get started list</td><td>Each needs a sign-in or a permission decision better made when the user wants the feature.</td></tr>
+      <tr><td>Coding access for a folder</td><td>In chat, when a task needs it</td><td>Consequences belong at the moment of use (ADR 0028).</td></tr>
+      <tr><td>Agents, channels</td><td>Nowhere up front</td><td>The default assistant is enough for a first chat.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+<script>
+  const STATES = {
+    empty: [],
+    picked: [
+      { n: 'garden-planner', p: '~/Code/garden-planner', c: '#6b63e6' },
+      { n: 'notes', p: '~/Documents/notes', c: '#2f9e6e' },
+    ],
+    refused: [
+      { n: 'notes', p: '~/Documents/notes', c: '#2f9e6e' },
+      { n: 'Home', p: 'Your home folder is too broad. Pick a folder inside it.', bad: true },
+    ],
+  };
+  const rows = document.getElementById('rows');
+  const cont = document.getElementById('continue');
+  function show(state) {
+    document.querySelectorAll('[data-state]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.state === state)));
+    rows.innerHTML = STATES[state].map((r) => `
+      <div class="row${r.bad ? ' bad' : ''}">
+        <span class="glyph" style="background:${r.c || 'var(--line)'}">${r.n[0].toUpperCase()}</span>
+        <span class="who"><b>${r.n}</b><span class="path">${r.p}</span></span>
+        <button class="x" aria-label="Remove">×</button>
+      </div>`).join('');
+    cont.disabled = !STATES[state].some((r) => !r.bad);
+  }
+  document.querySelectorAll('[data-state]').forEach((b) => b.addEventListener('click', () => show(b.dataset.state)));
+  show('empty');
+</script>
+</body>
+</html>

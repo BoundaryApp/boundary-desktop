@@ -12,6 +12,7 @@ import {
   useCodingFolders,
 } from './chat/codingFoldersStore';
 import { folderKey } from './chat/codingFolderView';
+import { InfoTip } from '../components/ui/info-tip';
 
 /**
  * Settings › Coding agent (ADR 0028 §2, mock flow 4): every folder the coding agent can reach,
@@ -204,8 +205,11 @@ export const CodingFoldersPanel: React.FC = () => {
         Folders the coding agent can reach
       </h2>
       <p className="wb-inference-lead">
-        You add folders from a project’s Folders list. They all go to one coding agent, so a folder
-        added for one project is also reachable from chats in your other projects.
+        Chats in every project can reach these folders.
+        <InfoTip label="coding folders">
+          You add folders from a project’s Folders list. They all go to one coding agent, so a folder
+          added for one project is also reachable from chats in your other projects.
+        </InfoTip>
       </p>
 
       {notice ? (
@@ -234,11 +238,7 @@ export const CodingFoldersPanel: React.FC = () => {
 
       {grants.length === 0 ? (
         <div className="wb-coding-empty">
-          <p>No folders yet.</p>
-          <p className="wb-settings-hint">
-            In a project’s Folders list, choose Add… and Code in it, or Allow coding… on the
-            project’s own folder.
-          </p>
+          <p>No folders yet. Add one from a project’s Folders list.</p>
         </div>
       ) : (
         <ul className="wb-coding-list" aria-label="Folders the coding agent can reach">
@@ -259,7 +259,12 @@ export const CodingFoldersPanel: React.FC = () => {
                         {projectGlyph(project.name)}
                       </span>
                     ) : null}
-                    {project?.name ?? 'No project'} · {originLabel(grant)}
+                    <span
+                      className="wb-coding-from-label"
+                      title={`${project?.name ?? 'No project'} · ${originLabel(grant)}`}
+                    >
+                      {project?.name ?? 'No project'} · {originLabel(grant)}
+                    </span>
                   </span>
                 </div>
                 <span className="wb-coding-status">

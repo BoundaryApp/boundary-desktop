@@ -1,6 +1,8 @@
+import { isUpgradedSetup, optionalStepOutcome } from '../types';
 import type { SetupFlowSnapshot, SetupStepDefinition } from '../types';
 import { CapabilityStep } from './CapabilityStep';
 import { LlmOnboardingStep } from './LlmOnboardingStep';
+import { FoldersStep } from './FoldersStep';
 import { AssistantStackStep } from './AssistantStackStep';
 
 function isCapabilityComplete(ctx: SetupFlowSnapshot): boolean {
@@ -12,11 +14,24 @@ function isLlmOnboardingComplete(ctx: SetupFlowSnapshot): boolean {
   return Boolean(ctx.onboardingStatus?.configured);
 }
 
+function isFoldersComplete(ctx: SetupFlowSnapshot): boolean {
+  // Without the main store's record, don't hold setup on an optional step.
+  return !ctx.setupProgress || optionalStepOutcome(ctx, 'folders') !== null;
+}
+
+/** Upgraders see the Folders step only if they had no projects (first-run spec, decision 1). */
+function shouldSkipFolders(ctx: SetupFlowSnapshot): boolean {
+  return isUpgradedSetup(ctx) && Boolean(ctx.setupProgress?.hadProjectsBeforeOptionalSteps);
+}
+
 function isAssistantStackComplete(ctx: SetupFlowSnapshot): boolean {
   return Boolean(ctx.assistantStackStatus?.setupComplete);
 }
 
-/** Ordered startup gates. Reorder / insert / remove by editing this list. */
+/**
+ * Ordered startup gates. Reorder / insert / remove by editing this list. At most five steps,
+ * two of them optional; other optional setup belongs in the Get started list.
+ */
 export const SETUP_STEPS: SetupStepDefinition[] = [
   {
     id: 'capability',
@@ -35,6 +50,16 @@ export const SETUP_STEPS: SetupStepDefinition[] = [
       'Pick where replies come from. You can add or switch models later in Settings.',
     isComplete: isLlmOnboardingComplete,
     Component: LlmOnboardingStep,
+  },
+  {
+    id: 'folders',
+    label: 'Folders',
+    title: 'Pick folders to work in',
+    description: 'Your assistant reads files where they are. You can add more later.',
+    optional: true,
+    isComplete: isFoldersComplete,
+    shouldSkip: shouldSkipFolders,
+    Component: FoldersStep,
   },
   {
     id: 'assistant-stack',

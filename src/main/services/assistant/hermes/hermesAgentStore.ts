@@ -91,6 +91,12 @@ interface HermesAgentsStoreShape {
    * run still resolves to its session. Oldest entries drop past SESSION_ALIAS_LIMIT.
    */
   sessionAliases?: Record<string, string>;
+  /**
+   * Per room session, the hash of the SOUL.md each agent last had sent there as turn context.
+   * Hermes keeps turn context in the session's history, so it is sent again only when the
+   * file changes. Not moved with the room: a new session hasn't seen it.
+   */
+  roomSoulsSent?: Record<string, Record<string, string>>;
 }
 
 export interface OrchestratorRecord {
@@ -676,6 +682,16 @@ export function setChannelPostAssistantCount(
   store().set('channelPosts', all);
 }
 
+export function getRoomSoulSent(roomKey: string, agentSlug: string): string | null {
+  return store().get('roomSoulsSent')?.[roomKey]?.[agentSlug] ?? null;
+}
+
+export function setRoomSoulSent(roomKey: string, agentSlug: string, hash: string): void {
+  const all = { ...(store().get('roomSoulsSent') ?? {}) };
+  all[roomKey] = { ...(all[roomKey] ?? {}), [agentSlug]: hash };
+  store().set('roomSoulsSent', all);
+}
+
 /** Test helper — wipe store state. */
 export function resetHermesAgentsStoreForTests(
   agents: AgentProfile[] = [BUILTIN_ASSISTANT],
@@ -695,4 +711,5 @@ export function resetHermesAgentsStoreForTests(
   store().set('noReplies', {});
   store().set('mentionsSeenAt', null);
   store().delete('webuiRefiledAt');
+  store().delete('roomSoulsSent');
 }

@@ -23,6 +23,7 @@ function deps(overrides: Partial<HostToolDeps> & { outcome?: ApprovalOutcome; gr
     readFile: vi.fn(async () => Buffer.from('a,b\n1,2\n')),
     writeFile: vi.fn(async () => undefined),
     now: () => NOW,
+    calendarConnected: vi.fn(() => false),
     audit: vi.fn(),
     ...rest,
   };
@@ -192,4 +193,30 @@ it('refuses unknown tools', async () => {
   const result = await executeHostTool('run_shell', { cmd: 'ls' }, d);
   expect(result.isError).toBe(true);
   expect(d.requestApproval).not.toHaveBeenCalled();
+});
+
+describe('offer_setup', () => {
+  it('asks nothing and tells the model the card is showing', async () => {
+    const d = deps();
+    const result = await executeHostTool('offer_setup', { kind: 'calendar' }, d);
+    expect(result.isError).toBeUndefined();
+    expect(textOf(result)).toContain('Connect a calendar card');
+    expect(d.requestApproval).not.toHaveBeenCalled();
+    expect(d.audit).toHaveBeenCalledWith({ tool: 'offer_setup', decision: 'allowed', args: { kind: 'calendar' }, outcome: 'offered' });
+  });
+
+  it('refuses once a calendar is connected and points to the access settings', async () => {
+    const d = deps({ calendarConnected: vi.fn(() => true) });
+    const result = await executeHostTool('offer_setup', { kind: 'calendar' }, d);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('Settings → Calendars');
+    expect(d.audit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'invalid', outcome: 'already connected' }));
+  });
+
+  it('refuses other kinds and extra arguments', async () => {
+    for (const args of [{ kind: 'email' }, {}, { kind: 'calendar', url: 'x' }]) {
+      const result = await executeHostTool('offer_setup', args, deps());
+      expect(result.isError).toBe(true);
+    }
+  });
 });

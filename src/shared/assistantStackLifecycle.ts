@@ -65,6 +65,9 @@ export const COMPOSE_SERVICE_TO_CONTAINER: Record<string, BoundaryAssistantConta
   'opencode-mcp': 'boundary-opencode-mcp',
   'llm-proxy': 'boundary-llm-proxy',
   'hermes-worker': 'boundary-hermes-worker',
+  'postgres-db': 'boundary-postgres-db',
+  'sql-mcp-ro': 'boundary-sql-mcp-ro',
+  'sql-mcp-rw': 'boundary-sql-mcp-rw',
 };
 
 const CONTAINER_TITLES: Record<BoundaryAssistantContainerName, string> = {
@@ -79,6 +82,9 @@ const CONTAINER_TITLES: Record<BoundaryAssistantContainerName, string> = {
   'boundary-opencode-mcp': 'OpenCode MCP',
   'boundary-llm-proxy': 'Model proxy',
   'boundary-hermes-worker': 'Tool worker',
+  'boundary-postgres-db': 'Shared database',
+  'boundary-sql-mcp-ro': 'SQL tools (read-only)',
+  'boundary-sql-mcp-rw': 'SQL tools (read-write)',
 };
 
 for (const service of ASSISTANT_UI_SERVICES) {
@@ -190,6 +196,10 @@ const IMAGE_HINTS: Array<[string, BoundaryAssistantContainerName]> = [
   ['assistant-hermes-worker', 'boundary-hermes-worker'],
   ['hermes-worker', 'boundary-hermes-worker'],
   ['llm-proxy', 'boundary-llm-proxy'],
+  // n8n's postgres is postgres:16, so match the shared database's major version only.
+  ['postgres:18', 'boundary-postgres-db'],
+  // Both SQL sidecars run one image; pull progress lands on the read-only one.
+  ['postgres-mcp', 'boundary-sql-mcp-ro'],
   ['assistant-opencode', 'boundary-opencode'],
   ['opencode', 'boundary-opencode'],
 ];
@@ -207,6 +217,9 @@ export const CONTAINER_IMAGE_HINTS: Record<BoundaryAssistantContainerName, strin
   'boundary-opencode-mcp': ['boundary-assistant-opencode-mcp', 'opencode-mcp'],
   'boundary-llm-proxy': ['boundary-assistant-llm-proxy', 'llm-proxy'],
   'boundary-hermes-worker': ['boundary-assistant-hermes-worker', 'hermes-worker'],
+  'boundary-postgres-db': ['postgres:18'],
+  'boundary-sql-mcp-ro': ['crystaldba/postgres-mcp'],
+  'boundary-sql-mcp-rw': ['crystaldba/postgres-mcp'],
 };
 
 /** Local-image checkpoint — not create/start progress. */

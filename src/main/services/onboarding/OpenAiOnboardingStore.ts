@@ -1,4 +1,3 @@
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import {
   INFRASTRUCTURE_LLM_CAPABILITIES,
@@ -22,6 +21,7 @@ import type {
   SetAppDefaultResult,
   UpdateLlmModelResult,
 } from '../../../shared/types/onboarding';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable } from '../secrets/osEncryption';
 import { secretPreview } from '../secrets/secretPreview';
 import { dummyApiKeyForLocalLlm } from './LocalLlmDiscovery';
 import { clearProviderFormDraft } from './ProviderFormDraftStore';
@@ -119,8 +119,8 @@ function deleteStoreKey(key: keyof OpenAiOnboardingStoreShape): void {
   store.set(key, undefined as never);
 }
 
-export function isOpenAiConfigEncryptionAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable();
+export function isOpenAiConfigEncryptionAvailable(): Promise<boolean> {
+  return isOsEncryptionAvailable();
 }
 
 function isLoopbackHost(url: string | undefined): boolean {
@@ -194,10 +194,20 @@ function setStoredAppDefault(slot: InferenceSlotId | null): void {
   store.set('appDefault', slot);
 }
 
-function decryptApiKey(encrypted: string | undefined): string | null {
-  if (!encrypted || !isOpenAiConfigEncryptionAvailable()) return null;
+async function decryptApiKey(encrypted: string | undefined): Promise<string | null> {
+  if (!encrypted || !(await isOpenAiConfigEncryptionAvailable())) return null;
   try {
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    return await decryptFromBase64(encrypted, (reEncrypted) => {
+      const slots = readSlots();
+      let changed = false;
+      for (const slot of ['local', 'openrouter', 'infrastructure'] as const) {
+        const connection = slots[slot];
+        if (connection?.encryptedApiKey !== encrypted) continue;
+        slots[slot] = { ...connection, encryptedApiKey: reEncrypted };
+        changed = true;
+      }
+      if (changed) writeSlots(slots);
+    });
   } catch {
     return null;
   }
@@ -254,26 +264,29 @@ export function ensureV2Document(): void {
   clearV1RootKeys();
 }
 
-function slotHasMaterial(connection: StoredConnection | undefined): boolean {
+async function slotHasMaterial(connection: StoredConnection | undefined): Promise<boolean> {
   if (!connection?.endpointUrl || !connection.encryptedApiKey) return false;
-  return Boolean(decryptApiKey(connection.encryptedApiKey));
+  return Boolean(await decryptApiKey(connection.encryptedApiKey));
 }
 
-function slotIsConfigured(connection: StoredConnection | undefined): boolean {
+async function slotIsConfigured(connection: StoredConnection | undefined): Promise<boolean> {
   return Boolean(
-    slotHasMaterial(connection) &&
+    (await slotHasMaterial(connection)) &&
       connection?.modelId?.trim() &&
-      isOpenAiConfigEncryptionAvailable()
+      (await isOpenAiConfigEncryptionAvailable())
   );
 }
 
-function buildSlotStatus(connection: StoredConnection | undefined, slot: InferenceSlotId): LlmSlotStatus | undefined {
+async function buildSlotStatus(
+  connection: StoredConnection | undefined,
+  slot: InferenceSlotId
+): Promise<LlmSlotStatus | undefined> {
   if (!connection?.endpointUrl && !connection?.encryptedApiKey) {
     return undefined;
   }
-  const apiKey = decryptApiKey(connection.encryptedApiKey);
+  const apiKey = await decryptApiKey(connection.encryptedApiKey);
   return {
-    configured: slotIsConfigured(connection),
+    configured: await slotIsConfigured(connection),
     endpointUrl: connection.endpointUrl || undefined,
     modelId: connection.modelId?.trim() || undefined,
     provider: connection.provider || undefined,
@@ -286,21 +299,21 @@ function buildSlotStatus(connection: StoredConnection | undefined, slot: Inferen
   };
 }
 
-export function buildInferenceProvidersStatus(): InferenceProvidersStatus {
+export async function buildInferenceProvidersStatus(): Promise<InferenceProvidersStatus> {
   ensureV2Document();
   const slots = readSlots();
   const appDefault = store.get('appDefault') ?? null;
-  const encryptionAvailable = isOpenAiConfigEncryptionAvailable();
+  const encryptionAvailable = await isOpenAiConfigEncryptionAvailable();
   const defaultConnection = appDefault ? slots[appDefault] : undefined;
   const status: InferenceProvidersStatus = {
-    configured: slotIsConfigured(defaultConnection),
+    configured: await slotIsConfigured(defaultConnection),
     encryptionAvailable,
     appDefault,
     slots: {},
   };
 
   for (const slot of ['local', 'openrouter', 'infrastructure'] as const) {
-    const slotStatus = buildSlotStatus(slots[slot], slot);
+    const slotStatus = await buildSlotStatus(slots[slot], slot);
     if (slotStatus) {
       status.slots[slot] = slotStatus;
     }
@@ -313,19 +326,19 @@ export function buildInferenceProvidersStatus(): InferenceProvidersStatus {
   return status;
 }
 
-export function getOpenAiOnboardingStatus(): InferenceProvidersStatus {
+export function getOpenAiOnboardingStatus(): Promise<InferenceProvidersStatus> {
   return buildInferenceProvidersStatus();
 }
 
-export function getOpenAiApiKeyPreview() {
-  return secretPreview(getOpenAiApiKey());
+export async function getOpenAiApiKeyPreview() {
+  return secretPreview(await getOpenAiApiKey());
 }
 
-export function getOpenAiApiKey(): string | null {
+export function getOpenAiApiKey(): Promise<string | null> {
   return getSlotApiKey(getAppDefaultSlot());
 }
 
-export function getSlotApiKey(slot: InferenceSlotId | null): string | null {
+export async function getSlotApiKey(slot: InferenceSlotId | null): Promise<string | null> {
   ensureV2Document();
   if (!slot) return null;
   return decryptApiKey(readSlots()[slot]?.encryptedApiKey);
@@ -342,12 +355,12 @@ export interface LlmConnection {
   extraHeaders?: Record<string, string>;
 }
 
-function materialFromStored(
+async function materialFromStored(
   connection: StoredConnection | undefined
-): (Omit<LlmConnection, 'modelId'> & { modelId?: string }) | null {
+): Promise<(Omit<LlmConnection, 'modelId'> & { modelId?: string }) | null> {
   if (!connection) return null;
-  const apiKey = decryptApiKey(connection.encryptedApiKey);
-  if (!connection.endpointUrl || !apiKey || !isOpenAiConfigEncryptionAvailable()) {
+  const apiKey = await decryptApiKey(connection.encryptedApiKey);
+  if (!connection.endpointUrl || !apiKey || !(await isOpenAiConfigEncryptionAvailable())) {
     return null;
   }
   return {
@@ -364,22 +377,22 @@ function materialFromStored(
 
 export function getSlotConnectionMaterial(
   slot: InferenceSlotId
-): (Omit<LlmConnection, 'modelId'> & { modelId?: string }) | null {
+): Promise<(Omit<LlmConnection, 'modelId'> & { modelId?: string }) | null> {
   ensureV2Document();
   return materialFromStored(readSlots()[slot]);
 }
 
 /** Stored endpoint + key material for the app-default slot, even when model selection is still pending. */
-export function getStoredLlmConnectionMaterial(): Omit<LlmConnection, 'modelId'> & {
+export async function getStoredLlmConnectionMaterial(): Promise<(Omit<LlmConnection, 'modelId'> & {
   modelId?: string;
-} | null {
+}) | null> {
   const slot = getAppDefaultSlot();
   if (!slot) return null;
   return getSlotConnectionMaterial(slot);
 }
 
-export function getSlotLlmConnection(slot: InferenceSlotId): LlmConnection | null {
-  const material = getSlotConnectionMaterial(slot);
+export async function getSlotLlmConnection(slot: InferenceSlotId): Promise<LlmConnection | null> {
+  const material = await getSlotConnectionMaterial(slot);
   if (!material?.modelId) return null;
   return {
     endpointUrl: material.endpointUrl,
@@ -393,7 +406,7 @@ export function getSlotLlmConnection(slot: InferenceSlotId): LlmConnection | nul
   };
 }
 
-export function getLlmConnection(): LlmConnection | null {
+export async function getLlmConnection(): Promise<LlmConnection | null> {
   const slot = getAppDefaultSlot();
   if (!slot) return null;
   return getSlotLlmConnection(slot);
@@ -453,7 +466,7 @@ function persistSlotConnection(
  * Persist an OAuth-minted API key immediately after PKCE succeeds.
  * Model selection can happen later without forcing the user to sign in again.
  */
-export function saveOAuthCredentials(input: {
+export async function saveOAuthCredentials(input: {
   providerId: string;
   providerDisplayName: string;
   endpointUrl: string;
@@ -461,19 +474,19 @@ export function saveOAuthCredentials(input: {
   authScheme: 'bearer' | 'api-key';
   capabilities: LlmConnectionCapabilities;
   extraHeaders?: Record<string, string>;
-}): SaveLlmConnectionResult {
-  if (!isOpenAiConfigEncryptionAvailable()) {
+}): Promise<SaveLlmConnectionResult> {
+  if (!(await isOpenAiConfigEncryptionAvailable())) {
     return {
       success: false,
       error: 'OS encryption is not available for storing API keys.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
   try {
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const apiKey = requireApiKey(input.apiKey);
-    const encryptedApiKey = safeStorage.encryptString(apiKey).toString('base64');
+    const encryptedApiKey = await encryptToBase64(apiKey);
 
     persistSlotConnection('openrouter', {
       endpointUrl,
@@ -487,19 +500,19 @@ export function saveOAuthCredentials(input: {
 
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function hasPendingOAuthModelSelection(): boolean {
-  const material = getSlotConnectionMaterial('openrouter');
+export async function hasPendingOAuthModelSelection(): Promise<boolean> {
+  const material = await getSlotConnectionMaterial('openrouter');
   return Boolean(
     material &&
       !material.modelId &&
@@ -509,12 +522,12 @@ export function hasPendingOAuthModelSelection(): boolean {
   );
 }
 
-export function saveLlmConnection(input: SaveLlmConnectionInput): SaveLlmConnectionResult {
-  if (!isOpenAiConfigEncryptionAvailable()) {
+export async function saveLlmConnection(input: SaveLlmConnectionInput): Promise<SaveLlmConnectionResult> {
+  if (!(await isOpenAiConfigEncryptionAvailable())) {
     return {
       success: false,
       error: 'OS encryption is not available for storing API keys.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -530,7 +543,7 @@ export function saveLlmConnection(input: SaveLlmConnectionInput): SaveLlmConnect
     const modelId = requireModelId(input.modelId);
     const apiKey = input.apiKey?.trim() ? requireApiKey(input.apiKey) : null;
     const encryptedApiKey = apiKey
-      ? safeStorage.encryptString(apiKey).toString('base64')
+      ? await encryptToBase64(apiKey)
       : readSlots()[slot]?.encryptedApiKey ?? '';
     if (!encryptedApiKey) {
       throw new Error('Enter an API key.');
@@ -549,25 +562,25 @@ export function saveLlmConnection(input: SaveLlmConnectionInput): SaveLlmConnect
 
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function updateLlmModel(modelId: string, slot?: InferenceSlotId): UpdateLlmModelResult {
+export async function updateLlmModel(modelId: string, slot?: InferenceSlotId): Promise<UpdateLlmModelResult> {
   ensureV2Document();
   const target = slot ?? getAppDefaultSlot();
   if (!target) {
     return {
       success: false,
       error: 'No LLM connection is configured.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -576,7 +589,7 @@ export function updateLlmModel(modelId: string, slot?: InferenceSlotId): UpdateL
     return {
       success: false,
       error: 'Model changes are not allowed for this connection.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -585,23 +598,23 @@ export function updateLlmModel(modelId: string, slot?: InferenceSlotId): UpdateL
     writeSlot(target, { ...connection, modelId: normalizedModelId });
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function saveOpenAiConfig(input: SaveOpenAiConfigInput): SaveOpenAiConfigResult {
+export async function saveOpenAiConfig(input: SaveOpenAiConfigInput): Promise<SaveOpenAiConfigResult> {
   if (!input.modelId) {
     return {
       success: false,
       error: 'Select a model.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -623,28 +636,28 @@ export function saveOpenAiConfig(input: SaveOpenAiConfigInput): SaveOpenAiConfig
   });
 }
 
-export function setPendingProviderSetup(pending: PendingProviderSetup): InferenceProvidersStatus {
+export function setPendingProviderSetup(pending: PendingProviderSetup): Promise<InferenceProvidersStatus> {
   ensureV2Document();
   store.set('pendingProviderSetup', pending);
   return buildInferenceProvidersStatus();
 }
 
-export function clearPendingProviderSetup(): InferenceProvidersStatus {
+export function clearPendingProviderSetup(): Promise<InferenceProvidersStatus> {
   ensureV2Document();
   deleteStoreKey('pendingProviderSetup');
   return buildInferenceProvidersStatus();
 }
 
-export function saveLocalLlmEndpoint(input: {
+export async function saveLocalLlmEndpoint(input: {
   runtime: LocalLlmRuntime;
   endpointUrl: string;
   modelId: string;
-}): SaveOpenAiConfigResult {
-  if (!isOpenAiConfigEncryptionAvailable()) {
+}): Promise<SaveOpenAiConfigResult> {
+  if (!(await isOpenAiConfigEncryptionAvailable())) {
     return {
       success: false,
       error: 'OS encryption is not available for storing API keys.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -652,7 +665,7 @@ export function saveLocalLlmEndpoint(input: {
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const modelId = requireModelId(input.modelId);
     const apiKey = dummyApiKeyForLocalLlm(input.runtime);
-    const encryptedApiKey = safeStorage.encryptString(apiKey).toString('base64');
+    const encryptedApiKey = await encryptToBase64(apiKey);
     const displayName = input.runtime === 'ollama' ? 'Ollama' : 'LM Studio';
 
     persistSlotConnection('local', {
@@ -667,18 +680,18 @@ export function saveLocalLlmEndpoint(input: {
 
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function saveProviderEndpoint(input: {
+export async function saveProviderEndpoint(input: {
   providerId: OnboardingProviderId;
   instanceId: string;
   endpointUrl: string;
@@ -686,12 +699,12 @@ export function saveProviderEndpoint(input: {
   modelId: string;
   authScheme?: 'bearer' | 'api-key';
   providerDisplayName?: string;
-}): SaveOpenAiConfigResult {
-  if (!isOpenAiConfigEncryptionAvailable()) {
+}): Promise<SaveOpenAiConfigResult> {
+  if (!(await isOpenAiConfigEncryptionAvailable())) {
     return {
       success: false,
       error: 'OS encryption is not available for storing API keys.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 
@@ -701,14 +714,14 @@ export function saveProviderEndpoint(input: {
       return {
         success: false,
         error: 'A different provider setup is currently pending.',
-        status: buildInferenceProvidersStatus(),
+        status: await buildInferenceProvidersStatus(),
       };
     }
 
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const modelId = requireModelId(input.modelId);
     const apiKey = requireApiKey(input.apiKey);
-    const encryptedApiKey = safeStorage.encryptString(apiKey).toString('base64');
+    const encryptedApiKey = await encryptToBase64(apiKey);
 
     persistSlotConnection('infrastructure', {
       endpointUrl,
@@ -723,25 +736,25 @@ export function saveProviderEndpoint(input: {
 
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function finalizePendingProviderEndpoint(input: {
+export async function finalizePendingProviderEndpoint(input: {
   instanceId: string;
   endpointUrl: string;
   apiKey: string;
   modelId: string;
   authScheme?: 'bearer' | 'api-key';
   providerDisplayName?: string;
-}): SaveOpenAiConfigResult | null {
+}): Promise<SaveOpenAiConfigResult | null> {
   const pending = store.get('pendingProviderSetup');
   if (!pending || pending.instanceId !== input.instanceId) {
     return null;
@@ -758,41 +771,41 @@ export function finalizePendingProviderEndpoint(input: {
   });
 }
 
-function nextDefaultAfterClear(cleared: InferenceSlotId): InferenceSlotId | null {
+async function nextDefaultAfterClear(cleared: InferenceSlotId): Promise<InferenceSlotId | null> {
   const slots = readSlots();
   for (const slot of ['local', 'openrouter'] as const) {
-    if (slot !== cleared && slotIsConfigured(slots[slot])) {
+    if (slot !== cleared && (await slotIsConfigured(slots[slot]))) {
       return slot;
     }
   }
-  if (cleared !== 'infrastructure' && slotIsConfigured(slots.infrastructure)) {
+  if (cleared !== 'infrastructure' && (await slotIsConfigured(slots.infrastructure))) {
     return 'infrastructure';
   }
   return null;
 }
 
-export function clearLlmSlot(slot: InferenceSlotId): ClearOpenAiConfigResult {
+export async function clearLlmSlot(slot: InferenceSlotId): Promise<ClearOpenAiConfigResult> {
   ensureV2Document();
   try {
     const wasDefault = getAppDefaultSlot() === slot;
     removeSlot(slot);
     if (wasDefault) {
-      setStoredAppDefault(nextDefaultAfterClear(slot));
+      setStoredAppDefault(await nextDefaultAfterClear(slot));
     }
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function clearOpenAiConfig(): ClearOpenAiConfigResult {
+export async function clearOpenAiConfig(): Promise<ClearOpenAiConfigResult> {
   ensureV2Document();
   try {
     writeSlots({});
@@ -801,31 +814,31 @@ export function clearOpenAiConfig(): ClearOpenAiConfigResult {
     ephemeralHealth.clear();
     return {
       success: true,
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
 }
 
-export function setAppDefault(slot: InferenceSlotId): SetAppDefaultResult {
+export async function setAppDefault(slot: InferenceSlotId): Promise<SetAppDefaultResult> {
   ensureV2Document();
   const connection = readSlots()[slot];
-  if (!slotIsConfigured(connection)) {
+  if (!(await slotIsConfigured(connection))) {
     return {
       success: false,
       error: 'Connect that provider before making it the app default.',
-      status: buildInferenceProvidersStatus(),
+      status: await buildInferenceProvidersStatus(),
     };
   }
   setStoredAppDefault(slot);
   return {
     success: true,
-    status: buildInferenceProvidersStatus(),
+    status: await buildInferenceProvidersStatus(),
   };
 }
 

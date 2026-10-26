@@ -59,10 +59,11 @@ vi.mock('../../assistantPaths', () => ({
   resolveAssistantDataRoot: () => '/tmp/boundary-test-assistant-data',
 }));
 
+const createProfile = vi.fn();
 vi.mock('../hermesGatewaySession', () => ({
   getHermesGatewaySession: () => ({
     ensureConnected: vi.fn(),
-    createProfile: vi.fn(),
+    createProfile: (...args: unknown[]) => createProfile(...args),
     createSessionWithSeed: vi.fn(),
     storedSessionId: (id: string) => storedIds.get(id) ?? id,
     describeProfile: (...args: unknown[]) => describeProfile(...args),
@@ -195,6 +196,15 @@ describe('createHermesAgent', () => {
     await vi.waitFor(() =>
       expect(setUpNewHermesProfile).toHaveBeenCalledWith(result.agent?.slug)
     );
+  });
+
+  it('tells a new agent where calendar access is changed (calendar spec, Phase 3)', async () => {
+    createProfile.mockClear();
+    const { createHermesAgent } = await import('../hermesAgents');
+    await createHermesAgent({ displayName: 'Scheduler', role: 'Keeps the week in order.' });
+    const soul = (createProfile.mock.calls[0]?.[0] as { soul: string }).soul;
+    expect(soul).toContain('## Calendars');
+    expect(soul).toContain('Settings → Calendars');
   });
 });
 

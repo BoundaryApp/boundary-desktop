@@ -43,7 +43,7 @@ describe('boardNotices', () => {
       ['t_1', 'Needs you · asked a question'],
       ['t_2', 'Waiting for your review'],
       ['t_4', 'Needs you · blocked'],
-      ['t_5', 'Gave up after repeated failures'],
+      ['t_5', 'The board gave up on it'],
     ]);
   });
 
@@ -74,6 +74,12 @@ describe('eventNotice', () => {
       body: 'The run timed out',
     });
     expect(eventNotice({ id: 4, kind: 'heartbeat', task_id: 't_1' }, tasks)).toBeNull();
+    expect(eventNotice({ id: 6, kind: 'gave_up', task_id: 't_1', payload: { failures: 2 } }, tasks)).toMatchObject({
+      body: 'The board gave up on it',
+    });
+    expect(
+      eventNotice({ id: 7, kind: 'gave_up', task_id: 't_1', payload: { retryable: false } }, tasks)
+    ).toMatchObject({ body: "Gave up · can't start until you fix it" });
     expect(eventNotice({ id: 5, kind: 'crashed', task_id: 't_gone' }, tasks)).toBeNull();
   });
 });

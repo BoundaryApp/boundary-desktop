@@ -115,6 +115,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
     },
   },
+  setup: {
+    getProgress: () => ipcRenderer.invoke('setup:get-progress'),
+    recordOutcome: (payload: {
+      stepId: string;
+      outcome: import('./shared/types/setupProgress').OptionalSetupOutcome;
+    }) => ipcRenderer.invoke('setup:record-outcome', payload),
+    pickFolders: () => ipcRenderer.invoke('setup:pick-folders'),
+    saveFolders: (payload: { folders: import('./shared/types/setupProgress').FirstRunFolder[] }) =>
+      ipcRenderer.invoke('setup:save-folders', payload),
+    applyFolders: () => ipcRenderer.invoke('setup:apply-folders'),
+  },
   assistantStack: {
     getStatus: () => ipcRenderer.invoke('assistant-stack:get-status'),
     getLifecycle: () => ipcRenderer.invoke('assistant-stack:get-lifecycle'),
@@ -217,8 +228,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('calendars:set-access', payload),
     recheck: (payload: import('./shared/types/calendars').CalendarSlugPayload) =>
       ipcRenderer.invoke('calendars:recheck', payload),
+    recheckAll: () => ipcRenderer.invoke('calendars:recheck-all'),
+    // Carries a password: never log it.
+    replacePassword: (payload: import('./shared/types/calendars').CalendarReplacePasswordPayload) =>
+      ipcRenderer.invoke('calendars:replace-password', payload),
     remove: (payload: import('./shared/types/calendars').CalendarSlugPayload) =>
       ipcRenderer.invoke('calendars:remove', payload),
+    onChanged: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('calendars:changed', handler);
+      return () => ipcRenderer.removeListener('calendars:changed', handler);
+    },
     onProgress: (callback: (event: import('./shared/types/calendars').CalendarProgressEvent) => void) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
@@ -284,7 +304,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     kanbanTask: (taskId: string) => ipcRenderer.invoke('hermes-kanban:task', taskId),
     kanbanTaskLog: (taskId: string, tailBytes?: number) =>
       ipcRenderer.invoke('hermes-kanban:task-log', taskId, tailBytes),
-    openKanbanBoard: () => ipcRenderer.invoke('hermes-kanban:open-board'),
+    openKanbanBoard: (taskId?: string) => ipcRenderer.invoke('hermes-kanban:open-board', taskId),
+    kanbanBoardView: (taskId?: string) => ipcRenderer.invoke('hermes-kanban:board-view', taskId),
     kanbanTaskAction: (
       taskId: string,
       action: import('./shared/types/hermesKanban').KanbanTaskAction
@@ -663,6 +684,18 @@ declare global {
         getDebugLog: () => Promise<{ path: string; contents: string }>;
         onProgress: (callback: (message: string) => void) => () => void;
       };
+      setup: {
+        getProgress: () => Promise<import('./shared/types/setupProgress').SetupProgress>;
+        recordOutcome: (payload: {
+          stepId: string;
+          outcome: import('./shared/types/setupProgress').OptionalSetupOutcome;
+        }) => Promise<import('./shared/types/setupProgress').SetupProgress>;
+        pickFolders: () => Promise<import('./shared/types/setupProgress').PickFirstRunFoldersResult>;
+        saveFolders: (payload: {
+          folders: import('./shared/types/setupProgress').FirstRunFolder[];
+        }) => Promise<import('./shared/types/setupProgress').SaveFirstRunFoldersResult>;
+        applyFolders: () => Promise<import('./shared/types/setupProgress').ApplyFirstRunFoldersResult>;
+      };
       assistantStack: {
         getStatus: () => Promise<import('./shared/types/assistantStack').AssistantStackStatus>;
         getLifecycle: () => Promise<
@@ -738,9 +771,14 @@ declare global {
         recheck: (
           payload: import('./shared/types/calendars').CalendarSlugPayload
         ) => Promise<import('./shared/types/calendars').CalendarActionResult>;
+        recheckAll: () => Promise<import('./shared/types/calendars').CalendarListResult>;
+        replacePassword: (
+          payload: import('./shared/types/calendars').CalendarReplacePasswordPayload
+        ) => Promise<import('./shared/types/calendars').CalendarActionResult>;
         remove: (
           payload: import('./shared/types/calendars').CalendarSlugPayload
         ) => Promise<import('./shared/types/calendars').CalendarActionResult>;
+        onChanged: (callback: () => void) => () => void;
         onProgress: (
           callback: (event: import('./shared/types/calendars').CalendarProgressEvent) => void
         ) => () => void;
@@ -802,7 +840,10 @@ declare global {
           taskId: string,
           tailBytes?: number
         ) => Promise<import('./shared/types/hermesKanban').KanbanTaskLogResult>;
-        openKanbanBoard: () => Promise<void>;
+        openKanbanBoard: (taskId?: string) => Promise<void>;
+        kanbanBoardView: (
+          taskId?: string
+        ) => Promise<import('./shared/types/hermesKanban').KanbanBoardViewResult>;
         kanbanTaskAction: (
           taskId: string,
           action: import('./shared/types/hermesKanban').KanbanTaskAction

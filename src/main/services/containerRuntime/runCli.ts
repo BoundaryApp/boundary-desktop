@@ -86,7 +86,7 @@ export async function runComposeStreaming(
   runtime: ContainerRuntime,
   args: string[],
   options: RunComposeStreamingOptions = {}
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
+): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   const spawnFn = options.spawnFn ?? spawn;
   const command = runtime.composeBinaryPath ?? runtime.cliPath;
   const argv = runtime.composeBinaryPath ? args : composeArgv(runtime, args);
@@ -106,10 +106,13 @@ export async function runComposeStreaming(
     let stderr = '';
     const stdoutPending = { value: '' };
     const stderrPending = { value: '' };
+    // Compose exits 130 on SIGTERM, so the code alone can't tell a timeout from an interrupt.
+    let timedOut = false;
 
     const timer =
       options.timeout != null
         ? setTimeout(() => {
+            timedOut = true;
             child.kill('SIGTERM');
             setTimeout(() => {
               if (!child.killed) {
@@ -141,7 +144,7 @@ export async function runComposeStreaming(
       if (stderrPending.value) {
         options.onStderrLine?.(stderrPending.value.replace(/\r$/, ''));
       }
-      resolve({ stdout, stderr, code });
+      resolve({ stdout, stderr, code, timedOut });
     });
   });
 }

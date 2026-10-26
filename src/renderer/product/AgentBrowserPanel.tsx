@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { BoundaryBrowserState, HostBridgeBrowserSettings } from '../../shared/types/hostBridge';
 import { hostBridgeIPC } from '../services/hostBridgeIPCService';
+import { InfoTip } from '../components/ui/info-tip';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
 
@@ -93,17 +94,29 @@ export const AgentBrowserPanel: React.FC = () => {
 
   return (
     <section className="wb-settings-section wb-agent-browser" aria-labelledby="settings-agent-browser">
-      <h2 id="settings-agent-browser">Boundary’s browser</h2>
-      <p className="wb-inference-lead">
-        Hermes can browse in a Chrome window Boundary runs on this computer, with its own profile. Sign in
-        there to the sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
-      </p>
+      <h2 id="settings-agent-browser">
+        Boundary’s browser
+        <InfoTip label="Boundary’s browser">
+          <p>
+            A Chrome window Boundary runs on this computer, with its own profile. Sign in there to the
+            sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
+          </p>
+          <p>
+            Hermes can’t read this browser’s cookies or stored site data, or open files on your computer.
+            It can see and act on any page it opens. Sites limit automated use, so ask Hermes to go at a
+            human pace.
+          </p>
+        </InfoTip>
+      </h2>
+      <p className="wb-inference-lead">Hermes browses here, with the logins you add.</p>
 
       <div className="wb-settings-row">
         <div>
-          <p className="wb-settings-label">Let Hermes use Boundary’s browser</p>
-          <p className="wb-settings-hint">
-            When off, Hermes browses in its own browser inside Docker, with no logins.
+          <p className="wb-settings-label">
+            Let Hermes use Boundary’s browser
+            <InfoTip label="this setting">
+              When off, Hermes browses in its own browser inside Docker, with no logins.
+            </InfoTip>
           </p>
         </div>
         <button
@@ -145,10 +158,14 @@ export const AgentBrowserPanel: React.FC = () => {
         </p>
       ) : null}
 
-      <h3 className="wb-agent-browser-h3">Blocked sites</h3>
-      <p className="wb-settings-hint">
-        Hermes can’t open these sites or their subdomains. {usingDefaults ? 'This is Boundary’s default list: email, password managers, payments and banks.' : 'You’ve changed the default list.'} One per line.
-      </p>
+      <h3 className="wb-agent-browser-h3">
+        Blocked sites
+        <InfoTip label="blocked sites">
+          Hermes can’t open these sites or their subdomains. Boundary’s default list covers email,
+          password managers, payments and banks. Keep sensitive sites here: Hermes can act on any page it
+          opens.
+        </InfoTip>
+      </h3>
       <textarea
         className="wb-agent-browser-sites mono"
         aria-label="Blocked sites"
@@ -156,7 +173,11 @@ export const AgentBrowserPanel: React.FC = () => {
         onChange={(event) => setBlockedText(event.target.value)}
         rows={8}
         spellCheck={false}
+        placeholder="One site per line"
       />
+      <p className="wb-settings-hint">
+        {usingDefaults ? 'Boundary’s default list' : 'You’ve changed the default list'}
+      </p>
       <div className="wb-agent-browser-actions">
         <button
           type="button"
@@ -178,11 +199,13 @@ export const AgentBrowserPanel: React.FC = () => {
         ) : null}
       </div>
 
-      <h3 className="wb-agent-browser-h3">Allowed sites</h3>
-      <p className="wb-settings-hint">
-        Leave empty to let Hermes open any site that isn’t blocked. If you list sites here, Hermes can only open
-        those. One per line.
-      </p>
+      <h3 className="wb-agent-browser-h3">
+        Allowed sites
+        <InfoTip label="allowed sites">
+          Leave empty to let Hermes open any site that isn’t blocked. If you list sites here, Hermes can
+          open only those. One site per line.
+        </InfoTip>
+      </h3>
       <textarea
         className="wb-agent-browser-sites mono"
         aria-label="Allowed sites"
@@ -190,7 +213,7 @@ export const AgentBrowserPanel: React.FC = () => {
         onChange={(event) => setAllowedText(event.target.value)}
         rows={4}
         spellCheck={false}
-        placeholder="linkedin.com"
+        placeholder="Any site that isn’t blocked"
       />
       <div className="wb-agent-browser-actions">
         <button
@@ -203,11 +226,6 @@ export const AgentBrowserPanel: React.FC = () => {
         </button>
       </div>
 
-      <p className="wb-settings-hint wb-agent-browser-foot">
-        Hermes can’t read this browser’s cookies or stored site data, or open files on your computer. It can see
-        and act on any page it opens, so keep sensitive sites blocked. Sites limit automated use; ask Hermes to
-        go at a human pace.
-      </p>
     </section>
   );
 };

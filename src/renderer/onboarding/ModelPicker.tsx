@@ -123,9 +123,13 @@ function SelectedModelSummary({
         Selected model
       </div>
       <div className="mt-1.5 min-w-0">
-        <div className="truncate text-title font-medium text-fg">{displayName}</div>
+        <div className="truncate text-title font-medium text-fg" title={displayName}>
+          {displayName}
+        </div>
         {showId && (
-          <div className="truncate font-mono text-xs text-fg-muted">{model?.id}</div>
+          <div className="truncate font-mono text-xs text-fg-muted" title={model?.id}>
+            {model?.id}
+          </div>
         )}
       </div>
       <dl
@@ -386,9 +390,13 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                         <td className="px-3 py-2 align-top">
                           <div className="flex min-w-0 items-start gap-2">
                             <div className="min-w-0 flex-1">
-                              <div className="truncate font-medium">{displayName}</div>
+                              <div className="truncate font-medium" title={displayName}>
+                                {displayName}
+                              </div>
                               {showId && (
-                                <div className="truncate text-xs text-fg-faint">{model.id}</div>
+                                <div className="truncate text-xs text-fg-faint" title={model.id}>
+                                  {model.id}
+                                </div>
                               )}
                             </div>
                             {isSelected && (
@@ -444,7 +452,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                     textValue={model.displayName ?? model.id}
                   >
                     <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate">{model.displayName ?? model.id}</span>
+                      <span className="truncate" title={model.displayName ?? model.id}>
+                        {model.displayName ?? model.id}
+                      </span>
                       {meta && <span className="text-xs text-fg-faint">{meta}</span>}
                     </div>
                   </SelectItem>

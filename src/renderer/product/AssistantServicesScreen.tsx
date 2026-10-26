@@ -1,11 +1,66 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Loader2 } from 'lucide-react';
+import { CalendarDays, ExternalLink, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
 import { Pill } from '../components/ui/badge';
 import { useSetup } from '../setup/SetupContext';
 import { assistantStackIPC } from '../services/assistantStackIPCService';
 import type { AssistantUiServiceCard } from '../../shared/types/assistantStack';
+import { openSettings } from './settingsNavigation';
+import { useCalendarAccounts } from './useCalendarAccounts';
+
+/**
+ * caldav-mcp as "Calendar" (calendar spec, Phase 3): it runs only while a calendar is connected,
+ * so its status is the accounts' last sign-in checks. Setup stays in Settings → Calendars.
+ */
+const CalendarServiceCard: React.FC = () => {
+  const accounts = useCalendarAccounts();
+
+  if (!accounts) return null;
+  const connected = accounts.length > 0;
+  const rejected = accounts.filter((a) => a.lastCheck?.status === 'rejected');
+  const unreachable = accounts.filter((a) => a.lastCheck?.status === 'unreachable');
+  const status = !connected
+    ? null
+    : rejected.length
+      ? { variant: 'destructive' as const, label: 'Sign-in failed' }
+      : unreachable.length
+        ? { variant: 'warn' as const, label: 'Unreachable' }
+        : { variant: 'ok' as const, label: 'Connected' };
+
+  return (
+    <section
+      aria-label="Calendar"
+      className="flex flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4"
+    >
+      <div className="flex w-full items-center justify-between gap-2">
+        <span className="font-medium text-fg">Calendar</span>
+        {status ? (
+          <Pill variant={status.variant} dot>
+            {status.label}
+          </Pill>
+        ) : (
+          <Pill variant="outline">Off</Pill>
+        )}
+      </div>
+      <p className="text-xs leading-relaxed text-fg-faint">
+        {connected
+          ? `CalDAV bridge · ${accounts.map((a) => a.name).join(', ')}`
+          : 'Starts when you connect a calendar'}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-auto"
+        onClick={() => openSettings({ tab: 'calendars' })}
+      >
+        <CalendarDays className="size-4" aria-hidden />
+        {connected ? 'Manage calendars' : 'Connect calendar'}
+      </Button>
+    </section>
+  );
+};
 
 export const AssistantServicesScreen: React.FC = () => {
   const { assistantStackStatus, refreshAssistantStack } = useSetup();
@@ -51,7 +106,7 @@ export const AssistantServicesScreen: React.FC = () => {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto px-10 pt-7 pb-10">
+    <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
       <div className="flex max-w-[960px] flex-col gap-5">
         <header>
           <h1 className="text-heading font-medium text-fg">Services</h1>
@@ -68,7 +123,10 @@ export const AssistantServicesScreen: React.FC = () => {
                 Hermes API healthy
               </Pill>
               {assistantStackStatus?.apiBaseUrl && (
-                <code className="font-mono text-xs text-fg-faint">
+                <code
+                  className="min-w-0 max-w-full truncate font-mono text-xs text-fg-faint"
+                  title={assistantStackStatus.apiBaseUrl}
+                >
                   {assistantStackStatus.apiBaseUrl}
                 </code>
               )}
@@ -108,7 +166,7 @@ export const AssistantServicesScreen: React.FC = () => {
               key={service.id}
               type="button"
               onClick={() => void handleOpen(service)}
-              className="group flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4 text-left outline-none transition-colors duration-(--dur-fast) hover:border-fg-faint/60 hover:bg-surface-hover focus-visible:shadow-(--focus-ring)"
+              className="group flex min-w-0 cursor-pointer flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4 text-left outline-none transition-colors duration-(--dur-fast) hover:border-fg-faint/60 hover:bg-surface-hover focus-visible:shadow-(--focus-ring)"
             >
               <div className="flex w-full items-center justify-between gap-2">
                 <span className="font-medium text-fg">{service.title}</span>
@@ -118,9 +176,15 @@ export const AssistantServicesScreen: React.FC = () => {
                 />
               </div>
               <p className="text-xs leading-relaxed text-fg-faint">{service.description}</p>
-              <code className="mt-auto pt-2 font-mono text-2xs text-fg-faint">{service.url}</code>
+              <code
+                className="mt-auto max-w-full truncate pt-2 font-mono text-2xs text-fg-faint"
+                title={service.url}
+              >
+                {service.url}
+              </code>
             </button>
           ))}
+          <CalendarServiceCard />
         </div>
       </div>
     </div>

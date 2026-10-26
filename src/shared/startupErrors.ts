@@ -14,6 +14,7 @@ export type StartupErrorKind =
   | 'python'
   | 'upgrade'
   | 'health'
+  | 'slow-start'
   | 'setup'
   | 'compose'
   | 'unknown';
@@ -101,6 +102,14 @@ const RULES: Rule[] = [
     title: 'Your assistant didn’t respond in time',
     body:
       'The assistant didn’t answer its health check before the time limit. A busy or slow Mac can cause this. Try again, and if it happens again, the details show what it was doing.',
+  },
+  {
+    // Before 'setup': the tail of a timed-out `up` can name config.yaml.
+    kind: 'slow-start',
+    test: /compose timed out/i,
+    title: 'Starting your tools took too long',
+    body:
+      'The first start downloads and builds every tool, and this one ran past the time limit. Try again: finished downloads are kept, so the next start picks up where this one stopped.',
   },
   {
     kind: 'setup',

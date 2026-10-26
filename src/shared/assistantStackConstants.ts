@@ -3,12 +3,17 @@ import type { AssistantStackPorts } from './types/assistantStack';
 /** Compose project name Boundary always manages (never the developer's default project). */
 export const BOUNDARY_ASSISTANT_PROJECT_NAME = 'boundary-assistant';
 
-/** Profiles Boundary brings up on every ensure/stop (not ollama/calendar/signal/searxng-prod). */
+/**
+ * Profiles Boundary brings up on every ensure/stop (not ollama/calendar/signal/searxng-prod).
+ * `db` is the shared Postgres plus SQL MCP for Hermes (stack docs/database.md), not n8n's
+ * postgres, which `automation` brings up.
+ */
 export const BOUNDARY_ASSISTANT_COMPOSE_PROFILES = [
   'core',
   'rag',
   'automation',
   'coding',
+  'db',
 ] as const;
 
 export type BoundaryAssistantComposeProfile =
@@ -125,11 +130,16 @@ export const BOUNDARY_ASSISTANT_CONTAINER_NAMES = [
   'boundary-opencode-mcp',
   'boundary-llm-proxy',
   'boundary-hermes-worker',
+  'boundary-postgres-db',
+  'boundary-sql-mcp-ro',
+  'boundary-sql-mcp-rw',
 ] as const;
 
 export const HERMES_CONFIG_PROFILES = ['', 'api-server', 'browser'] as const;
 
 export const ASSISTANT_STACK_UP_TIMEOUT_MS = 600_000;
+/** `up --build` on a first install or pin change also pulls and builds every image. */
+export const ASSISTANT_STACK_BUILD_UP_TIMEOUT_MS = 1_800_000;
 export const ASSISTANT_STACK_HEALTH_TIMEOUT_MS = 300_000;
 export const ASSISTANT_STACK_HEALTH_INTERVAL_MS = 2_000;
 /** How long dev:local-stack waits for a `make up` that is still starting (bootstraps are slow). */

@@ -4,7 +4,7 @@ The visual source is [01-task-activity.html](01-task-activity.html). Backend fac
 
 | | |
 | --- | --- |
-| Status | Accepted 14 Oct 2026; Phases 1 and 2 shipped; Phase 3 built |
+| Status | Accepted 14 Oct 2026; Phases 1 and 2 shipped; Phases 3 and 4 built |
 | Visuals | [index.html](index.html), [01-task-activity.html](01-task-activity.html) |
 | Backend | [backend-notes.md](backend-notes.md) (checked against `hermes-agent v2026.9.14`) |
 | Started | 14 Oct 2026 |
@@ -16,6 +16,7 @@ The visual source is [01-task-activity.html](01-task-activity.html). Backend fac
 | 1 Kanban feed, working-now signals, task page | Shipped 14 Oct 2026 | — |
 | 2 Tasks list, task cards in the DM | Shipped 17 Oct 2026 | 1 |
 | 3 Steer, unblock, stop, notifications | Built; live check pending | 1 |
+| 4 Board view in Tasks | Built; live check pending | 2, [CR 0012](../change-requests/0012-dashboard-sign-in.md) |
 
 ## The problem
 
@@ -34,7 +35,7 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 
 ## Non-goals
 
-- **A drag-and-drop board.** Hermes's dashboard already has one (`/kanban`). Boundary links to it for bulk triage instead of rebuilding columns.
+- **A drag-and-drop board.** Hermes's dashboard already has one (`/kanban`). Boundary shows it for bulk triage (Phase 4) instead of rebuilding columns.
 - **Creating or editing tasks by hand.** The Orchestrator files tasks from chat. A "New task" form can come later.
 - **Live token streaming from workers.** No such stream exists (backend gap 1).
 - **Worker transcripts in the chat lists.** Workers are not conversations. A finished run links to its transcript from the task page only.
@@ -64,7 +65,7 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 ## Decisions (confirm before Phase 1)
 
 1. **The task page lives in the center pane** (a new `centerMode: 'task'`, like `mentions` and `project`), not in the right inspector. The console and the timeline need the full 720 px column. The inspector would cramp them and fight with the conversation it sits beside. *Recommended.*
-2. **The Tasks list is a grouped list, not columns.** The groups are **Needs you** (blocked, review, triage), **Running**, **Up next** (ready, todo, scheduled) and **Done** (the last 7 days). This matches the chat workbench's centered column (ADR 0020) and answers "what's happening" before "what's on the board". An **Open board** link goes to the Hermes dashboard for drag-and-drop. *Recommended over* a column board in Boundary.
+2. **The Tasks list is a grouped list, not columns.** The groups are **Needs you** (blocked, review, triage), **Running**, **Up next** (ready, todo, scheduled) and **Done** (the last 7 days). This matches the chat workbench's centered column (ADR 0020) and answers "what's happening" before "what's on the board". An **Open board** link goes to the Hermes dashboard for drag-and-drop. *Recommended over* a column board in Boundary. Phase 4 replaces the link with a **List** / **Board** switch that shows the dashboard's board inside Tasks ([ADR 0030](../adr/0030-board-is-a-view-of-tasks.md)).
 3. **Working now sits in the rail and only appears while something runs.** It is capped at 3 rows plus "+N more", above Hermes chats. When nothing runs it takes no space. *Recommended over* a permanent "Tasks" section, which would be empty most of the time.
 4. **Quiet thresholds:** "last activity" turns amber after 3 min without a heartbeat and red at `claim_expires`. The dispatcher reclaims a run then anyway. These mirror CR 0004's turn-liveness reasoning (one long local-model call can be silent for minutes).
 5. **The console is collapsed by default, with its newest line promoted into the liveness strip ("now: …").** You get LM Studio's "it's doing something" at a glance without a wall of logs. *Recommended over* an always-open console.
@@ -131,3 +132,20 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 - [ ] 3.2 Reply and resume on a `needs_input` block moves the task to `ready`, and the dispatcher picks it up.
 - [ ] 3.3 Stop asks first. After it, the run shows "Stopped by you", not "Crashed".
 - [ ] 3.4 A background block raises one notification, and clicking it opens that task.
+
+## Phase 4 · Board view in Tasks
+
+Hermes's board inside Tasks, signed in, instead of a browser tab that asks for the dashboard password. Placement and guards are [ADR 0030](../adr/0030-board-is-a-view-of-tasks.md). The stack side is [CR 0012](../change-requests/0012-dashboard-sign-in.md).
+
+1. **List / Board switch** in the Tasks header. Board shows the dashboard's `/kanban?embed=1` in a `<webview>` that fills the center pane and the inspector's space. The project scope applies to the list only.
+2. **Open in board** on the needs-you, gave-up and run-menu controls opens the board view on that task (`&task=<id>&board=<current board>`), with **Back to task** in the header.
+3. **Sign-in from main** on the `persist:hermes-board` partition: password sign-in, cookies copied with their attributes. A redirect to `/login` signs in again, once per 30 s.
+4. **The view stays on `/kanban`.** Other dashboard pages, client-side routes and new windows open in the system browser. A `<webview>` attaches only on the board partition, at the board, without a preload.
+5. **Open in browser ↗** uses a one-time sign-in link (`/auth/handoff`) when the stack's `.env` has `HERMES_DASHBOARD_HANDOFF_SECRET`, otherwise the plain board URL.
+
+**Acceptance**
+- [ ] 4.1 Board shows Hermes's board signed in, with no login form and no dashboard navigation.
+- [ ] 4.2 **Open in board** on a task opens the board view with that task's drawer open.
+- [ ] 4.3 A dashboard link to `/config` or `/sessions` from the board opens in the system browser, and the board view stays on the board.
+- [ ] 4.4 **Open in browser ↗** lands on the board signed in when the stack has a handoff secret.
+- [ ] 4.5 After the dashboard session is cleared, the board view signs in again by itself.

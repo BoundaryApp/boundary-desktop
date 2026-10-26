@@ -122,7 +122,27 @@ describe('a task the dispatcher gave up on', () => {
         },
       ],
     });
-    expect(detail?.events[0]).toMatchObject({ note: 'workspace: no workspace_path', trigger: 'spawn_failed' });
+    expect(detail?.events[0]).toMatchObject({
+      note: 'workspace: no workspace_path',
+      trigger: 'spawn_failed',
+      retryable: null,
+    });
+  });
+
+  it('reads retryable: false from a first-claim give-up (stack v0.3.3)', () => {
+    const detail = toTaskDetail({
+      task: task({ status: 'blocked' }),
+      events: [
+        {
+          id: 6,
+          run_id: 1,
+          kind: 'gave_up',
+          payload: { error: 'workspace: not a git repo', trigger_outcome: 'spawn_failed', retryable: false },
+          created_at: NOW_S,
+        },
+      ],
+    });
+    expect(detail?.events[0].retryable).toBe(false);
   });
 });
 
@@ -230,6 +250,32 @@ describe('the feed', () => {
     await vi.runOnlyPendingTimersAsync();
     expect(await kanbanTaskAction('t_1', { kind: 'archive' })).toEqual({ success: true });
     expect(writes()).toEqual([['PATCH', '/tasks/t_1', { status: 'archived' }]]);
+  });
+
+  it('moves a task to a scratch workspace and unblocks it in one PATCH', async () => {
+    serveBoards([task({ status: 'blocked', workspace_path: null })]);
+    ensureKanbanFeed();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(await kanbanTaskAction('t_1', { kind: 'run-in-scratch' })).toEqual({ success: true });
+    expect(writes()).toEqual([['PATCH', '/tasks/t_1', { workspace_kind: 'scratch', status: 'ready' }]]);
+  });
+
+  it('shows the board\'s reason when it refuses a workspace change', async () => {
+    serveBoards([task({ status: 'blocked' })]);
+    ensureKanbanFeed();
+    await vi.runOnlyPendingTimersAsync();
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return json({ detail: "workspace_kind='dir' needs a workspace_path." }, 400);
+      }
+      return json(board([task({ status: 'blocked' })]));
+    });
+
+    expect(await kanbanTaskAction('t_1', { kind: 'run-in-scratch' })).toEqual({
+      success: false,
+      error: "workspace_kind='dir' needs a workspace_path.",
+    });
   });
 
   it('stops a run by terminating it, then blocking the task so it stays stopped', async () => {

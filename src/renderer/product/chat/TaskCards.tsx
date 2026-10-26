@@ -113,8 +113,12 @@ export const FiledTaskCards: React.FC = () => {
         if (!task) {
           return (
             <div key={i} className="wb-task-card is-gone">
-              <span className="wb-task-card-title">{f.title}</span>
-              <span className="wb-task-card-meta">{meta}</span>
+              <span className="wb-task-card-title" title={f.title}>
+                {f.title}
+              </span>
+              <span className="wb-task-card-meta" title={meta}>
+                {meta}
+              </span>
               <span className="wb-task-pill">Not on the board</span>
             </div>
           );
@@ -127,8 +131,12 @@ export const FiledTaskCards: React.FC = () => {
             onClick={() => ctx.onOpenTask?.(task.id)}
             disabled={!ctx.onOpenTask}
           >
-            <span className="wb-task-card-title">{task.title}</span>
-            <span className="wb-task-card-meta">{meta}</span>
+            <span className="wb-task-card-title" title={task.title}>
+              {task.title}
+            </span>
+            <span className="wb-task-card-meta" title={meta}>
+              {meta}
+            </span>
             <StatusPill task={task} nowS={nowS} />
           </button>
         );
@@ -161,7 +169,12 @@ export const FinishedTasksNote: React.FC = () => {
           <span className="wb-task-check" aria-hidden="true">
             ✓
           </span>
-          <span>
+          <span
+            className="wb-task-finished-copy"
+            title={`${task.title} finished${
+              task.assignee ? ` · ${assigneeName(task.assignee, ctx.agents)}` : ''
+            }`}
+          >
             <em>{task.title}</em> finished
             {task.assignee ? ` · ${assigneeName(task.assignee, ctx.agents)}` : ''}
           </span>

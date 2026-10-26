@@ -7,11 +7,11 @@ import type { AgentProfile } from '../../../../shared/types/hermesChat';
 const kanbanTask = vi.fn();
 const kanbanTaskLog = vi.fn();
 const kanbanTaskAction = vi.fn();
-const openKanbanBoard = vi.fn(() => Promise.resolve());
+const openKanbanBoard = vi.fn((_taskId?: string) => Promise.resolve());
 vi.mock('../../../services/hermesChatIPCService', () => ({
   hermesChatIPC: {
     kanbanTaskAction: (...a: unknown[]) => kanbanTaskAction(...a),
-    openKanbanBoard: () => openKanbanBoard(),
+    openKanbanBoard: (taskId?: string) => openKanbanBoard(taskId),
     onKanbanOpenTask: () => () => undefined,
     kanbanTask: (...a: unknown[]) => kanbanTask(...a),
     kanbanTaskLog: (...a: unknown[]) => kanbanTaskLog(...a),
@@ -140,11 +140,39 @@ describe('TaskPane controls', () => {
     cleanup();
   });
 
-  function show(task: KanbanTaskSummary, over: Partial<KanbanTaskDetail> = {}) {
+  function show(
+    task: KanbanTaskSummary,
+    over: Partial<KanbanTaskDetail> = {},
+    onOpenBoard?: (taskId: string) => void
+  ) {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [task] });
     kanbanTask.mockResolvedValue({ success: true, detail: detail(task, over) });
-    render(<TaskPane taskId={task.id} agents={[researcher]} resolveOrigin={() => null} />);
+    render(
+      <TaskPane
+        taskId={task.id}
+        agents={[researcher]}
+        resolveOrigin={() => null}
+        onOpenBoard={onOpenBoard}
+      />
+    );
   }
+
+  it('opens the Tasks board on this task, or the browser without one', async () => {
+    openKanbanBoard.mockClear();
+    const onOpenBoard = vi.fn();
+    const events = [{ id: 5, runId: 2, kind: 'gave_up', note: 'x', trigger: 'spawn_failed', createdAt: nowS - 60 }];
+    show(summary({ status: 'blocked', failures: 2 }), { events }, onOpenBoard);
+    const card = await screen.findByRole('region', { name: 'Gave up' });
+    fireEvent.click(within(card).getByRole('button', { name: 'Open in board ↗' }));
+    expect(onOpenBoard).toHaveBeenCalledWith('t_1');
+    expect(openKanbanBoard).not.toHaveBeenCalled();
+    cleanup();
+
+    show(summary({ status: 'blocked', failures: 2 }), { events });
+    const plain = await screen.findByRole('region', { name: 'Gave up' });
+    fireEvent.click(within(plain).getByRole('button', { name: 'Open in board ↗' }));
+    expect(openKanbanBoard).toHaveBeenCalledWith('t_1');
+  });
 
   it('sends a note to a running worker, labelled for what it does', async () => {
     show(summary());
@@ -220,7 +248,7 @@ describe('TaskPane controls', () => {
   });
 
   it('says a task gave up after failing to start, with Hermes\'s error, and offers Retry and Archive', async () => {
-    const error = "workspace: task t_1 has workspace_kind=worktree but no workspace_path";
+    const error = "assignee profile 'researcher' not found";
     show(summary({ status: 'blocked', failures: 2 }), {
       events: [
         { id: 3, runId: 1, kind: 'spawn_failed', note: error, trigger: null, createdAt: nowS - 120 },
@@ -236,6 +264,48 @@ describe('TaskPane controls', () => {
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'archive' }));
     fireEvent.click(within(card).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'resume' }));
+  });
+
+  it('offers a scratch workspace instead of Retry when the board can\'t build the workspace', async () => {
+    const error = "workspace: task t_1 has workspace_kind=worktree but no workspace_path";
+    show(summary({ status: 'blocked', failures: 1 }), {
+      events: [
+        { id: 5, runId: 2, kind: 'gave_up', note: error, trigger: 'spawn_failed', retryable: false, createdAt: nowS - 60 },
+      ],
+    });
+    const card = await screen.findByRole('region', { name: 'Gave up' });
+    await waitFor(() => expect(card.textContent).toContain("can't set up the workspace"));
+    expect(card.textContent).toContain('at the first try');
+    expect(within(card).queryByRole('button', { name: 'Retry' })).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'Run in a scratch workspace' }));
+    await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'run-in-scratch' }));
+  });
+
+  it('offers Retry for a retryable spawn failure, even with a workspace error', async () => {
+    const error = 'workspace: git worktree add failed: index.lock exists';
+    show(summary({ status: 'blocked', failures: 2 }), {
+      events: [
+        { id: 5, runId: 2, kind: 'gave_up', note: error, trigger: 'spawn_failed', createdAt: nowS - 60 },
+      ],
+    });
+    const card = await screen.findByRole('region', { name: 'Gave up' });
+    expect(within(card).getByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: 'Run in a scratch workspace' })).toBeNull();
+  });
+
+  it('says when the board gave up at the first try on a failure that cannot heal', async () => {
+    const error = 'credential: the provider key for this profile was revoked';
+    show(summary({ status: 'blocked', failures: 1 }), {
+      events: [
+        { id: 5, runId: 1, kind: 'gave_up', note: error, trigger: 'crashed', retryable: false, createdAt: nowS - 60 },
+      ],
+    });
+    const card = await screen.findByRole('region', { name: 'Gave up' });
+    expect(within(card).queryByRole('button', { name: 'Run in a scratch workspace' })).toBeNull();
+    await waitFor(() => expect(card.textContent).toContain("It can't start until its workspace or configuration changes"));
+    expect(card.textContent).not.toContain('again');
+    expect(within(card).getByText(error)).toBeTruthy();
+    expect(screen.getByText("Gave up: can't start as it is", { selector: '.wb-task-tl-label' })).toBeTruthy();
   });
 
   it('keeps the board\'s refusal on screen', async () => {

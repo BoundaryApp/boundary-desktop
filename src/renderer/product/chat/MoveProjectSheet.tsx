@@ -184,8 +184,10 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
           </span>
         )}
         <span className="wb-proj-copy">
-          <span className="name">{project?.name ?? 'No project'}</span>
-          <span className="path mono">
+          <span className="name" title={project?.name ?? 'No project'}>
+            {project?.name ?? 'No project'}
+          </span>
+          <span className="path mono" title={project ? displayHostPath(project.hostPath) : undefined}>
             {project ? displayHostPath(project.hostPath) : 'No folder'}
           </span>
         </span>

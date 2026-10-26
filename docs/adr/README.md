@@ -17,7 +17,8 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
     │    │    └── 0028 Coding folders (L)
  │    │    ├── 0014 Tabbed inspector (J)
  │    │    ├── 0020 Centered transcript column
- │    │    │    └── 0021 Right-aligned user turns and message hover rows
+ │    │    │    ├── 0021 Right-aligned user turns and message hover rows
+ │    │    │    └── 0030 Hermes's board is a view of Tasks
  │    │    └── 0018 Design tokens and primitives
  │    │         └── 0019 Onboarding in the workbench frame
  │    │              └── 0029 A full-window start-up screen (supersedes 0019 §6)
@@ -69,6 +70,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0027](0027-host-bridge.md) | Accepted | A host bridge gives Hermes the host's browser and capabilities |
 | [0028](0028-coding-folders.md) | Proposed · amended 2026-10-07 | Coding folders: the coding agent works in folders the user grants |
 | [0029](0029-full-window-startup-screen.md) | Proposed | A full-window start-up screen |
+| [0030](0030-board-is-a-view-of-tasks.md) | Proposed | Hermes's board is a view of Tasks |
 
 ## Host bridge research
 

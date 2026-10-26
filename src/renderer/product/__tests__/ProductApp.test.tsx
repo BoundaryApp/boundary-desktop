@@ -134,4 +134,62 @@ describe('ProductApp gating', () => {
     expect(screen.getByText('quit-overlay')).toBeTruthy();
     expect(screen.getByText('chat-workbench')).toBeTruthy();
   });
+
+  it('keeps the start-up screen up while folders from setup become projects, then opens chat', async () => {
+    let finish: () => void = () => undefined;
+    const applyFirstRunFolders = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          finish = () => resolve(null);
+        })
+    );
+    const pending = {
+      allComplete: true,
+      assistantStackStatus: { setupComplete: true, ready: true },
+      setupProgress: {
+        completedBeforeOptionalSteps: false,
+        hadProjectsBeforeOptionalSteps: false,
+        outcomes: { folders: 'done' },
+        pendingFolders: [{ kind: 'host-folder', hostPath: '/Users/ada/notes' }],
+      },
+      applyFirstRunFolders,
+    };
+    useSetup.mockReturnValue(pending);
+    useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('ready'));
+
+    const { ProductApp } = await import('../ProductApp');
+    const { rerender } = render(<ProductApp />);
+    expect(screen.getByText('starting-screen')).toBeTruthy();
+    expect(applyFirstRunFolders).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish());
+    useSetup.mockReturnValue({
+      ...pending,
+      setupProgress: { ...pending.setupProgress, pendingFolders: [] },
+    });
+    rerender(<ProductApp />);
+    expect(screen.getByText('chat-workbench')).toBeTruthy();
+    expect(applyFirstRunFolders).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the stack before creating projects from setup', async () => {
+    const applyFirstRunFolders = vi.fn().mockResolvedValue(null);
+    useSetup.mockReturnValue({
+      allComplete: true,
+      assistantStackStatus: { setupComplete: true, ready: false },
+      setupProgress: {
+        completedBeforeOptionalSteps: false,
+        hadProjectsBeforeOptionalSteps: false,
+        outcomes: { folders: 'done' },
+        pendingFolders: [{ kind: 'empty', name: 'Trip planning' }],
+      },
+      applyFirstRunFolders,
+    });
+    useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('starting'));
+
+    const { ProductApp } = await import('../ProductApp');
+    render(<ProductApp />);
+    expect(screen.getByText('starting-screen')).toBeTruthy();
+    expect(applyFirstRunFolders).not.toHaveBeenCalled();
+  });
 });

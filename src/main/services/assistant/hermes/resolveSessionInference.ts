@@ -37,10 +37,10 @@ function buildResolved(
   };
 }
 
-function resolveAppDefault(): ResolvedSessionInference | null {
+async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
   const appDefault = getAppDefaultSlot();
   if (!appDefault) return null;
-  const connection = getSlotLlmConnection(appDefault);
+  const connection = await getSlotLlmConnection(appDefault);
   if (!connection) {
     return {
       slot: appDefault,
@@ -61,12 +61,12 @@ function resolveAppDefault(): ResolvedSessionInference | null {
  * the chat will start in the rail's project, so that pin shows.
  * `getLlmConnection()` stays the machine default — do not call this from Settings apply.
  */
-export function resolveSessionInference(
+export async function resolveSessionInference(
   sessionId?: string | null
-): ResolvedSessionInference | null {
+): Promise<ResolvedSessionInference | null> {
   const override = sessionId ? getSessionInference(sessionId) : null;
   if (override) {
-    const connection = getSlotLlmConnection(override.provider);
+    const connection = await getSlotLlmConnection(override.provider);
     if (connection) {
       const modelId = override.modelId.trim() || connection.modelId;
       return buildResolved(
@@ -81,7 +81,7 @@ export function resolveSessionInference(
   const project = projectId ? getStoredHermesProject(projectId) : null;
   const pin = project?.inference;
   if (pin && pin.mode !== 'inherit') {
-    const connection = getSlotLlmConnection(pin.mode);
+    const connection = await getSlotLlmConnection(pin.mode);
     if (connection) {
       const modelId = pin.modelId?.trim() || connection.modelId;
       return buildResolved(

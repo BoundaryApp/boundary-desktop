@@ -33,7 +33,7 @@ export const ServiceProgressCards: React.FC<ServiceProgressCardsProps> = ({
   }
 
   return (
-    <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid w-full grid-cols-2 gap-2">
       {services.map((service) => {
         const highWater = Math.max(
           highWaterRef.current[service.id] ?? 0,

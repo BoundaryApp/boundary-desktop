@@ -53,7 +53,9 @@ function ProjectTag({ project }: { project: HermesProjectRecord | null }) {
       ) : (
         <span className="wb-glyph wb-glyph-inline is-none">–</span>
       )}
-      <span className="wb-all-project-name">{project?.name ?? 'No project'}</span>
+      <span className="wb-all-project-name" title={project?.name ?? 'No project'}>
+        {project?.name ?? 'No project'}
+      </span>
     </span>
   );
 }
@@ -145,11 +147,6 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
           </span>
           <span className="wb-thread-id-copy">
             <strong>All chats</strong>
-            <span className="wb-thread-kind">
-              {showProjects
-                ? 'Every conversation, across every project'
-                : `Everything you’ve said to ${hermesName} and its agents`}
-            </span>
           </span>
         </div>
       </div>
@@ -186,6 +183,9 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
             <select
               className="wb-all-select"
               aria-label="Agent"
+              title={
+                agentChoices.find((a) => a.slug === filter.agentSlug)?.displayName ?? 'Any agent'
+              }
               value={filter.agentSlug ?? ''}
               onChange={(e) => set({ agentSlug: e.target.value || null })}
             >
@@ -200,6 +200,11 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
               <select
                 className="wb-all-select"
                 aria-label="Project"
+                title={
+                  filter.project === NO_PROJECT_FILTER
+                    ? 'No project'
+                    : (projects.find((p) => p.id === filter.project)?.name ?? 'Any project')
+                }
                 value={filter.project ?? ''}
                 onChange={(e) => set({ project: e.target.value || null })}
               >
@@ -216,6 +221,7 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
               <select
                 className="wb-all-select"
                 aria-label="Source"
+                title={filter.source ?? 'Any source'}
                 value={filter.source ?? ''}
                 onChange={(e) => set({ source: e.target.value || null })}
               >
@@ -280,10 +286,13 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                         size={24}
                       />
                       <span className="wb-all-copy">
-                        <span className={`wb-jump-title${kind === 'channel' ? ' mono' : ''}`}>
+                        <span
+                          className={`wb-jump-title${kind === 'channel' ? ' mono' : ''}`}
+                          title={conversationTitle(thread, agents)}
+                        >
                           {conversationTitle(thread, agents)}
                         </span>
-                        <span className="wb-jump-meta">
+                        <span className="wb-jump-meta" title={conversationMeta(thread, agents, findThread)}>
                           {conversationMeta(thread, agents, findThread)}
                         </span>
                       </span>
@@ -302,7 +311,12 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                         ) : (
                           // A DM is never filed; say where its agent works (ADR 0024 §7).
                           <span className="wb-all-project is-none">
-                            {projectOf(thread) ? `Works in ${projectOf(thread)!.name}` : 'No folder'}
+                            <span
+                              className="wb-all-project-name"
+                              title={projectOf(thread) ? `Works in ${projectOf(thread)!.name}` : undefined}
+                            >
+                              {projectOf(thread) ? `Works in ${projectOf(thread)!.name}` : 'No folder'}
+                            </span>
                           </span>
                         )
                       ) : null}

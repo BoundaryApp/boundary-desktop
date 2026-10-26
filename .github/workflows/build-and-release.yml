@@ -1,7 +1,10 @@
 name: Build and Release
 
+# A push to main releases package.json's version when it has no tag yet; other pushes to main
+# do nothing past the version job. Tag pushes and manual runs release the version they name.
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -15,7 +18,42 @@ permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Decide the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          package_version="v$(node -p "require('./package.json').version")"
+          release=true
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${package_version}"
+            if git ls-remote --exit-code --tags origin "refs/tags/${version}" >/dev/null; then
+              echo "${version} is already tagged; nothing to release."
+              release=false
+            fi
+          fi
+          if [ "${release}" = true ] && [ "${version}" != "${package_version}" ]; then
+            echo "::warning::Releasing ${version}, but package.json says ${package_version}, which is the version the app reports."
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "release=${release}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
+    if: needs.version.outputs.release == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -37,7 +75,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -45,7 +83,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -58,7 +96,7 @@ jobs:
 
       - name: Import Code Signing Certificate (macOS)
         if: matrix.os == 'macos-latest'
-        uses: Apple-Actions/import-codesign-certs@v2
+        uses: Apple-Actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.MAC_CERTS }}
           p12-password: ${{ secrets.MAC_CERTS_PASSWORD }}
@@ -76,9 +114,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Boundary-${{ matrix.artifact-name }}-${{ github.ref_name }}
+          name: Boundary-${{ matrix.artifact-name }}-${{ needs.version.outputs.version }}
           path: |
             out/make/**/*.dmg
             out/make/**/*.zip
@@ -90,16 +128,16 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: needs.version.outputs.release == 'true'
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ./artifacts
 
@@ -118,22 +156,15 @@ jobs:
 
           ls -la ./release-assets/
 
-      - name: Get version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: Boundary ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.version.outputs.version }}
+          # Tags the commit that was built when the tag doesn't exist yet.
+          target_commitish: ${{ github.sha }}
+          name: Boundary ${{ needs.version.outputs.version }}
           body: |
-            ## Boundary ${{ steps.version.outputs.version }}
+            ## Boundary ${{ needs.version.outputs.version }}
 
             ### Downloads
 
@@ -159,6 +190,6 @@ jobs:
             - For .rpm: `sudo rpm -i Boundary-*.rpm`
           files: ./release-assets/*
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+          prerelease: ${{ contains(needs.version.outputs.version, 'alpha') || contains(needs.version.outputs.version, 'beta') || contains(needs.version.outputs.version, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

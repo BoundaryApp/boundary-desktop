@@ -3,7 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { checkBridgeRequest, type GuardFailure } from './requestGuard';
-import { handleMcpMessage, isReply, parseJsonRpc, type CallTool } from './mcpProtocol';
+import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools } from './mcpProtocol';
 
 /**
  * The bridge's two loopback listeners (ADR 0027 §1–2). Plain Node, so tests drive it with real
@@ -25,6 +25,8 @@ export interface BridgeServerOptions {
   mcpPort?: number;
   browserPort?: number;
   callTool: CallTool;
+  /** What `tools/list` returns; the static catalog without `offer_setup` when left out. */
+  listTools?: ListTools;
   /** Boundary's Chrome. Without one, browser upgrades are refused with 503. */
   browserRelay?: BrowserUpgradeTarget;
   log?: (message: string, data?: Record<string, unknown>) => void;
@@ -165,7 +167,7 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       const header = req.headers['mcp-session-id'];
       const sessionId = parsed.method === 'initialize' ? randomUUID() : typeof header === 'string' ? header : null;
       options.onMcpMethod?.(parsed.method, sessionId);
-      const reply = await handleMcpMessage(parsed, options.callTool);
+      const reply = await handleMcpMessage(parsed, options.callTool, options.listTools);
       const issue = parsed.method === 'initialize' && reply.status === 200 && sessionId;
       sendJson(res, reply.status, reply.body, issue ? { 'mcp-session-id': sessionId } : {});
     } catch (err) {

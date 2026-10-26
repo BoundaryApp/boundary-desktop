@@ -17,6 +17,7 @@ import type {
   HermesProjectTreeResult,
   ProjectInferencePin,
 } from '../../../../shared/types/hermesChat';
+import type { FirstRunFolder } from '../../../../shared/types/setupProgress';
 import { getSlotLlmConnection } from '../../onboarding/OpenAiOnboardingStore';
 import { recreateHermesForProjectMounts } from '../AssistantStackService';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
@@ -39,6 +40,7 @@ import {
   writeHermesProjectsOverlay,
 } from './hermesProjectsOverlay';
 import { syncProjectsFromGateway } from './hermesProjectsMerge';
+import { areProjectFoldersMounted, recordMountedProjectFolders } from './projectMountState';
 import { samePath } from './projectSourcesModel';
 import { scheduleCodingRemount } from '../coding/codingGrants';
 import { persistCodingStackEnv } from '../coding/codingMounts';
@@ -87,6 +89,9 @@ export async function syncOverlayAndRecreate(options?: {
         ),
       };
     }
+    recordMountedProjectFolders(
+      projects.filter((project) => project.kind === 'host-folder').map((project) => project.hostPath)
+    );
     return { success: true };
   } finally {
     connecting = false;
@@ -185,6 +190,28 @@ export async function pickHermesProjectFolder(): Promise<{
   return { success: true, hostPath: result.filePaths[0] };
 }
 
+function hostFolderRecord(
+  hostPath: string,
+  name?: string,
+  inference?: ProjectInferencePin
+): HermesProjectRecord {
+  const projectName = (name?.trim() || defaultProjectNameFromHostPath(hostPath)).trim();
+  const slug = uniqueProjectSlug(projectName, listStoredHermesProjects());
+  const now = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    name: projectName,
+    hostPath,
+    containerPath: containerPathForSlug(slug),
+    slug,
+    kind: 'host-folder',
+    hermesProjectId: `fs:${containerPathForSlug(slug)}`,
+    inference: inference ?? { mode: 'inherit' },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export async function createHostFolderHermesProject(
   payload: HermesProjectCreateHostPayload
 ): Promise<HermesProjectResult> {
@@ -193,23 +220,7 @@ export async function createHostFolderHermesProject(
     return { success: false, error: `Folder not found: ${hostPath}` };
   }
 
-  const existing = listStoredHermesProjects();
-  const name = (payload.name?.trim() || defaultProjectNameFromHostPath(hostPath)).trim();
-  const slug = uniqueProjectSlug(name, existing);
-  const now = new Date().toISOString();
-  const project: HermesProjectRecord = {
-    id: randomUUID(),
-    name,
-    hostPath,
-    containerPath: containerPathForSlug(slug),
-    slug,
-    kind: 'host-folder',
-    hermesProjectId: `fs:${containerPathForSlug(slug)}`,
-    inference: payload.inference ?? { mode: 'inherit' },
-    createdAt: now,
-    updatedAt: now,
-  };
-
+  const project = hostFolderRecord(hostPath, payload.name, payload.inference);
   upsertStoredHermesProject(project);
   setActiveHermesProjectId(project.id);
 
@@ -293,6 +304,79 @@ export async function createEmptyHermesProject(
   };
 }
 
+/**
+ * Save the setup flow's folder picks as projects before the stack is up, so the first
+ * `compose up` mounts them (first-run spec, decision 4). Gateway registration waits for
+ * {@link applyFirstRunHermesProjects}. A folder that is already a project is reused.
+ */
+export function stageHostFolderHermesProjects(
+  hostPaths: readonly string[]
+): HermesProjectRecord[] {
+  return hostPaths.map((raw) => {
+    const hostPath = path.resolve(raw);
+    const existing = listStoredHermesProjects().find(
+      (project) => project.kind === 'host-folder' && samePath(project.hostPath, hostPath)
+    );
+    if (existing) return existing;
+    const project = hostFolderRecord(hostPath);
+    upsertStoredHermesProject(project);
+    return project;
+  });
+}
+
+/**
+ * Create the Folders step's projects once the stack is ready: at most one recreate (none when
+ * the first `up` already mounted the folders), each project registered with the gateway, and
+ * the first pick selected.
+ */
+export async function applyFirstRunHermesProjects(
+  folders: readonly FirstRunFolder[]
+): Promise<{ success: boolean; error?: string; activeId: string | null }> {
+  const hostPaths = folders.flatMap((folder) =>
+    folder.kind === 'host-folder' ? [folder.hostPath] : []
+  );
+  const staged = stageHostFolderHermesProjects(hostPaths);
+  if (hostPaths.length > 0 && !areProjectFoldersMounted(hostPaths)) {
+    const mount = await syncOverlayAndRecreate({ mountLabel: hostPaths.join(', ') });
+    if (!mount.success) {
+      return { success: false, error: mount.error, activeId: getActiveHermesProjectId() };
+    }
+  }
+
+  const ordered: HermesProjectRecord[] = [];
+  let stagedIndex = 0;
+  for (const folder of folders) {
+    if (folder.kind === 'host-folder') {
+      ordered.push(staged[stagedIndex++]);
+      continue;
+    }
+    const created = await createEmptyHermesProject({ name: folder.name });
+    if (!created.success || !created.project) {
+      return {
+        success: false,
+        error: created.error ?? `Could not create ${folder.name}.`,
+        activeId: getActiveHermesProjectId(),
+      };
+    }
+    ordered.push(created.project);
+  }
+  if (ordered.length === 0) return { success: true, activeId: getActiveHermesProjectId() };
+
+  // The first pick goes last, so it ends up as the gateway's active project too.
+  for (const project of [...ordered.slice(1), ordered[0]]) {
+    const rpc = await activateOnGateway(project);
+    if (rpc.hermesProjectId && rpc.hermesProjectId !== project.hermesProjectId) {
+      upsertStoredHermesProject({
+        ...project,
+        hermesProjectId: rpc.hermesProjectId,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+  setActiveHermesProjectId(ordered[0].id);
+  return { success: true, activeId: ordered[0].id };
+}
+
 export async function selectHermesProject(
   payload: HermesProjectSelectPayload
 ): Promise<HermesProjectResult> {
@@ -339,9 +423,9 @@ export async function selectHermesProject(
   };
 }
 
-function normalizeProjectInference(
+async function normalizeProjectInference(
   pin: ProjectInferencePin
-): { ok: true; inference: ProjectInferencePin } | { ok: false; error: string } {
+): Promise<{ ok: true; inference: ProjectInferencePin } | { ok: false; error: string }> {
   if (pin.mode === 'inherit') {
     return {
       ok: true,
@@ -356,7 +440,7 @@ function normalizeProjectInference(
   if (pin.mode !== 'local' && pin.mode !== 'openrouter') {
     return { ok: false, error: 'Invalid inference mode.' };
   }
-  const connection = getSlotLlmConnection(pin.mode);
+  const connection = await getSlotLlmConnection(pin.mode);
   if (!connection) {
     return { ok: false, error: 'That provider is not connected.' };
   }
@@ -379,14 +463,14 @@ function normalizeProjectInference(
 /**
  * Patch project inference pin. Does not remount or restart Hermes.
  */
-export function patchHermesProject(
+export async function patchHermesProject(
   payload: HermesProjectPatchPayload
-): HermesProjectResult {
+): Promise<HermesProjectResult> {
   const project = getStoredHermesProject(payload.projectId);
   if (!project) {
     return { success: false, error: 'Project not found.' };
   }
-  const normalized = normalizeProjectInference(payload.inference);
+  const normalized = await normalizeProjectInference(payload.inference);
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.
   if (normalized.ok === false) {
     return {

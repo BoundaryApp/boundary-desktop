@@ -37,6 +37,8 @@ export function buildSovereignSetupArgs(options: {
     '--rag',
     '--automation',
     '--coding',
+    // Shared Postgres + SQL MCP: adds db to COMPOSE_PROFILES and sets SQL_MCP_ENABLED=1.
+    '--db',
     '--non-interactive',
     '--workspace',
     options.workspace ?? BOUNDARY_SETUP_WORKSPACE,

@@ -1,5 +1,6 @@
 import type {
   HermesApprovalChoice,
+  HermesApprovalMcpCall,
   HermesChatApprovalEvent,
   HermesChatApprovalRespondPayload,
 } from '../../../../shared/types/hermesChat';
@@ -47,6 +48,21 @@ export function filterApprovalChoices(
   return filtered.length > 0 ? filtered : ['once', 'deny'];
 }
 
+/** The `mcp` block of an approval, or undefined when it's missing or malformed. */
+export function parseApprovalMcp(value: unknown): HermesApprovalMcpCall | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.server !== 'string' || !raw.server) return undefined;
+  if (typeof raw.tool !== 'string' || !raw.tool) return undefined;
+  const args = raw.arguments;
+  return {
+    server: raw.server,
+    tool: raw.tool,
+    arguments: args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : null,
+    ...(typeof raw.tool_call_id === 'string' ? { toolCallId: raw.tool_call_id } : {}),
+  };
+}
+
 export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalEvent | null {
   if (request.method !== 'approval') return null;
 
@@ -66,6 +82,7 @@ export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalE
   const smartDenied = params.smart_denied === true;
   const patternKey =
     typeof params.pattern_key === 'string' ? params.pattern_key : undefined;
+  const mcp = parseApprovalMcp(params.mcp);
 
   const event: HermesChatApprovalEvent = {
     rpcRequestId: request.id,
@@ -85,6 +102,7 @@ export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalE
     smartDenied: smartDenied || undefined,
     patternKey,
     replayed: Boolean(request.replayed),
+    ...(mcp ? { mcp } : {}),
   };
 
   pendingByRpcId.set(request.id, { request, event });

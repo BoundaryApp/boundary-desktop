@@ -2,15 +2,28 @@
 
 .su-root {
   position: fixed;
+  --su-panel-w: 480px;
   inset: 0;
   display: flex;
-  overflow-y: auto;
+  overflow: hidden; /* everything fits the window; nothing on this screen scrolls it */
   background: var(--surface-0);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: var(--size-ui);
   line-height: var(--leading-ui);
   -webkit-app-region: drag; /* the whole screen moves the window */
+  transition: padding-right var(--dur-panel) var(--ease);
+}
+
+/* Wide enough: the column moves over and the details panel docks beside it. */
+@media (min-width: 1000px) {
+  .su-root:has(.su-panel) {
+    padding-right: var(--su-panel-w);
+  }
+
+  .su-root:has(.su-panel) .su-top {
+    right: var(--su-panel-w);
+  }
 }
 
 .su-root :is(button, a, summary, [role='button']) {
@@ -536,7 +549,8 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Disclosures ------------------------------------------------------------- */
+/* Disclosures. Neither one changes the column's height: the why text is a
+   popover and details open in a side panel. ------------------------------- */
 
 .su-why,
 .su-details {
@@ -545,7 +559,6 @@
   color: var(--text-faint);
 }
 
-.su-why summary,
 .su-disclosure {
   display: inline-flex;
   align-items: center;
@@ -561,57 +574,159 @@
   transition: color var(--dur-fast) var(--ease);
 }
 
-.su-why summary::-webkit-details-marker {
-  display: none;
-}
-
-.su-why summary:hover,
-.su-disclosure:hover {
+.su-disclosure:hover,
+.su-disclosure[aria-expanded='true'] {
   color: var(--text-muted);
 }
 
-.su-why summary:focus-visible,
 .su-disclosure:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
 
-.su-why summary svg,
 .su-disclosure svg {
   width: 14px;
   height: 14px;
   transition: transform var(--dur-fast) var(--ease);
 }
 
-.su-why[open] summary svg,
-.su-disclosure[aria-expanded='true'] svg {
-  transform: rotate(90deg);
+/* The why text opens upward; details point at the panel they opened. */
+.su-why .su-disclosure[aria-expanded='true'] svg {
+  transform: rotate(-90deg);
+}
+
+.su-details .su-disclosure[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .su-why {
+  position: relative;
   text-align: center;
 }
 
-.su-why p {
-  margin: var(--space-2) 0 0;
+.su-why-popover {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  right: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  padding: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popover);
   text-align: left;
+  -webkit-app-region: no-drag;
+  animation: su-pop-up 160ms var(--ease) both;
+}
+
+.su-why-popover p {
+  margin: 0;
   color: var(--text-muted);
   line-height: 1.55;
 }
 
-.su-details {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
+@keyframes su-pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
+.su-details {
+  display: flex;
+  justify-content: center;
+}
+
+.su-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 2;
+  width: min(var(--su-panel-w), 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface-1);
+  text-align: left;
+  -webkit-app-region: no-drag;
+  animation: su-panel-in var(--dur-panel) var(--ease) both;
+}
+
+/* Narrow window: the panel covers the column, so it gets a shadow to read as on top. */
+@media (max-width: 999px) {
+  .su-panel {
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+@keyframes su-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.su-panel-head {
+  flex-shrink: 0;
+  height: 52px; /* level with the title bar */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+}
+
+.su-panel-head h2 {
+  margin: 0;
+  font-size: var(--size-ui);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+
+.su-panel-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.su-panel-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.su-panel-close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.su-panel-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The panel is the window's full height; only its own body scrolls, and only
+   in a window too short for the cards. */
 .su-details-body {
-  width: min(720px, 100vw - 2 * var(--space-6));
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  -webkit-app-region: no-drag;
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-faint);
 }
 
 .su-log {
@@ -637,13 +752,25 @@
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--surface-1);
+  background: var(--surface-0);
   font-family: var(--font-mono);
   font-size: var(--size-xs);
   color: var(--text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+
+/* Short window: shrink the ring and spacing so the column still fits. */
+@media (max-height: 780px) {
+  .su-column {
+    padding: var(--space-6) 0;
+    gap: var(--space-3);
+  }
+
+  .su-ring {
+    zoom: 0.75;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

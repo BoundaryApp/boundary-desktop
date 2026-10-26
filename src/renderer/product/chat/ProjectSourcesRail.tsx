@@ -310,11 +310,13 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           ) : null}
         </span>
         <span>
-          <span className="who-name">{project.name}</span>
+          <span className="who-name" title={project.name}>
+            {project.name}
+          </span>
           <button
             type="button"
             className="who-meta mono"
-            title="Open in Finder"
+            title={`Open ${displayHostPath(project.hostPath)} in Finder`}
             onClick={onRevealHub}
           >
             {displayHostPath(project.hostPath)}
@@ -604,8 +606,12 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <React.Fragment key={row.id}>
           <div className={`wb-src${view.pill.tone === 'busy' ? ' is-fresh' : ''}`}>
             <div className="wb-src-main">
-              <span className="id">{row.id}</span>
-              <span className="path mono">{sourcePathLabel(row)}</span>
+              <span className="id" title={row.id}>
+                {row.id}
+              </span>
+              <span className="path mono" title={sourcePathLabel(row)}>
+                {sourcePathLabel(row)}
+              </span>
               {view.who ? <span className="wb-src-who">{view.who}</span> : null}
             </div>
             <span className="wb-src-meta">

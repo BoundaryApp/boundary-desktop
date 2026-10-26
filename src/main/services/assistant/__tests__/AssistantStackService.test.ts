@@ -86,7 +86,7 @@ describe('AssistantStackService helpers', () => {
     ]);
   });
 
-  it('builds multi-profile compose args for core+rag+automation+coding', () => {
+  it('builds multi-profile compose args for core+rag+automation+coding+db', () => {
     const args = buildComposeProfileArgs();
     expect(args).toEqual([
       '--profile',
@@ -97,8 +97,16 @@ describe('AssistantStackService helpers', () => {
       'automation',
       '--profile',
       'coding',
+      '--profile',
+      'db',
     ]);
-    expect(BOUNDARY_ASSISTANT_COMPOSE_PROFILES).toEqual(['core', 'rag', 'automation', 'coding']);
+    expect(BOUNDARY_ASSISTANT_COMPOSE_PROFILES).toEqual([
+      'core',
+      'rag',
+      'automation',
+      'coding',
+      'db',
+    ]);
     expect(__test.buildComposeProfileArgs()).toEqual(args);
   });
 });

@@ -15,13 +15,13 @@ function urlsMatch(left: string | undefined, right: string | undefined): boolean
 }
 
 export async function probeSlotHealth(slot: InferenceSlotId): Promise<ProbeSlotHealthResult> {
-  const material = getSlotConnectionMaterial(slot);
+  const material = await getSlotConnectionMaterial(slot);
   if (!material) {
     setSlotHealth(slot, 'unknown');
     return {
       success: false,
       health: 'unknown',
-      status: getOpenAiOnboardingStatus(),
+      status: await getOpenAiOnboardingStatus(),
       error: 'That provider is not connected.',
     };
   }
@@ -34,10 +34,10 @@ export async function probeSlotHealth(slot: InferenceSlotId): Promise<ProbeSlotH
     if (match) {
       markSlotLastSeen(slot);
       setSlotHealth(slot, 'reachable');
-      return { success: true, health: 'reachable', status: getOpenAiOnboardingStatus() };
+      return { success: true, health: 'reachable', status: await getOpenAiOnboardingStatus() };
     }
     setSlotHealth(slot, 'unreachable');
-    return { success: true, health: 'unreachable', status: getOpenAiOnboardingStatus() };
+    return { success: true, health: 'unreachable', status: await getOpenAiOnboardingStatus() };
   }
 
   const listed = await listEndpointModels({
@@ -53,12 +53,12 @@ export async function probeSlotHealth(slot: InferenceSlotId): Promise<ProbeSlotH
     return {
       success: true,
       health,
-      status: getOpenAiOnboardingStatus(),
+      status: await getOpenAiOnboardingStatus(),
       error: listed.error,
     };
   }
 
   markSlotLastSeen(slot);
   setSlotHealth(slot, 'reachable');
-  return { success: true, health: 'reachable', status: getOpenAiOnboardingStatus() };
+  return { success: true, health: 'reachable', status: await getOpenAiOnboardingStatus() };
 }

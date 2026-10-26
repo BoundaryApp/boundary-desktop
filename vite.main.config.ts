@@ -18,7 +18,6 @@ export default defineConfig({
         'electron',
         'dockerode',
         'ssh2',
-        'playwright',
         'fs',
         'path',
         'crypto',
@@ -48,6 +47,6 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['dockerode', 'ssh2', 'playwright']
+    exclude: ['dockerode', 'ssh2']
   }
 });

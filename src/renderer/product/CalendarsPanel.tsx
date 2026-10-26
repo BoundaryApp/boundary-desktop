@@ -15,8 +15,9 @@ import { calendarIPC } from '../services/calendarIPCService';
 import { hermesChatIPC } from '../services/hermesChatIPCService';
 import { cloudInferenceNotice } from './cloudInferenceCopy';
 import { useEscapeToClose } from './useAppShortcuts';
+import { InfoTip } from '../components/ui/info-tip';
 
-/** Settings → Calendars (docs/calendar-ux-study/spec.md, Phase 1). */
+/** Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). */
 
 interface ProviderOption {
   id: CalendarProvider;
@@ -82,6 +83,20 @@ const STEP_LABELS: Array<{ step: CalendarProgressStep; label: string }> = [
   { step: 'checking', label: 'Checking Hermes can read it' },
 ];
 
+const ACCESS_LEVELS: Array<{ level: CalendarAccess; label: string }> = [
+  { level: 'off', label: 'Off' },
+  { level: 'read', label: 'Read' },
+  { level: 'change', label: 'Read and change' },
+];
+
+/** Why a provider usually stops accepting a password that used to work. */
+const BROKEN_CAUSE: Record<CalendarProvider, string> = {
+  icloud: 'This usually happens after an Apple ID password change, which cancels every app-specific password.',
+  fastmail: 'This usually means the app password was revoked in Fastmail’s Privacy & Security settings.',
+  nextcloud: 'This usually means the app password was revoked under Devices & sessions in Nextcloud.',
+  other: 'This usually means the password was changed on the server.',
+};
+
 function providerOf(id: CalendarProvider): ProviderOption {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[3];
 }
@@ -94,6 +109,13 @@ function slugOf(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function shortDate(at: string | null | undefined): string {
+  if (!at) return '';
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function checkedAgo(at: string | undefined): string {
   if (!at) return '';
   const date = new Date(at);
@@ -101,14 +123,24 @@ function checkedAgo(at: string | undefined): string {
   return `Checked ${date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
 }
 
-type SheetState = { mode: 'connect' } | { mode: 'access'; account: CalendarAccountView };
+type SheetState =
+  /** `fromChat`: opened by the chat's Connect a calendar card; closing it goes back there. */
+  | { mode: 'connect'; fromChat?: boolean }
+  | { mode: 'access'; account: CalendarAccountView }
+  | { mode: 'password'; account: CalendarAccountView };
 
-export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cloudProvider }) => {
+export const CalendarsPanel: React.FC<{
+  cloudProvider?: string | null;
+  /** Set when the chat's Connect calendar opened Settings: the sheet starts open and this runs if it's closed. */
+  onConnectFromChatClosed?: () => void;
+}> = ({ cloudProvider, onConnectFromChatClosed }) => {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [accounts, setAccounts] = useState<CalendarAccountView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<SheetState | null>(null);
+  const [sheet, setSheet] = useState<SheetState | null>(() =>
+    onConnectFromChatClosed ? { mode: 'connect', fromChat: true } : null
+  );
   const [toast, setToast] = useState<string | null>(null);
   /** A connect or access change in flight: the slug and its last step. */
   const [working, setWorking] = useState<{ slug: string; step: CalendarProgressStep } | null>(null);
@@ -131,11 +163,22 @@ export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cl
         if (alive && result.success) setAgents(result.agents);
       })
       .catch((): void => undefined);
-    void refresh();
+    void refresh().then(() => {
+      // Test every sign-in when the tab opens (spec Phase 2, item 3). Cards show the stored
+      // result until this finishes.
+      void calendarIPC
+        .recheckAll()
+        .then((result) => {
+          if (alive && result.success) setAccounts(result.accounts);
+        })
+        .catch((): void => undefined);
+    });
     return () => {
       alive = false;
     };
   }, [refresh]);
+
+  useEffect(() => calendarIPC.onChanged(() => void refresh()), [refresh]);
 
   useEffect(
     () =>
@@ -167,9 +210,11 @@ export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cl
     <div className="wb-vault wb-cal">
       <div className="wb-vault-toolbar">
         <p className="wb-inference-lead">
-          Connect a calendar so your agents can read your schedule. Boundary connects over CalDAV,
-          which iCloud, Fastmail and Nextcloud all support. Each agent gets only the calendars you
-          give it.
+          Calendars your agents can read or change.
+          <InfoTip label="calendars">
+            Boundary connects over CalDAV, which iCloud, Fastmail and Nextcloud all support. Each agent
+            gets only the calendars you give it.
+          </InfoTip>
         </p>
         <span className="wb-vault-grow" />
         {accounts.length > 0 ? (
@@ -197,11 +242,6 @@ export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cl
       ) : accounts.length === 0 && !working ? (
         <div className="wb-vault-list wb-vault-empty">
           <h3>No calendars connected</h3>
-          <ol>
-            <li>Pick where your calendar lives.</li>
-            <li>Sign in with an app password from that provider.</li>
-            <li>Choose which agents can read it.</li>
-          </ol>
           <button
             type="button"
             className="wb-btn-solid wb-vault-icon-btn"
@@ -221,6 +261,7 @@ export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cl
               working={working?.slug === account.slug ? working.step : null}
               note={notes[account.slug] || null}
               onChangeAccess={() => setSheet({ mode: 'access', account })}
+              onReplacePassword={() => setSheet({ mode: 'password', account })}
               onChanged={(message) => {
                 setToast(message);
                 void refresh();
@@ -237,7 +278,10 @@ export const CalendarsPanel: React.FC<{ cloudProvider?: string | null }> = ({ cl
           takenSlugs={accounts.map((a) => a.slug)}
           cloudProvider={cloudProvider ?? null}
           working={working?.step ?? null}
-          onCancel={() => setSheet(null)}
+          onCancel={() => {
+            setSheet(null);
+            if (sheet.mode === 'connect' && sheet.fromChat) onConnectFromChatClosed?.();
+          }}
           onDone={finished}
         />
       ) : null}
@@ -257,6 +301,7 @@ function AccountCard({
   working,
   note,
   onChangeAccess,
+  onReplacePassword,
   onChanged,
 }: {
   account: CalendarAccountView;
@@ -264,6 +309,7 @@ function AccountCard({
   working: CalendarProgressStep | null;
   note: string | null;
   onChangeAccess: () => void;
+  onReplacePassword: () => void;
   onChanged: (message: string) => void;
 }) {
   const [busy, setBusy] = useState<'test' | 'remove' | null>(null);
@@ -280,6 +326,14 @@ function AccountCard({
         ? 'Unreachable'
         : 'Connected';
   const withAccess = agents.filter((a) => (account.access[a.slug] ?? 'off') !== 'off');
+  const broken = check?.status === 'rejected' && !working;
+  const subline = working
+    ? ''
+    : broken
+      ? account.lastOkAt
+        ? `Last worked ${shortDate(account.lastOkAt)}`
+        : ''
+      : checkedAgo(check?.at);
 
   const test = async () => {
     setBusy('test');
@@ -318,18 +372,17 @@ function AccountCard({
         <span className={`wb-inference-dot ${tone}`} aria-hidden="true" />
         <h3>{account.name}</h3>
         <span className={`wb-inference-pill ${tone}`}>{pill}</span>
-        <span className="wb-cal-sub">{working ? '' : checkedAgo(check?.at)}</span>
+        <span className="wb-cal-sub">{subline}</span>
       </div>
 
-      {check?.status === 'rejected' && !working ? (
+      {broken ? (
         <div className="wb-inference-banner is-bad" role="alert">
           <p>
-            {provider.label} stopped accepting this password. Agents can’t read {account.name} until
-            you connect it again with a new app password.
-            {account.provider === 'icloud'
-              ? ' Changing your Apple ID password cancels every app-specific password.'
-              : ''}
+            {provider.label} stopped accepting this password
+            {shortDate(check?.at) ? ` on ${shortDate(check?.at)}` : ''}. Agents can’t use{' '}
+            {account.name} until you replace it.
           </p>
+          <p>{BROKEN_CAUSE[account.provider]}</p>
         </div>
       ) : null}
       {check?.status === 'unreachable' && !working ? (
@@ -357,7 +410,9 @@ function AccountCard({
           <dt>Access</dt>
           <dd>
             {withAccess.length
-              ? withAccess.map((a) => `${a.displayName}: read`).join(' · ')
+              ? withAccess
+                  .map((a) => `${a.displayName}: ${account.access[a.slug] === 'change' ? 'read and change' : 'read'}`)
+                  .join(' · ')
               : 'No agent can use it yet'}
           </dd>
           <dt>In chat</dt>
@@ -388,12 +443,23 @@ function AccountCard({
         </div>
       ) : working ? null : (
         <div className="wb-inference-actions">
-          <button type="button" className="wb-inference-btn" disabled={Boolean(busy)} onClick={() => void test()}>
-            {busy === 'test' ? 'Testing…' : 'Test'}
-          </button>
+          {broken ? (
+            <button type="button" className="wb-inference-btn is-solid" disabled={Boolean(busy)} onClick={onReplacePassword}>
+              Replace password
+            </button>
+          ) : (
+            <button type="button" className="wb-inference-btn" disabled={Boolean(busy)} onClick={() => void test()}>
+              {busy === 'test' ? 'Testing…' : 'Test'}
+            </button>
+          )}
           <button type="button" className="wb-inference-btn" disabled={Boolean(busy)} onClick={onChangeAccess}>
             Change access
           </button>
+          {broken ? null : (
+            <button type="button" className="wb-inference-btn" disabled={Boolean(busy)} onClick={onReplacePassword}>
+              Replace password
+            </button>
+          )}
           <button
             type="button"
             className="wb-inference-btn"
@@ -463,10 +529,11 @@ function ConnectSheet({
   onDone: (account: CalendarAccountView | undefined, message: string, note?: string) => void;
 }) {
   const editing = state.mode === 'access' ? state.account : null;
-  const [step, setStep] = useState<1 | 2 | 3>(editing ? 3 : 1);
-  const [provider, setProvider] = useState<CalendarProvider>('icloud');
-  const [server, setServer] = useState('');
-  const [username, setUsername] = useState('');
+  const replacing = state.mode === 'password' ? state.account : null;
+  const [step, setStep] = useState<1 | 2 | 3>(editing ? 3 : replacing ? 2 : 1);
+  const [provider, setProvider] = useState<CalendarProvider>(replacing?.provider ?? 'icloud');
+  const [server, setServer] = useState(replacing?.url ?? '');
+  const [username, setUsername] = useState(replacing?.username ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState(providerOf('icloud').defaultName);
@@ -478,7 +545,8 @@ function ConnectSheet({
   const [access, setAccess] = useState<Record<string, CalendarAccess>>(() =>
     editing
       ? { ...editing.access }
-      : Object.fromEntries(agents.map((a) => [a.slug, a.builtIn ? 'read' : 'off']))
+      : // Hermes starts on Read and change, every other agent on Off (spec decision 5).
+        Object.fromEntries(agents.map((a) => [a.slug, a.builtIn ? 'change' : 'off']))
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -497,7 +565,9 @@ function ConnectSheet({
 
   const option = providerOf(provider);
   const slug = slugOf(name);
-  const nameProblem = !slug
+  const nameProblem = replacing
+    ? null
+    : !slug
     ? 'Give it a name with at least one letter or number.'
     : takenSlugs.includes(slug)
       ? `You already have a calendar called ${name.trim()}.`
@@ -538,6 +608,17 @@ function ConnectSheet({
   const submit = async () => {
     setBusy(true);
     setError(null);
+    if (replacing) {
+      const result = await calendarIPC.replacePassword(replacing.slug, password);
+      setBusy(false);
+      if (!result.success && !result.account) {
+        setError(result.error ?? 'Couldn’t replace the password.');
+        return;
+      }
+      setPassword('');
+      onDone(result.account, `Replaced the ${replacing.name} password`, result.error);
+      return;
+    }
     if (editing) {
       const result = await calendarIPC.setAccess(editing.slug, access);
       setBusy(false);
@@ -570,12 +651,14 @@ function ConnectSheet({
     const hermes = result.account?.access[BUILTIN_ASSISTANT_SLUG];
     onDone(
       result.account,
-      `${name.trim()} connected${hermes && hermes !== 'off' ? '. Hermes can read it.' : '.'}`,
+      `${name.trim()} connected${
+        hermes === 'change' ? '. Hermes can read it and asks before changes.' : hermes === 'read' ? '. Hermes can read it.' : '.'
+      }`,
       result.error
     );
   };
 
-  const shownName = editing ? editing.name : name.trim() || 'this calendar';
+  const shownName = editing ? editing.name : replacing ? replacing.name : name.trim() || 'this calendar';
   const anyAccess = Object.values(access).some((v) => v !== 'off');
   const testLabel = testing
     ? service.kind === 'starting'
@@ -594,7 +677,7 @@ function ConnectSheet({
         aria-labelledby="wb-cal-sheet-title"
       >
         <div className="wb-sheet-kicker">
-          {editing ? 'Access' : `Connect a calendar · ${step} of 3`}
+          {editing ? 'Access' : replacing ? 'Replace password' : `Connect a calendar · ${step} of 3`}
         </div>
 
         {step === 1 ? (
@@ -635,11 +718,14 @@ function ConnectSheet({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (test?.status === 'ok') setStep(3);
-              else void runTest(false);
+              if (test?.status !== 'ok') void runTest(false);
+              else if (replacing) void submit();
+              else setStep(3);
             }}
           >
-            <h2 id="wb-cal-sheet-title">Sign in to {option.label}</h2>
+            <h2 id="wb-cal-sheet-title">
+              {replacing ? `Replace the ${replacing.name} password` : `Sign in to ${option.label}`}
+            </h2>
             <p className="wb-sheet-lede">
               {provider === 'icloud'
                 ? 'iCloud only accepts an app-specific password here. Your Apple ID password won’t work.'
@@ -647,7 +733,7 @@ function ConnectSheet({
             </p>
             <SignInHelp provider={provider} />
 
-            {option.needsServer ? (
+            {option.needsServer && !replacing ? (
               <div className="wb-vault-field">
                 <label htmlFor="wb-cal-server">Server address</label>
                 <input
@@ -668,7 +754,8 @@ function ConnectSheet({
               <input
                 id="wb-cal-user"
                 value={username}
-                autoFocus
+                autoFocus={!replacing}
+                disabled={Boolean(replacing)}
                 autoComplete="off"
                 onChange={(e) => {
                   setUsername(e.target.value);
@@ -682,6 +769,7 @@ function ConnectSheet({
                 <input
                   id="wb-cal-password"
                   className="mono"
+                  autoFocus={Boolean(replacing)}
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   autoComplete="new-password"
@@ -702,22 +790,24 @@ function ConnectSheet({
               </div>
               {passwordProblem ? <p className="wb-sheet-error">{passwordProblem}</p> : null}
             </div>
-            <div className="wb-vault-field">
-              <label htmlFor="wb-cal-name">Name</label>
-              <input
-                id="wb-cal-name"
-                value={name}
-                autoComplete="off"
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setNameTouched(true);
-                }}
-              />
-              <p className={nameProblem ? 'wb-sheet-error' : 'wb-vault-note'}>
-                {nameProblem ?? `What you call it in chat: “check my ${name.trim()} calendar”.`}
-              </p>
-            </div>
-            {!option.needsServer ? (
+            {replacing ? null : (
+              <div className="wb-vault-field">
+                <label htmlFor="wb-cal-name">Name</label>
+                <input
+                  id="wb-cal-name"
+                  value={name}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setNameTouched(true);
+                  }}
+                />
+                <p className={nameProblem ? 'wb-sheet-error' : 'wb-vault-note'}>
+                  {nameProblem ?? `What you call it in chat: “check my ${name.trim()} calendar”.`}
+                </p>
+              </div>
+            )}
+            {!option.needsServer && !replacing ? (
               <details className="wb-cal-advanced">
                 <summary>Server address</summary>
                 <div className="wb-vault-field">
@@ -746,13 +836,20 @@ function ConnectSheet({
               agents reach your calendar through calendar tools.
             </p>
             {service.kind === 'failed' ? <p className="wb-sheet-error">{service.error}</p> : null}
+            {replacing && busy && working ? <ProgressList step={working} /> : null}
+            {replacing && error ? <p className="wb-sheet-error">{error}</p> : null}
             <div className="wb-sheet-actions wb-vault-sheet-actions">
-              <button type="button" className="wb-btn-ghost" disabled={testing} onClick={() => setStep(1)}>
-                Back
+              <button
+                type="button"
+                className="wb-btn-ghost"
+                disabled={testing || busy}
+                onClick={() => (replacing ? onCancel() : setStep(1))}
+              >
+                {replacing ? 'Cancel' : 'Back'}
               </button>
               {test?.status === 'ok' ? (
-                <button type="submit" className="wb-btn-solid">
-                  Continue
+                <button type="submit" className="wb-btn-solid" disabled={busy}>
+                  {replacing ? (busy ? 'Saving…' : 'Save password') : 'Continue'}
                 </button>
               ) : (
                 <button type="submit" className="wb-btn-solid" disabled={!ready || testing}>
@@ -767,8 +864,7 @@ function ConnectSheet({
           <>
             <h2 id="wb-cal-sheet-title">Who can use {shownName}?</h2>
             <p className="wb-sheet-lede">
-              Each agent gets its own access. New agents start with Off. Agents can read events in
-              this version; adding and changing events comes later.
+              Each agent gets its own access. With Read and change, it asks you before every change.
             </p>
             <ul className="wb-cal-agents" aria-label="Agents">
               {agents.map((a) => (
@@ -778,7 +874,7 @@ function ConnectSheet({
                     <span>{a.builtIn ? 'Your main agent' : a.role}</span>
                   </span>
                   <div className="wb-vault-seg" role="group" aria-label={`${a.displayName} access`}>
-                    {(['off', 'read'] as const).map((level) => (
+                    {ACCESS_LEVELS.map(({ level, label }) => (
                       <button
                         key={level}
                         type="button"
@@ -786,7 +882,7 @@ function ConnectSheet({
                         disabled={busy}
                         onClick={() => setAccess((prev) => ({ ...prev, [a.slug]: level }))}
                       >
-                        {level === 'off' ? 'Off' : 'Read'}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -835,8 +931,8 @@ function ConnectSheet({
 function SignInHelp({ provider }: { provider: CalendarProvider }) {
   if (provider === 'icloud') {
     return (
-      <div className="wb-cal-help">
-        <b>Get an app-specific password</b>
+      <details className="wb-cal-help">
+        <summary>How do I get an app-specific password?</summary>
         <ol>
           <li>
             Sign in at <span className="mono">account.apple.com</span>.
@@ -845,38 +941,38 @@ function SignInHelp({ provider }: { provider: CalendarProvider }) {
           <li>Create one called “Boundary” and paste it below.</li>
         </ol>
         <p>Your Apple ID needs two-factor authentication turned on first.</p>
-      </div>
+      </details>
     );
   }
   if (provider === 'fastmail') {
     return (
-      <div className="wb-cal-help">
-        <b>Get an app password</b>
+      <details className="wb-cal-help">
+        <summary>How do I get an app password?</summary>
         <ol>
           <li>In Fastmail, open Settings, then Privacy &amp; Security.</li>
           <li>Create an app password with access to Calendars (CalDAV).</li>
           <li>Paste it below.</li>
         </ol>
-      </div>
+      </details>
     );
   }
   if (provider === 'nextcloud') {
     return (
-      <div className="wb-cal-help">
-        <b>Get an app password</b>
+      <details className="wb-cal-help">
+        <summary>How do I get an app password?</summary>
         <ol>
           <li>In Nextcloud, open Personal settings, then Security.</li>
           <li>Under Devices &amp; sessions, create an app password called “Boundary”.</li>
           <li>Paste it below with your server address.</li>
         </ol>
-      </div>
+      </details>
     );
   }
   return (
-    <div className="wb-cal-help">
-      <b>You’ll need the server address</b>
+    <details className="wb-cal-help">
+      <summary>Which server address?</summary>
       <p>Use the CalDAV address your server shows, or its host name. Boundary looks for the calendar address from there.</p>
-    </div>
+    </details>
   );
 }
 

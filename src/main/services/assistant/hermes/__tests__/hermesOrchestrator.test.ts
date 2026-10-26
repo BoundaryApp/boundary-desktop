@@ -47,6 +47,18 @@ import {
   resetOrchestratorForTests,
 } from '../hermesOrchestrator';
 
+/** The role before stack v0.3.3 refused worktrees on the coding repos. */
+function worktreeRole(): string {
+  return ORCHESTRATOR_ROLE.replace(
+    / File every task with workspace_kind "scratch"\..*?can work there\./,
+    ' Give every task a workspace the worker can run in: workspace_kind "dir" with an absolute' +
+      ' workspace_path for work inside an existing folder or project, "worktree" with the absolute' +
+      ' path of the git repo it branches from, or "scratch" for work that needs no files.' +
+      ' Never leave workspace_path empty for "dir" or "worktree": the board has no default folder,' +
+      ' so such a task is blocked before it starts.'
+  ).replace(/ When a task gives up because.*?with kanban_archive\./, '');
+}
+
 describe('ensureOrchestratorAgent', () => {
   beforeEach(() => {
     state.record = null;
@@ -166,7 +178,7 @@ describe('ensureOrchestratorAgent', () => {
   });
 
   it('moves an orchestrator on the role without a runtime cap to the current one', async () => {
-    const withoutCap = ORCHESTRATOR_ROLE.replace(
+    const withoutCap = worktreeRole().replace(
       / Set max_runtime_seconds on every task: .*? the cap is the only thing that stops it\./,
       ''
     );
@@ -179,6 +191,19 @@ describe('ensureOrchestratorAgent', () => {
       expect.objectContaining({ slug: 'orchestrator', role: ORCHESTRATOR_ROLE })
     );
     expect(ORCHESTRATOR_ROLE).toContain('max_runtime_seconds');
+  });
+
+  it('moves an orchestrator on the role that asked for worktrees to the scratch one', async () => {
+    const withWorktrees = worktreeRole();
+    expect(withWorktrees).not.toBe(ORCHESTRATOR_ROLE);
+    state.agents.add('orchestrator');
+    state.roles.set('orchestrator', withWorktrees);
+    state.record = { slug: 'orchestrator', kanbanEnabled: true };
+    await ensureOrchestratorAgent();
+    expect(updateHermesAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'orchestrator', role: ORCHESTRATOR_ROLE })
+    );
+    expect(ORCHESTRATOR_ROLE).toContain('kanban_update(workspace_kind="scratch")');
   });
 
   it("leaves a role the owner rewrote alone", async () => {

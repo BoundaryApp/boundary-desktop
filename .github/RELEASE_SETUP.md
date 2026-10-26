@@ -4,7 +4,7 @@ This document explains how to set up and use the automated build and release sys
 
 ## Overview
 
-The GitHub Actions workflow builds Boundary for macOS, Windows, and Linux when you push a `v*` tag or manually trigger a release. It creates Forge distributables under `out/make/` and publishes them to GitHub Releases.
+The GitHub Actions workflow builds Boundary for macOS, Windows, and Linux when `main` gets a `package.json` version that has no tag yet, when you push a `v*` tag, or when you trigger a release manually. It creates Forge distributables under `out/make/` and publishes them to GitHub Releases.
 
 ## Features
 
@@ -62,15 +62,25 @@ Windows artifacts are produced via Forge Squirrel today; full Windows signing pa
 
 ## Creating releases
 
-### Automatic (tag)
+The `version` in `package.json` is the release version. Forge stamps it into the app as
+`CFBundleShortVersionString` and `CFBundleVersion`, so the app reports the version it was
+released as only when the two match.
 
-1. Bump `version` in `package.json` if needed.
-2. Tag and push:
+### On merge to main
+
+Bump `version` in `package.json` in the PR. When it merges, **Build and Release** sees that
+`v<version>` has no tag yet, builds, creates the `v<version>` tag on the merged commit and
+publishes the release. Pushes to `main` whose version is already tagged stop after the version
+check and build nothing.
+
+### Tag
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+The workflow warns if the tag differs from `package.json`'s version.
 
 ### Manual
 

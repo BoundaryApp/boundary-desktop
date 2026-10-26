@@ -310,7 +310,7 @@ describe('WorkbenchChatScreen chrome', () => {
     // The built-in agent has chats, not a DM row (ADR 0023).
     expect(screen.getByText('No agents yet.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'All agents…' })).toBeTruthy();
-    expect(screen.getByText(/Rooms are topics/)).toBeTruthy();
+    expect(screen.getByText(/^No channels (in .+\.|yet\.)$/)).toBeTruthy();
 
     // Default land is the newest Hermes chat, not the All chats list (ADR 0023).
     expect(screen.getByText('thread:Plan the launch')).toBeTruthy();
@@ -503,7 +503,7 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.queryByText(/thread:Assistant/)).toBeNull();
     expect(screen.queryByRole('list', { name: 'All chats' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Room' })).toBeTruthy();
-    expect(screen.getByText('Default agent · reads later')).toBeTruthy();
+    expect(screen.getByText('Default agent')).toBeTruthy();
     expect(screen.queryByText(/Members of this room\. They read posts later/)).toBeNull();
   });
 
@@ -576,7 +576,7 @@ describe('WorkbenchChatScreen chrome', () => {
       within(screen.getByRole('dialog', { name: 'Agents' })).getByRole('button', { name: 'New agent' })
     );
     expect(screen.getByRole('dialog', { name: 'New agent' })).toBeTruthy();
-    expect(screen.getByText(/Display name is the @ handle/)).toBeTruthy();
+    expect(screen.getByText('The role becomes its standing instructions.')).toBeTruthy();
   });
 
   describe('editing an agent (ADR 0010 §4)', () => {

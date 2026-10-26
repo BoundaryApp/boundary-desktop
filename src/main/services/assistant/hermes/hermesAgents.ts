@@ -181,6 +181,9 @@ function soulForRole(displayName: string, role: string): string {
     '- If it has none, open the site’s sign-in page first, then call browser_vault_save_login. The owner gets a form for it; do not ask for the login in chat.',
     '- Never type or ask for a password yourself.',
     '',
+    '## Calendars',
+    '- If you can read a calendar but have no tool to add, move or delete events, say you can only read it, and that the owner can give you Read and change in Boundary under Settings → Calendars. Never say you changed an event you could not change.',
+    '',
     'When the owner asks you to draft a new specialist agent, reply with a fenced',
     'agent-draft block and nothing else required for the card:',
     '```agent-draft',
@@ -503,6 +506,17 @@ export async function getHermesAgentSoul(
     excerpt,
     canOpen: Boolean(fileSoul),
   };
+}
+
+/**
+ * The SOUL.md of an agent Boundary created, from its profile folder, or null for the built-in
+ * agent (its soul is the default profile's system prompt) and for a missing or empty file.
+ */
+export function readAgentSoul(slug: string): string | null {
+  const agent = getStoredAgent(slug);
+  if (!agent || agent.builtIn) return null;
+  const soul = readSoulFile(resolveSoulFilePath(resolveActiveAssistantDataRoot(), slug))?.trim();
+  return soul || null;
 }
 
 export function revealHermesAgentSoul(

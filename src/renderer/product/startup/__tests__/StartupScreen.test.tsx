@@ -100,6 +100,38 @@ describe('StartupScreen', () => {
     expect(screen.getByText('Something odd')).toBeTruthy();
   });
 
+  it('explains the wait in a popover that Escape closes', () => {
+    render(<StartupScreen variant="first-run" stage="provision" services={services} />);
+    const why = screen.getByRole('button', { name: 'Why does this take a while?' });
+    expect(screen.queryByRole('note')).toBeNull();
+    fireEvent.click(why);
+    expect(why.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('note').textContent).toMatch(/Later launches skip the download/);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('opens details in a side panel and closes it', () => {
+    render(
+      <StartupScreen variant="launch" stage="compose" message="compose up" services={services} />
+    );
+    expect(screen.queryByRole('complementary', { name: 'Details' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+    expect(screen.getByRole('complementary', { name: 'Details' })).toBeTruthy();
+    expect(screen.getByText('compose up')).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+    expect(screen.queryByRole('complementary', { name: 'Details' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show details' }));
+  });
+
+  it('opens details on error and lets the user close them', () => {
+    render(<StartupScreen variant="launch" stage="error" services={services} error="Something odd" />);
+    expect(screen.getByRole('complementary', { name: 'Details' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('complementary', { name: 'Details' })).toBeNull();
+  });
+
   it('says ready when the stack is up', () => {
     render(<StartupScreen variant="first-run" stage="ready" services={services} />);
     expect(screen.getByRole('heading', { name: 'Your assistant is ready' })).toBeTruthy();

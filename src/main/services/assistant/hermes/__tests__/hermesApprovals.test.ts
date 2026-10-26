@@ -4,6 +4,7 @@ import {
   filterApprovalChoices,
   isHermesApprovalChoice,
   parkApprovalRequest,
+  parseApprovalMcp,
   respondToParkedApproval,
 } from '../hermesApprovals';
 import type { ServerRequest } from '../vendor/json-rpc-channel';
@@ -130,5 +131,40 @@ describe('hermesApprovals', () => {
     const event = parkApprovalRequest(request);
     expect(event?.smartDenied).toBe(true);
     expect(event?.choices).toEqual(['once', 'deny']);
+  });
+
+  it('keeps the MCP call behind an untrusted-server approval', () => {
+    const event = parkApprovalRequest(
+      makeRequest({
+        params: {
+          session_id: 'sess-1',
+          request_id: 'apr-1',
+          choices: ['once', 'deny'],
+          mcp: {
+            server: 'calendar-personal',
+            tool: 'caldav_create_event',
+            arguments: { summary: 'Call with Jordan', start: '2026-10-23T11:00:00' },
+            tool_call_id: 'call_1',
+          },
+        },
+      })
+    );
+    expect(event?.mcp).toEqual({
+      server: 'calendar-personal',
+      tool: 'caldav_create_event',
+      arguments: { summary: 'Call with Jordan', start: '2026-10-23T11:00:00' },
+      toolCallId: 'call_1',
+    });
+    expect(event?.choices).toEqual(['once', 'deny']);
+  });
+
+  it('drops a malformed mcp block', () => {
+    expect(parseApprovalMcp({ server: 'calendar-personal' })).toBeUndefined();
+    expect(parseApprovalMcp('calendar-personal')).toBeUndefined();
+    expect(parseApprovalMcp({ server: 's', tool: 't', arguments: ['x'], tool_call_id: null })).toEqual({
+      server: 's',
+      tool: 't',
+      arguments: null,
+    });
   });
 });

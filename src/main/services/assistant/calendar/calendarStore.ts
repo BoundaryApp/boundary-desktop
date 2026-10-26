@@ -1,4 +1,3 @@
-import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import type {
   CalendarAccess,
@@ -7,6 +6,7 @@ import type {
   CalendarInfo,
   CalendarProvider,
 } from '../../../../shared/types/calendars';
+import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable } from '../../secrets/osEncryption';
 
 /**
  * Connected calendars. The password is encrypted with the OS keychain; Boundary keeps it so it
@@ -20,12 +20,14 @@ export interface StoredCalendarAccount {
   provider: CalendarProvider;
   url: string;
   username: string;
-  /** base64 of `safeStorage.encryptString(password)`. */
+  /** base64 of the keychain-encrypted password. */
   password: string;
   calendars: CalendarInfo[];
   access: Record<string, CalendarAccess>;
   createdAt: string;
   lastCheck: CalendarCheck | null;
+  /** Missing on accounts saved before Phase 2; see `lastWorkedAt`. */
+  lastOkAt?: string;
 }
 
 interface CalendarStoreState {
@@ -38,18 +40,25 @@ function getStore(): Store<CalendarStoreState> {
   return store;
 }
 
-export function canStoreCalendarPasswords(): boolean {
-  return safeStorage.isEncryptionAvailable();
+export function canStoreCalendarPasswords(): Promise<boolean> {
+  return isOsEncryptionAvailable();
 }
 
-export function encryptCalendarPassword(password: string): string {
-  return safeStorage.encryptString(password).toString('base64');
+export function encryptCalendarPassword(password: string): Promise<string> {
+  return encryptToBase64(password);
 }
 
 /** The password, or null when the keychain can't decrypt it (reset, another Mac). */
-export function decryptCalendarPassword(account: StoredCalendarAccount): string | null {
+export async function decryptCalendarPassword(account: StoredCalendarAccount): Promise<string | null> {
   try {
-    return safeStorage.decryptString(Buffer.from(account.password, 'base64'));
+    return await decryptFromBase64(account.password, (reEncrypted) => {
+      const accounts = listCalendarAccounts();
+      if (!accounts.some((a) => a.password === account.password)) return;
+      getStore().set(
+        'accounts',
+        accounts.map((a) => (a.password === account.password ? { ...a, password: reEncrypted } : a))
+      );
+    });
   } catch {
     return null;
   }
@@ -79,8 +88,16 @@ export function deleteCalendarAccount(slug: string): void {
   );
 }
 
-export function toCalendarAccountView(account: StoredCalendarAccount): CalendarAccountView {
-  const password = decryptCalendarPassword(account);
+/** When the sign-in last worked, for accounts saved before `lastOkAt` was recorded too. */
+export function lastWorkedAt(account: StoredCalendarAccount): string | null {
+  if (account.lastOkAt) return account.lastOkAt;
+  if (account.lastCheck?.status === 'ok') return account.lastCheck.at;
+  // Connect only saves after the sign-in test passes.
+  return account.createdAt || null;
+}
+
+export async function toCalendarAccountView(account: StoredCalendarAccount): Promise<CalendarAccountView> {
+  const password = await decryptCalendarPassword(account);
   return {
     slug: account.slug,
     name: account.name,
@@ -92,5 +109,6 @@ export function toCalendarAccountView(account: StoredCalendarAccount): CalendarA
     access: account.access,
     createdAt: account.createdAt,
     lastCheck: account.lastCheck,
+    lastOkAt: lastWorkedAt(account),
   };
 }

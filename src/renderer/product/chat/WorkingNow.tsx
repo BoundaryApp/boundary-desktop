@@ -105,9 +105,11 @@ export const WorkingNow: React.FC<{
               aria-current={task.id === activeTaskId ? 'page' : undefined}
             >
               <WorkingDot label={`${who}: ${state.sub}`} tone={LIVENESS_TONE[state.liveness]} />
-              <span className="wb-working-title">{task.title}</span>
+              <span className="wb-working-title" title={task.title}>
+                {task.title}
+              </span>
               <span className="wb-working-hint">{state.hint}</span>
-              <span className="wb-working-sub">
+              <span className="wb-working-sub" title={`${who} · ${state.sub}`}>
                 {who} · {state.sub}
               </span>
             </button>

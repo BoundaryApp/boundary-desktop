@@ -29,6 +29,7 @@ import {
 import { hermesChatIPC } from '../services/hermesChatIPCService';
 import { hermesVaultIPC } from '../services/hermesVaultIPCService';
 import { useEscapeToClose } from './useAppShortcuts';
+import { InfoTip } from '../components/ui/info-tip';
 
 /** Passwords & Logins (docs/passwords-logins-study). */
 
@@ -172,8 +173,11 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
   return (
     <div className="wb-vault">
       <p className="wb-inference-lead">
-        Logins your agents can use to sign in to websites. The agent types the username. The
-        password is filled straight into the page, and <strong>the model never sees it</strong>.
+        Logins your agents use to sign in. <strong>The model never sees the password.</strong>
+        <InfoTip label="saved logins">
+          The agent types the username. The password is filled straight into the page from the
+          agent’s encrypted vault.
+        </InfoTip>
       </p>
 
       <div className="wb-vault-toolbar">
@@ -214,13 +218,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
       ) : logins.length === 0 ? (
         <div className="wb-vault-list wb-vault-empty">
           <h3>{agentName} has no saved logins</h3>
-          <ol>
-            <li>
-              Ask {agentName} to sign in somewhere. When it reaches the sign-in page, it asks you
-              for the login in chat and saves it here.
-            </li>
-            <li>Or add one now, so it can sign in without asking.</li>
-          </ol>
+          <p>Ask {agentName} to sign in somewhere and it saves the login here, or add one now.</p>
           <button
             type="button"
             className="wb-btn-ghost wb-vault-icon-btn"
@@ -243,14 +241,19 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
                   </span>
                   <div className="wb-vault-meta">
                     <span className="wb-vault-name">
-                      {login.label}
+                      <span className="wb-vault-label" title={login.label}>
+                        {login.label}
+                      </span>
                       {!local ? (
                         <span className="wb-vault-pill is-brand">
                           {source?.displayName ?? login.backend}
                         </span>
                       ) : null}
                     </span>
-                    <span className="wb-vault-sub">
+                    <span
+                      className="wb-vault-sub"
+                      title={login.identifier ? `${login.origin} · ${login.identifier}` : login.origin}
+                    >
                       <span className="mono">{login.origin}</span>
                       {login.identifier ? ` · ${login.identifier}` : ''}
                     </span>
@@ -493,10 +496,14 @@ function SourceRow({
         </span>
         <div className="wb-vault-meta">
           <span className="wb-vault-name">
-            {source.displayName}
+            <span className="wb-vault-label" title={source.displayName}>
+              {source.displayName}
+            </span>
             {pill}
           </span>
-          <span className="wb-vault-sub">{sub}</span>
+          <span className="wb-vault-sub" title={sub}>
+            {sub}
+          </span>
         </div>
         {action}
       </div>

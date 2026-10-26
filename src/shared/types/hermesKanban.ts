@@ -57,6 +57,12 @@ export interface KanbanTaskEvent {
   note: string | null;
   /** On `gave_up`: the failure that tripped the limit (`spawn_failed`, `crashed`, …). */
   trigger: string | null;
+  /**
+   * On `gave_up`: false when the failure can't heal by itself (a missing or unwritable
+   * workspace, a revoked credential), so the board stopped at the first claim (stack v0.3.3+).
+   * Null when Hermes doesn't say; those give-ups come after repeated failures.
+   */
+  retryable?: boolean | null;
   createdAt: number;
 }
 
@@ -129,9 +135,19 @@ export type KanbanTaskAction =
   /** Stop the live run and hold the task until you resume it. */
   | { kind: 'stop'; runId: number }
   /** Release a stuck run so the dispatcher starts a fresh one. */
-  | { kind: 'retry' };
+  | { kind: 'retry' }
+  /** Move the task to a scratch workspace and unblock it, for a workspace the board can't build. */
+  | { kind: 'run-in-scratch' };
 
 export type KanbanTaskActionResult = { success: true } | { success: false; error: string };
+
+/**
+ * The board view in Tasks: the embedded dashboard URL, signed in, and the session partition
+ * the `<webview>` must use (main refuses any other).
+ */
+export type KanbanBoardViewResult =
+  | { success: true; url: string; partition: string }
+  | { success: false; error: string };
 
 /**
  * The reason Boundary gives Hermes when you stop a run. The run keeps it (as

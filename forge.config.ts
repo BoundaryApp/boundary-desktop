@@ -24,7 +24,6 @@ const projectRoot = process.cwd();
 const VITE_EXTERNAL_PACKAGE_ROOTS = [
   'better-sqlite3',
   'dockerode',
-  'playwright',
   'ssh2',
 ] as const;
 
@@ -163,8 +162,7 @@ const config: ForgeConfig = {
     appCategoryType: 'public.app-category.developer-tools',
     // Ensure proper app name and metadata
     appCopyright: '© 2025-2026 Keith Axline',
-    appVersion: '0.0.1',
-    buildVersion: '0.0.1',
+    // appVersion and buildVersion default to package.json's version, which releases are cut from.
     // Icon configuration for macOS
     icon: 'src/assets/icon.icns',
     // Podman/compose helpers must live outside the asar (executable + notarization).
@@ -207,8 +205,9 @@ const config: ForgeConfig = {
         }
       : {}),
   },
+  // better-sqlite3 is left out: it ships N-API prebuilds that load in both Node and Electron.
   rebuildConfig: {
-    onlyModules: ['better-sqlite3', 'cpu-features', 'ssh2'],
+    onlyModules: ['cpu-features', 'ssh2'],
     force: true,
   },
   makers: [

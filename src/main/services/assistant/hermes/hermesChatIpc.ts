@@ -91,9 +91,9 @@ import {
   getKanbanSnapshot,
   getKanbanTask,
   getKanbanTaskLog,
-  kanbanBoardUrl,
   kanbanTaskAction,
 } from './hermesKanban';
+import { openBoardInBrowser, prepareBoardView } from './hermesBoard';
 import { ensureOrchestratorAgent } from './hermesOrchestrator';
 import {
   createHermesAgent,
@@ -197,10 +197,13 @@ export function registerHermesChatHandlers(): void {
     kanbanTaskAction(taskId, action as KanbanTaskAction)
   );
 
-  ipcMain.handle('hermes-kanban:open-board', async () => {
-    const { shell } = await import('electron');
-    await shell.openExternal(kanbanBoardUrl());
-  });
+  ipcMain.handle('hermes-kanban:open-board', async (_event, taskId: unknown) =>
+    openBoardInBrowser(taskId)
+  );
+
+  ipcMain.handle('hermes-kanban:board-view', async (_event, taskId: unknown) =>
+    prepareBoardView(taskId)
+  );
 
   ipcMain.handle('hermes-kanban:task-log', async (_event, taskId: unknown, tailBytes: unknown) =>
     getKanbanTaskLog(taskId, tailBytes)

@@ -14,11 +14,14 @@ import { dockerService } from './services/dockerService';
 import { createFileLogger } from '../shared/utils/logger';
 import { registerOnboardingHandlers } from './services/onboarding/ipcHandlers';
 import { registerCapabilityHandlers } from './services/capability/ipcHandlers';
+import { registerSetupHandlers } from './services/setup/ipcHandlers';
 import { registerAssistantStackHandlers } from './services/assistant/ipcHandlers';
 import { registerResourceHandlers } from './services/resources/ipcHandlers';
 import { registerHermesChatHandlers } from './services/assistant/hermes/hermesChatIpc';
+import { installBoardWebviewGuards } from './services/assistant/hermes/hermesBoard';
 import { registerHermesVaultHandlers } from './services/assistant/hermes/hermesVaultIpc';
 import { registerCalendarHandlers } from './services/assistant/calendar/calendarIpc';
+import { startCalendarHealthChecks } from './services/assistant/calendar/calendarService';
 import { registerHostBridgeHandlers } from './services/hostBridge/ipcHandlers';
 import { ensureHostBridgeStarted, stopHostBridge } from './services/hostBridge/hostBridgeService';
 import {
@@ -257,11 +260,13 @@ ipcMain.handle('appearance:set-theme', (_event, preference: unknown) => {
 
 registerOnboardingHandlers();
 registerCapabilityHandlers();
+registerSetupHandlers();
 registerAssistantStackHandlers();
 registerResourceHandlers();
 registerHermesChatHandlers();
 registerHermesVaultHandlers();
 registerCalendarHandlers();
+startCalendarHealthChecks();
 registerHostBridgeHandlers();
 startLocalLlmWatcher();
 
@@ -503,8 +508,11 @@ const createWindow = async () => {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      // The Tasks pane's board view. installBoardWebviewGuards limits it to the Hermes board.
+      webviewTag: true,
     },
   });
+  installBoardWebviewGuards(global.mainWindow);
 
   // Show window when ready to prevent flashing
   const readyToShowTimer = setTimeout(() => {
@@ -783,7 +791,7 @@ app.on('ready', async () => {
   });
   // Create the application menu
   createMenu();
-  migrateLegacyConfigSecrets(store as unknown as Store<Record<string, unknown>>);
+  await migrateLegacyConfigSecrets(store as unknown as Store<Record<string, unknown>>);
   
   // Ensure proper macOS app behavior
   if (process.platform === 'darwin') {

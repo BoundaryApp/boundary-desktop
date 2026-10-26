@@ -91,7 +91,7 @@ describe('Hermes in channels (ADR 0023 §9)', () => {
         onRemoveMember={onRemoveMember}
       />
     );
-    expect(screen.getByText('Default agent · reads later')).toBeTruthy();
+    expect(screen.getByText('Default agent')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Remove Hermes from #research' }));
     expect(onRemoveMember).toHaveBeenCalledWith('ch1', 'assistant');
 

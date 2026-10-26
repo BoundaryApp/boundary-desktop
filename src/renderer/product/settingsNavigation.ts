@@ -7,6 +7,8 @@ export interface OpenSettingsRequest {
   tab: SettingsTab;
   /** Passwords & Logins: the agent whose logins to show. */
   agentSlug?: string;
+  /** Calendars: open the connect sheet, and go back to the chat if it's closed without connecting. */
+  connectFromChat?: boolean;
 }
 
 const OPEN_SETTINGS_EVENT = 'boundary:open-settings';

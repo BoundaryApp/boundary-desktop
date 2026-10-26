@@ -1,7 +1,7 @@
 # Boundary-owned overlay for the pinned sovereign-agent-stack project under
 # userData/assistant-stack/project (see github.com/kaxline/sovereign-agent-stack).
 # Applied as: compose -p boundary-assistant -f docker-compose.yml -f <this>
-#   --profile core --profile rag --profile automation --profile coding …
+#   --profile core --profile rag --profile automation --profile coding --profile db …
 # Follows the stack's docs/extending.md. Most of what makes this a second copy comes from
 # the compose environment Boundary passes, not from this file:
 #   CONTAINER_PREFIX=boundary-, IMAGE_PREFIX=boundary-assistant, HERMES_TERMINAL_BACKEND=ssh,
@@ -75,6 +75,13 @@ services:
   n8n-import:
     volumes:
       - ${BOUNDARY_ASSISTANT_DATA}/n8n:/home/node/.n8n
+
+  # Shared database (db profile), not n8n's. Postgres 18 keeps the cluster in a versioned
+  # subdirectory of this mount, so it binds the parent. Never point it at data/postgres:
+  # that is n8n's Postgres 16 cluster and the two can't share a directory.
+  postgres-db:
+    volumes:
+      - ${BOUNDARY_ASSISTANT_DATA}/db:/var/lib/postgresql
 
   n8n:
     environment:

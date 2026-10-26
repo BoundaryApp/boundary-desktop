@@ -24,9 +24,23 @@ describe('assistantStackLifecycle', () => {
     );
   });
 
+  it('maps the shared database images without catching n8n postgres', () => {
+    expect(resolveContainerFromImageRef('postgres:18-alpine')).toBe('boundary-postgres-db');
+    expect(resolveContainerFromImageRef('crystaldba/postgres-mcp:0.3.0')).toBe(
+      'boundary-sql-mcp-ro'
+    );
+    expect(resolveContainerFromImageRef('postgres:16-alpine')).toBeNull();
+    expect(resolveContainerFromProgressId('Container boundary-sql-mcp-rw')).toBe(
+      'boundary-sql-mcp-rw'
+    );
+    expect(resolveContainerFromProgressId('Container boundary-n8n-postgres')).not.toBe(
+      'boundary-postgres-db'
+    );
+  });
+
   it('seeds one card per Boundary container', () => {
     const services = seedServiceProgress();
-    expect(services).toHaveLength(11);
+    expect(services).toHaveLength(14);
     expect(services.map((s) => s.containerName)).toContain('boundary-hermes');
     expect(services.map((s) => s.containerName)).toContain('boundary-opencode');
     expect(services.map((s) => s.containerName)).toContain('boundary-llm-proxy');
