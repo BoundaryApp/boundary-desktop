@@ -8,7 +8,7 @@ export default defineConfig({
     global: 'globalThis'
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       external: ['electron']
     }
   },

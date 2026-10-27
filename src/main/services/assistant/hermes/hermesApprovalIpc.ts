@@ -1,46 +1,39 @@
-import {
-  listParkedApprovals,
-  respondToParkedApproval,
-} from './hermesApprovals';
-import {
-  getHermesGatewaySession,
-  pendingViaQueue,
-} from './hermesGatewaySession';
+import { listParkedApprovals, respondToParkedApproval } from './hermesApprovals';
+import { getHermesGatewaySession } from './hermesGatewaySession';
 import type {
+  HermesChatApprovalEvent,
   HermesChatApprovalAckPayload,
   HermesChatApprovalRespondPayload,
 } from '../../../../shared/types/hermesChat';
 
-export async function handleHermesChatApprovalRespond(
+/**
+ * Live approvals answer over the socket that asked; approvals replayed from `approval.pending`
+ * answer with `approval.respond`. Both are parked with their own responder, so one path
+ * validates and reports whether the answer was sent.
+ */
+export function handleHermesChatApprovalRespond(
   payload: HermesChatApprovalRespondPayload
 ): Promise<{ success: boolean; error?: string }> {
-  if (pendingViaQueue.has(payload.rpcRequestId)) {
-    const parked = listParkedApprovals().find(
-      (a) => a.rpcRequestId === payload.rpcRequestId
-    );
-    if (!parked) {
-      return { success: false, error: 'No pending approval for that request' };
-    }
-    try {
-      const gateway = getHermesGatewaySession();
-      await gateway.respondPendingApproval({
-        sessionId: parked.sessionId,
-        approvalRequestId: parked.approvalRequestId,
-        choice: payload.choice,
-        all: payload.all,
-      });
-      pendingViaQueue.delete(payload.rpcRequestId);
-      // Drop the synthetic park entry (respond is a no-op for synthetics).
-      respondToParkedApproval(payload);
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
   return respondToParkedApproval(payload);
+}
+
+/**
+ * Approvals waiting on the user, so a reopened window or reloaded renderer can show them
+ * again. With a chat's id: that chat's, under its stored or runtime id, after asking Hermes
+ * for any still in its queue that Boundary never saw (best effort).
+ */
+export async function listPendingApprovals(sessionId?: string): Promise<HermesChatApprovalEvent[]> {
+  if (!sessionId) return listParkedApprovals();
+  const gateway = getHermesGatewaySession();
+  const storedId = gateway.storedSessionId(sessionId);
+  const runtimeId = gateway.runtimeSessionId(storedId) ?? gateway.runtimeSessionId(sessionId);
+  try {
+    await gateway.replayPendingApprovals([runtimeId ?? sessionId]);
+  } catch {
+    /* the gateway is unreachable: list what is parked */
+  }
+  const ids = [...new Set([sessionId, storedId, runtimeId].filter((id): id is string => Boolean(id)))];
+  return listParkedApprovals(ids);
 }
 
 export async function handleHermesChatApprovalReceived(

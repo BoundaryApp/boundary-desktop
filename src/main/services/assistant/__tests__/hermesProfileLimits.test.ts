@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildHermesConfigGetExec, parseHermesConfigGet } from '../hermesConfigSetExec';
 import {
-  applyHermesProfileLimits,
   HERMES_MAX_TOKENS_DEFAULT,
   hermesMaxTokensFor,
+  hermesProfileLimitSets,
   lookupModelContextLength,
 } from '../hermesProfileLimits';
 
@@ -21,55 +20,22 @@ describe('hermesMaxTokensFor', () => {
   });
 });
 
-describe('hermes config get', () => {
-  it('reads through a shell so an unset key is not a failure', () => {
-    expect(buildHermesConfigGetExec('orchestrator', 'model.max_tokens').args).toEqual([
-      'exec', '-T', 'hermes', 'sh', '-c', '"$@" || true', 'sh',
-      'hermes', '-p', 'orchestrator', 'config', 'get', 'model.max_tokens',
-    ]);
-    expect(buildHermesConfigGetExec('', 'model.max_tokens').args).not.toContain('-p');
-  });
-
-  it('tells a value, an unset key and an error apart', () => {
-    expect(parseHermesConfigGet('1024\n')).toBe('1024');
-    expect(parseHermesConfigGet('Config key not set: model.max_tokens\n')).toBeNull();
-    expect(parseHermesConfigGet("Error: Profile 'x' does not exist.")).toBeUndefined();
-    expect(parseHermesConfigGet('')).toBeUndefined();
-  });
-});
-
-describe('applyHermesProfileLimits', () => {
-  it('writes max_tokens only to a profile that has none', async () => {
-    const compose = vi.fn(async (args: string[]) => ({
-      stdout: args.includes('get') ? 'Config key not set: model.max_tokens' : '',
-      stderr: '',
-    }));
-    await applyHermesProfileLimits(compose, 'researcher', {
-      staleTimeoutS: 300,
-      maxTokens: 16384,
-      contextLength: 65536,
+describe('hermesProfileLimitSets', () => {
+  it('sets the stale timeout and context length, and max_tokens only where a profile has none', () => {
+    expect(hermesProfileLimitSets({ staleTimeoutS: 300, maxTokens: 16384, contextLength: 65536 })).toEqual({
+      set: [
+        ['agent.local_stream_stale_timeout', '300'],
+        ['model.context_length', '65536'],
+      ],
+      setIfUnset: [['model.max_tokens', '16384']],
     });
-    const sets = compose.mock.calls
-      .map(([args]) => args)
-      .filter((args) => args.includes('set'))
-      .map((args) => args.slice(-2));
-    expect(sets).toEqual([
-      ['agent.local_stream_stale_timeout', '300'],
-      ['model.max_tokens', '16384'],
-      ['model.context_length', '65536'],
-    ]);
   });
 
-  it('keeps an existing max_tokens and writes nothing on unreadable output', async () => {
-    for (const stdout of ['1024', 'Error: no such profile']) {
-      const compose = vi.fn(async (args: string[]) => ({
-        stdout: args.includes('get') ? stdout : '',
-        stderr: '',
-      }));
-      await applyHermesProfileLimits(compose, 'browser', { staleTimeoutS: 180, maxTokens: 16384 });
-      const keys = compose.mock.calls.filter(([a]) => a.includes('set')).map(([a]) => a.at(-2));
-      expect(keys).toEqual(['agent.local_stream_stale_timeout']);
-    }
+  it('writes no context length when unknown and no max_tokens when it is 0', () => {
+    expect(hermesProfileLimitSets({ staleTimeoutS: 180, maxTokens: 0 })).toEqual({
+      set: [['agent.local_stream_stale_timeout', '180']],
+      setIfUnset: [],
+    });
   });
 });
 

@@ -50,7 +50,7 @@ export class ServerPath {
     return this.entries.map((e) => e.id);
   }
 
-  /** False once this chat is known not to support rewinds (HTTP fallback, old gateway). */
+  /** False once this chat is known not to support rewinds (an old gateway). */
   canRewind(): boolean {
     return this.rewindable;
   }

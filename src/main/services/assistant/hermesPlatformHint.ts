@@ -1,16 +1,11 @@
-import {
-  buildHermesConfigGetExec,
-  buildHermesConfigSetExec,
-  parseHermesConfigGet,
-} from './hermesConfigSetExec';
-import type { HermesConfigCompose } from './hermesProfileLimits';
-
 /**
  * Hermes has no built-in platform hint for Boundary's session source, so Boundary writes its
- * own into each profile that serves it (the stack's docs/hermes.md, "Platform hints"). The
- * key must match BOUNDARY_SESSION_SOURCE in hermesGatewaySession.ts.
+ * own into each profile that serves it. Hermes reads `platform_hints` at the top of
+ * `config.yaml` and refuses `agent.platform_hints.*` as a wrong-prefix key; the stack's
+ * docs/hermes.md ("Platform hints") shows the nested form, which Hermes never reads. The key
+ * must match BOUNDARY_SESSION_SOURCE in hermesGatewaySession.ts.
  */
-export const BOUNDARY_PLATFORM_HINT_KEY = 'agent.platform_hints.boundary';
+export const BOUNDARY_PLATFORM_HINT_KEY = 'platform_hints.boundary';
 
 /**
  * Describes the bracketed room line that buildChannelHeader (hermesChannels.ts) writes and
@@ -26,25 +21,5 @@ export const BOUNDARY_PLATFORM_HINT =
   'Posts above the user\'s @ message were left without an @; read them as background and ' +
   'answer what the @ message asks. To hand work to another member, @ them by the handle in ' +
   'that line, which wakes them after you. Each member answers at most once per round, so @ ' +
-  'only members you need. Replies render as Markdown.';
-
-/**
- * Write the hint to one profile ('' is the default one) unless `config get` already prints
- * it. Any other answer, unreadable output included, writes it.
- */
-export async function applyBoundaryPlatformHint(
-  compose: HermesConfigCompose,
-  profile: string
-): Promise<void> {
-  const { stdout } = await compose(
-    buildHermesConfigGetExec(profile, BOUNDARY_PLATFORM_HINT_KEY).args,
-    { timeout: 60_000 }
-  );
-  if (parseHermesConfigGet(stdout) === BOUNDARY_PLATFORM_HINT) return;
-  const { args, env } = buildHermesConfigSetExec(
-    profile,
-    BOUNDARY_PLATFORM_HINT_KEY,
-    BOUNDARY_PLATFORM_HINT
-  );
-  await compose(args, { timeout: 60_000, env });
-}
+  'only members you need. Any @handle in your reply wakes that member, so name members ' +
+  'without the @ unless you want them to reply. Replies render as Markdown.';

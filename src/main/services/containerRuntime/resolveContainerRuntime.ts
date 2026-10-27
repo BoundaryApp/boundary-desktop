@@ -76,6 +76,38 @@ const defaultDeps: ResolveContainerRuntimeDeps = {
   env: process.env,
 };
 
+/**
+ * Run a version or status command and log its trimmed output under `logged.ok`, or its error
+ * under `logged.failed`. Returns the output and rethrows the error.
+ */
+async function execAndLog(
+  deps: ResolveContainerRuntimeDeps,
+  file: string,
+  args: string[],
+  options: { env: NodeJS.ProcessEnv; timeout: number },
+  logged: { ok: string; failed: string; field: string }
+): Promise<string> {
+  try {
+    const { stdout } = await deps.execFile(file, args, { ...options, encoding: 'utf8' });
+    const output = String(stdout).trim();
+    persistDebugLog('runtime', logged.ok, { [logged.field]: truncateForLog(output, 200) });
+    return output;
+  } catch (error) {
+    persistDebugLog('runtime', logged.failed, serializeError(error));
+    throw error;
+  }
+}
+
+function logResolved(message: string, runtime: ContainerRuntime): void {
+  persistDebugLog('runtime', message, {
+    kind: runtime.kind,
+    origin: runtime.origin,
+    cliVersion: runtime.version.cli,
+    composeVersion: runtime.version.compose,
+    apiEndpoint: runtime.apiEndpoint,
+  });
+}
+
 let cachedRuntime: ContainerRuntime | null = null;
 let inflight: Promise<ContainerRuntime> | null = null;
 let lastResolveError: string | null = null;
@@ -179,52 +211,38 @@ async function probeSystemDocker(
     PATH: pathWithDockerCli(cliPath, searchDirs),
   };
 
-  let cliVersion = '';
+  const exec = { env, timeout: 10_000 };
+  let cliVersion: string;
   try {
-    const { stdout } = await deps.execFile(cliPath, ['version', '--format', '{{.Client.Version}}'], {
-      timeout: 10_000,
-      env,
-      encoding: 'utf8',
+    cliVersion = await execAndLog(deps, cliPath, ['version', '--format', '{{.Client.Version}}'], exec, {
+      ok: 'docker CLI version ok',
+      failed: 'docker CLI unavailable',
+      field: 'cliVersion',
     });
-    cliVersion = String(stdout).trim();
-    persistDebugLog('runtime', 'docker CLI version ok', { cliVersion });
   } catch (error) {
-    persistDebugLog('runtime', 'docker CLI unavailable', serializeError(error));
     throw new ContainerRuntimeUnavailableError(
       `Docker CLI not available: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
   try {
-    const { stdout } = await deps.execFile(cliPath, ['info', '--format', '{{.ServerVersion}}'], {
-      timeout: 10_000,
-      env,
-      encoding: 'utf8',
-    });
-    persistDebugLog('runtime', 'docker daemon reachable', {
-      serverVersion: truncateForLog(stdout, 200),
+    await execAndLog(deps, cliPath, ['info', '--format', '{{.ServerVersion}}'], exec, {
+      ok: 'docker daemon reachable',
+      failed: 'docker daemon not reachable',
+      field: 'serverVersion',
     });
   } catch (error) {
-    persistDebugLog('runtime', 'docker daemon not reachable', serializeError(error));
     throw new ContainerRuntimeUnavailableError(
       `Docker daemon not reachable: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
-  let composeVersion: string | null = null;
-  try {
-    const { stdout } = await deps.execFile(cliPath, ['compose', 'version', '--short'], {
-      timeout: 10_000,
-      env,
-      encoding: 'utf8',
-    });
-    const version = String(stdout).trim();
-    composeVersion = version || null;
-    persistDebugLog('runtime', 'docker compose version', { composeVersion });
-  } catch (error) {
-    persistDebugLog('runtime', 'docker compose version failed', serializeError(error));
-    composeVersion = null;
-  }
+  const composeVersion =
+    (await execAndLog(deps, cliPath, ['compose', 'version', '--short'], exec, {
+      ok: 'docker compose version',
+      failed: 'docker compose version failed',
+      field: 'composeVersion',
+    }).catch((): null => null)) || null;
 
   return {
     kind: 'docker',
@@ -310,32 +328,20 @@ async function ensureBundledPodman(
   persistDebugLog('runtime', 'bundled machine ready', { apiEndpoint, dockerHost });
   const env = buildBundledRuntimeEnv(paths, deps.env, dockerHost);
 
-  let cliVersion = 'unknown';
-  try {
-    const { stdout } = await deps.execFile(paths.podmanPath, ['version', '--format', '{{.Client.Version}}'], {
-      timeout: 15_000,
-      env,
-      encoding: 'utf8',
-    });
-    cliVersion = String(stdout).trim() || 'unknown';
-    persistDebugLog('runtime', 'bundled podman version', { cliVersion });
-  } catch (error) {
-    persistDebugLog('runtime', 'bundled podman version failed', serializeError(error));
-  }
+  const exec = { env, timeout: 15_000 };
+  const cliVersion =
+    (await execAndLog(deps, paths.podmanPath, ['version', '--format', '{{.Client.Version}}'], exec, {
+      ok: 'bundled podman version',
+      failed: 'bundled podman version failed',
+      field: 'cliVersion',
+    }).catch((): null => null)) || 'unknown';
 
-  let composeVersion: string | null = null;
-  try {
-    const { stdout } = await deps.execFile(paths.composePath, ['version', '--short'], {
-      timeout: 15_000,
-      env,
-      encoding: 'utf8',
-    });
-    composeVersion = String(stdout).trim() || null;
-    persistDebugLog('runtime', 'bundled compose version', { composeVersion });
-  } catch (error) {
-    persistDebugLog('runtime', 'bundled compose version failed', serializeError(error));
-    composeVersion = null;
-  }
+  const composeVersion =
+    (await execAndLog(deps, paths.composePath, ['version', '--short'], exec, {
+      ok: 'bundled compose version',
+      failed: 'bundled compose version failed',
+      field: 'composeVersion',
+    }).catch((): null => null)) || null;
 
   setRuntimeProvisionProgress('Provisioned Boundary container engine.');
 
@@ -366,26 +372,14 @@ export async function resolveContainerRuntime(
   try {
     const runtime = await probeSystemDocker(merged);
     lastResolveError = null;
-    persistDebugLog('runtime', 'resolved system Docker', {
-      kind: runtime.kind,
-      origin: runtime.origin,
-      cliVersion: runtime.version.cli,
-      composeVersion: runtime.version.compose,
-      apiEndpoint: runtime.apiEndpoint,
-    });
+    logResolved('resolved system Docker', runtime);
     return runtime;
   } catch (dockerError) {
     persistDebugLog('runtime', 'system Docker failed; trying bundled Podman', serializeError(dockerError));
     try {
       const runtime = await ensureBundledPodman(merged);
       lastResolveError = null;
-      persistDebugLog('runtime', 'resolved bundled Podman', {
-        kind: runtime.kind,
-        origin: runtime.origin,
-        cliVersion: runtime.version.cli,
-        composeVersion: runtime.version.compose,
-        apiEndpoint: runtime.apiEndpoint,
-      });
+      logResolved('resolved bundled Podman', runtime);
       return runtime;
     } catch (bundledError) {
       const dockerMsg =
@@ -423,22 +417,28 @@ export async function getContainerRuntime(
     return inflight;
   }
 
-  inflight = (async () => {
+  const resolving: Promise<ContainerRuntime> = (async () => {
     try {
       const runtime = await resolveContainerRuntime(deps);
       cachedRuntime = runtime;
       return runtime;
     } finally {
-      inflight = null;
+      if (inflight === resolving) inflight = null;
     }
   })();
+  inflight = resolving;
 
-  return inflight;
+  return resolving;
 }
 
-/** Test helper / Retry: clear the process-wide cache. */
+/**
+ * Test helper / Retry: clear the cached runtime. A resolve that is still running
+ * is kept, and later callers join it, so a reset never starts a second resolve
+ * (and a second `podman machine start`) beside it.
+ */
 export function resetContainerRuntimeCache(): void {
   cachedRuntime = null;
-  inflight = null;
-  clearRuntimeProvisionProgress();
+  if (!inflight) {
+    clearRuntimeProvisionProgress();
+  }
 }

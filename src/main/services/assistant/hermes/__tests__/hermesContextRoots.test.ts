@@ -6,6 +6,7 @@ import type { HermesProjectRecord } from '../../../../../shared/types/hermesChat
 import {
   collectContextExtraRoots,
   listedExtraSourcePaths,
+  localTerminalService,
   persistContextExtraRoots,
   upsertHermesContextOverrideBinds,
 } from '../hermesContextRoots';
@@ -164,5 +165,59 @@ describe('hermesContextRoots', () => {
     upsertHermesContextOverrideBinds([extra], root);
     const again = fs.readFileSync(overridePath, 'utf8');
     expect(again.split(extra).length - 1).toBe(2);
+  });
+
+  /** The volumes listed under one service of a compose override, in order. */
+  function serviceVolumes(text: string, service: string): string[] {
+    const lines = text.split('\n');
+    const start = lines.indexOf(`  ${service}:`);
+    if (start < 0) return [];
+    const out: string[] = [];
+    let inVolumes = false;
+    for (const line of lines.slice(start + 1)) {
+      if (/^ {2}\S/.test(line)) break;
+      if (/^ {4}\S/.test(line)) inVolumes = line === '    volumes:';
+      const bind = /^ {6}- (.*)$/.exec(line);
+      if (bind && inVolumes) out.push(bind[1]);
+    }
+    return out;
+  }
+
+  it('binds on hermes-worker, the ssh terminal service, as the stack does', () => {
+    const root = tmpDir('bd-ctx-override-');
+    fs.writeFileSync(path.join(root, '.env'), 'HERMES_TERMINAL_BACKEND=ssh\n', 'utf8');
+    fs.writeFileSync(
+      path.join(root, 'docker-compose.override.yml'),
+      'services:\n  hermes:\n    environment:\n      - FOO=1\n  hermes-worker:\n    volumes:\n      - /srv/a:/srv/a:ro\n',
+      'utf8'
+    );
+    const extra = '/Users/you/Notes';
+    const text = fs.readFileSync(upsertHermesContextOverrideBinds([extra], root), 'utf8');
+    expect(serviceVolumes(text, 'hermes-worker')).toEqual([
+      '"/Users/you/Notes:/Users/you/Notes:ro"',
+      '/srv/a:/srv/a:ro',
+    ]);
+    expect(serviceVolumes(text, 'hermes')).toEqual([]);
+  });
+
+  it('adds the worker bind even when an older Boundary put it on hermes', () => {
+    const root = tmpDir('bd-ctx-override-');
+    const extra = '/Users/you/Notes';
+    fs.writeFileSync(
+      path.join(root, 'docker-compose.override.yml'),
+      `services:\n  hermes:\n    volumes:\n      - "${extra}:${extra}:ro"\n`,
+      'utf8'
+    );
+    const text = fs.readFileSync(upsertHermesContextOverrideBinds([extra], root), 'utf8');
+    expect(serviceVolumes(text, 'hermes-worker')).toEqual([`"${extra}:${extra}:ro"`]);
+  });
+
+  it('picks the terminal service from the checkout’s HERMES_TERMINAL_BACKEND', () => {
+    const root = tmpDir('bd-ctx-backend-');
+    expect(localTerminalService(root)).toBe('hermes-worker');
+    fs.writeFileSync(path.join(root, '.env'), 'HERMES_TERMINAL_BACKEND=local\n', 'utf8');
+    expect(localTerminalService(root)).toBe('hermes');
+    const text = fs.readFileSync(upsertHermesContextOverrideBinds(['/Users/you/Notes'], root), 'utf8');
+    expect(serviceVolumes(text, 'hermes')).toEqual(['"/Users/you/Notes:/Users/you/Notes:ro"']);
   });
 });

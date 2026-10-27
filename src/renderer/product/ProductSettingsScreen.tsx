@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   DiscoveredLocalLlm,
-  InferenceProvidersStatus,
   InferenceSlotId,
   ListedModel,
   LlmSlotHealth,
@@ -12,7 +11,7 @@ import { ModelPicker } from '../onboarding/ModelPicker';
 import { Segmented } from '../components/ui/segmented';
 import { InfoTip } from '../components/ui/info-tip';
 import { useThemePreference } from '../theme';
-import { onboardingIPC } from '../services/onboardingIPCService';
+import { takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
 import { cloudInferenceNotice, cloudKeyLimitTip } from './cloudInferenceCopy';
 import { PasswordsLoginsPanel } from './PasswordsLoginsPanel';
 import { CalendarsPanel } from './CalendarsPanel';
@@ -88,44 +87,47 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
 }) => {
   const [themePreference, setThemePreference] = useThemePreference();
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
-  const [status, setStatus] = useState<InferenceProvidersStatus | null>(null);
   const [localModels, setLocalModels] = useState<ListedModel[]>([]);
   const [openRouterModels, setOpenRouterModels] = useState<ListedModel[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredLocalLlm[]>([]);
   const [selectedLocalModel, setSelectedLocalModel] = useState('');
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState('');
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // True while main waits for the browser to return from OpenRouter sign-in.
+  const [openRouterSigningIn, setOpenRouterSigningIn] = useState(false);
+  const openRouterSignInCancelled = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Save model feedback shows beside the picker; the page-level banner is out of view below it.
+  const [modelSaveFeedback, setModelSaveFeedback] = useState<{
+    slot: 'local' | 'openrouter';
+    tone: 'ok' | 'bad';
+    text: string;
+  } | null>(null);
   const [testBySlot, setTestBySlot] = useState<Partial<Record<InferenceSlotId, string>>>({});
 
-  const applyStatus = useCallback((next: InferenceProvidersStatus) => {
-    setStatus(next);
-    setSelectedLocalModel((current) => next.slots?.local?.modelId ?? current);
-    setSelectedOpenRouterModel((current) => next.slots?.openrouter?.modelId ?? current);
-  }, []);
+  const { status, error: statusError } = useInferenceStatus();
+  const loading = status === null;
 
-  const refreshStatus = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      applyStatus(await onboardingIPC.getStatus());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [applyStatus]);
+  // Follow the saved model when it changes (a save here, or setup), not on every probe answer,
+  // so an unsaved pick stays put.
+  const savedLocalModel = status?.slots.local?.modelId;
+  const savedOpenRouterModel = status?.slots.openrouter?.modelId;
+  useEffect(() => {
+    if (savedLocalModel) setSelectedLocalModel(savedLocalModel);
+  }, [savedLocalModel]);
+  useEffect(() => {
+    if (savedOpenRouterModel) setSelectedOpenRouterModel(savedOpenRouterModel);
+  }, [savedOpenRouterModel]);
 
   const probe = useCallback(async (slot: InferenceSlotId) => {
-    const result = await onboardingIPC.probeSlotHealth({ slot });
-    if (result.status) applyStatus(result.status);
+    const result = await window.electronAPI.onboarding.probeSlotHealth({ slot });
+    if (result.status) void takeInferenceStatus(result);
     return result;
-  }, [applyStatus]);
+  }, []);
 
   const refreshModels = useCallback(async (slot: 'local' | 'openrouter') => {
-    const result = await onboardingIPC.listConfiguredEndpointModels({ slot });
+    const result = await window.electronAPI.onboarding.listConfiguredEndpointModels({ slot });
     if (!result.success) {
       setError(result.error ?? 'Unable to refresh models.');
       return;
@@ -148,10 +150,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   }, []);
 
   useEffect(() => {
-    void refreshStatus();
-  }, [refreshStatus]);
-
-  useEffect(() => {
     if (!status) return;
     if (status.slots?.local) {
       void probe('local');
@@ -162,14 +160,13 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
       void refreshModels('openrouter');
     }
     // Probe once after the first status load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.slots.local?.endpointUrl, status?.slots.openrouter?.endpointUrl]);
 
   const handleScan = async () => {
     setBusy(true);
     setError(null);
     try {
-      const result = await onboardingIPC.discoverLocalLlms();
+      const result = await window.electronAPI.onboarding.discoverLocalLlms();
       if (!result.success) {
         setError(result.error ?? 'Scan failed.');
         return;
@@ -187,7 +184,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const result = await onboardingIPC.adoptLocalLlm({
+      const result = await window.electronAPI.onboarding.adoptLocalLlm({
         runtime: endpoint.runtime,
         endpointUrl: endpoint.baseUrl,
         modelId,
@@ -196,7 +193,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         setError(result.error ?? 'Unable to use this local endpoint.');
         return;
       }
-      if (result.status) applyStatus(result.status);
+      await takeInferenceStatus(result);
       setDiscovered([]);
       setNotice('Local runtime connected. The assistant restarts if this is the app default.');
     } finally {
@@ -207,13 +204,17 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const handleConnectOpenRouter = async () => {
     setBusy(true);
     setError(null);
+    openRouterSignInCancelled.current = false;
+    setOpenRouterSigningIn(true);
     try {
-      const result = await onboardingIPC.startOAuthPkce({ providerId: 'openrouter' });
+      const result = await window.electronAPI.onboarding.startOAuthPkce({ providerId: 'openrouter' });
+      setOpenRouterSigningIn(false);
+      if (openRouterSignInCancelled.current) return;
       if (!result.success || !result.credentials) {
         setError(result.error ?? 'OpenRouter sign-in failed.');
         return;
       }
-      const listed = await onboardingIPC.listEndpointModels({
+      const listed = await window.electronAPI.onboarding.listEndpointModels({
         baseUrl: result.credentials.endpointUrl,
         authScheme: result.credentials.authScheme,
         provider: result.credentials.providerId,
@@ -227,7 +228,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         setError('No models available after connect.');
         return;
       }
-      const saved = await onboardingIPC.saveLlmConnection({
+      const saved = await window.electronAPI.onboarding.saveLlmConnection({
         endpointUrl: result.credentials.endpointUrl,
         modelId,
         provider: result.credentials.providerId,
@@ -241,13 +242,19 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         setError(saved.error ?? 'Unable to save OpenRouter.');
         return;
       }
-      if (saved.status) applyStatus(saved.status);
+      await takeInferenceStatus(saved);
       setOpenRouterModels(listed.models);
       setSelectedOpenRouterModel(modelId);
       setNotice('OpenRouter connected. The assistant restarts only if this is the app default.');
     } finally {
+      setOpenRouterSigningIn(false);
       setBusy(false);
     }
+  };
+
+  const handleCancelOpenRouterSignIn = () => {
+    openRouterSignInCancelled.current = true;
+    void window.electronAPI.onboarding.cancelOAuthPkce();
   };
 
   const handleSaveModel = async (slot: 'local' | 'openrouter', modelId: string) => {
@@ -255,28 +262,52 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     setBusy(true);
     setError(null);
     setNotice(null);
+    setModelSaveFeedback(null);
     try {
-      const result = await onboardingIPC.updateLlmModel({ slot, modelId });
+      const result = await window.electronAPI.onboarding.updateLlmModel({ slot, modelId });
       if (!result.success) {
-        setError(result.error ?? 'Unable to update model.');
+        setModelSaveFeedback({
+          slot,
+          tone: 'bad',
+          text: result.error ?? 'Unable to update model.',
+        });
         return;
       }
-      if (result.status) applyStatus(result.status);
-      setNotice(
-        status?.appDefault === slot
-          ? 'Model updated. The assistant restarts to use this model.'
-          : 'Model saved. It will be used when this provider is the app default.'
-      );
+      await takeInferenceStatus(result);
+      setModelSaveFeedback({
+        slot,
+        tone: 'ok',
+        text:
+          status?.appDefault === slot
+            ? 'Model saved. Chats using this provider switch on their next message.'
+            : 'Model saved. Chats and projects set to this provider switch on their next message.',
+      });
     } finally {
       setBusy(false);
     }
+  };
+
+  const renderModelSaveFeedback = (slot: 'local' | 'openrouter') =>
+    modelSaveFeedback?.slot === slot ? (
+      <p
+        role={modelSaveFeedback.tone === 'bad' ? 'alert' : 'status'}
+        className={`wb-inference-note${modelSaveFeedback.tone === 'bad' ? ' is-bad' : ''}`}
+      >
+        {modelSaveFeedback.text}
+      </p>
+    ) : null;
+
+  const selectModel = (slot: 'local' | 'openrouter', modelId: string) => {
+    if (modelSaveFeedback?.slot === slot) setModelSaveFeedback(null);
+    if (slot === 'local') setSelectedLocalModel(modelId);
+    else setSelectedOpenRouterModel(modelId);
   };
 
   const handleTest = async (slot: InferenceSlotId) => {
     setBusy(true);
     setError(null);
     try {
-      const result = await onboardingIPC.sendLlmTestMessage({
+      const result = await window.electronAPI.onboarding.sendLlmTestMessage({
         slot,
         message: 'Reply with the word ready.',
       });
@@ -294,12 +325,12 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const result = await onboardingIPC.clearLlmSlot({ slot });
+      const result = await window.electronAPI.onboarding.clearLlmSlot({ slot });
       if (!result.success) {
         setError(result.error ?? 'Unable to disconnect.');
         return;
       }
-      if (result.status) applyStatus(result.status);
+      await takeInferenceStatus(result);
       if (slot === 'local') {
         setLocalModels([]);
         setSelectedLocalModel('');
@@ -317,12 +348,12 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const result = await onboardingIPC.setAppDefault({ slot });
+      const result = await window.electronAPI.onboarding.setAppDefault({ slot });
       if (!result.success) {
         setError(result.error ?? 'Unable to set the app default.');
         return;
       }
-      if (result.status) applyStatus(result.status);
+      await takeInferenceStatus(result);
       setNotice('App default updated. The assistant restarts to use this connection.');
     } finally {
       setBusy(false);
@@ -430,6 +461,14 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
               </button>
             </div>
           )}
+          {openRouterSigningIn && (
+            <div className="wb-inference-banner" role="status">
+              <p>Waiting for OpenRouter sign-in to finish in your browser.</p>
+              <button type="button" className="wb-inference-btn" onClick={handleCancelOpenRouterSignIn}>
+                Cancel
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -514,7 +553,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                                   : []
                             }
                             selectedModelId={selectedLocalModel}
-                            onSelect={setSelectedLocalModel}
+                            onSelect={(modelId) => selectModel('local', modelId)}
                             onRefresh={() => void refreshModels('local')}
                             label="Local model"
                           />
@@ -528,6 +567,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                               Save model
                             </button>
                           </div>
+                          {renderModelSaveFeedback('local')}
                         </div>
                       )}
                       <div className="wb-inference-actions">
@@ -630,21 +670,32 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                                     : []
                               }
                               selectedModelId={selectedOpenRouterModel}
-                              onSelect={setSelectedOpenRouterModel}
+                              onSelect={(modelId) => selectModel('openrouter', modelId)}
                               onRefresh={() => void refreshModels('openrouter')}
                               label="OpenRouter model"
                               filterable
+                              savedModelId={openrouter.modelId ?? ''}
+                              summaryAction={
+                                selectedOpenRouterModel !== openrouter.modelId ||
+                                modelSaveFeedback?.slot === 'openrouter' ? (
+                                  <>
+                                    {selectedOpenRouterModel !== openrouter.modelId && (
+                                      <button
+                                        type="button"
+                                        className="wb-inference-btn is-solid"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          void handleSaveModel('openrouter', selectedOpenRouterModel)
+                                        }
+                                      >
+                                        {busy ? 'Checking model…' : 'Save model'}
+                                      </button>
+                                    )}
+                                    {renderModelSaveFeedback('openrouter')}
+                                  </>
+                                ) : null
+                              }
                             />
-                            <div className="wb-inference-actions">
-                              <button
-                                type="button"
-                                className="wb-inference-btn"
-                                disabled={busy || selectedOpenRouterModel === openrouter.modelId}
-                                onClick={() => void handleSaveModel('openrouter', selectedOpenRouterModel)}
-                              >
-                                Save model
-                              </button>
-                            </div>
                           </div>
                         )}
                       <div className="wb-inference-actions">
@@ -751,9 +802,9 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
           )}
 
           {notice && <p className="wb-inference-note">{notice}</p>}
-          {error && (
+          {(error ?? statusError) && (
             <div className="wb-inference-banner is-bad" style={{ marginTop: 16 }}>
-              <p>{error}</p>
+              <p>{error ?? statusError}</p>
             </div>
           )}
           </>

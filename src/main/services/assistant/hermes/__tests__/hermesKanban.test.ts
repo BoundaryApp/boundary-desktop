@@ -100,7 +100,7 @@ describe('toTaskDetail', () => {
       runs: [{ id: 4, profile: 'researcher', status: 'done', started_at: 1, ended_at: 3, metadata: { worker_session_id: 'w-1' } }],
     });
     expect(detail?.events.map((e) => e.note)).toEqual(['grouping', 'Which version?', 'All clear', null]);
-    expect(detail?.runs[0].workerSessionId).toBe('w-1');
+    expect(detail?.runs[0]).toEqual({ id: 4, outcome: null, endedAt: 3, error: null });
     expect(detail?.latestSummary).toBe('Done: 312 packages.');
     expect(detail?.comments[0]).toMatchObject({ author: 'you', body: 'Skip dev deps' });
   });
@@ -250,6 +250,14 @@ describe('the feed', () => {
     await vi.runOnlyPendingTimersAsync();
     expect(await kanbanTaskAction('t_1', { kind: 'archive' })).toEqual({ success: true });
     expect(writes()).toEqual([['PATCH', '/tasks/t_1', { status: 'archived' }]]);
+  });
+
+  it('moves a triage task to To do', async () => {
+    serveBoards([task({ status: 'triage' })]);
+    ensureKanbanFeed();
+    await vi.runOnlyPendingTimersAsync();
+    expect(await kanbanTaskAction('t_1', { kind: 'move-to-todo' })).toEqual({ success: true });
+    expect(writes()).toEqual([['PATCH', '/tasks/t_1', { status: 'todo' }]]);
   });
 
   it('moves a task to a scratch workspace and unblocks it in one PATCH', async () => {
@@ -481,9 +489,7 @@ describe('the feed', () => {
     fetchMock.mockResolvedValueOnce(json({ exists: true, content: 'line 1\nline 2', truncated: true }));
     expect(await getKanbanTaskLog('t_1', 999_999)).toEqual({
       success: true,
-      exists: true,
       content: 'line 1\nline 2',
-      truncated: true,
     });
     expect(fetchMock.mock.calls[0][0]).toContain('/tasks/t_1/log?tail=64000');
   });

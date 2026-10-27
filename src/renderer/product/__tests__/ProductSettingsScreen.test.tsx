@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { ProductSettingsScreen } from '../ProductSettingsScreen';
 
 const onboardingApi = {
@@ -10,6 +11,7 @@ const onboardingApi = {
   discoverLocalLlms: vi.fn(),
   adoptLocalLlm: vi.fn(),
   startOAuthPkce: vi.fn(),
+  cancelOAuthPkce: vi.fn(),
   listEndpointModels: vi.fn(),
   saveLlmConnection: vi.fn(),
   updateLlmModel: vi.fn(),
@@ -72,10 +74,7 @@ describe('ProductSettingsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
-    Object.defineProperty(window, 'electronAPI', {
-      value: { onboarding: onboardingApi },
-      configurable: true,
-    });
+    stubElectronAPI({ onboarding: onboardingApi });
     onboardingApi.probeSlotHealth.mockImplementation(async () => ({
       success: true,
       health: 'reachable',
@@ -98,6 +97,35 @@ describe('ProductSettingsScreen', () => {
     expect(screen.getByText('Scan this machine')).toBeTruthy();
     expect(screen.getByText('Connect OpenRouter')).toBeTruthy();
     expect(screen.getByRole('button', { name: /No default yet/i })).toHaveProperty('disabled', true);
+  });
+
+  it('cancels a pending OpenRouter sign-in without showing an error', async () => {
+    onboardingApi.getStatus.mockResolvedValue(localOnlyStatus);
+    let finishSignIn: (result: { success: boolean; error?: string }) => void = () => undefined;
+    onboardingApi.startOAuthPkce.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSignIn = resolve;
+        })
+    );
+    onboardingApi.cancelOAuthPkce.mockImplementation(async () => {
+      finishSignIn({ success: false, error: 'OAuth authorization was cancelled.' });
+      return { success: true };
+    });
+
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+
+    fireEvent.click(await screen.findByText('Connect OpenRouter'));
+    expect(await screen.findByText(/Waiting for OpenRouter sign-in/)).toBeTruthy();
+    expect(screen.getByText('Connect OpenRouter').closest('button')).toHaveProperty('disabled', true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onboardingApi.cancelOAuthPkce).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByText(/Waiting for OpenRouter sign-in/)).toBeNull());
+    expect(screen.getByText('Connect OpenRouter').closest('button')).toHaveProperty('disabled', false);
+    expect(screen.queryByText(/cancelled/)).toBeNull();
+    expect(onboardingApi.listEndpointModels).not.toHaveBeenCalled();
   });
 
   it('shows a live local card and keeps the OpenRouter radio disabled', async () => {

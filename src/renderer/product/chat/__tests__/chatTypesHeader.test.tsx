@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 
 const noop = () => undefined;
@@ -15,29 +16,19 @@ vi.mock('streamdown', () => ({
   Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  return {
-    hermesChatIPC: {
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: async () => [],
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-      completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-    },
-  };
-});
-
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    listPendingCredentialRequests: async () => [],
+    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+  },
+  onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
     probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
   },
-}));
+  projects: {
+    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
@@ -82,7 +73,10 @@ const Head: React.FC<{
   title: string;
   agent: AgentProfile | null;
   handlers: Record<string, () => void>;
-}> = ({ kind, title, agent, handlers }) => {
+  /** Filed under a project: the header shows project / title with the title menu. */
+  filed?: boolean;
+  agents?: AgentProfile[];
+}> = ({ kind, title, agent, handlers, filed = false, agents = [hermes, ana] }) => {
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -90,13 +84,13 @@ const Head: React.FC<{
         sessionId="s1"
         threadTitle={title}
         agent={agent}
-        kind={kind === 'channel' ? null : kind}
-        isChannel={kind === 'channel'}
+        kind={kind}
         channel={kind === 'channel' ? room : null}
-        agents={[hermes, ana]}
+        agents={agents}
         activeProject={null}
         projects={[]}
         activeProjectId={null}
+        onOpenProject={filed ? () => undefined : undefined}
         toolsEnabled
         onToolsEnabledChange={() => undefined}
         onSelectProject={() => undefined}
@@ -135,6 +129,28 @@ describe('thread header names the kind (ADR 0023)', () => {
     expect(h.makeChannel).toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Add to channel' })).toBeNull();
     expect(screen.getByPlaceholderText('Ask Hermes anything')).toBeTruthy();
+  });
+
+  it('Filed Hermes chat: Make channel once, in the title menu', () => {
+    const h = handlers();
+    render(<Head kind="hermes" title="Plan the launch" agent={hermes} handlers={h} filed />);
+    expect(screen.queryByRole('button', { name: 'Make channel' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Plan the launch/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Make channel' }));
+    expect(h.makeChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the built-in agent in the @ menu by builtIn, as the speaker line does', async () => {
+    const house: AgentProfile = { ...hermes, slug: 'house', displayName: 'House' };
+    render(<Head kind="dm" title="Ana" agent={ana} handlers={handlers()} agents={[house, ana]} />);
+    const input = screen.getByPlaceholderText(/Message/) as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '@');
+      fireEvent.input(input);
+    });
+    const menu = await screen.findByRole('listbox', { name: 'Mention' });
+    const row = within(menu).getByRole('option', { name: /House/ });
+    expect(row.querySelector('.wb-kind-mark.is-hermes')).toBeTruthy();
   });
 
   it('DM: agent name, one ongoing thread, Add to channel only', () => {
@@ -183,7 +199,7 @@ const RoomLog: React.FC<{ focusText?: string; initialQuote?: string }> = ({
         sessionId="s-room"
         threadTitle="#research"
         agent={null}
-        isChannel
+        kind="channel"
         channel={{ ...room, memberSlugs: ['assistant', 'ana'] }}
         agents={[hermes, ana]}
         activeProject={null}
@@ -228,7 +244,7 @@ const LiveWake: React.FC = () => {
         sessionId="s-room"
         threadTitle="#research"
         agent={null}
-        isChannel
+        kind="channel"
         channel={{ ...room, memberSlugs: ['assistant', 'ana'] }}
         agents={[hermes, ana]}
         activeProject={null}
@@ -287,7 +303,7 @@ const RoomWithoutAna: React.FC<{ onAddChannelMember: (slug: string) => Promise<b
         sessionId="s-room"
         threadTitle="#research"
         agent={null}
-        isChannel
+        kind="channel"
         channel={{ ...room, memberSlugs: ['assistant'] }}
         agents={[hermes, ana]}
         activeProject={null}

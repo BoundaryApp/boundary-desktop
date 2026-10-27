@@ -1,8 +1,7 @@
-import { ipcMain } from 'electron';
+import { handle, handleResult } from '../../ipc';
 import {
   classifyInferenceSlot,
   clearLlmSlot,
-  clearPendingProviderSetup,
   getAppDefaultSlot,
   getLlmConnection,
   getOpenAiOnboardingStatus,
@@ -12,57 +11,30 @@ import {
   saveLlmConnection,
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
-  saveOpenAiConfig,
-  saveProviderEndpoint,
   setAppDefault,
-  setPendingProviderSetup,
   updateLlmModel,
 } from './OpenAiOnboardingStore';
 import { probeSlotHealth } from './probeSlotHealth';
-import { clearSessionInferenceForProvider } from '../assistant/hermes/hermesAgentStore';
-import { clearProjectInferenceForProvider } from '../assistant/hermes/hermesProjects';
+import {
+  clearSessionInferenceForProvider,
+  retargetSessionInferenceModel,
+} from '../assistant/hermes/hermesAgentStore';
+import {
+  clearProjectInferenceForProvider,
+  retargetProjectInferenceModel,
+} from '../assistant/hermes/hermesProjects';
 import { isVisibleChatProvider } from '../../../shared/inferenceDisplay';
 import { listEndpointModels } from './ModelListingService';
 import { sendOnboardingTestMessage } from './OnboardingOpenAiClient';
 import { cancelActiveOAuthPkceFlow, startOAuthPkceFlow } from './oauth/OAuthPkceFlowService';
 import { listOAuthProviders } from './oauth/registry';
-import {
-  clearProviderFormDraft,
-  getProviderFormDraft,
-  resolveStoredDraftSecret,
-  resolveStoredDraftSecrets,
-  saveProviderFormDraft,
-} from './ProviderFormDraftStore';
-import { discoverBasetenOpenAiEndpoints, listBasetenDeployments } from './BasetenEndpointDiscovery';
 import { dummyApiKeyForLocalLlm, discoverLocalLlms } from './LocalLlmDiscovery';
-import { dismissLocalLlmOrigin } from './LocalLlmDismissStore';
 import { hasLoadedLocalLlmModel, preferredLocalLlmModelId } from '../../../shared/localLlm';
-import { listDeployableModels } from './DeployableModels';
-import { infrastructureService } from '../infrastructure/InfrastructureService';
-import { listCatalogModels } from '../infrastructure/CatalogLoader';
-import { getRecipeForDeployment } from '../infrastructure/RecipeLoader';
-import { verifyChatCompletionEndpoint } from '../infrastructure/endpointVerification';
-import { taskService } from '../taskService';
-import type { ProviderId } from '../../../shared/types/infrastructure';
+import { verifyChatCompletionEndpoint } from './endpointVerification';
+import { sameEndpoint } from '../../../shared/utils/endpointUrl';
 import type {
   AdoptLocalLlmInput,
   AdoptLocalLlmResult,
-  AdoptProviderEndpointInput,
-  AdoptProviderEndpointResult,
-  ClearProviderFormDraftInput,
-  DiscoverProviderEndpointsInput,
-  DiscoverProviderEndpointsResult,
-  DismissLocalLlmInput,
-  DismissLocalLlmResult,
-  GetProviderFormDraftInput,
-  ListDeployableModelsInput,
-  ListDeployableModelsResult,
-  ListProviderDeploymentsInput,
-  ListProviderDeploymentsResult,
-  OnboardingProviderConfig,
-  OnboardingProviderId,
-  SaveOpenAiConfigInput,
-  SaveProviderFormDraftInput,
   CancelOAuthPkceResult,
   ListEndpointModelsInput,
   ListEndpointModelsResult,
@@ -77,8 +49,6 @@ import type {
   SetAppDefaultResult,
   StartOAuthPkceInput,
   StartOAuthPkceResult,
-  StartProviderSetupInput,
-  StartProviderSetupResult,
   SendLlmTestMessageInput,
   SendLlmTestMessageResult,
   UpdateLlmModelInput,
@@ -87,252 +57,6 @@ import type {
 } from '../../../shared/types/onboarding';
 
 let registered = false;
-
-interface OnboardingProviderDefinition {
-  id: OnboardingProviderId;
-  name: string;
-  description: string;
-  status: 'available' | 'coming-soon';
-  capability: string;
-  infrastructureProvider?: ProviderId;
-  capabilities?: OnboardingProviderConfig['capabilities'];
-}
-
-const providerDefinitions: OnboardingProviderDefinition[] = [
-  {
-    id: 'baseten',
-    name: 'Baseten',
-    description: 'Deploy production inference endpoints with managed model hosting.',
-    status: 'available',
-    capability: 'OpenAI-compatible endpoint after deployment',
-    infrastructureProvider: 'baseten',
-    capabilities: {
-      authFieldName: 'baseten_api_key',
-      deploymentListing: true,
-      endpointAdoption: true,
-      deployableModels: true,
-    },
-  },
-  {
-    id: 'cerebrium',
-    name: 'Cerebrium',
-    description: 'Run serverless AI workloads with GPU-backed deployments.',
-    status: 'available',
-    capability: 'OpenAI-compatible vLLM endpoint after deployment',
-    infrastructureProvider: 'cerebrium',
-    capabilities: {
-      deployableModels: true,
-      accountCredentialFields: [
-        'cerebrium_service_account_token',
-        'cerebrium_project_id',
-      ],
-    },
-  },
-  {
-    id: 'modal',
-    name: 'Modal',
-    description: 'Ship containerized model services on serverless compute.',
-    status: 'coming-soon',
-    capability: 'Provider setup flow planned',
-    infrastructureProvider: 'modal',
-  },
-  {
-    id: 'beam',
-    name: 'Beam Cloud',
-    description: 'Deploy GPU workloads behind an OpenAI-compatible API.',
-    status: 'coming-soon',
-    capability: 'Provider metadata ready; infrastructure driver not yet mapped',
-  },
-];
-
-async function buildProviderConfigs(): Promise<OnboardingProviderConfig[]> {
-  const catalog = await listCatalogModels();
-
-  return Promise.all(
-    providerDefinitions.map(async (provider) => {
-      const deployment = provider.infrastructureProvider
-        ? catalog
-            .flatMap((model) =>
-              model.deployments.map((dep) => ({
-                model,
-                deployment: dep,
-              }))
-            )
-            .find(
-              ({ deployment }) =>
-                deployment.provider === provider.infrastructureProvider && deployment.available
-            )
-        : undefined;
-      const recipe =
-        deployment && provider.infrastructureProvider
-          ? await getRecipeForDeployment(deployment.model.id, provider.infrastructureProvider)
-          : null;
-
-      return {
-        ...provider,
-        status: provider.status === 'available' && recipe ? 'available' : 'coming-soon',
-        modelId: deployment?.model.id,
-        fields: recipe?.secrets ?? [],
-      };
-    })
-  );
-}
-
-async function startProviderSetup(
-  input: StartProviderSetupInput
-): Promise<StartProviderSetupResult> {
-  const provider = (await buildProviderConfigs()).find((p) => p.id === input.providerId);
-  if (!provider || provider.status !== 'available' || !provider.infrastructureProvider || !provider.modelId) {
-    return { success: false, error: 'Provider setup is not available yet.' };
-  }
-
-  const modelId = input.modelId ?? provider.modelId;
-  const recipe = await getRecipeForDeployment(modelId, provider.infrastructureProvider);
-  if (!recipe) {
-    return { success: false, error: 'The selected model is not deployable for this provider.' };
-  }
-
-  input = { ...input, values: await resolveStoredDraftSecrets(input.providerId, input.values) };
-  const missing = recipe.secrets.find((field) => {
-    if (!field.required) return false;
-    const value = input.values[field.name];
-    return value === undefined || value === '';
-  });
-  if (missing) {
-    return { success: false, error: `Missing required value: ${missing.name}` };
-  }
-
-  const create = await infrastructureService.createInstance({
-    modelId,
-    provider: provider.infrastructureProvider,
-    displayName: `${provider.name} OpenAI Endpoint`,
-  });
-  if (!create.success || !create.instance) {
-    return { success: false, error: create.error ?? 'Unable to create provider instance.' };
-  }
-
-  const vars: Record<string, string | number | boolean> = {};
-  for (const field of recipe.secrets) {
-    const value = input.values[field.name];
-    if (value === undefined || value === '') continue;
-    if (field.sensitive) {
-      const res = await infrastructureService.setSecret(create.instance.id, field.name, String(value));
-      if (!res.success) {
-        return { success: false, error: res.error ?? `Failed to save ${field.name}.` };
-      }
-    } else {
-      vars[field.name] = value;
-    }
-  }
-
-  if (Object.keys(vars).length > 0) {
-    const res = await infrastructureService.saveVars(create.instance.id, vars);
-    if (!res.success) {
-      return { success: false, error: res.error ?? 'Failed to save provider configuration.' };
-    }
-  }
-
-  const apply = await infrastructureService.apply(create.instance.id);
-  if (!apply.success || !apply.taskId) {
-    return { success: false, error: apply.error ?? 'Failed to start provider deployment.' };
-  }
-
-  const task = await taskService.getTask(apply.taskId);
-  await taskService.updateTask({
-    id: apply.taskId,
-    metadata: {
-      ...(task?.metadata ?? {}),
-      onboardingProvider: provider.id,
-    },
-  });
-
-  const pending = {
-    providerId: provider.id,
-    providerName: provider.name,
-    instanceId: create.instance.id,
-    taskId: apply.taskId,
-    startedAt: new Date().toISOString(),
-  };
-  await setPendingProviderSetup(pending);
-
-  return { success: true, pending };
-}
-
-async function discoverProviderEndpoints(
-  input: DiscoverProviderEndpointsInput
-): Promise<DiscoverProviderEndpointsResult> {
-  if (input.providerId !== 'baseten') {
-    return { success: false, endpoints: [], error: 'Endpoint discovery is not available for this provider.' };
-  }
-
-  const apiKey = (await resolveStoredDraftSecrets(input.providerId, input.values)).baseten_api_key;
-  if (typeof apiKey !== 'string' || !apiKey.trim()) {
-    return { success: false, endpoints: [], error: 'Enter a Baseten API key.' };
-  }
-
-  return discoverBasetenOpenAiEndpoints(apiKey.trim());
-}
-
-async function listProviderDeployments(
-  input: ListProviderDeploymentsInput
-): Promise<ListProviderDeploymentsResult> {
-  if (input.providerId !== 'baseten') {
-    return { success: false, endpoints: [], error: 'Deployment listing is not available for this provider.' };
-  }
-
-  const apiKey = (await resolveStoredDraftSecrets(input.providerId, input.values)).baseten_api_key;
-  if (typeof apiKey !== 'string' || !apiKey.trim()) {
-    return { success: false, endpoints: [], error: 'Enter a Baseten API key.' };
-  }
-
-  return listBasetenDeployments(apiKey.trim());
-}
-
-async function listProviderDeployableModels(
-  input: ListDeployableModelsInput
-): Promise<ListDeployableModelsResult> {
-  return listDeployableModels(input.providerId, await resolveStoredDraftSecrets(input.providerId, input.values));
-}
-
-async function adoptProviderEndpoint(
-  input: AdoptProviderEndpointInput
-): Promise<AdoptProviderEndpointResult> {
-  if (input.providerId !== 'baseten') {
-    return { success: false, error: 'Endpoint adoption is not available for this provider.' };
-  }
-  input = { ...input, apiKey: await resolveStoredDraftSecret(input.providerId, input.apiKey) };
-  if (!input.apiKey.trim()) {
-    return { success: false, error: 'Enter a Baseten API key.' };
-  }
-
-  if (!input.modelId?.trim()) {
-    return { success: false, error: 'Select a model for this endpoint.' };
-  }
-
-  const verification = await verifyChatCompletionEndpoint({
-    baseUrl: input.endpointUrl,
-    apiKey: input.apiKey.trim(),
-    modelId: input.modelId.trim(),
-    provider: 'baseten',
-    authScheme: 'api-key',
-  });
-  if (!verification.ok) {
-    return {
-      success: false,
-      error: verification.error ?? 'The selected endpoint did not return a valid chat response.',
-    };
-  }
-
-  return saveProviderEndpoint({
-    providerId: input.providerId,
-    instanceId: `adopted:${input.modelId ?? input.endpointUrl}`,
-    endpointUrl: input.endpointUrl,
-    apiKey: input.apiKey.trim(),
-    modelId: input.modelId.trim(),
-    authScheme: 'api-key',
-    providerDisplayName: 'Baseten',
-  });
-}
 
 async function adoptLocalLlm(input: AdoptLocalLlmInput): Promise<AdoptLocalLlmResult> {
   const discovery = await discoverLocalLlms();
@@ -375,18 +99,6 @@ async function adoptLocalLlm(input: AdoptLocalLlmInput): Promise<AdoptLocalLlmRe
   return result;
 }
 
-function dismissLocalLlm(input: DismissLocalLlmInput): DismissLocalLlmResult {
-  try {
-    dismissLocalLlmOrigin(input.runtime, input.endpointUrl);
-    return { success: true };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
 function resolveSaveSlot(input: SaveLlmConnectionInput): InferenceSlotId {
   return (
     input.slot ??
@@ -419,16 +131,13 @@ async function applyHermesIfDefaultSlot(writtenSlot?: InferenceSlotId): Promise<
   }
 }
 
-function urlsMatch(left: string | undefined, right: string | undefined): boolean {
-  if (!left || !right) return false;
-  return left.replace(/\/$/, '') === right.replace(/\/$/, '');
-}
-
 async function saveLlmConnectionHandler(
   input: SaveLlmConnectionInput
 ): Promise<SaveLlmConnectionResult> {
   const slot = resolveSaveSlot(input);
-  const stored = (await getSlotConnectionMaterial(slot)) ?? (await getStoredLlmConnectionMaterial());
+  // A stored key is only sent to the URL it was saved with, and never to another slot's endpoint.
+  const slotMaterial = await getSlotConnectionMaterial(slot);
+  const stored = slotMaterial && sameEndpoint(slotMaterial.endpointUrl, input.endpointUrl) ? slotMaterial : null;
   const apiKey = input.apiKey?.trim() || stored?.apiKey;
   const authScheme = input.authScheme ?? stored?.authScheme;
   const verification = await verifyChatCompletionEndpoint({
@@ -474,13 +183,12 @@ async function updateLlmModelHandler(input: UpdateLlmModelInput): Promise<Update
   }
 
   const storedKey = await getSlotApiKey(slot);
-  const authScheme = slotStatus.provider === 'baseten' ? 'api-key' : slotStatus.authScheme ?? 'bearer';
   const verified = await verifyChatCompletionEndpoint({
     baseUrl: slotStatus.endpointUrl,
     apiKey: storedKey ?? undefined,
     modelId: input.modelId,
     provider: slotStatus.provider,
-    authScheme,
+    authScheme: slotStatus.authScheme,
   });
   if (!verified.ok) {
     return {
@@ -492,6 +200,11 @@ async function updateLlmModelHandler(input: UpdateLlmModelInput): Promise<Update
 
   const result = await updateLlmModel(input.modelId, slot);
   if (result.success) {
+    if (isVisibleChatProvider(slot)) {
+      const modelId = input.modelId.trim();
+      retargetSessionInferenceModel(slot, modelId);
+      retargetProjectInferenceModel(slot, modelId);
+    }
     await applyHermesIfDefaultSlot(slot);
   }
   return result;
@@ -524,6 +237,8 @@ async function setAppDefaultHandler(input: SetAppDefaultInput): Promise<SetAppDe
 }
 
 async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnectionResult> {
+  // Hermes only needs the new connection when the cleared slot was the app default.
+  const wasDefault = getAppDefaultSlot() === input.slot;
   const result = await clearLlmSlot(input.slot);
   if (result.success) {
     if (isVisibleChatProvider(input.slot)) {
@@ -531,7 +246,7 @@ async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnec
       clearProjectInferenceForProvider(input.slot);
     }
     const nextDefault = getAppDefaultSlot();
-    if (nextDefault) {
+    if (wasDefault && nextDefault) {
       await applyHermesIfDefaultSlot(nextDefault);
     }
   }
@@ -546,86 +261,27 @@ export function registerOnboardingHandlers(): void {
   if (registered) return;
   registered = true;
 
-  ipcMain.handle('onboarding:get-status', async () => getOpenAiOnboardingStatus());
+  handle('onboarding:get-status', async () => getOpenAiOnboardingStatus());
 
-  ipcMain.handle('onboarding:list-providers', async () => buildProviderConfigs());
+  handleResult('onboarding:discover-local-llms', async () => discoverLocalLlms());
 
-  ipcMain.handle(
-    'onboarding:discover-provider-endpoints',
-    async (_event, input: DiscoverProviderEndpointsInput) => discoverProviderEndpoints(input)
-  );
-
-  ipcMain.handle(
-    'onboarding:list-provider-deployments',
-    async (_event, input: ListProviderDeploymentsInput) => listProviderDeployments(input)
-  );
-
-  ipcMain.handle(
-    'onboarding:list-deployable-models',
-    async (_event, input: ListDeployableModelsInput) => listProviderDeployableModels(input)
-  );
-
-  ipcMain.handle('onboarding:adopt-provider-endpoint', async (_event, input: AdoptProviderEndpointInput) =>
-    adoptProviderEndpoint(input)
-  );
-
-  ipcMain.handle('onboarding:discover-local-llms', async () => discoverLocalLlms());
-
-  ipcMain.handle('onboarding:adopt-local-llm', async (_event, input: AdoptLocalLlmInput) =>
+  handleResult('onboarding:adopt-local-llm', async (_event, input: AdoptLocalLlmInput) =>
     adoptLocalLlm(input)
   );
 
-  ipcMain.handle('onboarding:dismiss-local-llm', async (_event, input: DismissLocalLlmInput) =>
-    dismissLocalLlm(input)
-  );
-
-  ipcMain.handle('onboarding:start-provider-setup', async (_event, input: StartProviderSetupInput) =>
-    startProviderSetup(input)
-  );
-
-  ipcMain.handle('onboarding:save-openai-config', async (_event, input: SaveOpenAiConfigInput) =>
-    saveOpenAiConfig(input)
-  );
-
-  ipcMain.handle('onboarding:clear-openai-config', async (_event, input?: ClearLlmSlotInput) => {
-    const slot = input?.slot ?? getAppDefaultSlot();
-    if (!slot) {
-      return { success: true, status: await getOpenAiOnboardingStatus() };
-    }
-    return clearSlotHandler({ slot });
-  });
-
-  ipcMain.handle('onboarding:clear-llm-slot', async (_event, input: ClearLlmSlotInput) =>
+  handleResult('onboarding:clear-llm-slot', async (_event, input: ClearLlmSlotInput) =>
     clearSlotHandler(input)
   );
 
-  ipcMain.handle('onboarding:set-app-default', async (_event, input: SetAppDefaultInput) =>
+  handleResult('onboarding:set-app-default', async (_event, input: SetAppDefaultInput) =>
     setAppDefaultHandler(input)
   );
 
-  ipcMain.handle('onboarding:probe-slot-health', async (_event, input: ProbeSlotHealthInput) =>
+  handleResult('onboarding:probe-slot-health', async (_event, input: ProbeSlotHealthInput) =>
     probeSlotHealthHandler(input)
   );
 
-  ipcMain.handle('onboarding:clear-pending-provider-setup', async () => clearPendingProviderSetup());
-
-  ipcMain.handle(
-    'onboarding:get-provider-form-draft',
-    async (_event, input: GetProviderFormDraftInput) => getProviderFormDraft(input.providerId)
-  );
-
-  ipcMain.handle(
-    'onboarding:save-provider-form-draft',
-    async (_event, input: SaveProviderFormDraftInput) => saveProviderFormDraft(input)
-  );
-
-  ipcMain.handle(
-    'onboarding:clear-provider-form-draft',
-    async (_event, input?: ClearProviderFormDraftInput) =>
-      clearProviderFormDraft(input?.providerId)
-  );
-
-  ipcMain.handle('onboarding:list-oauth-providers', async (): Promise<ListOAuthProvidersResult> => {
+  handleResult('onboarding:list-oauth-providers', async (): Promise<ListOAuthProvidersResult> => {
     try {
       const providers = listOAuthProviders().map((provider) => ({
         id: provider.id,
@@ -642,66 +298,52 @@ export function registerOnboardingHandlers(): void {
     }
   });
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:start-oauth-pkce',
     async (_event, input: StartOAuthPkceInput): Promise<StartOAuthPkceResult> => {
-      try {
-        const credentials = await startOAuthPkceFlow(input.providerId);
-        const persisted = await saveOAuthCredentials({
+      const credentials = await startOAuthPkceFlow(input.providerId);
+      const persisted = await saveOAuthCredentials({
+        providerId: credentials.providerId,
+        providerDisplayName: credentials.providerDisplayName,
+        endpointUrl: credentials.endpointUrl,
+        apiKey: credentials.apiKey,
+        authScheme: credentials.authScheme,
+        capabilities: credentials.capabilities,
+        extraHeaders: credentials.extraHeaders,
+      });
+      if (!persisted.success) {
+        return {
+          success: false,
+          error: persisted.error ?? 'Unable to store OAuth credentials securely.',
+        };
+      }
+      // Key is already encrypted on disk; do not send it back to the renderer.
+      return {
+        success: true,
+        credentials: {
           providerId: credentials.providerId,
           providerDisplayName: credentials.providerDisplayName,
           endpointUrl: credentials.endpointUrl,
-          apiKey: credentials.apiKey,
           authScheme: credentials.authScheme,
           capabilities: credentials.capabilities,
           extraHeaders: credentials.extraHeaders,
-        });
-        if (!persisted.success) {
-          return {
-            success: false,
-            error: persisted.error ?? 'Unable to store OAuth credentials securely.',
-          };
-        }
-        // Key is already encrypted on disk; do not send it back to the renderer.
-        return {
-          success: true,
-          credentials: {
-            providerId: credentials.providerId,
-            providerDisplayName: credentials.providerDisplayName,
-            endpointUrl: credentials.endpointUrl,
-            authScheme: credentials.authScheme,
-            capabilities: credentials.capabilities,
-            extraHeaders: credentials.extraHeaders,
-          },
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+        },
+      };
     }
   );
 
-  ipcMain.handle('onboarding:cancel-oauth-pkce', async (): Promise<CancelOAuthPkceResult> => {
-    try {
-      cancelActiveOAuthPkceFlow();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+  handleResult('onboarding:cancel-oauth-pkce', async (): Promise<CancelOAuthPkceResult> => {
+    cancelActiveOAuthPkceFlow();
+    return { success: true };
   });
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:list-endpoint-models',
     async (_event, input: ListEndpointModelsInput): Promise<ListEndpointModelsResult> => {
       if (!input.apiKey && input.baseUrl) {
         for (const slot of ['local', 'openrouter', 'infrastructure'] as const) {
           const stored = await getSlotConnectionMaterial(slot);
-          if (stored && urlsMatch(stored.endpointUrl, input.baseUrl)) {
+          if (stored && sameEndpoint(stored.endpointUrl, input.baseUrl)) {
             return listEndpointModels({
               ...input,
               apiKey: stored.apiKey,
@@ -716,23 +358,23 @@ export function registerOnboardingHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:list-configured-endpoint-models',
     async (_event, input?: ListConfiguredEndpointModelsInput) =>
       listConfiguredEndpointModels(input)
   );
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:save-llm-connection',
     async (_event, input: SaveLlmConnectionInput) => saveLlmConnectionHandler(input)
   );
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:update-llm-model',
     async (_event, input: UpdateLlmModelInput) => updateLlmModelHandler(input)
   );
 
-  ipcMain.handle(
+  handleResult(
     'onboarding:send-llm-test-message',
     async (_event, input: SendLlmTestMessageInput): Promise<SendLlmTestMessageResult> =>
       sendOnboardingTestMessage(input.message, input.slot)

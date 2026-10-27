@@ -4,8 +4,8 @@ import {
   type AgentProfile,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { useEscapeToClose } from '../useAppShortcuts';
-import { ConversationMark } from './ConversationMark';
+import { Sheet } from '../../components/ui/sheet';
+import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
 
 interface AgentCreateSheetProps {
@@ -38,7 +38,6 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
   onCancel,
   onCreate,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
   const [role, setRole] = useState('');
@@ -69,71 +68,24 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
   const editing = mode === 'edit';
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div
-        className="wb-sheet"
-        role="dialog"
-        aria-labelledby="wb-agent-create-title"
-      >
-        <div className="wb-sheet-kicker">
-          {editing ? 'Edit · name + role' : 'Create · name + role'}
-        </div>
-        <h2>
-          <span id="wb-agent-create-title">{editing ? 'Edit agent' : 'New agent'}</span>
-          {editing ? null : (
-            <InfoTip label="agents">
-              This agent gets private memory. It can read the bound folder. In a channel it can
-              read posts later; @ is how you ask it to reply now.
-            </InfoTip>
-          )}
-        </h2>
-        {editing ? (
-          <p className="wb-sheet-lede">
-            A new role becomes its standing instructions. Its DM, memory and channels stay.
-          </p>
-        ) : (
-          <p className="wb-sheet-lede">The role becomes its standing instructions.</p>
-        )}
-        <label className="wb-field">
-          <span>Display name</span>
-          <input
-            value={displayName}
-            onChange={(e) => {
-              setDisplayName(e.target.value);
-              if (!handleTouched) setHandle(agentSlugFromDisplayName(e.target.value));
-            }}
-            disabled={busy}
-            autoFocus
-          />
-        </label>
-        <label className="wb-field">
-          <span>Handle</span>
-          <input
-            className="mono"
-            value={handle || derivedHandle}
-            onChange={(e) => {
-              setHandleTouched(true);
-              setHandle(e.target.value);
-            }}
-            disabled={busy}
-          />
-        </label>
-        <label className="wb-field">
-          <span>Role</span>
-          <textarea
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            disabled={busy}
-            rows={4}
-          />
-        </label>
-        {starting ? (
-          <p className="wb-sheet-starting" role="status">
-            Starting…
-          </p>
-        ) : null}
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-agent-create-title"
+      kicker={editing ? 'Edit · name + role' : 'Create · name + role'}
+      title={editing ? 'Edit agent' : 'New agent'}
+      titleAside={
+        editing ? null : (
+          <InfoTip label="agents">
+            This agent gets private memory. It can read the bound folder. In a channel it can
+            read posts later; @ is how you ask it to reply now.
+          </InfoTip>
+        )
+      }
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -156,9 +108,55 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
           >
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {editing ? (
+        <p className="wb-sheet-lede">
+          A new role becomes its standing instructions. Its DM, memory and channels stay.
+        </p>
+      ) : (
+        <p className="wb-sheet-lede">The role becomes its standing instructions.</p>
+      )}
+      <label className="wb-field">
+        <span>Display name</span>
+        <input
+          value={displayName}
+          onChange={(e) => {
+            setDisplayName(e.target.value);
+            if (!handleTouched) setHandle(agentSlugFromDisplayName(e.target.value));
+          }}
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <label className="wb-field">
+        <span>Handle</span>
+        <input
+          className="mono"
+          value={handle || derivedHandle}
+          onChange={(e) => {
+            setHandleTouched(true);
+            setHandle(e.target.value);
+          }}
+          disabled={busy}
+        />
+      </label>
+      <label className="wb-field">
+        <span>Role</span>
+        <textarea
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          disabled={busy}
+          rows={4}
+        />
+      </label>
+      {starting ? (
+        <p className="wb-sheet-starting" role="status">
+          Starting…
+        </p>
+      ) : null}
+    </Sheet>
   );
 };
 
@@ -185,81 +183,83 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
   onAddToChannel,
   onEditAgent,
 }) => {
-  useEscapeToClose(onClose, !open);
   if (!open) return null;
   const messaging = mode === 'message';
   const hermesName = builtinAgentName(agents);
   const listed = messaging ? agents.filter((a) => !a.builtIn) : agents;
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet wb-sheet-wide" role="dialog" aria-labelledby="wb-roster-title">
-        <div className="wb-sheet-kicker">
-          {messaging ? 'Direct message · one ongoing thread each' : 'Inside Chat · not a fourth app destination'}
-        </div>
-        <h2>
-          <span id="wb-roster-title">{messaging ? 'Message an agent' : 'Agents'}</span>
-          <InfoTip label={messaging ? 'direct messages' : 'agents'}>
-            {messaging
-              ? `For a fresh start, use a ${hermesName} chat (⌘N).`
-              : `${hermesName} is the built-in agent you chat with any time. The others are people you DM or @ in a channel, each with private memory and a role. Past chats live in All chats.`}
-          </InfoTip>
-        </h2>
-        {messaging ? (
-          <p className="wb-sheet-lede">Each agent keeps one ongoing thread with you.</p>
-        ) : null}
-        <div className="wb-sheet-actions" style={{ marginBottom: 16 }}>
-          <button type="button" className="wb-btn-solid" onClick={onNewAgent}>
-            New agent
-          </button>
-          <button type="button" className="wb-btn-ghost" onClick={onClose}>
-            Back
-          </button>
-        </div>
-        {listed.length === 0 ? (
-          <p className="wb-sheet-help">No agents yet. Create one to start a DM.</p>
-        ) : (
-          <div className="wb-agent-list">
-            {listed.map((agent) => (
-              <div key={agent.slug} className="wb-agent-row">
-                <ConversationMark kind={agent.builtIn ? 'hermes' : 'dm'} agent={agent} />
-                <span className="wb-agent-copy">
-                  <b title={agent.displayName}>{agent.displayName}</b>
-                  <span>{agent.role}</span>
-                  <span className="handle mono">
-                    {agent.builtIn ? 'built-in' : `@${agent.handle}`}
-                  </span>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      titleId="wb-roster-title"
+      className="wb-sheet-wide"
+      kicker={
+        messaging ? 'Direct message · one ongoing thread each' : 'Inside Chat · not a fourth app destination'
+      }
+      title={messaging ? 'Message an agent' : 'Agents'}
+      titleAside={
+        <InfoTip label={messaging ? 'direct messages' : 'agents'}>
+          {messaging
+            ? `For a fresh start, use a ${hermesName} chat (⌘N).`
+            : `${hermesName} is the built-in agent you chat with any time. The others are people you DM or @ in a channel, each with private memory and a role. Past chats live in All chats.`}
+        </InfoTip>
+      }
+    >
+      {messaging ? (
+        <p className="wb-sheet-lede">Each agent keeps one ongoing thread with you.</p>
+      ) : null}
+      <div className="wb-sheet-actions" style={{ marginBottom: 16 }}>
+        <button type="button" className="wb-btn-solid" onClick={onNewAgent}>
+          New agent
+        </button>
+        <button type="button" className="wb-btn-ghost" onClick={onClose}>
+          Back
+        </button>
+      </div>
+      {listed.length === 0 ? (
+        <p className="wb-sheet-help">No agents yet. Create one to start a DM.</p>
+      ) : (
+        <div className="wb-agent-list">
+          {listed.map((agent) => (
+            <div key={agent.slug} className="wb-agent-row">
+              <AgentMark agent={agent} />
+              <span className="wb-agent-copy">
+                <b title={agent.displayName}>{agent.displayName}</b>
+                <span>{agent.role}</span>
+                <span className="handle mono">
+                  {agent.builtIn ? 'built-in' : `@${agent.handle}`}
                 </span>
+              </span>
+              <button
+                type="button"
+                className="wb-btn-tiny"
+                onClick={() => onOpenDm(agent.slug)}
+              >
+                {agent.builtIn ? 'Chat' : messaging ? 'Message' : 'DM'}
+              </button>
+              {!messaging && onAddToChannel ? (
                 <button
                   type="button"
                   className="wb-btn-tiny"
-                  onClick={() => onOpenDm(agent.slug)}
+                  onClick={() => onAddToChannel(agent.slug)}
                 >
-                  {agent.builtIn ? 'Chat' : messaging ? 'Message' : 'DM'}
+                  Add to channel
                 </button>
-                {!messaging && onAddToChannel ? (
-                  <button
-                    type="button"
-                    className="wb-btn-tiny"
-                    onClick={() => onAddToChannel(agent.slug)}
-                  >
-                    Add to channel
-                  </button>
-                ) : null}
-                {!messaging && !agent.builtIn && onEditAgent ? (
-                  <button
-                    type="button"
-                    className="wb-btn-tiny"
-                    aria-label={`Edit ${agent.displayName}`}
-                    onClick={() => onEditAgent(agent.slug)}
-                  >
-                    Edit
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+              ) : null}
+              {!messaging && !agent.builtIn && onEditAgent ? (
+                <button
+                  type="button"
+                  className="wb-btn-tiny"
+                  aria-label={`Edit ${agent.displayName}`}
+                  onClick={() => onEditAgent(agent.slug)}
+                >
+                  Edit
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </Sheet>
   );
 };

@@ -5,7 +5,7 @@ import { vi } from 'vitest';
 const memoryStores: Record<string, Record<string, unknown>> = {};
 
 vi.mock('electron-store', () => ({
-  default: vi.fn().mockImplementation((options?: { name?: string; defaults?: Record<string, unknown> }) => {
+  default: vi.fn().mockImplementation(function (options?: { name?: string; defaults?: Record<string, unknown> }) {
     const name = options?.name ?? 'default';
     if (!memoryStores[name]) {
       memoryStores[name] = { ...(options?.defaults ?? {}) };
@@ -13,7 +13,8 @@ vi.mock('electron-store', () => ({
     const data = memoryStores[name];
     return {
       get: (key: string) => data[key],
-      set: (key: string, value: unknown) => {
+      has: (key: string) => data[key] !== undefined,
+      set:(key: string, value: unknown) => {
         if (value === undefined) {
           delete data[key];
         } else {

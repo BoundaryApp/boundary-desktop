@@ -10,7 +10,7 @@ export interface KnownSignInSite {
   origin: string;
 }
 
-export const KNOWN_SIGN_IN_SITES: readonly KnownSignInSite[] = [
+const KNOWN_SIGN_IN_SITES: readonly KnownSignInSite[] = [
   {
     name: 'LinkedIn',
     domain: 'linkedin.com',

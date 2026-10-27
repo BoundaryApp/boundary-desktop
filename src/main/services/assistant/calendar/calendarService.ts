@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { BrowserWindow } from 'electron';
 import type {
   CalendarAccess,
   CalendarAccessPayload,
@@ -17,13 +16,18 @@ import type {
 } from '../../../../shared/types/calendars';
 import { persistDebugLog } from '../../../persistDebugLog';
 import { getAssistantStackAccess, isAssistantStackReady } from '../AssistantStackService';
-import { buildHermesConfigSetExec, redactSecrets } from '../hermesConfigSetExec';
-import { hermesProfileEnvPath, upsertEnvLines } from '../../hostBridge/hermesProvision';
+import { buildHermesConfigSetExec } from '../hermesConfigSetExec';
+import { redactSecrets } from '../../secrets/redact';
+import { broadcast } from '../../windows';
+import { encryptToBase64, isOsEncryptionAvailable } from '../../secrets/osEncryption';
+import { hermesProfileEnvPath } from '../../hostBridge/hermesProvision';
+import { removeEnvLines, upsertEnvLines } from '../stackEnv';
 import { syncHostToolListing } from '../../hostBridge/hostBridgeService';
 import { resolveProfileForAgent } from '../hermes/hermesAgents';
 import { listStoredAgents } from '../hermes/hermesAgentStore';
 import { getHermesGatewaySession } from '../hermes/hermesGatewaySession';
-import { JSON_RPC_METHOD_NOT_FOUND, JsonRpcGatewayError } from '../hermes/vendor/json-rpc-channel';
+import { JsonRpcGatewayError } from '../hermes/vendor/json-rpc-channel';
+import { gatewayErrorText } from '../hermes/gatewayErrorText';
 import { caldavProbeArgs, caldavProbeInput, parseCaldavProbeOutput } from './caldavProbe';
 import {
   CALDAV_MCP_SERVICE,
@@ -36,13 +40,10 @@ import {
   expectedToolCount,
   isCalendarProvider,
   normalizeCalendarUrl,
-  removeEnvLines,
 } from './calendarModel';
 import {
-  canStoreCalendarPasswords,
   decryptCalendarPassword,
   deleteCalendarAccount,
-  encryptCalendarPassword,
   getCalendarAccount,
   hasCalendarAccounts,
   listCalendarAccounts,
@@ -78,17 +79,11 @@ class CalendarInputError extends Error {}
 
 function errorText(err: unknown, secrets: readonly string[] = []): string {
   if (err instanceof CalendarInputError) return err.message;
-  if (err instanceof JsonRpcGatewayError) {
-    if (err.code === JSON_RPC_METHOD_NOT_FOUND) {
-      return 'This version of Hermes can’t manage MCP servers. Update the agent stack and try again.';
-    }
-    return redactSecrets(err.message, [...secrets]) || 'Hermes refused the request.';
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  if (/connect|ticket|ECONNREFUSED|socket/i.test(message)) {
-    return 'Couldn’t reach Hermes. Start the agent stack and try again.';
-  }
-  return redactSecrets(message, [...secrets]).slice(0, 400) || 'Something went wrong.';
+  return gatewayErrorText(err, secrets, {
+    methodMissing: 'This version of Hermes can’t manage MCP servers. Update the agent stack and try again.',
+    fallback: 'Something went wrong.',
+    maxLength: 400,
+  });
 }
 
 function text(value: unknown, what: string): string {
@@ -120,17 +115,13 @@ function cleanAccess(value: unknown): Record<string, CalendarAccess> {
   return out;
 }
 
-function broadcast(event: CalendarProgressEvent): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('calendars:progress', event);
-  }
+function broadcastProgress(event: CalendarProgressEvent): void {
+  broadcast('calendars:progress', event);
 }
 
 /** Tell an open Calendars tab that a background check changed a card. */
 function broadcastChanged(): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('calendars:changed');
-  }
+  broadcast('calendars:changed');
 }
 
 /** One change at a time: two writes to the same profile files must not interleave. */
@@ -338,7 +329,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
     let pw = '';
     let saved: StoredCalendarAccount | null = null;
     try {
-      if (!(await canStoreCalendarPasswords())) {
+      if (!(await isOsEncryptionAvailable())) {
         throw new CalendarInputError('Boundary can’t store passwords on this Mac because the keychain isn’t available.');
       }
       if (!isCalendarProvider(payload?.provider)) throw new CalendarInputError('Choose a provider.');
@@ -351,7 +342,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
       const username = text(payload.username, 'the username');
       pw = password(payload.password);
       const access = cleanAccess(payload.access);
-      const progress = (step: CalendarProgressStep) => broadcast({ slug, step });
+      const progress = (step: CalendarProgressStep) => broadcastProgress({ slug, step });
 
       // Test again here: the sheet's result came from the renderer, and the probe settles the URL.
       progress('saving');
@@ -365,7 +356,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
         provider: payload.provider,
         url: probe.url,
         username,
-        password: await encryptCalendarPassword(pw),
+        password: await encryptToBase64(pw),
         calendars: probe.calendars,
         access,
         createdAt: new Date().toISOString(),
@@ -409,7 +400,7 @@ export function setCalendarAccess(payload: CalendarAccessPayload): Promise<Calen
       const previous = account.access;
       const next: StoredCalendarAccount = { ...account, access: cleanAccess(payload.access) };
       saveCalendarAccount(next);
-      const progress = (step: CalendarProgressStep) => broadcast({ slug: next.slug, step });
+      const progress = (step: CalendarProgressStep) => broadcastProgress({ slug: next.slug, step });
       const warning = await applyAccess(next, previous, pw, progress);
       progress('done');
       return { success: true, account: await toCalendarAccountView(next), ...(warning ? { error: warning } : {}) };
@@ -525,11 +516,6 @@ export function startCalendarHealthChecks(): void {
   dailyTimer.unref?.();
 }
 
-export function stopCalendarHealthChecks(): void {
-  if (dailyTimer) clearInterval(dailyTimer);
-  dailyTimer = null;
-}
-
 /**
  * **Replace password**: test the new password against the stored address and username, then
  * write it into every profile with access and reload, as a connect does.
@@ -542,7 +528,7 @@ export function replaceCalendarPassword(payload: CalendarReplacePasswordPayload)
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
       pw = password(payload.password);
-      const progress = (step: CalendarProgressStep) => broadcast({ slug: account.slug, step });
+      const progress = (step: CalendarProgressStep) => broadcastProgress({ slug: account.slug, step });
 
       progress('saving');
       const probe = await runProbe({ url: account.url, username: account.username, password: pw });
@@ -553,7 +539,7 @@ export function replaceCalendarPassword(payload: CalendarReplacePasswordPayload)
       saved = {
         ...account,
         url: probe.url,
-        password: await encryptCalendarPassword(pw),
+        password: await encryptToBase64(pw),
         calendars: probe.calendars,
         lastCheck: { at, status: 'ok' },
         lastOkAt: at,

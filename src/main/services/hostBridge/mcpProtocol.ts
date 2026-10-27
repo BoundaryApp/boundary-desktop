@@ -1,4 +1,4 @@
-import { HOST_TOOLS, listedHostTools, type HostToolDefinition } from './toolCatalog';
+import { isHostToolName, listedHostTools, type HostToolDefinition } from './toolCatalog';
 
 /**
  * The slice of MCP the host bridge speaks: Streamable HTTP, POST only, one JSON-RPC message per
@@ -6,10 +6,10 @@ import { HOST_TOOLS, listedHostTools, type HostToolDefinition } from './toolCata
  * initialize, ping, tools/list and tools/call, and keeps the security-critical surface small.
  */
 
-export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 const FALLBACK_PROTOCOL_VERSION = '2025-06-18';
 
-export const SERVER_INFO = { name: 'boundary-host', version: '0.1.0' };
+const SERVER_INFO = { name: 'boundary-host', version: '0.1.0' };
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -104,7 +104,7 @@ export async function handleMcpMessage(
       }
       // Any tool in the catalog, listed now or not: a Hermes that hasn't reconnected since the
       // listing changed may still call offer_setup, and main answers that itself.
-      if (!HOST_TOOLS.some((tool) => tool.name === name)) {
+      if (!isHostToolName(name)) {
         return error(msg.id, JSON_RPC_ERRORS.invalidParams, `Unknown tool: ${name}`);
       }
       return result(msg.id, await callTool(name, args as Record<string, unknown>));

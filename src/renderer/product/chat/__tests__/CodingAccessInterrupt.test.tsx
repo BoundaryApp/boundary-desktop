@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { CodingAccessRequestEvent } from '../../../../shared/types/codingFolders';
 
 const grantCodingFolder = vi.fn();
@@ -11,24 +12,26 @@ const codingAgentBusy = vi.fn();
 const newCodingFolderDefaults = vi.fn();
 let accessListener: ((event: CodingAccessRequestEvent) => void) | null = null;
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    grantCodingFolder: (...args: unknown[]) => grantCodingFolder(...args),
-    createCodingFolder: (...args: unknown[]) => createCodingFolder(...args),
-    addSourceFolder: (...args: unknown[]) => addSourceFolder(...args),
-    setProjectFolderCoding: (...args: unknown[]) => setProjectFolderCoding(...args),
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
-    newCodingFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
-    listCodingFolders: async () => ({ success: true, managed: true, grants: [] }),
-    onCodingFoldersProgress: () => () => undefined,
-    onCodingAccessRequest: (callback: (event: CodingAccessRequestEvent) => void) => {
+stubElectronAPI({
+  codingFolders: {
+    grant: (...args: unknown[]) => grantCodingFolder(...args),
+    createFolder: (...args: unknown[]) => createCodingFolder(...args),
+    setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
+    newFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
+    list: async () => ({ success: true, managed: true, grants: [] }),
+    onProgress: () => () => undefined,
+    onAccessRequest: (callback: (event: CodingAccessRequestEvent) => void) => {
       accessListener = callback;
       return () => {
         accessListener = null;
       };
     },
   },
-}));
+  projects: {
+    addSourceFolder: (...args: unknown[]) => addSourceFolder(...args),
+  },
+});
 
 import { CodingAccessInterrupt, followUpFor } from '../CodingAccessInterrupt';
 import { useCodingAccessRequests } from '../useCodingAccessRequests';
@@ -132,6 +135,29 @@ describe('CodingAccessInterrupt', () => {
     expect(await screen.findByRole('button', { name: 'Add when it finishes' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Stop task and add' })).toBeTruthy();
     expect(grantCodingFolder).not.toHaveBeenCalled();
+  });
+
+  it('can still be dismissed while a queued grant waits for the coding task', async () => {
+    codingAgentBusy.mockResolvedValue({ busy: true, sessions: ['Fix header layout'] });
+    const { onResolved } = renderCard();
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Portfolio for coding' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add when it finishes' }));
+    // The task never finishes in this test, so the queue never runs the grant.
+    const notNow = await screen.findByRole('button', { name: 'Not now' });
+    await waitFor(() => expect((notNow as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(notNow);
+    expect(onResolved).toHaveBeenCalledWith(null);
+    expect(grantCodingFolder).not.toHaveBeenCalled();
+  });
+
+  it('sends the follow-up when a queued grant runs while the card is still shown', async () => {
+    codingAgentBusy
+      .mockResolvedValueOnce({ busy: true, sessions: ['Fix header layout'] })
+      .mockResolvedValue({ busy: false, sessions: [] });
+    const { onResolved } = renderCard();
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Portfolio for coding' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add when it finishes' }));
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith(followUpFor(repo, false)));
   });
 
   it('creates a missing folder with a git repo and grants it', async () => {

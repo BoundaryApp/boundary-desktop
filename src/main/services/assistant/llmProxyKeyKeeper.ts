@@ -15,7 +15,7 @@ import {
  * (ADR 0026). With LLM_PROXY_AWAIT_PUSH set, its routes answer 503 until then.
  */
 
-export const LLM_PROXY_KEEPER_INTERVAL_MS = 30_000;
+const LLM_PROXY_KEEPER_INTERVAL_MS = 30_000;
 
 export type LlmProxyCheck = 'idle' | 'ok' | 'repushed' | 'unreachable' | 'failed';
 

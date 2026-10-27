@@ -1,6 +1,10 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+
+const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
+ipcCalls.settleBeforeWaits();
 
 const noop = () => undefined;
 globalThis.ResizeObserver ??= class {
@@ -19,40 +23,30 @@ const history = vi.hoisted(() => ({
   branch: undefined as Record<string, unknown> | undefined,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  return {
-    hermesChatIPC: {
-      getHistory: vi.fn(async () => ({
-        success: true,
-        sessionId: 's1',
-        messages: history.messages,
-        ...(history.branch ? { branch: history.branch } : {}),
-      })),
-      startChat: vi.fn(),
-      cancelChat: vi.fn(),
-      onChatChunk: unsub,
-      onChatEnd: unsub,
-      onChatError: unsub,
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: async () => [],
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-      completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-    },
-  };
-});
-
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
-    getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
-    probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
+stubElectronAPI({
+  hermesChat: {
+    getHistory: ipcCalls.track(async () => ({
+      success: true,
+      sessionId: 's1',
+      messages: history.messages,
+      ...(history.branch ? { branch: history.branch } : {}),
+    })),
+    startChat: vi.fn(),
+    cancelChat: vi.fn(),
+    listPendingCredentialRequests: ipcCalls.track(async () => []),
+    getContextBreakdown: ipcCalls.track(async () => ({
+      success: true,
+      breakdown: { categories: [] },
+    })),
   },
-}));
+  onboarding: {
+    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
+    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
+  },
+  projects: {
+    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
@@ -118,7 +112,7 @@ const Chat: React.FC<{
     <WorkbenchThread
       sessionId="s1"
       threadTitle="Assistant"
-      isChannel={isChannel}
+      kind={isChannel ? 'channel' : null}
       activeProject={null}
       projects={[]}
       activeProjectId={null}
@@ -138,7 +132,8 @@ const Chat: React.FC<{
 );
 
 describe('Branch in the thread', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await ipcCalls.settle();
     cleanup();
     history.branch = undefined;
   });
@@ -152,7 +147,8 @@ describe('Branch in the thread', () => {
     ];
     const onBranch = vi.fn();
     render(<Chat onBranch={onBranch} />);
-    await screen.findByText('reply two');
+    await ipcCalls.settle();
+    expect(screen.getByText('reply two')).toBeTruthy();
 
     const buttons = screen.getAllByRole('button', { name: 'Branch to new chat' });
     expect(buttons).toHaveLength(4);
@@ -172,7 +168,8 @@ describe('Branch in the thread', () => {
       { role: 'assistant', content: 'hi', rowId: 2 },
     ];
     render(<Chat onBranch={vi.fn()} isChannel />);
-    await screen.findByText('hi');
+    await ipcCalls.settle();
+    expect(screen.getByText('hi')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Branch to new chat' })).toBeNull();
   });
 
@@ -199,7 +196,8 @@ describe('Branch in the thread', () => {
         onDraftConsumed={onDraftConsumed}
       />
     );
-    await screen.findByText('reply one');
+    await ipcCalls.settle();
+    expect(screen.getByText('reply one')).toBeTruthy();
 
     expect(document.querySelectorAll('time.wb-msg-time')).toHaveLength(0);
     expect(document.querySelector('.wb-branch-mark')?.textContent).toMatch(

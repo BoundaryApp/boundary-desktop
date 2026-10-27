@@ -7,7 +7,8 @@ import type {
   HermesProjectRecord,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { formatDayLabel, formatMessageTime } from '../../../shared/messageTime';
+import { formatRowTime } from '../../../shared/messageTime';
+import { newestFirst } from '../../../shared/utils/sort';
 import {
   EMPTY_ALL_CHATS_FILTER,
   emptyFilterMessage,
@@ -17,7 +18,7 @@ import {
   sourceOptions,
   type AllChatsFilter,
 } from './allChatsFilter';
-import { projectGlyph, projectGlyphColor } from './chatTelemetryFormat';
+import { ProjectGlyph } from './ProjectGlyph';
 import { isFiled } from './projectMove';
 import { ConversationMark } from './ConversationMark';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
@@ -46,13 +47,7 @@ const NO_PROJECTS: HermesProjectRecord[] = [];
 function ProjectTag({ project }: { project: HermesProjectRecord | null }) {
   return (
     <span className={`wb-all-project${project ? '' : ' is-none'}`}>
-      {project ? (
-        <span className="wb-glyph wb-glyph-inline" style={{ background: projectGlyphColor(project.id) }}>
-          {projectGlyph(project.name)}
-        </span>
-      ) : (
-        <span className="wb-glyph wb-glyph-inline is-none">–</span>
-      )}
+      <ProjectGlyph project={project} inline />
       <span className="wb-all-project-name" title={project?.name ?? 'No project'}>
         {project?.name ?? 'No project'}
       </span>
@@ -69,14 +64,6 @@ function ListIcon() {
       <circle cx="2.6" cy="12" r="0.9" fill="currentColor" />
     </svg>
   );
-}
-
-function rowTime(iso: string | undefined): string {
-  const ms = iso ? Date.parse(iso) : NaN;
-  if (!Number.isFinite(ms)) return '';
-  const day = formatDayLabel(ms);
-  if (day === 'Today' || day === 'Yesterday') return formatMessageTime(ms);
-  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 /**
@@ -129,9 +116,7 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
 
   const shown = useMemo(
     () =>
-      filterAllChats(threads, filter, { agents, channels }).sort(
-        (a, b) => (Date.parse(b.updatedAt ?? '') || 0) - (Date.parse(a.updatedAt ?? '') || 0)
-      ),
+      filterAllChats(threads, filter, { agents, channels }).sort(newestFirst),
     [threads, filter, agents, channels]
   );
   const groups = useMemo(() => groupThreadsByRecency(shown), [shown]);
@@ -320,7 +305,7 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                           </span>
                         )
                       ) : null}
-                      <span className="wb-all-when">{rowTime(thread.updatedAt)}</span>
+                      <span className="wb-all-when">{formatRowTime(Date.parse(thread.updatedAt ?? ''))}</span>
                     </button>
                     </div>
                   );

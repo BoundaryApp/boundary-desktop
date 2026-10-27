@@ -8,6 +8,11 @@
  * a packaged build. BOUNDARY_LAG_TRACE=0 keeps the log but turns the recorders off.
  */
 
+/** A measurement rounded to 0.1, for log fields. */
+export function roundTenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 export const LAG_PROBE_CHANNELS = {
   config: 'lag-probe:config',
   report: 'lag-probe:report',

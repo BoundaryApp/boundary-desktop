@@ -4,8 +4,8 @@ import type {
   ChannelRecord,
   HermesMentionRecord,
 } from '../../../shared/types/hermesChat';
-import { formatDayLabel, formatMessageTime } from '../../../shared/messageTime';
-import { ConversationMark } from './ConversationMark';
+import { formatDayAndTime } from '../../../shared/messageTime';
+import { AgentMark } from './ConversationMark';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { WorkingDot } from './WorkingDot';
 
@@ -19,14 +19,6 @@ interface MentionsPaneProps {
   onOpenInRoom: (mention: HermesMentionRecord) => void;
   onContinue: (mention: HermesMentionRecord) => void;
   onAskAgain: (mention: HermesMentionRecord) => void;
-}
-
-function when(iso: string): string {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return '';
-  const day = formatDayLabel(ms);
-  const time = formatMessageTime(ms);
-  return day === 'Today' ? `Today ${time}` : day === 'Yesterday' ? `Yesterday ${time}` : day;
 }
 
 /** Your text with each @name of the mentioned agent highlighted. */
@@ -130,7 +122,7 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
                   className={`wb-all-chip${agentSlug === a.slug ? ' is-on' : ''}`}
                   onClick={() => setAgentSlug(a.slug)}
                 >
-                  <ConversationMark kind={a.builtIn ? 'hermes' : 'dm'} agent={a} size={14} />
+                  <AgentMark agent={a} size={14} />
                   {a.displayName}
                 </button>
               ))}
@@ -211,12 +203,12 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
               <div className="wb-mention-top">
                 {!lockedAgent ? (
                   <>
-                    <ConversationMark kind={agent?.builtIn ? 'hermes' : 'dm'} agent={agent} size={14} />
+                    <AgentMark agent={agent} size={14} />
                     <span>{name} in</span>
                   </>
                 ) : null}
                 <b className="mono">#{m.channelSlug}</b>
-                <span>· {when(m.at)}</span>
+                <span>· {formatDayAndTime(Date.parse(m.at))}</span>
                 <span className={`wb-mention-pill ${pill.cls}`}>
                   {working ? <WorkingDot label={`${name} is working`} /> : null}
                   {pill.label}
@@ -227,7 +219,7 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
               </div>
               {m.reply ? (
                 <div className="wb-mention-reply">
-                  <ConversationMark kind={agent?.builtIn ? 'hermes' : 'dm'} agent={agent} size={14} />
+                  <AgentMark agent={agent} size={14} />
                   <p>{m.reply.text}</p>
                 </div>
               ) : null}

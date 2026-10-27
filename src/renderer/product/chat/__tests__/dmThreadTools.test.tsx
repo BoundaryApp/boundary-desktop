@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 
 const noop = () => undefined;
@@ -26,29 +27,19 @@ vi.mock('streamdown', () => ({
   Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  return {
-    hermesChatIPC: {
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: async () => [],
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: (...args: unknown[]) => getContextBreakdown(...args),
-      completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-    },
-  };
-});
-
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    listPendingCredentialRequests: async () => [],
+    getContextBreakdown: (...args: unknown[]) => getContextBreakdown(...args),
+  },
+  onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
     probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
   },
-}));
+  projects: {
+    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
@@ -99,8 +90,7 @@ const Dm: React.FC<{ channel?: boolean }> = ({ channel = false }) => {
         sessionId="s-dm"
         threadTitle="Ana"
         agent={channel ? null : ana}
-        kind={channel ? null : 'dm'}
-        isChannel={channel}
+        kind={channel ? 'channel' : 'dm'}
         channel={
           channel
             ? {

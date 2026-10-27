@@ -1,20 +1,21 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 
 const newCodingFolderDefaults = vi.fn();
 const checkNewCodingFolder = vi.fn();
 const pickCodingParent = vi.fn();
 const codingAgentBusy = vi.fn();
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    newCodingFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
-    checkNewCodingFolder: (...args: unknown[]) => checkNewCodingFolder(...args),
-    pickCodingParent: (...args: unknown[]) => pickCodingParent(...args),
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
+stubElectronAPI({
+  codingFolders: {
+    newFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
+    checkNewFolder: (...args: unknown[]) => checkNewCodingFolder(...args),
+    pickParent: (...args: unknown[]) => pickCodingParent(...args),
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
   },
-}));
+});
 
 import { existingFolderSummary, NewFolderForm } from '../NewFolderForm';
 
@@ -43,7 +44,7 @@ describe('NewFolderForm', () => {
       gitAvailable: true,
       managed: true,
     });
-    checkNewCodingFolder.mockImplementation(async (parent: string, name: string) => ({
+    checkNewCodingFolder.mockImplementation(async ({ parent, name }: { parent: string; name: string }) => ({
       success: true,
       hostPath: `${parent}/${name.trim()}`,
       exists: false,

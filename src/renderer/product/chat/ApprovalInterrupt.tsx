@@ -10,12 +10,20 @@ import {
   approvalWhy,
 } from './approvalCopy';
 import { calendarApprovalCopy, calendarSlugFromServer } from './calendarApprovalCopy';
-import { calendarIPC } from '../../services/calendarIPCService';
+import { InterruptCard, InterruptConfirm } from '../../components/ui/interrupt-card';
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from '../../components/ui/popover';
 
 interface ApprovalInterruptProps {
   approval: HermesChatApprovalEvent;
   queueSize: number;
   busy?: boolean;
+  /** Why the last answer was not sent. */
+  error?: string | null;
   onRespond: (choice: HermesApprovalChoice) => void;
 }
 
@@ -28,7 +36,7 @@ function useCalendarAccountName(server: string | undefined): string | null {
     if (!slug) return;
     let alive = true;
     try {
-      void calendarIPC
+      void window.electronAPI.calendars
         .list()
         .then((result) => {
           const account = result.accounts.find((a) => a.slug === slug);
@@ -49,6 +57,7 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
   approval,
   queueSize,
   busy = false,
+  error = null,
   onRespond,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -70,7 +79,6 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
   const command = approval.command?.trim() || '';
   const kicker = approvalKicker(approval);
   const why = approvalWhy(approval);
-  const countLabel = queueSize > 1 ? `1 / ${queueSize}` : null;
 
   useEffect(() => {
     setMenuOpen(false);
@@ -81,17 +89,6 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
   useEffect(() => {
     runRef.current?.focus();
   }, [approval.rpcRequestId]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (event: MouseEvent) => {
-      if (!hostRef.current?.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [menuOpen]);
 
   const respond = useCallback(
     (choice: HermesApprovalChoice) => {
@@ -104,48 +101,41 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
     [approval.choices, busy, onRespond]
   );
 
-  const onKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (confirmAlways) {
-          setConfirmAlways(false);
-          return;
-        }
-        if (menuOpen) {
-          setMenuOpen(false);
-          return;
-        }
-        if (canDeny) respond('deny');
-        return;
-      }
-      if (event.key === 'Enter' && !confirmAlways && !menuOpen && canOnce) {
-        event.preventDefault();
-        respond('once');
-      }
-    },
-    [canDeny, canOnce, confirmAlways, menuOpen, respond]
-  );
-
-  const stacked = queueSize > 1;
-  const kickerClass = useMemo(
-    () => (approval.smartDenied ? 'kicker is-warn' : 'kicker'),
-    [approval.smartDenied]
-  );
+  const onEscape = () => {
+    if (confirmAlways) setConfirmAlways(false);
+    else if (canDeny) respond('deny');
+  };
 
   return (
-    <div className="wb-approve-host" ref={hostRef}>
-      <div
-        className={`wb-approve${stacked ? ' is-stack' : ''}${menuOpen ? ' is-menu' : ''}`}
-        role="alertdialog"
-        aria-labelledby="wb-approve-title"
-        aria-busy={busy}
-        onKeyDown={onKeyDown}
+    <Popover open={menuOpen && hasMore} onOpenChange={setMenuOpen}>
+      <PopoverAnchor virtualRef={hostRef} />
+      <InterruptCard
+        hostRef={hostRef}
+        className={menuOpen ? 'is-menu' : undefined}
+        labelledBy="wb-approve-title"
+        kicker={calendar ? calendar.kicker : kicker}
+        kickerId="wb-approve-title"
+        warn={approval.smartDenied}
+        queueSize={queueSize}
+        busy={busy}
+        onEscape={onEscape}
+        onEnter={canOnce && !confirmAlways && !menuOpen ? () => respond('once') : undefined}
+        aside={
+          confirmAlways ? (
+            <InterruptConfirm
+              titleId="wb-approve-always"
+              title="Always allow this command?"
+              busy={busy}
+              onCancel={() => setConfirmAlways(false)}
+              onConfirm={() => respond('always')}
+              confirmLabel="Always allow"
+            >
+              <p>{approvalAlwaysDescription()}</p>
+              {command ? <pre className="cmd mono">{command}</pre> : null}
+            </InterruptConfirm>
+          ) : null
+        }
       >
-        <div className={kickerClass}>
-          <span id="wb-approve-title">{calendar ? calendar.kicker : kicker}</span>
-          {countLabel ? <span className="count">{countLabel}</span> : null}
-        </div>
         {calendar ? (
           <div className="wb-approve-event">
             {calendar.title ? <p className="title">{calendar.title}</p> : null}
@@ -179,6 +169,11 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
             ) : null}
           </>
         ) : null}
+        {error ? (
+          <p className="wb-credential-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className="wb-approve-actions">
           {canOnce ? (
             <button
@@ -202,20 +197,28 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
             </button>
           ) : null}
           {hasMore ? (
-            <button
-              type="button"
-              className="more"
-              disabled={busy}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              More
-            </button>
+            <PopoverTrigger>
+              <button
+                type="button"
+                className="more"
+                disabled={busy}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+              >
+                More
+              </button>
+            </PopoverTrigger>
           ) : null}
         </div>
-        {menuOpen && hasMore ? (
-          <div className="wb-approve-menu" role="menu">
+        {hasMore ? (
+          <PopoverContent
+            className="wb-approve-menu"
+            role="menu"
+            side="top"
+            align="end"
+            sideOffset={8}
+            alignOffset={16}
+          >
             {canSession ? (
               <button
                 type="button"
@@ -241,35 +244,9 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
                 <em>Durable allowlist. Confirm next.</em>
               </button>
             ) : null}
-          </div>
+          </PopoverContent>
         ) : null}
-      </div>
-
-      {confirmAlways ? (
-        <div className="wb-approve-confirm" role="dialog" aria-labelledby="wb-approve-always">
-          <h3 id="wb-approve-always">Always allow this command?</h3>
-          <p>{approvalAlwaysDescription()}</p>
-          {command ? <pre className="cmd mono">{command}</pre> : null}
-          <div className="wb-approve-confirm-actions">
-            <button
-              type="button"
-              className="ghost"
-              disabled={busy}
-              onClick={() => setConfirmAlways(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="danger"
-              disabled={busy}
-              onClick={() => respond('always')}
-            >
-              Always allow
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+      </InterruptCard>
+    </Popover>
   );
 };

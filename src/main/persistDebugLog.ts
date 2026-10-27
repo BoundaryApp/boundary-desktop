@@ -6,7 +6,7 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const KEEP_BYTES = 1024 * 1024;
 const MAX_FIELD_CHARS = 8_000;
 
-export const DEBUG_LOG_FILENAME = 'boundary-debug.log';
+const DEBUG_LOG_FILENAME = 'boundary-debug.log';
 
 const sessionId = `${Date.now().toString(36)}-${process.pid}`;
 

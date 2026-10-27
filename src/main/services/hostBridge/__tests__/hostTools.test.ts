@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ApprovalOutcome } from '../approvals';
 import { executeHostTool, type HostToolDeps } from '../hostTools';
+import { HOST_TOOLS } from '../toolCatalog';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 
@@ -30,6 +31,26 @@ function deps(overrides: Partial<HostToolDeps> & { outcome?: ApprovalOutcome; gr
 }
 
 const textOf = (result: { content: Array<{ text: string }> }) => result.content[0].text;
+
+describe('executeHostTool', () => {
+  it('has a handler for every tool in the catalog, and only those', async () => {
+    for (const { name } of HOST_TOOLS) {
+      expect(textOf(await executeHostTool(name, {}, deps()))).not.toMatch(/Unknown tool/);
+    }
+    expect(textOf(await executeHostTool('run_shell', {}, deps()))).toBe('Unknown tool: run_shell');
+  });
+
+  it('answers with an error and audits it when a tool throws outside its own handling', async () => {
+    const d = deps({
+      hasGrant: vi.fn(() => {
+        throw new Error('store unreadable');
+      }),
+    });
+    const result = await executeHostTool('desktop_notification', { title: 'Hi' }, d);
+    expect(result.isError).toBe(true);
+    expect(d.audit).toHaveBeenCalledWith({ tool: 'desktop_notification', decision: 'error', args: {}, outcome: 'store unreadable' });
+  });
+});
 
 describe('desktop_notification', () => {
   it('asks first, shows the notification on allow, and audits it', async () => {
@@ -69,8 +90,16 @@ describe('desktop_notification', () => {
     }
   });
 
+  it('titles a notification "Boundary" when the model leaves the title out or blank', async () => {
+    for (const args of [{ body: 'hi' }, { title: ' ', body: 'hi' }]) {
+      const d = deps();
+      expect((await executeHostTool('desktop_notification', args, d)).isError).toBeUndefined();
+      expect(d.showNotification).toHaveBeenCalledWith('Boundary', 'hi');
+    }
+  });
+
   it('rejects bad arguments before asking, and says so when the system does not confirm', async () => {
-    for (const args of [{}, { title: '' }, { title: 'x'.repeat(121) }, { title: 'x', body: 5 }, { title: 'x', extra: 1 }]) {
+    for (const args of [{ title: 5 }, { title: 'x'.repeat(121) }, { title: 'x', body: 5 }, { title: 'x', extra: 1 }]) {
       const d = deps();
       expect((await executeHostTool('desktop_notification', args, d)).isError).toBe(true);
       expect(d.requestApproval).not.toHaveBeenCalled();

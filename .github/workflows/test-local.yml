@@ -25,18 +25,27 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
         run: node scripts/setup-dependencies.js
 
       - name: Lint
-        continue-on-error: true
         run: bun run lint
+
+      - name: Unused files and exports
+        run: bun run check:unused
+
+      - name: Repeated blocks
+        run: bun run check:duplicates
 
       - name: Type check
         continue-on-error: true
         run: bun run type-check
+
+      - name: Python for embedded-program tests
+        # The runner image ships python3; the tests that run Boundary's in-container Python skip without it.
+        run: python3 --version
 
       - name: Unit tests
         run: bun run test

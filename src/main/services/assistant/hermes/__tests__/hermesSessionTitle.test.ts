@@ -29,7 +29,7 @@ describe('setSessionTitle (ADR 0010 §3)', () => {
     expect(client.request).toHaveBeenCalledTimes(2);
   });
 
-  it('resumes a stored session to title it, without making it the current one', async () => {
+  it('resumes a stored session to title it, and links its runtime id', async () => {
     const { session, client } = sessionWith(async (method) =>
       method === 'session.resume' ? { session_id: 'r9', stored_session_id: 's9' } : {}
     );
@@ -39,7 +39,6 @@ describe('setSessionTitle (ADR 0010 §3)', () => {
       ['session.resume', 's9'],
       ['session.title', 'r9'],
     ]);
-    expect(session.activeSessionId).toBeNull();
     expect(session.storedSessionId('r9')).toBe('s9');
   });
 
@@ -74,7 +73,16 @@ describe('enableProfileToolsets', () => {
       ['session.resume', 'dm-7'],
       ['tools.configure', 'r7'],
     ]);
-    expect(session.activeSessionId).toBeNull();
+  });
+
+  it('resumes without the transcript it would discard (G06-15)', async () => {
+    const { session, client } = sessionWith(async (method) =>
+      method === 'session.resume' ? { session_id: 'r7', stored_session_id: 'dm-7' } : { enabled_toolsets: [] }
+    );
+    await session.enableProfileToolsets('dm-7', ['kanban']);
+    await session.resumeSession('dm-7', { omitMessages: true });
+    const resumes = client.request.mock.calls.filter(([method]) => method === 'session.resume');
+    expect(resumes.map(([, params]) => params.omit_messages)).toEqual([true, true]);
   });
 
   it('is false when a name did not come back enabled', async () => {
@@ -109,5 +117,37 @@ describe('session id links and agent profiles', () => {
       'session.resume',
       expect.objectContaining({ session_id: 's2', profile: 'orchestrator' })
     );
+  });
+});
+
+describe('describeProfile', () => {
+  it('names the default profile for the built-in agent, since Hermes refuses no name', async () => {
+    const { session, client } = sessionWith(async () => ({ soul: 'x' }));
+    await session.describeProfile('');
+    await session.describeProfile(' ana ');
+    expect(client.request.mock.calls).toEqual([
+      ['profiles.describe', { name: 'default' }],
+      ['profiles.describe', { name: 'ana' }],
+    ]);
+  });
+});
+
+describe('getMaxTurns', () => {
+  const withConfig = (config: unknown) => sessionWith(async () => ({ config }));
+
+  it("reads the profile's whole config, since Hermes has no getter for max_turns alone", async () => {
+    const { session, client } = withConfig({ agent: { max_turns: 40 } });
+    await expect(session.getMaxTurns('ana')).resolves.toBe(40);
+    expect(client.request).toHaveBeenCalledWith('config.get', { key: 'full', profile: 'ana' });
+  });
+
+  it('falls back to a top-level max_turns, as Hermes does', async () => {
+    await expect(withConfig({ max_turns: '30' }).session.getMaxTurns()).resolves.toBe(30);
+  });
+
+  it('answers null when unset or unlimited', async () => {
+    for (const config of [{}, { agent: { max_turns: 0 } }, { agent: { max_turns: 'unlimited' } }, null]) {
+      await expect(withConfig(config).session.getMaxTurns()).resolves.toBeNull();
+    }
   });
 });

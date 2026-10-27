@@ -3,6 +3,14 @@
 .su-root {
   position: fixed;
   --su-panel-w: 480px;
+  /* Vertical rhythm: 32px between groups (ring, status, story, footer), tighter inside them. */
+  --su-group-gap: var(--space-8);
+  --su-pill-h: 28px;
+  /* Line heights the fixed zones below are sized from. */
+  --su-line: calc(var(--size-ui) * var(--leading-ui));
+  --su-h1-lh: 28px;
+  --su-hint-lh: calc(var(--size-xs) * var(--leading-ui));
+  --su-card-title-lh: 22px;
   inset: 0;
   display: flex;
   overflow: hidden; /* everything fits the window; nothing on this screen scrolls it */
@@ -46,7 +54,27 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-5);
+}
+
+/* The ring box has ~10px of air below its labels, so this reads as one group gap. */
+.su-ring + * {
+  margin-top: var(--space-6);
+}
+
+/* Holds status, bar and story card (or the error and its retry) at one height in
+   every state, so nothing above or below it moves. Sized for the working state;
+   the error state fits inside it. */
+.su-stage {
+  --su-heading-h: calc(
+    var(--su-h1-lh) + var(--space-1) + var(--su-line) + var(--space-1) + var(--su-hint-lh)
+  );
+  --su-card-h: calc(2 * var(--space-4) + 2px + var(--su-card-title-lh) + 2px + 3 * var(--su-line));
+  --su-story-h: calc(var(--su-card-h) + var(--space-3) + 6px);
+  width: 100%;
+  height: calc(var(--su-heading-h) + var(--space-4) + 4px + var(--su-group-gap) + var(--su-story-h));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* Tool ring --------------------------------------------------------------- */
@@ -394,6 +422,8 @@
 /* Text and bar ------------------------------------------------------------ */
 
 .su-heading {
+  width: 100%;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -401,24 +431,43 @@
   text-align: center;
 }
 
+/* Working: room for the headline, stage line and one hint, filled or not. */
+.su-root:not([data-state='error']) .su-stage .su-heading {
+  height: var(--su-heading-h);
+}
+
 .su-heading h1 {
   margin: 0;
   font-size: var(--size-heading);
+  line-height: var(--su-h1-lh);
   font-weight: var(--weight-strong);
   letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 .su-heading p {
   margin: 0;
   color: var(--text-muted);
+  text-wrap: pretty;
 }
 
 .su-heading .su-hint {
   color: var(--text-faint);
   font-size: var(--size-xs);
+  line-height: var(--su-hint-lh);
+}
+
+/* The bar belongs to the status above it. */
+.su-heading + .su-bar {
+  margin-top: var(--space-4);
+}
+
+.su-heading + .su-retry {
+  margin-top: var(--space-6);
 }
 
 .su-bar {
+  flex-shrink: 0;
   position: relative;
   width: 280px;
   height: 4px;
@@ -457,6 +506,12 @@
 
 /* Story ------------------------------------------------------------------- */
 
+.su-story-slot {
+  width: 100%;
+  height: var(--su-story-h);
+  margin-top: var(--su-group-gap);
+}
+
 .su-story {
   width: 100%;
   display: flex;
@@ -472,9 +527,10 @@
   }
 }
 
+/* Fixed at three body lines, the longest benefit, so cards never resize. */
 .su-card {
   width: 100%;
-  min-height: 92px;
+  height: var(--su-card-h);
   box-sizing: border-box;
   display: flex;
   align-items: flex-start;
@@ -513,12 +569,17 @@
 .su-card h2 {
   margin: 0 0 2px;
   font-size: var(--size-title);
+  line-height: var(--su-card-title-lh);
   font-weight: var(--weight-medium);
 }
 
 .su-card p {
   margin: 0;
   color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .su-dots {
@@ -549,59 +610,68 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Disclosures. Neither one changes the column's height: the why text is a
-   popover and details open in a side panel. ------------------------------- */
+/* Footer: secondary actions as quiet pills. Neither changes the column's
+   height: the why text is a popover and details open in a side panel. ------- */
 
-.su-why,
-.su-details {
+.su-footer {
+  position: relative; /* anchors the why popover to the column's width */
   width: 100%;
-  font-size: var(--size-xs);
-  color: var(--text-faint);
+  height: var(--su-pill-h);
+  flex-shrink: 0;
+  margin-top: var(--su-group-gap);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
 }
 
-.su-disclosure {
+.su-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 0;
-  border: 0;
+  gap: 6px;
+  height: var(--su-pill-h);
+  box-sizing: border-box;
+  padding: 0 var(--space-3) 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
   background: none;
   font: inherit;
-  color: inherit;
-  list-style: none;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: color var(--dur-fast) var(--ease);
-}
-
-.su-disclosure:hover,
-.su-disclosure[aria-expanded='true'] {
+  font-size: var(--size-xs);
   color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 
-.su-disclosure:focus-visible {
+.su-pill:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-1);
+  color: var(--text);
+}
+
+.su-pill[aria-expanded='true'] {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.su-pill:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
 
-.su-disclosure svg {
+.su-pill svg {
   width: 14px;
   height: 14px;
-  transition: transform var(--dur-fast) var(--ease);
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease);
 }
 
-/* The why text opens upward; details point at the panel they opened. */
-.su-why .su-disclosure[aria-expanded='true'] svg {
-  transform: rotate(-90deg);
-}
-
-.su-details .su-disclosure[aria-expanded='true'] svg {
-  transform: rotate(180deg);
-}
-
-.su-why {
-  position: relative;
-  text-align: center;
+.su-pill:is(:hover, [aria-expanded='true']) svg {
+  color: var(--text-muted);
 }
 
 .su-why-popover {
@@ -632,11 +702,6 @@
     opacity: 0;
     transform: translateY(4px);
   }
-}
-
-.su-details {
-  display: flex;
-  justify-content: center;
 }
 
 .su-panel {
@@ -763,9 +828,16 @@
 
 /* Short window: shrink the ring and spacing so the column still fits. */
 @media (max-height: 780px) {
+  .su-root {
+    --su-group-gap: var(--space-5);
+  }
+
   .su-column {
     padding: var(--space-6) 0;
-    gap: var(--space-3);
+  }
+
+  .su-ring + * {
+    margin-top: var(--space-3);
   }
 
   .su-ring {

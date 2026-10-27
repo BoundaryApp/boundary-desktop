@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTokenCount, horizonLabel, horizonPlacement } from '../dmHorizon';
+import { horizonLabel, horizonPlacement } from '../dmHorizon';
 
 const rows = [10, 11, 12, 13].map((rowId) => ({ metadata: { custom: { rowId } } }));
 const cut = (over: Partial<{ budget: number | null; tokens: number | null; firstRowId: number | null; summarised: boolean }>) => ({
@@ -54,11 +54,3 @@ describe('horizonLabel', () => {
   });
 });
 
-describe('formatTokenCount', () => {
-  it('rounds to k', () => {
-    expect(formatTokenCount(950)).toBe('950');
-    expect(formatTokenCount(6000)).toBe('6k');
-    expect(formatTokenCount(6420)).toBe('6.4k');
-    expect(formatTokenCount(32_768)).toBe('33k');
-  });
-});

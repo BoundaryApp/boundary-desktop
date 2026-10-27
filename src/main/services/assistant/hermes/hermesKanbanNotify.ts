@@ -14,7 +14,7 @@ export interface KanbanNotice {
 }
 
 /** A task filed from a chat this recently counts as one you asked for (decision 6). */
-export const DONE_NOTICE_WINDOW_S = 24 * 3600;
+const DONE_NOTICE_WINDOW_S = 24 * 3600;
 
 const FAILURE_BODY: Record<string, string> = {
   crashed: 'The worker crashed',
@@ -24,9 +24,10 @@ const FAILURE_BODY: Record<string, string> = {
 };
 
 /** Event kinds that mean a run failed and the owner should look. */
-export const FAILURE_EVENT_KINDS = new Set(Object.keys(FAILURE_BODY));
+const FAILURE_EVENT_KINDS = new Set(Object.keys(FAILURE_BODY));
 
 function needsYouBody(task: KanbanTaskSummary): string {
+  if (task.status === 'triage') return 'Needs you · waiting to be sorted';
   if (task.status === 'review') return 'Waiting for your review';
   if (task.blockKind === 'needs_input') return 'Needs you · asked a question';
   if (taskGaveUp(task)) return FAILURE_BODY.gave_up;

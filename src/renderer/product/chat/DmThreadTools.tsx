@@ -8,8 +8,10 @@ import React, {
   useState,
 } from 'react';
 import { useAuiState } from '@assistant-ui/store';
-import { dmDays, matchOffsets, shortDate, stepMatch } from './dmThreadIndex';
-import { formatTokenCount } from './dmHorizon';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { formatShortDate } from '../../../shared/messageTime';
+import { dmDays, matchOffsets, stepMatch } from './dmThreadIndex';
+import { formatTokenCount } from '../../../shared/utils/format';
 
 /** Message text the find bar searches: prompts and replies, not times or action rows. */
 const SEARCHABLE = '.wb-log .wb-msg .wb-bubble-body, .wb-log .wb-msg .wb-prose';
@@ -65,16 +67,7 @@ export const DmLogHead: React.FC<{ startedAt?: string | null; onSearch: () => vo
   const messages = useAuiState((s) => s.thread.messages);
   const days = useMemo(() => dmDays(messages), [messages]);
   const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (event: MouseEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const startedMs = startedAt ? Date.parse(startedAt) : NaN;
   const sinceMs = days[0]?.ms ?? (Number.isFinite(startedMs) ? startedMs : null);
@@ -89,35 +82,43 @@ export const DmLogHead: React.FC<{ startedAt?: string | null; onSearch: () => vo
   };
 
   return (
-    <div className="wb-dm-earlier" ref={wrapRef}>
-      {sinceMs != null ? <span>Ongoing since {shortDate(sinceMs)}</span> : null}
-      {days.length > 0 ? (
-        <>
-          {sinceMs != null ? ' · ' : null}
-          <button
-            type="button"
-            className="wb-link"
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-          >
-            Jump to date
-          </button>
-        </>
-      ) : null}
-      {' · '}
-      <button type="button" className="wb-link" onClick={onSearch} title="Search this DM (⌘F)">
-        Search this DM
+    <div className="wb-dm-earlier">
+      <Popover open={open} onOpenChange={setOpen}>
+        {sinceMs != null ? <span>Ongoing since {formatShortDate(sinceMs)}</span> : null}
+        {days.length > 0 ? (
+          <>
+            {sinceMs != null ? ' · ' : null}
+            <PopoverTrigger>
+              <button
+                ref={triggerRef}
+                type="button"
+                className="wb-link"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+              >
+                Jump to date
+              </button>
+            </PopoverTrigger>
+          </>
+        ) : null}
+        {' · '}
+        <button type="button" className="wb-link" onClick={onSearch} title="Search this DM (⌘F)">
+          Search this DM
       </button>
-      {open ? (
-        <div
+        <PopoverContent
           className="wb-dm-days"
           role="listbox"
           aria-label="Jump to date"
-          onKeyDown={(event) => {
-            if (event.key !== 'Escape') return;
+          side="bottom"
+          align="center"
+          sideOffset={4}
+          // The trigger sits at the top of the log: focus it without scrolling away from
+          // the day the user jumped to.
+          onCloseAutoFocus={(event) => {
             event.preventDefault();
-            setOpen(false);
+            if (document.activeElement === document.body) {
+              triggerRef.current?.focus({ preventScroll: true });
+            }
           }}
         >
           {days.map((day) => (
@@ -132,8 +133,8 @@ export const DmLogHead: React.FC<{ startedAt?: string | null; onSearch: () => vo
               {day.label}
             </button>
           ))}
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 };

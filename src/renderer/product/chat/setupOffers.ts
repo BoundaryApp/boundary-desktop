@@ -1,6 +1,6 @@
-import { useSyncExternalStore } from 'react';
 import type { HermesChatToolEvent } from '../../../shared/types/hermesChat';
 import { useCalendarAccounts } from '../useCalendarAccounts';
+import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
 
 /**
  * Cards Hermes asked for with the host bridge's `offer_setup` (calendar spec, decision 7). Kept
@@ -29,30 +29,16 @@ export function setupOfferKind(event: Pick<HermesChatToolEvent, 'name' | 'status
   return kind === undefined || kind === 'calendar' ? 'calendar' : null;
 }
 
-let offers: readonly SetupOffer[] = [];
-const listeners = new Set<() => void>();
-
-function set(next: readonly SetupOffer[]): void {
-  offers = next;
-  for (const listener of listeners) listener();
-}
+const offers = createIpcStore<readonly SetupOffer[]>({ initial: [] });
 
 /** One card per chat: a new one replaces the last. */
 export function recordSetupOffer(offer: SetupOffer, sameChat: SameChat = sameId): void {
-  set([...offers.filter((o) => !sameChat(o.chatId, offer.chatId)), offer]);
+  offers.update((all) => [...all.filter((o) => !sameChat(o.chatId, offer.chatId)), offer]);
 }
 
 export function clearSetupOffer(chatId: string, sameChat: SameChat = sameId): void {
-  if (offers.some((o) => sameChat(o.chatId, chatId))) set(offers.filter((o) => !sameChat(o.chatId, chatId)));
-}
-
-export function resetSetupOffersForTests(): void {
-  set([]);
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  const all = offers.get();
+  if (all.some((o) => sameChat(o.chatId, chatId))) offers.set(all.filter((o) => !sameChat(o.chatId, chatId)));
 }
 
 /**
@@ -60,7 +46,7 @@ function subscribe(listener: () => void): () => void {
  * card shows: Boundary listed the tool only because no calendar was connected.
  */
 export function useSetupOffer(chatId: string | null, sameChat: SameChat = sameId): SetupOffer | null {
-  const all = useSyncExternalStore(subscribe, () => offers);
+  const all = useIpcStore(offers);
   const calendars = useCalendarAccounts();
   if (!chatId || (calendars && calendars.length > 0)) return null;
   return all.find((o) => sameChat(o.chatId, chatId)) ?? null;

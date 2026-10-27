@@ -25,11 +25,13 @@ describe('lazy dockerode clients', () => {
     const getEvents = vi.fn().mockResolvedValue({
       on: vi.fn(),
     });
-    const DockerMock = vi.fn().mockImplementation(() => ({
-      ping,
-      getEvents,
-      listContainers: vi.fn().mockResolvedValue([]),
-    }));
+    const DockerMock = vi.fn().mockImplementation(function () {
+      return {
+        ping,
+        getEvents,
+        listContainers: vi.fn().mockResolvedValue([]),
+      };
+    });
     vi.doMock('dockerode', () => ({ default: DockerMock }));
     vi.doMock('../containerRuntime', () => ({
       getContainerRuntime: vi.fn().mockResolvedValue({
@@ -54,18 +56,5 @@ describe('lazy dockerode clients', () => {
 
     expect(DockerMock).toHaveBeenCalledTimes(1);
     expect(ping).toHaveBeenCalled();
-  });
-
-  it('does not construct Docker when urlDetectionService is imported', async () => {
-    const DockerMock = vi.fn();
-    vi.doMock('dockerode', () => ({ default: DockerMock }));
-    vi.doMock('../containerRuntime', () => ({
-      getContainerRuntime: vi.fn(),
-      dockerodeOptionsFromApiEndpoint: vi.fn(),
-    }));
-
-    await import('../urlDetectionService');
-
-    expect(DockerMock).not.toHaveBeenCalled();
   });
 });

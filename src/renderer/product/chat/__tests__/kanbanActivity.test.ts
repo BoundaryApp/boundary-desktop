@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import type { KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
+import { isBoundaryStop, type KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import {
   finishedSince,
+  TASK_STATUS_LABEL,
   formatElapsed,
   groupTasks,
+  latestRun,
+  livenessLabel,
   matchFiledTasks,
   pathInside,
+  taskCounts,
   runningTaskByAssignee,
   taskInProject,
   taskLiveness,
+  taskRowState,
+  upNextReason,
+  waitPill,
+  waitReason,
   workingNowTasks,
 } from '../kanbanActivity';
 import { buildTimeline, cleanLog, lastLogLine } from '../TaskPane';
@@ -56,6 +64,90 @@ describe('workingNowTasks and runningTaskByAssignee', () => {
   });
 });
 
+describe('task wording', () => {
+  it('names each liveness once, for the strip, the rows and the card pill', () => {
+    expect(livenessLabel('working')).toBe('Working');
+    expect(livenessLabel('quiet')).toBe('Quiet');
+    expect(livenessLabel('quiet', 240)).toBe('Quiet for 4m');
+    expect(livenessLabel('stalled')).toBe('Not responding');
+    expect(livenessLabel('idle')).toBe('Not running');
+    expect(TASK_STATUS_LABEL.review).toBe('In review');
+  });
+
+  it('takes the newest run', () => {
+    const run = (id: number) => ({ id, outcome: null, endedAt: null, error: null });
+    expect(latestRun(null)).toBeNull();
+    expect(latestRun({ task: task(), body: null, result: null, latestSummary: null, events: [], comments: [], runs: [run(1), run(2)] })?.id).toBe(2);
+  });
+});
+
+describe('waitReason', () => {
+  const detail = (runError: string | null) => ({
+    task: task({ status: 'blocked' }),
+    body: null,
+    result: null,
+    latestSummary: null,
+    events: [],
+    comments: [],
+    runs: [{ id: 7, outcome: 'reclaimed', endedAt: NOW - 30, error: runError }],
+  });
+
+  it('gives the page, the rows and the card pill one reason for the same task', () => {
+    const asks = task({ status: 'blocked', blockKind: 'needs_input' });
+    expect(waitReason(asks)).toBe('question');
+    expect(taskRowState(asks, NOW).sub).toBe('asked a question');
+    expect(waitPill('question')).toBe('Needs you · asked a question');
+    expect(waitPill('review')).toBe('Needs your review');
+
+    const gaveUp = task({ status: 'blocked', failures: 3 });
+    expect(waitReason(gaveUp)).toBe('failed');
+    expect(taskRowState(gaveUp, NOW).sub).toBe('gave up after failing');
+  });
+
+  it('reads your stop from the last run, and falls back to blocked on a board row alone', () => {
+    const stopped = task({ status: 'blocked', failures: 0 });
+    expect(waitReason(stopped, detail('manual_reclaim: stopped from Boundary'))).toBe('stopped');
+    // Rows have no runs: the row-only answer for the same task.
+    expect(waitReason(stopped)).toBe('blocked');
+    expect(taskRowState(stopped, NOW).sub).toBe('blocked');
+    expect(waitReason(stopped, detail('worker crashed'))).toBe('blocked');
+  });
+
+  it('trusts the newest wait event over the board row for gave-up', () => {
+    const blocked = task({ status: 'blocked', failures: 2 });
+    const event = (kind: string) => ({ id: 1, kind, note: null, trigger: null, createdAt: NOW });
+    expect(waitReason(blocked, null, event('blocked'))).toBe('blocked');
+    expect(waitReason(task({ status: 'blocked' }), null, event('gave_up'))).toBe('failed');
+  });
+
+  it('has no reason for a task that does not wait on you', () => {
+    expect(waitReason(task())).toBeNull();
+    expect(waitReason(task({ status: 'blocked', blockKind: 'dependency' }))).toBeNull();
+  });
+});
+
+describe('triage (decision D7: the owner sorts it)', () => {
+  it('counts a triage task as needing you on the rail, in Working now and in the list', () => {
+    const triage = task({ id: 'tri', status: 'triage', startedAt: null });
+    const tasks = [triage, task({ id: 'run' })];
+    expect(taskCounts(tasks)).toEqual({ running: 1, needs: 1 });
+    expect(workingNowTasks(tasks).map((t) => t.id)).toEqual(['tri', 'run']);
+    expect(groupTasks(tasks).needs.map((t) => t.id)).toEqual(['tri']);
+    expect(taskLiveness(triage, NOW)).toBe('needs-you');
+    expect(waitReason(triage)).toBe('triage');
+    expect(taskRowState(triage, NOW).sub).toBe('waiting to be sorted');
+    expect(waitPill('triage')).toBe('Needs you · waiting to be sorted');
+  });
+});
+
+describe('upNextReason', () => {
+  it('says a task waits on another before its status', () => {
+    expect(upNextReason(task({ status: 'blocked', blockKind: 'dependency' }))).toBe('waiting on another task');
+    expect(upNextReason(task({ status: 'todo', blockKind: 'dependency' }))).toBe('waiting on another task');
+    expect(upNextReason(task({ status: 'ready' }))).toBe('starts on the next pass');
+  });
+});
+
 describe('formatElapsed', () => {
   it('stays compact', () => {
     expect([5, 75, 3600, 3900].map(formatElapsed)).toEqual(['5s', '1m', '1h', '1h 5m']);
@@ -92,6 +184,34 @@ describe('task page helpers', () => {
       ['Heartbeat', 'run', 'grouping'],
       ['Created', 'plain', null],
     ]);
+  });
+
+  it('reads your stop from a reclaimed event whose note carries the stop reason with a prefix', () => {
+    const items = buildTimeline({
+      task: task({ status: 'blocked' }),
+      body: null,
+      result: null,
+      latestSummary: null,
+      runs: [],
+      events: [
+        { id: 1, kind: 'reclaimed', note: 'manual_reclaim: stopped from Boundary', trigger: null, createdAt: 1 },
+        { id: 2, kind: 'reclaimed', note: 'claim expired', trigger: null, createdAt: 2 },
+      ],
+      comments: [],
+    });
+    expect(items.map((i) => [i.label, i.quote])).toEqual([
+      ['Reclaimed by the dispatcher', 'claim expired'],
+      ['Stopped by you', null],
+    ]);
+  });
+});
+
+describe('isBoundaryStop', () => {
+  it('matches the stop reason bare or inside Hermes\'s run error', () => {
+    expect(isBoundaryStop('stopped from Boundary')).toBe(true);
+    expect(isBoundaryStop('manual_reclaim: stopped from Boundary')).toBe(true);
+    expect(isBoundaryStop('worker crashed')).toBe(false);
+    expect(isBoundaryStop(null)).toBe(false);
   });
 });
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CodingAccessRequestEvent } from '../../../shared/types/codingFolders';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 
 /**
  * Coding-access requests for the open chat (ADR 0028 §9), oldest first. A path asked for twice
@@ -13,22 +12,18 @@ export function useCodingAccessRequests(
   const [requests, setRequests] = useState<CodingAccessRequestEvent[]>([]);
   const [answered, setAnswered] = useState<Set<string>>(() => new Set());
 
-  useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-    try {
-      unsubscribe = hermesChatIPC.onCodingAccessRequest((event) => {
+  useEffect(
+    () =>
+      window.electronAPI.codingFolders.onAccessRequest((event) => {
         const key = `${event.requestId}:${event.hostPath}`;
         setRequests((prev) =>
           prev.some((item) => `${item.requestId}:${item.hostPath}` === key)
             ? prev
             : [...prev, event]
         );
-      });
-    } catch {
-      unsubscribe = null;
-    }
-    return () => unsubscribe?.();
-  }, []);
+      }),
+    []
+  );
 
   const mine = requests.filter(
     (item) =>

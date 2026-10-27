@@ -2,7 +2,6 @@ import React, {
   createContext,
   useContext,
   useEffect,
-  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -12,9 +11,9 @@ import {
   ComposerPrimitive,
 } from '@assistant-ui/react';
 import { useAui, useAuiState } from '@assistant-ui/store';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import type { HermesChatMessage, HermesProjectRecord } from '../../../shared/types/hermesChat';
 import { projectRelativePath, uniquePreserveOrder } from '../../../shared/hermesToolPaths';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import {
   formatDayLabel,
   formatMessageTime,
@@ -23,6 +22,7 @@ import {
 } from '../../../shared/messageTime';
 import { markdownToPlainText } from '../../../shared/markdownText';
 import { messageTimeMs, needsDayDivider } from './messageMeta';
+import { messageCustom } from './messageCustom';
 import { useServerPath } from './HermesChatRuntimeProvider';
 import { CONTINUE_RUN_CONFIG } from './hermesChatModelAdapter';
 
@@ -200,23 +200,6 @@ const MoreAction: React.FC = () => {
   const aui = useAui();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const rootRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointer = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
 
   useEffect(() => {
     if (!copied) return undefined;
@@ -232,21 +215,22 @@ const MoreAction: React.FC = () => {
   };
 
   return (
-    <span className={`wb-more${open ? ' is-open' : ''}`} ref={rootRef}>
-      <button
-        type="button"
-        className="wb-act"
-        aria-label="More"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-copied={copied ? 'true' : undefined}
-        onClick={() => setOpen((v) => !v)}
-      >
-        {copied ? <CheckIcon /> : <MoreIcon />}
-        <span className="wb-act-label">Copied</span>
-      </button>
-      {open ? (
-        <div className="wb-menu" role="menu">
+    <span className={`wb-more${open ? ' is-open' : ''}`}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger>
+          <button
+            type="button"
+            className="wb-act"
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            data-copied={copied ? 'true' : undefined}
+          >
+            {copied ? <CheckIcon /> : <MoreIcon />}
+            <span className="wb-act-label">Copied</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="wb-menu" role="menu" side="top" align="start">
           <button
             type="button"
             role="menuitem"
@@ -273,8 +257,8 @@ const MoreAction: React.FC = () => {
               <small>writes a .md file into the project folder</small>
             </button>
           ) : null}
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </span>
   );
 };
@@ -370,7 +354,7 @@ export const FileActions: React.FC<{
         type="button"
         className="wb-act"
         onClick={() => {
-          void hermesChatIPC
+          void window.electronAPI.hermesChat
             .revealProjectFile({ projectId: project.id, relativePath })
             .then((result) => {
               if (!result.success) onNotice(result.error ?? 'Could not show the file.');
@@ -397,6 +381,15 @@ export const FileActions: React.FC<{
 
 const FILES_SHOWN = 4;
 
+/** Raw tool paths → the ones inside this project's mount, relative to it, each once. */
+export function projectPathsOf(paths: string[], containerPath?: string | null): string[] {
+  return uniquePreserveOrder(
+    paths
+      .map((p) => projectRelativePath(p, containerPath))
+      .filter((p): p is string => p != null)
+  );
+}
+
 /**
  * Under a finished reply: the files that turn wrote inside the project, with Reveal and
  * Copy path. Tool cards stay progress (ADR 0006); this is where written files live after
@@ -405,19 +398,11 @@ const FILES_SHOWN = 4;
 export const ReplyFiles: React.FC = () => {
   const context = useContext(ProjectFilesContext);
   const running = useAuiState((s) => s.message.status?.type === 'running');
-  const raw = useAuiState((s) => {
-    const files = s.message.metadata?.custom?.files;
-    return Array.isArray(files) ? files.filter((f) => typeof f === 'string').join('\n') : '';
-  });
+  const raw = useAuiState((s) => (messageCustom(s.message).files ?? []).join('\n'));
   const [expanded, setExpanded] = useState(false);
   const project = context?.project ?? null;
   if (!context || !project || running || !raw) return null;
-  const files = uniquePreserveOrder(
-    raw
-      .split('\n')
-      .map((p) => projectRelativePath(p, project.containerPath))
-      .filter((p): p is string => p != null)
-  );
+  const files = projectPathsOf(raw.split('\n'), project.containerPath);
   if (files.length === 0) return null;
   const shown = expanded ? files : files.slice(0, FILES_SHOWN);
   return (
@@ -455,7 +440,7 @@ export interface BranchMarkInfo {
 export const BranchMarkContext = createContext<BranchMarkInfo | null>(null);
 
 /** "Branched from <parent> · <time>", reusing the provider switch-mark style. */
-export const BranchMark: React.FC = () => {
+const BranchMark: React.FC = () => {
   const info = useContext(BranchMarkContext);
   if (!info) return null;
   const ms = Date.parse(info.branchedAt);
@@ -521,7 +506,7 @@ const Versions: React.FC = () => (
 const useMessageTimeMs = () => useAuiState((s) => messageTimeMs(s.message));
 
 /** Local time; the tooltip carries the full date and seconds. Renders nothing without a time. */
-export const MessageTime: React.FC = () => {
+const MessageTime: React.FC = () => {
   const ms = useMessageTimeMs();
   if (ms == null) return null;
   return (
@@ -658,9 +643,8 @@ export type ReplyEndingKind = 'stopped' | 'stopped-empty' | 'interrupted';
  */
 export function useReplyEnding(): ReplyEndingKind | null {
   return useAuiState((s) => {
-    const saved = (s.message.metadata as { custom?: { ending?: unknown } } | undefined)?.custom
-      ?.ending;
-    if (saved === 'stopped' || saved === 'interrupted') return saved;
+    const saved = messageCustom(s.message).ending;
+    if (saved) return saved;
     const status = s.message.status;
     if (status?.type !== 'incomplete' || status.reason !== 'cancelled') return null;
     const hasText = s.message.content.some(
@@ -675,7 +659,7 @@ export function useReplyEnding(): ReplyEndingKind | null {
  * are the latest thing Hermes holds; Retry stays in the reply row. Interrupted replies
  * (Send now, Phase 2) offer nothing: the conversation has moved on.
  */
-export const ReplyEnding: React.FC<{ speakerName: string }> = ({ speakerName }) => {
+export const ReplyEnding: React.FC = () => {
   const ending = useReplyEnding();
   const canRewind = useCanRewind();
   const isLast = useAuiState((s) => s.message.isLast);
@@ -689,14 +673,8 @@ export const ReplyEnding: React.FC<{ speakerName: string }> = ({ speakerName }) 
       </p>
     );
   }
-  if (ending === 'stopped-empty') {
-    return (
-      <p className="wb-ending">
-        <i className="wb-ending-mark" aria-hidden="true" />
-        Stopped before {speakerName} replied
-      </p>
-    );
-  }
+  // Stopped before any text: LiveNoReplyNote says so, as the reloaded transcript does.
+  if (ending === 'stopped-empty') return null;
   return (
     <p className="wb-ending">
       <i className="wb-ending-mark" aria-hidden="true" />
@@ -723,9 +701,9 @@ export const AssistantMessageActions: React.FC = () => {
   const running = useAuiState((s) => s.message.status?.type === 'running');
   const isLast = useAuiState((s) => s.message.isLast);
   const canRewind = useCanRewind();
-  // Only when the count is known: unknown turns (HTTP fallback, copied branch history,
-  // WebUI-only chats) show nothing rather than a wrong claim.
-  const noTools = useAuiState((s) => s.message.metadata?.custom?.toolCount === 0);
+  // Only when the count is known: unknown turns (copied branch history, WebUI-only
+  // chats) show nothing rather than a wrong claim.
+  const noTools = useAuiState((s) => messageCustom(s.message).toolCount === 0);
   if (running) return null;
   return (
     <ActionBarPrimitive.Root className={`wb-acts${isLast ? ' is-pinned' : ''}`}>

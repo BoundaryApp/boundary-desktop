@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { removeEnvLines, upsertEnvLine } from './applyLlmToProjectEnv';
+import { parseEnv, removeEnvLines, upsertEnvLines } from './stackEnv';
 
 /**
  * setup.sh never rewrites an image key that is already in `.env`, and a Boundary install's
@@ -14,16 +14,7 @@ const IMAGE_KEY = /^[A-Z][A-Z0-9_]*_IMAGE(?:_TAG)?$/;
 
 /** `KEY=value` pairs for the image keys set (not commented out) in dotenv contents. */
 export function readImagePins(contents: string): Map<string, string> {
-  const pins = new Map<string, string>();
-  for (const raw of contents.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    if (IMAGE_KEY.test(key)) pins.set(key, line.slice(eq + 1).trim());
-  }
-  return pins;
+  return new Map(Object.entries(parseEnv(contents)).filter(([key]) => IMAGE_KEY.test(key)));
 }
 
 /**
@@ -36,14 +27,12 @@ export function syncImagePinsFromExample(envContents: string, exampleContents: s
   // An example with no image pins means the file wasn't what we expected: change nothing.
   if (wanted.size === 0) return envContents;
   const current = readImagePins(envContents);
-  let next = removeEnvLines(
+  const next = removeEnvLines(
     envContents,
     [...current.keys()].filter((key) => !wanted.has(key))
   );
-  for (const [key, value] of wanted) {
-    if (current.get(key) !== value) next = upsertEnvLine(next, key, value);
-  }
-  return next;
+  const changed = [...wanted].filter(([key, value]) => current.get(key) !== value);
+  return upsertEnvLines(next, Object.fromEntries(changed));
 }
 
 /** Apply `syncImagePinsFromExample` to the project's `.env`. True when it changed. */

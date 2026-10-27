@@ -42,8 +42,55 @@ export type EnsureRunningResult = {
 };
 
 /** Podman marks the default connection with a trailing `*` in `machine list`. */
-export function normalizeMachineListName(name: string): string {
+function normalizeMachineListName(name: string): string {
   return name.replace(/\*+$/, '').trim();
+}
+
+const MACHINE_HELPERS = new Set(['krunkit', 'gvproxy', 'vfkit']);
+
+/**
+ * File names Podman gives a machine's sockets, pid file and disk image, which
+ * appear in its helpers' arguments (`-listen-vfkit unixgram://…/<name>-gvproxy.sock`,
+ * `virtio-net,unixSocketPath=…/<name>-gvproxy.sock`, `virtio-blk,path=…/<name>-arm64.raw`).
+ */
+function machineHelperFileNames(machineName: string): Set<string> {
+  return new Set(
+    [
+      '-gvproxy.sock',
+      '-gvproxy.pid',
+      '-api.sock',
+      '.sock',
+      '-arm64.raw',
+      '-amd64.raw',
+      '-aarch64.raw',
+      '-x86_64.raw',
+    ].map((suffix) => `${machineName}${suffix}`)
+  );
+}
+
+/**
+ * PIDs in a `ps -o pid=,command=` listing that are krunkit, gvproxy or vfkit
+ * helpers of `machineName`. The executable (first word of the command) must be
+ * one of the helpers, and one argument must name a file that belongs to this
+ * machine exactly, so helpers of `boundary-test` or `podman-machine-default`,
+ * and tools such as `tail` or an editor with those words in their arguments,
+ * don't match.
+ */
+export function findMachineHelperPids(psOutput: string, machineName: string): number[] {
+  const fileNames = machineHelperFileNames(machineName);
+  const pids: number[] = [];
+  for (const line of psOutput.split('\n')) {
+    const [pidText, executable, ...args] = line.trim().split(/\s+/);
+    if (!executable || !MACHINE_HELPERS.has(path.basename(executable))) continue;
+    const ownsMachineFile = args
+      .flatMap((arg) => arg.split(/[,=]/))
+      .some((part) => fileNames.has(path.basename(part)));
+    if (!ownsMachineFile) continue;
+    const pid = Number.parseInt(pidText ?? '', 10);
+    if (!Number.isFinite(pid) || pid <= 1) continue;
+    pids.push(pid);
+  }
+  return pids;
 }
 
 /**
@@ -130,10 +177,12 @@ export class PodmanMachineService {
    * Resolve Docker-compatible API endpoint for the boundary machine.
    * Prefers the gvproxy-forwarded unix socket from `podman machine inspect`.
    */
-  async resolveApiEndpoint(): Promise<{ apiEndpoint: string; dockerHost: string }> {
+  async resolveApiEndpoint(
+    timeoutMs = 30_000
+  ): Promise<{ apiEndpoint: string; dockerHost: string }> {
     const { stdout } = await this.run(
       ['machine', 'inspect', '--format', '{{json .}}', this.machineName],
-      { timeout: 30_000 }
+      { timeout: timeoutMs }
     );
     const trimmed = stdout.trim();
     // inspect may return an array
@@ -154,11 +203,11 @@ export class PodmanMachineService {
     // Fallback: remote connection URI
     const { stdout: uriOut } = await this.run(
       ['system', 'connection', 'url', this.machineName],
-      { timeout: 15_000 }
+      { timeout: Math.min(timeoutMs, 15_000) }
     ).catch(async () => {
       const { stdout: defaultUri } = await this.run(
         ['system', 'connection', 'default'],
-        { timeout: 15_000 }
+        { timeout: Math.min(timeoutMs, 15_000) }
       );
       return { stdout: defaultUri, stderr: '' };
     });
@@ -427,7 +476,7 @@ export class PodmanMachineService {
     this.deps.env.CONTAINERS_MACHINE_PROVIDER = 'applehv';
     const confPath = this.deps.env.CONTAINERS_CONF;
     if (confPath) {
-      let helperDir = '';
+      let helperDir: string;
       try {
         const existing = fs.readFileSync(confPath, 'utf8');
         helperDir =
@@ -460,11 +509,7 @@ export class PodmanMachineService {
       }
       const machine = this.machineName;
       const killed: number[] = [];
-      for (const line of out.stdout.split('\n')) {
-        if (!/\b(krunkit|gvproxy|vfkit)\b/.test(line)) continue;
-        if (!line.includes(machine)) continue;
-        const pid = Number.parseInt(line.trim().split(/\s+/)[0] ?? '', 10);
-        if (!Number.isFinite(pid) || pid <= 1) continue;
+      for (const pid of findMachineHelperPids(out.stdout, machine)) {
         try {
           process.kill(pid, 'SIGTERM');
           killed.push(pid);
@@ -509,22 +554,39 @@ export class PodmanMachineService {
     await this.initMachine(report);
   }
 
-  private async waitForSocket(attempts = 30, delayMs = 1000): Promise<{
+  /**
+   * Poll until the machine's API answers, for at most `deadlineMs` in total.
+   * Each podman call gets at most `callTimeoutMs`, and never more than the time left.
+   */
+  private async waitForSocket(
+    deadlineMs = 90_000,
+    callTimeoutMs = 15_000,
+    delayMs = 1000
+  ): Promise<{
     apiEndpoint: string;
     dockerHost: string;
   }> {
+    const deadline = Date.now() + deadlineMs;
+    const timeLeft = () => Math.min(callTimeoutMs, deadline - Date.now());
     let lastError: unknown;
-    for (let i = 0; i < attempts; i++) {
+    // Stop before a call would get a timeout of 0, which execFile reads as no timeout.
+    for (let timeout = timeLeft(); timeout > 0; timeout = timeLeft()) {
       try {
-        const endpoints = await this.resolveApiEndpoint();
+        const endpoints = await this.resolveApiEndpoint(timeout);
+        const infoTimeout = timeLeft();
+        if (infoTimeout <= 0) {
+          lastError = new Error('no time left to run podman info');
+          break;
+        }
         // Confirm the machine answers
         await this.run(['info', '--format', '{{.Host.RemoteSocket.Path}}'], {
-          timeout: 15_000,
+          timeout: infoTimeout,
         });
         return endpoints;
       } catch (error) {
         lastError = error;
-        await new Promise((r) => setTimeout(r, delayMs));
+        const pause = Math.min(delayMs, deadline - Date.now());
+        if (pause > 0) await new Promise((r) => setTimeout(r, pause));
       }
     }
     throw new ContainerRuntimeUnavailableError(

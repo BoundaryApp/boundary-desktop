@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { clearChatScreenSnapshot } from '../chatScreenCache';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
@@ -11,6 +12,7 @@ const listProjects = vi.fn();
 const inspectSources = vi.fn();
 const addSourceFolder = vi.fn();
 const pickCodingFolder = vi.fn();
+const grantCodingFolder = vi.fn();
 const removeSource = vi.fn();
 const revealSource = vi.fn();
 const refreshIndex = vi.fn();
@@ -36,65 +38,75 @@ const moveToProject = vi.fn();
 const undoProjectMove = vi.fn();
 const listProjectMarks = vi.fn();
 const countProjectSources = vi.fn();
+const sessionsChanged = new Set<() => void>();
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  onboarding: {
     getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
     probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ success: true })),
   },
-}));
-
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
+  hermesChat: {
     listThreads: ipcCalls.track((...args: unknown[]) => listThreads(...args)),
-    listProjects: ipcCalls.track((...args: unknown[]) => listProjects(...args)),
-    selectProject: ipcCalls.track((...args: unknown[]) => selectProject(...args)),
-    listAgents: ipcCalls.track((...args: unknown[]) => listAgents(...args)),
     createHermesChat: ipcCalls.track((...args: unknown[]) => createHermesChat(...args)),
     openAgentDm: ipcCalls.track((...args: unknown[]) => openAgentDm(...args)),
-    createAgent: ipcCalls.track((...args: unknown[]) => createAgent(...args)),
-    updateAgent: ipcCalls.track((...args: unknown[]) => updateAgent(...args)),
-    listChannels: ipcCalls.track((...args: unknown[]) => listChannels(...args)),
-    createChannel: ipcCalls.track((...args: unknown[]) => createChannel(...args)),
-    addChannelMember: ipcCalls.track((...args: unknown[]) => addChannelMember(...args)),
-    renameChannel: ipcCalls.track((...args: unknown[]) => renameChannel(...args)),
-    deleteChannel: ipcCalls.track((...args: unknown[]) => deleteChannel(...args)),
-    makeChannelFromHermesChat: ipcCalls.track((...args: unknown[]) =>
-      makeChannelFromHermesChat(...args)
-    ),
-    setLastOpened: ipcCalls.track((...args: unknown[]) => setLastOpened(...args)),
-    pickFolder: vi.fn(),
-    createEmptyProject: ipcCalls.track((...args: unknown[]) => createEmptyProject(...args)),
-    createHostProject: ipcCalls.track((...args: unknown[]) => createHostProject(...args)),
-    changeFolder: ipcCalls.track((...args: unknown[]) => changeFolder(...args)),
-    revealInFinder: vi.fn(),
-    inspectSources: ipcCalls.track((...args: unknown[]) => inspectSources(...args)),
-    addSourceFolder: ipcCalls.track((...args: unknown[]) => addSourceFolder(...args)),
-    pickCodingFolder: ipcCalls.track((...args: unknown[]) => pickCodingFolder(...args)),
-    listCodingFolders: ipcCalls.track(
-      vi.fn(async () => ({ success: true, managed: true, grants: [] }))
-    ),
-    codingAgentBusy: ipcCalls.track(vi.fn(async () => ({ busy: false, sessions: [] }))),
-    onCodingFoldersProgress: vi.fn(() => () => undefined),
-    removeSource: ipcCalls.track((...args: unknown[]) => removeSource(...args)),
-    revealSource: ipcCalls.track((...args: unknown[]) => revealSource(...args)),
-    refreshIndex: ipcCalls.track((...args: unknown[]) => refreshIndex(...args)),
-    getAgentSoul: ipcCalls.track(
-      vi.fn().mockResolvedValue({ success: true, excerpt: null, canOpen: false })
-    ),
-    revealAgentSoul: ipcCalls.track(vi.fn().mockResolvedValue({ success: true })),
-    onSessionsChanged: () => () => undefined,
+    onSessionsChanged: (cb: () => void) => {
+      sessionsChanged.add(cb);
+      return () => sessionsChanged.delete(cb);
+    },
     listMentions: ipcCalls.track((...args: unknown[]) => listMentions(...args)),
     markMentionsSeen: ipcCalls.track((...args: unknown[]) => markMentionsSeen(...args)),
     moveToProject: ipcCalls.track((...args: unknown[]) => moveToProject(...args)),
     undoProjectMove: ipcCalls.track((...args: unknown[]) => undoProjectMove(...args)),
     listProjectMarks: ipcCalls.track((...args: unknown[]) => listProjectMarks(...args)),
-    countProjectSources: ipcCalls.track((...args: unknown[]) => countProjectSources(...args)),
     getSessionInference: ipcCalls.track(
       vi.fn().mockResolvedValue({ success: true, override: null, marks: [] })
     ),
   },
-}));
+  projects: {
+    list: ipcCalls.track((...args: unknown[]) => listProjects(...args)),
+    select: ipcCalls.track((...args: unknown[]) => selectProject(...args)),
+    pickFolder: vi.fn(),
+    createEmpty: ipcCalls.track((...args: unknown[]) => createEmptyProject(...args)),
+    createHost: ipcCalls.track((...args: unknown[]) => createHostProject(...args)),
+    changeFolder: ipcCalls.track((...args: unknown[]) => changeFolder(...args)),
+    reveal: vi.fn(),
+    inspectSources: ipcCalls.track((...args: unknown[]) => inspectSources(...args)),
+    addSourceFolder: ipcCalls.track((...args: unknown[]) => addSourceFolder(...args)),
+    removeSource: ipcCalls.track((...args: unknown[]) => removeSource(...args)),
+    revealSource: ipcCalls.track((...args: unknown[]) => revealSource(...args)),
+    refreshIndex: ipcCalls.track((...args: unknown[]) => refreshIndex(...args)),
+    countSources: ipcCalls.track((...args: unknown[]) => countProjectSources(...args)),
+  },
+  agents: {
+    list: ipcCalls.track((...args: unknown[]) => listAgents(...args)),
+    create: ipcCalls.track((...args: unknown[]) => createAgent(...args)),
+    update: ipcCalls.track((...args: unknown[]) => updateAgent(...args)),
+    getSoul: ipcCalls.track(
+      vi.fn().mockResolvedValue({ success: true, excerpt: null, canOpen: false })
+    ),
+    revealSoul: ipcCalls.track(vi.fn().mockResolvedValue({ success: true })),
+  },
+  channels: {
+    list: ipcCalls.track((...args: unknown[]) => listChannels(...args)),
+    create: ipcCalls.track((...args: unknown[]) => createChannel(...args)),
+    addMember: ipcCalls.track((...args: unknown[]) => addChannelMember(...args)),
+    rename: ipcCalls.track((...args: unknown[]) => renameChannel(...args)),
+    remove: ipcCalls.track((...args: unknown[]) => deleteChannel(...args)),
+    makeFromChat: ipcCalls.track((...args: unknown[]) =>
+      makeChannelFromHermesChat(...args)
+    ),
+    setLastOpened: ipcCalls.track((...args: unknown[]) => setLastOpened(...args)),
+  },
+  codingFolders: {
+    pick: ipcCalls.track((...args: unknown[]) => pickCodingFolder(...args)),
+    grant: ipcCalls.track((...args: unknown[]) => grantCodingFolder(...args)),
+    list: ipcCalls.track(
+      vi.fn(async () => ({ success: true, managed: true, grants: [] }))
+    ),
+    busy: ipcCalls.track(vi.fn(async () => ({ busy: false, sessions: [] }))),
+    onProgress: vi.fn(() => () => undefined),
+  },
+});
 
 vi.mock('../HermesChatRuntimeProvider', () => ({
   HermesChatRuntimeProvider: ({ children }: { children: React.ReactNode }) => (
@@ -106,7 +118,6 @@ vi.mock('../WorkbenchThread', () => ({
   WorkbenchThread: ({
     threadTitle,
     kind,
-    isChannel,
     initialDraft,
     initialQuote,
     focusText,
@@ -114,10 +125,13 @@ vi.mock('../WorkbenchThread', () => ({
     onCreateAgentFromDraft,
     onRenameChannel,
     onDeleteChannel,
+    toolsEnabled,
+    onToolsEnabledChange,
   }: {
+    toolsEnabled?: boolean;
+    onToolsEnabledChange?: (enabled: boolean) => void;
     threadTitle: string;
     kind?: string | null;
-    isChannel?: boolean;
     initialDraft?: string | null;
     initialQuote?: string | null;
     focusText?: string | null;
@@ -129,10 +143,17 @@ vi.mock('../WorkbenchThread', () => ({
     <div>
       thread:{threadTitle}
       {kind === 'side' ? ' side' : ''}
-      {isChannel ? ' channel' : ''}
+      {kind === 'channel' ? ' channel' : ''}
       {initialDraft ? <p>draft:{initialDraft}</p> : null}
       {initialQuote ? <p>quote:{initialQuote}</p> : null}
       {focusText ? <p>focus:{focusText}</p> : null}
+      <button
+        type="button"
+        role="switch"
+        aria-label="Tools"
+        aria-checked={Boolean(toolsEnabled)}
+        onClick={() => onToolsEnabledChange?.(!toolsEnabled)}
+      />
       {onRenameChannel ? (
         <button type="button" onClick={onRenameChannel}>
           Rename channel…
@@ -547,6 +568,29 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.getAllByText('Plan the launch').length).toBeGreaterThan(0);
   });
 
+  it('keeps Mentions open when it was clicked before the first chat list arrived', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    listThreads.mockReturnValue(
+      ipcCalls.hold(
+        new Promise((resolve) => {
+          answer = resolve;
+        })
+      )
+    );
+    await renderScreen();
+    fireEvent.click(screen.getByRole('button', { name: 'Mentions' }));
+    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    await act(async () => {
+      answer({ success: true, threads: [] });
+    });
+    await ipcCalls.settle();
+    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+  });
+
   it('opens All chats as a destination listing Hermes chats from elsewhere', async () => {
     await renderScreen();
 
@@ -577,6 +621,44 @@ describe('WorkbenchChatScreen chrome', () => {
     );
     expect(screen.getByRole('dialog', { name: 'New agent' })).toBeTruthy();
     expect(screen.getByText('The role becomes its standing instructions.')).toBeTruthy();
+  });
+
+  it('shows Starting… while an agent is created, then opens its DM', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    createAgent.mockReturnValue(
+      ipcCalls.hold(
+        new Promise((resolve) => {
+          answer = resolve;
+        })
+      )
+    );
+    openAgentDm.mockResolvedValue({
+      success: true,
+      thread: { id: 't-ben', title: 'DM · Ben', agentSlug: 'ben', kind: 'dm' },
+    });
+    await renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'All agents…' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Agents' })).getByRole('button', { name: 'New agent' })
+    );
+    const sheet = screen.getByRole('dialog', { name: 'New agent' });
+    fireEvent.change(within(sheet).getByLabelText('Display name'), { target: { value: 'Ben' } });
+    fireEvent.change(within(sheet).getByLabelText('Role'), { target: { value: 'Edits.' } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Create agent' }));
+    expect(within(sheet).getByText('Starting…')).toBeTruthy();
+
+    await act(async () => {
+      answer({
+        success: true,
+        starting: true,
+        agent: { slug: 'ben', displayName: 'Ben', handle: 'ben', role: 'Edits.', builtIn: false },
+      });
+    });
+    await ipcCalls.settle();
+    await waitFor(() =>
+      expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'ben', projectId: 'p1' })
+    );
+    expect(screen.queryByRole('dialog', { name: 'New agent' })).toBeNull();
   });
 
   describe('editing an agent (ADR 0010 §4)', () => {
@@ -674,6 +756,35 @@ describe('WorkbenchChatScreen chrome', () => {
     });
     expect(createHostProject).not.toHaveBeenCalled();
     expect(changeFolder).not.toHaveBeenCalled();
+  });
+
+  it('says so when Give coding access meets a coding task that started meanwhile', async () => {
+    pickCodingFolder.mockResolvedValue({
+      success: true,
+      hostPath: '/Users/ada/Code/portfolio',
+      name: 'portfolio',
+      isGit: true,
+      refuseMessage: null,
+      managed: true,
+    });
+    grantCodingFolder.mockResolvedValue({
+      success: false,
+      managed: true,
+      grants: [],
+      error: 'A coding task is running.',
+      busy: { busy: true, sessions: ['Fix the build'] },
+    });
+    await renderScreen();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose folder…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Give coding access' }));
+
+    await waitFor(() => expect(grantCodingFolder).toHaveBeenCalled());
+    expect(
+      await screen.findByText(/A coding task started, so portfolio wasn’t added/)
+    ).toBeTruthy();
   });
 
   it('shows the next-step card for an unmounted extra instead of a ready pill', async () => {
@@ -884,6 +995,40 @@ describe('WorkbenchChatScreen chrome', () => {
       expect(await screen.findByText('thread:New chat')).toBeTruthy();
     });
 
+    it('keeps the empty Hermes composer open when a refresh lists other chats', async () => {
+      listThreads.mockResolvedValue({
+        success: true,
+        threads: [{ id: 't-ana', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm', updatedAt: at(1) }],
+      });
+      await renderScreen();
+      expect(await screen.findByText('thread:New chat')).toBeTruthy();
+
+      await act(async () => {
+        for (const cb of [...sessionsChanged]) cb();
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      });
+      await ipcCalls.settle();
+      expect(screen.getByText('thread:New chat')).toBeTruthy();
+      expect(screen.queryByText('thread:Ana')).toBeNull();
+    });
+
+    it('keeps the Tools switch per chat', async () => {
+      await renderScreen();
+      await screen.findByText('thread:Newest plan');
+      const tools = () => screen.getByRole('switch', { name: 'Tools' });
+      expect(tools().getAttribute('aria-checked')).toBe('true');
+      fireEvent.click(tools());
+      expect(tools().getAttribute('aria-checked')).toBe('false');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Older plan' }));
+      expect(await screen.findByText('thread:Older plan')).toBeTruthy();
+      expect(tools().getAttribute('aria-checked')).toBe('true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Newest plan' }));
+      expect(await screen.findByText('thread:Newest plan')).toBeTruthy();
+      expect(tools().getAttribute('aria-checked')).toBe('false');
+    });
+
     it("opens a personality's DM through openAgentDm when it is not loaded", async () => {
       listAgents.mockResolvedValue({
         success: true,
@@ -1049,7 +1194,6 @@ describe('WorkbenchChatScreen chrome', () => {
       agentSlug: 'ana',
       text: '@Ana pricing?',
       at: now,
-      anchor: 'p1',
       status: 'replied',
       reply: { text: 'Two vendors.', at: now },
       unseen: true,
@@ -1075,8 +1219,8 @@ describe('WorkbenchChatScreen chrome', () => {
         success: true,
         mentions: [
           record({}),
-          record({ id: 'p2:ana', anchor: 'p2', text: '@Ana dates?', status: 'waiting', reply: undefined, unseen: false }),
-          record({ id: 'p3:assistant', anchor: 'p3', agentSlug: 'assistant', text: '@Hermes sum up', reply: { text: 'Done.', at: now } }),
+          record({ id: 'p2:ana', text: '@Ana dates?', status: 'waiting', reply: undefined, unseen: false }),
+          record({ id: 'p3:assistant', agentSlug: 'assistant', text: '@Hermes sum up', reply: { text: 'Done.', at: now } }),
         ],
       });
     });
@@ -1111,6 +1255,20 @@ describe('WorkbenchChatScreen chrome', () => {
       fireEvent.click(within(list).getAllByRole('button', { name: 'Open in #research' })[0]);
       expect(await screen.findByText('focus:@Ana pricing?')).toBeTruthy();
       expect(screen.getByText(/thread:#research/)).toBeTruthy();
+    });
+
+    it('focuses the mention once: a detour and a return open the room without it', async () => {
+      await renderScreen();
+      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
+      const list = await screen.findByRole('list', { name: 'Mentions' });
+      fireEvent.click(within(list).getAllByRole('button', { name: 'Open in #research' })[0]);
+      expect(await screen.findByText('focus:@Ana pricing?')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
+      const all = await screen.findByRole('list', { name: 'All chats' });
+      fireEvent.click(within(all).getAllByText(/research/)[0]);
+      expect(await screen.findByText(/thread:#research/)).toBeTruthy();
+      expect(screen.queryByText(/^focus:/)).toBeNull();
     });
 
     it('continues in the DM with the exchange as a quote', async () => {
@@ -1211,15 +1369,16 @@ describe('WorkbenchChatScreen chrome', () => {
       expect(moveToProject).not.toHaveBeenCalled();
     });
 
-    it('brings the rail to a chat opened from another project', async () => {
+    it('brings the rail to a chat opened from another project without selecting it in main', async () => {
       await renderScreen();
       await screen.findByText('thread:Plan the launch');
       fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
       const list = await screen.findByRole('list', { name: 'All chats' });
       fireEvent.click(within(list).getByText('Hero rewrite'));
       expect(await screen.findByText('thread:Hero rewrite')).toBeTruthy();
-      await waitFor(() => expect(selectProject).toHaveBeenCalledWith({ projectId: 'p2' }));
       expect(await screen.findByRole('button', { name: 'All chats in Landing site…' })).toBeTruthy();
+      // Following the open chat is navigation only: no projects.set_active, no picker reorder.
+      expect(selectProject).not.toHaveBeenCalled();
     });
 
     it('moves selected chats from All chats, says what changes, and undoes', async () => {
@@ -1237,7 +1396,7 @@ describe('WorkbenchChatScreen chrome', () => {
 
       const dialog = await screen.findByRole('dialog', { name: /Move “Hero rewrite”/ });
       // The sheet reads a source count, never the full inspect that reads every file.
-      await waitFor(() => expect(countProjectSources).toHaveBeenCalledWith('p1'));
+      await waitFor(() => expect(countProjectSources).toHaveBeenCalledWith({ projectId: 'p1' }));
       const inspectsBefore = inspectSources.mock.calls.length;
       fireEvent.click(within(dialog).getByRole('radio', { name: /No project/ }));
       expect(within(dialog).getByText(/works without a project folder/)).toBeTruthy();

@@ -10,7 +10,7 @@
 # Package scripts:
 #   bun run reset:dev-state -- --yes
 #   bun run dev:fresh          # wipe (incl. boundary machine) then dev with no-Docker emulate
-#   bun run dev:local-stack    # sibling ../assistant; resets blocked while env is set
+#   bun run dev:local-stack    # sibling ../assistant; resets blocked while its env is set
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,8 +31,9 @@ Options:
 Environment:
   BOUNDARY_RESET_CONFIRM=1   Same as --yes
 
-Blocked when BOUNDARY_LOCAL_STACK=1 or BOUNDARY_ASSISTANT_ROOT is set
-(dev:local-stack mode) so a sibling ../assistant checkout cannot be wiped.
+Blocked when Boundary would run against a local assistant stack: when
+BOUNDARY_ASSISTANT_ROOT or the stored assistantRootOverride names a stack other
+than the managed install. BOUNDARY_LOCAL_STACK=1 on its own does not block.
 EOF
 }
 
@@ -64,12 +65,41 @@ if [[ "${YES}" != "1" ]]; then
   exit 1
 fi
 
-# Never wipe while pointed at a live local sovereign-agent-stack checkout.
-if [[ "${BOUNDARY_LOCAL_STACK:-}" == "1" ]] || [[ -n "${BOUNDARY_ASSISTANT_ROOT:-}" ]]; then
-  echo "Refusing to reset: local assistant stack mode is active." >&2
-  echo "  BOUNDARY_LOCAL_STACK=${BOUNDARY_LOCAL_STACK:-unset}" >&2
+SUPPORT="${HOME}/Library/Application Support/Boundary"
+
+# BEGIN local_stack_root
+# Same rule as stackMode() in src/main/services/assistant/localStackMode.ts: the stack is
+# local when BOUNDARY_ASSISTANT_ROOT (or, if unset, the stored assistantRootOverride) names
+# a root other than the managed install. BOUNDARY_LOCAL_STACK=1 alone leaves it managed.
+# Prints the local root, or nothing for the managed stack.
+canonical_dir() {
+  if [[ -d "$1" ]]; then (cd "$1" && pwd -P); else printf '%s\n' "$1"; fi
+}
+trim() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  printf '%s' "${v%"${v##*[![:space:]]}"}"
+}
+local_stack_root() {
+  local raw managed store="${SUPPORT}/assistant-stack.json"
+  raw="$(trim "${BOUNDARY_ASSISTANT_ROOT:-}")"
+  if [[ -z "${raw}" && -f "${store}" ]]; then
+    raw="$(trim "$(plutil -extract assistantRootOverride raw -o - "${store}" 2>/dev/null || true)")"
+  fi
+  [[ -n "${raw}" ]] || return 0
+  managed="$(canonical_dir "${SUPPORT}/assistant-stack/project")"
+  raw="$(canonical_dir "${raw}")"
+  [[ "${raw}" == "${managed}" ]] || printf '%s\n' "${raw}"
+}
+# END local_stack_root
+
+# Never wipe while pointed at a local sovereign-agent-stack checkout.
+LOCAL_ROOT="$(local_stack_root)"
+if [[ -n "${LOCAL_ROOT}" ]]; then
+  echo "Refusing to reset: Boundary is set to use a local assistant stack at ${LOCAL_ROOT}." >&2
   echo "  BOUNDARY_ASSISTANT_ROOT=${BOUNDARY_ASSISTANT_ROOT:-unset}" >&2
-  echo "Unset those (and do not use bun run dev:local-stack) before reset:dev-state / dev:fresh." >&2
+  echo "Unset it and clear assistantRootOverride in assistant-stack.json (and do not use bun run dev:local-stack)" >&2
+  echo "before reset:dev-state / dev:fresh." >&2
   exit 1
 fi
 
@@ -85,7 +115,6 @@ if pgrep -fl 'electron-forge start|Electron\.app.*boundary|Boundary\.app' >/dev/
   exit 1
 fi
 
-SUPPORT="${HOME}/Library/Application Support/Boundary"
 LOGS="${HOME}/Library/Logs/Boundary"
 PREFS="${HOME}/Library/Preferences/com.boundary.desktop.plist"
 CACHE_A="${HOME}/Library/Caches/Boundary"

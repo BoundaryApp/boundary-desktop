@@ -3,11 +3,10 @@ import type {
   HermesProjectRecord,
   SessionInferenceOverride,
 } from '../../../shared/types/hermesChat';
-import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { onboardingIPC } from '../../services/onboardingIPCService';
-import { useEscapeToClose } from '../useAppShortcuts';
-import { displayHostPath, projectGlyph, projectGlyphColor } from './chatTelemetryFormat';
+import { useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { Sheet } from '../../components/ui/sheet';
+import { displayHostPath } from './chatTelemetryFormat';
+import { ProjectGlyph } from './ProjectGlyph';
 import { effectiveInference, moveEffects, type MoveEffect } from './projectMove';
 
 export interface MoveProjectTarget {
@@ -79,9 +78,8 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
   onMove,
   onCancel,
 }) => {
-  useEscapeToClose(onCancel, busy || !target);
   const [dest, setDest] = useState<string | null>(null);
-  const [status, setStatus] = useState<InferenceProvidersStatus | null>(null);
+  const { status } = useInferenceStatus();
   const [override, setOverride] = useState<SessionInferenceOverride | null>(null);
   const [extraSources, setExtraSources] = useState<number | null>(null);
 
@@ -98,12 +96,9 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
   useEffect(() => {
     if (!target) return;
     let cancelled = false;
-    void onboardingIPC.getStatus().then((next) => {
-      if (!cancelled) setStatus(next);
-    });
     // Only one chat has a single override to report; several may each have their own.
     if (target.sessionIds.length === 1) {
-      void hermesChatIPC
+      void window.electronAPI.hermesChat
         .getSessionInference({ sessionId: target.sessionIds[0] })
         .then((snap) => {
           if (!cancelled) setOverride(snap.override);
@@ -122,8 +117,8 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
     if (!dest) return;
     let cancelled = false;
     // Not inspectSources: its catalog check reads every source file on the main thread.
-    void hermesChatIPC
-      .countProjectSources(dest)
+    void window.electronAPI.projects
+      .countSources({ projectId: dest })
       .then((count) => {
         if (!cancelled) setExtraSources(count);
       })
@@ -174,15 +169,7 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
         <span className="wb-proj-menu-check" aria-hidden="true">
           {on ? '✓' : ''}
         </span>
-        {project ? (
-          <span className="wb-glyph" style={{ background: projectGlyphColor(project.id) }}>
-            {projectGlyph(project.name)}
-          </span>
-        ) : (
-          <span className="wb-glyph is-none" aria-hidden="true">
-            —
-          </span>
-        )}
+        <ProjectGlyph project={project} />
         <span className="wb-proj-copy">
           <span className="name" title={project?.name ?? 'No project'}>
             {project?.name ?? 'No project'}
@@ -198,29 +185,16 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
 
   const verb = target.isDm ? 'Work in' : 'Move to';
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-move-title">
-        <div className="wb-sheet-kicker">{target.isDm ? 'Folder for this DM' : 'Move to project'}</div>
-        <h2 id="wb-move-title">
-          {target.isDm ? `Where ${agentName} works` : `Move ${target.label}`}
-        </h2>
-        <div className="wb-move-list" role="radiogroup" aria-label="Destination">
-          {projects.map((project) => row(project))}
-          {row(null)}
-        </div>
-        {effects.length > 0 ? (
-          <div className="wb-move-effects" aria-live="polite">
-            <div className="wb-move-effects-head">What changes</div>
-            {effects.map((effect) => (
-              <div key={effect.kind} className={`wb-move-effect${effect.kind === 'cloud' ? ' is-warn' : ''}`}>
-                <EffectIcon kind={effect.kind} />
-                <span>{effect.text}</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-move-title"
+      kicker={target.isDm ? 'Folder for this DM' : 'Move to project'}
+      title={target.isDm ? `Where ${agentName} works` : `Move ${target.label}`}
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -232,8 +206,24 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="wb-move-list" role="radiogroup" aria-label="Destination">
+        {projects.map((project) => row(project))}
+        {row(null)}
       </div>
-    </div>
+      {effects.length > 0 ? (
+        <div className="wb-move-effects" aria-live="polite">
+          <div className="wb-move-effects-head">What changes</div>
+          {effects.map((effect) => (
+            <div key={effect.kind} className={`wb-move-effect${effect.kind === 'cloud' ? ' is-warn' : ''}`}>
+              <EffectIcon kind={effect.kind} />
+              <span>{effect.text}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Sheet>
   );
 };

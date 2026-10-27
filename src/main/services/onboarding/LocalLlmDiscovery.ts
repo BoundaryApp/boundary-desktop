@@ -5,7 +5,7 @@ import type {
   LocalLlmRuntime,
 } from '../../../shared/types/onboarding';
 
-export const LOCAL_LLM_PROBE_TIMEOUT_MS = 400;
+const LOCAL_LLM_PROBE_TIMEOUT_MS = 400;
 
 export const LOCAL_LLM_TARGETS = {
   ollama: {

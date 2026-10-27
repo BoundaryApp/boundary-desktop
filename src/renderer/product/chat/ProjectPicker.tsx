@@ -1,14 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HermesProjectRecord } from '../../../shared/types/hermesChat';
-import {
-  displayHostPath,
-  projectGlyph,
-  projectGlyphColor,
-} from './chatTelemetryFormat';
-import {
-  projectInferencePinClass,
-  projectInferencePinTitle,
-} from './ProjectSourcesRail';
+import { newestFirst } from '../../../shared/utils/sort';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { displayHostPath } from './chatTelemetryFormat';
+import { ProjectGlyph } from './ProjectGlyph';
 
 const SEARCH_THRESHOLD = 8;
 
@@ -32,27 +27,7 @@ export interface ProjectPickerProps {
 }
 
 function sortByRecency(projects: HermesProjectRecord[]): HermesProjectRecord[] {
-  return [...projects].sort((a, b) => {
-    const aTime = Date.parse(a.updatedAt) || 0;
-    const bTime = Date.parse(b.updatedAt) || 0;
-    if (bTime !== aTime) return bTime - aTime;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-function GlyphWithPin({ project }: { project: HermesProjectRecord }) {
-  const pinClass = projectInferencePinClass(project.inference);
-  return (
-    <span className="wb-glyph" style={{ background: projectGlyphColor(project.id) }}>
-      {projectGlyph(project.name)}
-      {pinClass ? (
-        <span
-          className={`wb-inf-pin ${pinClass}`}
-          title={projectInferencePinTitle(project.inference)}
-        />
-      ) : null}
-    </span>
-  );
+  return [...projects].sort((a, b) => newestFirst(a, b) || a.name.localeCompare(b.name));
 }
 
 export const ProjectPicker: React.FC<ProjectPickerProps> = ({
@@ -70,7 +45,6 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const rootRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const activeProject = useMemo(
@@ -99,38 +73,14 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        close();
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, close]);
-
-  useEffect(() => {
     if (open && showSearch) {
       searchRef.current?.focus();
     }
   }, [open, showSearch]);
 
-  const toggle = () => {
-    if (connecting) return;
-    setOpen((wasOpen) => {
-      if (wasOpen) {
-        setQuery('');
-        return false;
-      }
-      return true;
-    });
+  const onOpenChange = (next: boolean) => {
+    if (!next) close();
+    else if (!connecting) setOpen(true);
   };
 
   const pickNone = () => {
@@ -148,8 +98,15 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
     onNewProject();
   };
 
-  const menu = open ? (
-    <div className="wb-proj-menu" role="listbox" aria-label={menuTitle ?? 'Choose project'}>
+  const menu = (
+    <PopoverContent
+      className="wb-proj-menu"
+      role="listbox"
+      aria-label={menuTitle ?? 'Choose project'}
+      side={variant === 'chip' ? 'top' : 'bottom'}
+      align="start"
+      sideOffset={variant === 'chip' ? 6 : 4}
+    >
       {menuTitle ? <div className="wb-proj-menu-title">{menuTitle}</div> : null}
       {showSearch ? (
         <div className="wb-proj-menu-search">
@@ -174,9 +131,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
           <span className="wb-proj-menu-check" aria-hidden="true">
             {activeProjectId === null ? '✓' : ''}
           </span>
-          <span className="wb-glyph is-none" aria-hidden="true">
-            —
-          </span>
+          <ProjectGlyph project={null} />
           <span className="wb-proj-copy">
             <span className="name">No project</span>
           </span>
@@ -197,7 +152,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
               <span className="wb-proj-menu-check" aria-hidden="true">
                 {on ? '✓' : ''}
               </span>
-              <GlyphWithPin project={project} />
+              <ProjectGlyph project={project} pin />
               <span className="wb-proj-copy">
                 <span className="name">{project.name}</span>
                 <span className="path mono">{displayHostPath(project.hostPath)}</span>
@@ -221,76 +176,76 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
           New project…
         </button>
       </div>
-    </div>
-  ) : null;
+    </PopoverContent>
+  );
 
   if (variant === 'chip') {
     return (
-      <div className="wb-proj-picker wb-proj-picker--chip" ref={rootRef}>
-        <button
-          type="button"
-          className="wb-chip"
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          disabled={connecting}
-          aria-label={triggerLabel}
-          title={
-            triggerLabel ??
-            (activeProject
-              ? `${activeProject.name} · ${displayHostPath(activeProject.hostPath)}`
-              : 'No project')
-          }
-          onClick={toggle}
-        >
-          {chipPrefix ? <span className="wb-chip-prefix">{chipPrefix}</span> : null}
-          {activeProject ? (
-            <>
-              <b>{activeProject.name}</b>
-              <span className="mono">{displayHostPath(activeProject.hostPath)}</span>
-            </>
-          ) : (
-            'No project'
-          )}
-        </button>
-        {menu}
+      <div className="wb-proj-picker wb-proj-picker--chip">
+        <Popover open={open} onOpenChange={onOpenChange}>
+          <PopoverTrigger>
+            <button
+              type="button"
+              className="wb-chip"
+              aria-haspopup="listbox"
+              aria-expanded={open}
+              disabled={connecting}
+              aria-label={triggerLabel}
+              title={
+                triggerLabel ??
+                (activeProject
+                  ? `${activeProject.name} · ${displayHostPath(activeProject.hostPath)}`
+                  : 'No project')
+              }
+            >
+              {chipPrefix ? <span className="wb-chip-prefix">{chipPrefix}</span> : null}
+              {activeProject ? (
+                <>
+                  <b>{activeProject.name}</b>
+                  <span className="mono">{displayHostPath(activeProject.hostPath)}</span>
+                </>
+              ) : (
+                'No project'
+              )}
+            </button>
+          </PopoverTrigger>
+          {menu}
+        </Popover>
       </div>
     );
   }
 
   return (
-    <div className="wb-proj-picker" ref={rootRef}>
-      <button
-        type="button"
-        className="wb-proj-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={triggerLabel ?? 'Current project'}
-        disabled={connecting}
-        title={
-          activeProject
-            ? `${activeProject.name} · ${displayHostPath(activeProject.hostPath)}`
-            : 'No project'
-        }
-        onClick={toggle}
-      >
-        {activeProject ? (
-          <GlyphWithPin project={activeProject} />
-        ) : (
-          <span className="wb-glyph is-none" aria-hidden="true">
-            —
-          </span>
-        )}
-        <span className="wb-proj-copy">
-          <span className="name">{activeProject?.name ?? 'No project'}</span>
-          {activeProject ? (
-            <span className="path mono">{displayHostPath(activeProject.hostPath)}</span>
-          ) : null}
-        </span>
-        <span className="wb-proj-chev" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      {menu}
+    <div className="wb-proj-picker">
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger>
+          <button
+            type="button"
+            className="wb-proj-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            aria-label={triggerLabel ?? 'Current project'}
+            disabled={connecting}
+            title={
+              activeProject
+                ? `${activeProject.name} · ${displayHostPath(activeProject.hostPath)}`
+                : 'No project'
+            }
+          >
+            <ProjectGlyph project={activeProject} pin />
+            <span className="wb-proj-copy">
+              <span className="name">{activeProject?.name ?? 'No project'}</span>
+              {activeProject ? (
+                <span className="path mono">{displayHostPath(activeProject.hostPath)}</span>
+              ) : null}
+            </span>
+            <span className="wb-proj-chev" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        </PopoverTrigger>
+        {menu}
+      </Popover>
     </div>
   );
 };

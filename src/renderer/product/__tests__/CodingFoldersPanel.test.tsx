@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { CodingGrantRow } from '../../../shared/types/codingFolders';
 
 const listCodingFolders = vi.fn();
@@ -10,15 +11,19 @@ const setProjectFolderCoding = vi.fn();
 const codingAgentBusy = vi.fn();
 const inspectFolderForDelete = vi.fn();
 
-vi.mock('../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    listCodingFolders: (...args: unknown[]) => listCodingFolders(...args),
-    verifyCodingFolders: (...args: unknown[]) => verifyCodingFolders(...args),
-    removeCodingFolder: (...args: unknown[]) => removeCodingFolder(...args),
-    setProjectFolderCoding: (...args: unknown[]) => setProjectFolderCoding(...args),
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
-    inspectFolderForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
-    listProjects: async () => ({
+stubElectronAPI({
+  codingFolders: {
+    list: (...args: unknown[]) => listCodingFolders(...args),
+    verify: (...args: unknown[]) => verifyCodingFolders(...args),
+    remove: (...args: unknown[]) => removeCodingFolder(...args),
+    setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
+    inspectForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
+    onProgress: () => () => undefined,
+    showTrash: vi.fn(),
+  },
+  projects: {
+    list: async () => ({
       success: true,
       activeId: 'p1',
       projects: [
@@ -35,10 +40,8 @@ vi.mock('../../services/hermesChatIPCService', () => ({
         },
       ],
     }),
-    onCodingFoldersProgress: () => () => undefined,
-    showTrash: vi.fn(),
   },
-}));
+});
 
 import { CodingFoldersPanel, sortGrants } from '../CodingFoldersPanel';
 import { resetCodingFoldersStoreForTests } from '../chat/codingFoldersStore';
@@ -78,7 +81,7 @@ describe('CodingFoldersPanel', () => {
   it('lists every folder with where it came from, project folder first', async () => {
     render(<CodingFoldersPanel />);
     expect(await screen.findByText('/Volumes/Work/client-api')).toBeTruthy();
-    expect(verifyCodingFolders).toHaveBeenCalledWith(false);
+    expect(verifyCodingFolders).toHaveBeenCalledWith({ force: false });
     const paths = screen
       .getAllByText(/^(~|\/)/, { selector: '.wb-coding-path' })
       .map((el) => el.textContent);
@@ -116,7 +119,37 @@ describe('CodingFoldersPanel', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Delete the folder from this Mac/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Review folder…' }));
     expect(await screen.findByText('Move contact-api to the Trash?')).toBeTruthy();
-    expect(inspectFolderForDelete).toHaveBeenCalledWith('/Users/ada/Code/contact-api');
+    expect(inspectFolderForDelete).toHaveBeenCalledWith({ hostPath: '/Users/ada/Code/contact-api' });
+  });
+
+  it('shows why Turn off failed, and Dismiss clears it', async () => {
+    setProjectFolderCoding.mockResolvedValue({
+      success: false,
+      managed: true,
+      grants,
+      error: 'Could not restart the coding agent.',
+    });
+    render(<CodingFoldersPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Could not restart the coding agent.');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows why Remove failed', async () => {
+    removeCodingFolder.mockResolvedValue({
+      success: false,
+      managed: true,
+      grants,
+      error: 'Could not update sources.yaml.',
+    });
+    render(<CodingFoldersPanel />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Remove…' }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove access' }));
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Could not update sources.yaml.'
+    );
   });
 
   it('points a developer stack at its own command', async () => {

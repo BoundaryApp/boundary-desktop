@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import {
   buildHermesProjectsOverlayYaml,
@@ -73,8 +73,8 @@ describe('hermesProjectsOverlay', () => {
   type Overlay = { services: Record<string, { volumes: string[] }> };
 
   it('with the ssh worker, gives it the writable binds and context roots', () => {
-    const doc = yaml.load(
-      buildHermesProjectsOverlayYaml([jobSearch()], ['/Users/ada/My Notes'], 'ssh')
+    const doc = load(
+      buildHermesProjectsOverlayYaml([jobSearch()], ['/Users/ada/My Notes'])
     ) as Overlay;
     expect(doc.services['hermes-worker'].volumes).toEqual([
       '/Users/me/Documents/Job Search:/opt/projects/job-search',
@@ -89,16 +89,8 @@ describe('hermesProjectsOverlay', () => {
     ]);
   });
 
-  it('with the local backend, puts it all on hermes', () => {
-    const doc = yaml.load(
-      buildHermesProjectsOverlayYaml([jobSearch()], ['/Users/ada/My Notes'], 'local')
-    ) as Overlay;
-    expect(doc.services.hermes.volumes).toEqual([
-      '/Users/me/Documents/Job Search:/opt/projects/job-search',
-      '/Users/ada/My Notes:/Users/ada/My Notes:ro',
-    ]);
-    expect(doc.services['hermes-worker']).toBeUndefined();
-    expect(yaml.load(buildHermesProjectsOverlayYaml([]))).toEqual({ services: {} });
+  it('writes an empty services map with nothing to bind', () => {
+    expect(load(buildHermesProjectsOverlayYaml([]))).toEqual({ services: {} });
   });
 
   it('creates mount points under data/projects for host-folder projects only', () => {
@@ -204,8 +196,8 @@ describe('hermesProjectsOverlay', () => {
     ];
 
     it('with the ssh worker, binds coding roots read-write on opencode and the worker only', () => {
-      const doc = yaml.load(
-        buildHermesProjectsOverlayYaml([jobSearch()], [], 'ssh', coding)
+      const doc = load(
+        buildHermesProjectsOverlayYaml([jobSearch()], [], coding)
       ) as Overlay;
       expect(doc.services.opencode.volumes).toEqual(expected);
       expect(doc.services['hermes-worker'].volumes).toEqual([
@@ -221,18 +213,9 @@ describe('hermesProjectsOverlay', () => {
       ]);
     });
 
-    it('with the local backend, binds them on hermes and opencode', () => {
-      const doc = yaml.load(
-        buildHermesProjectsOverlayYaml([], [], 'local', coding)
-      ) as Overlay;
-      expect(doc.services.hermes.volumes).toEqual(expected);
-      expect(doc.services.opencode.volumes).toEqual(expected);
-      expect(doc.services['hermes-worker']).toBeUndefined();
-    });
-
     it('adds no opencode block without grants', () => {
-      const doc = yaml.load(
-        buildHermesProjectsOverlayYaml([jobSearch()], [], 'ssh', {
+      const doc = load(
+        buildHermesProjectsOverlayYaml([jobSearch()], [], {
           roots: [],
           shadows: [],
           shadowSource: '/x',

@@ -1,21 +1,26 @@
 import Store from 'electron-store';
 import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
+import { readStoreFromMemory } from '../../storeMemoryCache';
 
 interface HermesProjectsStoreShape {
   projects: HermesProjectRecord[];
   activeId: string | null;
 }
 
-const store = new Store<HermesProjectsStoreShape>({
-  name: 'hermes-projects',
-  defaults: {
-    projects: [],
-    activeId: null,
-  },
-});
+// Read from memory: the chat list, every turn and every overlay write look projects up here.
+const store = readStoreFromMemory(
+  new Store<HermesProjectsStoreShape>({
+    name: 'hermes-projects',
+    defaults: {
+      projects: [],
+      activeId: null,
+    },
+  })
+);
 
+/** Copies of the stored records, so a caller that changes one without saving changes nothing. */
 export function listStoredHermesProjects(): HermesProjectRecord[] {
-  return store.get('projects') ?? [];
+  return (store.get('projects') ?? []).map((project) => ({ ...project }));
 }
 
 export function getStoredHermesProject(id: string): HermesProjectRecord | null {
@@ -36,16 +41,12 @@ export function upsertStoredHermesProject(project: HermesProjectRecord): void {
   store.set('projects', projects);
 }
 
-export function replaceStoredHermesProjects(projects: HermesProjectRecord[]): void {
-  store.set('projects', projects);
+export function removeStoredHermesProject(id: string): void {
+  store.set('projects', listStoredHermesProjects().filter((p) => p.id !== id));
 }
 
-export function removeStoredHermesProject(id: string): void {
-  const projects = listStoredHermesProjects().filter((p) => p.id !== id);
+export function replaceStoredHermesProjects(projects: HermesProjectRecord[]): void {
   store.set('projects', projects);
-  if (store.get('activeId') === id) {
-    store.set('activeId', null);
-  }
 }
 
 /** Test-only: wipe project pin store between cases. */

@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { CodingFolderInspect } from '../../../../shared/types/codingFolders';
 
 const pickCodingFolder = vi.fn();
@@ -9,15 +10,15 @@ const inspectCodingFolder = vi.fn();
 const newCodingFolderDefaults = vi.fn();
 const checkNewCodingFolder = vi.fn();
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    pickCodingFolder: (...args: unknown[]) => pickCodingFolder(...args),
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
-    inspectCodingFolder: (...args: unknown[]) => inspectCodingFolder(...args),
-    newCodingFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
-    checkNewCodingFolder: (...args: unknown[]) => checkNewCodingFolder(...args),
+stubElectronAPI({
+  codingFolders: {
+    pick: (...args: unknown[]) => pickCodingFolder(...args),
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
+    inspectFolder: (...args: unknown[]) => inspectCodingFolder(...args),
+    newFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
+    checkNewFolder: (...args: unknown[]) => checkNewCodingFolder(...args),
   },
-}));
+});
 
 import { AddFolderSheet } from '../AddFolderSheet';
 
@@ -148,6 +149,6 @@ describe('AddFolderSheet', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Use existing folder' }));
     expect(await screen.findByText('What should agents do with design-tokens?')).toBeTruthy();
-    expect(inspectCodingFolder).toHaveBeenCalledWith('/Users/ada/Code/design-tokens');
+    expect(inspectCodingFolder).toHaveBeenCalledWith({ hostPath: '/Users/ada/Code/design-tokens' });
   });
 });

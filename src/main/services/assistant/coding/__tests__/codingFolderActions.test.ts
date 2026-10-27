@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HermesProjectRecord } from '../../../../../shared/types/hermesChat';
+import type { AuditEntry } from '../../../hostBridge/auditLog';
 
 const addHermesProjectSourceFolder = vi.fn();
 const removeHermesProjectSource = vi.fn();
@@ -52,8 +53,11 @@ interface GitAnswers {
   diffTree?: string;
 }
 
+const audit: AuditEntry[] = [];
+
 function fakeDeps(overrides: Partial<CodingGrantDeps> = {}, git: GitAnswers = {}) {
   const order: string[] = [];
+  audit.length = 0;
   const deps: Partial<CodingGrantDeps> = {
     isLocalStack: () => false,
     busy: async () => ({ busy: false, sessions: [] }),
@@ -65,7 +69,6 @@ function fakeDeps(overrides: Partial<CodingGrantDeps> = {}, git: GitAnswers = {}
     },
     verify: async () => true,
     restartHermes: async () => ({ success: true }),
-    recordHermesRoots: () => undefined,
     ruleOptions: () => ({ home, boundaryDataPaths: [], systemFolders: [] }),
     runGit: async () => undefined,
     gitOutput: async (_cwd, args) => {
@@ -80,6 +83,9 @@ function fakeDeps(overrides: Partial<CodingGrantDeps> = {}, git: GitAnswers = {}
       order.push(`trash:${hostPath}`);
     },
     progress: () => undefined,
+    audit: (entry) => {
+      audit.push(entry);
+    },
     ...overrides,
   };
   setCodingGrantDepsForTests(deps);
@@ -121,21 +127,36 @@ afterEach(() => {
 });
 
 describe('walkFolder', () => {
-  it('counts files and bytes, splits out node_modules, and skips symlinks', () => {
+  it('counts files and bytes, splits out node_modules, and skips symlinks', async () => {
     const repo = folder('Code', 'site');
     fs.writeFileSync(path.join(repo, 'a.txt'), '12345');
     folder('Code', 'site', 'node_modules', 'pkg');
     fs.writeFileSync(path.join(repo, 'node_modules', 'pkg', 'index.js'), '123');
     fs.symlinkSync(home, path.join(repo, 'loop'));
-    const walk = walkFolder(repo);
+    const walk = await walkFolder(repo);
     expect(walk).toMatchObject({ files: 2, bytes: 8, nodeModulesBytes: 3, truncated: false });
     expect(walk.lastChangedMs).toBeGreaterThan(0);
   });
 
-  it('stops at the cap and says so', () => {
+  it('stops at the cap and says so', async () => {
     const repo = folder('Code', 'big');
     for (let i = 0; i < 5; i += 1) fs.writeFileSync(path.join(repo, `f${i}`), 'x');
-    expect(walkFolder(repo, 3).truncated).toBe(true);
+    expect((await walkFolder(repo, 3)).truncated).toBe(true);
+  });
+
+  it('reads the tree without the main process’s synchronous calls (G10-14)', async () => {
+    const repo = folder('Code', 'site');
+    fs.writeFileSync(path.join(repo, 'a.txt'), '12345');
+    const readdirSync = vi.spyOn(fs, 'readdirSync');
+    const lstatSync = vi.spyOn(fs, 'lstatSync');
+    try {
+      expect((await walkFolder(repo)).files).toBe(1);
+      expect(readdirSync).not.toHaveBeenCalled();
+      expect(lstatSync).not.toHaveBeenCalled();
+    } finally {
+      readdirSync.mockRestore();
+      lstatSync.mockRestore();
+    }
   });
 });
 
@@ -217,6 +238,10 @@ describe('deleteCodingFolder', () => {
     expect(order).toEqual(['recreate', `trash:${repo}`]);
     expect(findCodingGrant(repo)).toBeNull();
     expect(removeHermesProjectSource).toHaveBeenCalledWith('p1', 'contact-api');
+    // One entry in the host bridge audit log covers the revoke and the move (G21-5).
+    expect(audit).toEqual([
+      { tool: 'coding_delete', decision: 'allowed', args: { path: repo }, outcome: 'moved to the Trash' },
+    ]);
   });
 
   it('is one click for a clean folder Boundary created', async () => {
@@ -235,6 +260,29 @@ describe('deleteCodingFolder', () => {
     expect(findCodingGrant(repo)).not.toBeNull();
   });
 
+  it('walks the folder for the review only, not again for the delete (G10-14)', async () => {
+    fakeDeps();
+    const repo = grantRepo('landing-page', true);
+    const readdir = vi.spyOn(fs.promises, 'readdir');
+    try {
+      expect((await deleteCodingFolder({ hostPath: repo })).trashed).toBe(true);
+      expect(readdir).not.toHaveBeenCalled();
+    } finally {
+      readdir.mockRestore();
+    }
+  });
+
+  it('does not restart the coding agent for a folder inside another grant (G10-15)', async () => {
+    const order = fakeDeps();
+    const parent = grantRepo('mono', true);
+    const child = folder('Code', 'mono', 'packages', 'web');
+    addCodingGrantRecord({ hostPath: child, projectId: 'p1', origin: 'add', createdByBoundary: true });
+    const res = await deleteCodingFolder({ hostPath: child, confirmName: 'web' });
+    expect(res.trashed).toBe(true);
+    expect(order).toEqual([`trash:${child}`]);
+    expect(findCodingGrant(parent)).not.toBeNull();
+  });
+
   it('stops before the Trash when the restart fails', async () => {
     const order = fakeDeps({
       recreate: async () => {
@@ -248,10 +296,24 @@ describe('deleteCodingFolder', () => {
     expect(res.error).toMatch(/wasn’t moved/);
     expect(order).toEqual(['recreate']);
     expect(fs.existsSync(repo)).toBe(true);
+    expect(audit).toEqual([
+      { tool: 'coding_delete', decision: 'error', args: { path: repo }, outcome: res.error },
+    ]);
   });
 });
 
 describe('removeCodingFolder', () => {
+  it('does not restart the coding agent for a folder inside another grant (G10-15)', async () => {
+    const order = fakeDeps({ busy: async () => ({ busy: true, sessions: ['x'] }) });
+    grantRepo('mono');
+    const child = folder('Code', 'mono', 'packages', 'web');
+    addCodingGrantRecord({ hostPath: child, projectId: 'p1', origin: 'add', createdByBoundary: false });
+    const res = await removeCodingFolder({ hostPath: child, keep: 'none' });
+    expect(res.success).toBe(true);
+    expect(findCodingGrant(child)).toBeNull();
+    expect(order).toEqual([]);
+  });
+
   it('keeps the folder as read-only reference by default', async () => {
     const order = fakeDeps();
     const repo = grantRepo('tokens');

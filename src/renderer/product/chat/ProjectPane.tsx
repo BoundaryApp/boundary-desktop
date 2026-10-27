@@ -6,8 +6,10 @@ import type {
   HermesProjectRecord,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { formatDayLabel, formatMessageTime } from '../../../shared/messageTime';
-import { displayHostPath, projectGlyph, projectGlyphColor } from './chatTelemetryFormat';
+import { formatRowTime } from '../../../shared/messageTime';
+import { newestFirst } from '../../../shared/utils/sort';
+import { displayHostPath } from './chatTelemetryFormat';
+import { ProjectGlyph } from './ProjectGlyph';
 import { ConversationMark } from './ConversationMark';
 import { conversationTitle } from './conversationKinds';
 import { inProject } from './projectMove';
@@ -28,17 +30,6 @@ interface ProjectPaneProps {
   onNewChannel: () => void;
   onRevealInFinder?: () => void;
 }
-
-function rowTime(iso: string | undefined): string {
-  const ms = iso ? Date.parse(iso) : NaN;
-  if (!Number.isFinite(ms)) return '';
-  const day = formatDayLabel(ms);
-  if (day === 'Today' || day === 'Yesterday') return formatMessageTime(ms);
-  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-}
-
-const newestFirst = (a: { updatedAt?: string }, b: { updatedAt?: string }) =>
-  (Date.parse(b.updatedAt ?? '') || 0) - (Date.parse(a.updatedAt ?? '') || 0);
 
 /**
  * A project's home (ADR 0024 §4): start a chat that lives here, and everything already
@@ -78,15 +69,7 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
     <div className="wb-recent-pane">
       <div className="wb-thread-head">
         <div className="wb-thread-id">
-          {project ? (
-            <span className="wb-glyph" style={{ background: projectGlyphColor(project.id) }}>
-              {projectGlyph(project.name)}
-            </span>
-          ) : (
-            <span className="wb-glyph is-none" aria-hidden="true">
-              —
-            </span>
-          )}
+          <ProjectGlyph project={project} />
           <span className="wb-thread-id-copy">
             <strong>{name}</strong>
             {project ? (
@@ -158,7 +141,7 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
                 {findRunningTurn(runningTurns, thread.id, sameChat) ? (
                   <WorkingDot label={`${hermesName} is working`} />
                 ) : null}
-                <span className="wb-all-when">{rowTime(thread.updatedAt)}</span>
+                <span className="wb-all-when">{formatRowTime(Date.parse(thread.updatedAt ?? ''))}</span>
               </button>
             ))
           )}
@@ -187,7 +170,7 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
                 <span className="wb-all-copy">
                   <span className="wb-jump-title mono">#{room.slug}</span>
                 </span>
-                <span className="wb-all-when">{rowTime(room.updatedAt)}</span>
+                <span className="wb-all-when">{formatRowTime(Date.parse(room.updatedAt ?? ''))}</span>
               </button>
             ))
           )}

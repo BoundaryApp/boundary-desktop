@@ -10,6 +10,7 @@ import {
   resetHermesAgentsStoreForTests,
   setSessionInference,
 } from '../hermesAgentStore';
+import { beginRunningTurn, resetRunningTurnsForTests } from '../hermesRunningTurns';
 
 const probeSlotHealth = vi.fn();
 const applyLlmConnectionToHermes = vi.fn();
@@ -29,6 +30,7 @@ describe('ensureResolvedInferenceReady', () => {
     clearOpenAiConfig();
     resetHermesAgentsStoreForTests();
     clearLastAppliedLlm();
+    resetRunningTurnsForTests();
     saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
@@ -44,6 +46,36 @@ describe('ensureResolvedInferenceReady', () => {
     if (!result.ok) {
       expect(result.errorCode).toBe('local-unreachable');
     }
+    expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+  });
+
+  function needRestartToOpenRouter() {
+    saveLlmConnection({
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-key',
+      modelId: 'anthropic/claude-sonnet-4',
+      provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
+    });
+    setSessionInference('s1', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' });
+    setLastAppliedLlm({
+      slot: 'local',
+      endpointUrl: 'http://127.0.0.1:11434/v1',
+      modelId: 'qwen3:14b',
+      appliedAt: '2026-09-28T00:00:00.000Z',
+    });
+    applyLlmConnectionToHermes.mockResolvedValue({ success: true });
+  }
+
+  it("refuses to restart Hermes under another chat's running turn (G07-3)", async () => {
+    needRestartToOpenRouter();
+    beginRunningTurn('req-other', ['local-chat'], null);
+    const onRestarting = vi.fn();
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    const result = await ensureResolvedInferenceReady('s1', onRestarting);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/still running/);
+    expect(onRestarting).not.toHaveBeenCalled();
     expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
   });
 

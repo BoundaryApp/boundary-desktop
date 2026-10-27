@@ -1,8 +1,8 @@
 /**
  * Live check that the pinned stack accepts `history_budget` (CR 0002) — skipped unless
- * env vars are set. Hermes v2026.9 refuses undeclared params with 4000, and Boundary's
- * fallback then runs every DM with no budget, so this catches a stack upgrade that drops
- * the declaration again.
+ * env vars are set. Hermes v2026.9 refuses undeclared params with 4000, which would fail
+ * every DM's create and resume, so this catches a stack upgrade that drops the declaration
+ * again.
  *
  *   BOUNDARY_LIVE_HERMES=1 HERMES_DASHBOARD_PASSWORD=... npm run test:hermes:live
  *
@@ -37,7 +37,6 @@ describe.skipIf(!live)('live history_budget on the pinned stack', () => {
     'accepts the budget on the first create and resume, and reports it',
     async () => {
       const request = vi.spyOn(JsonRpcGatewayClient.prototype, 'request');
-      const warn = vi.spyOn(console, 'warn');
 
       const id = await session.createSessionWithSeed({ historyBudget: DM_HISTORY_BUDGET });
       await session.resumeSession(id, { historyBudget: DM_HISTORY_BUDGET });
@@ -49,10 +48,6 @@ describe.skipIf(!live)('live history_budget on the pinned stack', () => {
       for (const [, params] of budgetCalls) {
         expect(params).toMatchObject({ history_budget: DM_HISTORY_BUDGET });
       }
-      expect(warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('refused history_budget'),
-        expect.anything()
-      );
 
       const breakdown = await session.getContextBreakdown(id);
       expect(breakdown.history?.budget).toBe(DM_HISTORY_BUDGET);

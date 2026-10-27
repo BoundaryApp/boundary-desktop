@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { SetupProgress } from '../../../shared/types/setupProgress';
 
 const pickFolders = vi.fn();
@@ -8,12 +9,12 @@ const saveFolders = vi.fn();
 const skipStep = vi.fn().mockResolvedValue(undefined);
 const updateSetupProgress = vi.fn();
 
-vi.mock('../../services/setupIPCService', () => ({
-  setupIPC: {
+stubElectronAPI({
+  setup: {
     pickFolders: () => pickFolders(),
     saveFolders: (...args: unknown[]) => saveFolders(...args),
   },
-}));
+});
 
 vi.mock('../SetupContext', () => {
   // Inline: importing ../steps here would wait on this mock and never resolve.
@@ -115,10 +116,12 @@ describe('FoldersStep (first-run spec, Phase 2)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(updateSetupProgress).toHaveBeenCalledWith(progress));
-    expect(saveFolders).toHaveBeenCalledWith([
-      { kind: 'host-folder', hostPath: '/Users/ada/Code/garden-planner' },
-      { kind: 'host-folder', hostPath: '/Users/ada/notes' },
-    ]);
+    expect(saveFolders).toHaveBeenCalledWith({
+      folders: [
+        { kind: 'host-folder', hostPath: '/Users/ada/Code/garden-planner' },
+        { kind: 'host-folder', hostPath: '/Users/ada/notes' },
+      ],
+    });
   });
 
   it('keeps Continue disabled when every pick is refused, and a row can be removed', async () => {
@@ -152,7 +155,7 @@ describe('FoldersStep (first-run spec, Phase 2)', () => {
     expect(await screen.findByText('Empty project, no folder yet')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() =>
-      expect(saveFolders).toHaveBeenCalledWith([{ kind: 'empty', name: 'Trip planning' }])
+      expect(saveFolders).toHaveBeenCalledWith({ folders: [{ kind: 'empty', name: 'Trip planning' }] })
     );
   });
 

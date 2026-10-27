@@ -28,10 +28,3 @@ export function appendSpeakerChunk(
 export function joinSpeakerSegments(segments: readonly SpeakerSegment[]): string {
   return segments.map((s) => s.text).join('\n\n');
 }
-
-/** Segments stored on a message, when more than one agent spoke in it. */
-export function speakerSegmentsOf(custom: unknown): SpeakerSegment[] | null {
-  const segments = (custom as { segments?: unknown } | undefined)?.segments;
-  if (!Array.isArray(segments) || segments.length < 2) return null;
-  return segments as SpeakerSegment[];
-}

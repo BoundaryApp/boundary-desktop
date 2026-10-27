@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { MANUAL_LLM_CAPABILITIES } from '../../shared/llmConnectionDefaults';
-import { defaultSlotStatus, type ListedModel } from '../../shared/types/onboarding';
-import { onboardingIPC } from '../services/onboardingIPCService';
+import type { ListedModel } from '../../shared/types/onboarding';
+import { sameEndpoint } from '../../shared/utils/endpointUrl';
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { useOnboarding } from './OnboardingContext';
+import { takeInferenceStatus, useInferenceStatus } from './inferenceStatus';
 import { ModelPicker } from './ModelPicker';
 
 function validateEndpointUrl(value: string): string | null {
@@ -22,19 +22,22 @@ function validateEndpointUrl(value: string): string | null {
   }
 }
 
-export type CredentialsFormVariant = 'custom' | 'local';
-
 interface OpenAiCredentialsFormProps {
-  variant?: CredentialsFormVariant;
+  variant?: 'custom' | 'local';
 }
 
 export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
   variant = 'custom',
 }) => {
-  const { status, refresh } = useOnboarding();
-  // The saved connection, to prefill the form.
-  const saved = defaultSlotStatus(status);
+  const { status } = useInferenceStatus();
   const isLocal = variant === 'local';
+  // Prefill only from the slot this variant saves into, never from the app default, so another
+  // provider's URL and key note don't appear here.
+  const saved = isLocal
+    ? status?.slots.local
+    : status?.slots.infrastructure?.provider === 'manual'
+      ? status.slots.infrastructure
+      : undefined;
   const [endpointUrl, setEndpointUrl] = useState(
     saved?.endpointUrl ?? (isLocal ? 'http://127.0.0.1:11434/v1' : '')
   );
@@ -45,7 +48,9 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const savedApiKey = saved?.apiKey?.configured ? saved.apiKey : null;
+  // Main reuses a saved key only for the URL it was saved with.
+  const savedApiKey =
+    saved?.apiKey?.configured && sameEndpoint(saved.endpointUrl, endpointUrl) ? saved.apiKey : null;
 
   const handleLoadModels = async () => {
     setError(null);
@@ -61,7 +66,7 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
 
     setLoadingModels(true);
     try {
-      const result = await onboardingIPC.listEndpointModels({
+      const result = await window.electronAPI.onboarding.listEndpointModels({
         baseUrl: endpointUrl,
         apiKey: apiKey.trim() || undefined,
         authScheme: 'bearer',
@@ -76,6 +81,8 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
       setModels(result.models);
       setSelectedModelId(result.models[0]?.id ?? '');
       setModelsLoaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load models from this endpoint.');
     } finally {
       setLoadingModels(false);
     }
@@ -92,7 +99,7 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
 
     setSaving(true);
     try {
-      const result = await onboardingIPC.saveLlmConnection({
+      const result = await window.electronAPI.onboarding.saveLlmConnection({
         endpointUrl,
         apiKey: apiKey.trim() || undefined,
         modelId: selectedModelId,
@@ -105,14 +112,16 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
         setError(result.error ?? 'Unable to save LLM connection.');
         return;
       }
-      await refresh();
+      await takeInferenceStatus(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save LLM connection.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+    <form className="flex flex-col gap-5" onSubmit={(event) => void handleSubmit(event)}>
       <div className="flex flex-col gap-2">
         <Label htmlFor="openai-endpoint">Endpoint URL</Label>
         <Input
@@ -193,8 +202,4 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
       </div>
     </form>
   );
-};
-
-export const __testing = {
-  validateEndpointUrl,
 };

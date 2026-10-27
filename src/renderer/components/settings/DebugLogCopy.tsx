@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { CheckCircle, ChevronRight, Copy } from 'lucide-react';
-import { capabilityIPC } from '../../services/capabilityIPCService';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 
@@ -16,7 +15,7 @@ export const DebugLogCopy: React.FC<DebugLogCopyProps> = ({ path, className }) =
   const handleCopyLog = async () => {
     setError(null);
     try {
-      const { path: logPath, contents } = await capabilityIPC.getDebugLog();
+      const { path: logPath, contents } = await window.electronAPI.capability.getDebugLog();
       await navigator.clipboard.writeText(
         `Log path: ${logPath}\n\n${contents}`
       );

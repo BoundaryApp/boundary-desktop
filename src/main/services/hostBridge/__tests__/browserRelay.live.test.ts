@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- raw CDP replies */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
-import WebSocket from 'ws';
+import { WebSocket } from 'ws';
 import { startBridgeServers, type BridgeServers } from '../bridgeServer';
 import { BrowserRelay } from '../browserRelay';
 import { findGoogleChrome } from '../browserConfig';

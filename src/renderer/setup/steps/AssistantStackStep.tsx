@@ -1,89 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { SetupShell } from '../SetupShell';
 import { SETUP_STEPS } from './index';
 import { Button } from '../../components/ui/button';
 import { StartupScreen } from '../../product/startup/StartupScreen';
-import { useSetup } from '../SetupContext';
+import { startupServices } from '../../product/startup/startupModel';
+import {
+  useAssistantStackLifecycle,
+  useAssistantStackStatus,
+  useStackStart,
+} from '../../product/assistantStack';
 import type { SetupStepProps } from '../types';
-import { assistantStackIPC } from '../../services/assistantStackIPCService';
-import { createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle';
-import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
 
 export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, description }) => {
-  const { assistantStackStatus, refreshAssistantStack } = useSetup();
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lifecycle, setLifecycle] = useState<AssistantStackLifecycleSnapshot>(() =>
-    createLifecycleSnapshot('idle')
-  );
-  const started = useRef(false);
+  const assistantStackStatus = useAssistantStackStatus();
+  const lifecycle = useAssistantStackLifecycle();
+  const { start, running, error } = useStackStart();
+  const ready = Boolean(assistantStackStatus?.setupComplete && assistantStackStatus.ready);
 
+  // Start once when the step opens; after that only Try again or Start assistant starts it.
+  const autoStarted = useRef(false);
   useEffect(() => {
-    void assistantStackIPC.getLifecycle().then(setLifecycle);
-    return assistantStackIPC.onLifecycle(setLifecycle);
-  }, []);
+    if (autoStarted.current || ready) return;
+    autoStarted.current = true;
+    void start();
+  }, [ready, start]);
 
-  useEffect(() => {
-    if (started.current) return;
-    if (assistantStackStatus?.setupComplete && assistantStackStatus.ready) return;
-    started.current = true;
-
-    let cancelled = false;
-    void (async () => {
-      setRunning(true);
-      setError(null);
-      try {
-        const result = await assistantStackIPC.ensureAndApplyLlm();
-        if (cancelled) return;
-        if (!result.success) {
-          setError(result.error ?? 'Failed to start the assistant stack.');
-          started.current = false;
-        }
-        await refreshAssistantStack();
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          started.current = false;
-        }
-      } finally {
-        if (!cancelled) setRunning(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantStackStatus?.ready, assistantStackStatus?.setupComplete, refreshAssistantStack]);
-
-  const handleRetry = async () => {
-    started.current = false;
-    setRunning(true);
-    setError(null);
-    try {
-      const result = await assistantStackIPC.ensureAndApplyLlm();
-      if (!result.success) {
-        setError(result.error ?? 'Failed to start the assistant stack.');
-      }
-      await refreshAssistantStack();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-      started.current = true;
-    }
+  const handleRetry = (): void => {
+    void start();
   };
-
-  const services =
-    lifecycle.services?.length > 0
-      ? lifecycle.services
-      : createLifecycleSnapshot('starting').services;
+  const services = startupServices(lifecycle);
 
   const setupSteps = {
     steps: SETUP_STEPS.map((step) => ({ id: step.id, label: step.label })),
     currentId: 'assistant-stack',
   };
-  const ready = Boolean(assistantStackStatus?.setupComplete && assistantStackStatus.ready);
   if (!error && (ready || running || lifecycle.phase === 'starting')) {
     return (
       <StartupScreen
@@ -106,7 +57,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
         message={lifecycle.message}
         services={services}
         error={error}
-        onRetry={() => void handleRetry()}
+        onRetry={handleRetry}
         retrying={running}
         setupSteps={setupSteps}
       />
@@ -118,7 +69,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
       title={title}
       description={description}
       actions={
-        <Button type="button" onClick={() => void handleRetry()}>
+        <Button type="button" onClick={handleRetry}>
           Start assistant
         </Button>
       }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { AppCommand } from '../../../shared/appCommands';
 import { formatShortcut } from '../../../shared/appCommands';
 import {
@@ -8,7 +8,6 @@ import {
   matchShortcut,
   useAppCommand,
   useAppShortcuts,
-  useEscapeToClose,
 } from '../useAppShortcuts';
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
@@ -48,19 +47,5 @@ describe('app command hooks', () => {
     fireEvent.keyDown(window, { key: '3', ctrlKey: true });
     dispatchAppCommand('prev-thread');
     expect(received).toEqual(['go-resources', 'prev-thread']);
-  });
-
-  it('closes on Escape unless disabled', () => {
-    const onClose = vi.fn();
-    const Sheet = ({ disabled }: { disabled: boolean }) => {
-      useEscapeToClose(onClose, disabled);
-      return null;
-    };
-    const { rerender } = render(<Sheet disabled />);
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).not.toHaveBeenCalled();
-    rerender(<Sheet disabled={false} />);
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

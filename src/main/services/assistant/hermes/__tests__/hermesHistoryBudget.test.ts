@@ -21,6 +21,17 @@ function sessionWith(request: (method: string, params: Record<string, unknown>) 
   return { session, client };
 }
 
+describe('session liveness (decision D2)', () => {
+  it('asks session.live_status only, never the old session.active_list', async () => {
+    const { session, client } = sessionWith(async (method) =>
+      method === 'session.live_status' ? { status: 'working' } : {}
+    );
+    expect(await session.getLiveStatus('s1', 'ana')).toBe('working');
+    expect(client.request.mock.calls.map(([method]) => method)).toEqual(['session.live_status']);
+    expect(client.request).toHaveBeenCalledWith('session.live_status', { profile: 'ana', session_id: 's1' });
+  });
+});
+
 describe('mapHistoryWindow (CR 0002 R2)', () => {
   it('maps the four fields', () => {
     expect(
@@ -58,26 +69,9 @@ describe('history budget over the gateway', () => {
     expect(client.request.mock.calls[2][1]).not.toHaveProperty('history_budget');
   });
 
-  it('retries without the field, and warns, when a stack without the overlay refuses it', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const { session, client } = sessionWith(async (method, params) => {
-      if ('history_budget' in params) throw refusal(method);
-      return { session_id: 'r1', messages: [] };
-    });
-    await expect(session.resumeSession('s1', { historyBudget: 8000 })).resolves.toMatchObject({
-      sessionId: 'r1',
-    });
-    expect(client.request).toHaveBeenCalledTimes(2);
-    expect(client.request.mock.calls[1][1]).not.toHaveProperty('history_budget');
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('session.resume refused history_budget'),
-      expect.any(JsonRpcGatewayError)
-    );
-    warn.mockRestore();
-  });
-
-  it('throws any other error without retrying', async () => {
+  it('throws every error without retrying, a history_budget refusal included (decision D2)', async () => {
     const failures = [
+      refusal('session.create'),
       new Error('request timed out after 30s: session.create'),
       new JsonRpcGatewayError('history_budget must be a positive integer', { code: 4028 }),
       new JsonRpcGatewayError('invalid params for session.create: colour: Extra inputs are not permitted', {

@@ -1,7 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from '../hermesPlatformHint';
 
 const runCompose = vi.fn();
+const runComposeStreaming = vi.fn();
+const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-llm-proxy-'));
 const applyLlmConnectionToProjectFiles = vi.fn();
 const readAssistantEnvFile = vi.fn();
 
@@ -12,6 +17,7 @@ vi.mock('../../containerRuntime', async () => {
     ...actual,
     getContainerRuntime: async () => ({ kind: 'docker', env: {} }),
     runCompose: (...args: unknown[]) => runCompose(...args),
+    runComposeStreaming: (...args: unknown[]) => runComposeStreaming(...args),
   };
 });
 
@@ -23,7 +29,7 @@ vi.mock('../resolveAssistantRoot', () => ({
 vi.mock('../assistantPaths', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../assistantPaths')>()),
   resolveBoundaryOverlayPath: () => '/tmp/docker-compose.boundary.yml',
-  resolveAssistantDataRoot: () => '/tmp/boundary-project/data',
+  resolveAssistantDataRoot: () => dataRoot,
   resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
   ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
   readAssistantEnvFile: (...args: unknown[]) => readAssistantEnvFile(...args),
@@ -33,7 +39,6 @@ vi.mock('../applyLlmToProjectEnv', () => ({
   applyLlmConnectionToProjectFiles: (...args: unknown[]) =>
     applyLlmConnectionToProjectFiles(...args),
   clearLlmKeysFromProjectEnv: async () => false,
-  upsertEnvLine: (contents: string) => contents,
 }));
 
 let storedAgents: Array<{ slug: string; builtIn: boolean }> = [];
@@ -88,24 +93,40 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   throw new Error(`unexpected fetch ${url} ${init?.method ?? ''}`);
 });
 
-/** [key, value] pairs `hermes config set` was given for one profile ('' is the default). */
-function configSets(profile: string): Array<[string, string]> {
-  return runCompose.mock.calls
-    .map(([, args]) => args as string[])
-    .filter((args) => args.includes('set'))
-    .filter((args) => {
-      const i = args.indexOf('config');
-      return profile === '' ? args[i - 1] === 'hermes' : args[i - 1] === profile;
-    })
-    .map((args) => {
-      const i = args.indexOf('set');
-      return [args[i + 1], args[i + 2]] as [string, string];
+interface PlanProfile {
+  profile: string;
+  set: Array<[string, string]>;
+  entries: Array<[string, Record<string, unknown>]>;
+}
+
+/** The profiles in each one-run apply's plan, which rides on stdin. */
+function plans(): PlanProfile[][] {
+  return runComposeStreaming.mock.calls
+    .map(([, , options]) => (options as { input?: string })?.input ?? '')
+    .filter((input) => input.startsWith('PLAN_JSON = '))
+    .map((input) => {
+      const first = input.split('\n', 1)[0];
+      return (JSON.parse(JSON.parse(first.slice('PLAN_JSON = '.length))) as { profiles: PlanProfile[] }).profiles;
     });
 }
 
-/** Every argv and env value passed to compose, flattened. */
+/** [key, value] pairs written to one profile ('' is the default). */
+function configSets(profile: string): Array<[string, string]> {
+  return plans()
+    .flat()
+    .filter((p) => p.profile === profile)
+    .flatMap((p) => p.set);
+}
+
+/** Every argv, env value and stdin passed to compose, flattened. */
 function composeText(): string {
-  return JSON.stringify(runCompose.mock.calls);
+  return JSON.stringify([...runCompose.mock.calls, ...runComposeStreaming.mock.calls]);
+}
+
+function writeProfileConfig(profile: string, yaml: string): void {
+  const dir = profile ? path.join(dataRoot, 'hermes', 'profiles', profile) : path.join(dataRoot, 'hermes');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config.yaml'), yaml);
 }
 
 beforeEach(() => {
@@ -114,16 +135,32 @@ beforeEach(() => {
   modelList = null;
   storedAgents = [{ slug: 'assistant', builtIn: true }];
   delete process.env.BOUNDARY_LOCAL_STACK;
+  delete process.env.BOUNDARY_ASSISTANT_ROOT;
   LLM_PROXY_PUSH_RETRY.delayMs = 0;
   runCompose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
+  runComposeStreaming.mockReset().mockImplementation(async () => {
+    const profiles = plans().at(-1) ?? [];
+    return {
+      stdout: `HERMES_CONFIG_APPLY ${JSON.stringify({ profiles: profiles.map((p) => ({ profile: p.profile, written: 1 })) })}\n`,
+      stderr: '',
+      code: 0,
+    };
+  });
+  fs.rmSync(path.join(dataRoot, 'hermes'), { recursive: true, force: true });
+  for (const profile of ['', 'api-server', 'browser', 'orchestrator']) writeProfileConfig(profile, '');
   applyLlmConnectionToProjectFiles.mockReset().mockResolvedValue(undefined);
   readAssistantEnvFile.mockReset().mockReturnValue({ LLM_PROXY_ADMIN_TOKEN: 'admin-token' });
   fetchMock.mockClear();
   vi.stubGlobal('fetch', fetchMock);
 });
 
+afterAll(() => {
+  fs.rmSync(dataRoot, { recursive: true, force: true });
+});
+
 afterEach(() => {
   delete process.env.BOUNDARY_LOCAL_STACK;
+  delete process.env.BOUNDARY_ASSISTANT_ROOT;
   __resetLlmProxyKeeperForTests();
   vi.unstubAllGlobals();
 });
@@ -167,10 +204,7 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
       { slug: 'orchestrator', builtIn: false },
     ];
     modelList = { data: [{ id: 'anthropic/claude-sonnet-4', context_length: 200_000 }] };
-    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
-      if (!args.includes('get')) return { stdout: '', stderr: '' };
-      return { stdout: args.includes('browser') ? '1024\n' : 'Config key not set: model.max_tokens\n', stderr: '' };
-    });
+    writeProfileConfig('browser', 'model:\n  max_tokens: 1024\n');
 
     expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
 
@@ -194,7 +228,6 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
 
   it('follows HERMES_MAX_TOKENS from the stack .env, and 0 writes none', async () => {
     readAssistantEnvFile.mockReturnValue({ LLM_PROXY_ADMIN_TOKEN: 'admin-token', HERMES_MAX_TOKENS: '0' });
-    runCompose.mockResolvedValue({ stdout: 'Config key not set: model.max_tokens', stderr: '' });
     await applyLlmConnectionToHermes(connection);
     expect(configSets('').map(([key]) => key)).not.toContain('model.max_tokens');
     // No context length reported, so none is written.
@@ -206,45 +239,38 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
       { slug: 'assistant', builtIn: true },
       { slug: 'orchestrator', builtIn: false },
     ];
-    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
-      if (!args.includes('get')) return { stdout: '', stderr: '' };
-      const key = args[args.length - 1];
-      if (key === 'mcp_servers.opencode') return { stdout: 'url: http://opencode-mcp:8000/sse\n', stderr: '' };
-      return { stdout: `Config key not set: ${key}`, stderr: '' };
-    });
+    writeProfileConfig(
+      '',
+      'mcp_servers:\n  opencode:\n    url: http://opencode-mcp:8000/sse\n  mail:\n    url: http://mail-mcp:8000/mcp\n'
+    );
 
     expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
 
-    const mcpWrites = runCompose.mock.calls
-      .filter(([, args]) => (args as string[]).includes('set'))
-      .filter(([, args]) => String((args as string[]).at(-1)).startsWith('mcp_servers.'));
-    expect(mcpWrites.map(([, args]) => (args as string[]).slice(-6))).toEqual([
-      ['hermes', '-p', 'orchestrator', 'config', 'set', 'mcp_servers.opencode'],
-    ]);
+    const mcpWrites = plans()
+      .flat()
+      .flatMap((p) => p.entries.map(([key, value]) => [p.profile, key, value]));
+    expect(mcpWrites).toEqual([['orchestrator', 'mcp_servers.opencode', { url: 'http://opencode-mcp:8000/sse' }]]);
     expect(composeText()).not.toContain('mcp_servers.mail');
   });
 
-  it('in local stack mode writes the limits and platform hint to agent profiles only', async () => {
+  it('in local stack mode writes the limits to agent profiles only, and the platform hint to the default one too', async () => {
     process.env.BOUNDARY_LOCAL_STACK = '1';
+    process.env.BOUNDARY_ASSISTANT_ROOT = '/tmp/boundary-project';
     storedAgents = [
       { slug: 'assistant', builtIn: true },
       { slug: 'orchestrator', builtIn: false },
     ];
     modelList = { data: [{ id: 'anthropic/claude-sonnet-4', context_length: 131_072 }] };
-    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => ({
-      stdout: args.includes('get') ? 'Config key not set: model.max_tokens' : '',
-      stderr: '',
-    }));
 
     expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
 
     expect(configSets('orchestrator')).toEqual([
       ['agent.local_stream_stale_timeout', '180'],
-      ['model.max_tokens', '16384'],
       ['model.context_length', '131072'],
       [BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT],
+      ['model.max_tokens', '16384'],
     ]);
-    expect(configSets('')).toEqual([]);
+    expect(configSets('')).toEqual([[BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT]]);
   });
 
   it('recreates the proxy and pushes again when the admin API fails', async () => {
@@ -277,15 +303,12 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     expect(composeText()).toContain('"llm-proxy"');
   });
 
-  it('moves the lifecycle to an error, with the key redacted, when a step throws', async () => {
-    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
-      if (args.includes('model.default')) {
-        throw new Error(`config set failed for ${REAL_KEY}`);
-      }
-      return { stdout: '', stderr: '' };
+  it('moves the start-up lifecycle to an error, with the key redacted, when a step throws', async () => {
+    runComposeStreaming.mockImplementation(async () => {
+      throw new Error(`config set failed for ${REAL_KEY}`);
     });
 
-    const result = await applyLlmConnectionToHermes(connection);
+    const result = await applyLlmConnectionToHermes(connection, { showProgress: true });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('config set failed');

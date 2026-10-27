@@ -1,4 +1,3 @@
-// eslint-disable-next-line import/no-unresolved -- devDependency resolved at test runtime
 import { defineConfig } from 'vitest/config';
 
 /**

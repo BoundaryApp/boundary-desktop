@@ -11,17 +11,16 @@ import type {
   CapabilityAssessment,
   CapabilityStatus,
 } from '../../shared/types/capability';
-import type { AssistantStackStatus } from '../../shared/types/assistantStack';
 import type { DiscoveredLocalLlm } from '../../shared/types/onboarding';
 import type {
   ApplyFirstRunFoldersResult,
   SetupProgress,
 } from '../../shared/types/setupProgress';
-import { useOnboarding } from '../onboarding/OnboardingContext';
-import { capabilityIPC } from '../services/capabilityIPCService';
-import { onboardingIPC } from '../services/onboardingIPCService';
-import { assistantStackIPC } from '../services/assistantStackIPCService';
-import { setupIPC } from '../services/setupIPCService';
+import { useInferenceStatus } from '../onboarding/inferenceStatus';
+import {
+  useAssistantStackStatus,
+  useAssistantStackStatusLoaded,
+} from '../product/assistantStack';
 import { SETUP_STEPS } from './steps';
 import {
   areAllSetupStepsComplete,
@@ -34,8 +33,6 @@ import {
 interface SetupContextValue {
   loading: boolean;
   allComplete: boolean;
-  backgrounded: boolean;
-  continueInBackground: () => void;
   activeStep: SetupStepDefinition | null;
   snapshot: SetupFlowSnapshot;
   capabilityAssessment: CapabilityAssessment | null;
@@ -43,8 +40,9 @@ interface SetupContextValue {
   capabilityLoading: boolean;
   capabilityError: string | null;
   provisionProgress: string | null;
+  /** Local LLM servers found on this Mac, kept current by main's `local-llm:changed`. */
   localLlms: DiscoveredLocalLlm[];
-  assistantStackStatus: AssistantStackStatus | null;
+  discoverLocalLlms: () => Promise<void>;
   setupProgress: SetupProgress | null;
   /** Take a progress record the main process returned (after saving a step). */
   updateSetupProgress: (progress: SetupProgress) => void;
@@ -54,22 +52,29 @@ interface SetupContextValue {
   applyFirstRunFolders: () => Promise<ApplyFirstRunFoldersResult | null>;
   /** Why creating the Folders step's projects failed, for the chat to show. */
   firstRunFolderError: string | null;
+  /** Run the host checks again (the Machine step's Re-check). */
   assessCapability: () => Promise<CapabilityAssessment | null>;
+  /** Read the stored result, assessing only if the Machine step is still open. */
+  loadCapability: () => Promise<void>;
   acknowledgeCapability: () => Promise<AcknowledgeCapabilityResult>;
-  refreshAssistantStack: () => Promise<void>;
-  refresh: () => Promise<void>;
 }
 
 const SetupContext = createContext<SetupContextValue | undefined>(undefined);
 
+/** The provision message to keep showing: main's latest, else the passing runtime check's. */
+function stickyProvisionProgress(
+  status: CapabilityStatus,
+  assessment: CapabilityAssessment | null
+): string | null {
+  return (
+    status.provisionProgress ??
+    assessment?.checks.find((check) => check.id === 'runtime' && check.passed)?.detail ??
+    null
+  );
+}
+
 export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const {
-    status: onboardingStatus,
-    loading: onboardingLoading,
-    backgrounded,
-    continueInBackground,
-    refresh: refreshOnboarding,
-  } = useOnboarding();
+  const { status: onboardingStatus, loading: onboardingLoading } = useInferenceStatus();
 
   const [capabilityStatus, setCapabilityStatus] = useState<CapabilityStatus | null>(null);
   const [capabilityAssessment, setCapabilityAssessment] = useState<CapabilityAssessment | null>(
@@ -79,9 +84,8 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [provisionProgress, setProvisionProgress] = useState<string | null>(null);
   const [localLlms, setLocalLlms] = useState<DiscoveredLocalLlm[]>([]);
-  const [assistantStackStatus, setAssistantStackStatus] = useState<AssistantStackStatus | null>(
-    null
-  );
+  const assistantStackStatus = useAssistantStackStatus();
+  const assistantStackLoaded = useAssistantStackStatusLoaded();
 
   const [setupProgress, setSetupProgress] = useState<SetupProgress | null>(null);
   const [setupProgressLoading, setSetupProgressLoading] = useState(true);
@@ -89,7 +93,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const refreshSetupProgress = useCallback(async () => {
     try {
-      setSetupProgress(await setupIPC.getProgress());
+      setSetupProgress(await window.electronAPI.setup.getProgress());
     } catch {
       // Optional steps then count as answered; setup must not stall on them.
       setSetupProgress(null);
@@ -103,12 +107,20 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [refreshSetupProgress]);
 
   const skipStep = useCallback(async (stepId: SetupStepId) => {
-    setSetupProgress(await setupIPC.recordOutcome(stepId, 'skipped'));
+    try {
+      setSetupProgress(await window.electronAPI.setup.recordOutcome({ stepId, outcome: 'skipped' }));
+    } catch {
+      // Main didn't store it: skip the step for this run so setup doesn't stall. It is asked
+      // again on the next launch.
+      setSetupProgress((prev) =>
+        prev ? { ...prev, outcomes: { ...prev.outcomes, [stepId]: 'skipped' } } : prev
+      );
+    }
   }, []);
 
   const applyFirstRunFolders = useCallback(async () => {
     try {
-      const result = await setupIPC.applyFolders();
+      const result = await window.electronAPI.setup.applyFolders();
       setFirstRunFolderError(result.success ? null : (result.error ?? null));
       setSetupProgress(result.progress);
       return result;
@@ -122,21 +134,12 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const discoverLocalLlms = useCallback(async () => {
     try {
-      const result = await onboardingIPC.discoverLocalLlms();
+      const result = await window.electronAPI.onboarding.discoverLocalLlms();
       if (result.success) {
         setLocalLlms(result.endpoints);
       }
     } catch {
       // Discovery is optional and must not fail capability assessment.
-    }
-  }, []);
-
-  const refreshAssistantStack = useCallback(async () => {
-    try {
-      const status = await assistantStackIPC.getStatus();
-      setAssistantStackStatus(status);
-    } catch {
-      setAssistantStackStatus(null);
     }
   }, []);
 
@@ -146,18 +149,13 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setProvisionProgress(null);
     try {
       const [assessment] = await Promise.all([
-        capabilityIPC.assess(),
+        window.electronAPI.capability.assess(),
         discoverLocalLlms(),
-        refreshAssistantStack(),
       ]);
       setCapabilityAssessment(assessment);
-      const status = await capabilityIPC.getStatus();
+      const status = await window.electronAPI.capability.getStatus();
       setCapabilityStatus(status);
-      const sticky =
-        status.provisionProgress ??
-        assessment.checks.find((check) => check.id === 'runtime' && check.passed)?.detail ??
-        null;
-      setProvisionProgress(sticky);
+      setProvisionProgress(stickyProvisionProgress(status, assessment));
       return assessment;
     } catch (err) {
       setCapabilityError(err instanceof Error ? err.message : String(err));
@@ -165,47 +163,62 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } finally {
       setCapabilityLoading(false);
     }
-  }, [discoverLocalLlms, refreshAssistantStack]);
+  }, [discoverLocalLlms]);
 
   useEffect(() => {
-    return capabilityIPC.onProgress((message) => {
+    return window.electronAPI.capability.onProgress((message) => {
       setProvisionProgress(message);
     });
   }, []);
 
   useEffect(() => {
-    return onboardingIPC.onLocalLlmChanged((payload) => {
+    return window.electronAPI.onboarding.onLocalLlmChanged((payload) => {
       setLocalLlms(payload.endpoints);
     });
   }, []);
 
   const acknowledgeCapability = useCallback(async () => {
-    const result = await capabilityIPC.acknowledge();
+    const result = await window.electronAPI.capability.acknowledge();
     setCapabilityStatus(result.status);
     if (result.status.lastAssessment) {
       setCapabilityAssessment(result.status.lastAssessment);
     }
     // Overlap sovereign download / setup / compose with LLM onboarding.
     if (result.success) {
-      void assistantStackIPC.ensureRunningInBackground().catch(() => {
+      void window.electronAPI.assistantStack.ensureRunningInBackground().catch(() => {
         /* lifecycle carries failures; stack step retries */
       });
     }
     return result;
   }, []);
 
-  const refresh = useCallback(async () => {
-    await Promise.all([
-      refreshOnboarding(),
-      assessCapability(),
-      refreshAssistantStack(),
-      refreshSetupProgress(),
-    ]);
-  }, [assessCapability, refreshAssistantStack, refreshOnboarding, refreshSetupProgress]);
+  // A full assessment runs docker and disk probes and resets main's container runtime cache.
+  // Once the Machine step is acknowledged nothing reads a fresh one, so launch reads the
+  // stored status and assesses only while that step is still open.
+  const loadCapability = useCallback(async () => {
+    setCapabilityLoading(true);
+    setCapabilityError(null);
+    let status: CapabilityStatus;
+    try {
+      status = await window.electronAPI.capability.getStatus();
+    } catch (err) {
+      setCapabilityError(err instanceof Error ? err.message : String(err));
+      setCapabilityLoading(false);
+      return;
+    }
+    setCapabilityStatus(status);
+    if (!status.acknowledged) {
+      await assessCapability();
+      return;
+    }
+    setCapabilityAssessment(status.lastAssessment);
+    setProvisionProgress(stickyProvisionProgress(status, status.lastAssessment));
+    setCapabilityLoading(false);
+  }, [assessCapability]);
 
   useEffect(() => {
-    void assessCapability();
-  }, [assessCapability]);
+    void loadCapability();
+  }, [loadCapability]);
 
   const snapshot: SetupFlowSnapshot = useMemo(
     () => ({
@@ -227,24 +240,25 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const loading =
-    capabilityLoading || setupProgressLoading || (onboardingLoading && !onboardingStatus);
+    capabilityLoading ||
+    setupProgressLoading ||
+    !assistantStackLoaded ||
+    (onboardingLoading && !onboardingStatus);
 
   const allComplete = useMemo(() => {
-    if (loading || !capabilityAssessment) return false;
+    if (loading || !capabilityStatus) return false;
     return areAllSetupStepsComplete(SETUP_STEPS, snapshot);
-  }, [loading, capabilityAssessment, snapshot]);
+  }, [loading, capabilityStatus, snapshot]);
 
   const activeStep = useMemo(() => {
-    if (loading || !capabilityAssessment) return null;
+    if (loading || !capabilityStatus) return null;
     return resolveActiveSetupStep(SETUP_STEPS, snapshot);
-  }, [loading, capabilityAssessment, snapshot]);
+  }, [loading, capabilityStatus, snapshot]);
 
   const value = useMemo(
     () => ({
       loading,
       allComplete,
-      backgrounded,
-      continueInBackground,
       activeStep,
       snapshot,
       capabilityAssessment,
@@ -253,16 +267,15 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       capabilityError,
       provisionProgress,
       localLlms,
-      assistantStackStatus,
+      discoverLocalLlms,
       setupProgress,
       updateSetupProgress: setSetupProgress,
       skipStep,
       applyFirstRunFolders,
       firstRunFolderError,
       assessCapability,
+      loadCapability,
       acknowledgeCapability,
-      refreshAssistantStack,
-      refresh,
     }),
     [
       applyFirstRunFolders,
@@ -273,18 +286,15 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       activeStep,
       allComplete,
       assessCapability,
-      assistantStackStatus,
-      backgrounded,
+      loadCapability,
       capabilityAssessment,
       capabilityError,
       capabilityLoading,
       capabilityStatus,
-      continueInBackground,
       loading,
       provisionProgress,
       localLlms,
-      refresh,
-      refreshAssistantStack,
+      discoverLocalLlms,
       snapshot,
     ]
   );

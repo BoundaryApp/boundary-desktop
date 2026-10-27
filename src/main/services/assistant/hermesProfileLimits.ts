@@ -1,8 +1,4 @@
-import {
-  buildHermesConfigGetExec,
-  buildHermesConfigSetExec,
-  parseHermesConfigGet,
-} from './hermesConfigSetExec';
+import { llmAuthorizationHeader } from '../onboarding/llmEndpoint';
 
 /**
  * Limits that stop one model call from running away (the stack's docs/extending.md). The
@@ -37,28 +33,19 @@ export type HermesConfigCompose = (
 ) => Promise<{ stdout: string; stderr: string }>;
 
 /**
- * Write the limits to one profile ('' is the default one). A profile's own max_tokens is
- * kept, as the bootstrap does: the browser profile's 1024 is deliberate.
+ * The limits as config writes for one profile. max_tokens goes only to a profile without its
+ * own, as the bootstrap does: the browser profile's 1024 is deliberate.
  */
-export async function applyHermesProfileLimits(
-  compose: HermesConfigCompose,
-  profile: string,
-  limits: HermesProfileLimits
-): Promise<void> {
-  const set = async (key: string, value: string) => {
-    const { args, env } = buildHermesConfigSetExec(profile, key, value);
-    await compose(args, { timeout: 60_000, env });
+export function hermesProfileLimitSets(limits: HermesProfileLimits): {
+  set: Array<[string, string]>;
+  setIfUnset: Array<[string, string]>;
+} {
+  const set: Array<[string, string]> = [['agent.local_stream_stale_timeout', String(limits.staleTimeoutS)]];
+  if (limits.contextLength) set.push(['model.context_length', String(limits.contextLength)]);
+  return {
+    set,
+    setIfUnset: limits.maxTokens > 0 ? [['model.max_tokens', String(limits.maxTokens)]] : [],
   };
-
-  await set('agent.local_stream_stale_timeout', String(limits.staleTimeoutS));
-  if (limits.maxTokens > 0) {
-    const { stdout } = await compose(buildHermesConfigGetExec(profile, 'model.max_tokens').args, {
-      timeout: 60_000,
-    });
-    // Unreadable output (a missing profile, an error) writes nothing rather than guessing.
-    if (parseHermesConfigGet(stdout) === null) await set('model.max_tokens', String(limits.maxTokens));
-  }
-  if (limits.contextLength) await set('model.context_length', String(limits.contextLength));
 }
 
 const CONTEXT_LOOKUP_TIMEOUT_MS = 5_000;
@@ -74,13 +61,20 @@ function positive(v: unknown): number | undefined {
  * Other servers (OpenRouter and the like) put `context_length` on their model list.
  */
 export async function lookupModelContextLength(
-  llm: { endpointUrl: string; apiKey?: string; modelId: string },
+  llm: {
+    endpointUrl: string;
+    apiKey?: string;
+    modelId: string;
+    authScheme?: 'bearer' | 'api-key';
+    provider?: string;
+  },
   fetchImpl: typeof fetch = fetch
 ): Promise<number | undefined> {
   const base = llm.endpointUrl.trim().replace(/\/+$/, '');
   const origin = base.replace(/\/v1$/, '');
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (llm.apiKey) headers.Authorization = `Bearer ${llm.apiKey}`;
+  const authorization = llmAuthorizationHeader(llm);
+  if (authorization) headers.Authorization = authorization;
   const getJson = async (url: string): Promise<Record<string, unknown> | null> => {
     try {
       const res = await fetchImpl(url, {

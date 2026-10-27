@@ -102,7 +102,7 @@ describe('hermesVault', () => {
     });
     expect(result.success).toBe(false);
     expect(result.error).not.toContain('hunter2');
-    expect(result.error).toContain('[REDACTED]');
+    expect(result.error).toContain('«redacted»');
   });
 
   it('validates before calling Hermes', async () => {

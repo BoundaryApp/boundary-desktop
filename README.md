@@ -74,10 +74,16 @@ request in `docs/change-requests/` instead of patched in from here.
 - `src/main/`: the Electron main process. It runs the container engine and the agent stack, and
   bridges chat to Hermes.
 - `src/renderer/`: the React UI.
-- `src/preload.ts`: the API the renderer gets from the main process.
+- `src/preload.ts`: the API the renderer gets from the main process, as `window.electronAPI`.
+- `src/shared/ipc/channels.ts`: every IPC channel with its arguments and result, which both
+  processes are checked against.
 - `resources/`: the Compose overlay for the stack and the bundled container runtime.
 - `docs/adr/`: architecture decisions. Start with the [index](docs/adr/README.md).
 - `docs/*-ux-study/`: the design studies the ADRs point to.
 - `docs/change-requests/`: what Boundary has asked the agent stack to change.
+- [`docs/stack-contract.md`](docs/stack-contract.md): what Boundary depends on from the agent stack,
+  and the `bun run test:stack` checks that cover it.
+- [`docs/testing/release-check.md`](docs/testing/release-check.md): the flows to run in the app before
+  each release and each move of the stack pin.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.

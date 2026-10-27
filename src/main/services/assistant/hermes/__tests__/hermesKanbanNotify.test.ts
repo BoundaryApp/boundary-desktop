@@ -29,13 +29,14 @@ describe('boardNotices', () => {
 
   it('notifies when a task comes to need you, in words that carry no worker text', () => {
     const notices = boardNotices(
-      before(task(), task({ id: 't_2' }), task({ id: 't_3' }), task({ id: 't_5' })),
+      before(task(), task({ id: 't_2' }), task({ id: 't_3' }), task({ id: 't_5' }), task({ id: 't_6' })),
       [
         task({ status: 'blocked', blockKind: 'needs_input' }),
         task({ id: 't_2', status: 'review' }),
         task({ id: 't_3', status: 'todo', blockKind: 'dependency' }),
         task({ id: 't_4', status: 'blocked' }),
         task({ id: 't_5', status: 'blocked', failures: 2 }),
+        task({ id: 't_6', status: 'triage' }),
       ],
       NOW
     );
@@ -44,6 +45,7 @@ describe('boardNotices', () => {
       ['t_2', 'Waiting for your review'],
       ['t_4', 'Needs you · blocked'],
       ['t_5', 'The board gave up on it'],
+      ['t_6', 'Needs you · waiting to be sorted'],
     ]);
   });
 

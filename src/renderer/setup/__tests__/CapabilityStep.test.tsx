@@ -1,8 +1,8 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OnboardingProvider } from '../../onboarding/OnboardingContext';
-import { SetupProvider } from '../SetupContext';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
+import { SetupProvider, useSetup } from '../SetupContext';
 import { SetupFlowShell } from '../SetupFlowShell';
 
 vi.mock('../../../shared/assistantStackRequirements', async (importOriginal) => {
@@ -15,21 +15,8 @@ vi.mock('../../../shared/assistantStackRequirements', async (importOriginal) => 
 
 const onboardingApi = {
   getStatus: vi.fn(),
-  listProviders: vi.fn(),
-  discoverProviderEndpoints: vi.fn(),
-  listProviderDeployments: vi.fn(),
-  listDeployableModels: vi.fn(),
-  adoptProviderEndpoint: vi.fn(),
-  startProviderSetup: vi.fn(),
-  saveOpenAiConfig: vi.fn(),
-  clearOpenAiConfig: vi.fn(),
-  clearPendingProviderSetup: vi.fn(),
-  getProviderFormDraft: vi.fn().mockResolvedValue({ success: true, draft: null }),
-  saveProviderFormDraft: vi.fn().mockResolvedValue({ success: true }),
-  clearProviderFormDraft: vi.fn().mockResolvedValue({ success: true }),
   discoverLocalLlms: vi.fn().mockResolvedValue({ success: true, endpoints: [] }),
   adoptLocalLlm: vi.fn(),
-  dismissLocalLlm: vi.fn().mockResolvedValue({ success: true }),
   listOAuthProviders: vi.fn().mockResolvedValue({ success: true, providers: [] }),
   startOAuthPkce: vi.fn(),
   cancelOAuthPkce: vi.fn().mockResolvedValue({ success: true }),
@@ -45,7 +32,6 @@ const capabilityApi = {
   assess: vi.fn(),
   getStatus: vi.fn(),
   acknowledge: vi.fn(),
-  getRuntimeDiagnostics: vi.fn(),
   getDebugLog: vi.fn().mockResolvedValue({
     path: '/tmp/boundary-debug.log',
     contents: '',
@@ -79,9 +65,6 @@ const assistantStackApi = {
   ensureRunning: vi.fn(),
   ensureRunningInBackground: vi.fn().mockResolvedValue({ started: true }),
   ensureAndApplyLlm: vi.fn(),
-  applyLlm: vi.fn(),
-  stop: vi.fn(),
-  onProgress: vi.fn(() => () => undefined),
   onLifecycle: vi.fn(() => () => undefined),
 };
 
@@ -133,11 +116,9 @@ const alreadyRunningAssessment = {
 
 function renderSetup() {
   return render(
-    <OnboardingProvider>
-      <SetupProvider>
-        <SetupFlowShell />
-      </SetupProvider>
-    </OnboardingProvider>
+    <SetupProvider>
+      <SetupFlowShell />
+    </SetupProvider>
   );
 }
 
@@ -148,19 +129,17 @@ describe('CapabilityStep via SetupFlowShell', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(window, 'electronAPI', {
-      value: {
-        onboarding: onboardingApi,
-        capability: capabilityApi,
-        assistantStack: assistantStackApi,
-      },
-      writable: true,
+    stubElectronAPI({
+      onboarding: onboardingApi,
+      capability: capabilityApi,
+      assistantStack: assistantStackApi,
+      // No stored progress: the optional steps count as answered, as when the read fails.
+      setup: { getProgress: vi.fn().mockRejectedValue(new Error('no progress')) },
     });
     onboardingApi.getStatus.mockResolvedValue({
       configured: false,
       encryptionAvailable: true,
     });
-    onboardingApi.listProviders.mockResolvedValue([]);
     capabilityApi.getStatus.mockResolvedValue({
       acknowledged: false,
       lastAssessment: null,
@@ -293,6 +272,70 @@ describe('CapabilityStep via SetupFlowShell', () => {
     expect(screen.queryByText('Continue')).toBeNull();
   });
 
+  it('does not assess on launch once the Machine step is acknowledged', async () => {
+    // An assessment that never answers would hold a set-up user on "Preparing Boundary".
+    capabilityApi.assess.mockReturnValue(new Promise(() => undefined));
+    capabilityApi.getStatus.mockResolvedValue({ acknowledged: true, lastAssessment: null });
+    onboardingApi.getStatus.mockResolvedValue({
+      configured: true,
+      encryptionAvailable: true,
+      appDefault: 'local',
+      slots: {},
+    });
+    assistantStackApi.getStatus.mockResolvedValueOnce({
+      ...(await assistantStackApi.getStatus()),
+      setupComplete: true,
+      ready: true,
+    });
+    const Probe = () => <p>{useSetup().allComplete ? 'all complete' : 'waiting'}</p>;
+    render(
+      <SetupProvider>
+        <Probe />
+      </SetupProvider>
+    );
+    expect(await screen.findByText('all complete')).toBeTruthy();
+    expect(capabilityApi.assess).not.toHaveBeenCalled();
+  });
+
+  it('offers Try again when reading the stored status fails, and assesses after it', async () => {
+    capabilityApi.getStatus.mockRejectedValueOnce(new Error('store unreadable'));
+    capabilityApi.assess.mockResolvedValue(passAssessment);
+    renderSetup();
+    expect(await screen.findByText('Couldn’t check this Mac')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Continue')).toBeTruthy();
+    expect(capabilityApi.assess).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows local LLMs the Model step finds, and ones main reports later', async () => {
+    let reportChange: (payload: { endpoints: unknown[] }) => void = () => undefined;
+    onboardingApi.onLocalLlmChanged.mockImplementation(((cb: typeof reportChange) => {
+      reportChange = cb;
+      return () => undefined;
+    }) as never);
+    onboardingApi.discoverLocalLlms.mockResolvedValue({ success: true, endpoints: [] });
+    capabilityApi.getStatus.mockResolvedValue({ acknowledged: true, lastAssessment: passAssessment });
+
+    renderSetup();
+    expect(await screen.findByText('Choose a model')).toBeTruthy();
+    expect(onboardingApi.discoverLocalLlms).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Use Ollama')).toBeNull();
+
+    await act(async () =>
+      reportChange({
+        endpoints: [
+          {
+            runtime: 'ollama',
+            displayName: 'Ollama',
+            baseUrl: 'http://127.0.0.1:11434/v1',
+            models: [{ id: 'llama3:latest', loaded: true }],
+          },
+        ],
+      })
+    );
+    expect(screen.getByText('Use Ollama')).toBeTruthy();
+  });
+
   it('shows a green checkmark and auto-advances when the stack is already running', async () => {
     capabilityApi.assess.mockResolvedValue(alreadyRunningAssessment);
     capabilityApi.getStatus.mockResolvedValue({
@@ -318,5 +361,45 @@ describe('CapabilityStep via SetupFlowShell', () => {
       expect(screen.getByText('Choose a model')).toBeTruthy();
       expect(screen.getByText('I already have a URL / API key')).toBeTruthy();
     });
+  });
+});
+
+describe('SetupProvider skipStep', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    capabilityApi.getStatus.mockResolvedValue({ acknowledged: true, lastAssessment: passAssessment });
+    onboardingApi.getStatus.mockResolvedValue({ configured: false, encryptionAvailable: true });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('skips the step for this run when main cannot store the skip', async () => {
+    const recordOutcome = vi.fn().mockRejectedValue(new Error('store write failed'));
+    stubElectronAPI({
+      onboarding: onboardingApi,
+      capability: capabilityApi,
+      assistantStack: assistantStackApi,
+      setup: {
+        getProgress: vi.fn().mockResolvedValue({
+          completedBeforeOptionalSteps: false,
+          hadProjectsBeforeOptionalSteps: false,
+          outcomes: {},
+          pendingFolders: [],
+        }),
+        recordOutcome,
+      },
+    });
+    const { result } = renderHook(() => useSetup(), { wrapper: SetupProvider });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.setupProgress?.outcomes).toEqual({});
+
+    await act(() => result.current.skipStep('folders'));
+    expect(recordOutcome).toHaveBeenCalledWith({ stepId: 'folders', outcome: 'skipped' });
+    expect(result.current.setupProgress?.outcomes).toEqual({ folders: 'skipped' });
   });
 });

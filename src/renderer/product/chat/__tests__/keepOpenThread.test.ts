@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keepOpenThread } from '../WorkbenchChatScreen';
+import { keepOpenThread } from '../useChatLists';
 
 const chat = (id: string, projectId: string | null = null) => ({ id, title: id, kind: 'hermes' as const, projectId });
 

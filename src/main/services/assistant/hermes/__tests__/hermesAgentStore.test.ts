@@ -8,10 +8,10 @@ import {
   getSessionInference,
   getStandingDmMap,
   getStoredAgent,
-  listStoredAgents,
   setStandingDmSessionId,
   listSessionInferenceMarks,
   resetHermesAgentsStoreForTests,
+  retargetSessionInferenceModel,
   setSessionAgentSlug,
   setSessionChannelId,
   setSessionInference,
@@ -57,62 +57,31 @@ describe('hermesAgentStore session inference', () => {
     expect(getSessionInference('a')).toBeNull();
     expect(getSessionInference('b')?.provider).toBe('openrouter');
   });
+
+  it('moves overrides for a provider to its newly saved model', () => {
+    setSessionInference('a', { provider: 'openrouter', modelId: 'openai/gpt-4o' });
+    setSessionInference('b', { provider: 'local', modelId: 'qwen3:14b' });
+    setSessionAgentSlug('a', 'researcher');
+    retargetSessionInferenceModel('openrouter', 'openai/gpt-5.1');
+    expect(getSessionInference('a')).toEqual({
+      provider: 'openrouter',
+      modelId: 'openai/gpt-5.1',
+    });
+    expect(getSessionAgentSlug('a')).toBe('researcher');
+    expect(getSessionInference('b')?.modelId).toBe('qwen3:14b');
+  });
 });
 
 describe('hermesAgentStore built-in agent (ADR 0023)', () => {
-  const legacy = {
-    slug: 'assistant',
-    displayName: 'Assistant',
-    handle: 'Assistant',
-    role: 'Default agent on this machine. Today’s single chat, named.',
-    builtIn: true,
-    createdAt: '2026-09-21T00:00:00.000Z',
-  };
-  const ana = {
-    slug: 'ana',
-    displayName: 'Ana',
-    handle: 'Ana',
-    role: 'Researcher',
-    builtIn: false,
-    createdAt: '2026-09-22T00:00:00.000Z',
-  };
-
   it('names the built-in Hermes on a fresh store', () => {
     resetHermesAgentsStoreForTests();
     const builtin = getStoredAgent('assistant');
     expect(builtin?.displayName).toBe('Hermes');
     expect(builtin?.handle).toBe('Hermes');
   });
-
-  it('renames an untouched Assistant record and keeps the slug and other agents', () => {
-    resetHermesAgentsStoreForTests([legacy, ana]);
-    const agents = listStoredAgents();
-    expect(agents.map((a) => a.slug)).toEqual(['assistant', 'ana']);
-    expect(agents[0]).toMatchObject({
-      slug: 'assistant',
-      displayName: 'Hermes',
-      handle: 'Hermes',
-      builtIn: true,
-      createdAt: legacy.createdAt,
-    });
-    expect(agents[1]).toEqual(ana);
-  });
-
-  it('leaves a built-in record that is no longer the legacy default', () => {
-    const filled = { ...legacy, displayName: 'Atlas', handle: 'Atlas' };
-    resetHermesAgentsStoreForTests([filled]);
-    expect(getStoredAgent('assistant')).toEqual(filled);
-  });
 });
 
 describe('hermesAgentStore standing DMs (ADR 0023)', () => {
-  it("drops the built-in agent's pre-0023 standing DM and keeps personalities'", () => {
-    resetHermesAgentsStoreForTests(undefined, { assistant: 'old-standing', ana: 'dm-ana' });
-    expect(getStandingDmMap()).toEqual({ ana: 'dm-ana' });
-    // Persisted: a second read sees the same map.
-    expect(getStandingDmMap()).toEqual({ ana: 'dm-ana' });
-  });
-
   it('never pins a standing DM for the built-in agent', () => {
     resetHermesAgentsStoreForTests();
     setStandingDmSessionId('assistant', 's1');

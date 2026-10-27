@@ -27,6 +27,8 @@ describe('StartupScreen', () => {
     render(<StartupScreen variant="launch" stage="compose" services={services} />);
     expect(screen.getByRole('heading', { name: 'Starting your assistant' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: STARTUP_TOOLS[0].title })).toBeNull();
+    // The footer is complete from the start, so the story arriving doesn't move it.
+    expect(screen.getByRole('button', { name: 'Why does this take a while?' })).toBeTruthy();
     act(() => vi.advanceTimersByTime(STORY_DELAY_MS + 1_000));
     expect(screen.getByRole('heading', { name: STARTUP_TOOLS[0].title })).toBeTruthy();
   });
@@ -49,14 +51,37 @@ describe('StartupScreen', () => {
     expect(Number(bar.getAttribute('aria-valuenow'))).toBe(before);
   });
 
+  it('starts the bar again after Try again', () => {
+    const high = seedServiceProgress('working', '', 0.8);
+    const low = seedServiceProgress('working', '', 0.1);
+    const { rerender } = render(<StartupScreen variant="launch" stage="compose" services={high} />);
+    const peak = Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'));
+    rerender(<StartupScreen variant="launch" stage="error" services={high} error="compose failed" onRetry={() => undefined} />);
+    rerender(<StartupScreen variant="launch" stage="provision" services={low} />);
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(peak);
+  });
+
+  it('shows each service card at the progress main reports for this start', () => {
+    const { rerender } = render(
+      <StartupScreen variant="launch" stage="error" services={seedServiceProgress('working', 'Pulling', 0.8)} error="compose failed" />
+    );
+    expect(screen.getAllByRole('status', { name: /80%/ }).length).toBeGreaterThan(0);
+    rerender(
+      <StartupScreen variant="launch" stage="error" services={seedServiceProgress('working', 'Pulling', 0.1)} error="compose failed" />
+    );
+    expect(screen.queryAllByRole('status', { name: /80%/ })).toHaveLength(0);
+    expect(screen.getAllByRole('status', { name: /10%/ }).length).toBeGreaterThan(0);
+  });
+
   it('shows bytes downloaded and speed while a pull is running', () => {
+    const MiB = 1024 * 1024;
     const at = (receivedBytes: number) => ({ receivedBytes, seenBytes: receivedBytes * 2 });
     const { rerender } = render(
-      <StartupScreen variant="first-run" stage="compose" services={services} download={at(100_000_000)} />
+      <StartupScreen variant="first-run" stage="compose" services={services} download={at(100 * MiB)} />
     );
     expect(screen.getByText('100 MB downloaded')).toBeTruthy();
     act(() => vi.advanceTimersByTime(2_000));
-    rerender(<StartupScreen variant="first-run" stage="compose" services={services} download={at(120_000_000)} />);
+    rerender(<StartupScreen variant="first-run" stage="compose" services={services} download={at(120 * MiB)} />);
     expect(screen.getByText('120 MB downloaded · 10 MB/s')).toBeTruthy();
     // A stalled pull drops the line rather than showing a stale speed.
     act(() => vi.advanceTimersByTime(11_000));

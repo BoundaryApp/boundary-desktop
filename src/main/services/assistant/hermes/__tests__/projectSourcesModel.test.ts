@@ -8,7 +8,6 @@ import {
   catalogIsFresh,
   globMatch,
   MANIFEST_NAME,
-  parseIndexMarkdown,
   filterMountableContextRoots,
   parseSourcesYaml,
   refuseAddFolderReason,
@@ -226,19 +225,7 @@ describe('catalog and INDEX', () => {
     expect(rendered).toContain('## project');
     expect(rendered).toContain('## notes-vault');
     expect(rendered).toContain('`notes/resume.md`');
-    const parsed = parseIndexMarkdown(rendered);
-    expect(parsed).toEqual([
-      expect.objectContaining({
-        sourceId: 'project',
-        path: 'notes/resume.md',
-        kind: 'relative',
-      }),
-      expect.objectContaining({
-        sourceId: 'notes-vault',
-        path: path.resolve(extra, 'foo.md'),
-        kind: 'absolute',
-      }),
-    ]);
+    expect(rendered).toContain(`\`${path.resolve(extra, 'foo.md')}\``);
 
     fs.writeFileSync(path.join(hub, 'notes', 'cover.md'), '# Cover\n');
     expect(await catalogIsFresh(hub, sources)).toBe(false);
@@ -292,6 +279,35 @@ describe('catalog and INDEX', () => {
     fs.writeFileSync(notes[2]!, '# c.md, longer again\n');
     expect(await catalogIsFresh(hub, sources)).toBe(false);
     expect(readsOf(notes[2]!)).toBe(0);
+  });
+
+  it('records mtime_ns as the exact nanosecond integer and reads one back exactly (G09-13)', async () => {
+    const hub = tmpDir('bd-src-mtime-');
+    const files = Array.from({ length: 20 }, (_, i) => path.join(hub, `n${i}.md`));
+    for (const file of files) fs.writeFileSync(file, `# ${path.basename(file)}\n`);
+    const sources = [
+      { id: 'project', path: '.', retrieval: 'files' as const, include: ['**/*.md'], exclude: [] },
+    ];
+    await writeIndex(hub, sources, false);
+
+    // What Python's st_mtime_ns gives, compared as written: no float rounding in the digits.
+    const manifestPath = path.join(hub, MANIFEST_NAME);
+    const text = fs.readFileSync(manifestPath, 'utf8');
+    const written = new Map(
+      [...text.matchAll(/"path": "([^"]+)",[^}]*?"mtime_ns": (\d+)/g)].map((m) => [m[1], m[2]])
+    );
+    for (const file of files) {
+      expect(written.get(path.basename(file))).toBe(
+        fs.statSync(file, { bigint: true }).mtimeNs.toString()
+      );
+    }
+
+    // A manifest whose mtimes match is taken as fresh without hashing: wrong hashes
+    // would only be noticed if an mtime compared unequal.
+    fs.writeFileSync(manifestPath, text.replace(/"sha256": "[0-9a-f]+"/g, '"sha256": "0"'));
+    const createReadStream = vi.spyOn(fs, 'createReadStream');
+    expect(await catalogIsFresh(hub, sources)).toBe(true);
+    expect(createReadStream).not.toHaveBeenCalled();
   });
 
   it('shares one in-flight refresh per hub and leaves no temp files behind', async () => {
@@ -374,8 +390,7 @@ describe('next step and ids', () => {
           isHub: false,
         },
       ],
-      true,
-      'job-search'
+      true
     );
     expect(step?.tone).toBe('deny');
     expect(step?.title).toMatch(/isn’t visible/i);
@@ -404,8 +419,7 @@ describe('next step and ids', () => {
           isHub: false,
         },
       ],
-      true,
-      'job-search'
+      true
     );
     expect(step?.tone).toBe('ok');
     expect(step?.title).toMatch(/behind the files/i);

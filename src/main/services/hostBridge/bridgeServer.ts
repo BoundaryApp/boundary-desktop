@@ -15,7 +15,7 @@ import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools 
  *   driver a URL rather than headers. There are no discovery endpoints (`/json/…`).
  */
 
-export const MCP_PATH = '/mcp';
+const MCP_PATH = '/mcp';
 export const MAX_BODY_BYTES = 1024 * 1024;
 
 export interface BridgeServerOptions {
@@ -35,6 +35,8 @@ export interface BridgeServerOptions {
    * Sessions exist only so the bridge can tell Hermes's processes apart; nothing else uses them.
    */
   onMcpMethod?: (method: string, sessionId: string | null) => void;
+  /** A client ended its MCP session (`DELETE /mcp` with the session id). */
+  onSessionClosed?: (sessionId: string) => void;
 }
 
 /** What the browser listener needs from the relay (`BrowserRelay` in the bridge process). */
@@ -43,7 +45,7 @@ export interface BrowserUpgradeTarget {
   handleUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void>;
 }
 
-export const BROWSER_PATH_PREFIX = '/devtools/browser/';
+const BROWSER_PATH_PREFIX = '/devtools/browser/';
 
 export interface BridgeServers {
   mcpPort: number;
@@ -131,7 +133,14 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
     /* not logging */
   });
 
-  const mcp = http.createServer(async (req, res) => {
+  const mcp = http.createServer((req, res) => {
+    serveMcp(req, res).catch((err: unknown) => {
+      log('mcp request failed', { error: err instanceof Error ? err.message : String(err) });
+      if (!res.headersSent) sendJson(res, 500, { error: 'Internal error' });
+    });
+  });
+
+  const serveMcp = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const guard = checkBridgeRequest(req.headers, { port: portOf(mcp), token: options.mcpToken });
     if (guard) {
       log('mcp request rejected', { status: guard.status, reason: guard.reason });
@@ -143,9 +152,20 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       sendJson(res, 404, { error: 'Not found' });
       return;
     }
+    if (req.method === 'DELETE') {
+      // A client ending its session (MCP Streamable HTTP), so it stops counting as connected.
+      const header = req.headers['mcp-session-id'];
+      if (typeof header !== 'string') {
+        sendJson(res, 400, { error: 'Mcp-Session-Id is required' });
+        return;
+      }
+      options.onSessionClosed?.(header);
+      sendJson(res, 200);
+      return;
+    }
     if (req.method !== 'POST') {
-      // No server-to-client SSE stream and no sessions to DELETE.
-      sendJson(res, 405, { error: 'Only POST is supported' }, { allow: 'POST' });
+      // No server-to-client SSE stream.
+      sendJson(res, 405, { error: 'Only POST and DELETE are supported' }, { allow: 'POST, DELETE' });
       return;
     }
     const contentType = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
@@ -174,7 +194,7 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       log('mcp request failed', { error: err instanceof Error ? err.message : String(err) });
       if (!res.headersSent) sendJson(res, 500, { error: 'Internal error' });
     }
-  });
+  };
 
   const browserGuard = (req: http.IncomingMessage) =>
     checkBridgeRequest(req.headers, { port: portOf(browser), token: options.browserToken, url: req.url });

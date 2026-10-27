@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   formatContextGauge,
   formatPhaseLine,
-  formatTokenCount,
   splitContextBar,
 } from '../chatTelemetryFormat';
 
@@ -33,7 +32,7 @@ describe('formatContextGauge', () => {
       contextMax: 32000,
       contextPercent: 59,
     });
-    expect(gauge.label).toContain('18.8k');
+    expect(gauge.label).toContain('19k');
     expect(gauge.label).toContain('32k');
     expect(gauge.percentLabel).toBe('59%');
     expect(gauge.showBar).toBe(true);
@@ -103,13 +102,6 @@ describe('formatChannelHead', () => {
   });
 });
 
-describe('formatTokenCount', () => {
-  it('formats thousands', () => {
-    expect(formatTokenCount(18823)).toBe('18.8k');
-    expect(formatTokenCount(32000)).toBe('32k');
-  });
-});
-
 describe('formatToolCardMeta / formatTurnStatsLine (shared)', () => {
   it('formats tool card meta and turn stats', async () => {
     const {
@@ -134,7 +126,7 @@ describe('formatToolCardMeta / formatTurnStatsLine (shared)', () => {
         avgTps: 35,
       })
     ).toEqual([
-      { label: 'prompt', value: '18.8k' },
+      { label: 'prompt', value: '19k' },
       { label: 'generated', value: '708' },
       { label: 'visible', value: '7' },
       { label: 'TTFT', value: '1.2s' },

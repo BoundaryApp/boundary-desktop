@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { toUnixSeconds } from '../../../../shared/messageTime';
+import { uniqueSlug } from '../../../../shared/utils/slug';
+import { newestFirst } from '../../../../shared/utils/sort';
 import type {
   AgentProfile,
   ChannelPostRecord,
@@ -26,7 +27,7 @@ import {
   BUILTIN_ASSISTANT_SLUG,
 } from '../../../../shared/types/hermesChat';
 
-export { parseMemberMentions };
+import { durableSessionId } from './hermesAgents';
 import { getHermesGatewaySession } from './hermesGatewaySession';
 import {
   clearSessionChannelId,
@@ -55,18 +56,12 @@ import {
 
 /** A slug no other room has; `exceptId` lets a renamed room keep its own. */
 function uniqueChannelSlug(base: string, exceptId?: string): string {
-  let slug = base || 'channel';
-  let n = 2;
-  const existing = new Set(
+  return uniqueSlug(
+    base || 'channel',
     listStoredChannels()
       .filter((c) => c.id !== exceptId)
       .map((c) => c.slug)
   );
-  while (existing.has(slug)) {
-    slug = `${base}-${n}`;
-    n += 1;
-  }
-  return slug;
 }
 
 function normalizeMemberSlugs(slugs: string[] | undefined): string[] {
@@ -105,7 +100,8 @@ export function setHermesLastOpened(
   if (!id || (kind !== 'hermes' && kind !== 'dm' && kind !== 'channel')) {
     return { success: false, error: 'Invalid last-opened payload.' };
   }
-  const value = { kind, id };
+  // A chat may be open under its runtime id; the landing compares against stored ids.
+  const value = { kind, id: kind === 'channel' ? id : durableSessionId(id) };
   setLastOpened(value);
   return { success: true, lastOpened: value };
 }
@@ -176,18 +172,24 @@ export async function createHermesChannel(
   return { success: true, channel, thread };
 }
 
+/** The room and agent a membership change names, or why the change can't be made. */
+function membershipTarget(
+  payload: HermesChannelAddMemberPayload
+): { channel: ChannelRecord; agentSlug: string } | { error: string } {
+  const channelId = payload.channelId?.trim();
+  const agentSlug = payload.agentSlug?.trim();
+  if (!channelId || !agentSlug) return { error: 'Missing channel or agent.' };
+  const channel = getStoredChannel(channelId);
+  if (!channel) return { error: 'Channel not found.' };
+  return { channel, agentSlug };
+}
+
 export function addHermesChannelMember(
   payload: HermesChannelAddMemberPayload
 ): HermesChannelAddMemberResult {
-  const channelId = payload.channelId?.trim();
-  const agentSlug = payload.agentSlug?.trim();
-  if (!channelId || !agentSlug) {
-    return { success: false, error: 'Missing channel or agent.' };
-  }
-  const channel = getStoredChannel(channelId);
-  if (!channel) {
-    return { success: false, error: 'Channel not found.' };
-  }
+  const target = membershipTarget(payload);
+  if ('error' in target) return { success: false, error: target.error };
+  const { channel, agentSlug } = target;
   if (!getStoredAgent(agentSlug)) {
     return { success: false, error: 'Agent not found.' };
   }
@@ -207,15 +209,9 @@ export function addHermesChannelMember(
 export function removeHermesChannelMember(
   payload: HermesChannelAddMemberPayload
 ): HermesChannelAddMemberResult {
-  const channelId = payload.channelId?.trim();
-  const agentSlug = payload.agentSlug?.trim();
-  if (!channelId || !agentSlug) {
-    return { success: false, error: 'Missing channel or agent.' };
-  }
-  const channel = getStoredChannel(channelId);
-  if (!channel) {
-    return { success: false, error: 'Channel not found.' };
-  }
+  const target = membershipTarget(payload);
+  if ('error' in target) return { success: false, error: target.error };
+  const { channel, agentSlug } = target;
   if (!channel.memberSlugs.includes(agentSlug)) {
     return { success: true, channel };
   }
@@ -408,7 +404,7 @@ export function reconcileChannelSessions(
     if (!target || !listed.has(target) || claimed.has(target)) {
       target = storedSessions
         .filter((s) => s.title === `#${channel.slug}` && !claimed.has(s.id))
-        .sort((a, b) => (Date.parse(b.updatedAt ?? '') || 0) - (Date.parse(a.updatedAt ?? '') || 0))[0]?.id;
+        .sort(newestFirst)[0]?.id;
     }
     if (!target) continue;
     moveChannelSession(channel, target);
@@ -468,10 +464,10 @@ export function mergeChannelTranscript(
 }
 
 /** Most backlog tokens one wake prompt carries ahead of the @ message. */
-export const WAKE_BACKLOG_TOKEN_BUDGET = 8_000;
+const WAKE_BACKLOG_TOKEN_BUDGET = 8_000;
 
 /** Rough token count (about 4 characters per token); close enough for a budget. */
-export function estimateTokens(text: string): number {
+function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
@@ -498,18 +494,20 @@ export function buildChannelHeader(
   speaker: Pick<AgentProfile, 'displayName' | 'handle'>,
   wokenBy?: Pick<AgentProfile, 'displayName' | 'handle'> | null
 ): string {
-  const at = (a: Pick<AgentProfile, 'displayName' | 'handle'>) => `@${a.handle || a.displayName}`;
+  // Handles without the @: models copy this line's format, and an @handle in a reply wakes
+  // that member. The platform hint says to @ a member by the handle given here.
+  const name = (a: Pick<AgentProfile, 'displayName' | 'handle'>) => a.handle || a.displayName;
   const roster = members
     .map((m) => {
       const role = headerRole(m.role);
-      return role ? `${at(m)} (${role})` : at(m);
+      return role ? `${name(m)} (${role})` : name(m);
     })
     .join(', ');
   const parts = [
     `Boundary channel #${channelSlug}`,
-    `members: the user${roster ? `, ${roster}` : ''}`,
-    `you are ${at(speaker)}`,
-    ...(wokenBy ? [`the last reply was from ${at(wokenBy)}`] : []),
+    `members by handle: the user${roster ? `, ${roster}` : ''}`,
+    `you are ${name(speaker)}`,
+    ...(wokenBy ? [`the last reply was from ${name(wokenBy)}`] : []),
   ];
   return `[${parts.join(' · ')}]`;
 }

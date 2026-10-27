@@ -6,6 +6,7 @@
 import { startBridgeServers, type BridgeServers } from './bridgeServer';
 import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
 import { BrowserRelay } from './browserRelay';
+import { LiveHermesSessions } from './hermesSessions';
 import type { ToolCallResult } from './mcpProtocol';
 import { listedHostTools } from './toolCatalog';
 
@@ -14,7 +15,8 @@ let servers: BridgeServers | null = null;
 let relay: BrowserRelay | null = null;
 let nextCallId = 1;
 let listing: HostToolListing = { offerCalendarSetup: false };
-const clientsWithTools = new Set<string>();
+let hermesSessions: LiveHermesSessions | null = null;
+let sweepTimer: NodeJS.Timeout | null = null;
 const pendingCalls = new Map<number, (result: ToolCallResult) => void>();
 
 function post(message: BridgeToMain): void {
@@ -25,19 +27,39 @@ function log(message: string, data?: Record<string, unknown>): void {
   post({ type: 'log', message, data });
 }
 
+/**
+ * Above main's 120 s approval timeout, so an unanswered approval reaches Hermes as main's own
+ * answer, and under Hermes's 180 s call timeout, so a lost reply still gets one.
+ */
+const TOOL_CALL_TIMEOUT_MS = 150_000;
+
 function callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
   const id = nextCallId++;
   return new Promise((resolve) => {
-    pendingCalls.set(id, resolve);
+    const timer = setTimeout(() => {
+      pendingCalls.delete(id);
+      resolve({ content: [{ type: 'text', text: 'Boundary did not answer this call in time.' }], isError: true });
+    }, TOOL_CALL_TIMEOUT_MS);
+    pendingCalls.set(id, (result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
     post({ type: 'tool-call', id, name, args });
   });
 }
 
-async function stop(): Promise<void> {
+function postHermesClients(changed: boolean | undefined): void {
+  if (changed && hermesSessions) post({ type: 'hermes-clients', count: hermesSessions.count });
+}
+
+async function stop(reason = 'Boundary is shutting down.'): Promise<void> {
+  if (sweepTimer) clearInterval(sweepTimer);
   for (const resolve of pendingCalls.values()) {
-    resolve({ content: [{ type: 'text', text: 'Boundary is shutting down.' }], isError: true });
+    resolve({ content: [{ type: 'text', text: reason }], isError: true });
   }
   pendingCalls.clear();
+  // Let those answers reach Hermes before the connections close.
+  await new Promise((resolve) => setImmediate(resolve));
   await Promise.all([servers?.close(), relay?.close()]);
   servers = null;
   relay = null;
@@ -53,6 +75,9 @@ port.on('message', (event: { data: MainToBridge }) => {
       if (servers) return;
       listing = message.listing;
       relay = new BrowserRelay(message.browser, log);
+      hermesSessions = new LiveHermesSessions(message.sessionIdleMs);
+      sweepTimer = setInterval(() => postHermesClients(hermesSessions?.sweep()), message.sessionIdleMs / 2);
+      sweepTimer.unref();
       startBridgeServers({
         mcpToken: message.mcpToken,
         browserToken: message.browserToken,
@@ -63,13 +88,9 @@ port.on('message', (event: { data: MainToBridge }) => {
         browserRelay: relay,
         log,
         // A Hermes process registers the tools once it has listed them, so that's when they're
-        // usable there. A client without a session counts once.
-        onMcpMethod: (method, sessionId) => {
-          const key = sessionId ?? 'no-session';
-          if (method !== 'tools/list' || clientsWithTools.has(key)) return;
-          clientsWithTools.add(key);
-          post({ type: 'hermes-clients', count: clientsWithTools.size });
-        },
+        // usable there. Its keepalive pings keep the session counted.
+        onMcpMethod: (method, sessionId) => postHermesClients(hermesSessions?.seen(method, sessionId)),
+        onSessionClosed: (sessionId) => postHermesClients(hermesSessions?.closed(sessionId)),
       })
         .then((started) => {
           servers = started;
@@ -106,7 +127,7 @@ port.on('message', (event: { data: MainToBridge }) => {
       return;
     }
     case 'stop':
-      void stop();
+      void stop(message.reason);
       return;
   }
 });

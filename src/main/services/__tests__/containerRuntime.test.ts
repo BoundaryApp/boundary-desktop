@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -5,11 +7,13 @@ import path from 'node:path';
 import {
   ContainerRuntimeUnavailableError,
   composeArgv,
+  getContainerRuntime,
   getLastSystemDockerProbe,
   resetContainerRuntimeCache,
   resolveContainerRuntime,
   runCli,
   runCompose,
+  runComposeStreaming,
 } from '../containerRuntime';
 import {
   defaultDockerApiEndpoint,
@@ -304,6 +308,131 @@ describe('resolveContainerRuntime', () => {
   });
 });
 
+describe('getContainerRuntime with a reset during a resolve', () => {
+  let root: string;
+
+  afterEach(() => {
+    resetContainerRuntimeCache();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Deps with no Docker and an `ensureBundledMachine` the test settles by hand. */
+  function bundledDeps() {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-bundled-'));
+    for (const dir of ['bin', 'lib', 'share/krunkit']) {
+      fs.mkdirSync(path.join(root, dir), { recursive: true });
+    }
+    for (const file of ['bin/podman', 'bin/docker-compose', 'bin/gvproxy', 'bin/krunkit']) {
+      fs.writeFileSync(path.join(root, file), '#!/bin/sh\n');
+    }
+    fs.writeFileSync(path.join(root, 'lib', 'libkrun.dylib'), 'dylib');
+    fs.writeFileSync(path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'), 'fw');
+    const binDir = path.join(root, 'bin');
+    const stateDir = path.join(root, 'state');
+    const paths = {
+      root,
+      binDir,
+      helperDir: binDir,
+      libDir: path.join(root, 'lib'),
+      firmwarePath: path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'),
+      podmanPath: path.join(binDir, 'podman'),
+      composePath: path.join(binDir, 'docker-compose'),
+      machineImagePath: null as string | null,
+      stateDir,
+      containersConfPath: path.join(stateDir, 'containers.conf'),
+    };
+
+    const machine = { calls: 0, running: 0, maxRunning: 0 };
+    const settlers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+    const ensureBundledMachine = vi.fn(
+      () =>
+        new Promise<{ apiEndpoint: string; dockerHost: string }>((resolve, reject) => {
+          machine.calls++;
+          machine.running++;
+          machine.maxRunning = Math.max(machine.maxRunning, machine.running);
+          const endpoint = `unix:///tmp/boundary-${machine.calls}.sock`;
+          const done = () => {
+            machine.running--;
+          };
+          const settler = {
+            resolve: () => {
+              done();
+              resolve({ apiEndpoint: endpoint, dockerHost: endpoint });
+            },
+            reject: (err: Error) => {
+              done();
+              reject(err);
+            },
+          };
+          settlers.push(settler);
+        })
+    );
+
+    const deps = {
+      execFile: (async () => ({ stdout: '1.0.0\n', stderr: '' })) as never,
+      platform: 'darwin' as const,
+      arch: 'arm64' as const,
+      env: {},
+      ...systemDockerDeps({ cli: null }),
+      resolveBundledPaths: () => paths,
+      ensureBundledMachine,
+    };
+    return { deps, machine, settlers };
+  }
+
+  const machineCalls = async (machine: { calls: number }, n: number) =>
+    vi.waitFor(() => expect(machine.calls).toBe(n));
+
+  it('joins the running resolve after a reset instead of starting a second machine', async () => {
+    const { deps, machine, settlers } = bundledDeps();
+    const first = getContainerRuntime(deps);
+    await machineCalls(machine, 1);
+
+    resetContainerRuntimeCache();
+    const second = getContainerRuntime(deps);
+    settlers[0]!.resolve();
+    const [a, b] = await Promise.all([first, second]);
+    expect(b).toBe(a);
+    expect(machine.calls).toBe(1);
+    expect(machine.maxRunning).toBe(1);
+  });
+
+  it('starts one new resolve after a failed one that a reset left running', async () => {
+    const { deps, machine, settlers } = bundledDeps();
+    const first = getContainerRuntime(deps).catch((err: Error) => err);
+    await machineCalls(machine, 1);
+    resetContainerRuntimeCache();
+    const second = getContainerRuntime(deps).catch((err: Error) => err);
+
+    settlers[0]!.reject(new Error('machine start failed'));
+    expect(await first).toBeInstanceOf(Error);
+    expect(await second).toBeInstanceOf(Error);
+
+    const third = getContainerRuntime(deps);
+    const fourth = getContainerRuntime(deps);
+    await machineCalls(machine, 2);
+    settlers[1]!.resolve();
+    expect(await fourth).toBe(await third);
+    expect(machine.maxRunning).toBe(1);
+  });
+
+  it('resolves again after a reset once the cached runtime is idle', async () => {
+    const { deps, machine, settlers } = bundledDeps();
+    const first = getContainerRuntime(deps);
+    await machineCalls(machine, 1);
+    settlers[0]!.resolve();
+    await first;
+    await expect(getContainerRuntime(deps)).resolves.toBe(await first);
+    expect(machine.calls).toBe(1);
+
+    resetContainerRuntimeCache();
+    const again = getContainerRuntime(deps);
+    await machineCalls(machine, 2);
+    settlers[1]!.resolve();
+    await expect(again).resolves.not.toBe(await first);
+  });
+});
+
 describe('runCli / runCompose', () => {
   const runtime = {
     kind: 'docker' as const,
@@ -343,4 +472,104 @@ describe('runCli / runCompose', () => {
     });
     expect(execFile).toHaveBeenCalledOnce();
   });
+});
+
+describe('runComposeStreaming timeout', () => {
+  const runtime = {
+    kind: 'podman' as const,
+    origin: 'bundled' as const,
+    cliPath: '/bin/sh',
+    composeBinaryPath: '/bin/sh',
+    composeArgv: [] as const,
+    env: { PATH: '/usr/bin:/bin' },
+    apiEndpoint: 'unix:///tmp/podman.sock',
+    version: { cli: '5', compose: '2' },
+  };
+
+  /** A child that ignores SIGTERM: `killed` turns true but it doesn't exit. */
+  function makeStubbornChild() {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      killed: false,
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+      signals: [] as string[],
+      kill(signal: NodeJS.Signals) {
+        child.signals.push(signal);
+        child.killed = true;
+        return true;
+      },
+    });
+    return child;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends SIGKILL when the child has not exited 5 s after SIGTERM', async () => {
+    vi.useFakeTimers();
+    const child = makeStubbornChild();
+    const promise = runComposeStreaming(runtime, ['up'], {
+      timeout: 100,
+      spawnFn: (() => child) as never,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(child.signals).toEqual(['SIGTERM']);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']);
+
+    // The child dies but a grandchild keeps stdio open, so `close` never comes.
+    child.signalCode = 'SIGKILL';
+    child.emit('exit', null, 'SIGKILL');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(promise).resolves.toMatchObject({ code: null, timedOut: true });
+  });
+
+  it('does not send SIGKILL when the child exited after SIGTERM', async () => {
+    vi.useFakeTimers();
+    const child = makeStubbornChild();
+    const promise = runComposeStreaming(runtime, ['up'], {
+      timeout: 100,
+      spawnFn: (() => child) as never,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    child.exitCode = 130;
+    child.emit('exit', 130, null);
+    child.emit('close', 130, null);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(child.signals).toEqual(['SIGTERM']);
+    await expect(promise).resolves.toMatchObject({ code: 130, timedOut: true });
+  });
+
+  it('settles for a real process that ignores SIGTERM and leaves a grandchild on its pipes', async () => {
+    let grandchildPid: number | null = null;
+    try {
+      const started = Date.now();
+      const result = await runComposeStreaming(
+        runtime,
+        ['-c', 'trap "" TERM; sleep 30 & echo $! >&2; wait'],
+        {
+          timeout: 100,
+          onStderrLine: (line) => {
+            grandchildPid = Number.parseInt(line, 10) || null;
+          },
+        }
+      );
+      expect(result.timedOut).toBe(true);
+      expect(Date.now() - started).toBeLessThan(8_000);
+    } finally {
+      if (grandchildPid) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  }, 15_000);
 });

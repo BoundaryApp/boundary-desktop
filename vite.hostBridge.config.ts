@@ -17,7 +17,9 @@ export default defineConfig({
       formats: ['es'],
       fileName: 'hostBridge',
     },
-    rollupOptions: {
+    rolldownOptions: {
+      // ESM bundle: lets CommonJS dependencies require Node built-ins (see vite.main.config.ts).
+      platform: 'node',
       external: ['electron', ...builtinModules, ...builtinModules.map((name) => `node:${name}`)],
     },
   },

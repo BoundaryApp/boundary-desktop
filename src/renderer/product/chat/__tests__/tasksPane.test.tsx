@@ -1,19 +1,20 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import type { AgentProfile, HermesProjectRecord } from '../../../../shared/types/hermesChat';
 
 const openKanbanBoard = vi.fn((_taskId?: string) => Promise.resolve());
 const kanbanBoardView = vi.fn();
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    openKanbanBoard: (taskId?: string) => openKanbanBoard(taskId),
-    kanbanBoardView: (taskId?: string) => kanbanBoardView(taskId),
-    kanbanSnapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onKanbanSnapshot: () => () => undefined,
+stubElectronAPI({
+  kanban: {
+    openBoard: (taskId?: string) => openKanbanBoard(taskId),
+    boardView: (taskId?: string) => kanbanBoardView(taskId),
+    snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
+    onSnapshot: () => () => undefined,
   },
-}));
+});
 
 import { TasksPane } from '../TasksPane';
 import { setKanbanSnapshotForTests } from '../kanbanActivity';
@@ -75,7 +76,7 @@ describe('TasksPane', () => {
   it('groups the project\'s tasks by what you would do about them', () => {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: board });
     const onOpenTask = vi.fn();
-    render(<TasksPane agents={agents} project={project} onOpenTask={onOpenTask} />);
+    render(<TasksPane agents={agents} project={project} onOpenTask={onOpenTask} onViewChange={vi.fn()} />);
 
     const groups = screen.getAllByRole('region');
     expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual([
@@ -87,7 +88,7 @@ describe('TasksPane', () => {
     expect(within(groups[0]).getByRole('button').textContent).toContain('Writer · asked a question');
     expect(within(groups[1]).getByRole('button').textContent).toContain('Researcher · working');
     expect(within(groups[1]).queryByText('Plan the offsite')).toBeNull();
-    expect(within(groups[2]).getByRole('button').textContent).toContain('Coder · waits on another task');
+    expect(within(groups[2]).getByRole('button').textContent).toContain('Coder · waiting on another task');
     expect(within(groups[3]).getByRole('button').textContent).toContain('yesterday');
 
     fireEvent.click(screen.getByRole('button', { name: /Draft release notes/ }));
@@ -96,7 +97,7 @@ describe('TasksPane', () => {
 
   it('shows every task with All projects, and opens Hermes\'s board', () => {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: board });
-    render(<TasksPane agents={agents} project={project} onOpenTask={vi.fn()} />);
+    render(<TasksPane agents={agents} project={project} onOpenTask={vi.fn()} onViewChange={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'All projects' }));
     const running = screen.getByRole('region', { name: 'Running' });
     expect(within(running).getByText('Plan the offsite')).toBeTruthy();
@@ -159,7 +160,7 @@ describe('TasksPane', () => {
 
   it('says where the tasks are when the project has none', () => {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [board[4]] });
-    render(<TasksPane agents={agents} project={project} onOpenTask={vi.fn()} />);
+    render(<TasksPane agents={agents} project={project} onOpenTask={vi.fn()} onViewChange={vi.fn()} />);
     expect(screen.getByText(/No tasks in boundary-desktop this week\. 1 task is in other projects/)).toBeTruthy();
   });
 });

@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { dialog, shell } from 'electron';
 import type {
-  HermesIndexEntry,
   HermesProjectSourcesInspect,
   HermesProjectSourcesResult,
   HermesSourceSpec,
@@ -17,66 +16,73 @@ import {
   listedExtraSourcePaths,
   persistContextExtraRoots,
   readCodingRoots,
-  resolveAssistantEnvRoot,
   upsertHermesContextOverrideBinds,
 } from './hermesContextRoots';
 import { syncOverlayAndRecreate } from './hermesProjects';
+import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
 import {
-  INDEX_NAME,
-  annotateIndexVisibility,
   buildNextStep,
   catalogIsFresh,
   loadSources,
-  parseIndexMarkdown,
   pathCoveredByRoots,
   refuseAddFolderReason,
   refuseMessage,
   rowsForSources,
-  samePath,
   slugifySourceId,
   splitColonPaths,
+  SOURCES_NAME,
   type MountRoots,
   writeIndex,
   writeSourcesYamlToHub,
 } from './projectSourcesModel';
+import { samePath } from '../../hostPaths';
 
-function readAssistantProjectEnv(): Record<string, string> {
-  return readAssistantEnvFile(resolveActiveAssistantRoot());
-}
-
-export function readMountRoots(): MountRoots {
-  const env = readAssistantProjectEnv();
+function readMountRoots(): MountRoots {
+  const env = readAssistantEnvFile(resolveActiveAssistantRoot());
   return {
     contextRoots: splitColonPaths(env.CONTEXT_EXTRA_ROOTS),
     codingRoots: readCodingRoots(env),
   };
 }
 
+/**
+ * Recreate Hermes with the context roots the sources list now. `CONTEXT_EXTRA_ROOTS` goes
+ * into the stack `.env` before the recreate, since compose reads it at `up` and Hermes's
+ * instructions quote it (G09-6). An added root comes out again if the mount fails; a
+ * dropped root stays out, so a failed remove isn't listed again by the next collect.
+ * `undo` runs on failure too, inside the queue, before the next remount collects roots.
+ */
 async function remountContextRoots(options?: {
   drop?: readonly string[];
-  persistBefore?: boolean;
   mountLabel?: string;
+  undo?: () => void;
 }): Promise<{ success: boolean; error?: string }> {
-  const roots = collectContextExtraRoots({ drop: options?.drop });
-  if (isLocalAssistantStackMode()) {
-    upsertHermesContextOverrideBinds(roots, resolveAssistantEnvRoot());
-  }
-  if (options?.persistBefore) {
-    persistContextExtraRoots(roots);
-  }
-  const mount = await syncOverlayAndRecreate({
-    extraRoots: roots,
+  const envRoot = resolveActiveAssistantRoot();
+  let previous: string[] | null = null;
+  return syncOverlayAndRecreate({
     mountLabel: options?.mountLabel,
+    prepare: () => {
+      const roots = collectContextExtraRoots({ drop: options?.drop });
+      if (isLocalAssistantStackMode()) {
+        upsertHermesContextOverrideBinds(roots, envRoot);
+      }
+      previous = splitColonPaths(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS);
+      persistContextExtraRoots(roots, envRoot);
+      return roots;
+    },
+    rollback: options?.drop
+      ? undefined
+      : () => {
+          options?.undo?.();
+          if (previous) persistContextExtraRoots(previous, envRoot);
+        },
   });
-  if (mount.success && !options?.persistBefore) {
-    persistContextExtraRoots(roots);
-  }
-  return mount;
 }
 
 async function ensureExtraRootMounted(
   projectId: string,
-  hostPath: string
+  hostPath: string,
+  undo?: () => void
 ): Promise<HermesProjectSourcesResult> {
   const mounts = readMountRoots();
   const codingCovered = pathCoveredByRoots(hostPath, mounts.codingRoots);
@@ -89,7 +95,7 @@ async function ensureExtraRootMounted(
     return { success: true, inspect: await inspectProject(projectId) };
   }
 
-  const mount = await remountContextRoots({ mountLabel: hostPath });
+  const mount = await remountContextRoots({ mountLabel: hostPath, undo });
   const inspect = await inspectProject(projectId);
   if (!mount.success) {
     return { success: false, error: mount.error, inspect };
@@ -97,18 +103,22 @@ async function ensureExtraRootMounted(
   return { success: true, inspect };
 }
 
-function libraryProjectsRoot(): string {
-  return path.join(resolveAssistantUserContentRoot(resolveActiveAssistantRoot()), 'projects');
+/**
+ * Take a source the mount failed for back out of sources.yaml, so it isn't listed again
+ * after a relaunch. Other edits made since stay; a file the add created goes when only the
+ * hub row is left.
+ */
+function dropFailedSource(projectRoot: string, sourceId: string, createdFile: boolean): void {
+  const remaining = loadSources(projectRoot).sources.filter((spec) => spec.id !== sourceId);
+  if (createdFile && remaining.every((spec) => spec.path === '.')) {
+    fs.rmSync(path.join(projectRoot, SOURCES_NAME), { force: true });
+    return;
+  }
+  writeSourcesFile(projectRoot, remaining);
 }
 
-function readIndexEntries(projectRoot: string): HermesIndexEntry[] {
-  const indexPath = path.join(projectRoot, INDEX_NAME);
-  if (!fs.existsSync(indexPath)) return [];
-  try {
-    return parseIndexMarkdown(fs.readFileSync(indexPath, 'utf8'));
-  } catch {
-    return [];
-  }
+function libraryProjectsRoot(): string {
+  return path.join(resolveAssistantUserContentRoot(resolveActiveAssistantRoot()), 'projects');
 }
 
 async function inspectProject(projectId: string): Promise<HermesProjectSourcesInspect> {
@@ -122,14 +132,11 @@ async function inspectProject(projectId: string): Promise<HermesProjectSourcesIn
   const stale = loaded.explicit
     ? !(await catalogIsFresh(project.hostPath, loaded.sources))
     : false;
-  const index = annotateIndexVisibility(readIndexEntries(project.hostPath), sources);
   return {
     projectId: project.id,
-    registryExists: loaded.explicit,
     stale,
     sources,
-    index,
-    nextStep: buildNextStep(sources, stale, project.slug),
+    nextStep: buildNextStep(sources, stale),
   };
 }
 
@@ -178,10 +185,12 @@ export async function addHermesProjectSourceFolder(
       properties: ['openDirectory', 'createDirectory'],
       title: 'Attach a source',
       message: 'Choose a folder on this Mac — file context, not a second project',
+      defaultPath: dialogStartFolder(),
     });
     if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
       return { success: false, canceled: true };
     }
+    rememberDialogPick(dialogResult.filePaths[0]);
     picked = dialogResult.filePaths[0];
   }
   const hostPath = path.resolve(picked);
@@ -246,7 +255,9 @@ export async function addHermesProjectSourceFolder(
     };
   }
 
-  return ensureExtraRootMounted(project.id, hostPath);
+  return ensureExtraRootMounted(project.id, hostPath, () =>
+    dropFailedSource(project.hostPath, id, !loaded.explicit)
+  );
 }
 
 export async function removeHermesProjectSource(
@@ -285,11 +296,7 @@ export async function removeHermesProjectSource(
     return { success: true, inspect: await inspectProject(project.id) };
   }
 
-  const mount = await remountContextRoots({
-    drop: [hostPath],
-    persistBefore: true,
-    mountLabel: hostPath,
-  });
+  const mount = await remountContextRoots({ drop: [hostPath], mountLabel: hostPath });
   const inspect = await inspectProject(project.id);
   if (!mount.success) {
     return { success: false, error: mount.error, inspect };

@@ -11,8 +11,9 @@ import { ConversationMark } from './ConversationMark';
 import { ProjectPicker } from './ProjectPicker';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { WorkingDot } from './WorkingDot';
-import { LIVENESS_TONE, WorkingNow } from './WorkingNow';
+import { WorkingNow } from './WorkingNow';
 import {
+  LIVENESS_TONE,
   runningTaskByAssignee,
   taskCounts,
   taskLiveness,
@@ -111,6 +112,9 @@ export function railOrder(input: {
   ];
 }
 
+/** What the center pane shows. */
+export type CenterMode = 'conversation' | 'all-chats' | 'mentions' | 'project' | 'task' | 'tasks';
+
 export interface ChatRailProps {
   projects: HermesProjectRecord[];
   activeProjectId: string | null;
@@ -120,7 +124,7 @@ export interface ChatRailProps {
   onNewProject: () => void;
   onCreateEmptyProject: () => void;
 
-  centerMode: 'conversation' | 'all-chats' | 'mentions' | 'project' | 'task' | 'tasks';
+  centerMode: CenterMode;
   /** The kanban task open in the center pane, when centerMode is `task`. */
   activeTaskId?: string | null;
   onOpenTask: (taskId: string) => void;

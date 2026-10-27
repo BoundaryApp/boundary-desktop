@@ -3,25 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  parseAssistantEnvFile,
   removeIncompleteHermesProfiles,
   resolveAssistantDataRoot,
   resolveAssistantUserContentRoot,
 } from '../assistantPaths';
-
-describe('parseAssistantEnvFile', () => {
-  it('reads KEY=value, strips quotes, and skips comments', () => {
-    const parsed = parseAssistantEnvFile(`
-# comment
-ASSISTANT_DATA_ROOT="/Users/you/AssistantData"
-OTHER='quoted'
-EMPTY=
-`);
-    expect(parsed.ASSISTANT_DATA_ROOT).toBe('/Users/you/AssistantData');
-    expect(parsed.OTHER).toBe('quoted');
-    expect(parsed.EMPTY).toBe('');
-  });
-});
 
 describe('resolveAssistantUserContentRoot', () => {
   const temps: string[] = [];

@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  KANBAN_STOP_REASON,
-  type KanbanTaskAction,
-  type KanbanTaskDetail,
-  type KanbanTaskEvent,
-  type KanbanTaskRun,
-  type KanbanTaskSummary,
+import type {
+  KanbanTaskAction,
+  KanbanTaskRun,
+  KanbanTaskSummary,
 } from '../../../shared/types/hermesKanban';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { taskGaveUp } from '../../../shared/kanbanTaskState';
+import { WAIT_REASON_TEXT, type WaitReason } from './kanbanActivity';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 
 // What you can do to a kanban task from its page (docs/kanban-activity-ux-study, Phase 3):
 // steer it with a note, answer it when it waits on you, and stop or retry its run. Every
@@ -33,7 +30,7 @@ export function useTaskAction(
       setBusy(true);
       setError(null);
       try {
-        const res = await hermesChatIPC.kanbanTaskAction(taskId, action);
+        const res = await window.electronAPI.kanban.taskAction(taskId, action);
         if ('error' in res) {
           setError(res.error);
           return false;
@@ -52,50 +49,12 @@ export function useTaskAction(
   return { busy, error, run };
 }
 
-/** The newest run, where Stop and the "stopped by you" check look. */
-export function latestRun(detail: KanbanTaskDetail | null): KanbanTaskRun | null {
-  const runs = detail?.runs ?? [];
-  return runs.length > 0 ? runs[runs.length - 1] : null;
-}
-
-/** A blocked task whose last run you stopped from Boundary (not a crash, not a question). */
-export function stoppedByYou(task: KanbanTaskSummary, detail: KanbanTaskDetail | null): boolean {
-  if (task.status !== 'blocked') return false;
-  return Boolean(latestRun(detail)?.error?.includes(KANBAN_STOP_REASON));
-}
-
-export type NeedsYouMode = 'question' | 'blocked' | 'review' | 'stopped' | 'failed';
-
-/**
- * Which card a waiting task gets. `waitEvent` is the newest event that put it there; a
- * `gave_up` means the dispatcher blocked it after failed runs, so there's nothing to answer.
- */
-export function needsYouMode(
-  task: KanbanTaskSummary,
-  detail: KanbanTaskDetail | null,
-  waitEvent: KanbanTaskEvent | null = null
-): NeedsYouMode {
-  if (task.status === 'review') return 'review';
-  if (stoppedByYou(task, detail)) return 'stopped';
-  if (task.blockKind === 'needs_input') return 'question';
-  if (waitEvent ? waitEvent.kind === 'gave_up' : taskGaveUp(task)) return 'failed';
-  return 'blocked';
-}
-
-const KICKER: Record<NeedsYouMode, string> = {
-  question: 'Asked you a question',
-  blocked: 'Blocked',
-  review: 'Review requested',
-  stopped: 'Stopped by you',
-  failed: 'Gave up',
-};
-
 /**
  * The worker couldn't start because the board can't build the workspace the task asked for.
  * The stack marks only those spawn failures as not retryable; a revoked credential that
  * can't heal either comes as `crashed` (CR 0008 R3).
  */
-export function workspaceFailure(trigger: string | null, retryable: boolean | null): boolean {
+function workspaceFailure(trigger: string | null, retryable: boolean | null): boolean {
   return trigger === 'spawn_failed' && retryable === false;
 }
 
@@ -126,7 +85,7 @@ function failedLead(
  */
 export const NeedsYouCard: React.FC<{
   task: KanbanTaskSummary;
-  mode: NeedsYouMode;
+  mode: WaitReason;
   /** The worker's own words: the block reason or the review summary. */
   reason: string | null;
   /** When it started waiting, already formatted ("4m ago"). */
@@ -148,22 +107,24 @@ export const NeedsYouCard: React.FC<{
   return (
     <section
       className="wb-approve wb-task-needs"
-      aria-label={KICKER[mode]}
+      aria-label={WAIT_REASON_TEXT[mode].title}
       aria-busy={busy}
     >
       <div className={`kicker${mode === 'review' ? '' : ' is-warn'}`}>
-        <span>{KICKER[mode]}</span>
+        <span>{WAIT_REASON_TEXT[mode].title}</span>
         {since ? <span className="count">{since}</span> : null}
       </div>
       <p className="why">
-        {mode === 'stopped'
-          ? 'The run is stopped and the task waits here until you resume it.'
-          : mode === 'failed'
-            ? failedLead(trigger, task.failures, retryable)
-            : (reason ?? (mode === 'review' ? 'The worker asks you to check its work.' : 'The worker stopped and is waiting for you.'))}
+        {mode === 'triage'
+          ? (reason ?? 'It waits here until you sort it. Move it to To do to queue it for a run, or archive it.')
+          : mode === 'stopped'
+            ? 'The run is stopped and the task waits here until you resume it.'
+            : mode === 'failed'
+              ? failedLead(trigger, task.failures, retryable)
+              : (reason ?? (mode === 'review' ? 'The worker asks you to check its work.' : 'The worker stopped and is waiting for you.'))}
       </p>
       {mode === 'failed' && reason ? <pre className="cmd mono">{reason}</pre> : null}
-      {mode !== 'stopped' && mode !== 'failed' ? (
+      {mode !== 'stopped' && mode !== 'failed' && mode !== 'triage' ? (
         <textarea
           className="wb-task-reply"
           aria-label={mode === 'review' ? 'Notes for the worker' : 'Your reply'}
@@ -178,7 +139,21 @@ export const NeedsYouCard: React.FC<{
         />
       ) : null}
       <div className="wb-approve-actions">
-        {mode === 'review' ? (
+        {mode === 'triage' ? (
+          <>
+            <button type="button" className="run" disabled={busy} onClick={() => void act({ kind: 'move-to-todo' })}>
+              Move to To do
+            </button>
+            <button
+              type="button"
+              className="more is-plain"
+              disabled={busy}
+              onClick={() => void act({ kind: 'archive' })}
+            >
+              Archive task
+            </button>
+          </>
+        ) : mode === 'review' ? (
           <>
             <button type="button" className="run" disabled={busy} onClick={() => void act({ kind: 'mark-done' })}>
               Approve
@@ -329,35 +304,32 @@ export const RunMenu: React.FC<{
     setOpen(false);
     setConfirming(false);
   }, [task.id, task.status]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
 
   const live = task.status === 'running' && run !== null && run.endedAt === null;
   const canRetry = task.status === 'running' || task.status === 'blocked';
   const canArchive = task.status !== 'running';
   return (
     <div className="wb-task-runmenu" ref={ref}>
-      <button
-        type="button"
-        className="wb-btn-ghost"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={busy}
-        onClick={() => {
-          setOpen((v) => !v);
-          setConfirming(false);
-        }}
-      >
-        Run ▾
-      </button>
-      {open ? (
-        <div className="wb-approve-menu wb-task-runmenu-list" role="menu">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger>
+          <button
+            type="button"
+            className="wb-btn-ghost"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            disabled={busy}
+            onClick={() => setConfirming(false)}
+          >
+            Run ▾
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="wb-approve-menu"
+          role="menu"
+          side="bottom"
+          align="end"
+          keepOpenWithin={ref}
+        >
           {live ? (
             <button type="button" role="menuitem" onClick={() => setConfirming(true)}>
               Stop run…
@@ -397,8 +369,8 @@ export const RunMenu: React.FC<{
           >
             Open in board ↗
           </button>
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
       {confirming && live && run ? (
         <div className="wb-approve-confirm wb-task-confirm" role="dialog" aria-labelledby="wb-task-stop-title">
           <h3 id="wb-task-stop-title">Stop this run?</h3>

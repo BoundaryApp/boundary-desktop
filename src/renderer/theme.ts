@@ -18,7 +18,7 @@ export function readStoredThemePreference(): ThemePreference {
   }
 }
 
-export function resolveTheme(preference: ThemePreference): ResolvedTheme {
+function resolveTheme(preference: ThemePreference): ResolvedTheme {
   if (preference !== 'system') return preference;
   return window.matchMedia?.(DARK_QUERY).matches === false ? 'light' : 'dark';
 }
@@ -44,8 +44,8 @@ function storePreference(preference: ThemePreference): void {
  */
 export function initTheme(): void {
   applyTheme(readStoredThemePreference());
-  void window.electronAPI?.appearance
-    ?.getTheme()
+  void window.electronAPI.appearance
+    .getTheme()
     .then((preference) => {
       if (!isThemePreference(preference)) return;
       storePreference(preference);
@@ -78,7 +78,7 @@ export function useThemePreference(): [ThemePreference, (next: ThemePreference) 
     applyTheme(next);
     setPreferenceState(next);
     window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: next }));
-    void window.electronAPI?.appearance?.setTheme(next).catch(() => {
+    void window.electronAPI.appearance.setTheme(next).catch(() => {
       // Applied locally already; the main-process store catches up next launch.
     });
   }, []);

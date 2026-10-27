@@ -5,6 +5,7 @@ import type { AuditEntry } from './auditLog';
 import type { ToolCallResult } from './mcpProtocol';
 import {
   CLIPBOARD_MAX,
+  isHostToolName,
   NOTIFY_BODY_MAX,
   NOTIFY_TITLE_MAX,
   PICK_MAX_FILES,
@@ -14,6 +15,7 @@ import {
   SETUP_KINDS,
   URL_MAX,
   WRITE_FILE_MAX_CHARS,
+  type HostToolName,
 } from './toolCatalog';
 
 /**
@@ -122,11 +124,14 @@ async function attempt(
 
 // ---------------------------------------------------------------------------- desktop_notification
 
+const NOTIFY_DEFAULT_TITLE = 'Boundary';
+
 function parseNotifyArgs(args: Record<string, unknown>): Parsed<{ title: string; body: string }> {
   const extra = unexpected(args, ['title', 'body']);
   if (extra) return { error: extra };
-  const title = typeof args.title === 'string' ? args.title.trim() : '';
-  if (!title) return { error: 'title is required' };
+  if (args.title !== undefined && typeof args.title !== 'string') return { error: 'title must be a string' };
+  // Models sometimes send only a body; a missing title shouldn't cost the notification.
+  const title = (typeof args.title === 'string' ? args.title.trim() : '') || NOTIFY_DEFAULT_TITLE;
   if (title.length > NOTIFY_TITLE_MAX) return { error: `title is over ${NOTIFY_TITLE_MAX} characters` };
   if (args.body !== undefined && typeof args.body !== 'string') return { error: 'body must be a string' };
   const body = typeof args.body === 'string' ? args.body.trim() : '';
@@ -405,30 +410,36 @@ async function offerSetup(args: Record<string, unknown>, deps: HostToolDeps): Pr
 
 // ---------------------------------------------------------------------------- dispatch
 
+/** Never rejects: Hermes gets an error result, so its request isn't left open. */
 export async function executeHostTool(
   name: string,
   args: Record<string, unknown>,
   deps: HostToolDeps
 ): Promise<ToolCallResult> {
-  switch (name) {
-    case 'desktop_notification':
-      return desktopNotification(args, deps);
-    case 'open_url':
-      return openUrl(args, deps);
-    case 'clipboard_write':
-      return clipboardWrite(args, deps);
-    case 'clipboard_read':
-      return clipboardRead(args, deps);
-    case 'pick_files':
-      return pickFiles(args, deps);
-    case 'read_file':
-      return readFile(args, deps);
-    case 'write_file':
-      return writeFile(args, deps);
-    case 'offer_setup':
-      return offerSetup(args, deps);
-    default:
-      deps.audit({ tool: name, decision: 'invalid', args: {}, outcome: 'unknown tool' });
-      return text(`Unknown tool: ${name}`, true);
+  try {
+    return await dispatchHostTool(name, args, deps);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    deps.audit({ tool: name, decision: 'error', args: {}, outcome: message });
+    return text(`Boundary couldn't run ${name}: ${message}`, true);
   }
+}
+
+/** One handler per catalog tool; the type fails to compile if the two lists differ. */
+const HANDLERS: Record<HostToolName, (args: Record<string, unknown>, deps: HostToolDeps) => Promise<ToolCallResult>> = {
+  desktop_notification: desktopNotification,
+  open_url: openUrl,
+  clipboard_write: clipboardWrite,
+  clipboard_read: clipboardRead,
+  pick_files: pickFiles,
+  read_file: readFile,
+  write_file: writeFile,
+  offer_setup: offerSetup,
+};
+
+function dispatchHostTool(name: string, args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {
+  if (isHostToolName(name)) return HANDLERS[name](args, deps);
+  // The MCP layer refuses names outside the catalog first; this covers direct callers.
+  deps.audit({ tool: name, decision: 'invalid', args: {}, outcome: 'unknown tool' });
+  return Promise.resolve(text(`Unknown tool: ${name}`, true));
 }

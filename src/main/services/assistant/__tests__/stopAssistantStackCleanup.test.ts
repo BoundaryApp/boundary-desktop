@@ -51,7 +51,6 @@ vi.mock('../provisionSovereignStack', () => ({
   markHostSetupComplete: async () => undefined,
   needsImageBuild: () => false,
   markImagesBuilt: async () => undefined,
-  resetBoundaryAssistantStack: async () => undefined,
 }));
 
 vi.mock('../runSovereignSetup', () => ({
@@ -65,7 +64,6 @@ vi.mock('../applyLlmToProjectEnv', () => ({
 
 vi.mock('../localStackMode', () => ({
   isLocalAssistantStackMode: (...args: unknown[]) => isLocalAssistantStackMode(...args),
-  localStackResetBlockedMessage: (action = 'Reset') => `${action} blocked in local mode`,
   localStackStopSkippedMessage: () => 'Local mode: leave stack running',
 }));
 

@@ -1,81 +1,70 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
-import type {
-  KanbanFiledTask,
-  KanbanSnapshot,
-  KanbanTaskSummary,
+import { useEffect, useState } from 'react';
+import type { AgentProfile } from '../../../shared/types/hermesChat';
+import {
+  isBoundaryStop,
+  type KanbanFiledTask,
+  type KanbanSnapshot,
+  type KanbanTaskDetail,
+  type KanbanTaskEvent,
+  type KanbanTaskRun,
+  type KanbanTaskStatus,
+  type KanbanTaskSummary,
 } from '../../../shared/types/hermesKanban';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { taskNeedsYou } from '../../../shared/kanbanTaskState';
+import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
+import { taskGaveUp, taskNeedsYou } from '../../../shared/kanbanTaskState';
+import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
+import type { WorkingDotTone } from './WorkingDot';
 
 // Kanban tasks from main (hermesKanban). One subscription for the whole renderer, as in
 // runningTurns.ts: the rail, the Chat icon and the task page all read it.
-
-const EMPTY: KanbanSnapshot = { available: false, tasks: [], checkedAt: 0 };
-let snapshot: KanbanSnapshot = EMPTY;
-let started = false;
-const listeners = new Set<() => void>();
-
-function set(next: KanbanSnapshot): void {
-  snapshot = next;
-  for (const listener of listeners) listener();
-}
 
 /** A notification click asking for a task page; `seq` makes a repeat click count again. */
 export interface TaskOpenRequest {
   taskId: string;
   seq: number;
 }
-let openRequest: TaskOpenRequest | null = null;
 let openSeq = 0;
+
+// Either store starts both, as one subscription did before: a click can arrive before the
+// chat screen mounts, and any board reader keeps it.
+const openRequests = createIpcStore<TaskOpenRequest | null>({
+  initial: null,
+  start: () => {
+    window.electronAPI.kanban.onOpenTask(requestOpen);
+    snapshots.start();
+  },
+});
+
+const snapshots = createIpcStore<KanbanSnapshot>({
+  initial: { available: false, tasks: [], checkedAt: 0 },
+  start: (store) => {
+    openRequests.start();
+    window.electronAPI.kanban.onSnapshot(store.set);
+    void window.electronAPI.kanban
+      .snapshot()
+      .then(store.set)
+      .catch((): void => undefined);
+  },
+});
 
 function requestOpen(taskId: string): void {
   openSeq += 1;
-  openRequest = { taskId, seq: openSeq };
-  for (const listener of listeners) listener();
+  openRequests.set({ taskId, seq: openSeq });
 }
-
-function start(): void {
-  if (started) return;
-  started = true;
-  try {
-    hermesChatIPC.onKanbanOpenTask(requestOpen);
-  } catch {
-    /* no preload bridge (isolated tests) */
-  }
-  try {
-    hermesChatIPC.onKanbanSnapshot(set);
-    void hermesChatIPC
-      .kanbanSnapshot()
-      .then(set)
-      .catch((): void => undefined);
-  } catch {
-    /* no preload bridge (isolated tests) */
-  }
-}
-
-function subscribe(listener: () => void): () => void {
-  start();
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-const read = () => snapshot;
-const readOpenRequest = () => openRequest;
 
 /** The task a notification click asked to open, until the chat screen takes it. */
 export function useTaskOpenRequest(): TaskOpenRequest | null {
-  return useSyncExternalStore(subscribe, readOpenRequest, readOpenRequest);
+  return useIpcStore(openRequests);
 }
 
 /** The chat screen has opened the requested task. */
 export function clearTaskOpenRequest(seq: number): void {
-  if (openRequest?.seq !== seq) return;
-  openRequest = null;
-  for (const listener of listeners) listener();
+  if (openRequests.get()?.seq !== seq) return;
+  openRequests.set(null);
 }
 
 export function useKanbanSnapshot(): KanbanSnapshot {
-  return useSyncExternalStore(subscribe, read, read);
+  return useIpcStore(snapshots);
 }
 
 /** Unix seconds, ticking so relative times ("12s ago") stay current. */
@@ -89,7 +78,7 @@ export function useNowSeconds(intervalMs = 1000): number {
 }
 
 /** After this long without a heartbeat a running task reads as quiet (spec decision 4). */
-export const QUIET_AFTER_S = 180;
+const QUIET_AFTER_S = 180;
 
 export type TaskLiveness = 'working' | 'quiet' | 'stalled' | 'needs-you' | 'idle';
 
@@ -98,7 +87,7 @@ export type TaskLiveness = 'working' | 'quiet' | 'stalled' | 'needs-you' | 'idle
  * for minutes. Stalled means the claim has run out and the dispatcher will reclaim it.
  */
 export function taskLiveness(task: KanbanTaskSummary, nowS: number): TaskLiveness {
-  if (needsYou(task)) return 'needs-you';
+  if (taskNeedsYou(task)) return 'needs-you';
   if (task.status !== 'running') return 'idle';
   if (task.claimExpires !== null && task.claimExpires < nowS) return 'stalled';
   const last = task.lastHeartbeatAt ?? task.startedAt;
@@ -106,12 +95,96 @@ export function taskLiveness(task: KanbanTaskSummary, nowS: number): TaskLivenes
   return 'working';
 }
 
-/** Blocked for a reason only the owner can clear, or waiting for review. */
-export const needsYou = taskNeedsYou;
+/**
+ * What a task's liveness reads as, wherever it shows: "Working", "Not responding", and
+ * "Quiet", or "Quiet for 4m" when the caller gives how long.
+ */
+export function livenessLabel(liveness: TaskLiveness, quietForS?: number): string {
+  switch (liveness) {
+    case 'quiet':
+      return quietForS === undefined ? 'Quiet' : `Quiet for ${formatElapsed(quietForS)}`;
+    case 'stalled':
+      return 'Not responding';
+    case 'needs-you':
+      return 'Needs you';
+    case 'idle':
+      // No caller shows a task that isn't running or waiting on you; named for one that does.
+      return 'Not running';
+    case 'working':
+    default:
+      return 'Working';
+  }
+}
+
+/** A board status as the task page, the cards and the strips name it. */
+export const TASK_STATUS_LABEL: Record<KanbanTaskStatus, string> = {
+  triage: 'Triage',
+  todo: 'To do',
+  scheduled: 'Scheduled',
+  ready: 'Ready',
+  running: 'Running',
+  blocked: 'Blocked',
+  review: 'In review',
+  done: 'Done',
+  archived: 'Archived',
+};
+
+/** The newest run, where Stop and the "stopped by you" check look. */
+export function latestRun(detail: KanbanTaskDetail | null): KanbanTaskRun | null {
+  const runs = detail?.runs ?? [];
+  return runs.length > 0 ? runs[runs.length - 1] : null;
+}
+
+/** Why a task waits on you. The needs-you card, the row text and the card pill all read it. */
+export type WaitReason = 'triage' | 'review' | 'stopped' | 'question' | 'failed' | 'blocked';
+
+/**
+ * Why `task` waits on you, or null when it doesn't. With `detail` (the task page), a blocked
+ * task whose last run you stopped reads `stopped`; a board row alone has no runs, so the rows
+ * read that task as `blocked`. `waitEvent` is the newest event that put the task there: when
+ * given, gave-up comes from it (`gave_up`) rather than from the row's failure count.
+ */
+export function waitReason(
+  task: KanbanTaskSummary,
+  detail: KanbanTaskDetail | null = null,
+  waitEvent: KanbanTaskEvent | null = null
+): WaitReason | null {
+  if (!taskNeedsYou(task)) return null;
+  if (task.status === 'triage') return 'triage';
+  if (task.status === 'review') return 'review';
+  if (task.status === 'blocked' && isBoundaryStop(latestRun(detail)?.error)) return 'stopped';
+  if (task.blockKind === 'needs_input') return 'question';
+  if (waitEvent ? waitEvent.kind === 'gave_up' : taskGaveUp(task)) return 'failed';
+  return 'blocked';
+}
+
+/** Each wait reason as the needs-you card heads it (`title`) and as a row says it (`row`). */
+export const WAIT_REASON_TEXT: Record<WaitReason, { title: string; row: string }> = {
+  triage: { title: 'Waiting to be sorted', row: 'waiting to be sorted' },
+  review: { title: 'Review requested', row: 'waiting for review' },
+  stopped: { title: 'Stopped by you', row: 'stopped by you' },
+  question: { title: 'Asked you a question', row: 'asked a question' },
+  failed: { title: 'Gave up', row: 'gave up after failing' },
+  blocked: { title: 'Blocked', row: 'blocked' },
+};
+
+/** The filed-task card's pill for a task waiting on you. */
+export function waitPill(reason: WaitReason): string {
+  return reason === 'review' ? 'Needs your review' : `Needs you · ${WAIT_REASON_TEXT[reason].row}`;
+}
+
+/** Why a queued task hasn't started. A dependency comes first, whatever the status. */
+export function upNextReason(task: KanbanTaskSummary): string {
+  if (task.blockKind === 'dependency') return 'waiting on another task';
+  if (task.status === 'scheduled') return 'scheduled';
+  if (task.status === 'ready') return 'starts on the next pass';
+  if (task.status === 'blocked') return 'blocked';
+  return 'to do';
+}
 
 /** What Working now lists: tasks that need you first, then running tasks, oldest first. */
 export function workingNowTasks(tasks: readonly KanbanTaskSummary[]): KanbanTaskSummary[] {
-  const waiting = tasks.filter(needsYou);
+  const waiting = tasks.filter(taskNeedsYou);
   const running = tasks
     .filter((t) => t.status === 'running')
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
@@ -142,10 +215,10 @@ export const TASK_GROUP_LABEL: Record<TaskGroupKey, string> = {
 
 /**
  * Which group a task sits in: what you'd do about it, not its board column. Triage waits on
- * you to sort it; a task blocked on another task is simply up next.
+ * you to sort it; a task blocked on another task is up next.
  */
-export function taskGroup(task: KanbanTaskSummary): TaskGroupKey | null {
-  if (needsYou(task) || task.status === 'triage') return 'needs';
+function taskGroup(task: KanbanTaskSummary): TaskGroupKey | null {
+  if (taskNeedsYou(task)) return 'needs';
   if (task.status === 'running') return 'running';
   if (
     task.status === 'ready' ||
@@ -187,7 +260,7 @@ export function taskCounts(tasks: readonly KanbanTaskSummary[]): { running: numb
   let needs = 0;
   for (const task of tasks) {
     if (task.status === 'running') running += 1;
-    else if (needsYou(task)) needs += 1;
+    else if (taskNeedsYou(task)) needs += 1;
   }
   return { running, needs };
 }
@@ -292,9 +365,57 @@ export function formatElapsed(seconds: number): string {
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
+/** The agent a task's assignee profile belongs to; `default` is the built-in agent. */
+export function assigneeName(assignee: string | null, agents: readonly AgentProfile[]): string {
+  if (!assignee) return 'Unassigned';
+  const agent = agents.find((a) => a.slug === assignee);
+  if (agent) return agent.displayName;
+  if (assignee === 'default') return builtinAgentName(agents);
+  return assignee;
+}
+
+export const LIVENESS_TONE: Record<TaskLiveness, WorkingDotTone> = {
+  working: 'live',
+  quiet: 'quiet',
+  'needs-you': 'needs',
+  stalled: 'stalled',
+  idle: 'live',
+};
+
+/** Rows put the state after "who · ", so it starts in lower case. */
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/** The short state under a row's title, and the trailing hint beside it. */
+export function taskRowState(
+  task: KanbanTaskSummary,
+  nowS: number
+): { sub: string; hint: string; liveness: TaskLiveness } {
+  const liveness = taskLiveness(task, nowS);
+  const elapsed = formatElapsed(nowS - (task.startedAt ?? task.createdAt ?? nowS));
+  switch (liveness) {
+    case 'needs-you':
+      return {
+        liveness,
+        hint: 'needs you',
+        sub: WAIT_REASON_TEXT[waitReason(task) ?? 'blocked'].row,
+      };
+    case 'quiet': {
+      const last = task.lastHeartbeatAt ?? task.startedAt ?? nowS;
+      return { liveness, hint: elapsed, sub: lowerFirst(livenessLabel(liveness, nowS - last)) };
+    }
+    case 'idle':
+    case 'stalled':
+    case 'working':
+    default:
+      return { liveness, hint: elapsed, sub: lowerFirst(livenessLabel(liveness)) };
+  }
+}
+
 /** @internal Vitest only. */
 export function setKanbanSnapshotForTests(next: KanbanSnapshot): void {
-  set(next);
+  snapshots.setForTests(next);
 }
 
 /** @internal Vitest only. */

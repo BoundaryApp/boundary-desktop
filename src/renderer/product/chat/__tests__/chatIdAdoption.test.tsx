@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
@@ -26,51 +27,41 @@ const ipc = vi.hoisted(() => ({
   startChat: null as unknown as ReturnType<typeof vi.fn>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  const on = (set: Set<Listener>) => (cb: Listener) => {
-    set.add(cb);
-    return () => set.delete(cb);
-  };
-  ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
-    success: true,
-    sessionId,
-    messages: [],
-  }));
-  // A DM placeholder gets its real session on the first send.
-  ipc.startChat = vi.fn(async () => ({
-    success: true,
-    requestId: 'req-1',
-    sessionId: 'real-1',
-    transport: 'json-rpc',
-  }));
-  return {
-    hermesChatIPC: {
-      getHistory: ipcCalls.track((...args: unknown[]) => ipc.getHistory(...args)),
-      startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-      cancelChat: vi.fn(),
-      onChatChunk: on(ipc.chunk as Set<Listener>),
-      onChatEnd: on(ipc.end as Set<Listener>),
-      onChatTool: unsub,
-      onChatError: unsub,
-      onChatPhase: on(ipc.phase as Set<Listener>),
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: ipcCalls.track(async () => []),
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-      completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-    },
-  };
-});
+const on = (set: Set<Listener>) => (cb: Listener) => {
+  set.add(cb);
+  return () => set.delete(cb);
+};
+ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+  success: true,
+  sessionId,
+  messages: [],
+}));
+// A DM placeholder gets its real session on the first send.
+ipc.startChat = vi.fn(async ({ requestId }: { requestId: string }) => ({
+  success: true,
+  requestId,
+  sessionId: 'real-1',
+}));
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    getHistory: ipcCalls.track((...args: unknown[]) => ipc.getHistory(...args)),
+    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
+    cancelChat: vi.fn(),
+    onChatChunk: on(ipc.chunk as Set<Listener>),
+    onChatEnd: on(ipc.end as Set<Listener>),
+    onChatPhase: on(ipc.phase as Set<Listener>),
+    listPendingCredentialRequests: ipcCalls.track(async () => []),
+    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
+  },
+  onboarding: {
     getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
     probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
   },
-}));
+  projects: {
+    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
@@ -147,12 +138,13 @@ describe('a chat that gets its session on the first send', () => {
     expect(screen.queryByText('Loading chat…')).toBeNull();
     expect(screen.getByText('Put a task on the board')).toBeTruthy();
 
-    await phase({ requestId: 'req-1', sessionId: 'real-1', phase: 'preparing' });
+    const { requestId } = ipc.startChat.mock.calls[0]![0] as { requestId: string };
+    await phase({ requestId, sessionId: 'real-1', phase: 'preparing' });
     expect(screen.getAllByText('Preparing…').length).toBeGreaterThan(0);
 
     await act(async () => {
-      for (const cb of ipc.chunk) cb({ requestId: 'req-1', delta: 'On the board.' });
-      for (const cb of ipc.end) cb({ requestId: 'req-1' });
+      for (const cb of ipc.chunk) cb({ requestId, delta: 'On the board.' });
+      for (const cb of ipc.end) cb({ requestId });
     });
     expect(screen.getByText('On the board.')).toBeTruthy();
   });

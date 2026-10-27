@@ -5,7 +5,7 @@ import { createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle
 import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
 
 const useAssistantStackLifecycle = vi.fn<() => AssistantStackLifecycleSnapshot>();
-vi.mock('../../product/useAssistantStackLifecycle', () => ({
+vi.mock('../../product/assistantStack', () => ({
   useAssistantStackLifecycle: () => useAssistantStackLifecycle(),
 }));
 
@@ -26,7 +26,7 @@ describe('SetupBackgroundStatus', () => {
       download: { receivedBytes: 1_500_000_000, seenBytes: 2_000_000_000 },
     });
     render(<SetupBackgroundStatus />);
-    expect(screen.getByRole('status').textContent).toBe('Starting your tools· 1.5 GB');
+    expect(screen.getByRole('status').textContent).toBe('Starting your tools· 1.4 GB');
   });
 
   it('points to the last step on error', () => {

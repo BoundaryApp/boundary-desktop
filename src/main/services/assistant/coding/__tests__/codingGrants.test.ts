@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { HermesProjectRecord } from '../../../../../shared/types/hermesChat';
+import type { AuditEntry } from '../../../hostBridge/auditLog';
 import {
   resetHermesProjectsStoreForTests,
   upsertStoredHermesProject,
@@ -14,10 +15,13 @@ import {
   newCodingFolderDefaults,
   listCodingGrants,
   resetCodingRemountQueueForTests,
+  retryCodingMounts,
   revokeCoding,
   scheduleCodingRemount,
   setCodingGrantDepsForTests,
   setProjectFolderCoding,
+  verifyCodingGrants,
+  codingGrantDeps,
   type CodingGrantDeps,
 } from '../codingGrants';
 import { recordHermesCodingRoots, resetCodingGrantStoreForTests } from '../codingGrantStore';
@@ -44,12 +48,18 @@ function folder(...parts: string[]): string {
   return dir;
 }
 
+/** The deps in use, to change one without losing the counters fakeDeps set up. */
+function fakeDepsSnapshot(): CodingGrantDeps {
+  return codingGrantDeps();
+}
+
 function fakeDeps(overrides: Partial<CodingGrantDeps> = {}) {
   const calls = {
     recreate: 0,
     persisted: [] as string[][],
     verified: [] as string[],
     git: [] as string[][],
+    audit: [] as AuditEntry[],
   };
   const deps: Partial<CodingGrantDeps> = {
     isLocalStack: () => false,
@@ -67,12 +77,14 @@ function fakeDeps(overrides: Partial<CodingGrantDeps> = {}) {
       return true;
     },
     restartHermes: async () => ({ success: true }),
-    recordHermesRoots: () => undefined,
     ruleOptions: () => ({ home, boundaryDataPaths: [path.join(home, 'boundary')], systemFolders: [] }),
     runGit: async (_cwd, args) => {
       calls.git.push(args);
     },
     progress: () => undefined,
+    audit: (entry) => {
+      calls.audit.push(entry);
+    },
     ...overrides,
   };
   setCodingGrantDepsForTests(deps);
@@ -185,6 +197,112 @@ describe('grantCoding', () => {
     const res = await grantCoding({ projectId: 'p1', hostPath: folder('Code', 'a'), origin: 'add' });
     expect(res).toMatchObject({ success: false, managed: false });
     expect(res.command).toMatch(/make coding-root-add/);
+  });
+});
+
+describe('nested grants (G10-1)', () => {
+  it('re-checks a grant inside another grant on retry', async () => {
+    let visible = true;
+    fakeDeps({ verify: async () => visible });
+    const parent = folder('Code', 'mono');
+    const child = folder('Code', 'mono', 'packages', 'web');
+    await grantCoding({ projectId: 'p1', hostPath: parent, origin: 'add' });
+    visible = false;
+    await grantCoding({ projectId: 'p1', hostPath: child, origin: 'chat' });
+    expect(listCodingGrants().grants.find((grant) => grant.resource === child)?.state).toBe(
+      'not-visible'
+    );
+    visible = true;
+    await retryCodingMounts();
+    expect(listCodingGrants().grants.map((grant) => grant.state)).toEqual(['ready', 'ready']);
+  });
+
+  it('re-checks every grant from Settings, not only the mount roots', async () => {
+    let visible = true;
+    fakeDeps({ verify: async () => visible });
+    const parent = folder('Code', 'mono');
+    const child = folder('Code', 'mono', 'packages', 'web');
+    await grantCoding({ projectId: 'p1', hostPath: parent, origin: 'add' });
+    await grantCoding({ projectId: 'p1', hostPath: child, origin: 'chat' });
+    visible = false;
+    await verifyCodingGrants(true);
+    expect(listCodingGrants().grants.map((grant) => grant.state)).toEqual([
+      'not-visible',
+      'not-visible',
+    ]);
+  });
+
+  it('marks a covered grant not visible too when the restart fails', async () => {
+    let fail = false;
+    fakeDeps({ recreate: async () => (fail ? { success: false, error: 'boom' } : { success: true }) });
+    const parent = folder('Code', 'mono');
+    const child = folder('Code', 'mono', 'packages', 'web');
+    await grantCoding({ projectId: 'p1', hostPath: parent, origin: 'add' });
+    await grantCoding({ projectId: 'p1', hostPath: child, origin: 'chat' });
+    fail = true;
+    await retryCodingMounts();
+    expect(listCodingGrants().grants.map((grant) => grant.state)).toEqual([
+      'not-visible',
+      'not-visible',
+    ]);
+  });
+});
+
+describe('revokeCoding of a nested grant (G10-15)', () => {
+  it('removes it without a restart or a busy check', async () => {
+    const calls = fakeDeps();
+    const parent = folder('Code', 'mono');
+    const child = folder('Code', 'mono', 'packages', 'web');
+    await grantCoding({ projectId: 'p1', hostPath: parent, origin: 'add' });
+    await grantCoding({ projectId: 'p1', hostPath: child, origin: 'chat' });
+    setCodingGrantDepsForTests({
+      ...fakeDepsSnapshot(),
+      busy: async () => ({ busy: true, sessions: ['x'] }),
+    });
+    const res = await revokeCoding({ hostPath: child });
+    expect(res.success).toBe(true);
+    expect(res.grants.map((grant) => grant.resource)).toEqual([parent]);
+    expect(calls.recreate).toBe(1);
+  });
+});
+
+describe('the host bridge audit log (G21-5)', () => {
+  it('records a grant, a project folder switch and a revoke', async () => {
+    const calls = fakeDeps();
+    const repo = folder('Code', 'tokens');
+    await grantCoding({ projectId: 'p1', hostPath: repo, origin: 'chat' });
+    await setProjectFolderCoding({ projectId: 'p1', enabled: true });
+    await revokeCoding({ hostPath: repo });
+    expect(calls.audit).toEqual([
+      {
+        tool: 'coding_grant',
+        decision: 'allowed',
+        args: { path: repo, projectId: 'p1', origin: 'chat' },
+        outcome: 'ready',
+      },
+      {
+        tool: 'coding_grant',
+        decision: 'allowed',
+        args: { path: path.join(home, 'Projects', 'portfolio'), projectId: 'p1', origin: 'project-folder' },
+        outcome: 'ready',
+      },
+      { tool: 'coding_revoke', decision: 'allowed', args: { path: repo }, outcome: 'removed' },
+    ]);
+  });
+
+  it('records a grant whose restart failed as an error, and nothing for a refused one', async () => {
+    const calls = fakeDeps({ recreate: async () => ({ success: false, error: 'compose exploded' }) });
+    await grantCoding({ projectId: 'p1', hostPath: home, origin: 'add' });
+    const repo = folder('Code', 'a');
+    await grantCoding({ projectId: 'p1', hostPath: repo, origin: 'add' });
+    expect(calls.audit).toEqual([
+      {
+        tool: 'coding_grant',
+        decision: 'error',
+        args: { path: repo, projectId: 'p1', origin: 'add' },
+        outcome: 'compose exploded',
+      },
+    ]);
   });
 });
 

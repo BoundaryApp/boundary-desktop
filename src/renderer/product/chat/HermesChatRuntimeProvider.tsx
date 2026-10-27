@@ -14,9 +14,12 @@ import {
   type ThreadMessageLike,
 } from '@assistant-ui/react';
 import { createHermesChatModelAdapter } from './hermesChatModelAdapter';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import type { HermesChatMessage } from '../../../shared/types/hermesChat';
+import type {
+  HermesChatMessage,
+  SessionInferenceOverride,
+} from '../../../shared/types/hermesChat';
 import { ServerPath, type ServerEntry } from './serverPath';
+import type { HermesMessageCustom } from './messageCustom';
 import { findRunningTurn, isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 
 /**
@@ -70,7 +73,7 @@ export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMess
         ...(m.noReply ? { noReply: m.noReply } : {}),
         // Who spoke this turn in a room; the reply's speaker line reads it (ADR 0023).
         ...(m.agentSlug ? { agentSlug: m.agentSlug } : {}),
-      },
+      } satisfies HermesMessageCustom,
     },
   };
 }
@@ -78,6 +81,8 @@ export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMess
 interface InferenceSendHandlers {
   onLocalUnreachable: () => void;
   onApplyFailed: (error: string) => void;
+  /** The inference a chat with no session yet sends its first turn with, taken once. */
+  takeNewChatInference?: () => SessionInferenceOverride | null;
 }
 
 const InferenceSendContext = createContext<{
@@ -93,6 +98,7 @@ export function useInferenceSendHandlers(handlers: InferenceSendHandlers): void 
     return ctx.register({
       onLocalUnreachable: () => handlersRef.current.onLocalUnreachable(),
       onApplyFailed: (error) => handlersRef.current.onApplyFailed(error),
+      takeNewChatInference: () => handlersRef.current.takeNewChatInference?.() ?? null,
     });
   }, [ctx]);
 }
@@ -205,7 +211,7 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
 
     void (async () => {
       try {
-        const result = await hermesChatIPC.getHistory({ sessionId });
+        const result = await window.electronAPI.hermesChat.getHistory({ sessionId });
         if (cancelled) return;
         if (
           result.sessionId &&
@@ -254,6 +260,7 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
         },
         onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
         onApplyFailed: (error) => sendHandlersRef.current?.onApplyFailed(error),
+        takeNewChatInference: () => sendHandlersRef.current?.takeNewChatInference?.() ?? null,
         getServerPath: () => serverPathRef.current,
       }),
     [sessionId]

@@ -3,9 +3,7 @@ import { SETUP_STEPS } from '../steps';
 import {
   areAllSetupStepsComplete,
   resolveActiveSetupStep,
-  visibleSetupSteps,
   type SetupFlowSnapshot,
-  type SetupStepDefinition,
 } from '../types';
 import type { SetupProgress } from '../../../shared/types/setupProgress';
 
@@ -39,42 +37,6 @@ function snapshot(setupProgress: SetupProgress | null, stackDone = false): Setup
     setupProgress,
   };
 }
-
-describe('firstRunOnly steps (first-run spec, Phase 1)', () => {
-  const steps: SetupStepDefinition[] = [
-    {
-      id: 'capability',
-      label: 'Machine',
-      title: 'Machine',
-      description: '',
-      isComplete: () => true,
-      Component: () => null,
-    },
-    {
-      id: 'folders',
-      label: 'Folders',
-      title: 'Folders',
-      description: '',
-      optional: true,
-      firstRunOnly: true,
-      isComplete: (ctx) => Boolean(ctx.setupProgress?.outcomes.folders),
-      Component: () => null,
-    },
-  ];
-
-  it('never shows one to a user who finished setup before the upgrade', () => {
-    const upgraded = snapshot(progress({ completedBeforeOptionalSteps: true }));
-    expect(resolveActiveSetupStep(steps, upgraded)).toBeNull();
-    expect(areAllSetupStepsComplete(steps, upgraded)).toBe(true);
-    expect(visibleSetupSteps(steps, upgraded).map((step) => step.id)).toEqual(['capability']);
-  });
-
-  it('shows one on a first run until it is answered', () => {
-    expect(resolveActiveSetupStep(steps, snapshot(progress()))?.id).toBe('folders');
-    const skipped = snapshot(progress({ outcomes: { folders: 'skipped' } }));
-    expect(resolveActiveSetupStep(steps, skipped)).toBeNull();
-  });
-});
 
 describe('SETUP_STEPS Folders step', () => {
   it('sits between Model and Assistant, optional, within the five-step cap', () => {

@@ -17,10 +17,10 @@ import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import {
   endLagLog,
   lagLog,
-  lagLogDir,
-  lagProbeEnabled,
-  lagProbeTracing,
-  lagTraceDir,
+  lagLogDir as logDir,
+  lagProbeEnabled as enabled,
+  lagProbeTracing as tracing,
+  lagTraceDir as traceDir,
 } from './lagLog';
 import { MemoryTrend, type SeriesRule } from './memoryTrend';
 import {
@@ -28,12 +28,8 @@ import {
   LAG_THRESHOLDS,
   type LagProbeConfig,
   type LagProbeReport,
+  roundTenth,
 } from '../../shared/lagProbe';
-
-const enabled = lagProbeEnabled;
-const tracing = lagProbeTracing;
-const logDir = lagLogDir;
-const traceDir = lagTraceDir;
 
 const SUMMARY_EVERY_MS = 60_000;
 const STALL_TICK_MS = 50;
@@ -147,7 +143,7 @@ function logResult(channel: string, result: unknown, ms: number): void {
   const key = JSON.stringify(summary);
   if (lastResult.get(channel) === key) return;
   lastResult.set(channel, key);
-  lagLog({ proc: 'main', kind: 'ipc-result', channel, ms: round(ms), ...summary });
+  lagLog({ proc: 'main', kind: 'ipc-result', channel, ms: roundTenth(ms), ...summary });
 }
 
 function timeHandler(channel: string, listener: Handler): Handler {
@@ -170,10 +166,10 @@ function timeHandler(channel: string, listener: Handler): Handler {
       stats.calls += 1;
       stats.syncMs += syncMs;
       stats.maxSyncMs = Math.max(stats.maxSyncMs, syncMs);
-      recentIpc.push({ channel, syncMs: round(syncMs), endedAt: performance.now() });
+      recentIpc.push({ channel, syncMs: roundTenth(syncMs), endedAt: performance.now() });
       if (recentIpc.length > 40) recentIpc.shift();
       if (syncMs >= LAG_THRESHOLDS.ipcSync) {
-        lagLog({ proc: 'main', kind: 'ipc-slow-sync', channel, ms: round(syncMs) });
+        lagLog({ proc: 'main', kind: 'ipc-slow-sync', channel, ms: roundTenth(syncMs) });
       }
     }
     if (result && typeof (result as Promise<unknown>).then === 'function') {
@@ -223,9 +219,9 @@ function startStallDetector(): void {
       const entry = {
         proc: 'main',
         kind: 'main-stall',
-        ms: round(lag),
+        ms: roundTenth(lag),
         appReady: app.isReady(),
-        sinceStartS: round((now - startedAt) / 1000),
+        sinceStartS: roundTenth((now - startedAt) / 1000),
         probe: probeWorkEndedAt >= last && probeWorkEndedAt <= now,
         inflight: Object.fromEntries(inflight),
         // Handlers that finished inside the stall ran (part of) it.
@@ -405,9 +401,6 @@ async function pruneRecordings(): Promise<void> {
 
 // ── Summary ──────────────────────────────────────────────────────────────────────────
 
-function round(ms: number): number {
-  return Math.round(ms * 10) / 10;
-}
 
 // ── Memory over time ─────────────────────────────────────────────────────────────────
 
@@ -472,16 +465,16 @@ function checkMemory(): void {
 }
 
 function writeSummary(): void {
-  const nsToMs = (ns: number) => round(ns / 1e6);
+  const nsToMs = (ns: number) => roundTenth(ns / 1e6);
   const channels = [...ipcStats.entries()]
     .sort((a, b) => b[1].syncMs - a[1].syncMs || b[1].calls - a[1].calls)
     .slice(0, 12)
     .map(([channel, s]) => ({
       channel,
       calls: s.calls,
-      syncMs: round(s.syncMs),
-      maxSyncMs: round(s.maxSyncMs),
-      avgTotalMs: round(s.totalMs / Math.max(1, s.calls)),
+      syncMs: roundTenth(s.syncMs),
+      maxSyncMs: roundTenth(s.maxSyncMs),
+      avgTotalMs: roundTenth(s.totalMs / Math.max(1, s.calls)),
     }));
   const sends = [...sendCounts.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -495,7 +488,7 @@ function writeSummary(): void {
       type: m.type,
       name: m.name ?? m.serviceName,
       pid: m.pid,
-      cpu: round(m.cpu.percentCPUUsage),
+      cpu: roundTenth(m.cpu.percentCPUUsage),
       idleWakeups: m.cpu.idleWakeupsPerSecond,
       memMB: Math.round(m.memory.workingSetSize / 1024),
     }));
@@ -593,7 +586,7 @@ export function startLagProbe(): void {
       accessibilitySupport: app.isAccessibilitySupportEnabled(),
       spellcheck,
       gpu: app.getGPUFeatureStatus(),
-      readyAfterS: round((performance.now() - startedAt) / 1000),
+      readyAfterS: roundTenth((performance.now() - startedAt) / 1000),
     },
     true
   );

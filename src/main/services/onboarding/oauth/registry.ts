@@ -6,10 +6,6 @@ const providers = new Map<OAuthConnectionProviderId, OAuthPkceProviderDefinition
   [openRouterOAuthProvider.id, openRouterOAuthProvider],
 ]);
 
-export function registerOAuthProvider(provider: OAuthPkceProviderDefinition): void {
-  providers.set(provider.id, provider);
-}
-
 export function listOAuthProviders(): OAuthPkceProviderDefinition[] {
   return Array.from(providers.values());
 }

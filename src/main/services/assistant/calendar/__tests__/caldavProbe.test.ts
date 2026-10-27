@@ -38,7 +38,7 @@ describe('parseCaldavProbeOutput', () => {
     const out = 'CALDAV_PROBE {"status": "unreachable", "error": "failed with s3cret in it"}';
     expect(parseCaldavProbeOutput(out, 's3cret')).toEqual({
       status: 'unreachable',
-      error: 'failed with [REDACTED] in it',
+      error: 'failed with «redacted» in it',
     });
   });
 

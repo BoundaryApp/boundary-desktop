@@ -1,39 +1,4 @@
-import React from 'react';
-import { createFileLogger } from '../../shared/utils/logger';
-
-const log = createFileLogger(undefined, 'renderer:debug');
-
-interface RenderTrackerProps {
-  name: string;
-  children?: React.ReactNode;
-}
-
-/** Debug component to track renders */
-export class RenderTracker extends React.Component<RenderTrackerProps> {
-  renderCount: number;
-
-  constructor(props: RenderTrackerProps) {
-    super(props);
-    this.renderCount = 0;
-  }
-
-  componentDidMount() {
-    log(`[RENDER TRACKER] ${this.props.name} mounted`);
-  }
-
-  componentDidUpdate() {
-    this.renderCount++;
-    log(`[RENDER TRACKER] ${this.props.name} rendered ${this.renderCount} times`);
-
-    if (this.renderCount > 10) {
-      console.error(`[RENDER TRACKER] ${this.props.name} has rendered too many times!`);
-    }
-  }
-
-  render() {
-    return this.props.children;
-  }
-}
+import React, { Component } from 'react';
 
 interface ErrorBoundaryProps {
   children?: React.ReactNode;
@@ -46,7 +11,7 @@ interface ErrorBoundaryState {
 }
 
 /** Error boundary to catch infinite re-renders */
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null };

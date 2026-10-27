@@ -17,6 +17,7 @@ import {
   stageHostFolderHermesProjects,
 } from '../assistant/hermes/hermesProjects';
 import { displayHostPath } from '../assistant/hermes/hermesProjectsOverlay';
+import { dialogStartFolder, rememberDialogPick } from '../dialogFolders';
 import {
   getSetupProgress,
   recordOptionalStepOutcome,
@@ -24,7 +25,7 @@ import {
 } from './SetupProgressStore';
 
 /** The setup flow's Folders step (first-run spec, Phase 2). */
-export const FOLDERS_STEP_ID = 'folders';
+const FOLDERS_STEP_ID = 'folders';
 
 /** A picked folder with the ADR 0028 §5 refusal, if any. */
 export function judgeFirstRunFolder(hostPath: string): FirstRunFolderPick {
@@ -43,10 +44,12 @@ export async function pickFirstRunFolders(): Promise<PickFirstRunFoldersResult> 
     properties: ['openDirectory', 'multiSelections', 'createDirectory'],
     title: 'Choose folders',
     message: 'Choose folders for your assistant to work in',
+    defaultPath: dialogStartFolder(),
   });
   if (picked.canceled || picked.filePaths.length === 0) {
     return { canceled: true, folders: [] };
   }
+  rememberDialogPick(picked.filePaths[0]);
   return { folders: picked.filePaths.map(judgeFirstRunFolder) };
 }
 

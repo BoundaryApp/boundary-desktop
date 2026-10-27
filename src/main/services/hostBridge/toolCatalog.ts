@@ -6,8 +6,8 @@
  * calendar connect or removal already makes, and Hermes lists the tools again as it reconnects.
  */
 
-export interface HostToolDefinition {
-  name: string;
+export interface HostToolDefinition<Name extends string = string> {
+  name: Name;
   title: string;
   description: string;
   inputSchema: {
@@ -29,14 +29,18 @@ export const WRITE_FILE_MAX_CHARS = 5 * 1024 * 1024;
 /** How long a file chosen with pick_files stays readable. */
 export const PICKED_FILE_GRANT_MS = 24 * 60 * 60 * 1000;
 
-export const OFFER_SETUP_TOOL = 'offer_setup';
+const OFFER_SETUP_TOOL = 'offer_setup';
 /** What `offer_setup` can offer. Only calendars so far. */
 export const SETUP_KINDS = ['calendar'] as const;
-export type SetupKind = (typeof SETUP_KINDS)[number];
 
 const ASKS = 'The user approves it in Boundary; if they decline, do not retry.';
 
-export const HOST_TOOLS: readonly HostToolDefinition[] = [
+/** Keeps each tool's name as a literal, so `HostToolName` lists exactly the catalog. */
+function defineHostTools<const Name extends string>(tools: readonly HostToolDefinition<Name>[]) {
+  return tools;
+}
+
+export const HOST_TOOLS = defineHostTools([
   {
     // Named for where it lands: "notify" alone lost to Hermes's own send_message tool, which
     // delivered a "send me a notification" request to Signal instead.
@@ -50,10 +54,13 @@ export const HOST_TOOLS: readonly HostToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string', maxLength: NOTIFY_TITLE_MAX, description: 'Short headline.' },
-        body: { type: 'string', maxLength: NOTIFY_BODY_MAX, description: 'Optional detail line.' },
+        title: {
+          type: 'string',
+          maxLength: NOTIFY_TITLE_MAX,
+          description: 'Short headline. Defaults to "Boundary".',
+        },
+        body: { type: 'string', maxLength: NOTIFY_BODY_MAX, description: 'Detail line.' },
       },
-      required: ['title'],
       additionalProperties: false,
     },
   },
@@ -161,7 +168,14 @@ export const HOST_TOOLS: readonly HostToolDefinition[] = [
       additionalProperties: false,
     },
   },
-];
+]);
+
+/** The one list of tool names: main's dispatch (`hostTools.ts`) is keyed by it. */
+export type HostToolName = (typeof HOST_TOOLS)[number]['name'];
+
+export function isHostToolName(name: string): name is HostToolName {
+  return HOST_TOOLS.some((tool) => tool.name === name);
+}
 
 /** The tools `tools/list` returns now. */
 export function listedHostTools(state: { offerCalendarSetup: boolean }): HostToolDefinition[] {

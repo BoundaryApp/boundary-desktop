@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CodingAccessRequestEvent,
-  CodingAgentBusy,
   CodingFoldersResult,
 } from '../../../shared/types/codingFolders';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
+import { InterruptCard } from '../../components/ui/interrupt-card';
 import { displayHostPath } from './chatTelemetryFormat';
-import { queueCodingChange, runCodingChange } from './codingFoldersStore';
+import {
+  createAndList,
+  grantAndList,
+  type CodingChangeMode,
+  type CodingChangeRun,
+} from './codingFoldersStore';
+import { useCodingGrant } from './useCodingGrant';
+import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 
 /**
  * Coding-access card (ADR 0028 §9, mock flow 3). A coding task asked for a folder outside the
@@ -21,8 +27,6 @@ interface CodingAccessInterruptProps {
   queueSize: number;
   onResolved: (followUp: string | null) => void;
 }
-
-type Mode = 'now' | 'stop' | 'queue';
 
 function parentOf(hostPath: string): string {
   const index = hostPath.replace(/\/+$/, '').lastIndexOf('/');
@@ -44,107 +48,104 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
   const [target, setTarget] = useState(request.hostPath);
   const [initGit, setInitGit] = useState(true);
   const [gitAvailable, setGitAvailable] = useState(true);
-  const [agent, setAgent] = useState<CodingAgentBusy | null>(null);
+  const { agent, check, apply, reset } = useCodingGrant();
   const [working, setWorking] = useState(false);
+  const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const allowRef = useRef<HTMLButtonElement | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const create = !request.exists;
   const name = target.split('/').filter(Boolean).pop() ?? target;
 
   useEffect(() => {
     setTarget(request.hostPath);
-    setAgent(null);
+    reset();
     setError(null);
     allowRef.current?.focus();
     if (!request.exists) {
-      void hermesChatIPC
-        .newCodingFolderDefaults()
+      void window.electronAPI.codingFolders
+        .newFolderDefaults()
         .then((defaults) => {
           setGitAvailable(defaults.gitAvailable);
           setInitGit(defaults.gitAvailable);
         })
         .catch((): undefined => undefined);
     }
-  }, [request]);
+  }, [request, reset]);
 
-  const run = useCallback(
-    (stopRunningTask: boolean): Promise<CodingFoldersResult> => {
-      const projectId = request.projectId;
-      const listInProject = async (hostPath: string | undefined) => {
-        if (projectId && hostPath) await hermesChatIPC.addSourceFolder({ projectId, hostPath });
-      };
-      // A project's own folder: turn on its coding switch rather than add a second grant.
-      if (request.projectFolderId) {
-        return hermesChatIPC.setProjectFolderCoding({
-          projectId: request.projectFolderId,
+  const run = useCallback((): CodingChangeRun => {
+    // A project's own folder: turn on its coding switch rather than add a second grant.
+    if (request.projectFolderId) {
+      const projectId = request.projectFolderId;
+      return (stopRunningTask) =>
+        window.electronAPI.codingFolders.setProjectFolder({
+          projectId,
           enabled: true,
           stopRunningTask,
         });
+    }
+    if (create) {
+      return createAndList({
+        projectId: request.projectId,
+        parent: parentOf(target),
+        name,
+        initGit,
+      });
+    }
+    return grantAndList({ projectId: request.projectId, hostPath: target, origin: 'chat' });
+  }, [create, initGit, name, request.projectFolderId, request.projectId, target]);
+
+  const finish = useCallback(
+    (result: CodingFoldersResult) => {
+      if (result.success) {
+        onResolved(followUpFor(target, create));
+      } else if (!result.busy?.busy) {
+        setError(result.error ?? 'The coding agent couldn’t be given access.');
       }
-      if (create) {
-        return hermesChatIPC
-          .createCodingFolder({
-            projectId,
-            parent: parentOf(target),
-            name,
-            initGit,
-            grant: true,
-            stopRunningTask,
-          })
-          .then(async (result) => {
-            if (result.success) await listInProject(result.hostPath);
-            return result;
-          });
-      }
-      return hermesChatIPC
-        .grantCodingFolder({ projectId, hostPath: target, origin: 'chat', stopRunningTask })
-        .then(async (result) => {
-          if (result.grants.some((grant) => grant.resource === target)) await listInProject(target);
-          return result;
-        });
     },
-    [create, initGit, name, request.projectFolderId, request.projectId, target]
+    [create, onResolved, target]
   );
 
   const decide = useCallback(
-    async (mode: Mode) => {
-      setWorking(true);
+    async (mode: CodingChangeMode) => {
       setError(null);
+      if (mode === 'queue') {
+        // The card stays dismissable while it waits; the folder row shows Queued. The
+        // follow-up goes only to a chat that still shows this card.
+        setQueued(true);
+        const result = await apply([target], 'queue', run());
+        if (!mounted.current) return;
+        setQueued(false);
+        finish(result);
+        return;
+      }
+      setWorking(true);
       try {
-        const result =
-          mode === 'queue'
-            ? await queueCodingChange([target], run)
-            : await runCodingChange([target], () => run(mode === 'stop'));
-        if (result.success) {
-          onResolved(followUpFor(target, create));
-          return;
-        }
-        if (result.busy?.busy) {
-          setAgent(result.busy);
-          return;
-        }
-        setError(result.error ?? 'The coding agent couldn’t be given access.');
+        finish(await apply([target], mode, run()));
       } finally {
-        setWorking(false);
+        if (mounted.current) setWorking(false);
       }
     },
-    [create, onResolved, run, target]
+    [apply, finish, run, target]
   );
 
   const allow = useCallback(async () => {
-    if (working) return;
-    const busy = await hermesChatIPC
-      .codingAgentBusy()
-      .catch((): CodingAgentBusy => ({ busy: false, sessions: [] }));
-    if (busy.busy) {
-      setAgent(busy);
-      return;
-    }
+    if (working || queued) return;
+    const busy = await check();
+    if (busy.busy) return;
     await decide('now');
-  }, [decide, working]);
+  }, [check, decide, queued, working]);
 
   const changeLocation = async () => {
-    const picked = await hermesChatIPC.pickCodingParent(parentOf(target));
+    const picked = await window.electronAPI.codingFolders.pickParent({
+      defaultPath: parentOf(target),
+    });
     if (picked.canceled) return;
     if (!picked.success || !picked.hostPath) {
       setError(picked.error ?? 'That location can’t be used.');
@@ -153,155 +154,129 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
     setTarget(`${picked.hostPath.replace(/\/+$/, '')}/${name}`);
   };
 
-  const countLabel = queueSize > 1 ? `1 / ${queueSize}` : null;
+  // While a queued grant waits, only Not now and Escape stay live.
+  const locked = working || queued;
   const kicker = request.refuseMessage ? 'Coding access' : create ? 'New folder' : 'Coding access';
 
   return (
-    <div className="wb-approve-host">
-      <div
-        className={`wb-approve wb-coding-access${queueSize > 1 ? ' is-stack' : ''}`}
-        role="alertdialog"
-        aria-labelledby="wb-coding-access-title"
-        aria-busy={working}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !working) {
-            event.preventDefault();
-            onResolved(null);
-          }
-        }}
-      >
-        <div className="kicker">
-          <span title={kicker}>{kicker}</span>
-          {countLabel ? <span className="count">{countLabel}</span> : null}
-        </div>
+    <InterruptCard
+      className="wb-coding-access"
+      labelledBy="wb-coding-access-title"
+      kicker={kicker}
+      queueSize={queueSize}
+      busy={working}
+      onEscape={() => onResolved(null)}
+    >
 
-        {request.refuseMessage ? (
-          <>
-            <h3 id="wb-coding-access-title">Hermes asked for a folder Boundary won’t share</h3>
-            <pre className="cmd mono">{displayHostPath(request.hostPath)}</pre>
-            <p className="why">{request.refuseMessage}</p>
-            <div className="wb-approve-actions">
+      {request.refuseMessage ? (
+        <>
+          <h3 id="wb-coding-access-title">Hermes asked for a folder Boundary won’t share</h3>
+          <pre className="cmd mono">{displayHostPath(request.hostPath)}</pre>
+          <p className="why">{request.refuseMessage}</p>
+          <div className="wb-approve-actions">
+            <button
+              ref={allowRef}
+              type="button"
+              className="reject"
+              onClick={() => onResolved(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <h3 id="wb-coding-access-title">
+            {create
+              ? `Create ${name} and let the coding agent work there?`
+              : request.projectFolderName
+                ? `Let the coding agent work in ${request.projectFolderName}’s folder?`
+                : `Let the coding agent work in ${name}?`}
+          </h3>
+          <div className="wb-coding-access-path">
+            <pre className="cmd mono">
+              {displayHostPath(target)}
+              {!create && request.isGit ? ' · git' : ''}
+            </pre>
+            {create ? (
+              <button
+                type="button"
+                className="more"
+                disabled={locked}
+                onClick={() => void changeLocation()}
+              >
+                Change…
+              </button>
+            ) : null}
+          </div>
+          {create ? (
+            <label className="wb-coding-access-git">
+              <input
+                type="checkbox"
+                checked={initGit}
+                disabled={!gitAvailable || locked}
+                onChange={(e) => setInitGit(e.target.checked)}
+              />
+              {gitAvailable
+                ? 'Start a git repo, so every change can be undone'
+                : 'Git isn’t installed on this Mac, so Boundary can’t start a repo'}
+            </label>
+          ) : null}
+          <ul className="wb-coding-access-list">
+            {create ? (
+              <li>
+                Boundary creates the folder{projectName ? ` and adds it to ${projectName}` : ''}.
+              </li>
+            ) : null}
+            <li>
+              The coding agent can edit files and run commands there, such as npm install and
+              tests, without asking first.
+            </li>
+            {!create && request.isGit ? <li>Git keeps every change reversible.</li> : null}
+            <li>Secrets in top-level .env files stay hidden from it.</li>
+            <li>Adding it restarts the coding agent, which takes about 10 seconds.</li>
+          </ul>
+          {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="interrupt" /> : null}
+          {error ? <p className="why is-warn">{error}</p> : null}
+          <div className="wb-approve-actions">
+            {agent?.busy ? (
+              <CodingBusyButtons
+                verb="add"
+                look="interrupt"
+                queued={queued}
+                disabled={locked}
+                onChoose={(mode) => void decide(mode)}
+              />
+            ) : (
               <button
                 ref={allowRef}
                 type="button"
-                className="reject"
-                onClick={() => onResolved(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <h3 id="wb-coding-access-title">
-              {create
-                ? `Create ${name} and let the coding agent work there?`
-                : request.projectFolderName
-                  ? `Let the coding agent work in ${request.projectFolderName}’s folder?`
-                  : `Let the coding agent work in ${name}?`}
-            </h3>
-            <div className="wb-coding-access-path">
-              <pre className="cmd mono">
-                {displayHostPath(target)}
-                {!create && request.isGit ? ' · git' : ''}
-              </pre>
-              {create ? (
-                <button
-                  type="button"
-                  className="more"
-                  disabled={working}
-                  onClick={() => void changeLocation()}
-                >
-                  Change…
-                </button>
-              ) : null}
-            </div>
-            {create ? (
-              <label className="wb-coding-access-git">
-                <input
-                  type="checkbox"
-                  checked={initGit}
-                  disabled={!gitAvailable || working}
-                  onChange={(e) => setInitGit(e.target.checked)}
-                />
-                {gitAvailable
-                  ? 'Start a git repo, so every change can be undone'
-                  : 'Git isn’t installed on this Mac, so Boundary can’t start a repo'}
-              </label>
-            ) : null}
-            <ul className="wb-coding-access-list">
-              {create ? (
-                <li>
-                  Boundary creates the folder{projectName ? ` and adds it to ${projectName}` : ''}.
-                </li>
-              ) : null}
-              <li>
-                The coding agent can edit files and run commands there, such as npm install and
-                tests, without asking first.
-              </li>
-              {!create && request.isGit ? <li>Git keeps every change reversible.</li> : null}
-              <li>Secrets in top-level .env files stay hidden from it.</li>
-              <li>Adding it restarts the coding agent, which takes about 10 seconds.</li>
-            </ul>
-            {agent?.busy ? (
-              <p className="why is-warn">
-                A coding task is running
-                {agent.sessions.length ? ` (${agent.sessions.join(', ')})` : ''}. Restarting the
-                coding agent stops it.
-              </p>
-            ) : null}
-            {error ? <p className="why is-warn">{error}</p> : null}
-            <div className="wb-approve-actions">
-              {agent?.busy ? (
-                <>
-                  <button
-                    type="button"
-                    className="run"
-                    disabled={working}
-                    onClick={() => void decide('queue')}
-                  >
-                    Add when it finishes
-                  </button>
-                  <button
-                    type="button"
-                    className="more"
-                    disabled={working}
-                    onClick={() => void decide('stop')}
-                  >
-                    Stop task and add
-                  </button>
-                </>
-              ) : (
-                <button
-                  ref={allowRef}
-                  type="button"
-                  className="run"
-                  disabled={working}
-                  onClick={() => void allow()}
-                >
-                  {working
-                    ? 'Connecting…'
-                    : request.projectFolderId
-                      ? 'Allow coding'
-                      : create
-                        ? 'Create and add for coding'
-                        : projectName
-                          ? `Add to ${projectName} for coding`
-                          : 'Give coding access'}
-                </button>
-              )}
-              <button
-                type="button"
-                className="reject"
+                className="run"
                 disabled={working}
-                onClick={() => onResolved(null)}
+                onClick={() => void allow()}
               >
-                Not now
+                {working
+                  ? 'Connecting…'
+                  : request.projectFolderId
+                    ? 'Allow coding'
+                    : create
+                      ? 'Create and add for coding'
+                      : projectName
+                        ? `Add to ${projectName} for coding`
+                        : 'Give coding access'}
               </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+            )}
+            <button
+              type="button"
+              className="reject"
+              disabled={working}
+              onClick={() => onResolved(null)}
+            >
+              Not now
+            </button>
+          </div>
+        </>
+      )}
+    </InterruptCard>
   );
 };

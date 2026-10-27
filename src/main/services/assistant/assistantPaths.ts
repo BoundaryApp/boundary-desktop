@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
 import { BOUNDARY_ASSISTANT_OVERLAY_FILENAME } from '../../../shared/assistantStackConstants';
 import { persistDebugLog } from '../../persistDebugLog';
+import { readEnvFile } from './stackEnv';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,35 +72,8 @@ export function resolveAssistantDataRoot(projectRoot?: string): string {
   return path.join(projectRoot ?? resolveAssistantProjectRoot(), 'data');
 }
 
-/** Parse KEY=value lines from an assistant-stack `.env` file. */
-export function parseAssistantEnvFile(contents: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    out[key] = value;
-  }
-  return out;
-}
-
 export function readAssistantEnvFile(projectRoot: string): Record<string, string> {
-  const envPath = path.join(projectRoot, '.env');
-  if (!fs.existsSync(envPath)) return {};
-  try {
-    return parseAssistantEnvFile(fs.readFileSync(envPath, 'utf8'));
-  } catch {
-    return {};
-  }
+  return readEnvFile(path.join(projectRoot, '.env'));
 }
 
 function expandAssistantEnvPath(raw: string, projectRoot: string): string {

@@ -1,6 +1,5 @@
-import { useSyncExternalStore } from 'react';
 import type { HermesRunningTurn } from '../../../shared/types/hermesChat';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
+import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
 
 // Turns running on Hermes, from main (hermesRunningTurns). One subscription for the whole
 // renderer; every list, row and thread reads it, so a turn left running when its chat
@@ -11,39 +10,24 @@ const EMPTY: HermesRunningTurn[] = [];
 // shows the reply; any other turn ending means the open chat's history is stale. Kept
 // after the turn ends (ids are unique) and released only when the screen detaches.
 const owned = new Set<string>();
-let turns: HermesRunningTurn[] = EMPTY;
-let started = false;
-const listeners = new Set<() => void>();
 
-function set(next: HermesRunningTurn[]): void {
-  turns = next.length > 0 ? next : EMPTY;
-  for (const listener of listeners) listener();
-}
-
-function start(): void {
-  if (started) return;
-  started = true;
-  try {
-    hermesChatIPC.onRunningTurns(set);
-    void hermesChatIPC
+const store = createIpcStore<HermesRunningTurn[]>({
+  initial: EMPTY,
+  start: () => {
+    window.electronAPI.hermesChat.onRunningTurns(set);
+    void window.electronAPI.hermesChat
       .listRunningTurns()
       .then(set)
       .catch((): void => undefined);
-  } catch {
-    /* no preload bridge (isolated tests) */
-  }
-}
+  },
+});
 
-function subscribe(listener: () => void): () => void {
-  start();
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+function set(next: HermesRunningTurn[]): void {
+  store.set(next.length > 0 ? next : EMPTY);
 }
-
-const snapshot = () => turns;
 
 export function useRunningTurns(): HermesRunningTurn[] {
-  return useSyncExternalStore(subscribe, snapshot, snapshot);
+  return useIpcStore(store);
 }
 
 /** The running turn for a chat, matching any id it may go by. */
@@ -70,5 +54,5 @@ export function isOwnedRunningTurn(requestId: string): boolean {
 
 /** @internal Vitest only. */
 export function setRunningTurnsForTests(next: HermesRunningTurn[]): void {
-  set(next);
+  store.setForTests(next.length > 0 ? next : EMPTY);
 }

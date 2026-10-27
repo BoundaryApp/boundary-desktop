@@ -101,6 +101,7 @@ export class CdpMux {
     if (!state) return;
     this.clients.delete(client);
     for (const [id, entry] of this.pending) if (entry.state === state) this.pending.delete(id);
+    for (const targetId of [...this.attachQueue.keys()]) this.unqueueAttach(targetId, state);
     for (const sessionId of state.sessions) {
       this.sessionOwner.delete(sessionId);
       this.sessionTarget.delete(sessionId);
@@ -217,8 +218,15 @@ export class CdpMux {
       const entry = this.pending.get(message.id);
       if (!entry) return;
       this.pending.delete(message.id);
-      if (entry.method === 'Target.attachToTarget' && message.result?.sessionId) {
-        this.own(message.result.sessionId, entry.state, entry.params.targetId);
+      if (entry.method === 'Target.attachToTarget') {
+        if (message.result?.sessionId) this.own(message.result.sessionId, entry.state, entry.params.targetId);
+        // Failed: no attachedToTarget will come for this attach.
+        else this.unqueueAttach(entry.params.targetId, entry.state);
+      }
+      if (entry.method === 'Target.getTargets' && message.sessionId === undefined) {
+        // Hide pages on blocked sites, as the emulated discovery does (announceTargets).
+        const infos = message.result?.targetInfos;
+        if (Array.isArray(infos)) message.result.targetInfos = infos.filter((info: TargetInfo) => this.visible(info));
       }
       const forward = () => entry.state.client.send({ ...message, id: entry.clientId });
       const createdId = entry.method === 'Target.createTarget' ? message.result?.targetId : undefined;
@@ -266,6 +274,7 @@ export class CdpMux {
       case 'Target.targetDestroyed':
       case 'Target.targetCrashed':
         this.targets.delete(params.targetId);
+        this.attachQueue.delete(params.targetId);
         for (const state of this.clients.values()) state.attachedTargets.delete(params.targetId);
         this.toDiscoverers(message);
         return;
@@ -333,13 +342,26 @@ export class CdpMux {
     return state;
   }
 
+  /** Remove one queued attach by `state` for the target, if there is one. */
+  private unqueueAttach(targetId: string, state: ClientState): void {
+    const queue = this.attachQueue.get(targetId);
+    const index = queue?.indexOf(state) ?? -1;
+    if (!queue || index < 0) return;
+    queue.splice(index, 1);
+    if (!queue.length) this.attachQueue.delete(targetId);
+  }
+
+  private visible(info: TargetInfo): boolean {
+    return !blockedUrlReason(info.url, this.options.policy());
+  }
+
   private toDiscoverers(message: Json): void {
     for (const state of this.clients.values()) if (state.discover) state.client.send(message);
   }
 
   private announceTargets(state: ClientState): void {
     for (const info of this.targets.values()) {
-      if (blockedUrlReason(info.url, this.options.policy())) continue;
+      if (!this.visible(info)) continue;
       state.client.send({ method: 'Target.targetCreated', params: { targetInfo: info } });
     }
   }

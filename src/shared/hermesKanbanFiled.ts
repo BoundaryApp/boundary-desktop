@@ -1,7 +1,7 @@
 import type { KanbanFiledTask } from './types/hermesKanban';
 
 /** The Hermes tool an agent files a kanban task with. */
-export const KANBAN_CREATE_TOOL = 'kanban_create';
+const KANBAN_CREATE_TOOL = 'kanban_create';
 
 /**
  * The task a `kanban_create` call filed, or null for any other tool. `result` is the tool's

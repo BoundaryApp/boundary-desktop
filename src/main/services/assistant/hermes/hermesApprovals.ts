@@ -5,13 +5,12 @@ import type {
   HermesChatApprovalRespondPayload,
 } from '../../../../shared/types/hermesChat';
 import type { ServerRequest } from './vendor/json-rpc-channel';
+import { ParkedRequests, type ParkedResponder } from './parkedRequests';
 
-type PendingApproval = {
-  request: ServerRequest;
-  event: HermesChatApprovalEvent;
-};
+const parked = new ParkedRequests<HermesChatApprovalEvent>();
 
-const pendingByRpcId = new Map<string, PendingApproval>();
+/** Approvals replayed from `approval.pending` get a synthetic rpc id with this prefix. */
+export const REPLAYED_APPROVAL_PREFIX = 'pending:';
 
 const VALID_CHOICES: readonly HermesApprovalChoice[] = [
   'once',
@@ -63,7 +62,15 @@ export function parseApprovalMcp(value: unknown): HermesApprovalMcpCall | undefi
   };
 }
 
-export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalEvent | null {
+/**
+ * Park an approval until the user answers it. `respond` sends the answer (the request's own by
+ * default). One approval reaches Boundary twice when a live request and an `approval.pending`
+ * replay both carry it: the live one is kept, since it answers over the socket that asked.
+ */
+export function parkApprovalRequest(
+  request: ServerRequest,
+  respond: ParkedResponder = request.respond
+): HermesChatApprovalEvent | null {
   if (request.method !== 'approval') return null;
 
   const params = request.params ?? {};
@@ -80,8 +87,6 @@ export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalE
       ? params.allow_permanent
       : undefined;
   const smartDenied = params.smart_denied === true;
-  const patternKey =
-    typeof params.pattern_key === 'string' ? params.pattern_key : undefined;
   const mcp = parseApprovalMcp(params.mcp);
 
   const event: HermesChatApprovalEvent = {
@@ -100,41 +105,59 @@ export function parkApprovalRequest(request: ServerRequest): HermesChatApprovalE
     allowSession,
     allowPermanent,
     smartDenied: smartDenied || undefined,
-    patternKey,
     replayed: Boolean(request.replayed),
     ...(mcp ? { mcp } : {}),
   };
 
-  pendingByRpcId.set(request.id, { request, event });
+  const same = parked.find(
+    (other) => other.sessionId === sessionId && other.approvalRequestId === approvalRequestId
+  );
+  if (same && same.rpcRequestId !== request.id) {
+    if (isReplayedApproval(request.id)) return same;
+    parked.drop(same.rpcRequestId);
+  }
+  parked.park(event, respond);
   return event;
 }
 
-export function respondToParkedApproval(
+function isReplayedApproval(rpcRequestId: string): boolean {
+  return rpcRequestId.startsWith(REPLAYED_APPROVAL_PREFIX);
+}
+
+/**
+ * Answer a parked approval. The choice is checked against the ones offered before anything
+ * is sent, and the approval stays parked when the answer couldn't be sent.
+ */
+export async function respondToParkedApproval(
   payload: HermesChatApprovalRespondPayload
-): { success: boolean; error?: string } {
-  const pending = pendingByRpcId.get(payload.rpcRequestId);
-  if (!pending) {
+): Promise<{ success: boolean; error?: string }> {
+  const event = parked.get(payload.rpcRequestId);
+  if (!event) {
     return { success: false, error: 'No pending approval for that request' };
   }
   if (!isHermesApprovalChoice(payload.choice)) {
     return { success: false, error: 'Invalid approval choice' };
   }
-  if (!pending.event.choices.includes(payload.choice)) {
+  if (!event.choices.includes(payload.choice)) {
     return { success: false, error: 'Choice not offered for this approval' };
   }
-
-  pending.request.respond({
+  return parked.answer(payload.rpcRequestId, {
     choice: payload.choice,
     ...(payload.all ? { all: true } : {}),
   });
-  pendingByRpcId.delete(payload.rpcRequestId);
-  return { success: true };
 }
 
-export function clearParkedApprovals(): void {
-  pendingByRpcId.clear();
+/** Forget a parked approval Hermes withdrew; true when one was parked. */
+export function dropParkedApproval(rpcRequestId: string): boolean {
+  return parked.drop(rpcRequestId);
 }
 
-export function listParkedApprovals(): HermesChatApprovalEvent[] {
-  return Array.from(pendingByRpcId.values()).map((p) => p.event);
+/** Forget every parked approval and return them. */
+export function clearParkedApprovals(): HermesChatApprovalEvent[] {
+  return parked.clear();
+}
+
+/** Approvals waiting on the user; with `sessionIds`, only those sessions'. */
+export function listParkedApprovals(sessionIds?: readonly string[]): HermesChatApprovalEvent[] {
+  return parked.list(sessionIds);
 }

@@ -1,6 +1,7 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { HostBridgeGrant } from '../../../shared/types/hostBridge';
 import { ComputerAccessPanel, describeGrant } from '../ComputerAccessPanel';
 
@@ -17,8 +18,10 @@ beforeEach(() => {
     listGrants: vi.fn(async () => grants),
     revokeGrant: vi.fn(async (grant: HostBridgeGrant) => grants.filter((g) => g.capability !== grant.capability)),
     revokeAllGrants: vi.fn(async () => []),
+    agentStopped: vi.fn(async (stopped?: boolean) => ({ stopped: stopped ?? false })),
+    rotateTokens: vi.fn(async () => ({ success: true })),
   };
-  (window as unknown as { electronAPI: unknown }).electronAPI = { hostBridge };
+  stubElectronAPI({ hostBridge });
 });
 
 afterEach(() => cleanup());
@@ -43,5 +46,114 @@ describe('ComputerAccessPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke all' }));
     expect(await screen.findByText('Nothing is always allowed. Hermes asks each time.')).toBeTruthy();
+  });
+});
+
+describe('Stop agent', () => {
+  it('stops the agent, shows that it is stopped, and turns access back on', async () => {
+    render(<ComputerAccessPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop agent' }));
+    expect(await screen.findByText(/Agent stopped\. Hermes can’t/)).toBeTruthy();
+    expect(hostBridge.agentStopped).toHaveBeenLastCalledWith(true);
+    expect(screen.queryByRole('button', { name: 'Stop agent' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn access back on' }));
+    expect(await screen.findByRole('button', { name: 'Stop agent' })).toBeTruthy();
+    expect(hostBridge.agentStopped).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByText(/Agent stopped/)).toBeNull();
+  });
+
+  it('opens stopped when the agent was stopped before', async () => {
+    hostBridge.agentStopped.mockResolvedValueOnce({ stopped: true });
+    render(<ComputerAccessPanel />);
+    expect(await screen.findByRole('button', { name: 'Turn access back on' })).toBeTruthy();
+    expect(hostBridge.agentStopped).toHaveBeenCalledWith();
+  });
+
+  it('says so when access is back on but the bridge did not start', async () => {
+    hostBridge.agentStopped
+      .mockResolvedValueOnce({ stopped: true })
+      .mockResolvedValueOnce({ stopped: false, error: 'Host bridge did not start in time.' });
+    render(<ComputerAccessPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn access back on' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/did not start in time/);
+  });
+});
+
+describe('Rotate tokens', () => {
+  it('shows it is working, then that the new tokens are in use', async () => {
+    let finish!: (result: { success: boolean }) => void;
+    hostBridge.rotateTokens.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    render(<ComputerAccessPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rotate tokens' }));
+    const button = await screen.findByRole('button', { name: 'Rotating…' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Stop agent' }) as HTMLButtonElement).disabled).toBe(true);
+
+    finish({ success: true });
+    expect(await screen.findByText('New tokens are in use. The old ones no longer work.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Rotate tokens' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('says what failed', async () => {
+    hostBridge.rotateTokens.mockResolvedValueOnce({
+      success: false,
+      error: 'Hermes didn’t get the new tokens: Assistant stack is not ready.',
+    });
+    render(<ComputerAccessPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rotate tokens' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Hermes didn’t get the new tokens/);
+    expect(screen.queryByText(/New tokens are in use/)).toBeNull();
+  });
+
+  it('is hidden while the agent is stopped, since Stop agent already rotated them', async () => {
+    hostBridge.agentStopped.mockResolvedValueOnce({ stopped: true });
+    render(<ComputerAccessPanel />);
+    await screen.findByRole('button', { name: 'Turn access back on' });
+    expect(screen.queryByRole('button', { name: 'Rotate tokens' })).toBeNull();
+  });
+
+  it('says so when access is back on but Hermes did not get the new tokens', async () => {
+    hostBridge.agentStopped
+      .mockResolvedValueOnce({ stopped: true })
+      .mockResolvedValueOnce({ stopped: false, hermesError: 'No configured LLM connection to apply.' });
+    render(<ComputerAccessPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn access back on' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Hermes didn’t get the new tokens: No configured LLM/);
+  });
+});
+
+describe('when main fails', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function flush() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  }
+
+  it('says Stop agent failed and leaves the button to try again', async () => {
+    hostBridge.agentStopped
+      .mockResolvedValueOnce({ stopped: false })
+      .mockRejectedValueOnce(new Error('store write failed'));
+    render(<ComputerAccessPanel />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop agent' }));
+    await flush();
+
+    expect(screen.getByRole('alert').textContent).toBe('Couldn’t stop the agent: store write failed');
+    expect((screen.getByRole('button', { name: 'Stop agent' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('says a revoke failed and keeps the grant listed', async () => {
+    hostBridge.revokeGrant.mockRejectedValueOnce(new Error('store write failed'));
+    render(<ComputerAccessPanel />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke: Show desktop notifications' }));
+    await flush();
+
+    expect(screen.getByRole('alert').textContent).toBe('Couldn’t revoke: store write failed');
+    expect(screen.getByText('Show desktop notifications')).toBeTruthy();
   });
 });

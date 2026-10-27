@@ -3,11 +3,6 @@ import type {
   HostBridgeApprovalChoice,
   HostBridgeApprovalEvent,
 } from '../../../shared/types/hostBridge';
-import { hostBridgeIPC } from '../../services/hostBridgeIPCService';
-
-function bridgeAvailable(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.electronAPI?.hostBridge);
-}
 
 /**
  * Host-bridge approvals waiting on the user (ADR 0027 §7), oldest first. Picks up any that were
@@ -19,15 +14,26 @@ export function useHostBridgeApprovals() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!bridgeAvailable()) return;
+    let cancelled = false;
+    // Cleared while the pending list is in flight: the list may still carry them.
+    const cleared = new Set<string>();
     const add = (event: HostBridgeApprovalEvent) =>
       setApprovals((prev) => (prev.some((item) => item.id === event.id) ? prev : [...prev, event]));
-    const unsubApproval = hostBridgeIPC.onApproval(add);
-    const unsubCleared = hostBridgeIPC.onApprovalCleared(({ id }) =>
-      setApprovals((prev) => prev.filter((item) => item.id !== id))
-    );
-    void hostBridgeIPC.listPendingApprovals().then((pending) => pending.forEach(add));
+    const unsubApproval = window.electronAPI.hostBridge.onApproval(add);
+    const unsubCleared = window.electronAPI.hostBridge.onApprovalCleared(({ id }) => {
+      cleared.add(id);
+      setApprovals((prev) => prev.filter((item) => item.id !== id));
+    });
+    void window.electronAPI.hostBridge
+      .listPendingApprovals()
+      .then((pending) => {
+        if (!cancelled) pending.filter((item) => !cleared.has(item.id)).forEach(add);
+      })
+      .catch(() => {
+        /* best effort: live approvals still arrive */
+      });
     return () => {
+      cancelled = true;
       unsubApproval();
       unsubCleared();
     };
@@ -42,7 +48,7 @@ export function useHostBridgeApprovals() {
       const { id } = approval;
       setBusy(true);
       try {
-        await hostBridgeIPC.respondApproval({ id, choice });
+        await window.electronAPI.hostBridge.respondApproval({ id, choice });
         // Settled or already gone: either way it leaves the queue.
         setApprovals((prev) => prev.filter((item) => item.id !== id));
       } finally {

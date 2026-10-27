@@ -58,7 +58,7 @@ function findStoredMatch(
  * Merge gateway `projects.list` (FS library source of truth) into Boundary store records.
  * Preserves Boundary UUIDs when rematching by hermesProjectId / containerPath / slug.
  */
-export function mergeGatewayProjectsIntoStore(options: {
+function mergeGatewayProjectsIntoStore(options: {
   stored: readonly HermesProjectRecord[];
   gateway: HermesProjectsListPayload;
   dataRoot: string;
@@ -89,17 +89,25 @@ export function mergeGatewayProjectsIntoStore(options: {
         relToLibrary === '' ||
         (!relToLibrary.startsWith('..') && !path.isAbsolute(relToLibrary));
       const isHostOutsideLibrary = existing.kind === 'host-folder' && !isUnderLibrary;
+      const name = gp.name || existing.name;
+      const hostPath = isHostOutsideLibrary
+        ? existing.hostPath
+        : hostPathForLibrarySlug(dataRoot, slug);
+      // updatedAt orders the picker by last use, so only a change the user sees moves it.
+      const seenChange =
+        name !== existing.name ||
+        slug !== existing.slug ||
+        containerPath !== existing.containerPath ||
+        hostPath !== existing.hostPath;
       merged.push({
         ...existing,
-        name: gp.name || existing.name,
+        name,
         slug,
         containerPath,
         hermesProjectId: gp.id,
-        hostPath: isHostOutsideLibrary
-          ? existing.hostPath
-          : hostPathForLibrarySlug(dataRoot, slug),
+        hostPath,
         kind: isHostOutsideLibrary ? 'host-folder' : 'empty',
-        updatedAt: now,
+        updatedAt: seenChange ? now : existing.updatedAt,
       });
     } else if (isLibraryContainerPath(containerPath)) {
       merged.push({

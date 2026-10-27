@@ -8,6 +8,7 @@ import {
 import {
   clearProjectInferenceForProvider,
   patchHermesProject,
+  retargetProjectInferenceModel,
 } from '../hermesProjects';
 import {
   getStoredHermesProject,
@@ -91,5 +92,27 @@ describe('patchHermesProject', () => {
     });
     clearProjectInferenceForProvider('openrouter');
     expect(getStoredHermesProject('p1')?.inference?.mode).toBe('inherit');
+  });
+
+  it('moves pins for a provider to its newly saved model', async () => {
+    await saveLlmConnection({
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-key',
+      modelId: 'anthropic/claude-sonnet-4',
+      provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
+    });
+    await patchHermesProject({
+      projectId: 'p1',
+      inference: { mode: 'openrouter', privacyLocalOnly: false },
+    });
+    retargetProjectInferenceModel('openrouter', 'anthropic/claude-sonnet-4.5');
+    expect(getStoredHermesProject('p1')?.inference).toEqual({
+      mode: 'openrouter',
+      modelId: 'anthropic/claude-sonnet-4.5',
+      privacyLocalOnly: false,
+    });
+    retargetProjectInferenceModel('local', 'qwen3:14b');
+    expect(getStoredHermesProject('p1')?.inference?.modelId).toBe('anthropic/claude-sonnet-4.5');
   });
 });

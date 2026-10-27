@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { BoundaryBrowserState, HostBridgeBrowserSettings } from '../../shared/types/hostBridge';
-import { hostBridgeIPC } from '../services/hostBridgeIPCService';
 import { InfoTip } from '../components/ui/info-tip';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
@@ -38,9 +37,9 @@ export const AgentBrowserPanel: React.FC = () => {
 
   useEffect(() => {
     let alive = true;
-    void hostBridgeIPC.getBrowserState().then((next) => alive && adopt(next, true));
+    void window.electronAPI.hostBridge.getBrowserState().then((next) => alive && adopt(next, true));
     const timer = setInterval(() => {
-      void hostBridgeIPC.getBrowserState().then((next) => alive && adopt(next, false));
+      void window.electronAPI.hostBridge.getBrowserState().then((next) => alive && adopt(next, false));
     }, STATUS_POLL_MS);
     return () => {
       alive = false;
@@ -53,7 +52,7 @@ export const AgentBrowserPanel: React.FC = () => {
       setBusy(true);
       setNotice(null);
       try {
-        const result = await hostBridgeIPC.updateBrowserSettings(settings);
+        const result = await window.electronAPI.hostBridge.updateBrowserSettings(settings);
         adopt(result.state, true);
         setNotice(
           result.hermesError
@@ -73,9 +72,9 @@ export const AgentBrowserPanel: React.FC = () => {
     setBusy(true);
     setNotice(null);
     try {
-      const result = await hostBridgeIPC.openBrowser();
+      const result = await window.electronAPI.hostBridge.openBrowser();
       if (!result.success) setNotice({ tone: 'warn', text: result.error ?? 'Couldn’t open the browser.' });
-      adopt(await hostBridgeIPC.getBrowserState(), false);
+      adopt(await window.electronAPI.hostBridge.getBrowserState(), false);
     } finally {
       setBusy(false);
     }

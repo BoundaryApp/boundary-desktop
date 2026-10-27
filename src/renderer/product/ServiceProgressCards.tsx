@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import type { AssistantStackServiceProgress } from '../../shared/types/assistantStack';
 
@@ -25,22 +25,11 @@ export const ServiceProgressCards: React.FC<ServiceProgressCardsProps> = ({
       ? 'bg-warn'
       : 'bg-ok';
 
-  const highWaterRef = useRef<Record<string, number>>({});
-  const toneRef = useRef(tone);
-  if (toneRef.current !== tone) {
-    toneRef.current = tone;
-    highWaterRef.current = {};
-  }
-
   return (
     <div className="grid w-full grid-cols-2 gap-2">
       {services.map((service) => {
-        const highWater = Math.max(
-          highWaterRef.current[service.id] ?? 0,
-          service.progress
-        );
-        highWaterRef.current[service.id] = highWater;
-        const pct = Math.round(Math.min(1, Math.max(0, highWater)) * 100);
+        // Main keeps progress monotonic within a start and resets it for the next one.
+        const pct = Math.round(Math.min(1, Math.max(0, service.progress)) * 100);
         const complete = pct >= 100 && service.state === 'done';
         const active = isActivelyProgressing(service, complete);
         return (
@@ -63,7 +52,7 @@ export const ServiceProgressCards: React.FC<ServiceProgressCardsProps> = ({
                 {complete ? (
                   <span className="inline-flex items-center gap-1 text-xs text-ok">
                     <CheckCircle2 className="size-3.5" aria-hidden />
-                    {service.statusText === 'Stopped' ? 'Stopped' : service.statusText}
+                    {service.statusText}
                   </span>
                 ) : (
                   <span className="text-xs tabular-nums text-fg-faint">{pct}%</span>

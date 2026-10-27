@@ -223,10 +223,18 @@ describe('connectCalendar', () => {
     const pending = connect({ assistant: 'read' }).finally(() => {
       settled = true;
     });
-    // The service reads and writes real files before it starts polling, so keep the clock moving.
-    for (let i = 0; i < 100 && !settled; i += 1) await vi.advanceTimersByTimeAsync(1_000);
+    // The service reads and writes real files before it starts polling, and under load that
+    // takes any number of event-loop turns. Move the clock only while the service waits on a
+    // timer, so the fake clock can't run past the poll deadline before polling starts.
+    try {
+      while (!settled) {
+        if (vi.getTimerCount() > 0) await vi.advanceTimersToNextTimerAsync();
+        else await new Promise((resolve) => setImmediate(resolve));
+      }
+    } finally {
+      vi.useRealTimers();
+    }
     const result = await pending;
-    vi.useRealTimers();
     expect(result.success).toBe(true);
     expect(result.error).toMatch(/couldn’t connect to Personal/);
   });

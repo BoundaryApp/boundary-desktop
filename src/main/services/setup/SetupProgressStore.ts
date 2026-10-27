@@ -24,13 +24,14 @@ const DEFAULTS: SetupProgressStoreShape = {
 
 const store = new Store<SetupProgressStoreShape>({
   name: 'setup-progress',
-  defaults: DEFAULTS,
+  defaults: { ...DEFAULTS },
 });
 
 /**
  * On the first launch of a version with optional setup steps, note whether setup had already
  * finished and whether any project existed. Later launches leave both as they were, so
- * finishing setup in this version never marks the user as upgraded.
+ * finishing setup in this version never marks the user as upgraded. Called by the
+ * setup-history migration (src/main/migrations).
  */
 export function recordSetupHistoryOnce(facts: {
   setupComplete: boolean;

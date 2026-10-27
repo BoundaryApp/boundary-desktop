@@ -15,7 +15,6 @@ interface ChoiceRowProps {
   action?: React.ReactNode;
   /** Extra content under the description (pickers, errors). */
   children?: React.ReactNode;
-  disabled?: boolean;
 }
 
 /** One option in a setup choice list: title, one line of why, and one action. */
@@ -27,7 +26,6 @@ export const ChoiceRow: React.FC<ChoiceRowProps> = ({
   onSelect,
   action,
   children,
-  disabled = false,
 }) => {
   const frame = cn(
     'w-full rounded-lg border bg-surface-1 px-4 py-3 text-left transition-colors duration-(--dur-fast)',
@@ -54,10 +52,9 @@ export const ChoiceRow: React.FC<ChoiceRowProps> = ({
       <button
         type="button"
         onClick={onSelect}
-        disabled={disabled}
         className={cn(
           frame,
-          'cursor-pointer outline-none hover:bg-surface-hover focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:opacity-50'
+          'cursor-pointer outline-none hover:bg-surface-hover focus-visible:shadow-(--focus-ring)'
         )}
       >
         {header}

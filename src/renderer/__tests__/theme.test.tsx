@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from './electronApiFake';
 import { THEME_STORAGE_KEY } from '../../shared/theme';
 import { applyTheme, readStoredThemePreference, useThemePreference } from '../theme';
 import { Segmented } from '../components/ui/segmented';
@@ -45,7 +46,7 @@ describe('theme preference', () => {
       },
     });
     delete document.documentElement.dataset.theme;
-    (window as unknown as { electronAPI: unknown }).electronAPI = { appearance: { setTheme } };
+    stubElectronAPI({ appearance: { setTheme } });
   });
 
   afterEach(() => {

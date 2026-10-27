@@ -28,7 +28,6 @@ Every message shows its time and the next useful verbs on hover, without clutter
 - Thumbs up/down, deleting messages, share links.
 - Retrying as another agent.
 - Edit, Retry and Branch in channels (0008). Channel user posts live in Boundary's local overlay, not in the Hermes transcript, so truncation targets would not line up. Channels get the layout, time and Copy only.
-- Edit, Retry and Branch on HTTP-fallback threads. These have no gateway session. They get Copy and time only.
 
 ## Thin-wrapper map
 
@@ -91,7 +90,7 @@ Uses upstream truncation. Feature-detect until CR R1 is answered.
 1. **The renderer knows what Hermes holds.** `serverPath.ts` keeps the chain of runtime messages Hermes has, created with each runtime mount and seeded from hydrated history (fixed ids `hist-N`, with row ids). The adapter plans every run against it: a path that extends the chain is a normal send; one that stops at a prompt Hermes has is a rewind (Edit or Retry); one that leaves the chain earlier is an older version and is refused. No count or intent flag is involved, so turns added by another client can never trigger a cut.
 2. **Payload.** `HermesChatStartPayload.rewind` carries the replaced turn: user ordinal, row id when known, and its text.
 3. **Main confirms before cutting.** `startHermesChatStream` re-reads `session.history` right before the turn and plans with `hermesRewind.ts`: the row id is preferred; a live turn without one is found by ordinal; the stored text must still match; a turn Hermes never received becomes a plain send. Anything uncertain is refused (`rewind-stale` / `rewind-unsupported`), never guessed. The cut goes out as `truncate_before_row_id` + `confirm_truncate`, plus `confirm_empty_truncate` for the first prompt. Ordinal-only truncation is never sent (Hermes refuses it on durable sessions).
-4. **No silent fallback.** A refused or failed rewind reports a readable error on the reply. It never falls back to an HTTP turn Hermes would not see. `rewind-unsupported` and HTTP-fallback chats turn Edit and Retry off for that chat.
+4. **No silent fallback.** A refused or failed rewind reports a readable error on the reply. It never falls back to an HTTP turn Hermes would not see. `rewind-unsupported` turns Edit and Retry off for that chat.
 5. **Edit UI.**
    - `ActionBarPrimitive.Edit` opens an `EditComposer` in place, widened to the full column.
    - The caption reads "Sends as version N. The reply below stays with version N−1".
@@ -100,7 +99,7 @@ Uses upstream truncation. Feature-detect until CR R1 is answered.
 6. **Retry UI.** `ActionBarPrimitive.Reload` on replies. No ▾ menu until Phase 4: it would hold one option.
 7. **Versions.** `BranchPickerPrimitive` (‹ n / m ›, `hideWhenSingleBranch`) shows in the row. It stays visible whenever there is more than one version, and "edited" shows next to it. Older versions can be viewed and copied, not continued: Hermes keeps only the latest (CR R3 declined). A note above the composer says so, and sending from one is refused without calling main.
 8. **Persistence (interim).** Versions last as long as the open chat. When CR R3 lands, load alternates through a `ThreadHistoryAdapter` and remove this note.
-9. **Guards.** Hide Edit and Retry in channels, on HTTP-fallback threads, and while a turn is running.
+9. **Guards.** Hide Edit and Retry in channels and while a turn is running.
 
 **AC**
 
@@ -108,7 +107,7 @@ Uses upstream truncation. Feature-detect until CR R1 is answered.
 - [x] 2.2 Retry re-runs a reply from the same prompt. The old reply stays reachable via ‹ 1 / 2 › while the chat is open.
 - [x] 2.3 An older version can be viewed and copied but not continued; the UI says why, and nothing is sent.
 - [x] 2.4 Reloading a chat shows the server's current path. Earlier versions are gone until CR R3, and the UI does not claim otherwise.
-- [x] 2.5 Edit and Retry are hidden in channels, on HTTP-fallback threads, during a running turn, and on gateways without truncate support.
+- [x] 2.5 Edit and Retry are hidden in channels, during a running turn, and on gateways without truncate support.
 - [x] 2.6 Tests cover run planning (append / rewind / older version), main's target check (row id, ordinal, text, missing turn, first prompt), the truncate parameters sent, gateway refusals without HTTP fallback, recovery after a failed send, and an end-to-end edit then retry.
 
 ---
@@ -141,7 +140,7 @@ Revised 30 Sep 2026 after Phase 2, before any Phase 3 code. Stopgap: branches co
    - **Draft handoff:** the chat screen keeps a pending draft for the new session, and the thread puts it in the composer once on mount (`aui.composer.setText`).
 6. **Actions.** Branch joins both rows (prompt: after Edit; reply: after Retry).
    - Unlike Edit and Retry, it shows on older versions and on messages Hermes doesn't hold.
-   - Hidden in channels, on HTTP-fallback chats (no gateway to create the session) and mid-turn.
+   - Hidden in channels and mid-turn.
    - The project needs no work: it is global UI state and applies to whichever chat is open.
 
 **AC**

@@ -6,8 +6,7 @@ import type { SetupStepProps } from '../types';
 import { Button } from '../../components/ui/button';
 import { Callout } from '../../components/ui/alert';
 import { EmptyProjectSheet } from '../../product/chat/EmptyProjectSheet';
-import { projectGlyph, projectGlyphColor } from '../../product/chat/chatTelemetryFormat';
-import { setupIPC } from '../../services/setupIPCService';
+import { ProjectGlyph } from '../../product/chat/ProjectGlyph';
 import type { FirstRunFolder, FirstRunFolderPick } from '../../../shared/types/setupProgress';
 
 type FolderRow =
@@ -35,7 +34,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
   const choose = async () => {
     setError(null);
     try {
-      const picked = await setupIPC.pickFolders();
+      const picked = await window.electronAPI.setup.pickFolders();
       if (picked.canceled) return;
       setRows((prev) => {
         const known = new Set(prev.map((row) => row.key));
@@ -62,7 +61,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
     setBusy(true);
     setError(null);
     try {
-      const result = await setupIPC.saveFolders(folders);
+      const result = await window.electronAPI.setup.saveFolders({ folders });
       if (!result.success) {
         setError(result.error ?? 'Could not save these folders.');
         return;
@@ -107,13 +106,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
                     : 'flex items-center gap-2.5 rounded-lg border border-line bg-surface-1 px-2.5 py-2'
                 }
               >
-                <span
-                  aria-hidden="true"
-                  className={refused ? 'wb-glyph is-none' : 'wb-glyph'}
-                  style={refused ? undefined : { background: projectGlyphColor(row.key) }}
-                >
-                  {projectGlyph(row.name)}
-                </span>
+                <ProjectGlyph project={{ id: row.key, name: row.name }} muted={Boolean(refused)} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-fg">{row.name}</span>
                   {row.kind === 'host-folder' ? (

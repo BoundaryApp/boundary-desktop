@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import type { ListedModel } from '../../shared/types/onboarding';
 import {
@@ -33,10 +33,30 @@ interface ModelPickerProps {
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
-  disabled?: boolean;
   label?: string;
   /** Show a type-to-filter box inside the dropdown (intended for large catalogs like OpenRouter). */
   filterable?: boolean;
+  /** The model in use. When set and different from the selection, the summary says it is unsaved. */
+  savedModelId?: string;
+  /** Rendered inside the selected-model summary, e.g. a Save button. Filterable mode only. */
+  summaryAction?: React.ReactNode;
+}
+
+/** Orders by `value` in `direction`, models without a value last, ties by name. */
+function compareByValue(
+  a: ListedModel,
+  b: ListedModel,
+  value: (model: ListedModel) => number | undefined,
+  direction: 'asc' | 'desc'
+): number {
+  const valueA = value(a);
+  const valueB = value(b);
+  const byName = (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id);
+  if (valueA === undefined && valueB === undefined) return byName;
+  if (valueA === undefined) return 1;
+  if (valueB === undefined) return -1;
+  const diff = direction === 'asc' ? valueA - valueB : valueB - valueA;
+  return diff !== 0 ? diff : byName;
 }
 
 function compareByPromptPrice(
@@ -44,20 +64,7 @@ function compareByPromptPrice(
   b: ListedModel,
   direction: PriceSortDirection
 ): number {
-  const priceA = getModelPromptPricePerToken(a);
-  const priceB = getModelPromptPricePerToken(b);
-  const missingA = priceA === undefined;
-  const missingB = priceB === undefined;
-
-  if (missingA && missingB) {
-    return (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id);
-  }
-  if (missingA) return 1;
-  if (missingB) return -1;
-
-  const diff = direction === 'asc' ? priceA - priceB : priceB - priceA;
-  if (diff !== 0) return diff;
-  return (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id);
+  return compareByValue(a, b, getModelPromptPricePerToken, direction);
 }
 
 function getAaIntelligence(model: ListedModel): number | undefined {
@@ -86,10 +93,14 @@ function SelectedModelSummary({
   model,
   selectedModelId,
   showAaColumn,
+  savedModelId,
+  action,
 }: {
   model: ListedModel | undefined;
   selectedModelId: string;
   showAaColumn: boolean;
+  savedModelId?: string;
+  action?: React.ReactNode;
 }) {
   if (!selectedModelId) {
     return (
@@ -111,6 +122,7 @@ function SelectedModelSummary({
   const priceLabel = model ? (formatModelPricing(model.pricing) ?? '—') : '—';
   const aaLabel = model ? (formatAaBenchmarks(model.aa) ?? '—') : '—';
   const contextLabel = model ? (formatContextLength(model.contextLength) ?? '—') : '—';
+  const unsaved = savedModelId !== undefined && savedModelId !== selectedModelId;
 
   return (
     <div
@@ -119,17 +131,13 @@ function SelectedModelSummary({
       className="rounded-md border border-brand/40 bg-brand-dim px-3 py-3"
     >
       <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand">
-        <Check className="h-3.5 w-3.5" aria-hidden />
-        Selected model
+        {!unsaved && <Check className="h-3.5 w-3.5" aria-hidden />}
+        {unsaved ? 'New selection · not saved' : 'Selected model'}
       </div>
       <div className="mt-1.5 min-w-0">
-        <div className="truncate text-title font-medium text-fg" title={displayName}>
-          {displayName}
-        </div>
+        <div className="break-words text-title font-medium text-fg">{displayName}</div>
         {showId && (
-          <div className="truncate font-mono text-xs text-fg-muted" title={model?.id}>
-            {model?.id}
-          </div>
+          <div className="break-all font-mono text-xs text-fg-muted">{model?.id}</div>
         )}
       </div>
       <dl
@@ -161,6 +169,7 @@ function SelectedModelSummary({
       {model?.description && (
         <p className="mt-2 text-ui text-fg-muted">{model.description}</p>
       )}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }
@@ -170,20 +179,7 @@ function compareByAaIntelligence(
   b: ListedModel,
   direction: AaSortDirection
 ): number {
-  const scoreA = getAaIntelligence(a);
-  const scoreB = getAaIntelligence(b);
-  const missingA = scoreA === undefined;
-  const missingB = scoreB === undefined;
-
-  if (missingA && missingB) {
-    return (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id);
-  }
-  if (missingA) return 1;
-  if (missingB) return -1;
-
-  const diff = direction === 'asc' ? scoreA - scoreB : scoreB - scoreA;
-  if (diff !== 0) return diff;
-  return (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id);
+  return compareByValue(a, b, getAaIntelligence, direction);
 }
 
 export const ModelPicker: React.FC<ModelPickerProps> = ({
@@ -193,10 +189,13 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   loading = false,
   error = null,
   onRefresh,
-  disabled = false,
   label = 'Model',
   filterable: filterableProp,
+  savedModelId,
+  summaryAction,
 }) => {
+  // Settings can show two pickers at once (Local and OpenRouter); each label needs its own id.
+  const controlId = useId();
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState(false);
   const [sortKey, setSortKey] = useState<TableSortKey>('price');
@@ -228,12 +227,12 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     return [...filtered].sort((a, b) => compareByPromptPrice(a, b, priceSort));
   }, [aaSort, filter, filterable, models, priceSort, showAaColumn, sortKey]);
 
-  const isDisabled = disabled || loading || models.length === 0;
+  const isDisabled = loading || models.length === 0;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <Label htmlFor="model-picker" className="text-fg">
+        <Label htmlFor={controlId} className="text-fg">
           {label}
         </Label>
         {onRefresh && (
@@ -241,7 +240,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={loading || disabled}
+            disabled={loading}
             onClick={onRefresh}
             
           >
@@ -256,6 +255,8 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             model={selectedModel}
             selectedModelId={selectedModelId}
             showAaColumn={showAaColumn}
+            savedModelId={savedModelId}
+            action={summaryAction}
           />
           <div
             className={`overflow-hidden rounded-md border border-line bg-surface-0 ${
@@ -264,7 +265,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           >
             <div className="border-b border-line p-2">
               <Input
-                id="model-picker"
+                id={controlId}
                 value={filter}
                 onChange={(event) => {
                   setFilter(event.target.value);
@@ -390,13 +391,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                         <td className="px-3 py-2 align-top">
                           <div className="flex min-w-0 items-start gap-2">
                             <div className="min-w-0 flex-1">
-                              <div className="truncate font-medium" title={displayName}>
-                                {displayName}
-                              </div>
+                              <div className="break-words font-medium">{displayName}</div>
                               {showId && (
-                                <div className="truncate text-xs text-fg-faint" title={model.id}>
-                                  {model.id}
-                                </div>
+                                <div className="break-all text-xs text-fg-faint">{model.id}</div>
                               )}
                             </div>
                             {isSelected && (
@@ -429,7 +426,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           disabled={isDisabled}
         >
           <SelectTrigger
-            id="model-picker"
+            id={controlId}
             className="w-full"
           >
             <SelectValue

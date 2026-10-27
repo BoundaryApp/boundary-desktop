@@ -1,69 +1,17 @@
 import React, { useState } from 'react';
 import type { AgentProfile } from '../../../shared/types/hermesChat';
-import type { KanbanTaskSummary } from '../../../shared/types/hermesKanban';
-import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { taskGaveUp } from '../../../shared/kanbanTaskState';
 import {
-  formatElapsed,
-  taskLiveness,
+  LIVENESS_TONE,
+  assigneeName,
+  taskRowState,
   useKanbanSnapshot,
   useNowSeconds,
   workingNowTasks,
-  type TaskLiveness,
 } from './kanbanActivity';
-import { WorkingDot, type WorkingDotTone } from './WorkingDot';
+import { WorkingDot } from './WorkingDot';
 
 /** Rows shown before "Show N more" (spec decision 3). */
 const VISIBLE_ROWS = 3;
-
-/** The agent a task's assignee profile belongs to; `default` is the built-in agent. */
-export function assigneeName(assignee: string | null, agents: readonly AgentProfile[]): string {
-  if (!assignee) return 'Unassigned';
-  const agent = agents.find((a) => a.slug === assignee);
-  if (agent) return agent.displayName;
-  if (assignee === 'default') return builtinAgentName(agents);
-  return assignee;
-}
-
-export const LIVENESS_TONE: Record<TaskLiveness, WorkingDotTone> = {
-  working: 'live',
-  quiet: 'quiet',
-  'needs-you': 'needs',
-  stalled: 'stalled',
-  idle: 'live',
-};
-
-/** The short state under a row's title, and the trailing hint beside it. */
-export function taskRowState(
-  task: KanbanTaskSummary,
-  nowS: number
-): { sub: string; hint: string; liveness: TaskLiveness } {
-  const liveness = taskLiveness(task, nowS);
-  const elapsed = formatElapsed(nowS - (task.startedAt ?? task.createdAt ?? nowS));
-  switch (liveness) {
-    case 'needs-you':
-      return {
-        liveness,
-        hint: 'needs you',
-        sub:
-          task.status === 'review'
-            ? 'waiting for review'
-            : task.blockKind === 'needs_input'
-              ? 'asked a question'
-              : taskGaveUp(task)
-                ? 'gave up after failing'
-                : 'blocked',
-      };
-    case 'quiet': {
-      const last = task.lastHeartbeatAt ?? task.startedAt ?? nowS;
-      return { liveness, hint: elapsed, sub: `quiet for ${formatElapsed(nowS - last)}` };
-    }
-    case 'stalled':
-      return { liveness, hint: elapsed, sub: 'not responding' };
-    default:
-      return { liveness, hint: elapsed, sub: 'working' };
-  }
-}
 
 /**
  * Kanban tasks running or waiting on you, at the top of the chat rail. Shown only while there

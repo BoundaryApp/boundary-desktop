@@ -1,20 +1,21 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, Lock, Plus } from 'lucide-react';
 import type { AgentProfile } from '../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
+import { useStoredAgents, useToast } from './settingsPanelHooks';
 import type {
   CalendarAccess,
   CalendarAccountView,
   CalendarInfo,
-  CalendarListResult,
   CalendarProgressStep,
   CalendarProvider,
   CalendarTestResult,
 } from '../../shared/types/calendars';
-import { calendarIPC } from '../services/calendarIPCService';
-import { hermesChatIPC } from '../services/hermesChatIPCService';
+import { calendarSlug } from '../../shared/types/calendars';
 import { cloudInferenceNotice } from './cloudInferenceCopy';
-import { useEscapeToClose } from './useAppShortcuts';
+import { useCalendarAccountList } from './useCalendarAccounts';
+import { Sheet } from '../components/ui/sheet';
+import { useSheetAction } from '../components/ui/use-sheet-action';
 import { InfoTip } from '../components/ui/info-tip';
 
 /** Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). */
@@ -101,14 +102,6 @@ function providerOf(id: CalendarProvider): ProviderOption {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[3];
 }
 
-function slugOf(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 function shortDate(at: string | null | undefined): string {
   if (!at) return '';
   const date = new Date(at);
@@ -134,65 +127,39 @@ export const CalendarsPanel: React.FC<{
   /** Set when the chat's Connect calendar opened Settings: the sheet starts open and this runs if it's closed. */
   onConnectFromChatClosed?: () => void;
 }> = ({ cloudProvider, onConnectFromChatClosed }) => {
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
-  const [accounts, setAccounts] = useState<CalendarAccountView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const agents = useStoredAgents();
+  const { accounts: loaded, error: loadError, reload: refresh, replace } = useCalendarAccountList();
+  const accounts = loaded ?? [];
+  const loading = loaded === null && !loadError;
   const [sheet, setSheet] = useState<SheetState | null>(() =>
     onConnectFromChatClosed ? { mode: 'connect', fromChat: true } : null
   );
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
   /** A connect or access change in flight: the slug and its last step. */
   const [working, setWorking] = useState<{ slug: string; step: CalendarProgressStep } | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const refresh = useCallback(async () => {
-    const result = await calendarIPC
-      .list()
-      .catch((): CalendarListResult => ({ success: false, accounts: [], error: 'Couldn’t load calendars.' }));
-    setAccounts(result.accounts);
-    setLoadError(result.success ? null : (result.error ?? 'Couldn’t load calendars.'));
-    setLoading(false);
-  }, []);
-
+  // Test every sign-in when the tab opens (spec Phase 2, item 3), once the stored list has
+  // answered so it can't overwrite the result. Cards show the stored result until then.
+  const rechecked = useRef(false);
   useEffect(() => {
-    let alive = true;
-    void hermesChatIPC
-      .listAgents()
+    if (rechecked.current || (loaded === null && !loadError)) return;
+    rechecked.current = true;
+    void window.electronAPI.calendars
+      .recheckAll()
       .then((result) => {
-        if (alive && result.success) setAgents(result.agents);
+        if (result.success) replace(result.accounts);
       })
       .catch((): void => undefined);
-    void refresh().then(() => {
-      // Test every sign-in when the tab opens (spec Phase 2, item 3). Cards show the stored
-      // result until this finishes.
-      void calendarIPC
-        .recheckAll()
-        .then((result) => {
-          if (alive && result.success) setAccounts(result.accounts);
-        })
-        .catch((): void => undefined);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [refresh]);
-
-  useEffect(() => calendarIPC.onChanged(() => void refresh()), [refresh]);
+  }, [loaded, loadError, replace]);
 
   useEffect(
     () =>
-      calendarIPC.onProgress((event) => {
+      window.electronAPI.calendars.onProgress((event) => {
         setWorking(event.step === 'done' ? null : { slug: event.slug, step: event.step });
       }),
     []
   );
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 4000);
-    return () => window.clearTimeout(t);
-  }, [toast]);
 
   const knownAgents = agents.length
     ? agents
@@ -338,7 +305,7 @@ function AccountCard({
   const test = async () => {
     setBusy('test');
     setError(null);
-    const result = await calendarIPC.recheck(account.slug);
+    const result = await window.electronAPI.calendars.recheck({ slug: account.slug });
     setBusy(null);
     if (!result.success) {
       setError(result.error ?? 'Couldn’t test the sign-in.');
@@ -357,7 +324,7 @@ function AccountCard({
   const remove = async () => {
     setBusy('remove');
     setError(null);
-    const result = await calendarIPC.remove(account.slug);
+    const result = await window.electronAPI.calendars.remove({ slug: account.slug });
     setBusy(null);
     if (!result.success) {
       setError(result.error ?? 'Couldn’t remove that calendar.');
@@ -548,14 +515,13 @@ function ConnectSheet({
       : // Hermes starts on Read and change, every other agent on Off (spec decision 5).
         Object.fromEntries(agents.map((a) => [a.slug, a.builtIn ? 'change' : 'off']))
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEscapeToClose(onCancel, busy);
+  const save = useSheetAction();
+  const { busy, error, setError } = save;
 
   // Start caldav-mcp now: the first start builds it, which overlaps with steps 1 and 2.
   useEffect(() => {
     if (editing) return;
-    const p = calendarIPC
+    const p = window.electronAPI.calendars
       .prepare()
       .then((r): ServiceState => (r.success ? { kind: 'ready' } : { kind: 'failed', error: r.error ?? 'The calendar service didn’t start.' }))
       .catch((): ServiceState => ({ kind: 'failed', error: 'The calendar service didn’t start.' }));
@@ -564,7 +530,7 @@ function ConnectSheet({
   }, [editing]);
 
   const option = providerOf(provider);
-  const slug = slugOf(name);
+  const slug = calendarSlug(name);
   const nameProblem = replacing
     ? null
     : !slug
@@ -598,65 +564,64 @@ function ConnectSheet({
       setTest({ status: 'error', error: svc.error });
       return;
     }
-    const result = await calendarIPC
+    const result = await window.electronAPI.calendars
       .test({ provider, url: server, username: username.trim(), password })
       .catch((): CalendarTestResult => ({ status: 'error', error: 'Couldn’t run the sign-in test.' }));
     setTesting(false);
     setTest(result);
   };
 
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    if (replacing) {
-      const result = await calendarIPC.replacePassword(replacing.slug, password);
-      setBusy(false);
-      if (!result.success && !result.account) {
-        setError(result.error ?? 'Couldn’t replace the password.');
+  const submit = () =>
+    save.run(async () => {
+      if (replacing) {
+        const result = await window.electronAPI.calendars.replacePassword({
+          slug: replacing.slug,
+          password,
+        });
+        if (!result.success && !result.account) {
+          setError(result.error ?? 'Couldn’t replace the password.');
+          return;
+        }
+        setPassword('');
+        onDone(result.account, `Replaced the ${replacing.name} password`, result.error);
+        return;
+      }
+      if (editing) {
+        const result = await window.electronAPI.calendars.setAccess({ slug: editing.slug, access });
+        if (!result.success) {
+          setError(result.error ?? 'Couldn’t change access.');
+          return;
+        }
+        onDone(result.account, `Saved access to ${editing.name}`, result.error);
+        return;
+      }
+      const result = await window.electronAPI.calendars.connect({
+        provider,
+        url: server,
+        username: username.trim(),
+        password,
+        name: name.trim(),
+        access,
+      });
+      if (!result.success) {
+        if (result.account) {
+          setPassword('');
+          onDone(result.account, `${result.account.name} saved`, result.error);
+          return;
+        }
+        setError(result.error ?? 'Couldn’t connect that calendar.');
         return;
       }
       setPassword('');
-      onDone(result.account, `Replaced the ${replacing.name} password`, result.error);
-      return;
-    }
-    if (editing) {
-      const result = await calendarIPC.setAccess(editing.slug, access);
-      setBusy(false);
-      if (!result.success) {
-        setError(result.error ?? 'Couldn’t change access.');
-        return;
-      }
-      onDone(result.account, `Saved access to ${editing.name}`, result.error);
-      return;
-    }
-    const result = await calendarIPC.connect({
-      provider,
-      url: server,
-      username: username.trim(),
-      password,
-      name: name.trim(),
-      access,
+      const hermes = result.account?.access[BUILTIN_ASSISTANT_SLUG];
+      onDone(
+        result.account,
+        `${name.trim()} connected${
+          hermes === 'change' ? '. Hermes can read it and asks before changes.' : hermes === 'read' ? '. Hermes can read it.' : '.'
+        }`,
+        result.error
+      );
     });
-    setBusy(false);
-    if (!result.success) {
-      if (result.account) {
-        setPassword('');
-        onDone(result.account, `${result.account.name} saved`, result.error);
-        return;
-      }
-      setError(result.error ?? 'Couldn’t connect that calendar.');
-      return;
-    }
-    setPassword('');
-    const hermes = result.account?.access[BUILTIN_ASSISTANT_SLUG];
-    onDone(
-      result.account,
-      `${name.trim()} connected${
-        hermes === 'change' ? '. Hermes can read it and asks before changes.' : hermes === 'read' ? '. Hermes can read it.' : '.'
-      }`,
-      result.error
-    );
-  };
 
   const shownName = editing ? editing.name : replacing ? replacing.name : name.trim() || 'this calendar';
   const anyAccess = Object.values(access).some((v) => v !== 'off');
@@ -669,262 +634,259 @@ function ConnectSheet({
       : 'Test sign-in';
 
   return (
-    <div className="wb-sheet-backdrop wb-vault-backdrop" role="presentation">
-      <div
-        className="wb-sheet wb-vault-sheet wb-cal-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="wb-cal-sheet-title"
-      >
-        <div className="wb-sheet-kicker">
-          {editing ? 'Access' : replacing ? 'Replace password' : `Connect a calendar · ${step} of 3`}
-        </div>
+    <Sheet
+      open
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-cal-sheet-title"
+      className="wb-vault-sheet wb-cal-sheet"
+      backdropClassName="wb-vault-backdrop"
+      kicker={editing ? 'Access' : replacing ? 'Replace password' : `Connect a calendar · ${step} of 3`}
+    >
+      {step === 1 ? (
+        <>
+          <h2 id="wb-cal-sheet-title">Where is your calendar?</h2>
+          <p className="wb-sheet-lede">You can connect more than one. Each shows up in chat under its own name.</p>
+          <div className="wb-cal-choices" role="radiogroup" aria-label="Provider">
+            {PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={provider === p.id}
+                className={`wb-inference-choice ${provider === p.id ? 'is-on' : ''}`}
+                onClick={() => pickProvider(p.id)}
+              >
+                <span className="wb-inference-radio" aria-hidden="true" />
+                <span>
+                  <b>{p.label}</b>
+                  <span>{p.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <h3 className="wb-vault-label">Not supported yet</h3>
+          <ul className="wb-cal-unsupported">
+            <li>
+              <b>Google Calendar.</b> Google’s CalDAV needs a Google sign-in, which Boundary can’t do yet.
+            </li>
+            <li>
+              <b>Outlook and Microsoft 365.</b> Microsoft doesn’t offer CalDAV.
+            </li>
+          </ul>
+        </>
+      ) : null}
 
-        {step === 1 ? (
-          <>
-            <h2 id="wb-cal-sheet-title">Where is your calendar?</h2>
-            <p className="wb-sheet-lede">You can connect more than one. Each shows up in chat under its own name.</p>
-            <div className="wb-cal-choices" role="radiogroup" aria-label="Provider">
-              {PROVIDERS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={provider === p.id}
-                  className={`wb-inference-choice ${provider === p.id ? 'is-on' : ''}`}
-                  onClick={() => pickProvider(p.id)}
-                >
-                  <span className="wb-inference-radio" aria-hidden="true" />
-                  <span>
-                    <b>{p.label}</b>
-                    <span>{p.hint}</span>
-                  </span>
-                </button>
-              ))}
+      {step === 2 ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (test?.status !== 'ok') void runTest(false);
+            else if (replacing) void submit();
+            else setStep(3);
+          }}
+        >
+          <h2 id="wb-cal-sheet-title">
+            {replacing ? `Replace the ${replacing.name} password` : `Sign in to ${option.label}`}
+          </h2>
+          <p className="wb-sheet-lede">
+            {provider === 'icloud'
+              ? 'iCloud only accepts an app-specific password here. Your Apple ID password won’t work.'
+              : 'Use an app password if your provider offers one, so you can revoke it without changing your main password.'}
+          </p>
+          <SignInHelp provider={provider} />
+
+          {option.needsServer && !replacing ? (
+            <div className="wb-vault-field">
+              <label htmlFor="wb-cal-server">Server address</label>
+              <input
+                id="wb-cal-server"
+                className="mono"
+                value={server}
+                autoComplete="off"
+                placeholder={provider === 'nextcloud' ? 'cloud.example.com' : 'dav.example.com'}
+                onChange={(e) => {
+                  setServer(e.target.value);
+                  setTest(null);
+                }}
+              />
             </div>
-            <h3 className="wb-vault-label">Not supported yet</h3>
-            <ul className="wb-cal-unsupported">
-              <li>
-                <b>Google Calendar.</b> Google’s CalDAV needs a Google sign-in, which Boundary can’t do yet.
-              </li>
-              <li>
-                <b>Outlook and Microsoft 365.</b> Microsoft doesn’t offer CalDAV.
-              </li>
-            </ul>
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (test?.status !== 'ok') void runTest(false);
-              else if (replacing) void submit();
-              else setStep(3);
-            }}
-          >
-            <h2 id="wb-cal-sheet-title">
-              {replacing ? `Replace the ${replacing.name} password` : `Sign in to ${option.label}`}
-            </h2>
-            <p className="wb-sheet-lede">
-              {provider === 'icloud'
-                ? 'iCloud only accepts an app-specific password here. Your Apple ID password won’t work.'
-                : 'Use an app password if your provider offers one, so you can revoke it without changing your main password.'}
-            </p>
-            <SignInHelp provider={provider} />
-
-            {option.needsServer && !replacing ? (
+          ) : null}
+          <div className="wb-vault-field">
+            <label htmlFor="wb-cal-user">{option.userLabel}</label>
+            <input
+              id="wb-cal-user"
+              value={username}
+              autoFocus={!replacing}
+              disabled={Boolean(replacing)}
+              autoComplete="off"
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setTest(null);
+              }}
+            />
+          </div>
+          <div className="wb-vault-field">
+            <label htmlFor="wb-cal-password">{option.passwordLabel}</label>
+            <div className="wb-vault-password">
+              <input
+                id="wb-cal-password"
+                className="mono"
+                autoFocus={Boolean(replacing)}
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                autoComplete="new-password"
+                spellCheck={false}
+                placeholder={provider === 'icloud' ? 'abcd-efgh-ijkl-mnop' : ''}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setTest(null);
+                }}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+              </button>
+            </div>
+            {passwordProblem ? <p className="wb-sheet-error">{passwordProblem}</p> : null}
+          </div>
+          {replacing ? null : (
+            <div className="wb-vault-field">
+              <label htmlFor="wb-cal-name">Name</label>
+              <input
+                id="wb-cal-name"
+                value={name}
+                autoComplete="off"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameTouched(true);
+                }}
+              />
+              <p className={nameProblem ? 'wb-sheet-error' : 'wb-vault-note'}>
+                {nameProblem ?? `What you call it in chat: “check my ${name.trim()} calendar”.`}
+              </p>
+            </div>
+          )}
+          {!option.needsServer && !replacing ? (
+            <details className="wb-cal-advanced">
+              <summary>Server address</summary>
               <div className="wb-vault-field">
-                <label htmlFor="wb-cal-server">Server address</label>
+                <label htmlFor="wb-cal-server-adv">CalDAV address</label>
                 <input
-                  id="wb-cal-server"
+                  id="wb-cal-server-adv"
                   className="mono"
                   value={server}
                   autoComplete="off"
-                  placeholder={provider === 'nextcloud' ? 'cloud.example.com' : 'dav.example.com'}
+                  placeholder={PROVIDER_URL[provider]}
                   onChange={(e) => {
                     setServer(e.target.value);
                     setTest(null);
                   }}
                 />
+                <p className="wb-vault-note">Change this only if your provider gave you a different address.</p>
               </div>
-            ) : null}
-            <div className="wb-vault-field">
-              <label htmlFor="wb-cal-user">{option.userLabel}</label>
-              <input
-                id="wb-cal-user"
-                value={username}
-                autoFocus={!replacing}
-                disabled={Boolean(replacing)}
-                autoComplete="off"
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  setTest(null);
-                }}
-              />
-            </div>
-            <div className="wb-vault-field">
-              <label htmlFor="wb-cal-password">{option.passwordLabel}</label>
-              <div className="wb-vault-password">
-                <input
-                  id="wb-cal-password"
-                  className="mono"
-                  autoFocus={Boolean(replacing)}
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  autoComplete="new-password"
-                  spellCheck={false}
-                  placeholder={provider === 'icloud' ? 'abcd-efgh-ijkl-mnop' : ''}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setTest(null);
-                  }}
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((v) => !v)}
-                >
-                  {showPassword ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
-                </button>
-              </div>
-              {passwordProblem ? <p className="wb-sheet-error">{passwordProblem}</p> : null}
-            </div>
-            {replacing ? null : (
-              <div className="wb-vault-field">
-                <label htmlFor="wb-cal-name">Name</label>
-                <input
-                  id="wb-cal-name"
-                  value={name}
-                  autoComplete="off"
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    setNameTouched(true);
-                  }}
-                />
-                <p className={nameProblem ? 'wb-sheet-error' : 'wb-vault-note'}>
-                  {nameProblem ?? `What you call it in chat: “check my ${name.trim()} calendar”.`}
-                </p>
-              </div>
-            )}
-            {!option.needsServer && !replacing ? (
-              <details className="wb-cal-advanced">
-                <summary>Server address</summary>
-                <div className="wb-vault-field">
-                  <label htmlFor="wb-cal-server-adv">CalDAV address</label>
-                  <input
-                    id="wb-cal-server-adv"
-                    className="mono"
-                    value={server}
-                    autoComplete="off"
-                    placeholder={PROVIDER_URL[provider]}
-                    onChange={(e) => {
-                      setServer(e.target.value);
-                      setTest(null);
-                    }}
-                  />
-                  <p className="wb-vault-note">Change this only if your provider gave you a different address.</p>
-                </div>
-              </details>
-            ) : null}
+            </details>
+          ) : null}
 
-            <TestResult result={test} providerLabel={option.label} onTestAnyway={() => void runTest(true)} />
+          <TestResult result={test} providerLabel={option.label} onTestAnyway={() => void runTest(true)} />
 
-            <p className="wb-vault-lockline">
-              <Lock size={13} aria-hidden="true" />
-              The password stays on this Mac and goes only to {option.label}. The model never sees it;
-              agents reach your calendar through calendar tools.
-            </p>
-            {service.kind === 'failed' ? <p className="wb-sheet-error">{service.error}</p> : null}
-            {replacing && busy && working ? <ProgressList step={working} /> : null}
-            {replacing && error ? <p className="wb-sheet-error">{error}</p> : null}
-            <div className="wb-sheet-actions wb-vault-sheet-actions">
-              <button
-                type="button"
-                className="wb-btn-ghost"
-                disabled={testing || busy}
-                onClick={() => (replacing ? onCancel() : setStep(1))}
-              >
-                {replacing ? 'Cancel' : 'Back'}
-              </button>
-              {test?.status === 'ok' ? (
-                <button type="submit" className="wb-btn-solid" disabled={busy}>
-                  {replacing ? (busy ? 'Saving…' : 'Save password') : 'Continue'}
-                </button>
-              ) : (
-                <button type="submit" className="wb-btn-solid" disabled={!ready || testing}>
-                  {testLabel}
-                </button>
-              )}
-            </div>
-          </form>
-        ) : null}
-
-        {step === 3 ? (
-          <>
-            <h2 id="wb-cal-sheet-title">Who can use {shownName}?</h2>
-            <p className="wb-sheet-lede">
-              Each agent gets its own access. With Read and change, it asks you before every change.
-            </p>
-            <ul className="wb-cal-agents" aria-label="Agents">
-              {agents.map((a) => (
-                <li key={a.slug}>
-                  <span className="wb-cal-agent">
-                    <b>{a.displayName}</b>
-                    <span>{a.builtIn ? 'Your main agent' : a.role}</span>
-                  </span>
-                  <div className="wb-vault-seg" role="group" aria-label={`${a.displayName} access`}>
-                    {ACCESS_LEVELS.map(({ level, label }) => (
-                      <button
-                        key={level}
-                        type="button"
-                        aria-pressed={(access[a.slug] ?? 'off') === level}
-                        disabled={busy}
-                        onClick={() => setAccess((prev) => ({ ...prev, [a.slug]: level }))}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {cloudProvider && anyAccess ? (
-              <div className="wb-inference-banner is-warn">
-                <p>
-                  {cloudInferenceNotice(cloudProvider)} That includes event titles, notes and
-                  attendees.
-                </p>
-              </div>
-            ) : null}
-            {busy && working ? <ProgressList step={working} /> : null}
-            {error ? <p className="wb-sheet-error">{error}</p> : null}
-          </>
-        ) : null}
-
-        {step !== 2 ? (
+          <p className="wb-vault-lockline">
+            <Lock size={13} aria-hidden="true" />
+            The password stays on this Mac and goes only to {option.label}. The model never sees it;
+            agents reach your calendar through calendar tools.
+          </p>
+          {service.kind === 'failed' ? <p className="wb-sheet-error">{service.error}</p> : null}
+          {replacing && busy && working ? <ProgressList step={working} /> : null}
+          {replacing && error ? <p className="wb-sheet-error">{error}</p> : null}
           <div className="wb-sheet-actions wb-vault-sheet-actions">
             <button
               type="button"
               className="wb-btn-ghost"
-              disabled={busy}
-              onClick={() => (step === 3 && !editing ? setStep(2) : onCancel())}
+              disabled={testing || busy}
+              onClick={() => (replacing ? onCancel() : setStep(1))}
             >
-              {step === 3 && !editing ? 'Back' : 'Cancel'}
+              {replacing ? 'Cancel' : 'Back'}
             </button>
-            {step === 1 ? (
-              <button type="button" className="wb-btn-solid" onClick={() => setStep(2)}>
-                Continue
+            {test?.status === 'ok' ? (
+              <button type="submit" className="wb-btn-solid" disabled={busy}>
+                {replacing ? (busy ? 'Saving…' : 'Save password') : 'Continue'}
               </button>
             ) : (
-              <button type="button" className="wb-btn-solid" disabled={busy} onClick={() => void submit()}>
-                {busy ? (editing ? 'Saving…' : 'Connecting…') : editing ? 'Save' : 'Connect'}
+              <button type="submit" className="wb-btn-solid" disabled={!ready || testing}>
+                {testLabel}
               </button>
             )}
           </div>
-        ) : null}
-      </div>
-    </div>
+        </form>
+      ) : null}
+
+      {step === 3 ? (
+        <>
+          <h2 id="wb-cal-sheet-title">Who can use {shownName}?</h2>
+          <p className="wb-sheet-lede">
+            Each agent gets its own access. With Read and change, it asks you before every change.
+          </p>
+          <ul className="wb-cal-agents" aria-label="Agents">
+            {agents.map((a) => (
+              <li key={a.slug}>
+                <span className="wb-cal-agent">
+                  <b>{a.displayName}</b>
+                  <span>{a.builtIn ? 'Your main agent' : a.role}</span>
+                </span>
+                <div className="wb-vault-seg" role="group" aria-label={`${a.displayName} access`}>
+                  {ACCESS_LEVELS.map(({ level, label }) => (
+                    <button
+                      key={level}
+                      type="button"
+                      aria-pressed={(access[a.slug] ?? 'off') === level}
+                      disabled={busy}
+                      onClick={() => setAccess((prev) => ({ ...prev, [a.slug]: level }))}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {cloudProvider && anyAccess ? (
+            <div className="wb-inference-banner is-warn">
+              <p>
+                {cloudInferenceNotice(cloudProvider)} That includes event titles, notes and
+                attendees.
+              </p>
+            </div>
+          ) : null}
+          {busy && working ? <ProgressList step={working} /> : null}
+          {error ? <p className="wb-sheet-error">{error}</p> : null}
+        </>
+      ) : null}
+
+      {step !== 2 ? (
+        <div className="wb-sheet-actions wb-vault-sheet-actions">
+          <button
+            type="button"
+            className="wb-btn-ghost"
+            disabled={busy}
+            onClick={() => (step === 3 && !editing ? setStep(2) : onCancel())}
+          >
+            {step === 3 && !editing ? 'Back' : 'Cancel'}
+          </button>
+          {step === 1 ? (
+            <button type="button" className="wb-btn-solid" onClick={() => setStep(2)}>
+              Continue
+            </button>
+          ) : (
+            <button type="button" className="wb-btn-solid" disabled={busy} onClick={() => void submit()}>
+              {busy ? (editing ? 'Saving…' : 'Connecting…') : editing ? 'Save' : 'Connect'}
+            </button>
+          )}
+        </div>
+      ) : null}
+    </Sheet>
   );
 }
 

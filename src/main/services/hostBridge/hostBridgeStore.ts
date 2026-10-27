@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import Store from 'electron-store';
-import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable, replaceCiphertext } from '../secrets/osEncryption';
+import {
+  encryptToBase64,
+  isOsEncryptionAvailable,
+  replaceCiphertext,
+  tryDecryptFromBase64,
+} from '../secrets/osEncryption';
 
 /**
  * Host-bridge state that outlives a launch (ADR 0027 §3, §7): the two bearer tokens (encrypted
@@ -19,6 +24,8 @@ interface HostBridgeState {
   browser: HostBridgeBrowserSettings;
   /** Hermes clients that connected during the last launch; the chat waits for that many. */
   hermesClients?: number;
+  /** The user pressed Stop agent: the bridge stays down, across launches, until they turn access back on. */
+  agentStopped?: boolean;
 }
 
 const store = new Store<HostBridgeState>({
@@ -51,14 +58,12 @@ export async function ensureHostBridgeToken(kind: HostBridgeTokenKind): Promise<
   }
   const encrypted = store.get('tokens')[kind];
   if (encrypted) {
-    try {
-      return await decryptFromBase64(encrypted, (reEncrypted) => {
-        const tokens = replaceCiphertext(store.get('tokens'), encrypted, reEncrypted);
-        if (tokens) store.set('tokens', tokens);
-      });
-    } catch {
-      // Unreadable (keychain reset): fall through and replace it.
-    }
+    const stored = await tryDecryptFromBase64(encrypted, (reEncrypted) => {
+      const tokens = replaceCiphertext(store.get('tokens'), encrypted, reEncrypted);
+      if (tokens) store.set('tokens', tokens);
+    });
+    // Unreadable (keychain reset): fall through and replace it.
+    if (stored !== null) return stored;
   }
   const token = newToken();
   const encryptedToken = await encryptToBase64(token);
@@ -127,4 +132,12 @@ export function getExpectedHermesClients(): number {
 
 export function setExpectedHermesClients(count: number): void {
   store.set('hermesClients', count);
+}
+
+export function isHostBridgeAgentStopped(): boolean {
+  return store.get('agentStopped') ?? false;
+}
+
+export function setHostBridgeAgentStopped(stopped: boolean): void {
+  store.set('agentStopped', stopped);
 }

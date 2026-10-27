@@ -8,9 +8,9 @@ import type { CalendarAccess, CalendarProvider } from '../../../../shared/types/
  */
 
 export const CALDAV_MCP_SERVICE = 'caldav-mcp';
-export const CALDAV_MCP_URL = 'http://caldav-mcp:8080/mcp';
+const CALDAV_MCP_URL = 'http://caldav-mcp:8080/mcp';
 export const CALENDAR_COMPOSE_PROFILE = 'calendar';
-export const CALENDAR_SERVER_PREFIX = 'calendar-';
+const CALENDAR_SERVER_PREFIX = 'calendar-';
 
 /** caldav-mcp's query tools, all annotated `readOnlyHint: true`. */
 export const CALDAV_READ_TOOLS = [
@@ -40,7 +40,7 @@ export interface CalendarProviderInfo {
   url: string;
 }
 
-export const CALENDAR_PROVIDERS: Record<CalendarProvider, CalendarProviderInfo> = {
+const CALENDAR_PROVIDERS: Record<CalendarProvider, CalendarProviderInfo> = {
   icloud: { label: 'iCloud', url: 'https://caldav.icloud.com/' },
   fastmail: { label: 'Fastmail', url: 'https://caldav.fastmail.com/' },
   nextcloud: { label: 'Nextcloud', url: '' },
@@ -51,16 +51,7 @@ export function isCalendarProvider(value: unknown): value is CalendarProvider {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CALENDAR_PROVIDERS, value);
 }
 
-/** The account's slug: its name lowercased, each run of other characters a single hyphen. */
-export function calendarSlug(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/, '');
-}
+export { calendarSlug } from '../../../../shared/types/calendars';
 
 export function calendarServerName(slug: string): string {
   return `${CALENDAR_SERVER_PREFIX}${slug}`;
@@ -123,18 +114,6 @@ export function calendarMcpEntry(opts: {
  */
 export function expectedToolCount(access: CalendarAccess): number {
   return toolsForAccess(access).length;
-}
-
-/** Drop `KEY=…` lines for the given keys, leaving every other line as it was. */
-export function removeEnvLines(contents: string, keys: readonly string[]): string {
-  if (!contents) return contents;
-  const drop = new Set(keys);
-  const lines = contents.replace(/\n$/, '').split('\n');
-  const kept = lines.filter((line) => {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    return !(match && drop.has(match[1]));
-  });
-  return kept.length ? `${kept.join('\n')}\n` : '';
 }
 
 /**

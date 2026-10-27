@@ -1,21 +1,12 @@
 import {
   resolveDashboardCredentials,
   resolveHermesStackEndpoints,
-  type HermesDashboardCredentials,
 } from './hermesEndpoints';
 
 export interface HermesDashboardSession {
   cookieHeader: string;
   ticket: string;
   dashboardBaseUrl: string;
-}
-
-export function basicAuthHeaderForTest(creds: HermesDashboardCredentials): string {
-  return basicAuthHeader(creds);
-}
-
-function basicAuthHeader(creds: HermesDashboardCredentials): string {
-  return `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}`;
 }
 
 function rawSetCookies(res: Response): string[] {

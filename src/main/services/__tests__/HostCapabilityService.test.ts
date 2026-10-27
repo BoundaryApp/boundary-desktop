@@ -1,16 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ASSISTANT_STACK_REQUIREMENTS,
-  formatBytes,
-} from '../../../shared/assistantStackRequirements';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { ASSISTANT_STACK_REQUIREMENTS } from '../../../shared/assistantStackRequirements';
+import { formatBytes } from '../../../shared/utils/format';
 import {
   acknowledgeHostCapability,
   assessHostCapability,
   daemonInfoFormat,
+  engineLabelForRuntime,
   evaluateHostCapability,
   type HostCapabilityProbes,
 } from '../capability/HostCapabilityService';
 import { getCapabilityStatus } from '../capability/CapabilityStore';
+import type { ContainerRuntime } from '../containerRuntime';
 
 function gib(n: number): number {
   return n * 1024 * 1024 * 1024;
@@ -26,7 +26,7 @@ function createProbes(overrides: Partial<{
 }> = {}): HostCapabilityProbes {
   const values = {
     runtimeRunning: true,
-    composeVersion: '2.29.0',
+    composeVersion: '2.38.2',
     totalMemoryBytes: gib(16),
     cpuCores: 8,
     freeDiskBytes: gib(40),
@@ -54,7 +54,7 @@ describe('evaluateHostCapability', () => {
   it('passes when all probes meet requirements', () => {
     const assessment = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 4,
       freeDiskBytes: gib(30),
@@ -66,7 +66,7 @@ describe('evaluateHostCapability', () => {
   it('fails runtime when daemon is down', () => {
     const assessment = evaluateHostCapability({
       runtimeRunning: false,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 8,
       freeDiskBytes: gib(40),
@@ -88,10 +88,71 @@ describe('evaluateHostCapability', () => {
     expect(assessment.checks.find((c) => c.id === 'compose')?.passed).toBe(false);
   });
 
+  describe('Compose floor (G05-13)', () => {
+    const evaluate = (composeVersion: string) =>
+      evaluateHostCapability({
+        runtimeRunning: true,
+        composeVersion,
+        totalMemoryBytes: gib(16),
+        cpuCores: 8,
+        freeDiskBytes: gib(40),
+      }).checks.find((c) => c.id === 'compose');
+
+    it('is 2.29.1, the first Compose with progress counts in --progress json', () => {
+      expect(ASSISTANT_STACK_REQUIREMENTS.minComposeVersion).toBe('2.29.1');
+    });
+
+    it('fails below the floor and says what to do', () => {
+      const compose = evaluate('2.29.0');
+      expect(compose?.passed).toBe(false);
+      expect(compose?.required).toBe('≥ v2.29.1');
+      expect(compose?.actual).toBe('v2.29.0');
+      expect(compose?.detail).toMatch(/older than v2\.29\.1/);
+    });
+
+    it.each(['2.29.1', 'v2.38.2', '2.30.0-desktop.1', '3.0.0'])('passes %s', (version) => {
+      expect(evaluate(version)?.passed).toBe(true);
+    });
+
+    it('fails a 1.x version', () => {
+      expect(evaluate('1.29.2')?.passed).toBe(false);
+    });
+  });
+
+  describe('engine detail line', () => {
+    const runtime = (partial: Partial<ContainerRuntime>): ContainerRuntime => ({
+      kind: 'docker',
+      origin: 'system',
+      cliPath: 'docker',
+      composeArgv: ['compose'],
+      env: {},
+      apiEndpoint: 'unix:///var/run/docker.sock',
+      version: { cli: '27.0.0', compose: '2.38.2' },
+      ...partial,
+    });
+    const detail = (r: ContainerRuntime) =>
+      evaluateHostCapability({
+        runtimeRunning: true,
+        composeVersion: '2.38.2',
+        totalMemoryBytes: gib(16),
+        cpuCores: 8,
+        freeDiskBytes: gib(40),
+        runtime: r,
+      }).checks.find((c) => c.id === 'runtime')?.detail;
+
+    it('names each engine with the shared label, system Podman included', () => {
+      expect(detail(runtime({}))).toBe(`Using ${engineLabelForRuntime(runtime({}))}.`);
+      expect(detail(runtime({ kind: 'podman', origin: 'bundled' }))).toBe(
+        'Using Boundary’s bundled Podman.'
+      );
+      expect(detail(runtime({ kind: 'podman', origin: 'system' }))).toBe('Using Podman.');
+    });
+  });
+
   it('fails memory just below the threshold', () => {
     const assessment = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: ASSISTANT_STACK_REQUIREMENTS.minTotalMemoryBytes - 1,
       cpuCores: 8,
       freeDiskBytes: gib(40),
@@ -105,7 +166,7 @@ describe('evaluateHostCapability', () => {
   it('fails cpu and disk independently', () => {
     const lowCpu = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 2,
       freeDiskBytes: gib(40),
@@ -114,7 +175,7 @@ describe('evaluateHostCapability', () => {
 
     const lowDisk = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 8,
       freeDiskBytes: gib(10),
@@ -125,7 +186,7 @@ describe('evaluateHostCapability', () => {
   it('includes Docker/bundled detail when runtime is resolved', () => {
     const docker = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 8,
       freeDiskBytes: gib(40),
@@ -136,14 +197,14 @@ describe('evaluateHostCapability', () => {
         composeArgv: ['compose'],
         env: {},
         apiEndpoint: 'unix:///var/run/docker.sock',
-        version: { cli: '27.0.0', compose: '2.29.0' },
+        version: { cli: '27.0.0', compose: '2.38.2' },
       },
     });
     expect(docker.checks.find((c) => c.id === 'runtime')?.detail).toMatch(/Docker/i);
 
     const bundled = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(16),
       cpuCores: 8,
       freeDiskBytes: gib(40),
@@ -155,7 +216,7 @@ describe('evaluateHostCapability', () => {
         composeArgv: [],
         env: {},
         apiEndpoint: 'unix:///tmp/podman.sock',
-        version: { cli: '5.0.0', compose: '2.29.0' },
+        version: { cli: '5.0.0', compose: '2.38.2' },
       },
     });
     expect(bundled.checks.find((c) => c.id === 'runtime')?.detail).toMatch(/bundled/i);
@@ -181,7 +242,7 @@ describe('evaluateHostCapability', () => {
   it('passes when the assistant stack is already running even if resources are low', () => {
     const assessment = evaluateHostCapability({
       runtimeRunning: true,
-      composeVersion: '2.29.0',
+      composeVersion: '2.38.2',
       totalMemoryBytes: gib(4),
       cpuCores: 2,
       freeDiskBytes: gib(5),

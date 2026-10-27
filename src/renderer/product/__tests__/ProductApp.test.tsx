@@ -10,8 +10,11 @@ vi.mock('../../setup/SetupContext', () => ({
   useSetup: () => useSetup(),
 }));
 
-vi.mock('../useAssistantStackLifecycle', () => ({
+// The fixtures give the stack status beside the setup fields; the app reads it from the stack store.
+vi.mock('../assistantStack', () => ({
   useAssistantStackLifecycle: () => useAssistantStackLifecycle(),
+  useAssistantStackStatus: () =>
+    (useSetup() as { assistantStackStatus?: unknown } | undefined)?.assistantStackStatus ?? null,
 }));
 
 vi.mock('../../setup/SetupFlowShell', () => ({

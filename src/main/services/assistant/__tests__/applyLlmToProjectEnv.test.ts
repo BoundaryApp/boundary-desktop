@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyLlmConnectionToProjectFiles,
   clearLlmKeysFromProjectEnv,
-  __test,
 } from '../applyLlmToProjectEnv';
 
 describe('applyLlmToProjectEnv', () => {
@@ -16,22 +15,6 @@ describe('applyLlmToProjectEnv', () => {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
       tmpRoot = null;
     }
-  });
-
-  it('upserts env keys without duplicating', () => {
-    let contents = 'LLM_MODEL=old\nOTHER=1\n';
-    contents = __test.upsertEnvLine(contents, 'LLM_MODEL', 'new-model');
-    contents = __test.upsertEnvLine(contents, 'LLM_BINDING', 'openai');
-    expect(contents).toMatch(/^LLM_MODEL=new-model$/m);
-    expect(contents).toMatch(/^LLM_BINDING=openai$/m);
-    expect(contents.match(/LLM_MODEL=/g)?.length).toBe(1);
-  });
-
-  it('removes whole lines for the given keys only', () => {
-    const out = __test.removeEnvLines('A=1\nOPENAI_API_KEY=x\n# OPENAI_API_KEY=y\nB=2', [
-      'OPENAI_API_KEY',
-    ]);
-    expect(out).toBe('A=1\n# OPENAI_API_KEY=y\nB=2');
   });
 
   it('blanks upstream keys an older version left in .env', async () => {

@@ -16,4 +16,6 @@ if (navigator.userAgent.includes('Macintosh')) {
 
 initTheme()
 
-void import('./product/mount').then((m) => m.mount())
+void import('./product/mount')
+  .then((m) => m.mount())
+  .catch((error: unknown) => console.error('[renderer] the app UI did not load:', error))

@@ -10,8 +10,8 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import type { AgentProfile } from '../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
+import { useStoredAgents, useToast } from './settingsPanelHooks';
 import type {
   VaultIdentifierType,
   VaultListResult,
@@ -26,10 +26,11 @@ import {
   signInOriginMismatch,
   suggestSignInSites,
 } from '../../shared/vaultSites';
-import { hermesChatIPC } from '../services/hermesChatIPCService';
-import { hermesVaultIPC } from '../services/hermesVaultIPCService';
-import { useEscapeToClose } from './useAppShortcuts';
+import { useEscapeToClose } from '../components/ui/use-dismiss';
 import { InfoTip } from '../components/ui/info-tip';
+import { Sheet } from '../components/ui/sheet';
+import { useSheetAction } from '../components/ui/use-sheet-action';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 
 /** Passwords & Logins (docs/passwords-logins-study). */
 
@@ -68,7 +69,7 @@ type SheetState = { mode: 'add' } | { mode: 'replace'; login: VaultLogin };
 export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
   initialAgentSlug,
 }) => {
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const agents = useStoredAgents();
   const [agentSlug, setAgentSlug] = useState(initialAgentSlug || BUILTIN_ASSISTANT_SLUG);
   const [logins, setLogins] = useState<VaultLogin[]>([]);
   const [sources, setSources] = useState<VaultSourceStatus[]>([]);
@@ -78,7 +79,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const loadSeq = useRef(0);
 
@@ -86,28 +87,15 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
     agents.find((a) => a.slug === agentSlug)?.displayName ??
     (agentSlug === BUILTIN_ASSISTANT_SLUG ? 'Hermes' : agentSlug);
 
-  useEffect(() => {
-    let alive = true;
-    void hermesChatIPC
-      .listAgents()
-      .then((result) => {
-        if (alive && result.success) setAgents(result.agents);
-      })
-      .catch((): void => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   const refresh = useCallback(async (slug: string) => {
     const seq = ++loadSeq.current;
     setLoading(true);
     const [list, srcs] = await Promise.all([
-      hermesVaultIPC.listLogins(slug).catch(
+      window.electronAPI.hermesVault.listLogins({ agentSlug: slug }).catch(
         (): VaultListResult => ({ success: false, logins: [], error: 'Couldn’t load logins.' })
       ),
-      hermesVaultIPC
-        .listSources(slug)
+      window.electronAPI.hermesVault
+        .listSources({ agentSlug: slug })
         .catch((): VaultSourcesResult => ({ success: false, sources: [] })),
     ]);
     if (seq !== loadSeq.current) return;
@@ -124,33 +112,13 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
     void refresh(agentSlug);
   }, [agentSlug, refresh]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 4000);
-    return () => window.clearTimeout(t);
-  }, [toast]);
-
-  useEffect(() => {
-    if (!menuId) return;
-    const close = (event: MouseEvent) => {
-      if (!(event.target as Element | null)?.closest?.('.wb-vault-menu-wrap')) setMenuId(null);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [menuId]);
-
-  useEscapeToClose(
-    () => {
-      setMenuId(null);
-      setConfirmId(null);
-    },
-    Boolean(sheet) || (!menuId && !confirmId)
-  );
+  // The row menu closes itself on Escape; this closes the inline remove confirm.
+  useEscapeToClose(() => setConfirmId(null), Boolean(sheet) || !confirmId);
 
   const remove = async (login: VaultLogin) => {
     setBusyId(login.id);
     setRowError(null);
-    const result = await hermesVaultIPC.removeLogin({
+    const result = await window.electronAPI.hermesVault.removeLogin({
       agentSlug,
       id: login.id,
     });
@@ -261,21 +229,31 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
                   <span className="wb-vault-date">{local ? addedOn(login.createdAt) : ''}</span>
                   {local ? (
                     <div className="wb-vault-menu-wrap">
-                      <button
-                        type="button"
-                        className="wb-btn-ghost wb-vault-more"
-                        aria-label={`More for ${login.label}`}
-                        aria-expanded={menuId === login.id}
-                        aria-haspopup="menu"
-                        onClick={() => {
-                          setConfirmId(null);
-                          setMenuId(menuId === login.id ? null : login.id);
+                      <Popover
+                        open={menuId === login.id}
+                        onOpenChange={(open) => {
+                          if (open) setConfirmId(null);
+                          setMenuId(open ? login.id : null);
                         }}
                       >
-                        <MoreHorizontal size={16} aria-hidden="true" />
-                      </button>
-                      {menuId === login.id ? (
-                        <div className="wb-vault-menu" role="menu">
+                        <PopoverTrigger>
+                          <button
+                            type="button"
+                            className="wb-btn-ghost wb-vault-more"
+                            aria-label={`More for ${login.label}`}
+                            aria-expanded={menuId === login.id}
+                            aria-haspopup="menu"
+                          >
+                            <MoreHorizontal size={16} aria-hidden="true" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="wb-vault-menu"
+                          role="menu"
+                          side="bottom"
+                          align="end"
+                          sideOffset={4}
+                        >
                           <button
                             type="button"
                             role="menuitem"
@@ -300,8 +278,8 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
                             <Trash2 size={14} aria-hidden="true" />
                             Remove
                           </button>
-                        </div>
-                      ) : null}
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   ) : (
                     <span
@@ -422,7 +400,7 @@ function SourceRow({
     if (!password) return;
     setBusy(true);
     setError(null);
-    const result = await hermesVaultIPC.unlockSource({
+    const result = await window.electronAPI.hermesVault.unlockSource({
       agentSlug,
       name: source.name,
       password,
@@ -439,7 +417,7 @@ function SourceRow({
 
   const lock = async () => {
     setBusy(true);
-    const result = await hermesVaultIPC.lockSource({
+    const result = await window.electronAPI.hermesVault.lockSource({
       agentSlug,
       name: source.name,
     });
@@ -560,11 +538,10 @@ function LoginSheet({
   const [identifier, setIdentifier] = useState(replacing?.identifier ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const save = useSheetAction();
+  const { busy, error, setError } = save;
   const identifierRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-  useEscapeToClose(onCancel, busy);
 
   const origin = pickedOrigin ?? originFromInput(site);
   const suggestions = pickedOrigin ? [] : suggestSignInSites(site);
@@ -582,193 +559,193 @@ function LoginSheet({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!ready || !origin) return;
-    setBusy(true);
-    setError(null);
-    const result = replacing
-      ? await hermesVaultIPC.replacePassword({
-          agentSlug,
-          id: replacing.id,
-          password,
-        })
-      : await hermesVaultIPC.addLogin({
-          agentSlug,
-          label: labelForOrigin(origin),
-          origin,
-          identifierType: idType,
-          identifier: identifier.trim(),
-          password,
-        });
-    setBusy(false);
-    if (!result.success) {
-      setError(result.error ?? 'Couldn’t save that login.');
-      return;
-    }
-    setPassword('');
-    const label = replacing ? replacing.label : labelForOrigin(origin);
-    onSaved(
-      result.error ??
-        (replacing ? `Replaced the ${label} password` : `Saved the ${label} login for ${agentName}`)
-    );
+    await save.run(async () => {
+      const result = replacing
+        ? await window.electronAPI.hermesVault.replacePassword({
+            agentSlug,
+            id: replacing.id,
+            password,
+          })
+        : await window.electronAPI.hermesVault.addLogin({
+            agentSlug,
+            label: labelForOrigin(origin),
+            origin,
+            identifierType: idType,
+            identifier: identifier.trim(),
+            password,
+          });
+      if (!result.success) {
+        setError(result.error ?? 'Couldn’t save that login.');
+        return;
+      }
+      setPassword('');
+      const label = replacing ? replacing.label : labelForOrigin(origin);
+      onSaved(
+        result.error ??
+          (replacing ? `Replaced the ${label} password` : `Saved the ${label} login for ${agentName}`)
+      );
+    });
   };
 
   return (
-    <div className="wb-sheet-backdrop wb-vault-backdrop" role="presentation">
-      <form
-        className="wb-sheet wb-vault-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="wb-vault-sheet-title"
-        onSubmit={(e) => void submit(e)}
-      >
-        <h2 id="wb-vault-sheet-title">
-          {replacing ? `Replace ${replacing.label} password` : `Add a login for ${agentName}`}
-        </h2>
-
-        <div className="wb-vault-field">
-          <label htmlFor="wb-vault-site">Site</label>
-          <input
-            id="wb-vault-site"
-            value={site}
-            disabled={Boolean(replacing) || busy}
-            autoFocus={!replacing}
-            autoComplete="off"
-            placeholder="LinkedIn, or paste the sign-in page URL"
-            onChange={(e) => {
-              setSite(e.target.value);
-              setPickedOrigin(null);
-              setKeepTyped(false);
-            }}
-          />
-          {suggestions.length > 0 ? (
-            <div className="wb-vault-suggest" role="listbox" aria-label="Known sites">
-              {suggestions.map((s) => (
-                <button
-                  key={s.origin}
-                  type="button"
-                  role="option"
-                  aria-selected="false"
-                  onClick={() => pick(s.origin)}
-                >
-                  <span>{s.name}</span>
-                  <span className="mono">{s.origin}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {origin && !mismatch ? (
-            <p className="wb-vault-origin">
-              <Globe size={13} aria-hidden="true" />
-              Fills only on <span className="mono">{origin}</span>
-            </p>
-          ) : null}
-          {!origin && suggestions.length === 0 ? (
-            <p className="wb-vault-note">
-              Use the page where the sign-in form is, not a profile or home page.
-            </p>
-          ) : null}
-          {mismatch && origin ? (
-            <div className="wb-vault-warn" role="alert">
-              <p>
-                {mismatch.name}’s sign-in form is on <span className="mono">{mismatch.origin}</span>
-                . A login saved for <span className="mono">{origin}</span> won’t be filled there.
-              </p>
-              <div className="wb-vault-warn-actions">
-                <button
-                  type="button"
-                  className="wb-btn-solid"
-                  onClick={() => pick(mismatch.origin)}
-                >
-                  Use {hostOf(mismatch.origin)}
-                </button>
-                <button
-                  type="button"
-                  className="wb-btn-ghost"
-                  onClick={() => {
-                    setPickedOrigin(origin);
-                    setKeepTyped(true);
-                  }}
-                >
-                  Keep {hostOf(origin)}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="wb-vault-field">
-          <span className="wb-vault-field-label" id="wb-vault-idtype">
-            Signs in with
-          </span>
-          <div className="wb-vault-seg" role="group" aria-labelledby="wb-vault-idtype">
-            {ID_TYPES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                aria-pressed={idType === t.value}
-                disabled={Boolean(replacing) || busy}
-                onClick={() => setIdType(t.value)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="wb-vault-field">
-          <label htmlFor="wb-vault-identifier">{idMeta.label}</label>
-          <input
-            id="wb-vault-identifier"
-            ref={identifierRef}
-            value={identifier}
-            disabled={Boolean(replacing) || busy}
-            autoComplete="off"
-            placeholder={idMeta.placeholder}
-            onChange={(e) => setIdentifier(e.target.value)}
-          />
-        </div>
-
-        <div className="wb-vault-field">
-          <label htmlFor="wb-vault-password">{replacing ? 'New password' : 'Password'}</label>
-          <div className="wb-vault-password">
-            <input
-              id="wb-vault-password"
-              ref={passwordRef}
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              disabled={busy}
-              autoFocus={Boolean(replacing)}
-              autoComplete="new-password"
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? (
-                <EyeOff size={15} aria-hidden="true" />
-              ) : (
-                <Eye size={15} aria-hidden="true" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <p className="wb-vault-lockline">
-          <Lock size={13} aria-hidden="true" />
-          Saved encrypted in {agentName}’s vault. Boundary can’t show it again, and the model never
-          sees it.
-        </p>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions wb-vault-sheet-actions">
+    <Sheet
+      as="form"
+      onSubmit={(e) => void submit(e)}
+      open
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-vault-sheet-title"
+      className="wb-vault-sheet"
+      backdropClassName="wb-vault-backdrop"
+      title={replacing ? `Replace ${replacing.label} password` : `Add a login for ${agentName}`}
+      error={error}
+      actionsClassName="wb-vault-sheet-actions"
+      actions={
+        <>
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
           <button type="submit" className="wb-btn-solid" disabled={busy || !ready}>
             {busy ? 'Saving…' : replacing ? 'Replace password' : 'Save login'}
           </button>
+        </>
+      }
+    >
+      <div className="wb-vault-field">
+        <label htmlFor="wb-vault-site">Site</label>
+        <input
+          id="wb-vault-site"
+          value={site}
+          disabled={Boolean(replacing) || busy}
+          autoFocus={!replacing}
+          autoComplete="off"
+          placeholder="LinkedIn, or paste the sign-in page URL"
+          onChange={(e) => {
+            setSite(e.target.value);
+            setPickedOrigin(null);
+            setKeepTyped(false);
+          }}
+        />
+        {suggestions.length > 0 ? (
+          <div className="wb-vault-suggest" role="listbox" aria-label="Known sites">
+            {suggestions.map((s) => (
+              <button
+                key={s.origin}
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => pick(s.origin)}
+              >
+                <span>{s.name}</span>
+                <span className="mono">{s.origin}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {origin && !mismatch ? (
+          <p className="wb-vault-origin">
+            <Globe size={13} aria-hidden="true" />
+            Fills only on <span className="mono">{origin}</span>
+          </p>
+        ) : null}
+        {!origin && suggestions.length === 0 ? (
+          <p className="wb-vault-note">
+            Use the page where the sign-in form is, not a profile or home page.
+          </p>
+        ) : null}
+        {mismatch && origin ? (
+          <div className="wb-vault-warn" role="alert">
+            <p>
+              {mismatch.name}’s sign-in form is on <span className="mono">{mismatch.origin}</span>
+              . A login saved for <span className="mono">{origin}</span> won’t be filled there.
+            </p>
+            <div className="wb-vault-warn-actions">
+              <button
+                type="button"
+                className="wb-btn-solid"
+                onClick={() => pick(mismatch.origin)}
+              >
+                Use {hostOf(mismatch.origin)}
+              </button>
+              <button
+                type="button"
+                className="wb-btn-ghost"
+                onClick={() => {
+                  setPickedOrigin(origin);
+                  setKeepTyped(true);
+                }}
+              >
+                Keep {hostOf(origin)}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="wb-vault-field">
+        <span className="wb-vault-field-label" id="wb-vault-idtype">
+          Signs in with
+        </span>
+        <div className="wb-vault-seg" role="group" aria-labelledby="wb-vault-idtype">
+          {ID_TYPES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              aria-pressed={idType === t.value}
+              disabled={Boolean(replacing) || busy}
+              onClick={() => setIdType(t.value)}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-      </form>
-    </div>
+      </div>
+
+      <div className="wb-vault-field">
+        <label htmlFor="wb-vault-identifier">{idMeta.label}</label>
+        <input
+          id="wb-vault-identifier"
+          ref={identifierRef}
+          value={identifier}
+          disabled={Boolean(replacing) || busy}
+          autoComplete="off"
+          placeholder={idMeta.placeholder}
+          onChange={(e) => setIdentifier(e.target.value)}
+        />
+      </div>
+
+      <div className="wb-vault-field">
+        <label htmlFor="wb-vault-password">{replacing ? 'New password' : 'Password'}</label>
+        <div className="wb-vault-password">
+          <input
+            id="wb-vault-password"
+            ref={passwordRef}
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            disabled={busy}
+            autoFocus={Boolean(replacing)}
+            autoComplete="new-password"
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            onClick={() => setShowPassword((v) => !v)}
+          >
+            {showPassword ? (
+              <EyeOff size={15} aria-hidden="true" />
+            ) : (
+              <Eye size={15} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      <p className="wb-vault-lockline">
+        <Lock size={13} aria-hidden="true" />
+        Saved encrypted in {agentName}’s vault. Boundary can’t show it again, and the model never
+        sees it.
+      </p>
+    </Sheet>
   );
 }

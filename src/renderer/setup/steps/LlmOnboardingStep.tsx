@@ -2,34 +2,26 @@ import React, { useEffect, useRef, useState } from 'react';
 import { OnboardingHomeScreen } from '../../onboarding/OnboardingHomeScreen';
 import { OpenAiCredentialsForm } from '../../onboarding/OpenAiCredentialsForm';
 import { OAuthModelPickView } from '../../onboarding/OAuthModelPickView';
-import { ProviderGrid } from '../../onboarding/ProviderGrid';
-import { ProviderConfigForm } from '../../onboarding/ProviderConfigForm';
-import { ProviderProvisioningProgress } from '../../onboarding/ProviderProvisioningProgress';
-import { useOnboarding } from '../../onboarding/OnboardingContext';
-import { onboardingIPC } from '../../services/onboardingIPCService';
-import { assistantStackIPC } from '../../services/assistantStackIPCService';
+import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import type {
   DiscoveredLocalLlm,
   InferenceProvidersStatus,
   OAuthConnectionProviderId,
   OAuthConnectionProviderSummary,
   OAuthPkceCredentialsBundle,
-  OnboardingProviderConfig,
   PendingProviderSetup,
 } from '../../../shared/types/onboarding';
 import { SetupShell, SetupSpinner } from '../SetupShell';
+import { useSetup } from '../SetupContext';
 import { Callout } from '../../components/ui/alert';
 import type { SetupStepProps } from '../types';
-import { createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle';
-import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
+import { useAssistantStackLifecycle } from '../../product/assistantStack';
+import { rendererExperiments } from '../../experiments';
 
-type OnboardingView =
-  | 'home'
-  | 'oauth-model'
-  | 'existing'
-  | 'providers'
-  | 'provider-config'
-  | 'provider-progress';
+const ProviderSetupView = rendererExperiments.find((e) => e.ProviderSetupView)?.ProviderSetupView;
+const homeRows = rendererExperiments.flatMap((e) => (e.HomeRow ? [e.HomeRow] : []));
+
+type OnboardingView = 'home' | 'oauth-model' | 'existing' | 'provider-setup';
 
 type ExistingVariant = 'custom' | 'local';
 
@@ -62,15 +54,11 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
   title = 'Choose a model',
   description = 'Pick where replies come from. You can add or switch models later in Settings.',
 }) => {
-  const { loading, error, status, refresh } = useOnboarding();
+  const { loading, error, status } = useInferenceStatus();
   const [view, setView] = useState<OnboardingView>('home');
   const [existingVariant, setExistingVariant] = useState<ExistingVariant>('custom');
-  const [providers, setProviders] = useState<OnboardingProviderConfig[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(false);
-  const [providersError, setProvidersError] = useState<string | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<OnboardingProviderConfig | null>(null);
   const [pendingSetup, setPendingSetup] = useState<PendingProviderSetup | null>(null);
-  const [localLlms, setLocalLlms] = useState<DiscoveredLocalLlm[]>([]);
+  const { localLlms, discoverLocalLlms } = useSetup();
   const [localLlmError, setLocalLlmError] = useState<string | null>(null);
   const [oauthProviders, setOauthProviders] = useState<OAuthConnectionProviderSummary[]>([]);
   const [oauthLoading, setOauthLoading] = useState(true);
@@ -78,9 +66,8 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthCredentials, setOauthCredentials] = useState<OAuthPkceCredentialsBundle | null>(null);
   const didAutoResumeOauth = useRef(false);
-  const [stackLifecycle, setStackLifecycle] = useState<AssistantStackLifecycleSnapshot>(() =>
-    createLifecycleSnapshot('idle')
-  );
+  const oauthCancelled = useRef(false);
+  const stackLifecycle = useAssistantStackLifecycle();
   const backgroundEnsureStarted = useRef(false);
 
   const primaryOauthProvider = oauthProviders[0] ?? null;
@@ -89,14 +76,9 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
   useEffect(() => {
     if (backgroundEnsureStarted.current) return;
     backgroundEnsureStarted.current = true;
-    void assistantStackIPC.ensureRunningInBackground().catch(() => {
+    void window.electronAPI.assistantStack.ensureRunningInBackground().catch(() => {
       /* lifecycle carries failures */
     });
-  }, []);
-
-  useEffect(() => {
-    void assistantStackIPC.getLifecycle().then(setStackLifecycle);
-    return assistantStackIPC.onLifecycle(setStackLifecycle);
   }, []);
 
   const stackPreparingInBackground =
@@ -108,9 +90,9 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
       stackLifecycle.stage !== undefined);
 
   useEffect(() => {
-    if (status?.pending) {
+    if (status?.pending && ProviderSetupView) {
       setPendingSetup(status.pending);
-      setView('provider-progress');
+      setView('provider-setup');
       return;
     }
 
@@ -130,30 +112,10 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
 
   useEffect(() => {
     let cancelled = false;
-    const loadProviders = async () => {
-      setProvidersLoading(true);
-      setProvidersError(null);
-      try {
-        const result = await onboardingIPC.listProviders();
-        if (!cancelled) setProviders(result);
-      } catch (e) {
-        if (!cancelled) setProvidersError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setProvidersLoading(false);
-      }
-    };
-    void loadProviders();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
     const loadOauthProviders = async () => {
       setOauthLoading(true);
       try {
-        const result = await onboardingIPC.listOAuthProviders();
+        const result = await window.electronAPI.onboarding.listOAuthProviders();
         if (!cancelled) {
           if (result.success) {
             setOauthProviders(result.providers);
@@ -172,31 +134,14 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     };
   }, []);
 
+  // The Machine step's assessment discovers too, but a returning user may skip it.
   useEffect(() => {
-    let cancelled = false;
-    const loadLocalLlms = async () => {
-      try {
-        const result = await onboardingIPC.discoverLocalLlms();
-        if (!cancelled && result.success) {
-          setLocalLlms(result.endpoints);
-        }
-      } catch {
-        // Optional; the watcher will retry.
-      }
-    };
-    void loadLocalLlms();
-    const unsubscribe = onboardingIPC.onLocalLlmChanged((payload) => {
-      setLocalLlms(payload.endpoints);
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
+    void discoverLocalLlms();
+  }, [discoverLocalLlms]);
 
   const handleUseLocalLlm = async (endpoint: DiscoveredLocalLlm, modelId: string) => {
     setLocalLlmError(null);
-    const result = await onboardingIPC.adoptLocalLlm({
+    const result = await window.electronAPI.onboarding.adoptLocalLlm({
       runtime: endpoint.runtime,
       endpointUrl: endpoint.baseUrl,
       modelId,
@@ -205,7 +150,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
       setLocalLlmError(result.error ?? 'Unable to use this local endpoint.');
       return;
     }
-    await refresh();
+    await takeInferenceStatus(result);
   };
 
   const handleOauthSignIn = async () => {
@@ -213,8 +158,10 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     setOauthConnecting(true);
     setOauthError(null);
     setOauthCredentials(null);
+    oauthCancelled.current = false;
     try {
-      const result = await onboardingIPC.startOAuthPkce({ providerId: primaryOauthProvider.id });
+      const result = await window.electronAPI.onboarding.startOAuthPkce({ providerId: primaryOauthProvider.id });
+      if (oauthCancelled.current) return;
       if (!result.success || !result.credentials) {
         setOauthError(result.error ?? 'OAuth sign-in failed.');
         return;
@@ -224,6 +171,11 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     } finally {
       setOauthConnecting(false);
     }
+  };
+
+  const cancelOauthSignIn = () => {
+    oauthCancelled.current = true;
+    void window.electronAPI.onboarding.cancelOAuthPkce();
   };
 
   const goHome = () => {
@@ -270,77 +222,8 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     );
   }
 
-  if (view === 'providers') {
-    return (
-      <SetupShell
-        title="Deploy my own GPUs"
-        description="Choose a provider to host an OpenAI-compatible endpoint for you."
-        onBack={goHome}
-        width="wide"
-      >
-        {providersError && <Callout variant="destructive">{providersError}</Callout>}
-        {providersLoading ? (
-          <SetupSpinner label="Loading providers…" />
-        ) : (
-          <ProviderGrid
-            providers={providers}
-            onSelect={(provider) => {
-              setSelectedProvider(provider);
-              setView('provider-config');
-            }}
-          />
-        )}
-      </SetupShell>
-    );
-  }
-
-  if (view === 'provider-config' && selectedProvider) {
-    return (
-      <SetupShell
-        title={`Deploy on ${selectedProvider.name}`}
-        description="Connect your provider account, reuse an existing endpoint, or deploy a catalog model."
-        onBack={() => setView('providers')}
-        width="wide"
-      >
-        <ProviderConfigForm
-          key={selectedProvider.id}
-          provider={selectedProvider}
-          onStarted={(pending) => {
-            setPendingSetup(pending);
-            setView('provider-progress');
-          }}
-        />
-      </SetupShell>
-    );
-  }
-
-  if (view === 'provider-progress' && pendingSetup) {
-    return (
-      <SetupShell
-        title="Creating your endpoint"
-        description="Boundary is starting the provider instance and will confirm a real reply before it finishes."
-      >
-        <ProviderProvisioningProgress
-          pending={pendingSetup}
-          onRetry={async () => {
-            const retryProviderId = pendingSetup.providerId;
-            await onboardingIPC.clearPendingProviderSetup();
-            await refresh();
-            setPendingSetup(null);
-            const provider =
-              providers.find((item) => item.id === retryProviderId) ??
-              (await onboardingIPC.listProviders()).find((item) => item.id === retryProviderId) ??
-              null;
-            if (provider) {
-              setSelectedProvider(provider);
-              setView('provider-config');
-              return;
-            }
-            setView('providers');
-          }}
-        />
-      </SetupShell>
-    );
+  if (view === 'provider-setup' && ProviderSetupView) {
+    return <ProviderSetupView pending={pendingSetup} onHome={goHome} />;
   }
 
   return (
@@ -358,6 +241,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
             : null
         }
         onSignIn={() => void handleOauthSignIn()}
+        onCancelSignIn={cancelOauthSignIn}
         onContinuePendingOauth={continuePendingOauth}
         localEndpoints={localLlms}
         onUseLocalEndpoint={handleUseLocalLlm}
@@ -369,6 +253,15 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
           setExistingVariant('local');
           setView('existing');
         }}
+        extraRows={homeRows.map((HomeRow, index) => (
+          <HomeRow
+            key={index}
+            onSelect={() => {
+              setPendingSetup(null);
+              setView('provider-setup');
+            }}
+          />
+        ))}
       />
       {stackPreparingInBackground && (
         <p className="flex items-center gap-2 text-xs text-fg-faint" role="status">

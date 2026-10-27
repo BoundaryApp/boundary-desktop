@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
   HermesChatStartPayload,
   HermesProjectRecord,
@@ -33,66 +34,56 @@ const ipc = vi.hoisted(() => ({
   revealProjectFile: null as unknown as ReturnType<typeof vi.fn>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  const on = (set: Set<Listener>) => (cb: Listener) => {
-    set.add(cb);
-    return () => set.delete(cb);
-  };
-  let n = 0;
-  // Runs stay open until a test replies to them (`reply`).
-  ipc.startChat = vi.fn(async () => {
-    n += 1;
-    ipc.active = `req-${n}`;
-    return { success: true, requestId: ipc.active, sessionId: 's1', transport: 'json-rpc' };
-  });
-  ipc.saveReply = vi.fn(async () => ({ success: true, path: '/Users/ada/Job Search/plan.md' }));
-  ipc.revealProjectFile = vi.fn(async () => ({ success: true }));
-  return {
-    hermesChatIPC: {
-      getHistory: ipcCalls.track(vi.fn().mockResolvedValue({
-        success: true,
-        sessionId: 's1',
-        messages: [
-          { role: 'user', content: 'Plan my week', rowId: 1 },
-          {
-            role: 'assistant',
-            content: '## Plan\n\n- **Mon:** write',
-            rowId: 2,
-            files: [
-              '/opt/projects/job-search/plan.md',
-              '/opt/projects/other/elsewhere.md',
-              'relative.md',
-            ],
-          },
-        ],
-      })),
-      startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-      saveReply: ipcCalls.track((...args: unknown[]) => ipc.saveReply(...args)),
-      revealProjectFile: ipcCalls.track((...args: unknown[]) => ipc.revealProjectFile(...args)),
-      cancelChat: vi.fn(),
-      onChatChunk: on(ipc.chunk as Set<Listener>),
-      onChatEnd: on(ipc.end as Set<Listener>),
-      onChatTool: on(ipc.tool as Set<Listener>),
-      onChatError: unsub,
-      onChatPhase: on(ipc.phase as Set<Listener>),
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: ipcCalls.track(async () => []),
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-      completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-    },
-  };
+const on = (set: Set<Listener>) => (cb: Listener) => {
+  set.add(cb);
+  return () => set.delete(cb);
+};
+// Runs stay open until a test replies to them (`reply`). Main answers with the adapter's id.
+ipc.startChat = vi.fn(async (payload: { requestId: string }) => {
+  ipc.active = payload.requestId;
+  return { success: true, requestId: ipc.active, sessionId: 's1' };
 });
+ipc.saveReply = vi.fn(async () => ({ success: true, path: '/Users/ada/Job Search/plan.md' }));
+ipc.revealProjectFile = vi.fn(async () => ({ success: true }));
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    getHistory: ipcCalls.track(vi.fn().mockResolvedValue({
+      success: true,
+      sessionId: 's1',
+      messages: [
+        { role: 'user', content: 'Plan my week', rowId: 1 },
+        {
+          role: 'assistant',
+          content: '## Plan\n\n- **Mon:** write',
+          rowId: 2,
+          files: [
+            '/opt/projects/job-search/plan.md',
+            '/opt/projects/other/elsewhere.md',
+            'relative.md',
+          ],
+        },
+      ],
+    })),
+    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
+    saveReply: ipcCalls.track((...args: unknown[]) => ipc.saveReply(...args)),
+    revealProjectFile: ipcCalls.track((...args: unknown[]) => ipc.revealProjectFile(...args)),
+    cancelChat: vi.fn(),
+    onChatChunk: on(ipc.chunk as Set<Listener>),
+    onChatEnd: on(ipc.end as Set<Listener>),
+    onChatTool: on(ipc.tool as Set<Listener>),
+    onChatPhase: on(ipc.phase as Set<Listener>),
+    listPendingCredentialRequests: ipcCalls.track(async () => []),
+    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
+  },
+  onboarding: {
     getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
     probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
   },
-}));
+  projects: {
+    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));

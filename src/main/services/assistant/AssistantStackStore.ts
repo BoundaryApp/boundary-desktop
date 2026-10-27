@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/types/assistantStack';
 import type { InferenceSlotId } from '../../../shared/types/onboarding';
 import { readStoreFromMemory } from '../storeMemoryCache';
+import { sameEndpoint } from '../../../shared/utils/endpointUrl';
 
 interface AssistantStackStoreShape {
   setupComplete: boolean;
@@ -38,33 +39,31 @@ export function markAssistantStackSetupComplete(): void {
   store.set('setupComplete', true);
 }
 
-export function clearAssistantStackSetupComplete(): void {
-  store.set('setupComplete', false);
-}
-
 /**
- * Always return a complete port map consistent with isolationMode.
- * Older Phase‑1 store entries only had core ports offset; merging defaults left
- * Phase‑2 services on 8000/5678/etc. and broke dual-stack binds.
+ * Always return a complete port map consistent with isolationMode. Offset mode ignores the
+ * stored map; default mode fills ports a stored map lacks from the defaults.
  */
 export function getStoredAssistantPorts(): AssistantStackPorts {
   const isolationMode = getStoredIsolationMode();
+  if (isolationMode === 'offset-ports') return portsForIsolationMode(isolationMode);
+  const raw = store.get('ports') as Partial<AssistantStackPorts> | undefined;
+  return { ...DEFAULT_ASSISTANT_STACK_PORTS, ...raw };
+}
+
+/**
+ * One-time migration (src/main/migrations): older Phase‑1 store entries only had core ports
+ * offset; merging defaults left Phase‑2 services on 8000/5678/etc. and broke dual-stack binds.
+ * Writes the complete map back when the stored one is incomplete or mixed.
+ */
+export function repairStoredAssistantPorts(): void {
+  const isolationMode = getStoredIsolationMode();
   const expected = portsForIsolationMode(isolationMode);
   const raw = store.get('ports') as Partial<AssistantStackPorts> | undefined;
-  const repaired =
-    isolationMode === 'offset-ports'
-      ? expected
-      : { ...DEFAULT_ASSISTANT_STACK_PORTS, ...raw };
-
-  // Persist repair when stored map is incomplete or mixed vs isolation mode.
+  const repaired = getStoredAssistantPorts();
   const needsPersist = (Object.keys(expected) as (keyof AssistantStackPorts)[]).some(
     (key) => raw?.[key] !== repaired[key]
   );
-  if (needsPersist) {
-    store.set('ports', repaired);
-  }
-
-  return repaired;
+  if (needsPersist) store.set('ports', repaired);
 }
 
 export function setStoredAssistantPorts(
@@ -87,14 +86,6 @@ export function getAssistantRootOverride(): string | null {
   return value || null;
 }
 
-export function setAssistantRootOverride(root: string | null): void {
-  store.set('assistantRootOverride', root?.trim() ?? '');
-}
-
-function normalizeEndpointUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '').toLowerCase();
-}
-
 export function getLastAppliedLlm(): LastAppliedLlm | null {
   return store.get('lastAppliedLlm') ?? null;
 }
@@ -115,6 +106,6 @@ export function llmFingerprintsMatch(
   return (
     applied.slot === next.slot &&
     applied.modelId === next.modelId &&
-    normalizeEndpointUrl(applied.endpointUrl) === normalizeEndpointUrl(next.endpointUrl)
+    sameEndpoint(applied.endpointUrl, next.endpointUrl)
   );
 }

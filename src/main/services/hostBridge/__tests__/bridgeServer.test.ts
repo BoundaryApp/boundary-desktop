@@ -109,6 +109,26 @@ describe('MCP listener', () => {
     expect((await request(mcpPort, { body: rpc('ping') })).headers['mcp-session-id']).toBeUndefined();
   });
 
+  it('reports a client ending its session, and nothing for a rejected one', async () => {
+    const onSessionClosed = vi.fn();
+    servers = await startBridgeServers({ mcpToken: MCP_TOKEN, browserToken: BROWSER_TOKEN, callTool: vi.fn(), onSessionClosed });
+    const { mcpPort } = servers;
+    const rejected = await request(mcpPort, { method: 'DELETE', headers: { authorization: 'Bearer wrong', 'mcp-session-id': 'a' } });
+    expect(rejected.status).toBe(401);
+    expect(onSessionClosed).not.toHaveBeenCalled();
+    expect((await request(mcpPort, { method: 'DELETE', headers: { 'mcp-session-id': 'a' } })).status).toBe(200);
+    expect(onSessionClosed).toHaveBeenCalledWith('a');
+  });
+
+  it('answers 500 when a step outside the body handling throws', async () => {
+    const onSessionClosed = vi.fn(() => {
+      throw new Error('listener failed');
+    });
+    servers = await startBridgeServers({ mcpToken: MCP_TOKEN, browserToken: BROWSER_TOKEN, callTool: vi.fn(), onSessionClosed });
+    const res = await request(servers.mcpPort, { method: 'DELETE', headers: { 'mcp-session-id': 'a' } });
+    expect(res.status).toBe(500);
+  });
+
   it('acknowledges notifications with 202 and no body', async () => {
     const { mcpPort } = await start();
     const reply = await request(mcpPort, { body: rpc('notifications/initialized', undefined, null) });
@@ -141,9 +161,9 @@ describe('MCP listener', () => {
     const { mcpPort } = await start();
     const get = await request(mcpPort, { method: 'GET' });
     expect(get.status).toBe(405);
-    expect(get.headers.allow).toBe('POST');
+    expect(get.headers.allow).toBe('POST, DELETE');
     expect((await request(mcpPort, { method: 'HEAD' })).status).toBe(405);
-    expect((await request(mcpPort, { method: 'DELETE' })).status).toBe(405);
+    expect((await request(mcpPort, { method: 'DELETE' })).status).toBe(400);
     expect((await request(mcpPort, { path: '/other', body: rpc('ping') })).status).toBe(404);
     expect((await request(mcpPort, { body: rpc('ping'), headers: { 'content-type': 'text/plain' } })).status).toBe(415);
   });

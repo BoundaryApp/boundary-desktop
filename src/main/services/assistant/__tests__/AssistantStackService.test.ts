@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { rewriteLlmUrlForContainer } from '../rewriteLlmUrlForContainer';
 import {
   BOUNDARY_ASSISTANT_COMPOSE_PROFILES,
@@ -6,6 +6,7 @@ import {
   BOUNDARY_ASSISTANT_PROJECT_NAME,
   DEFAULT_ASSISTANT_STACK_PORTS,
   buildComposeProfileArgs,
+  portsForIsolationMode,
 } from '../../../../shared/assistantStackConstants';
 import {
   buildAssistantUiServiceCards,
@@ -26,6 +27,12 @@ describe('rewriteLlmUrlForContainer', () => {
     );
   });
 
+  it('rewrites 0.0.0.0, which the slot classifier treats as local', () => {
+    expect(rewriteLlmUrlForContainer('http://0.0.0.0:8080/v1')).toBe(
+      'http://host.docker.internal:8080/v1'
+    );
+  });
+
   it('leaves cloud URLs unchanged', () => {
     expect(rewriteLlmUrlForContainer('https://openrouter.ai/api/v1')).toBe(
       'https://openrouter.ai/api/v1'
@@ -35,7 +42,10 @@ describe('rewriteLlmUrlForContainer', () => {
 
 describe('AssistantStackService helpers', () => {
   it('offsets all ports by BOUNDARY_ASSISTANT_PORT_OFFSET', () => {
-    const ports = __test.offsetPorts(DEFAULT_ASSISTANT_STACK_PORTS, BOUNDARY_ASSISTANT_PORT_OFFSET);
+    const ports = portsForIsolationMode('offset-ports');
+    for (const [key, port] of Object.entries(DEFAULT_ASSISTANT_STACK_PORTS)) {
+      expect(ports[key as keyof typeof ports]).toBe(port + BOUNDARY_ASSISTANT_PORT_OFFSET);
+    }
     expect(ports.apiServer).toBe(18643);
     expect(ports.webui).toBe(18787);
     expect(ports.dashboard).toBe(19119);
@@ -46,8 +56,7 @@ describe('AssistantStackService helpers', () => {
     expect(ports.gptResearcher).toBe(18000);
   });
 
-  it('portsForIsolationMode keeps offset maps complete', async () => {
-    const { portsForIsolationMode } = await import('../../../../shared/assistantStackConstants');
+  it('portsForIsolationMode keeps offset maps complete', () => {
     const offset = portsForIsolationMode('offset-ports');
     expect(offset.gptResearcher).toBe(18000);
     expect(offset.lightrag).toBe(19621);
@@ -56,7 +65,7 @@ describe('AssistantStackService helpers', () => {
   });
 
   it('maps host publish ports separately from container-internal listen ports', () => {
-    const offset = __test.offsetPorts(DEFAULT_ASSISTANT_STACK_PORTS, BOUNDARY_ASSISTANT_PORT_OFFSET);
+    const offset = portsForIsolationMode('offset-ports');
     const env = __test.portsToComposeEnv(offset);
     // Read inside the container too: defaults, with Boundary's own publish variables.
     expect(env.BOUNDARY_HERMES_API_HOST_PORT).toBe('18643');
@@ -119,7 +128,7 @@ describe('assistantUiServices', () => {
   });
 
   it('resolves all seven product cards including offset ports', () => {
-    const offset = __test.offsetPorts(DEFAULT_ASSISTANT_STACK_PORTS, BOUNDARY_ASSISTANT_PORT_OFFSET);
+    const offset = portsForIsolationMode('offset-ports');
     const cards = buildAssistantUiServiceCards(offset);
     expect(cards).toHaveLength(7);
     expect(cards.map((c) => c.id)).toEqual([
@@ -134,5 +143,28 @@ describe('assistantUiServices', () => {
     expect(cards.find((c) => c.id === 'hermes-webui')?.url).toBe('http://127.0.0.1:18787/');
     expect(cards.find((c) => c.id === 'lightrag')?.url).toBe('http://127.0.0.1:19621/webui/');
     expect(cards.find((c) => c.id === 'n8n')?.url).toBe('http://127.0.0.1:15678/');
+  });
+});
+
+describe('isAssistantStackReady', () => {
+  afterEach(() => {
+    __test.resetReadyForTests();
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a change in readiness once, not on every check', async () => {
+    const { isAssistantStackReady, setAssistantStackReadyCallback } = await import(
+      '../AssistantStackService'
+    );
+    const reports: boolean[] = [];
+    setAssistantStackReadyCallback((ready) => reports.push(ready));
+    let ok = true;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok })));
+
+    expect(await isAssistantStackReady()).toBe(true);
+    expect(await isAssistantStackReady()).toBe(true);
+    ok = false;
+    expect(await isAssistantStackReady()).toBe(false);
+    expect(reports).toEqual([true, false]);
   });
 });

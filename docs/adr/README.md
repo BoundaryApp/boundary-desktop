@@ -36,7 +36,8 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    └── 0011 Resources is an icon-rail destination
  │         └── 0012 Host Compose inventory lives on Resources
  ├── 0026 The model key lives in the proxy's memory, not on disk
- └── 0027 A host bridge gives Hermes the host's browser and capabilities
+ ├── 0027 A host bridge gives Hermes the host's browser and capabilities
+ └── 0031 Checks on the stack contract and on drift
 ```
 
 | ADR | Status | Title |
@@ -71,6 +72,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0028](0028-coding-folders.md) | Proposed · amended 2026-10-07 | Coding folders: the coding agent works in folders the user grants |
 | [0029](0029-full-window-startup-screen.md) | Proposed | A full-window start-up screen |
 | [0030](0030-board-is-a-view-of-tasks.md) | Proposed | Hermes's board is a view of Tasks |
+| [0031](0031-checks-on-the-stack-contract-and-drift.md) | Proposed | Checks on the stack contract and on drift |
 
 ## Host bridge research
 

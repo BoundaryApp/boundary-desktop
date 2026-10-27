@@ -487,11 +487,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-proj-menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 4px);
+  width: var(--radix-popover-trigger-width);
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -505,13 +503,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-proj-picker--chip .wb-proj-menu {
-  left: 0;
-  right: auto;
   width: max-content;
   min-width: 260px;
   max-width: min(360px, calc(100vw - 32px));
-  bottom: calc(100% + 6px);
-  top: auto;
 }
 
 .wb-proj-menu-search {
@@ -1215,10 +1209,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   opacity: 1;
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-menu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
   z-index: 6;
   min-width: 248px;
   padding: 6px;
@@ -1908,10 +1900,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   min-width: 0;
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-inf-menu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
   z-index: 8;
   min-width: 240px;
   padding: 8px;
@@ -2517,10 +2507,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-hover);
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-approve-menu {
-  position: absolute;
-  right: 16px;
-  bottom: calc(100% + 8px);
   min-width: 220px;
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -2730,10 +2718,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text);
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-insp-menu {
-  position: absolute;
-  right: 0;
-  top: 32px;
   width: 168px;
   padding: 4px;
   border-radius: var(--radius-lg);
@@ -4152,10 +4138,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-faint);
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-vault-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
   z-index: 5;
   min-width: 180px;
   padding: 4px;
@@ -4651,6 +4635,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-xs);
   margin: 12px 0 0;
 }
+.wb-inference-note.is-bad { color: var(--danger); }
 
 @media (max-width: 820px) {
   .wb-inference-cards { grid-template-columns: 1fr; }
@@ -5207,10 +5192,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: inherit;
 }
 
+/* Placed by Radix Popover (components/ui/popover). */
 .wb-dm-days {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -5222,7 +5205,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border-radius: var(--radius-md);
   background: var(--surface-2);
   box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-  transform: translateX(-50%);
 }
 
 .wb-dm-day {
@@ -5582,9 +5564,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-insp-menu.wb-title-menu-pop {
-  left: 0;
-  right: auto;
-  top: calc(100% + 6px);
   width: 240px;
   z-index: 20;
 }
@@ -6467,26 +6446,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-xs);
 }
 
-.wb-coding-from > .wb-coding-glyph {
-  flex-shrink: 0;
-}
-
 .wb-coding-from-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.wb-coding-glyph {
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-size: 9px;
-  font-weight: var(--weight-strong);
 }
 
 .wb-coding-hermes {
@@ -7390,12 +7354,6 @@ button.wb-task-card:hover {
 .wb-task-runmenu > .wb-btn-ghost {
   padding: 2px 10px;
   font-size: var(--size-xs);
-}
-
-.wb-task-runmenu-list {
-  right: 0;
-  bottom: auto;
-  top: calc(100% + 6px);
 }
 
 .wb-approve-confirm.wb-task-confirm {

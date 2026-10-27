@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
   AgentProfile,
   HermesChatMessage,
@@ -30,70 +31,60 @@ const ipc = vi.hoisted(() => ({
   error: new Set<Listener>(),
   history: [] as HermesChatMessage[],
   active: null as string | null,
-  /** Called when the adapter subscribes to a run's stream, i.e. Hermes answered startChat. */
+  /** Called when the adapter subscribes to a run's stream, just before it calls startChat. */
   onListen: null as (() => void) | null,
   startChat: null as unknown as ReturnType<typeof vi.fn>,
   cancelChat: null as unknown as ReturnType<typeof vi.fn>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  const on = (set: Set<Listener>) => (cb: Listener) => {
-    set.add(cb);
-    return () => set.delete(cb);
-  };
-  let n = 0;
-  ipc.startChat = vi.fn(async () => {
-    n += 1;
-    ipc.active = `req-${n}`;
-    return { success: true, requestId: ipc.active, sessionId: 's1', transport: 'json-rpc' };
-  });
-  // An implementation, not mockResolvedValue: restoreAllMocks between tests would drop that.
-  ipc.cancelChat = vi.fn(async () => ({ success: true }));
-  return {
-    hermesChatIPC: {
-      getHistory: ipcCalls.track(async () => ({
-        success: true,
-        sessionId: 's1',
-        messages: ipc.history,
-      })),
-      startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-      cancelChat: ipcCalls.track((...args: unknown[]) => ipc.cancelChat(...args)),
-      onChatChunk: (cb: Listener) => {
-        const off = on(ipc.chunk)(cb);
-        ipc.onListen?.();
-        return off;
-      },
-      onChatEnd: on(ipc.end),
-      onChatError: on(ipc.error),
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: ipcCalls.track(async () => []),
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: ipcCalls.track(async () => ({
-        success: true,
-        breakdown: { categories: [] },
-      })),
-      completePath: ipcCalls.track(async () => ({ success: true, items: [] })),
-    },
-  };
+const on = (set: Set<Listener>) => (cb: Listener) => {
+  set.add(cb);
+  return () => set.delete(cb);
+};
+// Main answers with the request id the adapter sent.
+ipc.startChat = vi.fn(async (payload: { requestId: string }) => {
+  ipc.active = payload.requestId;
+  return { success: true, requestId: ipc.active, sessionId: 's1' };
 });
-
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+// An implementation, not mockResolvedValue: restoreAllMocks between tests would drop that.
+ipc.cancelChat = vi.fn(async () => ({ success: true }));
+stubElectronAPI({
+  hermesChat: {
+    getHistory: ipcCalls.track(async () => ({
+      success: true,
+      sessionId: 's1',
+      messages: ipc.history,
+    })),
+    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
+    cancelChat: ipcCalls.track((...args: unknown[]) => ipc.cancelChat(...args)),
+    onChatChunk: (cb: Listener) => {
+      const off = on(ipc.chunk)(cb);
+      ipc.onListen?.();
+      return off;
+    },
+    onChatEnd: on(ipc.end),
+    onChatError: on(ipc.error),
+    listPendingCredentialRequests: ipcCalls.track(async () => []),
+    getContextBreakdown: ipcCalls.track(async () => ({
+      success: true,
+      breakdown: { categories: [] },
+    })),
+  },
+  onboarding: {
     getStatus: ipcCalls.track(async () => ({ configured: true, slots: {} })),
     probeSlotHealth: ipcCalls.track(async () => ({ health: 'reachable' })),
   },
-}));
+  projects: {
+    completePath: ipcCalls.track(async () => ({ success: true, items: [] })),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
 
 import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { STOP_GUARD_MS, WorkbenchThread } from '../WorkbenchThread';
+import { setRunningTurnsForTests } from '../runningTurns';
 
 const researcher: AgentProfile = {
   slug: 'researcher',
@@ -190,6 +181,7 @@ describe('Run control', () => {
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    setRunningTurnsForTests([]);
     vi.restoreAllMocks();
   });
 
@@ -252,19 +244,21 @@ describe('Run control', () => {
     later();
     await clickStop();
 
-    expect(screen.getByText('Stopped before Hermes replied')).toBeTruthy();
+    // The same line, in the same markup, as the note a reload shows under the prompt.
+    const line = screen.getByText('Stopped before Hermes replied');
+    expect(line.closest('.wb-turn-note')?.getAttribute('role')).toBe('status');
     expect(screen.queryByRole('button', { name: /Continue/ })).toBeNull();
   });
 
   it('cancels on Hermes when Stop lands before startChat answers', async () => {
     let answer!: () => void;
     ipc.startChat.mockImplementationOnce(
-      () =>
+      (payload: { requestId: string }) =>
         ipcCalls.hold(
           new Promise((resolve) => {
             answer = () => {
-              ipc.active = 'req-slow';
-              resolve({ success: true, requestId: 'req-slow', sessionId: 's1', transport: 'json-rpc' });
+              ipc.active = payload.requestId;
+              resolve({ success: true, requestId: payload.requestId, sessionId: 's1' });
             };
           })
         )
@@ -281,7 +275,7 @@ describe('Run control', () => {
     await act(async () => answer());
     await ipcCalls.settle();
 
-    expect(ipc.cancelChat).toHaveBeenCalledWith({ requestId: 'req-slow', reason: 'stopped' });
+    expect(ipc.cancelChat).toHaveBeenCalledWith({ requestId: ipc.active, reason: 'stopped' });
     expect(await screen.findByText('Stopped before Hermes replied')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
   });
@@ -320,5 +314,25 @@ describe('Run control', () => {
     expect(screen.getByText('Stopped by you')).toBeTruthy();
     // Only the latest stopped reply can be continued.
     expect(screen.getAllByRole('button', { name: /Continue/ })).toHaveLength(1);
+  });
+
+  // A turn this window did not start: another window's, or one left running when the chat
+  // screen remounted. Stop cancels it on Hermes by its request id.
+  it('stops a turn another window started, with the button and with Esc', async () => {
+    const away = { sessionIds: ['s1'], agentSlug: null, startedAt: new Date(now).toISOString() };
+    setRunningTurnsForTests([{ requestId: 'req-away', ...away }]);
+    await renderChat();
+    expect(screen.getByText(/is still working/)).toBeTruthy();
+
+    await clickStop();
+    expect(ipc.cancelChat).toHaveBeenCalledWith({ requestId: 'req-away', reason: 'stopped' });
+
+    ipc.cancelChat.mockClear();
+    await act(async () => setRunningTurnsForTests([{ requestId: 'req-other', ...away }]));
+    await act(async () => fireEvent.keyDown(input(), { key: 'Escape' }));
+    expect(ipc.cancelChat).toHaveBeenCalledWith({ requestId: 'req-other', reason: 'stopped' });
+
+    await act(async () => setRunningTurnsForTests([]));
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull();
   });
 });

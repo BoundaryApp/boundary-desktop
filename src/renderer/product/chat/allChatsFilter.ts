@@ -32,7 +32,7 @@ export const EMPTY_ALL_CHATS_FILTER: AllChatsFilter = {
   query: '',
 };
 
-export function sourceLabelOf(thread: HermesChatThreadSummary): string {
+function sourceLabelOf(thread: HermesChatThreadSummary): string {
   return hermesSessionSourceLabel(thread.source) ?? 'App';
 }
 

@@ -1,13 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    kanbanSnapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onKanbanSnapshot: () => () => undefined,
-    onKanbanOpenTask: () => () => undefined,
+stubElectronAPI({
+  kanban: {
+    snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
   },
-}));
+});
 
 import {
   clearTaskOpenRequest,

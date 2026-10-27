@@ -1,17 +1,18 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { RightInspector } from '../RightInspector';
 import type { AgentProfile } from '../../../../shared/types/hermesChat';
 
 const getAgentSoul = vi.fn();
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    getAgentSoul: (...args: unknown[]) => getAgentSoul(...args),
-    revealAgentSoul: vi.fn(),
+stubElectronAPI({
+  agents: {
+    getSoul: (...args: unknown[]) => getAgentSoul(...args),
+    revealSoul: vi.fn(),
   },
-}));
+});
 
 const designer: AgentProfile = {
   slug: 'designer',
@@ -37,16 +38,20 @@ describe('RightInspector', () => {
         activeChannel={null}
         activeAgent={designer}
         agents={[designer]}
-        project={null}
-        inspect={null}
         threadId="t-dm"
-        onChangeFolder={() => undefined}
-        onChooseFolder={() => undefined}
-        onRevealHub={() => undefined}
-        onRevealSource={() => undefined}
-        onRefreshIndex={() => undefined}
-        onAddFolder={() => undefined}
-        onRemoveSource={() => undefined}
+        projectTab={{
+          project: null,
+          inspect: null,
+          connecting: false,
+          rpcAvailable: true,
+          onChangeFolder: () => undefined,
+          onChooseFolder: () => undefined,
+          onRevealHub: () => undefined,
+          onRevealSource: () => undefined,
+          onRefreshIndex: () => undefined,
+          onAddFolder: () => undefined,
+          onRemoveSource: () => undefined,
+        }}
         onMakeChannel={() => undefined}
         onAddToChannel={() => undefined}
       />

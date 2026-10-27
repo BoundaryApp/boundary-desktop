@@ -26,8 +26,8 @@ export function sessionSettled(sessionId: string): Promise<void> {
 }
 
 /**
- * Call right before `session.interrupt`. Waits for Hermes's `message.complete` for the
- * session (or INTERRUPT_SETTLE_MS), then notes how the reply ended against its row.
+ * Call right before `session.interrupt`. Waits for Hermes's interrupted `message.complete` for
+ * the session (or INTERRUPT_SETTLE_MS), then notes how the reply ended against its row.
  * A turn stopped before any text has no reply row: Hermes saves nothing for it, so the
  * note goes on the unanswered user row instead.
  */
@@ -46,8 +46,12 @@ export function settleInterruptedTurn(
       unsubscribe();
       resolve();
     };
+    // Only this session's completion counts, and only as `interrupted` when it says how it
+    // ended: another chat's completion, or the stopped turn's own normal end, is not the stop.
     unsubscribe = gateway.on('message.complete', (event) => {
-      if (event.session_id && event.session_id !== sessionId) return;
+      if (event.session_id !== sessionId) return;
+      const status = (event.payload as { status?: unknown } | undefined)?.status;
+      if (status != null && status !== 'interrupted') return;
       finish();
     });
     timer = setTimeout(finish, INTERRUPT_SETTLE_MS);

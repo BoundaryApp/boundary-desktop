@@ -1,24 +1,22 @@
 import { safeStorage } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  classifyInferenceSlot,
   clearLlmSlot,
   clearOpenAiConfig,
+  ensureV2Document,
   getAppDefaultSlot,
   getLlmConnection,
-  getOpenAiApiKey,
   getOpenAiOnboardingStatus,
+  getSlotApiKey,
   getSlotConnectionMaterial,
   getStoredLlmConnectionMaterial,
-  hasPendingOAuthModelSelection,
   saveLlmConnection,
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
-  saveOpenAiConfig,
-  saveProviderEndpoint,
   setAppDefault,
   updateLlmModel,
   writeV1DocumentForTesting,
-  __testing,
 } from '../onboarding/OpenAiOnboardingStore';
 import {
   LOCAL_LLM_CAPABILITIES,
@@ -57,7 +55,7 @@ describe('OpenAiOnboardingStore', () => {
     expect(result.status?.appDefault).toBe('infrastructure');
     expect(result.status?.slots.infrastructure?.endpointUrl).toBe('https://example.test/v1');
     expect(result.status?.slots.infrastructure?.modelId).toBe('openai/gpt-4o');
-    expect(await getOpenAiApiKey()).toBe('sk-test-key');
+    expect(await getSlotApiKey(getAppDefaultSlot())).toBe('sk-test-key');
     expect((await getLlmConnection())?.modelId).toBe('openai/gpt-4o');
   });
 
@@ -107,7 +105,7 @@ describe('OpenAiOnboardingStore', () => {
       capabilities: OAUTH_LLM_CAPABILITIES,
     });
 
-    __testing.ensureV2Document();
+    ensureV2Document();
     const status = await getOpenAiOnboardingStatus();
     expect(status.appDefault).toBe('local');
     expect(status.slots.local?.modelId).toBe('qwen3:14b');
@@ -132,19 +130,34 @@ describe('OpenAiOnboardingStore', () => {
     expect(result.status?.slots.openrouter?.provider).toBe('openrouter');
     expect(result.status?.slots.openrouter?.apiKey?.configured).toBe(true);
     expect(result.status?.slots.openrouter?.modelId).toBeUndefined();
-    expect(await hasPendingOAuthModelSelection()).toBe(true);
     expect((await getStoredLlmConnectionMaterial())?.apiKey).toBe('sk-or-persisted');
     expect(await getLlmConnection()).toBeNull();
   });
 
-  it('requires modelId for manual saveOpenAiConfig', async () => {
-    const result = await saveOpenAiConfig({
-      endpointUrl: 'https://example.test/v1',
-      apiKey: 'sk-test-key',
-    });
+  it('keeps the OpenRouter model when the user signs in again', async () => {
+    const oauthInput = {
+      providerId: 'openrouter',
+      providerDisplayName: 'OpenRouter',
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-first',
+      authScheme: 'bearer' as const,
+      capabilities: OAUTH_LLM_CAPABILITIES,
+    };
+    await saveOAuthCredentials(oauthInput);
+    await updateLlmModel('openai/gpt-4o', 'openrouter');
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Select a model');
+    const result = await saveOAuthCredentials({ ...oauthInput, apiKey: 'sk-or-second' });
+
+    expect(result.status?.slots.openrouter?.modelId).toBe('openai/gpt-4o');
+    expect(result.status?.configured).toBe(true);
+    expect(await getSlotApiKey('openrouter')).toBe('sk-or-second');
+  });
+
+  it('classifies IPv6 loopback endpoints as local', () => {
+    expect(classifyInferenceSlot({ provider: 'manual', endpointUrl: 'http://[::1]:8080/v1' })).toBe('local');
+    expect(classifyInferenceSlot({ provider: 'manual', endpointUrl: 'https://other.example/v1' })).toBe(
+      'infrastructure'
+    );
   });
 
   it('updates a selectable model on the app-default slot', async () => {
@@ -159,6 +172,49 @@ describe('OpenAiOnboardingStore', () => {
     const result = await updateLlmModel('anthropic/claude-sonnet-4.6');
     expect(result.success).toBe(true);
     expect(result.status?.slots.infrastructure?.modelId).toBe('anthropic/claude-sonnet-4.6');
+  });
+
+  it('keeps a slot key on a blank-key save only while the slot URL is unchanged', async () => {
+    await saveLlmConnection({
+      endpointUrl: 'https://first.example/v1',
+      apiKey: 'sk-first',
+      modelId: 'm',
+      provider: 'manual',
+      capabilities: MANUAL_LLM_CAPABILITIES,
+    });
+
+    const sameUrl = await saveLlmConnection({
+      endpointUrl: 'https://first.example/v1/',
+      modelId: 'm2',
+      provider: 'manual',
+      capabilities: MANUAL_LLM_CAPABILITIES,
+    });
+    expect(sameUrl.success).toBe(true);
+    expect(await getSlotApiKey('infrastructure')).toBe('sk-first');
+
+    const otherUrl = await saveLlmConnection({
+      endpointUrl: 'https://second.example/v1',
+      modelId: 'm',
+      provider: 'manual',
+      capabilities: MANUAL_LLM_CAPABILITIES,
+    });
+    expect(otherUrl.success).toBe(false);
+    expect(otherUrl.error).toBe('Enter an API key.');
+    expect(otherUrl.status?.slots.infrastructure?.endpointUrl).toBe('https://first.example/v1');
+  });
+
+  it('saves a first keyless local server with a placeholder key', async () => {
+    const result = await saveLlmConnection({
+      endpointUrl: 'http://127.0.0.1:8080/v1',
+      modelId: 'm',
+      provider: 'local-manual',
+      providerDisplayName: 'Local server',
+      capabilities: MANUAL_LLM_CAPABILITIES,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.status?.slots.local?.configured).toBe(true);
+    expect(await getSlotApiKey('local')).toBe('local');
   });
 
   it('refuses setAppDefault on an empty slot', async () => {
@@ -189,23 +245,6 @@ describe('OpenAiOnboardingStore', () => {
     expect((await getLlmConnection())?.provider).toBe('openrouter');
   });
 
-  it('saves adopted provider endpoints into the hidden infrastructure slot', async () => {
-    const result = await saveProviderEndpoint({
-      providerId: 'baseten',
-      instanceId: 'adopted:model-abc',
-      endpointUrl: 'https://model-model-abc.api.baseten.co/environments/production/sync/v1',
-      apiKey: 'bt-secret-key',
-      modelId: 'model-abc',
-      authScheme: 'api-key',
-      providerDisplayName: 'Baseten',
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.status?.appDefault).toBe('infrastructure');
-    expect(result.status?.slots.infrastructure?.modelId).toBe('model-abc');
-    expect(result.status?.slots.infrastructure?.capabilities?.modelChangePolicy).toBe('fixed');
-  });
-
   it('saves a local LLM endpoint with modelId', async () => {
     const result = await saveLocalLlmEndpoint({
       runtime: 'ollama',
@@ -215,7 +254,7 @@ describe('OpenAiOnboardingStore', () => {
 
     expect(result.success).toBe(true);
     expect(result.status?.slots.local?.modelId).toBe('llama3:latest');
-    expect(await getOpenAiApiKey()).toBe('ollama');
+    expect(await getSlotApiKey(getAppDefaultSlot())).toBe('ollama');
   });
 
   it('migrates a v1 local document into the local slot as appDefault', async () => {
@@ -280,6 +319,6 @@ describe('OpenAiOnboardingStore', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('OS encryption is not available');
-    expect(await getOpenAiApiKey()).toBeNull();
+    expect(await getSlotApiKey(getAppDefaultSlot())).toBeNull();
   });
 });

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import type { DarwinRuntimeArch } from './bundledPaths';
-import { machineProviderForArch, type BundledRuntimePaths } from './bundledPaths';
+import { machineProviderForArch, type BundledRuntimePaths, type DarwinRuntimeArch } from './bundledPaths';
 
 export type MachineProvider = 'libkrun' | 'applehv';
 
@@ -25,7 +24,7 @@ export function buildContainersConf(options: {
   ].join('\n');
 }
 
-export function readMachineProviderFromConf(content: string): MachineProvider | null {
+function readMachineProviderFromConf(content: string): MachineProvider | null {
   const match = content.match(/provider\s*=\s*"(libkrun|applehv)"/);
   return match ? (match[1] as MachineProvider) : null;
 }
@@ -40,7 +39,7 @@ export async function ensureContainersConf(
   providerOverride?: MachineProvider
 ): Promise<string> {
   await fsPromises.mkdir(paths.stateDir, { recursive: true });
-  let existingProvider: MachineProvider | null = null;
+  let existingProvider: MachineProvider | null;
   try {
     existingProvider = readMachineProviderFromConf(
       await fsPromises.readFile(paths.containersConfPath, 'utf8')
@@ -79,7 +78,7 @@ export function buildBundledRuntimeEnv(
   dockerHost?: string
 ): NodeJS.ProcessEnv {
   const pathEnv = baseEnv.PATH ?? '';
-  let provider: MachineProvider | null = null;
+  let provider: MachineProvider | null;
   try {
     provider = readMachineProviderFromConf(
       fs.readFileSync(paths.containersConfPath, 'utf8')
