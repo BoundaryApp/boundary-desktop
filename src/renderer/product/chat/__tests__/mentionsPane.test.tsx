@@ -35,7 +35,6 @@ const mention = (over: Partial<HermesMentionRecord>): HermesMentionRecord => ({
   agentSlug: 'ana',
   text: '@Ana pricing?',
   at: new Date().toISOString(),
-  anchor: 'p',
   status: 'replied',
   reply: { text: 'Two vendors.', at: new Date().toISOString() },
   unseen: false,

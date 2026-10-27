@@ -2,17 +2,27 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentProfile } from '../../../shared/types/hermesChat';
 import {
   KANBAN_COMMENT_AUTHOR,
-  KANBAN_STOP_REASON,
+  isBoundaryStop,
   type KanbanTaskDetail,
   type KanbanTaskEvent,
   type KanbanTaskSummary,
 } from '../../../shared/types/hermesKanban';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import { displayHostPath } from './chatTelemetryFormat';
-import { formatElapsed, taskLiveness, useKanbanSnapshot, useNowSeconds } from './kanbanActivity';
+import {
+  LIVENESS_TONE,
+  TASK_STATUS_LABEL,
+  assigneeName,
+  formatElapsed,
+  latestRun,
+  livenessLabel,
+  taskLiveness,
+  upNextReason,
+  useKanbanSnapshot,
+  waitReason,
+  useNowSeconds,
+} from './kanbanActivity';
 import { WorkingDot } from './WorkingDot';
-import { NeedsYouCard, RunMenu, TaskComposer, needsYouMode, useTaskAction } from './TaskControls';
-import { LIVENESS_TONE, assigneeName } from './WorkingNow';
+import { NeedsYouCard, RunMenu, TaskComposer, useTaskAction } from './TaskControls';
 
 /** Where the task was filed, when that conversation is one Boundary knows. */
 export interface TaskOrigin {
@@ -25,9 +35,9 @@ interface TaskPaneProps {
   agents: AgentProfile[];
   resolveOrigin: (sessionId: string | null) => TaskOrigin | null;
   /** Back to the Tasks list, from the crumb above the title. */
-  onOpenTasks?: () => void;
-  /** **Open in board**: the Tasks board view on this task. Without it, the system browser. */
-  onOpenBoard?: (taskId: string) => void;
+  onOpenTasks: () => void;
+  /** **Open in board**: the Tasks board view on this task. */
+  onOpenBoard: (taskId: string) => void;
 }
 
 const LOG_TAIL_BYTES = 16_000;
@@ -112,7 +122,7 @@ export function buildTimeline(detail: KanbanTaskDetail): TimelineItem[] {
   for (const e of detail.events) {
     if (e.kind === 'commented') continue;
     if (e.kind === 'heartbeat' && !e.note) continue;
-    const stopped = e.kind === 'reclaimed' && e.note === KANBAN_STOP_REASON;
+    const stopped = e.kind === 'reclaimed' && isBoundaryStop(e.note);
     items.push({
       key: `e${e.id}`,
       at: e.createdAt,
@@ -145,17 +155,16 @@ function latestEvent(detail: KanbanTaskDetail | null, kinds: string[]): KanbanTa
   return null;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  triage: 'Triage',
-  todo: 'To do',
-  scheduled: 'Scheduled',
-  ready: 'Ready',
-  running: 'Running',
-  blocked: 'Blocked',
-  review: 'In review',
-  done: 'Done',
-  archived: 'Archived',
-};
+/** Whether the window is on screen; false while it is minimised or hidden. */
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+  return visible;
+}
 
 function ago(nowS: number, at: number | null): string {
   return at === null ? '' : `${formatElapsed(nowS - at)} ago`;
@@ -192,8 +201,8 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
   const liveKey = live ? `${live.status}:${live.lastHeartbeatAt}:${live.completedAt}` : 'none';
   useEffect(() => {
     let cancelled = false;
-    void hermesChatIPC
-      .kanbanTask(taskId)
+    void window.electronAPI.kanban
+      .task(taskId)
       .then((res) => {
         if (cancelled) return;
         if ('detail' in res) {
@@ -214,20 +223,25 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
   const task: KanbanTaskSummary | null = live ?? detail?.task ?? null;
   const running = task?.status === 'running';
 
-  // The console tail: polled while the task runs, read once when the console opens otherwise.
+  // The console tail, and the strip's "now" line from it (CR 0005 R1's fallback until heartbeats
+  // carry the current step): polled while the task runs and the page is on screen, read once
+  // when the console opens otherwise. Polling stops when the run ends.
+  const visible = usePageVisible();
   useEffect(() => {
-    if (!running && !consoleOpen) return;
+    if (!visible || (!running && !consoleOpen)) return;
     let cancelled = false;
-    const read = () =>
-      hermesChatIPC
-        .kanbanTaskLog(taskId, LOG_TAIL_BYTES)
+    // A failed read is dropped; the next poll tries again.
+    const read = (): void => {
+      window.electronAPI.kanban
+        .taskLog(taskId, LOG_TAIL_BYTES)
         .then((res) => {
           if (!cancelled && 'content' in res) {
             setLog({ text: res.content, at: Math.floor(Date.now() / 1000) });
           }
         })
         .catch((): void => undefined);
-    void read();
+    };
+    read();
     if (!running) return () => {
       cancelled = true;
     };
@@ -236,7 +250,7 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [taskId, running, consoleOpen]);
+  }, [taskId, running, consoleOpen, visible]);
 
   const logRef = useRef<HTMLPreElement>(null);
   const followRef = useRef(true);
@@ -261,13 +275,11 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
   const who = assigneeName(task.assignee, agents);
   const origin = resolveOrigin(task.createdBySession);
   const runs = detail?.runs ?? [];
-  const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
+  const lastRun = latestRun(detail);
   const nowLine = log ? lastLogLine(log.text) : null;
   const block = latestEvent(detail, ['blocked', 'review_requested', 'block_loop_detected', 'gave_up']);
-  const openBoard = (): void => {
-    if (onOpenBoard) onOpenBoard(task.id);
-    else void hermesChatIPC.openKanbanBoard(task.id).catch((): void => undefined);
-  };
+  const wait = waitReason(task, detail, block);
+  const openBoard = (): void => onOpenBoard(task.id);
   const result = detail?.latestSummary ?? detail?.result ?? null;
   const lastBeat = task.lastHeartbeatAt ?? task.startedAt;
 
@@ -275,17 +287,15 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
     <div className="wb-recent-pane">
       <div className="wb-task-page">
         <header className="wb-task-head">
-          {onOpenTasks ? (
-            <nav className="wb-task-crumbs" aria-label="Breadcrumb">
-              <button type="button" className="wb-task-link" onClick={onOpenTasks}>
-                Tasks
-              </button>
-              <span aria-hidden="true"> › </span>
-            </nav>
-          ) : null}
+          <nav className="wb-task-crumbs" aria-label="Breadcrumb">
+            <button type="button" className="wb-task-link" onClick={onOpenTasks}>
+              Tasks
+            </button>
+            <span aria-hidden="true"> › </span>
+          </nav>
           <h1 className="wb-task-title">{task.title}</h1>
           <div className="wb-task-meta">
-            <span className={`wb-task-pill is-${task.status}`}>{STATUS_LABEL[task.status] ?? task.status}</span>
+            <span className={`wb-task-pill is-${task.status}`}>{TASK_STATUS_LABEL[task.status] ?? task.status}</span>
             <span>{who}</span>
             {task.workspacePath ? (
               <span className="wb-task-path" title={task.workspacePath}>
@@ -313,11 +323,7 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
             <WorkingDot label={`${who} is working`} tone={LIVENESS_TONE[liveness]} />
             <span className="wb-task-strip-main">
               <strong>
-                {liveness === 'quiet'
-                  ? `Quiet for ${formatElapsed(nowS - (lastBeat ?? nowS))}`
-                  : liveness === 'stalled'
-                    ? 'Not responding'
-                    : 'Working'}
+                {livenessLabel(liveness, liveness === 'quiet' ? nowS - (lastBeat ?? nowS) : undefined)}
               </strong>
               <span className="wb-task-strip-sub">
                 {' · '}
@@ -339,10 +345,10 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
               </span>
             ) : null}
           </div>
-        ) : liveness === 'needs-you' ? (
+        ) : wait ? (
           <NeedsYouCard
             task={task}
-            mode={needsYouMode(task, detail, block)}
+            mode={wait}
             reason={block?.note ?? null}
             since={block ? ago(nowS, block.createdAt) : null}
             trigger={block?.trigger ?? null}
@@ -368,10 +374,10 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
         ) : (
           <div className="wb-task-strip" role="status">
             <span className="wb-task-strip-main">
-              <strong>{STATUS_LABEL[task.status] ?? task.status}</strong>
+              <strong>{TASK_STATUS_LABEL[task.status] ?? task.status}</strong>
               <span className="wb-task-strip-sub">
-                {task.status === 'todo' && task.blockKind === 'dependency'
-                  ? ' · waiting on another task'
+                {task.blockKind === 'dependency'
+                  ? ` · ${upNextReason(task)}`
                   : task.status === 'ready'
                     ? ' · the dispatcher starts it on its next pass'
                     : lastRun?.outcome

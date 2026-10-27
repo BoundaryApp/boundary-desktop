@@ -17,8 +17,10 @@ import {
   getContainerRuntime,
   resolveBundledRuntimePaths,
 } from '../containerRuntime';
-import { formatBytes } from '../../../shared/assistantStackRequirements';
+import { formatBytes } from '../../../shared/utils/format';
 import { resolveAssistantDataRoot } from '../assistant/assistantPaths';
+import { isPathUnder } from '../hostPaths';
+import { userDataVolumeStats } from '../userDataVolume';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
 import {
@@ -38,9 +40,7 @@ function workingDirUnderRoot(
   assistantRoot: string | null
 ): boolean {
   if (!workingDir || !assistantRoot) return false;
-  const root = path.resolve(assistantRoot);
-  const dir = path.resolve(workingDir);
-  return dir === root || dir.startsWith(`${root}${path.sep}`);
+  return isPathUnder(workingDir, assistantRoot);
 }
 
 export type ListedContainer = {
@@ -329,20 +329,21 @@ async function getDockerClient(): Promise<Docker | null> {
   }
 }
 
-export function dockerCpuShare(
-  stats: {
-    cpu_stats?: {
-      cpu_usage?: { total_usage?: number; percpu_usage?: number[] };
-      system_cpu_usage?: number;
-      online_cpus?: number;
-    };
-    precpu_stats?: {
-      cpu_usage?: { total_usage?: number };
-      system_cpu_usage?: number;
-    };
-  },
-  hostCores: number
-): number {
+/** The fields of a one-shot Docker container stats response this module reads. */
+interface DockerContainerStats {
+  cpu_stats?: {
+    cpu_usage?: { total_usage?: number; percpu_usage?: number[] };
+    system_cpu_usage?: number;
+    online_cpus?: number;
+  };
+  precpu_stats?: {
+    cpu_usage?: { total_usage?: number };
+    system_cpu_usage?: number;
+  };
+  memory_stats?: { usage?: number };
+}
+
+export function dockerCpuShare(stats: DockerContainerStats, hostCores: number): number {
   const cpuDelta =
     (stats.cpu_stats?.cpu_usage?.total_usage ?? 0) -
     (stats.precpu_stats?.cpu_usage?.total_usage ?? 0);
@@ -423,6 +424,24 @@ async function measureDirectoryBytes(target: string): Promise<number> {
   return walkDirectoryBytes(target);
 }
 
+export async function measureDiskUsage(
+  userData: string,
+  dataRoot: string | null,
+  llmRoots: string[]
+): Promise<{ app: number; stack: number; llm: number }> {
+  const [userDataBytes, stackBytes, ...llmParts] = await Promise.all([
+    measureDirectoryBytes(userData),
+    dataRoot ? measureDirectoryBytes(dataRoot) : Promise.resolve(0),
+    ...llmRoots.map((dir) => measureDirectoryBytes(dir)),
+  ]);
+  const llmBytes = llmParts.reduce((sum, value) => sum + value, 0);
+  // A managed stack keeps its data root under userData; count it in the stack bucket only.
+  const appBytes = workingDirUnderRoot(dataRoot ?? undefined, userData)
+    ? Math.max(0, userDataBytes - stackBytes)
+    : userDataBytes;
+  return { app: appBytes, stack: stackBytes, llm: llmBytes };
+}
+
 async function refreshDiskUsage(): Promise<{ app: number; stack: number; llm: number } | null> {
   let userData = os.homedir();
   try {
@@ -432,14 +451,7 @@ async function refreshDiskUsage(): Promise<{ app: number; stack: number; llm: nu
   }
   const assistantRoot = tryResolveAssistantRoot().root;
   const dataRoot = assistantRoot ? resolveAssistantDataRoot(assistantRoot) : null;
-  const llmRoots = llmDiskDirectories();
-  const [appBytes, stackBytes, ...llmParts] = await Promise.all([
-    measureDirectoryBytes(userData),
-    dataRoot ? measureDirectoryBytes(dataRoot) : Promise.resolve(0),
-    ...llmRoots.map((dir) => measureDirectoryBytes(dir)),
-  ]);
-  const llmBytes = llmParts.reduce((sum, value) => sum + value, 0);
-  return { app: appBytes, stack: stackBytes, llm: llmBytes };
+  return measureDiskUsage(userData, dataRoot, llmDiskDirectories());
 }
 
 export function parseNetstatListenPid(stdout: string, port: number): number | null {
@@ -553,14 +565,7 @@ export function createDefaultResourceProbes(): HostResourceProbes {
     getCpuCoreCount: hostCores,
     getTotalMemoryBytes: () => os.totalmem(),
     getTotalDiskBytes: async () => {
-      const targetPath = (() => {
-        try {
-          return app.getPath('userData');
-        } catch {
-          return os.homedir();
-        }
-      })();
-      const stats = await fs.statfs(targetPath);
+      const stats = await userDataVolumeStats();
       return Number(stats.blocks) * Number(stats.bsize);
     },
     sampleElectron: async () => {
@@ -595,18 +600,7 @@ export function createDefaultResourceProbes(): HostResourceProbes {
       const docker = await getDockerClient();
       if (!docker) return null;
       try {
-        const stats = (await docker.getContainer(id).stats({ stream: false })) as {
-          cpu_stats?: {
-            cpu_usage?: { total_usage?: number; percpu_usage?: number[] };
-            system_cpu_usage?: number;
-            online_cpus?: number;
-          };
-          precpu_stats?: {
-            cpu_usage?: { total_usage?: number };
-            system_cpu_usage?: number;
-          };
-          memory_stats?: { usage?: number };
-        };
+        const stats = (await docker.getContainer(id).stats({ stream: false })) as DockerContainerStats;
         return {
           cpuShare: dockerCpuShare(stats, hostCores()),
           memoryBytes: stats.memory_stats?.usage ?? 0,
@@ -713,10 +707,4 @@ export function createDefaultResourceProbes(): HostResourceProbes {
     getAssistantRoot: () => tryResolveAssistantRoot().root,
     getEngineVmReservedBytes: readPodmanMachineReservedBytes,
   };
-}
-
-export function resetResourceDiskCache(): void {
-  diskCache = null;
-  diskRefresh = null;
-  dockerClient = null;
 }

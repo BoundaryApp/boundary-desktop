@@ -1,38 +1,31 @@
 import React, { useState } from 'react';
 import type { AgentProfile, HermesProjectRecord } from '../../../shared/types/hermesChat';
 import type { KanbanTaskSummary } from '../../../shared/types/hermesKanban';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import {
+  LIVENESS_TONE,
   TASK_GROUP_LABEL,
+  assigneeName,
   formatElapsed,
   groupTasks,
   taskInProject,
+  taskRowState,
+  upNextReason,
   useKanbanSnapshot,
   useNowSeconds,
   type TaskGroupKey,
 } from './kanbanActivity';
 import { TasksBoard } from './TasksBoard';
 import { WorkingDot } from './WorkingDot';
-import { LIVENESS_TONE, assigneeName, taskRowState } from './WorkingNow';
 
 const GROUP_ORDER: TaskGroupKey[] = ['needs', 'running', 'next', 'done'];
 
 /** When a done task finished: "4m ago", "yesterday", "Mon". */
-export function finishedWhen(nowS: number, at: number | null): string {
+function finishedWhen(nowS: number, at: number | null): string {
   if (at === null) return '';
   const ago = nowS - at;
   if (ago < 24 * 3600) return `${formatElapsed(ago)} ago`;
   if (ago < 48 * 3600) return 'yesterday';
   return new Date(at * 1000).toLocaleDateString(undefined, { weekday: 'short' });
-}
-
-/** Why a queued task hasn't started. */
-function upNextState(task: KanbanTaskSummary): string {
-  if (task.blockKind === 'dependency') return 'waits on another task';
-  if (task.status === 'scheduled') return 'scheduled';
-  if (task.status === 'ready') return 'starts on the next pass';
-  if (task.status === 'blocked') return 'blocked';
-  return 'to do';
 }
 
 const TaskRow: React.FC<{
@@ -48,23 +41,16 @@ const TaskRow: React.FC<{
   let hint: string;
   if (group === 'needs' || group === 'running') {
     const state = taskRowState(task, nowS);
-    mark =
-      task.status === 'triage' ? (
-        <span className="wb-tasks-glyph" aria-hidden="true">
-          ○
-        </span>
-      ) : (
-        <WorkingDot label={`${who}: ${state.sub}`} tone={LIVENESS_TONE[state.liveness]} />
-      );
-    sub = task.status === 'triage' ? 'waiting to be sorted' : state.sub;
-    hint = task.status === 'triage' ? '' : state.hint;
+    mark = <WorkingDot label={`${who}: ${state.sub}`} tone={LIVENESS_TONE[state.liveness]} />;
+    sub = state.sub;
+    hint = state.hint;
   } else if (group === 'next') {
     mark = (
       <span className="wb-tasks-glyph" aria-hidden="true">
         ○
       </span>
     );
-    sub = upNextState(task);
+    sub = upNextReason(task);
     hint = '';
   } else {
     mark = (
@@ -106,7 +92,7 @@ export const TasksPane: React.FC<{
   project: HermesProjectRecord | null;
   onOpenTask: (taskId: string) => void;
   view?: TasksView;
-  onViewChange?: (view: TasksView) => void;
+  onViewChange: (view: TasksView) => void;
   /** The task the board opened on, from a task page's **Open in board**. */
   boardTaskId?: string | null;
 }> = ({ agents, project, onOpenTask, view = 'list', onViewChange, boardTaskId = null }) => {
@@ -119,7 +105,7 @@ export const TasksPane: React.FC<{
   const elsewhere = tasks.length - shown.length;
   const board = view === 'board';
 
-  const viewSwitch = onViewChange ? (
+  const viewSwitch = (
     <div className="wb-tasks-scope" role="group" aria-label="Show tasks as">
       <button
         type="button"
@@ -138,14 +124,14 @@ export const TasksPane: React.FC<{
         Board
       </button>
     </div>
-  ) : null;
+  );
   const openInBrowser = (
     <button
       type="button"
       className="wb-btn-ghost"
       onClick={() =>
-        void hermesChatIPC
-          .openKanbanBoard(board ? (boardTaskId ?? undefined) : undefined)
+        void window.electronAPI.kanban
+          .openBoard(board ? (boardTaskId ?? undefined) : undefined)
           .catch((): void => undefined)
       }
     >

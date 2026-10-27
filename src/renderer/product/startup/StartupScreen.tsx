@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   BookOpen,
-  ChevronRight,
+  CircleHelp,
   Code,
   Database,
   KeyRound,
   MessageCircle,
   Network,
+  PanelRightClose,
+  PanelRightOpen,
   Search,
   Workflow,
   X,
@@ -17,10 +19,12 @@ import type {
   AssistantStackServiceProgress,
 } from '../../../shared/types/assistantStack';
 import { Button } from '../../components/ui/button';
+import { useDismiss, useEscapeToClose } from '../../components/ui/use-dismiss';
 import { Stepper, type StepperStep } from '../../components/ui/stepper';
 import { ServiceProgressCards } from '../ServiceProgressCards';
 import { describeStartupError } from '../../../shared/startupErrors';
-import { formatBytes, type StartupDownload } from '../../../shared/startupDownload';
+import type { StartupDownload } from '../../../shared/startupDownload';
+import { formatBytes } from '../../../shared/utils/format';
 import {
   SLOW_STAGE_MS,
   STARTUP_TOOLS,
@@ -118,6 +122,16 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
   const msInStage = now - (stageStartedAt ?? stageSeenAt.current.at);
   const highWater = useRef(0);
+  // Leaving the error state is a new start; main resets its progress there too (a wave
+  // boundary), so the bar and the download rate start again instead of at the failed peak.
+  const attempt = useRef({ failed: isError, count: 0 });
+  if (attempt.current.failed !== isError) {
+    if (attempt.current.failed) {
+      attempt.current.count += 1;
+      highWater.current = 0;
+    }
+    attempt.current.failed = isError;
+  }
   highWater.current = Math.max(highWater.current, startupProgress(stage, services, msInStage));
   const pct = Math.round(highWater.current * 100);
 
@@ -153,7 +167,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
         ? 'Setting up your assistant'
         : 'Starting your assistant';
   const stageLine = failure ? failure.body : stageCopy(stage, variant);
-  const downloading = useDownloadLine(download, now, !isError && !isReady);
+  const downloading = useDownloadLine(download, now, !isError && !isReady, attempt.current.count);
   const slow = !isError && !isReady && !downloading && msInStage >= SLOW_STAGE_MS;
 
   return (
@@ -176,50 +190,53 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
           onPick={showStory ? setCard : undefined}
         />
 
-        <div className="su-heading">
-          <h1>{headline}</h1>
-          <p role="status" aria-live="polite">
-            {stageLine}
-          </p>
-          {downloading && <p className="su-hint">{downloading}</p>}
-          {slow && <p className="su-hint">{slowStageHint(stage)}</p>}
+        {/* Fixed height, so a hint, story card or error never moves the ring or footer. */}
+        <div className="su-stage">
+          <div className="su-heading">
+            <h1>{headline}</h1>
+            <p role="status" aria-live="polite">
+              {stageLine}
+            </p>
+            {downloading && <p className="su-hint">{downloading}</p>}
+            {slow && <p className="su-hint">{slowStageHint(stage)}</p>}
+          </div>
+
+          {!isError && (
+            <div
+              className="su-bar"
+              role="progressbar"
+              aria-label="Start-up progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct}
+              aria-valuetext={stageLine}
+            >
+              <span style={{ width: `${pct}%` }} />
+            </div>
+          )}
+
+          {!isError && (
+            <div className="su-story-slot">
+              {showStory && <StoryCard index={card} onPick={setCard} onPause={setPaused} />}
+            </div>
+          )}
+
+          {isError && onRetry && (
+            <Button type="button" className="su-retry" onClick={onRetry} disabled={retrying}>
+              {retrying ? 'Retrying…' : 'Try again'}
+            </Button>
+          )}
         </div>
 
-        {!isError && (
-          <div
-            className="su-bar"
-            role="progressbar"
-            aria-label="Start-up progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={pct}
-            aria-valuetext={stageLine}
-          >
-            <span style={{ width: `${pct}%` }} />
-          </div>
-        )}
-
-        {showStory && (
-          <StoryCard
-            index={card}
-            onPick={setCard}
-            onPause={setPaused}
-            firstRun={variant === 'first-run'}
-          />
-        )}
-
-        {isError && onRetry && (
-          <Button type="button" onClick={onRetry} disabled={retrying}>
-            {retrying ? 'Retrying…' : 'Try again'}
-          </Button>
-        )}
-
-        {!isReady && (
-          <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
-            {error ? <RawError text={error} /> : message && <p className="su-log">{message}</p>}
-            <ServiceProgressCards services={services} tone="start" />
-          </StartupDetails>
-        )}
+        <div className="su-footer">
+          {!isError && !isReady && <WhyPopover firstRun={variant === 'first-run'} />}
+          {!isReady && (
+            <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
+              {error ? <RawError text={error} /> : message && <p className="su-log">{message}</p>}
+              <ServiceProgressCards services={services} tone="start" />
+            </StartupDetails>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -234,11 +251,17 @@ const RATE_WINDOW_MS = 5_000;
 function useDownloadLine(
   download: StartupDownload | undefined,
   now: number,
-  active: boolean
+  active: boolean,
+  /** A new start: earlier samples would compare against the last attempt's bytes. */
+  attempt: number
 ): string | null {
-  const samples = useRef<{ at: number; bytes: number }[]>([]);
+  const samples = useRef<{ attempt: number; list: { at: number; bytes: number }[] }>({
+    attempt,
+    list: [],
+  });
+  if (samples.current.attempt !== attempt) samples.current = { attempt, list: [] };
   const bytes = download?.receivedBytes ?? 0;
-  const list = samples.current;
+  const list = samples.current.list;
   if (bytes > 0 && (list.length === 0 || list[list.length - 1].bytes !== bytes)) {
     list.push({ at: Date.now(), bytes });
   }
@@ -296,26 +319,19 @@ export const StartupDetails: React.FC<{
     wasOpen.current = open;
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onToggle();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onToggle]);
+  useEscapeToClose(onToggle, !open);
 
   return (
     <div className="su-details">
       <button
         ref={toggleRef}
         type="button"
-        className="su-disclosure"
+        className="su-pill"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={onToggle}
       >
-        <ChevronRight aria-hidden="true" className="size-3.5" />
+        {open ? <PanelRightClose aria-hidden="true" /> : <PanelRightOpen aria-hidden="true" />}
         {open ? 'Hide details' : 'Show details'}
       </button>
       {open && (
@@ -339,38 +355,25 @@ export const StartupDetails: React.FC<{
   );
 };
 
-/** The one-time-setup explanation, as a popover over the story card. */
+/** Why start-up is slow, as a popover that opens up over the story card. */
 const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    const onPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('pointerdown', onPointer);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('pointerdown', onPointer);
-    };
-  }, [open]);
+  useDismiss(rootRef, open, () => setOpen(false), { returnFocusTo: buttonRef });
 
   return (
     <div className="su-why" ref={rootRef}>
       <button
+        ref={buttonRef}
         type="button"
-        className="su-disclosure"
+        className="su-pill"
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={() => setOpen((value) => !value)}
       >
-        <ChevronRight aria-hidden="true" className="size-3.5" />
+        <CircleHelp aria-hidden="true" />
         Why does this take a while?
       </button>
       {open && (
@@ -503,8 +506,7 @@ const StoryCard: React.FC<{
   index: number;
   onPick: (index: number) => void;
   onPause: (paused: boolean) => void;
-  firstRun: boolean;
-}> = ({ index, onPick, onPause, firstRun }) => {
+}> = ({ index, onPick, onPause }) => {
   const tool = STARTUP_TOOLS[index];
   const Icon = TOOL_ICONS[tool.id];
   return (
@@ -537,7 +539,6 @@ const StoryCard: React.FC<{
           />
         ))}
       </div>
-      <WhyPopover firstRun={firstRun} />
     </section>
   );
 };

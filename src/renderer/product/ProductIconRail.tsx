@@ -1,6 +1,6 @@
 import React from 'react';
 import { formatShortcut, type AppCommand } from '../../shared/appCommands';
-import { useOptionalSetup } from '../setup/SetupContext';
+import { useAssistantStackStatus } from './assistantStack';
 import { useKanbanSnapshot } from './chat/kanbanActivity';
 import { useRunningTurns } from './chat/runningTurns';
 import { WorkingDot } from './chat/WorkingDot';
@@ -53,7 +53,7 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   onNavigate = () => undefined,
   disabled = false,
 }) => {
-  const stack = useOptionalSetup()?.assistantStackStatus?.stack;
+  const stack = useAssistantStackStatus()?.stack;
   // Off the chat screen, nothing else says an agent is still working: a chat turn, or a
   // kanban worker the dispatcher started.
   const turns = useRunningTurns();

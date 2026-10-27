@@ -24,19 +24,6 @@ export function clearOpenRouterAaCache(): void {
   cacheByOrigin.clear();
 }
 
-export function isOpenRouterEndpoint(
-  baseUrl: string,
-  provider: string | undefined
-): boolean {
-  if (provider === 'openrouter') return true;
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase();
-    return host.includes('openrouter.ai');
-  } catch {
-    return false;
-  }
-}
-
 function benchmarksUrl(baseUrl: string): string | undefined {
   try {
     const url = new URL(baseUrl);

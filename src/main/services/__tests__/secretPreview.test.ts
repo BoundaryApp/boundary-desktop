@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskSecret } from '../secrets/secretPreview';
+import { maskSecret } from '../../../shared/utils/secretPreview';
 
 describe('maskSecret', () => {
   it('shows only beginning and ending characters', () => {

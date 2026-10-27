@@ -9,10 +9,10 @@ export default defineConfig({
       formats: ['es'],
       fileName: 'index'
     },
-    commonjsOptions: {
-      dynamicRequireTargets: ['better-sqlite3'],
-    },
-    rollupOptions: {
+    rolldownOptions: {
+      // The bundle is ESM, so CommonJS dependencies (electron-squirrel-startup, debug) have no
+      // `require` for Node built-ins; on the node platform Rolldown makes one with createRequire.
+      platform: 'node',
       external: [
         'better-sqlite3',
         'electron',

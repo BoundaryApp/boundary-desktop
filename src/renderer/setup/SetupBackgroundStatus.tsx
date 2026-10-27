@@ -1,8 +1,8 @@
 import React from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import { useAssistantStackLifecycle } from '../product/useAssistantStackLifecycle';
+import { useAssistantStackLifecycle } from '../product/assistantStack';
 import { stageCopy } from '../product/startup/startupModel';
-import { formatBytes } from '../../shared/startupDownload';
+import { formatBytes } from '../../shared/utils/format';
 
 /**
  * The stack starts downloading once the Mac passes its check (ADR 0029), while

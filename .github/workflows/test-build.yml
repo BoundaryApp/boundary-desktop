@@ -7,23 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  terraform-validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: "1.9.0"
-
-      - name: Validate RunPod stack module
-        run: |
-          cd infrastructure/modules/runpod-vllm-llama
-          terraform init -backend=false
-          terraform validate
-
   test-build:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -46,7 +29,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
         run: node scripts/setup-dependencies.js
@@ -54,12 +37,21 @@ jobs:
       - name: Type check
         run: bun run type-check
 
+      - name: Python for embedded-program tests
+        # The runner image ships python3; the tests that run Boundary's in-container Python skip without it.
+        run: python3 --version
+
       - name: Unit tests
         run: bun run test
 
       - name: Lint
         run: bun run lint
-        continue-on-error: true
+
+      - name: Unused files and exports
+        run: bun run check:unused
+
+      - name: Repeated blocks
+        run: bun run check:duplicates
 
       - name: Fetch bundled container runtime (macOS)
         if: matrix.os == 'macos-latest'

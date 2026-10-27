@@ -36,7 +36,7 @@ const BLOCKED_DOMAINS = ['Fetch.', 'DOMStorage.', 'IndexedDB.', 'CacheStorage.']
  * request to this fake host, and Hermes intercepts it with Fetch and replies. Interception is
  * allowed for this host only, so nothing can intercept real traffic.
  */
-export const HERMES_DIALOG_BRIDGE_PREFIX = 'http://hermes-dialog-bridge.invalid/';
+const HERMES_DIALOG_BRIDGE_PREFIX = 'http://hermes-dialog-bridge.invalid/';
 
 /** Answering a paused request. Only bridge requests can be paused, since that's all Fetch.enable allows. */
 const FETCH_ANSWERS = new Set(['Fetch.fulfillRequest', 'Fetch.continueRequest', 'Fetch.failRequest', 'Fetch.disable']);

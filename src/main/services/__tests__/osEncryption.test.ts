@@ -1,12 +1,11 @@
 import { safeStorage } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getSecret, setSecret } from '../infrastructure/StackSecretsStore';
 import {
   clearOpenAiConfig,
-  getOpenAiApiKey,
+  getSlotApiKey,
   saveLocalLlmEndpoint,
 } from '../onboarding/OpenAiOnboardingStore';
-import { decryptFromBase64, replaceCiphertext } from '../secrets/osEncryption';
+import { decryptFromBase64, replaceCiphertext, tryDecryptFromBase64 } from '../secrets/osEncryption';
 
 const b64 = (value: string) => Buffer.from(value, 'utf-8').toString('base64');
 
@@ -51,6 +50,31 @@ describe('decryptFromBase64', () => {
   });
 });
 
+describe('tryDecryptFromBase64', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('decrypts and passes re-encryption through', async () => {
+    rotateKeyOnce('rotated');
+    const onReEncrypted = vi.fn();
+    expect(await tryDecryptFromBase64(b64('secret'), onReEncrypted)).toBe('secret');
+    expect(onReEncrypted).toHaveBeenCalledWith(b64('rotated'));
+  });
+
+  it('is null when the value does not decrypt', async () => {
+    vi.spyOn(safeStorage, 'decryptStringAsync').mockRejectedValueOnce(new Error('bad key'));
+    expect(await tryDecryptFromBase64(b64('secret'))).toBeNull();
+  });
+
+  it('is null without trying when encryption is unavailable', async () => {
+    vi.spyOn(safeStorage, 'isAsyncEncryptionAvailable').mockResolvedValueOnce(false);
+    const decrypt = vi.spyOn(safeStorage, 'decryptStringAsync');
+    expect(await tryDecryptFromBase64(b64('secret'))).toBeNull();
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+});
+
 describe('replaceCiphertext', () => {
   it('replaces every matching entry', () => {
     expect(replaceCiphertext({ a: 'old', b: 'other', c: 'old' }, 'old', 'new')).toEqual({
@@ -71,15 +95,6 @@ describe('stores keep the re-encrypted value', () => {
     await clearOpenAiConfig();
   });
 
-  it('stack secrets', async () => {
-    await setSecret('inst-rotate', 'hf_token', 'hf-secret');
-    const decrypt = rotateKeyOnce('hf-rotated');
-    expect(await getSecret('inst-rotate', 'hf_token')).toBe('hf-secret');
-
-    await getSecret('inst-rotate', 'hf_token');
-    expect(decrypt.mock.calls[1]?.[0].toString('utf-8')).toBe('hf-rotated');
-  });
-
   it('LLM connection slots', async () => {
     await saveLocalLlmEndpoint({
       runtime: 'ollama',
@@ -87,9 +102,9 @@ describe('stores keep the re-encrypted value', () => {
       modelId: 'qwen3:14b',
     });
     const decrypt = rotateKeyOnce('ollama-rotated');
-    expect(await getOpenAiApiKey()).toBe('ollama');
+    expect(await getSlotApiKey('local')).toBe('ollama');
 
-    await getOpenAiApiKey();
+    await getSlotApiKey('local');
     expect(decrypt.mock.calls[1]?.[0].toString('utf-8')).toBe('ollama-rotated');
   });
 });

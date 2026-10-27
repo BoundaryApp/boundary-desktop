@@ -10,7 +10,6 @@ vi.mock('../hermesEndpoints', () => ({
   resolveHermesStackEndpoints: () => ({
     dashboardBaseUrl: 'http://127.0.0.1:8642',
     apiBaseUrl: 'http://127.0.0.1:8643/v1',
-    healthUrl: 'http://127.0.0.1:8643/health',
     webuiBaseUrl: 'http://127.0.0.1:8787',
   }),
 }));

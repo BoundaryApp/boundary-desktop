@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { CodingFolderInspect } from '../../../shared/types/codingFolders';
-import { useEscapeToClose } from '../useAppShortcuts';
+import { Sheet } from '../../components/ui/sheet';
 import { displayHostPath } from './chatTelemetryFormat';
 
 /**
@@ -32,7 +32,6 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
   const open = Boolean(folder?.hostPath);
   const [name, setName] = useState('');
   const [coding, setCoding] = useState(false);
-  useEscapeToClose(onCancel, busy || !open);
 
   useEffect(() => {
     if (!folder?.hostPath) return;
@@ -47,49 +46,16 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
   };
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-new-project-title">
-        <div className="wb-sheet-kicker">New project</div>
-        <h2 id="wb-new-project-title">Start a project from {folder.name}</h2>
-        <label className="wb-field">
-          <span>Name</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit();
-            }}
-            disabled={busy}
-            autoFocus
-          />
-        </label>
-        <div className="wb-field">
-          <span>Folder</span>
-          <div className="wb-field-static mono">{displayHostPath(folder.hostPath)}</div>
-        </div>
-        <label className={`wb-toggle-row${canCode ? '' : ' is-off'}`}>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={canCode && coding}
-            disabled={busy || !canCode}
-            onChange={(e) => setCoding(e.target.checked)}
-          />
-          <span>
-            <b>Let the coding agent work here</b>
-            <span>
-              {!managed
-                ? 'This Boundary uses your own stack checkout, which manages coding folders itself.'
-                : folder.refuseMessage
-                  ? folder.refuseMessage
-                  : folder.isGit
-                    ? 'On because this is a git repo. It can edit files and run commands without asking. You can turn it off from the Project tab.'
-                    : 'Off because this isn’t a git repo, so changes couldn’t be rolled back. It can edit files and run commands without asking.'}
-            </span>
-          </span>
-        </label>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-new-project-title"
+      kicker="New project"
+      title={`Start a project from ${folder.name}`}
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -104,8 +70,46 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
           {canCode && coding ? (
             <span className="wb-sheet-note">Restarts the coding agent</span>
           ) : null}
-        </div>
+        </>
+      }
+    >
+      <label className="wb-field">
+        <span>Name</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <div className="wb-field">
+        <span>Folder</span>
+        <div className="wb-field-static mono">{displayHostPath(folder.hostPath)}</div>
       </div>
-    </div>
+      <label className={`wb-toggle-row${canCode ? '' : ' is-off'}`}>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={canCode && coding}
+          disabled={busy || !canCode}
+          onChange={(e) => setCoding(e.target.checked)}
+        />
+        <span>
+          <b>Let the coding agent work here</b>
+          <span>
+            {!managed
+              ? 'This Boundary uses your own stack checkout, which manages coding folders itself.'
+              : folder.refuseMessage
+                ? folder.refuseMessage
+                : folder.isGit
+                  ? 'On because this is a git repo. It can edit files and run commands without asking. You can turn it off from the Project tab.'
+                  : 'Off because this isn’t a git repo, so changes couldn’t be rolled back. It can edit files and run commands without asking.'}
+          </span>
+        </span>
+      </label>
+    </Sheet>
   );
 };

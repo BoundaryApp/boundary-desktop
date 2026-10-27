@@ -3,29 +3,12 @@ import type {
   HermesChatThreadSummary,
 } from '../../../../shared/types/hermesChat';
 import { resolveHermesStackEndpoints } from './hermesEndpoints';
-import { toUnixSeconds } from '../../../../shared/messageTime';
+import { toIsoTimestamp, toUnixSeconds } from '../../../../shared/messageTime';
+import { newestFirst } from '../../../../shared/utils/sort';
 
 const WEBUI_FETCH_TIMEOUT_MS = 3_000;
 
 type FetchLike = typeof fetch;
-
-function coerceUpdatedAt(value: unknown): string | undefined {
-  if (typeof value === 'string' && value.trim()) {
-    const asNum = Number(value);
-    if (Number.isFinite(asNum) && asNum > 1e9) {
-      // Likely unix seconds/ms encoded as string
-      const ms = asNum > 1e12 ? asNum : asNum * 1000;
-      return new Date(ms).toISOString();
-    }
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const ms = value > 1e12 ? value : value * 1000;
-    return new Date(ms).toISOString();
-  }
-  return undefined;
-}
 
 function mapWebuiCompactRow(row: unknown): HermesChatThreadSummary | null {
   if (!row || typeof row !== 'object') return null;
@@ -39,10 +22,10 @@ function mapWebuiCompactRow(row: unknown): HermesChatThreadSummary | null {
     id,
     title,
     source: 'webui',
-    updatedAt: coerceUpdatedAt(
+    updatedAt: toIsoTimestamp(
       r.updated_at ?? r.updatedAt ?? r.last_active ?? r.created_at ?? r.started_at
     ),
-    createdAt: coerceUpdatedAt(r.created_at ?? r.started_at),
+    createdAt: toIsoTimestamp(r.created_at ?? r.started_at),
     ...(cwd ? { cwd } : {}),
   };
 }
@@ -183,11 +166,7 @@ export function mergeHermesThreadLists(
     const cwd = t.cwd ?? byId.get(t.id)?.cwd;
     byId.set(t.id, cwd ? { ...t, cwd } : t);
   }
-  return Array.from(byId.values()).sort((a, b) => {
-    const ta = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-    const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
-  });
+  return Array.from(byId.values()).sort(newestFirst);
 }
 
 /** Ids present in WebUI list but not in gateway list. */

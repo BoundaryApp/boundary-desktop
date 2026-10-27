@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Stepper } from '../components/ui/stepper';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { useOptionalSetup } from './SetupContext';
 import { SETUP_STEPS } from './steps';
 import { SetupBackgroundStatus } from './SetupBackgroundStatus';
-import { visibleSetupSteps, type SetupStepId } from './types';
+import type { SetupStepId } from './types';
 import '../product/chat/workbench.css';
 
 export interface SetupShellProps {
@@ -44,13 +44,12 @@ export const SetupShell: React.FC<SetupShellProps> = ({
   const activeStep = setup?.activeStep ?? null;
   // Read inside render: steps/ imports this module, so SETUP_STEPS is not
   // initialised yet while this file evaluates.
-  const shownSteps = setup ? visibleSetupSteps(SETUP_STEPS, setup.snapshot) : SETUP_STEPS;
   // Optional steps carry the same weight in the stepper as required ones.
-  const stepperSteps = shownSteps.map((item) => ({ id: item.id, label: item.label }));
+  const stepperSteps = SETUP_STEPS.map((item) => ({ id: item.id, label: item.label }));
   const currentStep = step === undefined ? (activeStep?.id ?? null) : step;
   const column = width === 'wide' ? 'max-w-[720px]' : 'max-w-[560px]';
   const skippable = Boolean(activeStep?.optional) && currentStep === activeStep?.id;
-  const [skipping, setSkipping] = React.useState(false);
+  const [skipping, setSkipping] = useState(false);
   const skip = () => {
     if (!setup || !currentStep) return;
     setSkipping(true);

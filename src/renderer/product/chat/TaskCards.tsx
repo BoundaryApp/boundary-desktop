@@ -3,22 +3,27 @@ import { useAuiState } from '@assistant-ui/store';
 import type { AgentProfile } from '../../../shared/types/hermesChat';
 import type { KanbanFiledTask, KanbanTaskSummary } from '../../../shared/types/hermesKanban';
 import {
+  LIVENESS_TONE,
+  TASK_STATUS_LABEL,
+  assigneeName,
   finishedSince,
   formatElapsed,
+  livenessLabel,
   matchFiledTasks,
   taskLiveness,
   useKanbanSnapshot,
   useNowSeconds,
+  waitPill,
+  waitReason,
 } from './kanbanActivity';
 import { messageTimeMs } from './messageMeta';
 import { WorkingDot } from './WorkingDot';
-import { LIVENESS_TONE, assigneeName } from './WorkingNow';
 
 // Kanban tasks inside a conversation (docs/kanban-activity-ux-study, Phase 2): a live card
 // where an agent filed a task, and a quiet line when one finishes. Both come from the
 // transcript's tool rows and the board feed; nothing is posted into the chat.
 
-export interface TaskCardsContextValue {
+interface TaskCardsContextValue {
   sessionId: string | null;
   sameChat: (a: string, b: string) => boolean;
   agents: readonly AgentProfile[];
@@ -26,18 +31,6 @@ export interface TaskCardsContextValue {
 }
 
 export const TaskCardsContext = createContext<TaskCardsContextValue | null>(null);
-
-const STATUS_WORD: Record<string, string> = {
-  triage: 'Triage',
-  todo: 'To do',
-  scheduled: 'Scheduled',
-  ready: 'Ready',
-  running: 'Running',
-  blocked: 'Blocked',
-  review: 'In review',
-  done: 'Done',
-  archived: 'Archived',
-};
 
 /** Where the task works, as the card's second line says it. */
 function workspaceLabel(task: KanbanTaskSummary): string | null {
@@ -59,22 +52,19 @@ function StatusPill({ task, nowS }: { task: KanbanTaskSummary; nowS: number }) {
     return (
       <span className={`wb-task-pill is-running${liveness === 'working' ? '' : ` is-${liveness}`}`}>
         <WorkingDot label="Running" tone={LIVENESS_TONE[liveness]} />
-        {liveness === 'quiet' ? 'Quiet' : liveness === 'stalled' ? 'Not responding' : 'Running'} ·{' '}
+        {livenessLabel(liveness)} ·{' '}
         {elapsed}
       </span>
     );
   }
-  if (liveness === 'needs-you') {
-    return (
-      <span className={`wb-task-pill is-${task.status}`}>
-        {task.status === 'review' ? 'Needs your review' : 'Needs you'}
-      </span>
-    );
+  const wait = waitReason(task);
+  if (wait) {
+    return <span className={`wb-task-pill is-${task.status}`}>{waitPill(wait)}</span>;
   }
   return (
     <span className={`wb-task-pill is-${task.status}`}>
       {task.status === 'done' ? '✓ ' : ''}
-      {STATUS_WORD[task.status] ?? task.status}
+      {TASK_STATUS_LABEL[task.status] ?? task.status}
     </span>
   );
 }

@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 
 /** Chromium's "navigation aborted", which the board's own redirects and guards cause. */
 const ERR_ABORTED = -3;
@@ -22,8 +21,8 @@ export const TasksBoard: React.FC<{ taskId: string | null }> = ({ taskId }) => {
   useEffect(() => {
     let live = true;
     setState({ kind: 'loading' });
-    hermesChatIPC
-      .kanbanBoardView(taskId ?? undefined)
+    window.electronAPI.kanban
+      .boardView(taskId ?? undefined)
       .then((r) => {
         if (!live) return;
         if ('error' in r) setState({ kind: 'error', message: r.error });

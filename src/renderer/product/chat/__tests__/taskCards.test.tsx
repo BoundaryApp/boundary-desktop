@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { KanbanFiledTask, KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import type { AgentProfile } from '../../../../shared/types/hermesChat';
 
@@ -9,12 +10,12 @@ let auiState: unknown = {};
 vi.mock('@assistant-ui/store', () => ({
   useAuiState: (select: (s: unknown) => unknown) => select(auiState),
 }));
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    kanbanSnapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onKanbanSnapshot: () => () => undefined,
+stubElectronAPI({
+  kanban: {
+    snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
+    onSnapshot: () => () => undefined,
   },
-}));
+});
 
 import { FiledTaskCards, FinishedTasksNote, TaskCardsContext } from '../TaskCards';
 import { setKanbanSnapshotForTests } from '../kanbanActivity';
@@ -84,9 +85,9 @@ describe('FiledTaskCards', () => {
     const cards = group.querySelectorAll('button.wb-task-card');
     expect(cards).toHaveLength(2);
     expect(cards[0].textContent).toContain('Researcher · worktree of boundary-desktop');
-    expect(cards[0].textContent).toContain('Running · 4m');
+    expect(cards[0].textContent).toContain('Working · 4m');
     expect(cards[1].textContent).toContain('Writer · boundary-desktop');
-    expect(cards[1].textContent).toContain('Needs you');
+    expect(cards[1].textContent).toContain('Needs you · asked a question');
     fireEvent.click(cards[1]);
     expect(onOpenTask).toHaveBeenCalledWith('t_2');
   });

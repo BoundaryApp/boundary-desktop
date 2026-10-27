@@ -53,26 +53,10 @@ export function useAppShortcuts(): void {
       dispatchAppCommand(command);
     };
     window.addEventListener('keydown', onKeyDown);
-    const offMenu = window.electronAPI?.appMenu?.onCommand?.(dispatchAppCommand);
+    const offMenu = window.electronAPI.appMenu.onCommand(dispatchAppCommand);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      offMenu?.();
+      offMenu();
     };
   }, []);
-}
-
-/** Esc closes the open sheet or dialog (ignored while `disabled`, e.g. saving). */
-export function useEscapeToClose(onClose: () => void, disabled = false): void {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    if (disabled) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      event.preventDefault();
-      closeRef.current();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [disabled]);
 }

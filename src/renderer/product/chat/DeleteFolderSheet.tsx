@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { CodingDeleteInspect } from '../../../shared/types/codingFolders';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { useEscapeToClose } from '../useAppShortcuts';
+import { formatBytes } from '../../../shared/utils/format';
+import { Sheet } from '../../components/ui/sheet';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { displayHostPath } from './chatTelemetryFormat';
 import { runCodingChange } from './codingFoldersStore';
 
@@ -18,19 +19,7 @@ interface DeleteFolderSheetProps {
   onDeleted: (name: string) => void;
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-export function formatWhen(iso: string | null | undefined, now = new Date()): string {
+function formatWhen(iso: string | null | undefined, now = new Date()): string {
   if (!iso) return 'Unknown';
   const when = new Date(iso);
   const sameDay = when.toDateString() === now.toDateString();
@@ -59,6 +48,8 @@ function addedLine(facts: CodingDeleteInspect, projectName?: string | null): str
       return `Created by Boundary${where}${date ? `, ${date}` : ''}`;
     case 'chat':
       return `Granted from a chat${where}${date ? `, ${date}` : ''}`;
+    case 'add':
+    case 'project-folder':
     default:
       return `Granted${where}${date ? `, ${date}` : ''}`;
   }
@@ -72,17 +63,20 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
 }) => {
   const [facts, setFacts] = useState<CodingDeleteInspect | null>(null);
   const [typed, setTyped] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEscapeToClose(onClose, deleting || !hostPath);
+  const trash = useSheetAction();
+  const { setError } = trash;
+  const deleting = trash.busy;
 
-  const load = useCallback(async (target: string) => {
-    setFacts(null);
-    setError(null);
-    const next = await hermesChatIPC.inspectFolderForDelete(target);
-    setFacts(next);
-    if (!next.success) setError(next.error ?? 'That folder can’t be deleted.');
-  }, []);
+  const load = useCallback(
+    async (target: string) => {
+      setFacts(null);
+      setError(null);
+      const next = await window.electronAPI.codingFolders.inspectForDelete({ hostPath: target });
+      setFacts(next);
+      if (!next.success) setError(next.error ?? 'That folder can’t be deleted.');
+    },
+    [setError]
+  );
 
   useEffect(() => {
     setTyped('');
@@ -99,11 +93,9 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
 
   const moveToTrash = async () => {
     if (!canDelete) return;
-    setDeleting(true);
-    setError(null);
-    try {
+    await trash.run(async () => {
       const result = await runCodingChange([hostPath], () =>
-        hermesChatIPC.deleteCodingFolder({ hostPath, confirmName: typed })
+        window.electronAPI.codingFolders.deleteFolder({ hostPath, confirmName: typed })
       );
       if ('trashed' in result && result.trashed) {
         onDeleted(name);
@@ -111,150 +103,27 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
       }
       setError(result.error ?? 'The folder wasn’t moved.');
       if (result.busy) void load(hostPath);
-    } finally {
-      setDeleting(false);
-    }
+    });
   };
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div
-        className="wb-sheet wb-add-folder"
-        role="dialog"
-        aria-labelledby="wb-delete-folder-title"
-      >
-        <div className="wb-sheet-kicker wb-sheet-kicker-row">
+    <Sheet
+      open
+      onClose={onClose}
+      busy={trash.busy}
+      titleId="wb-delete-folder-title"
+      className="wb-add-folder"
+      kickerClassName="wb-sheet-kicker-row"
+      kicker={
+        <>
           <span>Delete folder</span>
           <span>Review</span>
-        </div>
-        <h2 id="wb-delete-folder-title">Move {name} to the Trash?</h2>
-
-        {!facts ? <p className="wb-sheet-help">Reading what’s in the folder…</p> : null}
-
-        {facts?.success ? (
-          <>
-            <dl className="wb-inv">
-              <div>
-                <dt>Folder</dt>
-                <dd className="mono">{displayHostPath(facts.hostPath ?? hostPath)}</dd>
-              </div>
-              <div>
-                <dt>Contents</dt>
-                <dd>{contentsLine(facts)}</dd>
-              </div>
-              <div>
-                <dt>Last changed</dt>
-                <dd>{formatWhen(facts.lastChanged)}</dd>
-              </div>
-              <div>
-                <dt>Added</dt>
-                <dd>{addedLine(facts, projectName)}</dd>
-              </div>
-            </dl>
-            <ul className="wb-risk">
-              {!facts.isGit ? (
-                <li className="is-bad">
-                  <span aria-hidden="true">!</span>
-                  <span>
-                    <b>This isn’t a git repo.</b> Nothing records its history, so the Trash is the
-                    only copy.
-                  </span>
-                </li>
-              ) : null}
-              {unshared ? (
-                <li className="is-bad">
-                  <span aria-hidden="true">!</span>
-                  <span>
-                    <b>
-                      {facts.unpushed} {facts.unpushed === 1 ? 'commit exists' : 'commits exist'}{' '}
-                      only on this Mac.
-                    </b>{' '}
-                    {facts.hasRemote
-                      ? 'They aren’t on any remote, so the Trash is the only copy.'
-                      : 'This repo has no remote, so the Trash is the only copy.'}
-                  </span>
-                </li>
-              ) : null}
-              {(facts.dirtyCount ?? 0) > 0 ? (
-                <li className="is-bad">
-                  <span aria-hidden="true">!</span>
-                  <span>
-                    <b>
-                      {facts.dirtyCount} {facts.dirtyCount === 1 ? 'file has' : 'files have'}{' '}
-                      uncommitted changes:
-                    </b>{' '}
-                    <span className="mono">{facts.dirtyFiles?.join(', ')}</span>
-                    {(facts.dirtyCount ?? 0) > (facts.dirtyFiles?.length ?? 0) ? '…' : ''}
-                  </span>
-                </li>
-              ) : null}
-              {facts.createdByBoundary ? (
-                <li className="is-ok">
-                  <span aria-hidden="true">✓</span>
-                  <span>Boundary created this folder.</span>
-                </li>
-              ) : (
-                <li className="is-warn">
-                  <span aria-hidden="true">i</span>
-                  <span>
-                    Boundary didn’t create this folder. It existed before you gave the coding agent
-                    access.
-                  </span>
-                </li>
-              )}
-              {facts.isGit && !unshared && (facts.dirtyCount ?? 0) === 0 ? (
-                <li className="is-ok">
-                  <span aria-hidden="true">✓</span>
-                  <span>
-                    {facts.onlyStartCommit
-                      ? 'The repo holds only its empty first commit.'
-                      : 'Every commit is on a remote, and there are no uncommitted changes.'}
-                  </span>
-                </li>
-              ) : null}
-            </ul>
-            {busy ? (
-              <div className="wb-insp-banner warn is-stacked wb-sheet-banner">
-                <p>
-                  The coding agent is working in this folder
-                  {facts.busy?.sessions.length ? ` (${facts.busy.sessions.join(', ')})` : ''}. Let
-                  the task finish, or stop it in its chat, so nothing writes to the folder while it
-                  moves.
-                </p>
-                <div className="wb-insp-banner-actions">
-                  <button type="button" className="wb-btn-tiny" onClick={() => void load(hostPath)}>
-                    Check again
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            <p className="wb-sheet-help">
-              Boundary removes coding access first, then moves the folder to the Trash. You can put
-              it back from the Trash in Finder until you empty it. Boundary never empties the Trash.
-            </p>
-            {facts.requiresTypedName ? (
-              <label className="wb-field">
-                <span>
-                  Type <span className="mono">{name}</span> to confirm
-                </span>
-                <input
-                  value={typed}
-                  onChange={(e) => setTyped(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void moveToTrash();
-                  }}
-                  disabled={deleting || busy}
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-label={`Type ${name} to confirm`}
-                />
-              </label>
-            ) : null}
-          </>
-        ) : null}
-
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+        </>
+      }
+      title={`Move ${name} to the Trash?`}
+      error={trash.error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-danger"
@@ -267,8 +136,132 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             Cancel
           </button>
           <span className="wb-sheet-note">Restarts the coding agent</span>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {!facts ? <p className="wb-sheet-help">Reading what’s in the folder…</p> : null}
+
+      {facts?.success ? (
+        <>
+          <dl className="wb-inv">
+            <div>
+              <dt>Folder</dt>
+              <dd className="mono">{displayHostPath(facts.hostPath ?? hostPath)}</dd>
+            </div>
+            <div>
+              <dt>Contents</dt>
+              <dd>{contentsLine(facts)}</dd>
+            </div>
+            <div>
+              <dt>Last changed</dt>
+              <dd>{formatWhen(facts.lastChanged)}</dd>
+            </div>
+            <div>
+              <dt>Added</dt>
+              <dd>{addedLine(facts, projectName)}</dd>
+            </div>
+          </dl>
+          <ul className="wb-risk">
+            {!facts.isGit ? (
+              <li className="is-bad">
+                <span aria-hidden="true">!</span>
+                <span>
+                  <b>This isn’t a git repo.</b> Nothing records its history, so the Trash is the
+                  only copy.
+                </span>
+              </li>
+            ) : null}
+            {unshared ? (
+              <li className="is-bad">
+                <span aria-hidden="true">!</span>
+                <span>
+                  <b>
+                    {facts.unpushed} {facts.unpushed === 1 ? 'commit exists' : 'commits exist'}{' '}
+                    only on this Mac.
+                  </b>{' '}
+                  {facts.hasRemote
+                    ? 'They aren’t on any remote, so the Trash is the only copy.'
+                    : 'This repo has no remote, so the Trash is the only copy.'}
+                </span>
+              </li>
+            ) : null}
+            {(facts.dirtyCount ?? 0) > 0 ? (
+              <li className="is-bad">
+                <span aria-hidden="true">!</span>
+                <span>
+                  <b>
+                    {facts.dirtyCount} {facts.dirtyCount === 1 ? 'file has' : 'files have'}{' '}
+                    uncommitted changes:
+                  </b>{' '}
+                  <span className="mono">{facts.dirtyFiles?.join(', ')}</span>
+                  {(facts.dirtyCount ?? 0) > (facts.dirtyFiles?.length ?? 0) ? '…' : ''}
+                </span>
+              </li>
+            ) : null}
+            {facts.createdByBoundary ? (
+              <li className="is-ok">
+                <span aria-hidden="true">✓</span>
+                <span>Boundary created this folder.</span>
+              </li>
+            ) : (
+              <li className="is-warn">
+                <span aria-hidden="true">i</span>
+                <span>
+                  Boundary didn’t create this folder. It existed before you gave the coding agent
+                  access.
+                </span>
+              </li>
+            )}
+            {facts.isGit && !unshared && (facts.dirtyCount ?? 0) === 0 ? (
+              <li className="is-ok">
+                <span aria-hidden="true">✓</span>
+                <span>
+                  {facts.onlyStartCommit
+                    ? 'The repo holds only its empty first commit.'
+                    : 'Every commit is on a remote, and there are no uncommitted changes.'}
+                </span>
+              </li>
+            ) : null}
+          </ul>
+          {busy ? (
+            <div className="wb-insp-banner warn is-stacked wb-sheet-banner">
+              <p>
+                The coding agent is working in this folder
+                {facts.busy?.sessions.length ? ` (${facts.busy.sessions.join(', ')})` : ''}. Let
+                the task finish, or stop it in its chat, so nothing writes to the folder while it
+                moves.
+              </p>
+              <div className="wb-insp-banner-actions">
+                <button type="button" className="wb-btn-tiny" onClick={() => void load(hostPath)}>
+                  Check again
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <p className="wb-sheet-help">
+            Boundary removes coding access first, then moves the folder to the Trash. You can put
+            it back from the Trash in Finder until you empty it. Boundary never empties the Trash.
+          </p>
+          {facts.requiresTypedName ? (
+            <label className="wb-field">
+              <span>
+                Type <span className="mono">{name}</span> to confirm
+              </span>
+              <input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void moveToTrash();
+                }}
+                disabled={deleting || busy}
+                autoComplete="off"
+                spellCheck={false}
+                aria-label={`Type ${name} to confirm`}
+              />
+            </label>
+          ) : null}
+        </>
+      ) : null}
+    </Sheet>
   );
 };

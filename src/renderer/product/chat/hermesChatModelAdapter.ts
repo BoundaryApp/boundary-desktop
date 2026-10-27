@@ -1,12 +1,12 @@
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import type { ServerEntry, ServerPath } from './serverPath';
 import { writtenPathsOf } from '../../../shared/hermesToolPaths';
 import { filedTaskOf } from '../../../shared/hermesKanbanFiled';
 import type { KanbanFiledTask } from '../../../shared/types/hermesKanban';
-import type { HermesNoReply } from '../../../shared/types/hermesChat';
+import type { HermesNoReply, SessionInferenceOverride } from '../../../shared/types/hermesChat';
 import { ownRunningTurn, releaseRunningTurn } from './runningTurns';
 import { appendSpeakerChunk, joinSpeakerSegments, type SpeakerSegment } from './speakerSegments';
+import type { HermesMessageCustom } from './messageCustom';
 
 export const DIVERGED_MESSAGE =
   'This is an earlier version, and Hermes only keeps the latest one. Switch back with ‹ › to continue.';
@@ -71,6 +71,8 @@ export function createHermesChatModelAdapter(
     getAgentSlug?: () => string | null;
     onLocalUnreachable?: () => void;
     onApplyFailed?: (error: string) => void;
+    /** The inference a new chat's first send carries (Send via OpenRouter), taken once. */
+    takeNewChatInference?: () => SessionInferenceOverride | null;
     /**
      * What Hermes holds for the mounted runtime; decides whether a run appends or
      * replaces (Edit / Retry). A getter, because each runtime mount has its own.
@@ -119,22 +121,98 @@ export function createHermesChatModelAdapter(
         }
       };
 
-      let start: Awaited<ReturnType<typeof hermesChatIPC.startChat>>;
+      // The turn's id is made here so it is owned and listened to before startChat: main can
+      // send its first events (an inference restart, the first "Preparing…") before it replies.
+      const requestId = crypto.randomUUID();
+      let text = '';
+      // A room wake streams several agents; each gets its own section (ADR 0010 §1).
+      const segments: SpeakerSegment[] = [];
+      const speakers = () => {
+        const first = segments[0]?.agentSlug;
+        return {
+          ...(first ? { agentSlug: first } : {}),
+          ...(segments.length > 1 ? { segments: segments.map((s) => ({ ...s })) } : {}),
+        };
+      };
+      // Files this turn's write tools touched (the Files line under the reply), and how
+      // many tools ran ("No tools used").
+      const files: string[] = [];
+      const toolsRun = new Set<string>();
+      // Kanban tasks the turn filed: task cards under the reply.
+      const tasksFiled: KanbanFiledTask[] = [];
+      let finished = false;
+      let error: string | null = null;
+      let noReply: HermesNoReply | null = null;
+      // This screen shows the turn; a list of running turns must not reload it on end.
+      ownRunningTurn(requestId);
+
+      const waiters: Array<() => void> = [];
+      const wake = () => {
+        while (waiters.length > 0) {
+          waiters.shift()?.();
+        }
+      };
+
+      const unsubs = [
+        window.electronAPI.hermesChat.onChatTool((event) => {
+          if (event.requestId !== requestId || event.status !== 'done') return;
+          toolsRun.add(event.toolId);
+          for (const path of writtenPathsOf(event.name, event.args ?? null)) {
+            if (!files.includes(path)) files.push(path);
+          }
+          // The result, not the summary: a prose summary of a refused call would file the task.
+          const filed = filedTaskOf(event.name, event.args ?? null, event.result ?? event.summary ?? null);
+          if (filed) tasksFiled.push(filed);
+        }),
+        window.electronAPI.hermesChat.onChatChunk((event) => {
+          if (event.requestId !== requestId) return;
+          appendSpeakerChunk(segments, event.delta, event.agentSlug);
+          text = segments.length > 1 ? joinSpeakerSegments(segments) : segments[0].text;
+          wake();
+        }),
+        window.electronAPI.hermesChat.onChatEnd((event) => {
+          if (event.requestId !== requestId) return;
+          noReply = event.noReply ?? null;
+          finished = true;
+          wake();
+        }),
+        window.electronAPI.hermesChat.onChatError((event) => {
+          if (event.requestId !== requestId) return;
+          error = event.error;
+          finished = true;
+          wake();
+        }),
+      ];
+
+      // No turn streams to this screen (failed start, or a room post): stop listening and
+      // leave the request unowned, so the running-turns list reloads the chat as before.
+      const stopListening = () => {
+        for (const unsub of unsubs) unsub();
+        releaseRunningTurn(requestId);
+      };
+
+      const sessionId = getSessionId();
+      const inference = sessionId ? null : (opts?.takeNewChatInference?.() ?? null);
+      let start: Awaited<ReturnType<typeof window.electronAPI.hermesChat.startChat>>;
       try {
-        start = await hermesChatIPC.startChat({
-          sessionId: getSessionId() ?? undefined,
+        start = await window.electronAPI.hermesChat.startChat({
+          requestId,
+          sessionId: sessionId ?? undefined,
           messages: mapped,
           toolsEnabled: opts?.getToolsEnabled?.() ?? true,
           agentSlug: opts?.getAgentSlug?.() ?? undefined,
           ...(plan.kind === 'rewind' ? { rewind: plan.request } : {}),
           ...(plan.kind === 'continue' ? { continue: true } : {}),
+          ...(inference ? { inference } : {}),
         });
       } catch (err) {
+        stopListening();
         settle('');
         throw err;
       }
 
       if (!start.success) {
+        stopListening();
         settle('');
         if (start.errorCode === 'rewind-unsupported') serverPath?.setRewindable(false);
         if (start.errorCode === 'local-unreachable') {
@@ -152,83 +230,24 @@ export function createHermesChatModelAdapter(
         opts?.onSessionResolved?.(start.sessionId);
       }
 
-      if (start.transport === 'http') serverPath?.setRewindable(false);
-
       if (start.posted) {
+        stopListening();
         settle('');
+        // The runtime adds a reply for every run; mark it so the thread doesn't draw it.
+        yield { content: [], metadata: { custom: { roomPost: true } satisfies HermesMessageCustom } };
         return;
       }
 
-      const { requestId } = start;
-      let text = '';
-      // A room wake streams several agents; each gets its own section (ADR 0010 §1).
-      const segments: SpeakerSegment[] = [];
-      const speakers = () => {
-        const first = segments[0]?.agentSlug;
-        return {
-          ...(first ? { agentSlug: first } : {}),
-          ...(segments.length > 1 ? { segments: segments.map((s) => ({ ...s })) } : {}),
-        };
-      };
-      // Files this turn's write tools touched (the Files line under the reply), and how
-      // many tools ran ("No tools used"). HTTP-fallback turns send no tool events, so
-      // their count stays unknown.
-      const files: string[] = [];
-      const toolsRun = new Set<string>();
-      // Kanban tasks the turn filed: task cards under the reply.
-      const tasksFiled: KanbanFiledTask[] = [];
       const turnMeta = () => ({
         metadata: {
           custom: {
             ...speakers(),
             ...(files.length > 0 ? { files: [...files] } : {}),
             ...(tasksFiled.length > 0 ? { tasksFiled: [...tasksFiled] } : {}),
-            ...(start.transport === 'json-rpc' ? { toolCount: toolsRun.size } : {}),
-          },
+            toolCount: toolsRun.size,
+          } satisfies HermesMessageCustom,
         },
       });
-      let finished = false;
-      let error: string | null = null;
-      let noReply: HermesNoReply | null = null;
-      // This screen shows the turn; a list of running turns must not reload it on end.
-      ownRunningTurn(requestId);
-
-      const waiters: Array<() => void> = [];
-      const wake = () => {
-        while (waiters.length > 0) {
-          waiters.shift()?.();
-        }
-      };
-
-      const unsubs = [
-        hermesChatIPC.onChatTool((event) => {
-          if (event.requestId !== requestId || event.status !== 'done') return;
-          toolsRun.add(event.toolId);
-          for (const path of writtenPathsOf(event.name, event.args ?? null)) {
-            if (!files.includes(path)) files.push(path);
-          }
-          const filed = filedTaskOf(event.name, event.args ?? null, event.summary ?? null);
-          if (filed) tasksFiled.push(filed);
-        }),
-        hermesChatIPC.onChatChunk((event) => {
-          if (event.requestId !== requestId) return;
-          appendSpeakerChunk(segments, event.delta, event.agentSlug);
-          text = segments.length > 1 ? joinSpeakerSegments(segments) : segments[0].text;
-          wake();
-        }),
-        hermesChatIPC.onChatEnd((event) => {
-          if (event.requestId !== requestId) return;
-          noReply = event.noReply ?? null;
-          finished = true;
-          wake();
-        }),
-        hermesChatIPC.onChatError((event) => {
-          if (event.requestId !== requestId) return;
-          error = event.error;
-          finished = true;
-          wake();
-        }),
-      ];
 
       const onAbort = () => {
         // Unmounting the runtime (leaving the chat or switching chats) detaches it. The
@@ -238,7 +257,7 @@ export function createHermesChatModelAdapter(
           // Whichever screen shows this chat next reloads it when the turn ends.
           releaseRunningTurn(requestId);
         } else {
-          void hermesChatIPC.cancelChat({ requestId, reason: 'stopped' });
+          void window.electronAPI.hermesChat.cancelChat({ requestId, reason: 'stopped' });
         }
         finished = true;
         wake();

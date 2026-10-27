@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CodingGrantRefuseReason } from '../../../../shared/types/codingFolders';
-import { isPathUnder, samePath } from '../hermes/projectSourcesModel';
+import { canonicalPath, isPathUnder, samePath } from '../../hostPaths';
 
 /**
  * Pure rules for coding grants (ADR 0028 §4–§6): which folders may be granted, how grants
@@ -9,7 +9,7 @@ import { isPathUnder, samePath } from '../hermes/projectSourcesModel';
  */
 
 /** macOS system trees. A grant at or under any of these is refused (ADR 0028 §5). */
-export const SYSTEM_FOLDERS = [
+const SYSTEM_FOLDERS = [
   '/System',
   '/Library',
   '/Applications',
@@ -35,20 +35,19 @@ export interface CodingGrantRuleOptions {
   realpath?: (candidate: string) => string;
 }
 
-function defaultIsDirectory(candidate: string): boolean {
+/** Whether the path is a directory on disk, and whether that directory has a `.git`. */
+export function folderFacts(hostPath: string): { isDirectory: boolean; isGit: boolean } {
+  let isDirectory: boolean;
   try {
-    return fs.statSync(candidate).isDirectory();
+    isDirectory = fs.statSync(hostPath).isDirectory();
   } catch {
-    return false;
+    isDirectory = false;
   }
+  return { isDirectory, isGit: isDirectory && fs.existsSync(path.join(hostPath, '.git')) };
 }
 
-function defaultRealpath(candidate: string): string {
-  try {
-    return fs.realpathSync(candidate);
-  } catch {
-    return candidate;
-  }
+function defaultIsDirectory(candidate: string): boolean {
+  return folderFacts(candidate).isDirectory;
 }
 
 function refuseResolved(
@@ -89,7 +88,7 @@ export function refuseCodingGrantReason(
   if (reason) return reason;
   const isDirectory = options.isDirectory ?? defaultIsDirectory;
   if (!isDirectory(resolved)) return 'missing';
-  const real = path.resolve((options.realpath ?? defaultRealpath)(resolved));
+  const real = path.resolve((options.realpath ?? canonicalPath)(resolved));
   if (real !== resolved) {
     const realReason = refuseResolved(real, options);
     if (realReason) return realReason;

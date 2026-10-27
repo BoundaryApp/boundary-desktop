@@ -4,45 +4,35 @@ import type {
   ChannelRecord,
   HermesProjectRecord,
   HermesConversationKind,
-  HermesProjectSourcesInspect,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import {
-  displayHostPath,
-  projectGlyph,
-  projectGlyphColor,
-} from './chatTelemetryFormat';
+import { displayHostPath } from './chatTelemetryFormat';
+import { ProjectGlyph } from './ProjectGlyph';
 import {
   conversationInspectorKey,
   defaultInspectorTab,
   inspectorTabsFor,
   type InspectorTab,
 } from './inspectorTabs';
-import { ProjectSourcesRail, type ProjectRole } from './ProjectSourcesRail';
-import { ConversationMark } from './ConversationMark';
+import {
+  ProjectSourcesRail,
+  type ProjectRole,
+  type ProjectSourcesRailProps,
+} from './ProjectSourcesRail';
+import type { CenterMode } from './ChatRail';
+import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
 
 interface RightInspectorProps {
-  centerMode: 'conversation' | 'all-chats' | 'mentions' | 'project' | 'task' | 'tasks';
+  centerMode: CenterMode;
   /** The open conversation's kind (ADR 0023); null before anything is open. */
   kind: HermesConversationKind | null;
   activeChannel: ChannelRecord | null;
   activeAgent: AgentProfile | null;
   agents: AgentProfile[];
-  project: HermesProjectRecord | null;
-  inspect: HermesProjectSourcesInspect | null;
-  connecting?: boolean;
-  rpcAvailable?: boolean;
   threadId?: string | null;
-  onChangeFolder: () => void;
-  onChooseFolder: () => void;
-  onRevealHub: () => void;
-  onRevealSource: (sourceId: string) => void;
-  onRefreshIndex: () => void;
-  onAddFolder: () => void;
-  onRemoveSource: (sourceId: string) => void;
-  onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /** The Project tab, passed through to ProjectSourcesRail; the inspector adds the role. */
+  projectTab: Omit<ProjectSourcesRailProps, 'role'>;
   onMakeChannel: () => void;
   onAddToChannel: (agent: AgentProfile) => void;
   /** Agent tab: edit a personality (ADR 0010 §4). */
@@ -60,19 +50,8 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
   activeChannel,
   activeAgent,
   agents,
-  project,
-  inspect,
-  connecting,
-  rpcAvailable,
   threadId,
-  onChangeFolder,
-  onChooseFolder,
-  onRevealHub,
-  onRevealSource,
-  onRefreshIndex,
-  onAddFolder,
-  onRemoveSource,
-  onProjectsUpdated,
+  projectTab,
   onMakeChannel,
   onAddToChannel,
   onEditAgent,
@@ -142,7 +121,7 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
         <RoomPane
           channel={activeChannel}
           agents={agents}
-          project={project}
+          project={projectTab.project}
           onOpenProject={() => setTab('project')}
           onAddMember={onAddMember ? (slug) => onAddMember(activeChannel.id, slug) : undefined}
           onRemoveMember={
@@ -179,18 +158,7 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
 
       {resolvedTab === 'project' ? (
         <ProjectSourcesRail
-          project={project}
-          inspect={inspect}
-          connecting={connecting}
-          rpcAvailable={rpcAvailable}
-          onChangeFolder={onChangeFolder}
-          onChooseFolder={onChooseFolder}
-          onRevealHub={onRevealHub}
-          onRevealSource={onRevealSource}
-          onRefreshIndex={onRefreshIndex}
-          onAddFolder={onAddFolder}
-          onRemoveSource={onRemoveSource}
-          onProjectsUpdated={onProjectsUpdated}
+          {...projectTab}
           role={centerMode === 'conversation' ? projectRole : null}
         />
       ) : null}
@@ -246,10 +214,7 @@ function RoomPane({
             const name = member?.displayName ?? slug;
             return (
               <div key={slug} className="wb-member-row">
-                <ConversationMark
-                  kind={member?.builtIn ? 'hermes' : 'dm'}
-                  agent={{ slug, displayName: name }}
-                />
+                <AgentMark agent={{ slug, displayName: name, builtIn: member?.builtIn }} />
                 <span className="wb-member-copy">
                   <span className="name" title={name}>
                     {name}
@@ -283,7 +248,7 @@ function RoomPane({
               aria-label={`Add ${agent.displayName} to #${channel.slug}`}
               onClick={() => onAddMember(agent.slug)}
             >
-              <ConversationMark kind={agent.builtIn ? 'hermes' : 'dm'} agent={agent} size={14} />
+              <AgentMark agent={agent} size={14} />
               {agent.displayName}
             </button>
           ))}
@@ -296,12 +261,7 @@ function RoomPane({
           title={`${project.name} · ${displayHostPath(project.hostPath)}`}
           onClick={onOpenProject}
         >
-          <span
-            className="wb-glyph"
-            style={{ background: projectGlyphColor(project.id) }}
-          >
-            {projectGlyph(project.name)}
-          </span>
+          <ProjectGlyph project={project} />
           <span>
             <span className="name">{project.name}</span>
             <span className="path mono">{displayHostPath(project.hostPath)}</span>
@@ -329,7 +289,7 @@ function AgentPane({
     let cancelled = false;
     setExcerpt(null);
     setCanOpen(false);
-    void hermesChatIPC.getAgentSoul({ slug: agent.slug }).then((result) => {
+    void window.electronAPI.agents.getSoul({ slug: agent.slug }).then((result) => {
       if (cancelled || !result.success) return;
       setExcerpt(result.excerpt ?? null);
       setCanOpen(Boolean(result.canOpen));
@@ -343,7 +303,7 @@ function AgentPane({
   return (
     <div className="wb-insp-pane">
       <div className="wb-insp-ident">
-        <ConversationMark kind={agent.builtIn ? 'hermes' : 'dm'} agent={agent} size={24} />
+        <AgentMark agent={agent} size={24} />
         <span>
           <span className="who-name">{agent.displayName}</span>
           <span className="who-meta">
@@ -375,7 +335,7 @@ function AgentPane({
           <button
             type="button"
             className="wb-btn-tiny"
-            onClick={() => void hermesChatIPC.revealAgentSoul({ slug: agent.slug })}
+            onClick={() => void window.electronAPI.agents.revealSoul({ slug: agent.slug })}
           >
             Open SOUL.md
           </button>

@@ -21,7 +21,7 @@ export function findGoogleChrome(platform = process.platform, home = os.homedir(
 }
 
 /** Boundary's own Chrome profile: separate from the user's, logins the user chose to add. */
-export function boundaryBrowserProfileDir(): string {
+function boundaryBrowserProfileDir(): string {
   return path.join(app.getPath('userData'), 'agent-browser', 'profile');
 }
 

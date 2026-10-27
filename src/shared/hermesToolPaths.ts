@@ -1,3 +1,5 @@
+import { formatTokenCount } from './utils/format';
+
 /**
  * Extract file/path-like strings from Hermes tool args payloads.
  * Prefer explicit keys; never invent paths.
@@ -53,7 +55,7 @@ export function toHostRelativePath(
 }
 
 /** Hermes tools that write files (tools/file_tools.py); reads and searches are left out. */
-export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['write_file', 'patch']);
+const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['write_file', 'patch']);
 
 /** Paths a tool call wrote, from its args; empty for tools that only read. */
 export function writtenPathsOf(
@@ -123,10 +125,10 @@ export function formatTurnStatsLine(stats: {
 }): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
   if (stats.prompt != null) {
-    rows.push({ label: 'prompt', value: formatCompactTokens(stats.prompt) });
+    rows.push({ label: 'prompt', value: formatTokenCount(stats.prompt) });
   }
   if (stats.generated != null) {
-    rows.push({ label: 'generated', value: formatCompactTokens(stats.generated) });
+    rows.push({ label: 'generated', value: formatTokenCount(stats.generated) });
   }
   if (stats.visible != null) {
     rows.push({ label: 'visible', value: String(stats.visible) });
@@ -138,13 +140,4 @@ export function formatTurnStatsLine(stats: {
     rows.push({ label: 'tok/s', value: stats.avgTps.toFixed(0) });
   }
   return rows;
-}
-
-function formatCompactTokens(n: number): string {
-  if (n >= 1000) {
-    const k = n / 1000;
-    if (Number.isInteger(k)) return `${k}k`;
-    return `${k.toFixed(1)}k`;
-  }
-  return String(Math.round(n));
 }

@@ -6,6 +6,7 @@ import {
   codingGrantRefuseMessage,
   codingRootsFromPaths,
   envShadowTargets,
+  folderFacts,
   refuseCodingGrantReason,
   serializeCodingExtraRoots,
   type CodingGrantRuleOptions,
@@ -139,5 +140,29 @@ describe('envShadowTargets', () => {
 
   it('returns nothing for an unreadable folder', () => {
     expect(envShadowTargets('/definitely/not/here')).toEqual([]);
+  });
+});
+
+describe('folderFacts', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reports a directory and its .git', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'folder-facts-'));
+    dirs.push(dir);
+    expect(folderFacts(dir)).toEqual({ isDirectory: true, isGit: false });
+    fs.mkdirSync(path.join(dir, '.git'));
+    expect(folderFacts(dir)).toEqual({ isDirectory: true, isGit: true });
+  });
+
+  it('is neither for a file or a missing path', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'folder-facts-'));
+    dirs.push(dir);
+    const file = path.join(dir, 'notes.txt');
+    fs.writeFileSync(file, 'x');
+    expect(folderFacts(file)).toEqual({ isDirectory: false, isGit: false });
+    expect(folderFacts(path.join(dir, 'missing'))).toEqual({ isDirectory: false, isGit: false });
   });
 });

@@ -21,7 +21,7 @@ export interface AuditEntry {
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_STRING = 300;
 
-export function getAuditLogPath(): string {
+function getAuditLogPath(): string {
   return path.join(app.getPath('userData'), 'host-bridge', 'audit.jsonl');
 }
 

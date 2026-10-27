@@ -1,4 +1,5 @@
 import { session, shell, type BrowserWindow, type WebContents } from 'electron';
+import { persistDebugLog, serializeError } from '../../../persistDebugLog';
 import type { KanbanBoardViewResult } from '../../../../shared/types/hermesKanban';
 import { boardPath, browserUrlFor, isBoardUrl } from './hermesBoardLinks';
 import { loginToDashboard } from './hermesDashboardAuth';
@@ -126,7 +127,11 @@ function guardBoardContents(contents: WebContents): void {
     }
     openOutside(url);
     if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
-    else if (lastBoardUrl) void contents.loadURL(lastBoardUrl);
+    else if (lastBoardUrl) {
+      contents.loadURL(lastBoardUrl).catch((error: unknown) => {
+        persistDebugLog('kanban', 'board view could not return to the board', serializeError(error));
+      });
+    }
   });
 
   contents.on('did-navigate', (_event, url) => {

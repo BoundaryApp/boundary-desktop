@@ -15,6 +15,7 @@ import {
   setSessionInference,
 } from './hermesAgentStore';
 import { resolveSessionInference } from './resolveSessionInference';
+import { listRunningTurns } from './hermesRunningTurns';
 
 export async function getSessionInferenceSnapshot(
   sessionId: string
@@ -111,6 +112,16 @@ export async function ensureResolvedInferenceReady(
     }
   }
   if (resolved.needsRestart) {
+    // Applying restarts Hermes (and in managed mode switches the proxy's one upstream), which
+    // would cut off any reply still running. Refuse rather than queue: the user sends again.
+    if (listRunningTurns().length > 0) {
+      return {
+        ok: false,
+        error:
+          `Another reply is still running. Switching to ${resolved.providerDisplayName} restarts ` +
+          'the assistant, which would cut it off. Send again when it finishes.',
+      };
+    }
     onRestarting?.(resolved);
     const llm = await getSlotLlmConnection(resolved.slot);
     if (!llm) {

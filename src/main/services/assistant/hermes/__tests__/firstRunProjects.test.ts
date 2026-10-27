@@ -98,11 +98,17 @@ describe('first-run projects (first-run spec, Phase 2)', () => {
     expect(recreate).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the projects and returns the error when the recreate fails', async () => {
+  it('drops the projects the recreate failed to mount and returns the error', async () => {
+    recordMountedProjectFolders([garden]);
     recreate.mockResolvedValue({ success: false, error: 'compose exploded' });
-    const result = await applyFirstRunHermesProjects([{ kind: 'host-folder', hostPath: garden }]);
+    const result = await applyFirstRunHermesProjects([
+      { kind: 'host-folder', hostPath: garden },
+      { kind: 'host-folder', hostPath: notes },
+    ]);
     expect(result.success).toBe(false);
     expect(result.error).toContain('compose exploded');
-    expect(listStoredHermesProjects()).toHaveLength(1);
+    // Garden is already in the running container, so only notes goes.
+    expect(listStoredHermesProjects().map((project) => project.name)).toEqual(['garden-planner']);
+    expect(setActiveProject).not.toHaveBeenCalled();
   });
 });

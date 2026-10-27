@@ -1,5 +1,7 @@
-import { ipcMain, type WebContents } from 'electron';
+import { handle, sendEvent } from '../../ipc';
+import type { WebContents } from 'electron';
 import type { ComposeInventorySnapshot } from '../../../shared/types/composeInventory';
+import type { HostResourceSnapshot } from '../../../shared/types/hostResources';
 import { dockerService } from '../dockerService';
 import { readComposeInventory } from './composeInventory';
 import {
@@ -20,7 +22,7 @@ async function sendInventory(contents: WebContents): Promise<void> {
   if (contents.isDestroyed()) return;
   const snapshot: ComposeInventorySnapshot = await readComposeInventory();
   if (contents.isDestroyed()) return;
-  contents.send('resources:compose-inventory', snapshot);
+  sendEvent(contents, 'resources:compose-inventory', snapshot);
 }
 
 function detachInventoryListener(id: number): void {
@@ -35,15 +37,21 @@ function detachInventoryListener(id: number): void {
 
 export function registerResourceHandlers(): void {
   const probes = createDefaultResourceProbes();
-  ipcMain.handle('resources:get-snapshot', async () => {
-    return sampleHostResources(probes);
+  // A sample runs docker stats and several subprocesses and can outlast the poll interval,
+  // so overlapping requests share the sample already running instead of starting another.
+  let snapshotInFlight: Promise<HostResourceSnapshot> | null = null;
+  handle('resources:get-snapshot', () => {
+    snapshotInFlight ??= sampleHostResources(probes).finally(() => {
+      snapshotInFlight = null;
+    });
+    return snapshotInFlight;
   });
 
-  ipcMain.handle('resources:get-compose-inventory', async () => {
+  handle('resources:get-compose-inventory', async () => {
     return readComposeInventory();
   });
 
-  ipcMain.handle('resources:subscribe-compose-inventory', async (event) => {
+  handle('resources:subscribe-compose-inventory', async (event) => {
     const contents = event.sender;
     const id = contents.id;
     detachInventoryListener(id);
@@ -64,7 +72,7 @@ export function registerResourceHandlers(): void {
     return { success: true };
   });
 
-  ipcMain.handle('resources:unsubscribe-compose-inventory', async (event) => {
+  handle('resources:unsubscribe-compose-inventory', async (event) => {
     detachInventoryListener(event.sender.id);
     return { success: true };
   });

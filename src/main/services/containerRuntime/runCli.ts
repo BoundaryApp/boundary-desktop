@@ -4,6 +4,11 @@ import type { ContainerRuntime } from './types';
 
 const defaultExecFileAsync = promisify(execFile);
 
+/** How long a timed-out Compose gets to exit after SIGTERM before SIGKILL. */
+const KILL_GRACE_MS = 5_000;
+/** How long to wait for stdio to close after a timed-out Compose has exited. */
+const CLOSE_GRACE_MS = 1_000;
+
 export type RunCliOptions = {
   cwd?: string;
   timeout?: number;
@@ -27,19 +32,28 @@ export function composeArgv(runtime: ContainerRuntime, args: string[]): string[]
   return [...runtime.composeArgv, ...args];
 }
 
-export async function runCli(
+async function execRuntime(
   runtime: ContainerRuntime,
+  file: string,
   args: string[],
-  options: RunCliOptions = {}
+  options: RunCliOptions
 ): Promise<{ stdout: string; stderr: string }> {
   const exec = options.execFile ?? defaultExecFileAsync;
-  const { stdout, stderr } = await exec(runtime.cliPath, args, {
+  const { stdout, stderr } = await exec(file, args, {
     cwd: options.cwd,
     timeout: options.timeout,
     env: { ...runtime.env, ...options.env },
     encoding: 'utf8',
   });
   return { stdout: String(stdout), stderr: String(stderr) };
+}
+
+export async function runCli(
+  runtime: ContainerRuntime,
+  args: string[],
+  options: RunCliOptions = {}
+): Promise<{ stdout: string; stderr: string }> {
+  return execRuntime(runtime, runtime.cliPath, args, options);
 }
 
 /**
@@ -52,16 +66,7 @@ export async function runCompose(
   args: string[],
   options: RunCliOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
-  const exec = options.execFile ?? defaultExecFileAsync;
-  if (runtime.composeBinaryPath) {
-    const { stdout, stderr } = await exec(runtime.composeBinaryPath, args, {
-      cwd: options.cwd,
-      timeout: options.timeout,
-      env: { ...runtime.env, ...options.env },
-      encoding: 'utf8',
-    });
-    return { stdout: String(stdout), stderr: String(stderr) };
-  }
+  if (runtime.composeBinaryPath) return execRuntime(runtime, runtime.composeBinaryPath, args, options);
   return runCli(runtime, composeArgv(runtime, args), options);
 }
 
@@ -109,16 +114,39 @@ export async function runComposeStreaming(
     // Compose exits 130 on SIGTERM, so the code alone can't tell a timeout from an interrupt.
     let timedOut = false;
 
+    let settled = false;
+    const settle = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (closeTimer) clearTimeout(closeTimer);
+      return true;
+    };
+    const finish = (code: number | null) => {
+      if (!settle()) return;
+      if (stdoutPending.value) {
+        options.onStdoutLine?.(stdoutPending.value.replace(/\r$/, ''));
+      }
+      if (stderrPending.value) {
+        options.onStderrLine?.(stderrPending.value.replace(/\r$/, ''));
+      }
+      resolve({ stdout, stderr, code, timedOut });
+    };
+
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
     const timer =
       options.timeout != null
         ? setTimeout(() => {
             timedOut = true;
             child.kill('SIGTERM');
-            setTimeout(() => {
-              if (!child.killed) {
+            killTimer = setTimeout(() => {
+              // `child.killed` only says a signal was sent; these say whether it exited.
+              if (child.exitCode === null && child.signalCode === null) {
                 child.kill('SIGKILL');
               }
-            }, 5_000).unref?.();
+            }, KILL_GRACE_MS);
           }, options.timeout)
         : undefined;
 
@@ -133,18 +161,19 @@ export async function runComposeStreaming(
       attachLineBuffer(text, stderrPending, options.onStderrLine);
     });
     child.on('error', (err) => {
-      if (timer) clearTimeout(timer);
-      reject(err);
+      if (settle()) reject(err);
     });
-    child.on('close', (code) => {
-      if (timer) clearTimeout(timer);
-      if (stdoutPending.value) {
-        options.onStdoutLine?.(stdoutPending.value.replace(/\r$/, ''));
+    child.on('exit', (code) => {
+      // After a timeout, a grandchild can keep stdout/stderr open and hold back
+      // `close`, so stop waiting for it shortly after the child itself exits.
+      if (timedOut && !settled) {
+        closeTimer = setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          finish(code);
+        }, CLOSE_GRACE_MS);
       }
-      if (stderrPending.value) {
-        options.onStderrLine?.(stderrPending.value.replace(/\r$/, ''));
-      }
-      resolve({ stdout, stderr, code, timedOut });
     });
+    child.on('close', (code) => finish(code));
   });
 }

@@ -33,7 +33,7 @@ When the user @-mentions an agent in a channel, Boundary sends one `prompt.submi
 
 > **Stack reply (delivered, v0.3.3 docs):** `agent.platform_hints.<source>` in each profile's `config.yaml`. A bare string is appended to the built-in hint, or used on its own when there is none.
 >
-> **Boundary:** writes `agent.platform_hints.boundary` to the default profile when it configures its own stack, and to every agent profile it creates or configures. It describes channels, the header line, posts without an @ and hand-offs by @. In local-stack mode the developer's default profile isn't written, so rooms there get no hint unless the developer sets it.
+> **Boundary:** writes `platform_hints.boundary` to the default profile when it configures its own stack, and to every agent profile it creates or configures. The key sits at the top of `config.yaml`: Hermes v0.22 reads hints there and refuses the nested `agent.platform_hints` form shown in the reply above. It describes channels, the header line, posts without an @ and hand-offs by @. Local-stack mode writes it to the developer's default profile too, since room turns run there; Hermes uses the key only for sessions whose source is `boundary`.
 
 ## R3 · `profile` on `prompt.submit` (Wanted)
 

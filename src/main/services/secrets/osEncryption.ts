@@ -41,6 +41,22 @@ export async function decryptFromBase64(
   return result;
 }
 
+/**
+ * `decryptFromBase64` for a stored secret: null when encryption is unavailable or the value
+ * doesn't decrypt, instead of throwing.
+ */
+export async function tryDecryptFromBase64(
+  encrypted: string,
+  onReEncrypted?: (reEncrypted: string) => void
+): Promise<string | null> {
+  if (!(await isOsEncryptionAvailable())) return null;
+  try {
+    return await decryptFromBase64(encrypted, onReEncrypted);
+  } catch {
+    return null;
+  }
+}
+
 /** A copy of `values` with every entry equal to `from` set to `to`, or null when none matched. */
 export function replaceCiphertext<T extends Record<string, string | undefined>>(
   values: T,

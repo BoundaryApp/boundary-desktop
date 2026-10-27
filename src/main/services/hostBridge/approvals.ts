@@ -3,6 +3,7 @@ import type {
   HostBridgeApprovalChoice,
   HostBridgeApprovalEvent,
 } from '../../../shared/types/hostBridge';
+import type { IpcEventArgs } from '../../ipc';
 
 /**
  * Approvals that Boundary raises for host-bridge calls (ADR 0027 §7). Unlike Hermes's own
@@ -13,14 +14,15 @@ import type {
  * call timeout Boundary sets in Hermes (180 s), so Hermes hears "denied" rather than a timeout.
  */
 
-export const APPROVAL_TIMEOUT_MS = 120_000;
+const APPROVAL_TIMEOUT_MS = 120_000;
 
 export const HOST_BRIDGE_APPROVAL_CHANNEL = 'host-bridge:approval';
 export const HOST_BRIDGE_APPROVAL_CLEARED_CHANNEL = 'host-bridge:approval-cleared';
 
 export type ApprovalOutcome = HostBridgeApprovalChoice | 'timeout';
 
-type Send = (channel: string, payload: unknown) => void;
+type ApprovalChannel = typeof HOST_BRIDGE_APPROVAL_CHANNEL | typeof HOST_BRIDGE_APPROVAL_CLEARED_CHANNEL;
+type Send = <C extends ApprovalChannel>(channel: C, ...args: IpcEventArgs<C>) => void;
 
 interface Pending {
   event: HostBridgeApprovalEvent;

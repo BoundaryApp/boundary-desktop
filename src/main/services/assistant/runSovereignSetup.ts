@@ -6,6 +6,7 @@ import {
   BOUNDARY_SETUP_WORKSPACE,
 } from '../../../shared/assistantStackConstants';
 import { writeN8nDemoCredentials } from './n8nCredentials';
+import { parseEnv } from './stackEnv';
 import { persistDebugLog } from '../../persistDebugLog';
 
 export interface RunSovereignSetupOptions {
@@ -19,13 +20,6 @@ export interface RunSovereignSetupOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }
-
-const N8N_CRED_ENV_KEYS = [
-  'N8N_ENCRYPTION_KEY',
-  'LIGHTRAG_API_KEY',
-  'NEO4J_PASSWORD',
-  'NEO4J_USERNAME',
-] as const;
 
 export function buildSovereignSetupArgs(options: {
   workspaceRoot: string;
@@ -214,41 +208,6 @@ export function python3SetupError(problem: 'missing' | 'too-old'): string {
         '(accept the macOS prompt, or run `xcode-select --install` in Terminal), then try again.';
 }
 
-/**
- * Parse selected keys from a dotenv file. Strips unquoted inline `#` comments
- * (e.g. NEO4J_USERNAME=neo4j  # …) so values are safe to pass to child processes.
- */
-export function readDotEnvKeys(
-  envFileContents: string,
-  keys: readonly string[]
-): Record<string, string> {
-  const wanted = new Set(keys);
-  const out: Record<string, string> = {};
-  for (const rawLine of envFileContents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq);
-    if (!wanted.has(key)) continue;
-    let value = line.slice(eq + 1);
-    const paired =
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"));
-    if (paired) {
-      value = value.slice(1, -1);
-    } else {
-      const hash = value.indexOf('#');
-      if (hash >= 0) {
-        value = value.slice(0, hash);
-      }
-      value = value.trimEnd();
-    }
-    out[key] = value;
-  }
-  return out;
-}
-
 function isN8nCredentialsEnvError(output: string): boolean {
   return /Set N8N_ENCRYPTION_KEY and LIGHTRAG_API_KEY/i.test(output);
 }
@@ -264,7 +223,7 @@ export async function regenerateN8nCredentialsFromEnv(options: {
 }): Promise<void> {
   const envPath = path.join(options.projectRoot, '.env');
   const contents = await fs.promises.readFile(envPath, 'utf8');
-  const keys = readDotEnvKeys(contents, N8N_CRED_ENV_KEYS);
+  const keys = parseEnv(contents);
   if (!keys.N8N_ENCRYPTION_KEY || !keys.LIGHTRAG_API_KEY) {
     throw new Error(
       'Cannot regenerate n8n credentials: N8N_ENCRYPTION_KEY / LIGHTRAG_API_KEY missing from .env'
@@ -372,6 +331,13 @@ export async function runSovereignSetup(
       lastProgressAt = Date.now();
       options.onProgress?.(message);
     };
+    /** Other output that looks like progress, at most one line every three seconds. */
+    const noteOtherProgress = (line: string): void => {
+      const now = Date.now();
+      if (now - lastNonSetupEmit < 3_000) return;
+      lastNonSetupEmit = now;
+      noteProgress(line.slice(0, 120));
+    };
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
       const text = String(chunk);
@@ -385,11 +351,7 @@ export async function runSovereignSetup(
           /docker|podman|pull|build|compos|image|secret|profil/i.test(trimmed) &&
           trimmed.length > 8
         ) {
-          const now = Date.now();
-          if (now - lastNonSetupEmit >= 3_000) {
-            lastNonSetupEmit = now;
-            noteProgress(trimmed.slice(0, 120));
-          }
+          noteOtherProgress(trimmed);
         }
       }
     });
@@ -403,11 +365,7 @@ export async function runSovereignSetup(
           /docker|podman|pull|build|compos|error|warn/i.test(trimmed) &&
           trimmed.length > 8
         ) {
-          const now = Date.now();
-          if (now - lastNonSetupEmit >= 3_000) {
-            lastNonSetupEmit = now;
-            noteProgress(trimmed.slice(0, 120));
-          }
+          noteOtherProgress(trimmed);
         }
       }
     });
@@ -450,5 +408,4 @@ export const __test = {
   ensureDockerCompatibleCliOnPath,
   findBinaryOnPath,
   isN8nCredentialsEnvError,
-  N8N_CRED_ENV_KEYS,
 };

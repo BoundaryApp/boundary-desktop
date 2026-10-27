@@ -1,4 +1,5 @@
 import type { HermesHistoryWindow } from '../../../shared/types/hermesChat';
+import { formatTokenCount } from '../../../shared/utils/format';
 
 interface RowMessage {
   metadata?: { custom?: Record<string, unknown> };
@@ -31,13 +32,6 @@ export function horizonPlacement(
   const firstRow = messages.map(rowIdOf).find((id) => id != null);
   if (!window.summarised && firstRow === window.firstRowId) return null;
   return { index, window: { ...window, budget: window.budget } };
-}
-
-/** "6k", "6.4k", "950". */
-export function formatTokenCount(n: number): string {
-  if (n < 1000) return String(Math.round(n));
-  const k = n / 1000;
-  return `${k < 10 ? k.toFixed(1).replace(/\.0$/, '') : Math.round(k)}k`;
 }
 
 /** The line's words: what the agent sees, and how much of the budget it uses. */

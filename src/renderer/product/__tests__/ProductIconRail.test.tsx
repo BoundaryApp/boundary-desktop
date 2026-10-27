@@ -4,36 +4,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProductIconRail } from '../ProductIconRail';
 import { setKanbanSnapshotForTests } from '../chat/kanbanActivity';
 
-const useOptionalSetup = vi.fn();
+const useAssistantStackStatus = vi.fn();
 
-vi.mock('../../setup/SetupContext', () => ({
-  useOptionalSetup: () => useOptionalSetup(),
+vi.mock('../assistantStack', () => ({
+  useAssistantStackStatus: () => useAssistantStackStatus(),
 }));
 
 describe('ProductIconRail stack badge', () => {
   afterEach(() => {
     cleanup();
-    useOptionalSetup.mockReset();
+    useAssistantStackStatus.mockReset();
   });
 
   it('marks a local agent stack with its root', () => {
-    useOptionalSetup.mockReturnValue({
-      assistantStackStatus: { stack: { kind: 'local', root: '/dev/assistant' } },
-    });
+    useAssistantStackStatus.mockReturnValue({ stack: { kind: 'local', root: '/dev/assistant' } });
     render(<ProductIconRail active="chat" />);
     expect(screen.getByText('Local').getAttribute('title')).toBe(
       'Local agent stack: /dev/assistant'
     );
   });
 
-  it('shows nothing for the managed stack or outside setup', () => {
-    useOptionalSetup.mockReturnValue({
-      assistantStackStatus: { stack: { kind: 'managed', root: '/userData/project' } },
-    });
+  it('shows nothing for the managed stack or before the status loads', () => {
+    useAssistantStackStatus.mockReturnValue({ stack: { kind: 'managed', root: '/userData/project' } });
     const { rerender } = render(<ProductIconRail active="chat" />);
     expect(screen.queryByText('Local')).toBeNull();
 
-    useOptionalSetup.mockReturnValue(undefined);
+    useAssistantStackStatus.mockReturnValue(null);
     rerender(<ProductIconRail active="chat" />);
     expect(screen.queryByText('Local')).toBeNull();
   });
@@ -46,7 +42,7 @@ describe('ProductIconRail working dot', () => {
   });
 
   it('counts a running kanban worker when you are off the chat screen', () => {
-    useOptionalSetup.mockReturnValue(undefined);
+    useAssistantStackStatus.mockReturnValue(null);
     setKanbanSnapshotForTests({
       available: true,
       checkedAt: 0,

@@ -14,7 +14,6 @@ import {
   checkPython3ForSetup,
   ensureDockerCompatibleCliOnPath,
   python3SetupError,
-  readDotEnvKeys,
   regenerateN8nCredentialsFromEnv,
   __test,
 } from '../runSovereignSetup';
@@ -89,20 +88,6 @@ describe('runSovereignSetup helpers', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it('strips inline comments when reading dotenv keys', () => {
-    const parsed = readDotEnvKeys(
-      [
-        'NEO4J_USERNAME=neo4j                  # Neo4j requires the admin user to be neo4j',
-        'N8N_ENCRYPTION_KEY=abc123',
-        'LIGHTRAG_API_KEY=lr_deadbeef',
-      ].join('\n'),
-      ['NEO4J_USERNAME', 'N8N_ENCRYPTION_KEY', 'LIGHTRAG_API_KEY']
-    );
-    expect(parsed.NEO4J_USERNAME).toBe('neo4j');
-    expect(parsed.N8N_ENCRYPTION_KEY).toBe('abc123');
-    expect(parsed.LIGHTRAG_API_KEY).toBe('lr_deadbeef');
   });
 
   it('shims docker → podman (+ docker-compose) when docker is absent', async () => {

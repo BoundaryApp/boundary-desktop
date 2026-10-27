@@ -5,9 +5,25 @@ const sent: unknown[] = [];
 vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: () => [
-      { isDestroyed: () => false, webContents: { send: (_c: string, d: unknown) => sent.push(d) } },
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: (_c: string, d: unknown) => sent.push(d) } },
     ],
   },
+}));
+
+type ToolHandler = (event: { session_id?: string; payload?: unknown }) => void;
+const toolHandlers = new Set<ToolHandler>();
+const emitToolStart = (event: { session_id?: string; payload?: unknown }) => {
+  for (const handler of [...toolHandlers]) handler(event);
+};
+
+vi.mock('../hermesGatewaySession', () => ({
+  getHermesGatewaySession: () => ({
+    on: (name: string, handler: ToolHandler) => {
+      if (name !== 'tool.start') return () => undefined;
+      toolHandlers.add(handler);
+      return () => toolHandlers.delete(handler);
+    },
+  }),
 }));
 
 describe('hermesRunningTurns', () => {
@@ -36,5 +52,23 @@ describe('hermesRunningTurns', () => {
     beginRunningTurn('r1', [undefined], null);
     endRunningTurn('nope');
     expect(sent).toHaveLength(0);
+  });
+
+  it('notes the last tool each running turn started, for the coding busy check (G10-2)', async () => {
+    const { beginRunningTurn, endRunningTurn, runningTurnToolNames } = await import(
+      '../hermesRunningTurns'
+    );
+    beginRunningTurn('r1', ['chat-a', 'stored-a'], null);
+    beginRunningTurn('r2', ['chat-b'], null);
+    emitToolStart({ session_id: 'chat-a', payload: { name: 'coding_start_task' } });
+    emitToolStart({ session_id: 'chat-a', payload: { name: 'coding_wait_for_task' } });
+    emitToolStart({ session_id: 'chat-b', payload: { name: 'read_file' } });
+    emitToolStart({ session_id: 'someone-else', payload: { name: 'coding_start_task' } });
+    expect(runningTurnToolNames().sort()).toEqual(['coding_wait_for_task', 'read_file']);
+
+    endRunningTurn('r1');
+    expect(runningTurnToolNames()).toEqual(['read_file']);
+    endRunningTurn('r2');
+    expect(toolHandlers.size).toBe(0);
   });
 });

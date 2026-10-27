@@ -3,6 +3,7 @@ import {
   clearParkedApprovals,
   filterApprovalChoices,
   isHermesApprovalChoice,
+  listParkedApprovals,
   parkApprovalRequest,
   parseApprovalMcp,
   respondToParkedApproval,
@@ -42,13 +43,13 @@ describe('hermesApprovals', () => {
     clearParkedApprovals();
   });
 
-  it('isHermesApprovalChoice accepts once/session/always/deny', () => {
+  it('isHermesApprovalChoice accepts once/session/always/deny', async () => {
     expect(isHermesApprovalChoice('once')).toBe(true);
     expect(isHermesApprovalChoice('deny')).toBe(true);
     expect(isHermesApprovalChoice('maybe')).toBe(false);
   });
 
-  it('hides always when allow_permanent is false', () => {
+  it('hides always when allow_permanent is false', async () => {
     expect(
       filterApprovalChoices(['once', 'session', 'always', 'deny'], {
         allowPermanent: false,
@@ -56,7 +57,7 @@ describe('hermesApprovals', () => {
     ).toEqual(['once', 'session', 'deny']);
   });
 
-  it('hides session when allow_session is false', () => {
+  it('hides session when allow_session is false', async () => {
     expect(
       filterApprovalChoices(['once', 'session', 'always', 'deny'], {
         allowSession: false,
@@ -64,14 +65,14 @@ describe('hermesApprovals', () => {
     ).toEqual(['once', 'always', 'deny']);
   });
 
-  it('parks an approval and answers once without dropping the request', () => {
+  it('parks an approval and answers once without dropping the request', async () => {
     const request = makeRequest();
     const event = parkApprovalRequest(request);
     expect(event).not.toBeNull();
     expect(event?.approvalRequestId).toBe('apr-1');
     expect(event?.choices).toContain('once');
 
-    const result = respondToParkedApproval({
+    const result = await respondToParkedApproval({
       rpcRequestId: 'rpc-1',
       choice: 'once',
     });
@@ -80,10 +81,10 @@ describe('hermesApprovals', () => {
     expect(request.failed).toEqual([]);
   });
 
-  it('answers deny', () => {
+  it('answers deny', async () => {
     const request = makeRequest();
     parkApprovalRequest(request);
-    const result = respondToParkedApproval({
+    const result = await respondToParkedApproval({
       rpcRequestId: 'rpc-1',
       choice: 'deny',
     });
@@ -91,7 +92,7 @@ describe('hermesApprovals', () => {
     expect(request.responded).toEqual([{ choice: 'deny' }]);
   });
 
-  it('rejects always when not offered', () => {
+  it('rejects always when not offered', async () => {
     const request = makeRequest({
       params: {
         session_id: 'sess-1',
@@ -101,7 +102,7 @@ describe('hermesApprovals', () => {
       },
     });
     parkApprovalRequest(request);
-    const result = respondToParkedApproval({
+    const result = await respondToParkedApproval({
       rpcRequestId: 'rpc-1',
       choice: 'always',
     });
@@ -109,18 +110,37 @@ describe('hermesApprovals', () => {
     expect(request.responded).toEqual([]);
   });
 
-  it('ignores non-approval methods', () => {
+  it('parks one approval once when a replay repeats a live request', async () => {
+    const live = makeRequest();
+    parkApprovalRequest(live);
+    const replayed = parkApprovalRequest(makeRequest({ id: 'pending:apr-1', replayed: true }));
+    expect(replayed?.rpcRequestId).toBe('rpc-1');
+    expect(listParkedApprovals().map((a) => a.rpcRequestId)).toEqual(['rpc-1']);
+  });
+
+  it('keeps an approval parked and reports failure when its answer cannot be sent', async () => {
+    parkApprovalRequest(makeRequest(), async () => {
+      throw new Error('no such approval');
+    });
+    expect(await respondToParkedApproval({ rpcRequestId: 'rpc-1', choice: 'once' })).toEqual({
+      success: false,
+      error: 'no such approval',
+    });
+    expect(listParkedApprovals()).toHaveLength(1);
+  });
+
+  it('ignores non-approval methods', async () => {
     const request = makeRequest({ method: 'clarify' });
     expect(parkApprovalRequest(request)).toBeNull();
   });
 
-  it('defaults smart-denied prompts to once and deny', () => {
+  it('defaults smart-denied prompts to once and deny', async () => {
     expect(
       filterApprovalChoices(undefined, { smartDenied: true })
     ).toEqual(['once', 'deny']);
   });
 
-  it('parks smart_denied from the gateway payload', () => {
+  it('parks smart_denied from the gateway payload', async () => {
     const request = makeRequest({
       params: {
         session_id: 'sess-1',
@@ -133,7 +153,7 @@ describe('hermesApprovals', () => {
     expect(event?.choices).toEqual(['once', 'deny']);
   });
 
-  it('keeps the MCP call behind an untrusted-server approval', () => {
+  it('keeps the MCP call behind an untrusted-server approval', async () => {
     const event = parkApprovalRequest(
       makeRequest({
         params: {
@@ -158,7 +178,7 @@ describe('hermesApprovals', () => {
     expect(event?.choices).toEqual(['once', 'deny']);
   });
 
-  it('drops a malformed mcp block', () => {
+  it('drops a malformed mcp block', async () => {
     expect(parseApprovalMcp({ server: 'calendar-personal' })).toBeUndefined();
     expect(parseApprovalMcp('calendar-personal')).toBeUndefined();
     expect(parseApprovalMcp({ server: 's', tool: 't', arguments: ['x'], tool_call_id: null })).toEqual({

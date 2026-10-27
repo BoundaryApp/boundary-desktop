@@ -14,7 +14,6 @@ import type {
   HermesProjectResult,
   HermesProjectSelectPayload,
   HermesProjectsListResult,
-  HermesProjectTreeResult,
   ProjectInferencePin,
 } from '../../../../shared/types/hermesChat';
 import type { FirstRunFolder } from '../../../../shared/types/setupProgress';
@@ -28,6 +27,7 @@ import {
   getActiveHermesProjectId,
   getStoredHermesProject,
   listStoredHermesProjects,
+  removeStoredHermesProject,
   replaceStoredHermesProjects,
   setActiveHermesProjectId,
   upsertStoredHermesProject,
@@ -39,11 +39,16 @@ import {
   uniqueProjectSlug,
   writeHermesProjectsOverlay,
 } from './hermesProjectsOverlay';
-import { syncProjectsFromGateway } from './hermesProjectsMerge';
-import { areProjectFoldersMounted, recordMountedProjectFolders } from './projectMountState';
-import { samePath } from './projectSourcesModel';
+import { syncProjectsFromGateway, type HermesProjectsListPayload } from './hermesProjectsMerge';
+import {
+  areProjectFoldersMounted,
+  enqueueFolderRemount,
+  recordMountedProjectFolders,
+} from './projectMountState';
+import { samePath } from '../../hostPaths';
 import { scheduleCodingRemount } from '../coding/codingGrants';
 import { persistCodingStackEnv } from '../coding/codingMounts';
+import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
 
 let connecting = false;
 
@@ -58,16 +63,28 @@ function formatMountError(hostPath: string, raw: string): string {
   return raw;
 }
 
+/**
+ * Boundary mounts host folders through its generated overlay, which a developer checkout's
+ * compose files never read, so in local-stack mode a folder project would report success
+ * without being mounted. Null when Boundary runs its own stack.
+ */
+function localStackHostFolderError(): string | null {
+  if (!isLocalAssistantStackMode()) return null;
+  return (
+    'Boundary is running against a local agent stack, which doesn’t read Boundary’s project ' +
+    'folder mounts, so a folder from this Mac can’t be added as a project. Create an empty ' +
+    'project instead, or switch back to Boundary’s own agent stack.'
+  );
+}
+
 function resolveDataRoot(): string {
   return resolveAssistantUserContentRoot(resolveActiveAssistantRoot());
 }
 
-export async function syncOverlayAndRecreate(options?: {
-  extraRoots?: readonly string[];
-  mountLabel?: string;
-}): Promise<{ success: boolean; error?: string }> {
+/** The overlay from the stored projects. Only remount jobs call this, one at a time. */
+function writeStoredProjectsOverlay(extraRoots?: readonly string[]): void {
   const projects = listStoredHermesProjects();
-  writeHermesProjectsOverlay(projects, options?.extraRoots);
+  writeHermesProjectsOverlay(projects, extraRoots);
   // Only Boundary's own stack uses the generated overlay. In local-stack mode the data
   // root is the developer checkout, so leave it alone.
   if (!isLocalAssistantStackMode()) {
@@ -75,27 +92,83 @@ export async function syncOverlayAndRecreate(options?: {
     // Project aliases follow the project list (change request 0003 R2).
     persistCodingStackEnv();
   }
+}
+
+export interface ProjectRemountOptions {
+  mountLabel?: string;
+  /**
+   * Store or `.env` changes to make when this remount's turn starts. Returns the context
+   * roots for the overlay, or nothing to collect them from the stack `.env` and sources.
+   */
+  prepare?: () => readonly string[] | void;
+  /** Undo `prepare` when the recreate fails, so the failing bind isn't kept (G09-7). */
+  rollback?: () => void;
+}
+
+function undoProjectRemount(options: ProjectRemountOptions | undefined): void {
+  if (!options?.rollback) return;
+  options.rollback();
+  try {
+    writeStoredProjectsOverlay();
+  } catch {
+    /* the next remount writes it again */
+  }
+}
+
+async function remountProjectsNow(
+  options: ProjectRemountOptions | undefined
+): Promise<{ success: boolean; error?: string }> {
+  let extraRoots: readonly string[] | undefined;
+  try {
+    extraRoots = options?.prepare?.() || undefined;
+    writeStoredProjectsOverlay(extraRoots);
+  } catch (error) {
+    undoProjectRemount(options);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const projects = listStoredHermesProjects();
+  const label =
+    options?.mountLabel ??
+    projects.find((p) => p.kind === 'host-folder')?.hostPath ??
+    'the selected folder';
   connecting = true;
   try {
     const result = await recreateHermesForProjectMounts();
     if (!result.success) {
+      undoProjectRemount(options);
       return {
         success: false,
         error: formatMountError(
-          options?.mountLabel ??
-            listStoredHermesProjects().find((p) => p.kind === 'host-folder')?.hostPath ??
-            'the selected folder',
+          label,
           result.error ?? 'Failed to reconnect Hermes with the new folder mount.'
         ),
       };
     }
-    recordMountedProjectFolders(
-      projects.filter((project) => project.kind === 'host-folder').map((project) => project.hostPath)
-    );
+    // A local stack never gets the overlay, so its host folders aren't mounted.
+    if (!isLocalAssistantStackMode()) {
+      recordMountedProjectFolders(
+        projects.filter((project) => project.kind === 'host-folder').map((project) => project.hostPath)
+      );
+    }
     return { success: true };
   } finally {
     connecting = false;
   }
+}
+
+/** Write the overlay and recreate Hermes, in the folder remount queue. */
+export function syncOverlayAndRecreate(
+  options?: ProjectRemountOptions
+): Promise<{ success: boolean; error?: string }> {
+  return enqueueFolderRemount(() => remountProjectsNow(options));
+}
+
+/** Rewrite the overlay with no recreate, after any remount that is already queued. */
+function scheduleOverlayWrite(): Promise<{ success: boolean; error?: string }> {
+  return enqueueFolderRemount(async () => {
+    writeHermesProjectsOverlay(listStoredHermesProjects());
+    return { success: true };
+  });
 }
 
 /**
@@ -145,32 +218,46 @@ function listResult(extra?: Partial<HermesProjectsListResult>): HermesProjectsLi
   };
 }
 
+/** Same records, ignoring order: a merge that changes nothing writes nothing. */
+function sameProjects(
+  left: readonly HermesProjectRecord[],
+  right: readonly HermesProjectRecord[]
+): boolean {
+  const key = (rows: readonly HermesProjectRecord[]) =>
+    JSON.stringify([...rows].sort((a, b) => a.id.localeCompare(b.id)));
+  return key(left) === key(right);
+}
+
 export async function listHermesProjects(): Promise<HermesProjectsListResult> {
   const stored = listStoredHermesProjects();
   const previousActiveId = getActiveHermesProjectId();
   const dataRoot = resolveDataRoot();
 
+  let listed: HermesProjectsListPayload;
   try {
     const gateway = getHermesGatewaySession();
     await gateway.ensureConnected();
-    const listed = await gateway.listProjects();
-    const synced = syncProjectsFromGateway({
-      stored,
-      previousActiveId,
-      gateway: {
-        projects: listed.projects,
-        activeId: listed.activeId,
-      },
-      dataRoot,
-    });
-    replaceStoredHermesProjects(synced.projects);
-    setActiveHermesProjectId(synced.activeId);
-    writeHermesProjectsOverlay(synced.projects);
-    return listResult({ rpcAvailable: true });
+    listed = await gateway.listProjects();
   } catch {
     // Offline / gateway down: keep store as-is (including host-folder mounts).
     return listResult({ rpcAvailable: false });
   }
+  const synced = syncProjectsFromGateway({
+    stored,
+    previousActiveId,
+    gateway: {
+      projects: listed.projects,
+      activeId: listed.activeId,
+    },
+    dataRoot,
+  });
+  if (!sameProjects(stored, synced.projects)) {
+    replaceStoredHermesProjects(synced.projects);
+    // A failed write is the next remount's to retry; it says nothing about the gateway.
+    void scheduleOverlayWrite();
+  }
+  if (synced.activeId !== previousActiveId) setActiveHermesProjectId(synced.activeId);
+  return listResult({ rpcAvailable: true });
 }
 
 export async function pickHermesProjectFolder(): Promise<{
@@ -183,10 +270,12 @@ export async function pickHermesProjectFolder(): Promise<{
     properties: ['openDirectory', 'createDirectory'],
     title: 'Choose project folder',
     message: 'Select a folder on this Mac for the assistant to work in',
+    defaultPath: dialogStartFolder(),
   });
   if (result.canceled || result.filePaths.length === 0) {
     return { success: false, canceled: true };
   }
+  rememberDialogPick(result.filePaths[0]);
   return { success: true, hostPath: result.filePaths[0] };
 }
 
@@ -215,17 +304,33 @@ function hostFolderRecord(
 export async function createHostFolderHermesProject(
   payload: HermesProjectCreateHostPayload
 ): Promise<HermesProjectResult> {
+  const localStackError = localStackHostFolderError();
+  if (localStackError) return { success: false, error: localStackError };
+
   const hostPath = path.resolve(payload.hostPath);
   if (!fs.existsSync(hostPath) || !fs.statSync(hostPath).isDirectory()) {
     return { success: false, error: `Folder not found: ${hostPath}` };
   }
 
-  const project = hostFolderRecord(hostPath, payload.name, payload.inference);
-  upsertStoredHermesProject(project);
-  setActiveHermesProjectId(project.id);
-
-  const mount = await syncOverlayAndRecreate();
-  if (!mount.success) {
+  // The record is made when the remount's turn starts, so its slug sees projects saved by
+  // remounts queued ahead of it.
+  let project: HermesProjectRecord | null = null;
+  let previousActiveId: string | null = null;
+  const mount = await syncOverlayAndRecreate({
+    mountLabel: hostPath,
+    prepare: () => {
+      previousActiveId = getActiveHermesProjectId();
+      project = hostFolderRecord(hostPath, payload.name, payload.inference);
+      upsertStoredHermesProject(project);
+      setActiveHermesProjectId(project.id);
+    },
+    rollback: () => {
+      if (!project) return;
+      removeStoredHermesProject(project.id);
+      if (getActiveHermesProjectId() === project.id) setActiveHermesProjectId(previousActiveId);
+    },
+  });
+  if (!mount.success || !project) {
     return {
       success: false,
       error: mount.error,
@@ -284,8 +389,8 @@ export async function createEmptyHermesProject(
   upsertStoredHermesProject(project);
   setActiveHermesProjectId(project.id);
 
-  // Empty projects use the existing data/projects bind — no compose recreate.
-  writeHermesProjectsOverlay(listStoredHermesProjects());
+  // Empty projects live under the existing data/projects bind, which the overlay doesn't
+  // list, so neither the overlay nor the containers change.
 
   // Do not projects.create — library mkdir is enough; set_active materializes.
   const rpc = await activateOnGateway(project);
@@ -335,9 +440,21 @@ export async function applyFirstRunHermesProjects(
   const hostPaths = folders.flatMap((folder) =>
     folder.kind === 'host-folder' ? [folder.hostPath] : []
   );
+  const localStackError = hostPaths.length > 0 ? localStackHostFolderError() : null;
+  if (localStackError) {
+    return { success: false, error: localStackError, activeId: getActiveHermesProjectId() };
+  }
   const staged = stageHostFolderHermesProjects(hostPaths);
   if (hostPaths.length > 0 && !areProjectFoldersMounted(hostPaths)) {
-    const mount = await syncOverlayAndRecreate({ mountLabel: hostPaths.join(', ') });
+    // A pick the recreate fails to mount comes out of the store, or every later `up`
+    // would try to mount it again. Picks the running container has already stay.
+    const unmounted = staged.filter((project) => !areProjectFoldersMounted([project.hostPath]));
+    const mount = await syncOverlayAndRecreate({
+      mountLabel: hostPaths.join(', '),
+      rollback: () => {
+        for (const project of unmounted) removeStoredHermesProject(project.id);
+      },
+    });
     if (!mount.success) {
       return { success: false, error: mount.error, activeId: getActiveHermesProjectId() };
     }
@@ -517,6 +634,29 @@ export function clearProjectInferenceForProvider(
   }
 }
 
+/** Point project pins for a provider at its newly saved model (see retargetSessionInferenceModel). */
+export function retargetProjectInferenceModel(
+  provider: ChatInferenceProvider,
+  modelId: string
+): void {
+  const projects = listStoredHermesProjects();
+  let changed = false;
+  const next = projects.map((project) => {
+    if (project.inference?.mode !== provider || project.inference.modelId === modelId) {
+      return project;
+    }
+    changed = true;
+    return {
+      ...project,
+      inference: { ...project.inference, modelId },
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  if (changed) {
+    replaceStoredHermesProjects(next);
+  }
+}
+
 export async function changeHermesProjectFolder(
   payload: HermesProjectChangeFolderPayload
 ): Promise<HermesProjectResult> {
@@ -524,22 +664,39 @@ export async function changeHermesProjectFolder(
   if (!project) {
     return { success: false, error: 'Project not found.' };
   }
+  const localStackError = localStackHostFolderError();
+  if (localStackError) return { success: false, error: localStackError };
 
   const hostPath = path.resolve(payload.hostPath);
   if (!fs.existsSync(hostPath) || !fs.statSync(hostPath).isDirectory()) {
     return { success: false, error: `Folder not found: ${hostPath}` };
   }
 
-  // Coding access was granted for the old folder; a new folder starts with it off (ADR 0028 §12).
-  const hadCoding = Boolean(project.codingEnabled) && !samePath(project.hostPath, hostPath);
-  project.hostPath = hostPath;
-  project.kind = 'host-folder';
-  if (hadCoding) project.codingEnabled = false;
-  project.updatedAt = new Date().toISOString();
-  upsertStoredHermesProject(project);
-  setActiveHermesProjectId(project.id);
-
-  const mount = await syncOverlayAndRecreate();
+  let hadCoding = false;
+  let previous: HermesProjectRecord | null = null;
+  let previousActiveId: string | null = null;
+  const mount = await syncOverlayAndRecreate({
+    mountLabel: hostPath,
+    prepare: () => {
+      previous = getStoredHermesProject(project.id);
+      if (!previous) throw new Error('Project not found.');
+      previousActiveId = getActiveHermesProjectId();
+      // Coding access was granted for the old folder; a new folder starts with it off (ADR 0028 §12).
+      hadCoding = Boolean(previous.codingEnabled) && !samePath(previous.hostPath, hostPath);
+      Object.assign(project, previous, {
+        hostPath,
+        kind: 'host-folder',
+        updatedAt: new Date().toISOString(),
+      });
+      if (hadCoding) project.codingEnabled = false;
+      upsertStoredHermesProject(project);
+      setActiveHermesProjectId(project.id);
+    },
+    rollback: () => {
+      if (previous) upsertStoredHermesProject(previous);
+      if (getActiveHermesProjectId() === project.id) setActiveHermesProjectId(previousActiveId);
+    },
+  });
   if (!mount.success) {
     return { success: false, error: mount.error };
   }
@@ -578,41 +735,6 @@ export async function revealHermesProjectInFinder(
   return { success: true };
 }
 
-export async function listHermesProjectTree(
-  projectId: string
-): Promise<HermesProjectTreeResult> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, entries: [], error: 'Project not found.' };
-  }
-  try {
-    const names = await fs.promises.readdir(project.hostPath);
-    const entries = [];
-    for (const name of names) {
-      if (name.startsWith('.')) continue;
-      const full = path.join(project.hostPath, name);
-      let isDirectory = false;
-      try {
-        isDirectory = fs.statSync(full).isDirectory();
-      } catch {
-        continue;
-      }
-      entries.push({ name, relativePath: name, isDirectory });
-    }
-    entries.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    return { success: true, entries: entries.slice(0, 200) };
-  } catch (err) {
-    return {
-      success: false,
-      entries: [],
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 export async function completeHermesPath(
   payload: HermesCompletePathPayload
 ): Promise<HermesCompletePathResult> {
@@ -631,8 +753,4 @@ export async function completeHermesPath(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-export function isHermesProjectsConnecting(): boolean {
-  return connecting;
 }

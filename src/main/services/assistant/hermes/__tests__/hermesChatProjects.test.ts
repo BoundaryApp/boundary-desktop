@@ -16,14 +16,15 @@ import {
   getSessionProjectId,
   migrateSessionInference,
   resetHermesAgentsStoreForTests,
-  setSessionProjectId,
+  setSessionProjectIds,
   setStandingDmSessionId,
   listSessionProjectMarks,
 } from '../hermesAgentStore';
 import {
   resetHermesProjectsStoreForTests,
+  listStoredHermesProjects,
+  replaceStoredHermesProjects,
   upsertStoredHermesProject,
-  removeStoredHermesProject,
 } from '../hermesProjectStore';
 import { beginRunningTurn, resetRunningTurnsForTests } from '../hermesRunningTurns';
 import {
@@ -78,7 +79,7 @@ describe('chats belong to projects (ADR 0024)', () => {
 
   describe('fileThreads', () => {
     it('files unfiled chats once by their last cwd, and keeps what was filed', () => {
-      setSessionProjectId('kept', 'p-site');
+      setSessionProjectIds({ kept: 'p-site' });
       const filed = fileThreads([
         { id: 'from-job', title: 'a', cwd: '/opt/projects/job/src' },
         { id: 'from-telegram', title: 'b', cwd: '/opt/data' },
@@ -101,12 +102,12 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it("files WebUI chats left under No project again from their workspace, once", () => {
-      setSessionProjectId('web-job', null);
-      setSessionProjectId('web-moved', null);
-      setSessionProjectId('web-elsewhere', null);
-      setSessionProjectId('tui-job', null);
+      setSessionProjectIds({ 'web-job': null });
+      setSessionProjectIds({ 'web-moved': null });
+      setSessionProjectIds({ 'web-elsewhere': null });
+      setSessionProjectIds({ 'tui-job': null });
       // Moved to No project by hand: the mark keeps it there.
-      setSessionProjectId('web-moved', 'p-site');
+      setSessionProjectIds({ 'web-moved': 'p-site' });
       moveConversationsToProject({ sessionIds: ['web-moved'], projectId: null });
       const threads = [
         { id: 'web-job', title: 'a', source: 'webui', cwd: '/opt/projects/job' },
@@ -123,12 +124,12 @@ describe('chats belong to projects (ADR 0024)', () => {
       expect(getSessionProjectId('web-job')).toBe('p-job');
 
       // Once only: a chat moved back to No project afterwards stays there.
-      setSessionProjectId('web-job', null);
+      setSessionProjectIds({ 'web-job': null });
       expect(fileThreads(threads)[0].projectId).toBeNull();
     });
 
     it('waits to re-file until a list includes WebUI chats', () => {
-      setSessionProjectId('web-job', null);
+      setSessionProjectIds({ 'web-job': null });
       fileThreads([{ id: 'other', title: 'x', source: 'boundary', cwd: '/opt/projects/site' }]);
       const [thread] = fileThreads([
         { id: 'web-job', title: 'a', source: 'webui', cwd: '/opt/projects/job' },
@@ -137,8 +138,8 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it('shows a chat whose project was removed as No project, keeping the stored id', () => {
-      setSessionProjectId('orphan', 'p-site');
-      removeStoredHermesProject('p-site');
+      setSessionProjectIds({ orphan: 'p-site' });
+      replaceStoredHermesProjects(listStoredHermesProjects().filter((p) => p.id !== 'p-site'));
       expect(fileThreads([{ id: 'orphan', title: 'x' }])[0].projectId).toBeNull();
       expect(getSessionProjectId('orphan')).toBe('p-site');
     });
@@ -146,7 +147,7 @@ describe('chats belong to projects (ADR 0024)', () => {
 
   describe('moveConversationsToProject', () => {
     it('re-files a chat and marks the move in its transcript', () => {
-      setSessionProjectId('s1', 'p-job');
+      setSessionProjectIds({ s1: 'p-job' });
       const result = moveConversationsToProject({ sessionIds: ['s1'], projectId: 'p-site' });
       expect(result.success).toBe(true);
       expect(result.moved).toEqual([
@@ -165,8 +166,8 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it('leaves chats already in the target alone, and moves to No project', () => {
-      setSessionProjectId('a', 'p-job');
-      setSessionProjectId('b', null);
+      setSessionProjectIds({ a: 'p-job' });
+      setSessionProjectIds({ b: null });
       const result = moveConversationsToProject({ sessionIds: ['a', 'b'], projectId: null });
       expect(result.moved.map((m) => m.sessionId)).toEqual(['a']);
       expect(conversationProjectId('a')).toBeNull();
@@ -174,14 +175,14 @@ describe('chats belong to projects (ADR 0024)', () => {
 
     it("records a DM's move as a folder change", () => {
       setStandingDmSessionId('ana', 'dm-ana');
-      setSessionProjectId('dm-ana', 'p-job');
+      setSessionProjectIds({ 'dm-ana': 'p-job' });
       moveConversationsToProject({ sessionIds: ['dm-ana'], projectId: 'p-site' });
       expect(listSessionProjectMarks('dm-ana')[0].kind).toBe('folder');
     });
 
     it('refuses while a turn runs, and moves nothing', () => {
-      setSessionProjectId('busy', 'p-job');
-      setSessionProjectId('idle', 'p-job');
+      setSessionProjectIds({ busy: 'p-job' });
+      setSessionProjectIds({ idle: 'p-job' });
       beginRunningTurn('r1', ['busy'], 'assistant');
       const result = moveConversationsToProject({ sessionIds: ['idle', 'busy'], projectId: 'p-site' });
       expect(result).toMatchObject({ success: false, errorCode: 'running', moved: [] });
@@ -194,7 +195,7 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it('undoes a move, removing its mark', () => {
-      setSessionProjectId('s1', 'p-job');
+      setSessionProjectIds({ s1: 'p-job' });
       const { moved } = moveConversationsToProject({ sessionIds: ['s1'], projectId: 'p-site' });
       expect(undoProjectMove({ moves: moved }).success).toBe(true);
       expect(conversationProjectId('s1')).toBe('p-job');
@@ -202,7 +203,7 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it('re-files a chat with no messages quietly', () => {
-      setSessionProjectId('draft', 'p-job');
+      setSessionProjectIds({ draft: 'p-job' });
       const { moved } = moveConversationsToProject({
         sessionIds: ['draft'],
         projectId: 'p-site',
@@ -215,7 +216,7 @@ describe('chats belong to projects (ADR 0024)', () => {
 
   describe('a session id that changes keeps its project', () => {
     it('carries the project and its marks to the new id', () => {
-      setSessionProjectId('runtime-1', 'p-job');
+      setSessionProjectIds({ 'runtime-1': 'p-job' });
       moveConversationsToProject({ sessionIds: ['runtime-1'], projectId: 'p-site' });
       migrateSessionInference('runtime-1', 'stored-1');
       expect(conversationProjectId('stored-1')).toBe('p-site');
@@ -225,7 +226,7 @@ describe('chats belong to projects (ADR 0024)', () => {
 
   describe('applyConversationFolder', () => {
     it("points the session at its own project's folder, once", async () => {
-      setSessionProjectId('s1', 'p-job');
+      setSessionProjectIds({ s1: 'p-job' });
       await applyConversationFolder('s1');
       await applyConversationFolder('s1');
       expect(setSessionCwd).toHaveBeenCalledTimes(1);
@@ -233,13 +234,13 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it("uses the gateway's default folder for a chat with no project", async () => {
-      setSessionProjectId('s2', null);
+      setSessionProjectIds({ s2: null });
       await applyConversationFolder('s2');
       expect(setSessionCwd).toHaveBeenCalledWith('s2', '/opt/data');
     });
 
     it('sets the new folder on the next turn after a move', async () => {
-      setSessionProjectId('s3', 'p-job');
+      setSessionProjectIds({ s3: 'p-job' });
       await applyConversationFolder('s3');
       moveConversationsToProject({ sessionIds: ['s3'], projectId: 'p-site' });
       await applyConversationFolder('s3');
@@ -247,14 +248,14 @@ describe('chats belong to projects (ADR 0024)', () => {
     });
 
     it('finds the project under an id the renderer still holds', async () => {
-      setSessionProjectId('stored-9', 'p-site');
+      setSessionProjectIds({ 'stored-9': 'p-site' });
       await applyConversationFolder('runtime-9', ['stored-9']);
       expect(setSessionCwd).toHaveBeenCalledWith('runtime-9', '/opt/projects/site');
     });
 
     it('keeps the turn going when the gateway cannot set a folder', async () => {
       setSessionCwd.mockRejectedValueOnce(new Error('unknown method'));
-      setSessionProjectId('s4', 'p-job');
+      setSessionProjectIds({ s4: 'p-job' });
       await expect(applyConversationFolder('s4')).resolves.toBeUndefined();
     });
   });

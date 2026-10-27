@@ -56,7 +56,7 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 | Live board state | `GET /board` to seed, then `WS /events?since=<cursor>` | `hermesKanban.ts` in main: one connection, reconnect with a fresh ticket, broadcast to windows (as `hermesRunningTurns.ts` does). |
 | Running workers | `GET /workers/active` (`last_heartbeat_at`, `started_at`) | A refetch on `claimed`/`spawned`/`completed`/`crashed` events and every 20 s while any run is live. Liveness is computed from `last_heartbeat_at`. |
 | Task page | `GET /tasks/{id}` (events, runs, comments, result) | The page itself. It merges events and comments into one timeline and hides `heartbeat` events except those carrying a note. |
-| Console | `GET /tasks/{id}/log?tail=200` | Polls every 3 s only while the Console is open and the run is live. The view follows the tail. |
+| Console | `GET /tasks/{id}/log?tail=200` | Polls while the run is live and the window is on screen: every 3 s with the Console open, every 6 s otherwise for the strip's "now" line, until CR 0005 R1 puts the current step in heartbeats. The view follows the tail. |
 | Steer | `POST /tasks/{id}/comments` (injected into the running worker) | The composer on the task page, labelled for what it does. |
 | Unblock / review | `POST …/comments` + `PATCH /tasks/{id}` (status → `ready`) | A needs-input card: **Reply and resume**, **Mark done**, **Open in board**. |
 | Stop / retry | `POST /runs/{id}/terminate`, `POST /tasks/{id}/reclaim` | A run menu in the page header. Stop asks for confirmation. |
@@ -69,7 +69,7 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 3. **Working now sits in the rail and only appears while something runs.** It is capped at 3 rows plus "+N more", above Hermes chats. When nothing runs it takes no space. *Recommended over* a permanent "Tasks" section, which would be empty most of the time.
 4. **Quiet thresholds:** "last activity" turns amber after 3 min without a heartbeat and red at `claim_expires`. The dispatcher reclaims a run then anyway. These mirror CR 0004's turn-liveness reasoning (one long local-model call can be silent for minutes).
 5. **The console is collapsed by default, with its newest line promoted into the liveness strip ("now: …").** You get LM Studio's "it's doing something" at a glance without a wall of logs. *Recommended over* an always-open console.
-6. **Notifications:** *needs you* (blocked with `needs_input`, review requested, crashed or gave up) always notifies when the app is in the background. *Done* notifies only for tasks filed in a conversation you sent from in the last 24 h. Clicking a notification opens the task page.
+6. **Notifications:** *needs you* (blocked with `needs_input`, review requested, moved to triage, crashed or gave up) always notifies when the app is in the background. *Done* notifies only for tasks filed in a conversation you sent from in the last 24 h. Clicking a notification opens the task page.
 
 ---
 
@@ -122,7 +122,7 @@ Every running kanban task is visible from anywhere in the app, opens in one clic
 ## Phase 3 · Steer, unblock, stop, notifications
 
 1. **Composer on the task page:** the placeholder reads "Add a note for the worker. It reads it at its next step." It posts a comment. While no run is live, the button reads **Comment**.
-2. **Needs-input card** (styled like `ApprovalInterrupt`): shows the block reason, a reply box, **Reply and resume** (comment, then `PATCH status=ready`), **Mark done**, and **Open in board**. Review requests get **Approve** and **Request changes**.
+2. **Needs-input card** (styled like `ApprovalInterrupt`): shows the block reason, a reply box, **Reply and resume** (comment, then `PATCH status=ready`), **Mark done**, and **Open in board**. Review requests get **Approve** and **Request changes**. A triage task gets **Move to To do** (`PATCH status=todo`) and **Archive task**: you sort triage, not the orchestrator, until you've seen it work.
 3. **Run menu:** **Stop run** (confirm, `terminate`), **Retry** (`reclaim`), **Open in board**.
 4. **Notifications** per decision 6, through Electron `Notification`. The body is the task title and state only, never the block reason.
 5. **Candidate CR 0005** (stack): put the current tool name and a short argument preview in the `heartbeat` event payload, so "now: …" can come from the push feed instead of polling the log.

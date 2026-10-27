@@ -1,11 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { CodingAccessRequestEvent } from '../../../../shared/types/codingFolders';
 import { codingGrantDeps } from './codingGrants';
-import { codingGrantRefuseMessage, refuseCodingGrantReason } from './codingGrantRules';
+import { codingGrantRefuseMessage, folderFacts, refuseCodingGrantReason } from './codingGrantRules';
 import { currentCodingRoots } from './codingMounts';
-import { isPathUnder, samePath } from '../hermes/projectSourcesModel';
+import { isPathUnder, samePath } from '../../hostPaths';
 import { listStoredHermesProjects } from '../hermes/hermesProjectStore';
 
 /**
@@ -40,7 +39,7 @@ export function needsAccessPath(
   args: Record<string, unknown> | null | undefined
 ): string | null {
   if (!resultText) return null;
-  let parsed: unknown = null;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(resultText);
   } catch {
@@ -97,12 +96,7 @@ export function buildCodingAccessRequest(input: {
     ) ?? null;
   // Already covered (granted since the call ran): Hermes can simply retry.
   if (currentCodingRoots().some((root) => isPathUnder(hostPath, root))) return null;
-  let exists = false;
-  try {
-    exists = fs.statSync(hostPath).isDirectory();
-  } catch {
-    exists = false;
-  }
+  const { isDirectory: exists, isGit } = folderFacts(hostPath);
   // A missing folder is judged by the parent it would be created in.
   const judged = exists ? hostPath : path.dirname(hostPath);
   const reason = refuseCodingGrantReason(judged, deps.ruleOptions());
@@ -114,7 +108,7 @@ export function buildCodingAccessRequest(input: {
     hostPath,
     name: path.basename(hostPath),
     exists,
-    isGit: exists && fs.existsSync(path.join(hostPath, '.git')),
+    isGit,
     projectId: input.projectId,
     projectFolderId: projectFolder?.id ?? null,
     projectFolderName: projectFolder?.name ?? null,

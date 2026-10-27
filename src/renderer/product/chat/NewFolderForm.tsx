@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type {
-  CodingAgentBusy,
   CodingNewFolderCheck,
   CodingNewFolderDefaults,
 } from '../../../shared/types/codingFolders';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import { displayHostPath } from './chatTelemetryFormat';
+import type { CodingChangeMode } from './codingFoldersStore';
+import { useCodingGrant } from './useCodingGrant';
+import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 
 /**
  * New folder… in the add sheet (ADR 0028 §8, mock flow 1 "New folder" and "Name taken"):
@@ -13,15 +14,15 @@ import { displayHostPath } from './chatTelemetryFormat';
  * protect yet, so access and consent share the form instead of taking two more steps.
  */
 
-export type NewFolderAccess = 'code' | 'reference';
-export type NewFolderMode = 'now' | 'stop' | 'queue';
+/** Code in it, or Use as reference. */
+export type FolderAccess = 'code' | 'reference';
 
 export interface NewFolderInput {
   parent: string;
   name: string;
   initGit: boolean;
-  access: NewFolderAccess;
-  mode: NewFolderMode;
+  access: FolderAccess;
+  mode: CodingChangeMode;
 }
 
 interface NewFolderFormProps {
@@ -33,7 +34,7 @@ interface NewFolderFormProps {
   onCreate: (input: NewFolderInput) => void;
 }
 
-export const CHECK_DEBOUNCE_MS = 200;
+const CHECK_DEBOUNCE_MS = 200;
 
 export function existingFolderSummary(check: CodingNewFolderCheck): string {
   const where = displayHostPath(check.hostPath ?? '');
@@ -57,16 +58,16 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
   const [name, setName] = useState('');
   const [parent, setParent] = useState('');
   const [initGit, setInitGit] = useState(true);
-  const [access, setAccess] = useState<NewFolderAccess>(managed ? 'code' : 'reference');
+  const [access, setAccess] = useState<FolderAccess>(managed ? 'code' : 'reference');
   const [check, setCheck] = useState<CodingNewFolderCheck | null>(null);
   const [checking, setCheckingNow] = useState(false);
   const [parentError, setParentError] = useState<string | null>(null);
-  const [agent, setAgent] = useState<CodingAgentBusy | null>(null);
+  const { agent, check: checkBusy, reset } = useCodingGrant();
   const nameInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void hermesChatIPC.newCodingFolderDefaults().then((next) => {
+    void window.electronAPI.codingFolders.newFolderDefaults().then((next) => {
       if (cancelled) return;
       setDefaults(next);
       setParent(next.defaultParent);
@@ -79,7 +80,7 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
   }, []);
 
   useEffect(() => {
-    setAgent(null);
+    reset();
     if (!parent || !name.trim()) {
       setCheck(null);
       return;
@@ -87,7 +88,7 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
     let cancelled = false;
     setCheckingNow(true);
     const timer = setTimeout(() => {
-      void hermesChatIPC.checkNewCodingFolder(parent, name).then((next) => {
+      void window.electronAPI.codingFolders.checkNewFolder({ parent, name }).then((next) => {
         if (cancelled) return;
         setCheck(next);
         setCheckingNow(false);
@@ -97,11 +98,13 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [parent, name]);
+  }, [parent, name, reset]);
 
   const changeParent = async () => {
     setParentError(null);
-    const picked = await hermesChatIPC.pickCodingParent(parent || undefined);
+    const picked = await window.electronAPI.codingFolders.pickParent({
+      defaultPath: parent || undefined,
+    });
     if (picked.canceled) return;
     if (!picked.success || !picked.hostPath) {
       setParentError(picked.error ?? 'That location can’t be used.');
@@ -122,11 +125,8 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       onCreate({ ...input, mode: 'now' });
       return;
     }
-    const next = await hermesChatIPC
-      .codingAgentBusy()
-      .catch((): CodingAgentBusy => ({ busy: false, sessions: [] }));
-    if (next.busy) setAgent(next);
-    else onCreate({ ...input, mode: 'now' });
+    const next = await checkBusy();
+    if (!next.busy) onCreate({ ...input, mode: 'now' });
   };
 
   return (
@@ -240,36 +240,15 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       ) : (
         <p className="wb-sheet-help">Hermes can read it and list it in the project index.</p>
       )}
-      {agent?.busy ? (
-        <div className="wb-insp-banner warn wb-sheet-banner">
-          <p>
-            A coding task is running
-            {agent.sessions.length ? ` (${agent.sessions.join(', ')})` : ''}. Adding the folder
-            restarts the coding agent, which stops that task.
-          </p>
-        </div>
-      ) : null}
+      {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="sheet" /> : null}
       {error ? <p className="wb-sheet-error">{error}</p> : null}
       <div className="wb-sheet-actions">
         {agent?.busy ? (
-          <>
-            <button
-              type="button"
-              className="wb-btn-solid"
-              onClick={() =>
-                onCreate({ parent, name: name.trim(), initGit, access, mode: 'queue' })
-              }
-            >
-              Add when it finishes
-            </button>
-            <button
-              type="button"
-              className="wb-btn-ghost"
-              onClick={() => onCreate({ parent, name: name.trim(), initGit, access, mode: 'stop' })}
-            >
-              Stop task and add
-            </button>
-          </>
+          <CodingBusyButtons
+            verb="add"
+            look="sheet"
+            onChoose={(mode) => onCreate({ parent, name: name.trim(), initGit, access, mode })}
+          />
         ) : (
           <button
             type="button"

@@ -24,12 +24,6 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
   const [ackError, setAckError] = useState<string | null>(null);
   const autoAdvanceStarted = useRef(false);
 
-  useEffect(() => {
-    if (!capabilityAssessment && !capabilityLoading) {
-      void assessCapability();
-    }
-  }, [assessCapability, capabilityAssessment, capabilityLoading]);
-
   const handleContinue = async () => {
     setAcknowledging(true);
     setAckError(null);

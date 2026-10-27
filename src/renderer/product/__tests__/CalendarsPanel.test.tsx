@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { CalendarsPanel } from '../CalendarsPanel';
 
 const calendarsApi = {
@@ -16,7 +17,7 @@ const calendarsApi = {
   onChanged: vi.fn(),
   onProgress: vi.fn(),
 };
-const chatApi = { listAgents: vi.fn() };
+const agentsApi = { list: vi.fn() };
 
 const agents = [
   { slug: 'assistant', displayName: 'Hermes', handle: 'hermes', role: '', builtIn: true, createdAt: '' },
@@ -55,11 +56,8 @@ describe('CalendarsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     progress = null;
-    Object.defineProperty(window, 'electronAPI', {
-      value: { calendars: calendarsApi, hermesChat: chatApi },
-      configurable: true,
-    });
-    chatApi.listAgents.mockResolvedValue({ success: true, agents, standingDmByAgent: {} });
+    stubElectronAPI({ calendars: calendarsApi, agents: agentsApi });
+    agentsApi.list.mockResolvedValue({ success: true, agents, standingDmByAgent: {} });
     calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
     calendarsApi.prepare.mockResolvedValue({ success: true });
     calendarsApi.recheckAll.mockImplementation(() => calendarsApi.list());

@@ -2,12 +2,25 @@ import type { CodingAgentBusy } from '../../../../shared/types/codingFolders';
 import { readAssistantEnvFile } from '../assistantPaths';
 import { getStoredAssistantPorts } from '../AssistantStackStore';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
+import { runningTurnToolNames } from '../hermes/hermesRunningTurns';
 
 /**
  * Whether the coding agent is mid-task (ADR 0028 §7). Recreating `opencode-mcp` loses its
  * in-memory tasks, so a grant asks first. `opencode-mcp` can't list tasks yet (change request
- * 0003 R3); OpenCode's `GET /session/status` reports every session that isn't idle.
+ * 0003 R3), so Boundary checks two things: OpenCode's `GET /session/status`, which reports
+ * every session that isn't idle, and its own running chat turns, since a task can wait in
+ * `opencode-mcp` while OpenCode's session is idle between prompts.
  */
+
+/** Tools that start, continue or wait on an `opencode-mcp` task. */
+const CODING_AGENT_TOOL = /(^|[^a-z])coding_(start_task|continue_task|wait_for_task)$/i;
+
+export function isCodingAgentTool(name: string): boolean {
+  return CODING_AGENT_TOOL.test(name.trim());
+}
+
+/** What the busy prompt names for a chat turn on a coding tool. */
+const CHAT_CODING_TASK = 'A chat’s coding task';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -42,6 +55,8 @@ export interface CodingAgentBusyOptions {
   username?: string;
   password?: string;
   timeoutMs?: number;
+  /** The last tool of each running chat turn. */
+  runningToolNames?: () => readonly string[];
 }
 
 async function getJson(fetchFn: FetchFn, url: string, auth: string, timeoutMs: number) {
@@ -71,17 +86,20 @@ export async function codingAgentBusy(
   const timeoutMs = options.timeoutMs ?? 5_000;
   const auth = Buffer.from(`${username}:${password}`).toString('base64');
   const base = `http://127.0.0.1:${port}`;
+  const chat = (options.runningToolNames ?? runningTurnToolNames)().some(isCodingAgentTool)
+    ? [CHAT_CODING_TASK]
+    : [];
   try {
     const ids = busySessionIds(await getJson(fetchFn, `${base}/session/status`, auth, timeoutMs));
-    if (ids.length === 0) return { busy: false, sessions: [] };
+    if (ids.length === 0) return { busy: chat.length > 0, sessions: chat };
     let titles: string[] = [];
     try {
       titles = sessionTitles(await getJson(fetchFn, `${base}/session`, auth, timeoutMs), ids);
     } catch {
       /* titles are a nicety */
     }
-    return { busy: true, sessions: titles.length > 0 ? titles : ids };
+    return { busy: true, sessions: [...(titles.length > 0 ? titles : ids), ...chat] };
   } catch {
-    return { busy: false, sessions: [] };
+    return { busy: chat.length > 0, sessions: chat };
   }
 }

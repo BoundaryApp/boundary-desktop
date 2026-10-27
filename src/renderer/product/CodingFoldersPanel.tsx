@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { CodingGrantRow } from '../../shared/types/codingFolders';
 import type { HermesProjectRecord } from '../../shared/types/hermesChat';
-import { hermesChatIPC } from '../services/hermesChatIPCService';
-import { useEscapeToClose } from './useAppShortcuts';
-import { displayHostPath, projectGlyph, projectGlyphColor } from './chat/chatTelemetryFormat';
+import { Sheet } from '../components/ui/sheet';
+import { displayHostPath } from './chat/chatTelemetryFormat';
+import { ProjectGlyph } from './chat/ProjectGlyph';
 import { DeleteFolderSheet } from './chat/DeleteFolderSheet';
 import {
   applyCodingFoldersResult,
+  dismissCodingError,
   queueCodingChange,
   runCodingChange,
   useCodingFolders,
@@ -58,7 +59,6 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
   onReviewDelete,
 }) => {
   const [choice, setChoice] = useState<RemoveChoice>('reference');
-  useEscapeToClose(onCancel, !grant);
   useEffect(() => {
     setChoice(grant?.projectId ? 'reference' : 'none');
   }, [grant]);
@@ -84,35 +84,14 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
   );
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-remove-coding-title">
-        <div className="wb-sheet-kicker">Remove coding access</div>
-        <h2 id="wb-remove-coding-title">Stop the coding agent working in {name}?</h2>
-        <p className="wb-sheet-lede">
-          Files stay where they are.{' '}
-          {projectName
-            ? `${project} can keep the folder as read-only reference, or drop it.`
-            : 'No project lists it.'}
-        </p>
-        <div className="wb-choices" role="radiogroup" aria-label="What to do with the folder">
-          {option(
-            'reference',
-            'Keep as read-only reference',
-            `Hermes can still read it in ${project} chats`,
-            !grant.projectId
-          )}
-          {option(
-            'none',
-            grant.projectId ? `Remove from ${project}` : 'Remove coding access',
-            'Agents can’t see it at all'
-          )}
-          {option(
-            'delete',
-            'Delete the folder from this Mac…',
-            'Moves it to the Trash after you review what’s in it'
-          )}
-        </div>
-        <div className="wb-sheet-actions">
+    <Sheet
+      open
+      onClose={onCancel}
+      titleId="wb-remove-coding-title"
+      kicker="Remove coding access"
+      title={`Stop the coding agent working in ${name}?`}
+      actions={
+        <>
           {choice === 'delete' ? (
             <button type="button" className="wb-btn-solid" onClick={onReviewDelete}>
               Review folder…
@@ -126,9 +105,34 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
             Cancel
           </button>
           <span className="wb-sheet-note">Restarts the coding agent</span>
-        </div>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">
+        Files stay where they are.{' '}
+        {projectName
+          ? `${project} can keep the folder as read-only reference, or drop it.`
+          : 'No project lists it.'}
+      </p>
+      <div className="wb-choices" role="radiogroup" aria-label="What to do with the folder">
+        {option(
+          'reference',
+          'Keep as read-only reference',
+          `Hermes can still read it in ${project} chats`,
+          !grant.projectId
+        )}
+        {option(
+          'none',
+          grant.projectId ? `Remove from ${project}` : 'Remove coding access',
+          'Agents can’t see it at all'
+        )}
+        {option(
+          'delete',
+          'Delete the folder from this Mac…',
+          'Moves it to the Trash after you review what’s in it'
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 };
 
@@ -139,12 +143,11 @@ export const CodingFoldersPanel: React.FC = () => {
   const [removing, setRemoving] = useState<CodingGrantRow | null>(null);
   const [deleting, setDeleting] = useState<CodingGrantRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const verify = useCallback(async (force: boolean) => {
     setVerifying(true);
     try {
-      applyCodingFoldersResult(await hermesChatIPC.verifyCodingFolders(force));
+      applyCodingFoldersResult(await window.electronAPI.codingFolders.verify({ force }));
     } finally {
       setVerifying(false);
     }
@@ -152,8 +155,8 @@ export const CodingFoldersPanel: React.FC = () => {
 
   useEffect(() => {
     void verify(false);
-    void hermesChatIPC
-      .listProjects()
+    void window.electronAPI.projects
+      .list()
       .then((result) => setProjects(result.success ? result.projects : []))
       .catch(() => setProjects([]));
   }, [verify]);
@@ -163,24 +166,21 @@ export const CodingFoldersPanel: React.FC = () => {
 
   const remove = (grant: CodingGrantRow, keep: Exclude<RemoveChoice, 'delete'>) => {
     setRemoving(null);
-    setError(null);
     void queueCodingChange([grant.resource], (stopRunningTask) =>
-      hermesChatIPC.removeCodingFolder({ hostPath: grant.resource, keep, stopRunningTask })
-    ).then((result) => {
-      if (!result.success && result.error) setError(result.error);
-    });
+      window.electronAPI.codingFolders.remove({ hostPath: grant.resource, keep, stopRunningTask })
+    );
   };
 
   const turnOff = (grant: CodingGrantRow) => {
     if (!grant.projectId) return;
     const projectId = grant.projectId;
     void queueCodingChange([grant.resource], (stopRunningTask) =>
-      hermesChatIPC.setProjectFolderCoding({ projectId, enabled: false, stopRunningTask })
+      window.electronAPI.codingFolders.setProjectFolder({ projectId, enabled: false, stopRunningTask })
     );
   };
 
   const retry = (grant: CodingGrantRow) => {
-    void runCodingChange([grant.resource], () => hermesChatIPC.retryCodingFolders());
+    void runCodingChange([grant.resource], () => window.electronAPI.codingFolders.retry());
   };
 
   if (coding.loaded && !coding.managed) {
@@ -218,7 +218,7 @@ export const CodingFoldersPanel: React.FC = () => {
           <button
             type="button"
             className="wb-btn-tiny"
-            onClick={() => void hermesChatIPC.showTrash()}
+            onClick={() => void window.electronAPI.codingFolders.showTrash()}
           >
             Show in Trash
           </button>
@@ -227,10 +227,11 @@ export const CodingFoldersPanel: React.FC = () => {
           </button>
         </div>
       ) : null}
-      {error ? (
+      {/* Remove, Turn off and Retry all report failures through the store's error. */}
+      {coding.error ? (
         <div className="wb-insp-banner bad" role="alert">
-          <p>{error}</p>
-          <button type="button" className="wb-btn-tiny" onClick={() => setError(null)}>
+          <p>{coding.error.message}</p>
+          <button type="button" className="wb-btn-tiny" onClick={dismissCodingError}>
             Dismiss
           </button>
         </div>
@@ -250,15 +251,7 @@ export const CodingFoldersPanel: React.FC = () => {
                 <div className="wb-coding-main">
                   <span className="wb-coding-path mono">{displayHostPath(grant.resource)}</span>
                   <span className="wb-coding-from">
-                    {project ? (
-                      <span
-                        className="wb-coding-glyph"
-                        style={{ background: projectGlyphColor(project.id) }}
-                        aria-hidden="true"
-                      >
-                        {projectGlyph(project.name)}
-                      </span>
-                    ) : null}
+                    {project ? <ProjectGlyph project={project} inline size={16} /> : null}
                     <span
                       className="wb-coding-from-label"
                       title={`${project?.name ?? 'No project'} · ${originLabel(grant)}`}

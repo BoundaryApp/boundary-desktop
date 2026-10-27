@@ -2,19 +2,18 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatInferenceChipTitle,
   formatInferenceProvenance,
-  inferenceSlotLabel,
-  isVisibleChatProvider,
 } from '../../../shared/inferenceDisplay';
 import type {
+  ChatInferenceProvider,
   ResolvedSessionInference,
   SessionInferenceMark,
 } from '../../../shared/types/hermesChat';
-import type { InferenceProvidersStatus, InferenceSlotId } from '../../../shared/types/onboarding';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { onboardingIPC } from '../../services/onboardingIPCService';
+import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { CLOUD_INFERENCE_SHORT } from '../cloudInferenceCopy';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 
-const VISIBLE_SLOTS: InferenceSlotId[] = ['local', 'openrouter'];
+/** The providers a chat can pick, in menu order; see isVisibleChatProvider. */
+const CHAT_PROVIDERS: ChatInferenceProvider[] = ['local', 'openrouter'];
 
 export interface InferenceChipProps {
   sessionId: string | null;
@@ -22,6 +21,8 @@ export interface InferenceChipProps {
   applying?: boolean;
   /** Fingerprint of active project pin so the chip re-resolves after patch. */
   projectInferenceKey?: string | null;
+  /** Change it to re-resolve after main's state changed outside the chip (the offline prompt). */
+  refreshKey?: number;
   onResolvedChange?: (resolved: ResolvedSessionInference | null) => void;
   onMarksChange?: (marks: SessionInferenceMark[]) => void;
 }
@@ -31,79 +32,68 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   disabled = false,
   applying = false,
   projectInferenceKey = null,
+  refreshKey = 0,
   onResolvedChange,
   onMarksChange,
 }) => {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<InferenceProvidersStatus | null>(null);
+  const { status } = useInferenceStatus();
   const [resolved, setResolved] = useState<ResolvedSessionInference | null>(null);
-  const rootRef = useRef<HTMLDivElement | null>(null);
 
   const onResolvedChangeRef = useRef(onResolvedChange);
   onResolvedChangeRef.current = onResolvedChange;
   const onMarksChangeRef = useRef(onMarksChange);
   onMarksChangeRef.current = onMarksChange;
 
+  // Only the latest refresh may publish: a slow answer for the previous chat is dropped.
+  const latest = useRef(0);
   const refresh = useCallback(async () => {
-    const nextStatus = await onboardingIPC.getStatus();
-    setStatus(nextStatus);
-    if (!sessionId) {
-      const slot = nextStatus.appDefault;
-      const slotStatus = slot ? nextStatus.slots[slot] : undefined;
-      const inherited: ResolvedSessionInference | null =
-        slot && slotStatus?.configured && slotStatus.modelId
-          ? {
-              slot,
-              modelId: slotStatus.modelId,
-              providerDisplayName: slotStatus.providerDisplayName || inferenceSlotLabel(slot),
-              provenance: 'app-default',
-              configured: true,
-              health: slotStatus.health,
-              needsRestart: false,
-            }
-          : null;
-      setResolved(inherited);
-      onResolvedChangeRef.current?.(inherited);
-      onMarksChangeRef.current?.([]);
-      return;
+    const mine = ++latest.current;
+    const publish = (next: ResolvedSessionInference | null, marks?: SessionInferenceMark[]) => {
+      if (mine !== latest.current) return;
+      setResolved(next);
+      onResolvedChangeRef.current?.(next);
+      if (marks) onMarksChangeRef.current?.(marks);
+    };
+    try {
+      // With no session yet main answers for a new chat: the rail project's pin, else the app
+      // default, which is what the first turn will use.
+      const snapshot = await window.electronAPI.hermesChat.getSessionInference({
+        sessionId: sessionId ?? '',
+      });
+      publish(snapshot.resolved, snapshot.marks);
+      if (snapshot.resolved?.slot !== 'local' || mine !== latest.current) return;
+      const probed = await window.electronAPI.onboarding.probeSlotHealth({ slot: 'local' });
+      if (probed.status) void takeInferenceStatus(probed);
+      publish({ ...snapshot.resolved, health: probed.health });
+    } catch {
+      publish(null, []);
     }
-    const snapshot = await hermesChatIPC.getSessionInference({ sessionId });
-    setResolved(snapshot.resolved);
-    onResolvedChangeRef.current?.(snapshot.resolved);
-    onMarksChangeRef.current?.(snapshot.marks);
-    if (snapshot.resolved?.slot === 'local') {
-      await onboardingIPC.probeSlotHealth({ slot: 'local' });
-      const probed = await hermesChatIPC.getSessionInference({ sessionId });
-      setResolved(probed.resolved);
-      onResolvedChangeRef.current?.(probed.resolved);
-    }
-  }, [sessionId, projectInferenceKey]);
+    // projectInferenceKey and refreshKey change what main answers, not what this asks.
+  }, [sessionId, projectInferenceKey, refreshKey]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const close = useCallback(() => setOpen(false), []);
-
+  // Main pushes the local model's health when it changes; a chat on Local takes it, so the
+  // offline prompt shows (or clears) without a send or a reopened menu.
+  const localHealth = status?.slots.local?.health;
+  const resolvedRef = useRef(resolved);
+  resolvedRef.current = resolved;
   useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) close();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [close, open]);
+    const current = resolvedRef.current;
+    if (!localHealth || current?.slot !== 'local' || current.health === localHealth) return;
+    const next = { ...current, health: localHealth };
+    setResolved(next);
+    onResolvedChangeRef.current?.(next);
+  }, [localHealth]);
+
+  const close = useCallback(() => setOpen(false), []);
 
   const options = useMemo(() => {
     if (!status) return [];
-    return VISIBLE_SLOTS.flatMap((slot) => {
+    return CHAT_PROVIDERS.flatMap((slot) => {
       const slotStatus = status.slots[slot];
       if (!slotStatus?.configured || !slotStatus.modelId) return [];
       return [
@@ -116,16 +106,24 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
     });
   }, [status]);
 
-  const pick = async (slot: InferenceSlotId, modelId: string) => {
-    if (!sessionId || !isVisibleChatProvider(slot)) return;
-    await hermesChatIPC.setSessionInference({ sessionId, provider: slot, modelId });
+  const pick = async (slot: ChatInferenceProvider, modelId: string) => {
+    if (!sessionId) return;
+    try {
+      await window.electronAPI.hermesChat.setSessionInference({ sessionId, provider: slot, modelId });
+    } catch {
+      // The refresh below shows what main kept.
+    }
     close();
     await refresh();
   };
 
   const reset = async () => {
     if (!sessionId) return;
-    await hermesChatIPC.clearSessionInference({ sessionId });
+    try {
+      await window.electronAPI.hermesChat.clearSessionInference({ sessionId });
+    } catch {
+      // The refresh below shows what main kept.
+    }
     close();
     await refresh();
   };
@@ -149,26 +147,36 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   const writable = Boolean(sessionId) && !disabled && !applying;
 
   return (
-    <div className="wb-inf-picker" ref={rootRef}>
-      <button
-        type="button"
-        className={`wb-chip wb-chip--inference${open ? ' is-on' : ''}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={`Inference · ${title} · ${provenance}`}
-        disabled={!writable}
-        title={`${title} · ${provenance}`}
-        onClick={() => {
-          if (!writable) return;
-          setOpen((was) => !was);
-          if (!open) void refresh();
+    <div className="wb-inf-picker">
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          if (next && !writable) return;
+          setOpen(next);
+          if (next) void refresh();
         }}
       >
-        <b>{title}</b>
-        {note ? <span>{note}</span> : null}
-      </button>
-      {open ? (
-        <div className="wb-inf-menu" role="listbox" aria-label="This chat">
+        <PopoverTrigger>
+          <button
+            type="button"
+            className={`wb-chip wb-chip--inference${open ? ' is-on' : ''}`}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            aria-label={`Inference · ${title} · ${provenance}`}
+            disabled={!writable}
+            title={`${title} · ${provenance}`}
+          >
+            <b>{title}</b>
+            {note ? <span>{note}</span> : null}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="wb-inf-menu"
+          role="listbox"
+          aria-label="This chat"
+          side="top"
+          align="start"
+        >
           <div className="wb-inf-kicker">This chat</div>
           {options.map((option) => {
             const selected = resolved?.slot === option.slot;
@@ -199,8 +207,8 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
           <button type="button" className="wb-inf-reset" onClick={() => void reset()}>
             Use project default
           </button>
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 };

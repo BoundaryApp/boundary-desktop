@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
   HermesChatMessage,
   HermesChatStartPayload,
@@ -35,48 +36,37 @@ const ipc = vi.hoisted(() => ({
   getHistory: null as unknown as ReturnType<typeof vi.fn>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  const on = (set: Set<Listener>) => (cb: Listener) => {
-    set.add(cb);
-    return () => set.delete(cb);
-  };
-  let n = 0;
-  ipc.startChat = vi.fn(async () => {
-    n += 1;
-    ipc.active = `req-${n}`;
-    return { success: true, requestId: ipc.active, sessionId: 's1', transport: 'json-rpc' };
-  });
-  ipc.getHistory = vi.fn(async () => ({ success: true, sessionId: 's1', messages: ipc.history }));
-  return {
-    hermesChatIPC: {
-      getHistory: (...args: unknown[]) => ipc.getHistory(...args),
-      startChat: (...args: unknown[]) => ipc.startChat(...args),
-      cancelChat: vi.fn().mockResolvedValue({ success: true }),
-      onChatChunk: on(ipc.chunk),
-      onChatEnd: on(ipc.end),
-      onChatError: on(ipc.error),
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: async () => [],
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      onRunningTurns: unsub,
-      listRunningTurns: async () => [],
-      getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-      completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-    },
-  };
+const on = (set: Set<Listener>) => (cb: Listener) => {
+  set.add(cb);
+  return () => set.delete(cb);
+};
+// Main answers with the request id the adapter sent.
+ipc.startChat = vi.fn(async (payload: { requestId: string }) => {
+  ipc.active = payload.requestId;
+  return { success: true, requestId: ipc.active, sessionId: 's1' };
 });
+ipc.getHistory = vi.fn(async () => ({ success: true, sessionId: 's1', messages: ipc.history }));
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    getHistory: (...args: unknown[]) => ipc.getHistory(...args),
+    startChat: (...args: unknown[]) => ipc.startChat(...args),
+    cancelChat: vi.fn().mockResolvedValue({ success: true }),
+    onChatChunk: on(ipc.chunk),
+    onChatEnd: on(ipc.end),
+    onChatError: on(ipc.error),
+    listPendingCredentialRequests: async () => [],
+    listRunningTurns: async () => [],
+    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+  },
+  onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
     probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
   },
-}));
+  projects: {
+    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
@@ -84,7 +74,7 @@ vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
 import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
 import { setRunningTurnsForTests } from '../runningTurns';
-import { formatWorkingElapsed, noReplyText } from '../TurnNotes';
+import { noReplyText } from '../TurnNotes';
 
 const Chat: React.FC = () => (
   <HermesChatRuntimeProvider sessionId="s1">
@@ -151,7 +141,8 @@ describe('turn notes', () => {
     ipc.history = [asked];
     running('req-away');
     render(<Chat />);
-    expect(await screen.findByText(/is still working · 1m 3\ds/)).toBeTruthy();
+    // The same compact form as a kanban task running for as long.
+    expect(await screen.findByText(/is still working · 1m$/)).toBeTruthy();
     expect(screen.queryByText('No reply to this message')).toBeNull();
     await act(async () => setValue(input(), 'half-typed follow-up'));
 
@@ -187,13 +178,7 @@ describe('turn notes', () => {
 describe('turn note copy', () => {
   it('names each way a reply can fail to arrive', () => {
     expect(noReplyText('stopped', 'Iris')).toBe('Stopped before Iris replied');
-    expect(noReplyText('timeout', 'Iris')).toBe('No reply after 10 minutes');
+    expect(noReplyText('timeout', 'Iris')).toBe('No reply after 3 minutes');
     expect(noReplyText('unknown', 'Iris')).toBe('No reply to this message');
-  });
-
-  it('formats elapsed time compactly', () => {
-    expect(formatWorkingElapsed(42)).toBe('42s');
-    expect(formatWorkingElapsed(100)).toBe('1m 40s');
-    expect(formatWorkingElapsed(3_900)).toBe('1h 5m');
   });
 });

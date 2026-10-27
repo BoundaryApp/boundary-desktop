@@ -1,6 +1,7 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { KanbanTaskDetail, KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import type { AgentProfile } from '../../../../shared/types/hermesChat';
 
@@ -8,17 +9,17 @@ const kanbanTask = vi.fn();
 const kanbanTaskLog = vi.fn();
 const kanbanTaskAction = vi.fn();
 const openKanbanBoard = vi.fn((_taskId?: string) => Promise.resolve());
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    kanbanTaskAction: (...a: unknown[]) => kanbanTaskAction(...a),
-    openKanbanBoard: (taskId?: string) => openKanbanBoard(taskId),
-    onKanbanOpenTask: () => () => undefined,
-    kanbanTask: (...a: unknown[]) => kanbanTask(...a),
-    kanbanTaskLog: (...a: unknown[]) => kanbanTaskLog(...a),
-    kanbanSnapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onKanbanSnapshot: () => () => undefined,
+stubElectronAPI({
+  kanban: {
+    taskAction: (...a: unknown[]) => kanbanTaskAction(...a),
+    openBoard: (taskId?: string) => openKanbanBoard(taskId),
+    onOpenTask: () => () => undefined,
+    task: (...a: unknown[]) => kanbanTask(...a),
+    taskLog: (...a: unknown[]) => kanbanTaskLog(...a),
+    snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
+    onSnapshot: () => () => undefined,
   },
-}));
+});
 
 import { TaskPane } from '../TaskPane';
 import { setKanbanSnapshotForTests } from '../kanbanActivity';
@@ -53,7 +54,7 @@ const detail = (task: KanbanTaskSummary, over: Partial<KanbanTaskDetail> = {}): 
   body: 'List every production dependency with its license.',
   result: null,
   latestSummary: null,
-  events: [{ id: 1, runId: 1, kind: 'spawned', note: null, createdAt: nowS - 250 }],
+  events: [{ id: 1, kind: 'spawned', note: null, createdAt: nowS - 250 }],
   comments: [],
   runs: [],
   ...over,
@@ -65,7 +66,7 @@ describe('TaskPane', () => {
     kanbanTaskLog.mockReset();
     kanbanTaskAction.mockReset();
     kanbanTaskAction.mockResolvedValue({ success: true });
-    kanbanTaskLog.mockResolvedValue({ success: true, exists: true, truncated: false, content: '' });
+    kanbanTaskLog.mockResolvedValue({ success: true, content: '' });
   });
   afterEach(() => {
     setKanbanSnapshotForTests({ available: false, tasks: [], checkedAt: 0 });
@@ -78,8 +79,6 @@ describe('TaskPane', () => {
     kanbanTask.mockResolvedValue({ success: true, detail: detail(task) });
     kanbanTaskLog.mockResolvedValue({
       success: true,
-      exists: true,
-      truncated: false,
       content: '┊ terminal npm ci\n┊ terminal npx license-checker --json\n',
     });
     const open = vi.fn();
@@ -88,6 +87,8 @@ describe('TaskPane', () => {
         taskId="t_1"
         agents={[researcher]}
         resolveOrigin={(id) => (id === 'sess-orch' ? { label: 'Orchestrator DM', open } : null)}
+        onOpenTasks={vi.fn()}
+        onOpenBoard={vi.fn()}
       />
     );
 
@@ -106,10 +107,10 @@ describe('TaskPane', () => {
     kanbanTask.mockResolvedValue({
       success: true,
       detail: detail(blocked, {
-        events: [{ id: 2, runId: 1, kind: 'blocked', note: 'Credit the redesign to 0.9?', createdAt: nowS - 60 }],
+        events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign to 0.9?', createdAt: nowS - 60 }],
       }),
     });
-    const { unmount } = render(<TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} />);
+    const { unmount } = render(<TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} onOpenTasks={vi.fn()} onOpenBoard={vi.fn()} />);
     const card = screen.getByRole('region', { name: 'Asked you a question' });
     await waitFor(() => expect(card.textContent).toContain('Credit the redesign to 0.9?'));
     expect(kanbanTaskLog).not.toHaveBeenCalled();
@@ -121,9 +122,72 @@ describe('TaskPane', () => {
       success: true,
       detail: detail(done, { latestSummary: 'No GPL licenses found.' }),
     });
-    render(<TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} />);
+    render(<TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} onOpenTasks={vi.fn()} onOpenBoard={vi.fn()} />);
     expect(screen.getByRole('status').textContent).toContain('Done · took 18m · finished 2m ago');
     await waitFor(() => expect(screen.getByText('No GPL licenses found.')).toBeTruthy());
+  });
+});
+
+describe('TaskPane console polling', () => {
+  let visibility: DocumentVisibilityState = 'visible';
+  beforeEach(() => {
+    kanbanTask.mockReset();
+    kanbanTaskLog.mockReset();
+    kanbanTask.mockReturnValue(new Promise(() => undefined));
+    kanbanTaskLog.mockResolvedValue({ success: true, content: 'step\n' });
+    visibility = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    setKanbanSnapshotForTests({ available: false, tasks: [], checkedAt: 0 });
+    cleanup();
+  });
+  const setVisibility = (next: DocumentVisibilityState) => {
+    visibility = next;
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  };
+  const pane = () => (
+    <TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} onOpenTasks={vi.fn()} onOpenBoard={vi.fn()} />
+  );
+
+  it('polls the log for the now line only while the page is visible', async () => {
+    setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [summary()] });
+    visibility = 'hidden';
+    render(pane());
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(kanbanTaskLog).not.toHaveBeenCalled();
+
+    setVisibility('visible');
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(kanbanTaskLog).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(6_000));
+    expect(kanbanTaskLog).toHaveBeenCalledTimes(2);
+
+    setVisibility('hidden');
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(kanbanTaskLog).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops polling when the run ends', async () => {
+    setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [summary()] });
+    render(pane());
+    await act(() => vi.advanceTimersByTimeAsync(6_000));
+    const calls = kanbanTaskLog.mock.calls.length;
+    expect(calls).toBeGreaterThan(0);
+    act(() => {
+      setKanbanSnapshotForTests({
+        available: true,
+        checkedAt: nowS,
+        tasks: [summary({ status: 'done', completedAt: nowS })],
+      });
+    });
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(kanbanTaskLog).toHaveBeenCalledTimes(calls);
   });
 });
 
@@ -133,7 +197,7 @@ describe('TaskPane controls', () => {
     kanbanTaskLog.mockReset();
     kanbanTaskAction.mockReset();
     kanbanTaskAction.mockResolvedValue({ success: true });
-    kanbanTaskLog.mockResolvedValue({ success: true, exists: true, truncated: false, content: '' });
+    kanbanTaskLog.mockResolvedValue({ success: true, content: '' });
   });
   afterEach(() => {
     setKanbanSnapshotForTests({ available: false, tasks: [], checkedAt: 0 });
@@ -143,7 +207,7 @@ describe('TaskPane controls', () => {
   function show(
     task: KanbanTaskSummary,
     over: Partial<KanbanTaskDetail> = {},
-    onOpenBoard?: (taskId: string) => void
+    onOpenBoard: (taskId: string) => void = vi.fn()
   ) {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [task] });
     kanbanTask.mockResolvedValue({ success: true, detail: detail(task, over) });
@@ -152,26 +216,21 @@ describe('TaskPane controls', () => {
         taskId={task.id}
         agents={[researcher]}
         resolveOrigin={() => null}
+        onOpenTasks={vi.fn()}
         onOpenBoard={onOpenBoard}
       />
     );
   }
 
-  it('opens the Tasks board on this task, or the browser without one', async () => {
+  it('opens the Tasks board on this task', async () => {
     openKanbanBoard.mockClear();
     const onOpenBoard = vi.fn();
-    const events = [{ id: 5, runId: 2, kind: 'gave_up', note: 'x', trigger: 'spawn_failed', createdAt: nowS - 60 }];
+    const events = [{ id: 5, kind: 'gave_up', note: 'x', trigger: 'spawn_failed', createdAt: nowS - 60 }];
     show(summary({ status: 'blocked', failures: 2 }), { events }, onOpenBoard);
     const card = await screen.findByRole('region', { name: 'Gave up' });
     fireEvent.click(within(card).getByRole('button', { name: 'Open in board ↗' }));
     expect(onOpenBoard).toHaveBeenCalledWith('t_1');
     expect(openKanbanBoard).not.toHaveBeenCalled();
-    cleanup();
-
-    show(summary({ status: 'blocked', failures: 2 }), { events });
-    const plain = await screen.findByRole('region', { name: 'Gave up' });
-    fireEvent.click(within(plain).getByRole('button', { name: 'Open in board ↗' }));
-    expect(openKanbanBoard).toHaveBeenCalledWith('t_1');
   });
 
   it('sends a note to a running worker, labelled for what it does', async () => {
@@ -194,7 +253,7 @@ describe('TaskPane controls', () => {
 
   it('answers a question with Reply and resume, and offers Mark done', async () => {
     show(summary({ status: 'blocked', blockKind: 'needs_input' }), {
-      events: [{ id: 2, runId: 1, kind: 'blocked', note: 'Credit the redesign?', createdAt: nowS - 60 }],
+      events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign?', createdAt: nowS - 60 }],
     });
     const card = screen.getByRole('region', { name: 'Asked you a question' });
     expect(within(card).getByRole('button', { name: 'Resume' })).toBeTruthy();
@@ -225,7 +284,7 @@ describe('TaskPane controls', () => {
 
   it('stops a run only after a confirm, then reads Stopped by you, not Crashed', async () => {
     const running = summary();
-    const run = { id: 7, profile: 'researcher', status: 'running', outcome: null, startedAt: nowS - 250, endedAt: null, summary: null, error: null, workerSessionId: null };
+    const run = { id: 7, outcome: null, endedAt: null, error: null };
     show(running, { runs: [run] });
     await waitFor(() => expect(kanbanTask).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Run ▾' }));
@@ -237,8 +296,8 @@ describe('TaskPane controls', () => {
 
     const stopped = summary({ status: 'blocked' });
     show(stopped, {
-      runs: [{ ...run, status: 'reclaimed', outcome: 'reclaimed', endedAt: nowS - 30, error: 'manual_reclaim: stopped from Boundary' }],
-      events: [{ id: 9, runId: 7, kind: 'reclaimed', note: 'stopped from Boundary', createdAt: nowS - 30 }],
+      runs: [{ ...run, outcome: 'reclaimed', endedAt: nowS - 30, error: 'manual_reclaim: stopped from Boundary' }],
+      events: [{ id: 9, kind: 'reclaimed', note: 'stopped from Boundary', createdAt: nowS - 30 }],
     });
     const card = await screen.findByRole('region', { name: 'Stopped by you' });
     expect(screen.getByText('Stopped by you', { selector: '.wb-task-tl-label' })).toBeTruthy();
@@ -251,8 +310,8 @@ describe('TaskPane controls', () => {
     const error = "assignee profile 'researcher' not found";
     show(summary({ status: 'blocked', failures: 2 }), {
       events: [
-        { id: 3, runId: 1, kind: 'spawn_failed', note: error, trigger: null, createdAt: nowS - 120 },
-        { id: 5, runId: 2, kind: 'gave_up', note: error, trigger: 'spawn_failed', createdAt: nowS - 60 },
+        { id: 3, kind: 'spawn_failed', note: error, trigger: null, createdAt: nowS - 120 },
+        { id: 5, kind: 'gave_up', note: error, trigger: 'spawn_failed', createdAt: nowS - 60 },
       ],
     });
     const card = await screen.findByRole('region', { name: 'Gave up' });
@@ -270,7 +329,7 @@ describe('TaskPane controls', () => {
     const error = "workspace: task t_1 has workspace_kind=worktree but no workspace_path";
     show(summary({ status: 'blocked', failures: 1 }), {
       events: [
-        { id: 5, runId: 2, kind: 'gave_up', note: error, trigger: 'spawn_failed', retryable: false, createdAt: nowS - 60 },
+        { id: 5, kind: 'gave_up', note: error, trigger: 'spawn_failed', retryable: false, createdAt: nowS - 60 },
       ],
     });
     const card = await screen.findByRole('region', { name: 'Gave up' });
@@ -285,7 +344,7 @@ describe('TaskPane controls', () => {
     const error = 'workspace: git worktree add failed: index.lock exists';
     show(summary({ status: 'blocked', failures: 2 }), {
       events: [
-        { id: 5, runId: 2, kind: 'gave_up', note: error, trigger: 'spawn_failed', createdAt: nowS - 60 },
+        { id: 5, kind: 'gave_up', note: error, trigger: 'spawn_failed', createdAt: nowS - 60 },
       ],
     });
     const card = await screen.findByRole('region', { name: 'Gave up' });
@@ -297,7 +356,7 @@ describe('TaskPane controls', () => {
     const error = 'credential: the provider key for this profile was revoked';
     show(summary({ status: 'blocked', failures: 1 }), {
       events: [
-        { id: 5, runId: 1, kind: 'gave_up', note: error, trigger: 'crashed', retryable: false, createdAt: nowS - 60 },
+        { id: 5, kind: 'gave_up', note: error, trigger: 'crashed', retryable: false, createdAt: nowS - 60 },
       ],
     });
     const card = await screen.findByRole('region', { name: 'Gave up' });
@@ -306,6 +365,27 @@ describe('TaskPane controls', () => {
     expect(card.textContent).not.toContain('again');
     expect(within(card).getByText(error)).toBeTruthy();
     expect(screen.getByText("Gave up: can't start as it is", { selector: '.wb-task-tl-label' })).toBeTruthy();
+  });
+
+  it('says a blocked task waits on another task when its block is a dependency', async () => {
+    show(summary({ status: 'blocked', blockKind: 'dependency' }), {
+      runs: [{ id: 3, outcome: 'blocked', endedAt: nowS - 60, error: null }],
+    });
+    await waitFor(() => expect(kanbanTask).toHaveBeenCalled());
+    expect(screen.getByRole('status').textContent).toBe('Blocked · waiting on another task');
+  });
+
+  it('sorts a triage task: Move to To do, Archive, or the board', async () => {
+    const onOpenBoard = vi.fn();
+    show(summary({ status: 'triage', startedAt: null }), {}, onOpenBoard);
+    const card = screen.getByRole('region', { name: 'Waiting to be sorted' });
+    expect(within(card).queryByRole('textbox')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'Move to To do' }));
+    await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'move-to-todo' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Archive task' }));
+    await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'archive' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Open in board ↗' }));
+    expect(onOpenBoard).toHaveBeenCalledWith('t_1');
   });
 
   it('keeps the board\'s refusal on screen', async () => {

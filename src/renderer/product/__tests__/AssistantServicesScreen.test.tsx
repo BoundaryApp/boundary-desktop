@@ -1,14 +1,17 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { AssistantServicesScreen } from '../AssistantServicesScreen';
 
-vi.mock('../../setup/SetupContext', () => ({
-  useSetup: () => ({
-    assistantStackStatus: { ready: true, uiServices: [] },
-    refreshAssistantStack: async () => undefined,
-  }),
+let stackReady = true;
+vi.mock('../assistantStack', () => ({
+  useAssistantStackStatus: () => ({ ready: stackReady, uiServices: [] }),
+  refreshAssistantStackStatus: async () => undefined,
 }));
+
+const ensureRunning = vi.fn();
+stubElectronAPI({ assistantStack: { ensureRunning: () => ensureRunning() } });
 
 const calendarsApi = { list: vi.fn(), onChanged: vi.fn() };
 
@@ -28,7 +31,7 @@ describe('Services: Calendar', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(window, 'electronAPI', { value: { calendars: calendarsApi }, configurable: true });
+    stubElectronAPI({ calendars: calendarsApi });
     calendarsApi.onChanged.mockReturnValue(() => undefined);
   });
 
@@ -56,5 +59,23 @@ describe('Services: Calendar', () => {
     calendarsApi.list.mockResolvedValue({ success: true, accounts: [account('rejected')] });
     card = await calendarCard();
     expect(card.getByText('Sign-in failed')).toBeTruthy();
+  });
+});
+
+describe('Services: Start assistant', () => {
+  afterEach(() => {
+    stackReady = true;
+    cleanup();
+  });
+
+  it('starts the stack from Not ready', () => {
+    stackReady = false;
+    stubElectronAPI({ calendars: calendarsApi });
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
+    calendarsApi.onChanged.mockReturnValue(() => undefined);
+    ensureRunning.mockResolvedValue({ success: false, error: 'compose failed' });
+    render(<AssistantServicesScreen />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start assistant' }));
+    expect(ensureRunning).toHaveBeenCalledTimes(1);
   });
 });

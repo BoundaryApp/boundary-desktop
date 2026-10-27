@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import fs from 'node:fs';
+import fs, { createWriteStream } from 'node:fs';
 import path from 'node:path';
-import { Transform } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createWriteStream } from 'node:fs';
+import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
 import { promisify } from 'node:util';
 import {
   BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE,
@@ -18,10 +18,6 @@ import {
   resolveAssistantStackHome,
   resolveProvisionMarkerPath,
 } from './assistantPaths';
-import {
-  isLocalAssistantStackMode,
-  localStackResetBlockedMessage,
-} from './localStackMode';
 import {
   recoverInterruptedProjectSwap,
   swapProjectTreePreservingData,
@@ -130,22 +126,12 @@ export async function markHostSetupComplete(): Promise<void> {
   });
 }
 
-export async function clearHostSetupComplete(): Promise<void> {
-  const marker = readProvisionMarker();
-  if (!marker) return;
-  await writeProvisionMarker({
-    ...marker,
-    hostSetupComplete: false,
-    hostSetupAt: undefined,
-  });
-}
-
 function resolveUpgradeJournalPath(): string {
   return path.join(resolveAssistantStackHome(), '.upgrade.json');
 }
 
 /** Holds the data backup from the last pin move (stackDataBackup.ts). */
-export function resolveUpgradeBackupsRoot(): string {
+function resolveUpgradeBackupsRoot(): string {
   return path.join(resolveAssistantStackHome(), 'backups');
 }
 
@@ -189,6 +175,7 @@ export async function ensureSovereignProjectProvisioned(
 
   if (await recoverInterruptedProjectSwap(journalPath)) {
     onProgress?.('Finished an interrupted agent stack upgrade.');
+    await removeLeftoverStagingDirs();
   }
   const marker = readProvisionMarker();
 
@@ -247,7 +234,9 @@ export async function ensureSovereignProjectProvisioned(
         // read has nothing running from it, so carry on in that case.
         if (looksLikeProjectRoot(projectRoot)) {
           const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Couldn’t stop the agent stack before upgrading it: ${message}`);
+          throw new Error(`Couldn’t stop the agent stack before upgrading it: ${message}`, {
+            cause: error,
+          });
         }
       }
       // A new release can migrate data in place with no way back (n8n's database, Hermes
@@ -282,7 +271,22 @@ export async function ensureSovereignProjectProvisioned(
     onProgress?.('Agent stack project ready.');
     return projectRoot;
   } finally {
-    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch((): undefined => undefined);
+    // While the upgrade journal exists, the new tree in tmpDir may hold the user's data:
+    // the swap couldn't be undone, and the next launch finishes it from there.
+    if (!fs.existsSync(journalPath)) {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch((): undefined => undefined);
+    }
+  }
+}
+
+/** Remove staging dirs kept for an unfinished upgrade, once recovery has finished it. */
+async function removeLeftoverStagingDirs(): Promise<void> {
+  const home = resolveAssistantStackHome();
+  const names = await fs.promises.readdir(home).catch((): string[] => []);
+  for (const name of names) {
+    if (name.startsWith('.staging-')) {
+      await fs.promises.rm(path.join(home, name), { recursive: true, force: true });
+    }
   }
 }
 
@@ -326,66 +330,30 @@ async function downloadArchive(
   const contentLength = contentLengthHeader ? Number(contentLengthHeader) : 0;
   const hasLength = Number.isFinite(contentLength) && contentLength > 0;
 
-  // Node fetch body is a web ReadableStream; convert via Response arrayBuffer for simplicity
-  // on large-ish repos, or pipe if available.
-  const nodeBody = response.body as unknown as NodeJS.ReadableStream | null;
-  if (nodeBody && typeof (nodeBody as { pipe?: unknown }).pipe === 'function') {
-    let received = 0;
-    let lastEmit = 0;
-    const counter = new Transform({
-      transform(chunk: Buffer, _enc, cb) {
-        received += chunk.length;
-        const now = Date.now();
-        if (onProgress && hasLength && now - lastEmit >= 250) {
-          lastEmit = now;
-          const pct = Math.min(99, Math.round((received / contentLength) * 100));
-          onProgress(`Downloading archive ${pct}%`);
-        } else if (onProgress && !hasLength && now - lastEmit >= 2_000) {
-          lastEmit = now;
-          const mb = (received / (1024 * 1024)).toFixed(1);
-          onProgress(`Downloading archive… ${mb} MB`);
-        }
-        cb(null, chunk);
-      },
-    });
-    await pipeline(nodeBody, counter, createWriteStream(destPath));
-    if (onProgress && hasLength) {
-      onProgress('Downloading archive 100%');
-    }
-    return;
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await fs.promises.writeFile(destPath, buffer);
+  let received = 0;
+  let lastEmit = 0;
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      received += chunk.length;
+      const now = Date.now();
+      if (onProgress && hasLength && now - lastEmit >= 250) {
+        lastEmit = now;
+        const pct = Math.min(99, Math.round((received / contentLength) * 100));
+        onProgress(`Downloading archive ${pct}%`);
+      } else if (onProgress && !hasLength && now - lastEmit >= 2_000) {
+        lastEmit = now;
+        const mb = (received / (1024 * 1024)).toFixed(1);
+        onProgress(`Downloading archive… ${mb} MB`);
+      }
+      cb(null, chunk);
+    },
+  });
+  // fetch returns a web ReadableStream; convert it so the counter sees each chunk.
+  const body = Readable.fromWeb(response.body as unknown as NodeWebReadableStream<Uint8Array>);
+  await pipeline(body, counter, createWriteStream(destPath));
   if (onProgress && hasLength) {
     onProgress('Downloading archive 100%');
   }
-}
-
-/**
- * Wipe Boundary-owned project + markers so the next ensure behaves like first launch.
- * Does not touch developer checkouts or BOUNDARY_ASSISTANT_ROOT overrides.
- * Refuses entirely while local-stack mode is active.
- */
-export async function resetBoundaryAssistantStack(options?: {
-  wipeWorkspace?: boolean;
-}): Promise<void> {
-  if (isLocalAssistantStackMode()) {
-    throw new Error(localStackResetBlockedMessage('Assistant stack reset'));
-  }
-
-  const home = resolveAssistantStackHome();
-  const projectRoot = resolveAssistantProjectRoot();
-  await fs.promises.rm(projectRoot, { recursive: true, force: true });
-  await fs.promises.rm(resolvePreviousProjectRoot(), { recursive: true, force: true });
-  await fs.promises.rm(resolveUpgradeJournalPath(), { force: true });
-  await fs.promises.rm(resolveUpgradeBackupsRoot(), { recursive: true, force: true });
-  await fs.promises.rm(resolveProvisionMarkerPath(), { force: true });
-  if (options?.wipeWorkspace) {
-    await fs.promises.rm(path.join(home, 'workspace'), { recursive: true, force: true });
-  }
-  // Leave empty home so subsequent provision recreates cleanly.
-  await fs.promises.mkdir(home, { recursive: true });
 }
 
 /** Exported for tests */

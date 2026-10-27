@@ -1,12 +1,14 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
   HermesProjectRecord,
   HermesProjectSourcesInspect,
 } from '../../../../shared/types/hermesChat';
 import { ProjectSourcesRail } from '../ProjectSourcesRail';
 import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
+import { takeInferenceStatus } from '../../../onboarding/inferenceStatus';
 
 const getStatus = vi.fn();
 const patchProject = vi.fn();
@@ -14,21 +16,20 @@ const listCodingFolders = vi.fn();
 const codingAgentBusy = vi.fn();
 const setProjectFolderCoding = vi.fn();
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  onboarding: {
     getStatus: (...args: unknown[]) => getStatus(...args),
   },
-}));
-
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    patchProject: (...args: unknown[]) => patchProject(...args),
-    listCodingFolders: (...args: unknown[]) => listCodingFolders(...args),
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
-    setProjectFolderCoding: (...args: unknown[]) => setProjectFolderCoding(...args),
-    onCodingFoldersProgress: () => () => undefined,
+  projects: {
+    patch: (...args: unknown[]) => patchProject(...args),
   },
-}));
+  codingFolders: {
+    list: (...args: unknown[]) => listCodingFolders(...args),
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
+    setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
+    onProgress: () => () => undefined,
+  },
+});
 
 const project: HermesProjectRecord = {
   id: 'p1',
@@ -47,7 +48,6 @@ function inspect(
 ): HermesProjectSourcesInspect {
   return {
     projectId: 'p1',
-    registryExists: true,
     stale: false,
     sources: [
       {
@@ -57,15 +57,6 @@ function inspect(
         retrieval: 'files',
         visibility: 'hub',
         isHub: true,
-      },
-    ],
-    index: [
-      {
-        sourceId: 'project',
-        path: 'notes/resume.md',
-        description: 'Resume',
-        kind: 'relative',
-        visible: true,
       },
     ],
     ...partial,
@@ -92,6 +83,15 @@ const bothConfigured = {
   },
 };
 
+beforeAll(() => {
+  // Radix's popper measures its anchor; jsdom has no ResizeObserver.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
+
 describe('ProjectSourcesRail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,7 +111,7 @@ describe('ProjectSourcesRail', () => {
     render(
       <ProjectSourcesRail
         project={project}
-        inspect={inspect({ registryExists: false, index: [] })}
+        inspect={inspect({})}
         onChangeFolder={noop}
         onChooseFolder={noop}
         onRevealHub={noop}
@@ -119,6 +119,9 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     expect(screen.getByText('project')).toBeTruthy();
@@ -135,7 +138,7 @@ describe('ProjectSourcesRail', () => {
     render(
       <ProjectSourcesRail
         project={project}
-        inspect={inspect({ registryExists: false, index: [] })}
+        inspect={inspect({})}
         onChangeFolder={noop}
         onChooseFolder={noop}
         onRevealHub={noop}
@@ -143,6 +146,9 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
         onProjectsUpdated={onProjectsUpdated}
       />
     );
@@ -160,14 +166,11 @@ describe('ProjectSourcesRail', () => {
     expect(onProjectsUpdated).toHaveBeenCalled();
   });
 
-  it('shows a quiet pin on the glyph when the project is pinned', () => {
+  it('follows an app default changed elsewhere without a project change', async () => {
     render(
       <ProjectSourcesRail
-        project={{
-          ...project,
-          inference: { mode: 'local', modelId: 'qwen3:14b' },
-        }}
-        inspect={inspect({ registryExists: false, index: [] })}
+        project={project}
+        inspect={inspect({})}
         onChangeFolder={noop}
         onChooseFolder={noop}
         onRevealHub={noop}
@@ -175,6 +178,39 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
+      />
+    );
+    const inherit = () => screen.getByRole('option', { name: /Inherit app default/ });
+    await waitFor(() => expect(inherit().textContent).toMatch(/Local · qwen3:14b/));
+    // Settings makes OpenRouter the app default and passes on the status main returned.
+    await act(async () =>
+      takeInferenceStatus({ status: { ...bothConfigured, appDefault: 'openrouter' } })
+    );
+    expect(inherit().textContent).toMatch(/OpenRouter · claude-sonnet-4/);
+    expect(getStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a quiet pin on the glyph when the project is pinned', () => {
+    render(
+      <ProjectSourcesRail
+        project={{
+          ...project,
+          inference: { mode: 'local', modelId: 'qwen3:14b' },
+        }}
+        inspect={inspect({})}
+        onChangeFolder={noop}
+        onChooseFolder={noop}
+        onRevealHub={noop}
+        onRevealSource={noop}
+        onRefreshIndex={noop}
+        onAddFolder={noop}
+        onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     expect(document.querySelector('.wb-inf-pin.is-local')).toBeTruthy();
@@ -213,6 +249,9 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={onRemoveSource}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     const opens = screen.getAllByRole('button', { name: 'Open' });
@@ -230,7 +269,7 @@ describe('ProjectSourcesRail', () => {
     render(
       <ProjectSourcesRail
         project={project}
-        inspect={inspect({ registryExists: false, index: [] })}
+        inspect={inspect({})}
         onChangeFolder={noop}
         onChooseFolder={noop}
         onRevealHub={noop}
@@ -238,12 +277,49 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
     expect(screen.queryByRole('menuitem', { name: 'Refresh index' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Change folder' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Open in Finder' })).toBeTruthy();
+  });
+
+  it('closes the project actions menu on an outside click and on Escape', async () => {
+    render(
+      <ProjectSourcesRail
+        project={project}
+        inspect={inspect({})}
+        onChangeFolder={noop}
+        onChooseFolder={noop}
+        onRevealHub={noop}
+        onRevealSource={noop}
+        onRefreshIndex={noop}
+        onAddFolder={noop}
+        onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
+      />
+    );
+    const more = screen.getByRole('button', { name: 'Project actions' });
+    fireEvent.click(more);
+    expect(screen.getByRole('menu')).toBeTruthy();
+    // Radix listens for outside presses a tick after opening, and dismisses on the click.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const outside = screen.getByText('project');
+    fireEvent.pointerDown(outside);
+    fireEvent.click(outside);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(more);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(document.activeElement).toBe(more);
   });
 
   it('keeps Add separate from Change folder', () => {
@@ -260,6 +336,9 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={onAddFolder}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add…' }));
@@ -304,6 +383,9 @@ describe('ProjectSourcesRail', () => {
         onRefreshIndex={noop}
         onAddFolder={noop}
         onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
     expect(
@@ -351,6 +433,9 @@ describe('ProjectSourcesRail', () => {
           onRefreshIndex={noop}
           onAddFolder={noop}
           onRemoveSource={noop}
+          connecting={false}
+          rpcAvailable
+          role={null}
         />
       );
 
@@ -395,12 +480,38 @@ describe('ProjectSourcesRail', () => {
       );
     });
 
+    it('closes the allow-coding popover on Escape and returns focus to its button', async () => {
+      renderRail();
+      const allow = await screen.findByRole('button', { name: 'Allow coding…' });
+      fireEvent.click(allow);
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(allow);
+    });
+
     it('offers to wait when a coding task is running', async () => {
       codingAgentBusy.mockResolvedValue({ busy: true, sessions: ['Fix header layout'] });
       renderRail();
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding…' }));
       expect(await screen.findByRole('button', { name: 'Allow when it finishes' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Stop task and allow' })).toBeTruthy();
+      expect(screen.getByText(/Fix header layout/)).toBeTruthy();
+    });
+
+    it('offers the wait or stop choice again when a task started after the check', async () => {
+      setProjectFolderCoding.mockResolvedValue({
+        success: false,
+        managed: true,
+        grants: [],
+        error: 'A coding task is running.',
+        busy: { busy: true, sessions: ['Fix header layout'] },
+      });
+      renderRail();
+      fireEvent.click(await screen.findByRole('button', { name: 'Allow coding…' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Allow coding' }));
+      await waitFor(() => expect(setProjectFolderCoding).toHaveBeenCalled());
+      expect(await screen.findByRole('button', { name: 'Allow when it finishes' })).toBeTruthy();
       expect(screen.getByText(/Fix header layout/)).toBeTruthy();
     });
 

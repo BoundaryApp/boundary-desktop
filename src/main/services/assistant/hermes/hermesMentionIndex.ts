@@ -4,9 +4,7 @@ import type {
   ChannelRecord,
   HermesChatMessage,
   HermesMentionRecord,
-  HermesMentionsListPayload,
   HermesMentionsListResult,
-  HermesMentionsSummaryResult,
 } from '../../../../shared/types/hermesChat';
 import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { getHermesGatewaySession } from './hermesGatewaySession';
@@ -65,16 +63,9 @@ export function buildRoomMentions(input: {
         agentSlug,
         text: post.content,
         at: post.createdAt,
-        anchor: post.id,
         status: reply ? 'replied' : 'waiting',
         ...(reply
-          ? {
-              reply: {
-                text: reply.message.content,
-                at: replyAt,
-                ...(reply.message.rowId != null ? { rowId: reply.message.rowId } : {}),
-              },
-            }
+          ? { reply: { text: reply.message.content, at: replyAt } }
           : {}),
       });
     }
@@ -146,30 +137,19 @@ function seenWatermark(): string {
 const isUnseen = (m: RoomMention, seenAt: string) =>
   m.status === 'replied' && Boolean(m.reply) && Date.parse(m.reply!.at) > Date.parse(seenAt);
 
-export async function listHermesMentions(
-  payload: HermesMentionsListPayload = {}
-): Promise<HermesMentionsListResult> {
+export async function listHermesMentions(): Promise<HermesMentionsListResult> {
   try {
     const agents = listStoredAgents();
-    const channels = listStoredChannels().filter(
-      (c) => !payload.channelId || c.id === payload.channelId
-    );
+    const channels = listStoredChannels();
     const seenAt = seenWatermark();
     const all = (await Promise.all(channels.map((c) => roomMentions(c, agents)))).flat();
     const mentions = all
-      .filter((m) => !payload.agentSlug || m.agentSlug === payload.agentSlug)
       .map((m) => ({ ...m, unseen: isUnseen(m, seenAt) }))
       .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
     return { success: true, mentions };
   } catch (err) {
     return { success: false, mentions: [], error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-export async function summarizeHermesMentions(): Promise<HermesMentionsSummaryResult> {
-  const result = await listHermesMentions();
-  if (!result.success) return { success: false, unseen: 0, error: result.error };
-  return { success: true, unseen: result.mentions.filter((m) => m.unseen).length };
 }
 
 export function markHermesMentionsSeen(): { success: boolean } {

@@ -84,22 +84,29 @@ async function copyViteExternalPackages(buildPath: string): Promise<string[]> {
   return copied;
 }
 
+/** Private experiments, one folder each; absent from the public repository. */
+const experimentsDir = path.join(projectRoot, 'src', 'experiments');
+
 /**
- * Ship catalog/recipes/modules next to extra resources (outside asar).
- * Skip `.terraform` provider caches — Terraform inits those in the instance workspace.
+ * Copy each experiment's `resources/` entries next to the extra resources (outside asar), where
+ * the packaged app looks for them. Skip `.terraform` provider caches; Terraform inits those in
+ * the instance workspace.
  */
-async function copyInfrastructureAssets(buildPath: string): Promise<void> {
-  const source = path.join(projectRoot, 'infrastructure');
-  const dest = path.join(buildPath, '..', 'infrastructure');
-  if (!fs.existsSync(source)) {
-    console.warn('[forge] infrastructure/ missing; packaged catalog will be unavailable');
-    return;
+async function copyExperimentResources(buildPath: string): Promise<void> {
+  if (!fs.existsSync(experimentsDir)) return;
+  const experiments = await fs.promises.readdir(experimentsDir, { withFileTypes: true });
+  for (const experiment of experiments) {
+    if (!experiment.isDirectory()) continue;
+    const source = path.join(experimentsDir, experiment.name, 'resources');
+    if (!fs.existsSync(source)) continue;
+    for (const entry of await fs.promises.readdir(source)) {
+      await fs.promises.cp(path.join(source, entry), path.join(buildPath, '..', entry), {
+        recursive: true,
+        preserveTimestamps: true,
+        filter: (srcPath) => !srcPath.split(path.sep).includes('.terraform'),
+      });
+    }
   }
-  await fs.promises.cp(source, dest, {
-    recursive: true,
-    preserveTimestamps: true,
-    filter: (srcPath) => !srcPath.split(path.sep).includes('.terraform'),
-  });
 }
 
 const appleId = process.env.APPLE_ID;
@@ -119,7 +126,7 @@ const config: ForgeConfig = {
   hooks: {
     packageAfterCopy: async (_config, buildPath) => {
       await copyViteExternalPackages(buildPath);
-      await copyInfrastructureAssets(buildPath);
+      await copyExperimentResources(buildPath);
     },
     postStart: async (_config, child: ChildProcess) => {
       let forgeExiting = false;
@@ -205,10 +212,12 @@ const config: ForgeConfig = {
         }
       : {}),
   },
-  // better-sqlite3 is left out: it ships N-API prebuilds that load in both Node and Electron.
+  // Rebuild nothing. better-sqlite3 ships N-API prebuilds that load in both Node and Electron.
+  // ssh2's crypto addon and cpu-features are optional: @electron/rebuild skips ssh2's (its
+  // binding.gyp isn't at the package root) and doesn't produce cpu-features, and ssh2 falls back
+  // to JS crypto without either. An empty list also stops Forge rewriting .node files in place.
   rebuildConfig: {
-    onlyModules: ['cpu-features', 'ssh2'],
-    force: true,
+    onlyModules: [],
   },
   makers: [
     new MakerSquirrel({}),

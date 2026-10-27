@@ -25,16 +25,6 @@ export function dmDays(messages: readonly TimedMessage[], now = Date.now()): DmD
   return days;
 }
 
-/** "Sep 22", with the year when it isn't this one. */
-export function shortDate(ms: number, now = Date.now()): string {
-  const sameYear = new Date(ms).getFullYear() === new Date(now).getFullYear();
-  return new Date(ms).toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  });
-}
-
 /** Where `query` occurs in `text`, ignoring case, as [start, end) offsets. Non-overlapping. */
 export function matchOffsets(text: string, query: string): Array<[number, number]> {
   const needle = query.trim().toLocaleLowerCase();

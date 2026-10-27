@@ -8,7 +8,6 @@ import {
   calendarServerName,
   calendarSlug,
   normalizeCalendarUrl,
-  removeEnvLines,
   toolsForAccess,
 } from '../calendarModel';
 
@@ -93,17 +92,5 @@ describe('calendarPasswordProblem', () => {
       expect(calendarPasswordProblem(pw)).toMatch(/app password/);
     }
     expect(calendarPasswordProblem('')).toBe('Enter the password.');
-  });
-});
-
-describe('removeEnvLines', () => {
-  it('drops only the named keys, export form included', () => {
-    const env = 'A=1\nexport BOUNDARY_CALENDAR_X_PASSWORD=secret\n# note\nB=2\n';
-    expect(removeEnvLines(env, ['BOUNDARY_CALENDAR_X_PASSWORD'])).toBe('A=1\n# note\nB=2\n');
-  });
-
-  it('leaves an empty file empty', () => {
-    expect(removeEnvLines('', ['A'])).toBe('');
-    expect(removeEnvLines('A=1\n', ['A'])).toBe('');
   });
 });

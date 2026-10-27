@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE, SOVEREIGN_AGENT_STACK_GITHUB_URL } from '../../../shared/assistantStackConstants';
-import { getAssistantRootOverride, setAssistantRootOverride } from './AssistantStackStore';
+import { getAssistantRootOverride } from './AssistantStackStore';
 import { resolveAssistantDataRoot, resolveAssistantProjectRoot } from './assistantPaths';
 
 export class AssistantRootError extends Error {
@@ -80,5 +80,3 @@ export function resolveActiveAssistantRoot(): string {
 export function resolveActiveAssistantDataRoot(): string {
   return resolveAssistantDataRoot(resolveActiveAssistantRoot());
 }
-
-export { setAssistantRootOverride };

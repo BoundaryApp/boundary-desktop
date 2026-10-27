@@ -6,7 +6,7 @@ import { Callout } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 
 export const SetupFlowShell: React.FC = () => {
-  const { loading, activeStep, capabilityError, capabilityAssessment, capabilityStatus, assessCapability } =
+  const { loading, activeStep, capabilityError, capabilityAssessment, capabilityStatus, loadCapability } =
     useSetup();
 
   if (capabilityError && !capabilityAssessment) {
@@ -16,7 +16,7 @@ export const SetupFlowShell: React.FC = () => {
         title="Couldn’t check this Mac"
         description="Boundary could not finish checking memory, disk, and the container runtime."
         actions={
-          <Button type="button" onClick={() => void assessCapability()}>
+          <Button type="button" onClick={() => void loadCapability()}>
             Try again
           </Button>
         }

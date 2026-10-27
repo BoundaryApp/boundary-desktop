@@ -8,7 +8,7 @@ import {
   hermesSessionSourceLabel,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { formatDayLabel, formatMessageTime } from '../../../shared/messageTime';
+import { formatDayLabel, formatMessageTime, formatShortDate } from '../../../shared/messageTime';
 
 /** The agent that owns a conversation, or null when it is unknown (a deleted agent). */
 export function conversationAgent(
@@ -30,6 +30,7 @@ export function kindLabel(
       return 'Channel';
     case 'side':
       return 'Side chat';
+    case 'dm':
     default:
       return 'Direct message';
   }
@@ -87,16 +88,6 @@ function startedPhrase(iso: string | null | undefined, now: number): string | nu
   return day;
 }
 
-function sincePhrase(iso: string | null | undefined, now: number): string | null {
-  const ms = iso ? Date.parse(iso) : NaN;
-  if (!Number.isFinite(ms)) return null;
-  const sameYear = new Date(ms).getFullYear() === new Date(now).getFullYear();
-  return new Date(ms).toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  });
-}
 
 /**
  * The header's second line: the kind in words, so it is always clear what kind of
@@ -119,8 +110,9 @@ export function headKindLine(input: {
       return 'Channel · posts are for the room, @ asks someone now';
     case 'side':
       return `Side chat with ${input.agentName || 'an agent'}`;
+    case 'dm':
     default: {
-      const since = sincePhrase(input.startedAt, now);
+      const since = formatShortDate(Date.parse(input.startedAt ?? ''), now);
       return `Direct message · one ongoing thread${since ? ` since ${since}` : ''}`;
     }
   }

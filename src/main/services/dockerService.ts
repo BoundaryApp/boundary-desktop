@@ -1,13 +1,9 @@
 import Docker from 'dockerode';
 import { EventEmitter } from 'events';
+import type { Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
-import { urlDetectionService, DetectedURL } from './urlDetectionService';
-import {
-  dockerodeOptionsFromApiEndpoint,
-  getContainerRuntime,
-  runCompose,
-} from './containerRuntime';
+import { dockerodeOptionsFromApiEndpoint, getContainerRuntime } from './containerRuntime';
 
 export interface DockerComposeConfig {
   id: string;
@@ -16,7 +12,6 @@ export interface DockerComposeConfig {
   services: DockerServiceInfo[];
   path: string;
   lastUpdated: string;
-  urls?: DetectedURL[];
 }
 
 export interface DockerServiceInfo {
@@ -27,23 +22,15 @@ export interface DockerServiceInfo {
   health: 'healthy' | 'unhealthy' | 'starting' | 'unknown';
 }
 
-export interface DockerContainerInfo {
-  id: string;
-  name: string;
-  image: string;
-  status: string;
-  ports: string[];
-  health: string;
-  labels: Record<string, string>;
-}
+const COMPOSE_FILE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
 
 class DockerService extends EventEmitter {
   private docker: Docker | null = null;
   private isConnected = false;
   private eventStream: NodeJS.ReadableStream | null = null;
-  private knownComposePaths: string[] = [];
   private configCache: Map<string, DockerComposeConfig> = new Map();
   private refreshInterval: NodeJS.Timeout | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private eventBuffer: string = ''; // Buffer for incomplete JSON events
   private initPromise: Promise<void> | null = null;
 
@@ -82,10 +69,9 @@ class DockerService extends EventEmitter {
         this.isConnected = true;
         console.log('Docker service initialized successfully');
 
-        this.startEventStream();
+        // startEventStream catches and logs its own failures.
+        void this.startEventStream();
         this.startPeriodicRefresh();
-
-        await this.discoverComposeFilesInternal();
 
         this.emit('connected');
       } catch (error) {
@@ -111,7 +97,7 @@ class DockerService extends EventEmitter {
         }
       });
 
-      this.eventStream.on('data', async (chunk) => {
+      this.eventStream.on('data', (chunk) => {
         try {
           const data = chunk.toString();
           // Add new data to buffer
@@ -137,7 +123,8 @@ class DockerService extends EventEmitter {
             
             try {
               const event = JSON.parse(trimmedLine);
-              this.handleDockerEvent(event);
+              // refreshComposeConfigs catches and logs its own failures.
+              void this.handleDockerEvent(event);
             } catch (parseError) {
               // Only log if the line looks like it should be valid JSON
               if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}')) {
@@ -167,26 +154,27 @@ class DockerService extends EventEmitter {
     }
   }
 
-  private async reconnectEventStream() {
+  private reconnectEventStream(): void {
+    // A dropped stream can emit both 'error' and 'end'; schedule one reconnect for both.
+    if (this.reconnectTimer) return;
     if (this.eventStream) {
-      (this.eventStream as any).destroy();
+      (this.eventStream as Readable).destroy();
       this.eventStream = null;
     }
     
     // Clear the buffer when reconnecting
     this.eventBuffer = '';
 
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (this.isConnected) {
-        this.startEventStream();
+        // startEventStream catches and logs its own failures.
+        void this.startEventStream();
       }
     }, 5000);
   }
 
-  private async handleDockerEvent(event: any) {
-    // Emit the raw event for debugging
-    this.emit('docker-event', event);
-
+  private async handleDockerEvent(event: { Type?: string }) {
     // Handle container events that might affect compose configs
     if (event.Type === 'container') {
       await this.refreshComposeConfigs();
@@ -195,74 +183,17 @@ class DockerService extends EventEmitter {
 
   private startPeriodicRefresh() {
     // Refresh compose configs every 30 seconds
-    this.refreshInterval = setInterval(async () => {
-      if (this.isConnected) {
-        await this.refreshComposeConfigs();
-      }
+    this.refreshInterval = setInterval(() => {
+      // refreshComposeConfigs catches and logs its own failures.
+      if (this.isConnected) void this.refreshComposeConfigs();
     }, 30000);
   }
 
-  private async discoverComposeFilesInternal() {
-    try {
-      // Common paths to search for docker-compose files
-      const searchPaths = [
-        process.env.HOME + '/Documents',
-        process.env.HOME + '/Projects',
-        process.env.HOME + '/workspace',
-        process.env.HOME + '/Desktop',
-        '/Users',
-        '/home',
-      ].filter(Boolean) as string[];
-
-      const composeFiles: string[] = [];
-      const maxResults = 20;
-
-      for (const searchPath of searchPaths) {
-        if (composeFiles.length >= maxResults) break;
-        if (!fs.existsSync(searchPath)) continue;
-        try {
-          await this.walkForComposeFiles(searchPath, composeFiles, maxResults, 0, 4);
-        } catch {
-          // Ignore errors for individual search paths
-        }
-      }
-
-      this.knownComposePaths = [...new Set(composeFiles)];
-      console.log(`Discovered ${this.knownComposePaths.length} Docker Compose files`);
-    } catch (error) {
-      console.error('Error discovering compose files:', error);
-    }
-  }
-
-  private async walkForComposeFiles(
-    dir: string,
-    out: string[],
-    maxResults: number,
-    depth: number,
-    maxDepth: number
-  ): Promise<void> {
-    if (out.length >= maxResults || depth > maxDepth) return;
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (out.length >= maxResults) return;
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isFile()) {
-        if (entry.name === 'docker-compose.yml' || entry.name === 'docker-compose.yaml') {
-          out.push(fullPath);
-        }
-      } else if (entry.isDirectory()) {
-        await this.walkForComposeFiles(fullPath, out, maxResults, depth + 1, maxDepth);
-      }
-    }
-  }
-
-  private async refreshComposeConfigs() {
+  /**
+   * Re-read compose projects into the cache. Readers pass `emit: false`: subscribers answer
+   * `compose-configs-updated` by reading, so a read that emits would start the next read.
+   */
+  private async refreshComposeConfigs({ emit = true }: { emit?: boolean } = {}) {
     if (!this.docker || !this.isConnected) return;
 
     try {
@@ -277,10 +208,7 @@ class DockerService extends EventEmitter {
 
         if (projectName && serviceName && composePath) {
           // Only add compose configs if the compose files still exist
-          const composeFile = path.join(composePath, 'docker-compose.yml');
-          const composeFileYaml = path.join(composePath, 'docker-compose.yaml');
-          
-          if (fs.existsSync(composeFile) || fs.existsSync(composeFileYaml)) {
+          if (this.composeFilesExist(composePath, container.Labels)) {
             if (!composeConfigs.has(composePath)) {
               composeConfigs.set(composePath, {
                 id: this.generateConfigId(composePath),
@@ -336,10 +264,24 @@ class DockerService extends EventEmitter {
       this.configCache.clear();
       configsArray.forEach(config => this.configCache.set(config.id, config));
 
-      this.emit('compose-configs-updated', configsArray);
+      if (emit) {
+        this.emit('compose-configs-updated', configsArray);
+      }
     } catch (error) {
       console.error('Error refreshing compose configs:', error);
     }
+  }
+
+  /**
+   * Whether the project's compose files are still on disk. Uses the files the engine
+   * recorded (`-f` included), else Compose's default file names in the working dir.
+   */
+  private composeFilesExist(workingDir: string, labels: Record<string, string>): boolean {
+    const configFiles = labels['com.docker.compose.project.config_files'];
+    const candidates = configFiles
+      ? configFiles.split(',').map((file) => path.resolve(workingDir, file.trim()))
+      : COMPOSE_FILE_NAMES.map((name) => path.join(workingDir, name));
+    return candidates.some((file) => fs.existsSync(file));
   }
 
   private generateConfigId(path: string): string {
@@ -361,7 +303,7 @@ class DockerService extends EventEmitter {
     }
   }
 
-  private extractPorts(ports: any[]): string[] {
+  private extractPorts(ports: Docker.Port[]): string[] {
     if (!ports) return [];
     return ports.map(port => {
       if (port.PublicPort && port.PrivatePort) {
@@ -371,10 +313,11 @@ class DockerService extends EventEmitter {
     });
   }
 
-  private getContainerHealth(container: any): DockerServiceInfo['health'] {
+  private getContainerHealth(container: Docker.ContainerInfo): DockerServiceInfo['health'] {
     const health = container.Status;
-    if (health?.includes('healthy')) return 'healthy';
+    // 'unhealthy' contains 'healthy', so it has to be checked first.
     if (health?.includes('unhealthy')) return 'unhealthy';
+    if (health?.includes('healthy')) return 'healthy';
     if (health?.includes('starting')) return 'starting';
     return 'unknown';
   }
@@ -401,7 +344,7 @@ class DockerService extends EventEmitter {
       if (!client) return false;
       await client.ping();
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -412,190 +355,14 @@ class DockerService extends EventEmitter {
       return [];
     }
     
-    await this.refreshComposeConfigs();
-    const configs = Array.from(this.configCache.values());
-    
-    // Enhance with URL detection - only for configs that have compose files
-    for (const config of configs) {
-      try {
-        // Check if compose file exists before attempting URL detection
-        const composeFile = path.join(config.path, 'docker-compose.yml');
-        const composeFileYaml = path.join(config.path, 'docker-compose.yaml');
-        
-        if (fs.existsSync(composeFile) || fs.existsSync(composeFileYaml)) {
-          config.urls = await urlDetectionService.getAllURLs(config.path);
-        } else {
-          // No compose file found, skip URL detection silently
-          config.urls = [];
-        }
-      } catch (error) {
-        // Only log as warning if it's not a "file not found" error
-        if (!error.message.includes('No docker-compose.yml or docker-compose.yaml found')) {
-          console.warn(`Could not detect URLs for ${config.path}:`, error);
-        }
-        config.urls = [];
-      }
-    }
-    
-    return configs;
-  }
-
-  async startComposeConfig(composePath: string, dockerComposeFile?: string): Promise<void> {
-    try {
-      const runtime = await getContainerRuntime();
-      const composeArgs = dockerComposeFile
-        ? ['-f', dockerComposeFile, 'up', '-d']
-        : ['up', '-d'];
-      
-      console.log(
-        `🐳 Starting Docker Compose: ${runtime.cliPath} ${[...runtime.composeArgv, ...composeArgs].join(' ')} in ${composePath}`
-      );
-      
-      const { stderr } = await runCompose(runtime, composeArgs, { cwd: composePath });
-      if (stderr) {
-        console.warn('Docker Compose start stderr:', stderr);
-      }
-      
-      // Wait a moment for containers to start, then refresh
-      setTimeout(() => this.refreshComposeConfigs(), 2000);
-    } catch (error) {
-      console.error('Error starting Docker Compose:', error);
-      throw error;
-    }
-  }
-
-  async stopComposeConfig(composePath: string): Promise<void> {
-    try {
-      const runtime = await getContainerRuntime();
-      const { stderr } = await runCompose(runtime, ['down'], { cwd: composePath });
-      if (stderr) {
-        console.warn('Docker Compose stop stderr:', stderr);
-      }
-      
-      // Wait a moment for containers to stop, then refresh
-      setTimeout(() => this.refreshComposeConfigs(), 2000);
-    } catch (error) {
-      console.error('Error stopping Docker Compose:', error);
-      throw error;
-    }
-  }
-
-  async restartComposeConfig(composePath: string): Promise<void> {
-    try {
-      const runtime = await getContainerRuntime();
-      const { stderr } = await runCompose(runtime, ['restart'], { cwd: composePath });
-      if (stderr) {
-        console.warn('Docker Compose restart stderr:', stderr);
-      }
-      
-      // Wait a moment for containers to restart, then refresh
-      setTimeout(() => this.refreshComposeConfigs(), 2000);
-    } catch (error) {
-      console.error('Error restarting Docker Compose:', error);
-      throw error;
-    }
-  }
-
-  async getComposeStatus(composePath: string): Promise<any> {
-    try {
-      const runtime = await getContainerRuntime();
-      const { stdout } = await runCompose(runtime, ['ps', '--format', 'json'], {
-        cwd: composePath,
-      });
-      return JSON.parse(stdout);
-    } catch (error) {
-      console.error('Error getting Docker Compose status:', error);
-      throw error;
-    }
-  }
-
-  async getServiceLogs(composePath: string, serviceName: string, lines: number = 100): Promise<string> {
-    try {
-      const runtime = await getContainerRuntime();
-      const { stdout } = await runCompose(
-        runtime,
-        ['logs', `--tail=${lines}`, serviceName],
-        { cwd: composePath }
-      );
-      return stdout;
-    } catch (error) {
-      console.error('Error getting service logs:', error);
-      throw error;
-    }
-  }
-
-  async discoverComposeFiles(): Promise<string[]> {
-    await this.discoverComposeFilesInternal();
-    return this.knownComposePaths;
-  }
-
-  async getContainerInfo(containerId: string): Promise<DockerContainerInfo | null> {
-    const client = await this.getClient();
-    if (!client) return null;
-
-    try {
-      const container = client.getContainer(containerId);
-      const info = await container.inspect();
-      
-      return {
-        id: info.Id,
-        name: info.Name.replace(/^\//, ''),
-        image: info.Config.Image,
-        status: info.State.Status,
-        ports: this.extractPortsFromInspect(info),
-        health: info.State.Health?.Status || 'unknown',
-        labels: info.Config.Labels || {}
-      };
-    } catch (error) {
-      console.error('Error getting container info:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get detected URLs for a specific compose setup
-   */
-  async getComposeURLs(composePath: string): Promise<DetectedURL[]> {
-    try {
-      return await urlDetectionService.getAllURLs(composePath);
-    } catch (error) {
-      console.error('Error getting compose URLs:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get detected URLs for a specific service within a compose setup
-   */
-  async getServiceURLs(composePath: string, serviceName: string): Promise<DetectedURL[]> {
-    try {
-      return await urlDetectionService.getServiceURLs(composePath, serviceName);
-    } catch (error) {
-      console.error('Error getting service URLs:', error);
-      return [];
-    }
-  }
-
-  private extractPortsFromInspect(info: any): string[] {
-    const ports: string[] = [];
-    const portBindings = info.HostConfig.PortBindings;
-    
-    if (portBindings) {
-      Object.keys(portBindings).forEach(containerPort => {
-        const hostBindings = portBindings[containerPort];
-        hostBindings.forEach((binding: any) => {
-          ports.push(`${binding.HostPort}:${containerPort}`);
-        });
-      });
-    }
-    
-    return ports;
+    await this.refreshComposeConfigs({ emit: false });
+    return Array.from(this.configCache.values());
   }
 
   // Cleanup method
   destroy() {
     if (this.eventStream) {
-      (this.eventStream as any).destroy();
+      (this.eventStream as Readable).destroy();
       this.eventStream = null;
     }
     
@@ -603,6 +370,12 @@ class DockerService extends EventEmitter {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
     }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.isConnected = false;
     
     // Clear the event buffer
     this.eventBuffer = '';

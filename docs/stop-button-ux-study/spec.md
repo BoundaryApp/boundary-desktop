@@ -97,7 +97,6 @@ Stop appears only while an agent is working. It sits in the same corner as Send,
 8. **Where it applies:**
    - **DMs:** everything.
    - **Channels:** Queue and Send now act on the session your message addresses. A channel wake that addressed several members is one run, so Stop ends that wake only. Add to this run is hidden in channels.
-   - **HTTP-fallback threads:** Queue and Send now only.
 
 **Acceptance**
 

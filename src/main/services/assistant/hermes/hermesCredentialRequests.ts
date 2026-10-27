@@ -4,6 +4,7 @@ import type {
   HermesCredentialRequestKind,
 } from '../../../../shared/types/hermesChat';
 import type { ServerRequest } from './vendor/json-rpc-channel';
+import { ParkedRequests, type ParkedResponder } from './parkedRequests';
 
 /**
  * Hermes asks the client for a credential through these server requests and
@@ -22,10 +23,7 @@ export const CREDENTIAL_REQUEST_KINDS: readonly HermesCredentialRequestKind[] = 
 /** Generous cap; real keys and passwords are far shorter. */
 const MAX_VALUE_LENGTH = 16 * 1024;
 
-const pendingByRpcId = new Map<
-  string,
-  { request: ServerRequest; event: HermesChatCredentialRequestEvent }
->();
+const parked = new ParkedRequests<HermesChatCredentialRequestEvent>();
 
 export function isCredentialRequestKind(method: string): method is HermesCredentialRequestKind {
   return (CREDENTIAL_REQUEST_KINDS as readonly string[]).includes(method);
@@ -35,8 +33,10 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+/** Park a credential request until the user answers it; `respond` sends the answer. */
 export function parkCredentialRequest(
-  request: ServerRequest
+  request: ServerRequest,
+  respond: ParkedResponder = request.respond
 ): HermesChatCredentialRequestEvent | null {
   if (!isCredentialRequestKind(request.method)) return null;
   const params = request.params ?? {};
@@ -70,7 +70,7 @@ export function parkCredentialRequest(
       break;
   }
 
-  pendingByRpcId.set(request.id, { request, event });
+  parked.park(event, respond);
   return event;
 }
 
@@ -78,14 +78,15 @@ function validValue(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_VALUE_LENGTH;
 }
 
-export function respondToCredentialRequest(
+/** Answer a parked credential request. It stays parked when the answer couldn't be sent. */
+export async function respondToCredentialRequest(
   payload: HermesChatCredentialRespondPayload
-): { success: boolean; error?: string } {
-  const pending = pendingByRpcId.get(payload.rpcRequestId);
+): Promise<{ success: boolean; error?: string }> {
+  const pending = parked.get(payload.rpcRequestId);
   if (!pending) {
     return { success: false, error: 'No pending credential request for that id' };
   }
-  const { kind } = pending.event;
+  const { kind } = pending;
 
   let value = '';
   if (kind === 'vault.save_login') {
@@ -106,15 +107,19 @@ export function respondToCredentialRequest(
     value = payload.value;
   }
 
-  pending.request.respond({ value });
-  pendingByRpcId.delete(payload.rpcRequestId);
-  return { success: true };
+  return parked.answer(payload.rpcRequestId, { value });
 }
 
-export function clearParkedCredentialRequests(): void {
-  pendingByRpcId.clear();
+/** Forget a parked credential request Hermes withdrew; true when one was parked. */
+export function dropParkedCredentialRequest(rpcRequestId: string): boolean {
+  return parked.drop(rpcRequestId);
+}
+
+/** Forget every parked credential request and return them. */
+export function clearParkedCredentialRequests(): HermesChatCredentialRequestEvent[] {
+  return parked.clear();
 }
 
 export function listParkedCredentialRequests(): HermesChatCredentialRequestEvent[] {
-  return Array.from(pendingByRpcId.values()).map((p) => p.event);
+  return parked.list();
 }

@@ -1,4 +1,5 @@
 import type { HermesChatUsageSnapshot } from '../../../shared/types/hermesChat';
+import { formatTokenCount } from '../../../shared/utils/format';
 
 /** Format context gauge labels per ADR 0004 — never show 0% when max is unknown. */
 export function formatContextGauge(usage?: HermesChatUsageSnapshot | null): {
@@ -71,15 +72,6 @@ export function splitContextBar(
   const width = Math.max(0, Math.min(100, percent));
   const conversationWidth = (width * conversation) / total;
   return { overhead: width - conversationWidth, conversation: conversationWidth };
-}
-
-export function formatTokenCount(n: number): string {
-  if (n >= 1000) {
-    const k = n / 1000;
-    if (Number.isInteger(k)) return `${k}k`;
-    return `${k.toFixed(1)}k`;
-  }
-  return String(Math.round(n));
 }
 
 export function formatPhaseLine(opts: {

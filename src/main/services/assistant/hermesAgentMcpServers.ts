@@ -1,7 +1,3 @@
-import { load as loadYaml } from 'js-yaml';
-import { buildHermesConfigGetExec, buildHermesConfigSetExec } from './hermesConfigSetExec';
-import type { HermesConfigCompose } from './hermesProfileLimits';
-
 /**
  * MCP servers an agent's profile gets from the default profile. Boundary creates agent profiles
  * fresh (`clone_from: null`), so they start with none, and the stack's bootstrap only registers
@@ -13,42 +9,23 @@ import type { HermesConfigCompose } from './hermesProfileLimits';
  */
 export const AGENT_MCP_SERVERS = ['opencode', 'searxng', 'todos'] as const;
 
-/** The server's entry from `hermes config get mcp_servers.<name>`, or null when unset or unreadable. */
-export function parseMcpServerEntry(stdout: string): Record<string, unknown> | null {
-  const text = stdout.trim();
-  if (!text || /^(Config key not set|Error)\b/m.test(text)) return null;
-  try {
-    const entry = loadYaml(text);
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-    const url = (entry as Record<string, unknown>).url;
-    return typeof url === 'string' && url.trim() ? (entry as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Copy each listed server the default profile has into `profile`, replacing the profile's own
- * entry so a rotated token or a moved URL follows. Entries can carry Authorization headers, so
- * they go to Hermes through the environment, never argv, and are never logged. Returns the
- * names copied.
+ * The listed servers the default profile has (an entry with a url), as `mcp_servers.<name>`
+ * entries to write whole into an agent's profile, so a rotated token or a moved URL follows.
+ * Entries can carry Authorization headers, so they are never logged.
  */
-export async function copyDefaultMcpServers(
-  compose: HermesConfigCompose,
-  profile: string
-): Promise<string[]> {
-  if (!profile) return [];
-  const copied: string[] = [];
+export function defaultMcpServerEntries(
+  defaultConfig: Record<string, unknown> | null | undefined
+): Array<[string, Record<string, unknown>]> {
+  const servers = defaultConfig?.mcp_servers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return [];
+  const out: Array<[string, Record<string, unknown>]> = [];
   for (const name of AGENT_MCP_SERVERS) {
-    const key = `mcp_servers.${name}`;
-    const { stdout } = await compose(buildHermesConfigGetExec('', key).args, { timeout: 60_000 });
-    const entry = parseMcpServerEntry(stdout);
-    if (!entry) continue;
-    const { args, env } = buildHermesConfigSetExec(profile, key, JSON.stringify(entry), {
-      secret: true,
-    });
-    await compose(args, { timeout: 60_000, env });
-    copied.push(name);
+    const entry = (servers as Record<string, unknown>)[name];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const url = (entry as Record<string, unknown>).url;
+    if (typeof url !== 'string' || !url.trim()) continue;
+    out.push([`mcp_servers.${name}`, entry as Record<string, unknown>]);
   }
-  return copied;
+  return out;
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHermesConfigSetExec,
   HERMES_CONFIG_SECRET_ENV,
-  redactSecrets,
 } from '../hermesConfigSetExec';
 
 describe('buildHermesConfigSetExec', () => {
@@ -20,13 +19,5 @@ describe('buildHermesConfigSetExec', () => {
     expect(args).toContain(HERMES_CONFIG_SECRET_ENV);
     expect(args.slice(-4)).toEqual(['hermes', 'config', 'set', 'model.api_key']);
     expect(env).toEqual({ [HERMES_CONFIG_SECRET_ENV]: 'sk-live-123' });
-  });
-});
-
-describe('redactSecrets', () => {
-  it('replaces every occurrence and ignores empty secrets', () => {
-    expect(redactSecrets('Command failed: set k sk-1 (sk-1)', ['sk-1', undefined, ''])).toBe(
-      'Command failed: set k «redacted» («redacted»)'
-    );
   });
 });

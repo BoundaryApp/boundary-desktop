@@ -37,31 +37,3 @@ export function buildHermesConfigSetExec(
     env: { [HERMES_CONFIG_SECRET_ENV]: value },
   };
 }
-
-/**
- * Read one config value. `hermes config get` exits 1 for an unset key, which Compose would
- * report as a failure, so the shell turns that into stdout: see {@link parseHermesConfigGet}.
- */
-export function buildHermesConfigGetExec(profile: string, key: string): { args: string[] } {
-  const hermesArgs = profile === '' ? ['hermes'] : ['hermes', '-p', profile];
-  return {
-    args: ['exec', '-T', 'hermes', 'sh', '-c', '"$@" || true', 'sh', ...hermesArgs, 'config', 'get', key],
-  };
-}
-
-/** The value, `null` for an unset key, or `undefined` when the output is neither (an error). */
-export function parseHermesConfigGet(stdout: string): string | null | undefined {
-  const text = stdout.trim();
-  if (/^Config key not set\b/m.test(text)) return null;
-  if (!text || /^Error\b/m.test(text) || text.includes('\n')) return undefined;
-  return text;
-}
-
-/** Replace every occurrence of each non-empty secret in `text`. */
-export function redactSecrets(text: string, secrets: Array<string | undefined>): string {
-  let out = text;
-  for (const secret of secrets) {
-    if (secret) out = out.split(secret).join('«redacted»');
-  }
-  return out;
-}

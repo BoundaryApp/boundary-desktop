@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { within, act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { clearChatScreenSnapshot } from '../chatScreenCache';
 import type { HermesChatThreadSummary } from '../../../../shared/types/hermesChat';
 
@@ -11,20 +12,26 @@ const listThreads = vi.fn();
 const branchChat = vi.fn();
 const sessionsChanged = vi.hoisted(() => ({ notify: () => undefined as void }));
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
     probeSlotHealth: vi.fn().mockResolvedValue({ success: true }),
   },
-}));
-
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
+  hermesChat: {
     listThreads: (...args: unknown[]) => listThreads(...args),
     branchChat: (...args: unknown[]) => branchChat(...args),
-    listProjects: vi.fn().mockResolvedValue({ success: true, activeId: null, projects: [] }),
-    selectProject: vi.fn().mockResolvedValue({ success: true }),
-    listAgents: vi.fn().mockResolvedValue({
+    onSessionsChanged: (cb: () => void) => {
+      sessionsChanged.notify = cb;
+      return () => undefined;
+    },
+  },
+  projects: {
+    list: vi.fn().mockResolvedValue({ success: true, activeId: null, projects: [] }),
+    select: vi.fn().mockResolvedValue({ success: true }),
+    inspectSources: vi.fn().mockResolvedValue({ success: false }),
+  },
+  agents: {
+    list: vi.fn().mockResolvedValue({
       success: true,
       agents: [
         {
@@ -38,20 +45,17 @@ vi.mock('../../../services/hermesChatIPCService', () => ({
       ],
       standingDmByAgent: { assistant: 't-dm' },
     }),
-    listChannels: vi.fn().mockResolvedValue({
+    getSoul: vi.fn().mockResolvedValue({ success: true, excerpt: null, canOpen: false }),
+  },
+  channels: {
+    list: vi.fn().mockResolvedValue({
       success: true,
       channels: [],
       lastOpened: { kind: 'dm', id: 't-dm' },
     }),
     setLastOpened: vi.fn().mockResolvedValue({ success: true }),
-    inspectSources: vi.fn().mockResolvedValue({ success: false }),
-    getAgentSoul: vi.fn().mockResolvedValue({ success: true, excerpt: null, canOpen: false }),
-    onSessionsChanged: (cb: () => void) => {
-      sessionsChanged.notify = cb;
-      return () => undefined;
-    },
   },
-}));
+});
 
 // Stands in for the runtime provider: opening the branch resolves its stored id to a
 // runtime id, as session.resume does.

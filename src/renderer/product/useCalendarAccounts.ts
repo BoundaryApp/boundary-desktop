@@ -1,38 +1,56 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalendarAccountView } from '../../shared/types/calendars';
-import { calendarIPC } from '../services/calendarIPCService';
 
-/**
- * The connected calendars, kept current through `calendars:changed`. Null until they load, and
- * in a window without the calendar API.
- */
-export function useCalendarAccounts(): CalendarAccountView[] | null {
+const LOAD_FAILED = 'Couldn’t load calendars.';
+
+export interface CalendarAccountList {
+  /** Null until the first list answers. A failed reload keeps the last list. */
+  accounts: CalendarAccountView[] | null;
+  error: string | null;
+  reload: () => Promise<void>;
+  /** Take a list from another call that returns one (Settings' recheck on open). */
+  replace: (accounts: CalendarAccountView[]) => void;
+}
+
+/** The connected calendars, kept current through `calendars:changed`, with the load error. */
+export function useCalendarAccountList(): CalendarAccountList {
   const [accounts, setAccounts] = useState<CalendarAccountView[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      try {
-        void calendarIPC
-          .list()
-          .then((result) => {
-            if (alive && result.success) setAccounts(result.accounts);
-          })
-          .catch((): void => undefined);
-      } catch {
-        /* no calendar API in this window */
-      }
-    };
-    load();
-    let unsubscribe: (() => void) | null = null;
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  const reload = useCallback(async () => {
+    let failure: string | null = null;
+    let next: CalendarAccountView[] | null = null;
     try {
-      unsubscribe = calendarIPC.onChanged(load);
+      const result = await window.electronAPI.calendars.list();
+      if (result.success) next = result.accounts;
+      else failure = result.error ?? LOAD_FAILED;
     } catch {
-      unsubscribe = null;
+      failure = LOAD_FAILED;
     }
-    return () => {
-      alive = false;
-      unsubscribe?.();
-    };
+    if (!alive.current) return;
+    if (next) setAccounts(next);
+    setError(failure);
   }, []);
-  return accounts;
+
+  const replace = useCallback((next: CalendarAccountView[]) => {
+    if (alive.current) setAccounts(next);
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    void reload();
+    const unsubscribe = window.electronAPI.calendars.onChanged(() => void reload());
+    return () => {
+      alive.current = false;
+      unsubscribe();
+    };
+  }, [reload]);
+
+  return { accounts, error, reload, replace };
+}
+
+/** The connected calendars, kept current through `calendars:changed`. Null until they load. */
+export function useCalendarAccounts(): CalendarAccountView[] | null {
+  return useCalendarAccountList().accounts;
 }

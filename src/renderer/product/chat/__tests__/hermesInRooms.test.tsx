@@ -1,11 +1,13 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { AgentProfile, ChannelRecord } from '../../../../shared/types/hermesChat';
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: { getAgentSoul: vi.fn().mockResolvedValue({ success: true }), revealAgentSoul: vi.fn() },
-}));
+stubElectronAPI({
+  agents: { getSoul: vi.fn().mockResolvedValue({ success: true }), revealSoul: vi.fn() },
+});
+
 vi.mock('../ProjectSourcesRail', () => ({ ProjectSourcesRail: () => null }));
 
 import { ChannelCreateSheet } from '../ChannelSheets';
@@ -75,16 +77,20 @@ describe('Hermes in channels (ADR 0023 §9)', () => {
         activeChannel={room}
         activeAgent={null}
         agents={[hermes, ana, ben]}
-        project={null}
-        inspect={null}
         threadId="s-room"
-        onChangeFolder={() => undefined}
-        onChooseFolder={() => undefined}
-        onRevealHub={() => undefined}
-        onRevealSource={() => undefined}
-        onRefreshIndex={() => undefined}
-        onAddFolder={() => undefined}
-        onRemoveSource={() => undefined}
+        projectTab={{
+          project: null,
+          inspect: null,
+          connecting: false,
+          rpcAvailable: true,
+          onChangeFolder: () => undefined,
+          onChooseFolder: () => undefined,
+          onRevealHub: () => undefined,
+          onRevealSource: () => undefined,
+          onRefreshIndex: () => undefined,
+          onAddFolder: () => undefined,
+          onRemoveSource: () => undefined,
+        }}
         onMakeChannel={() => undefined}
         onAddToChannel={() => undefined}
         onAddMember={onAddMember}
@@ -109,16 +115,20 @@ describe('Hermes in channels (ADR 0023 §9)', () => {
         activeChannel={{ ...room, memberSlugs: ['ana'] }}
         activeAgent={null}
         agents={[ana, hermes]}
-        project={null}
-        inspect={null}
         threadId="s-room"
-        onChangeFolder={() => undefined}
-        onChooseFolder={() => undefined}
-        onRevealHub={() => undefined}
-        onRevealSource={() => undefined}
-        onRefreshIndex={() => undefined}
-        onAddFolder={() => undefined}
-        onRemoveSource={() => undefined}
+        projectTab={{
+          project: null,
+          inspect: null,
+          connecting: false,
+          rpcAvailable: true,
+          onChangeFolder: () => undefined,
+          onChooseFolder: () => undefined,
+          onRevealHub: () => undefined,
+          onRevealSource: () => undefined,
+          onRefreshIndex: () => undefined,
+          onAddFolder: () => undefined,
+          onRemoveSource: () => undefined,
+        }}
         onMakeChannel={() => undefined}
         onAddToChannel={() => undefined}
         onAddMember={() => undefined}

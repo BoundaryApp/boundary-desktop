@@ -6,6 +6,8 @@
  * a single spike (fit of a straight line through the samples).
  */
 
+import { roundTenth } from '../../shared/lagProbe';
+
 export interface SeriesRule {
   /** Growth below this (in the series' unit) never counts. */
   minGrowth: number;
@@ -80,10 +82,10 @@ export class MemoryTrend {
       out.push({
         series,
         unit: this.units.get(series) ?? '',
-        baseline: round(baseline),
-        now: round(now),
-        growth: round(growth),
-        slopePerMin: round(slope),
+        baseline: roundTenth(baseline),
+        now: roundTenth(now),
+        growth: roundTenth(growth),
+        slopePerMin: roundTenth(slope),
         r2: Math.round(r2 * 100) / 100,
         samples: list.length,
         growing,
@@ -132,6 +134,3 @@ export function fitLine(points: [number, number][]): { slope: number; r2: number
   return { slope, r2 };
 }
 
-function round(value: number): number {
-  return Math.round(value * 10) / 10;
-}

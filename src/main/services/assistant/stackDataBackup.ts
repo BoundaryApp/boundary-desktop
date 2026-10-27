@@ -7,7 +7,7 @@ import path from 'node:path';
  * forward on first start), and LightRAG's storage and graph. The stack's CHANGELOG asks for
  * a copy of each, taken with the containers stopped, before the pin moves.
  */
-export const UPGRADE_BACKUP_DATA_DIRS: readonly string[] = ['hermes', 'n8n', 'rag_storage', 'neo4j'];
+const UPGRADE_BACKUP_DATA_DIRS: readonly string[] = ['hermes', 'n8n', 'rag_storage', 'neo4j'];
 
 /**
  * Copy the data directories in {@link UPGRADE_BACKUP_DATA_DIRS} to `<backupsRoot>/<name>`,

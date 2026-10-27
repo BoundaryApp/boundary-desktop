@@ -8,7 +8,7 @@ import path from 'node:path';
  *
  * Keep in sync with the stack's .gitignore (local runtime, secrets, generated overlays).
  */
-export const PRESERVED_PROJECT_PATHS: readonly string[] = [
+const PRESERVED_PROJECT_PATHS: readonly string[] = [
   // Hermes state and profiles (vaults, sessions, memories), WebUI, databases, projects.
   'data',
   // Generated secrets and Boundary's settings; setup.sh fills in only what is missing.
@@ -43,12 +43,30 @@ function exists(p: string): boolean {
   }
 }
 
+/** Steps that put a failed swap back, run newest first. */
+type UndoStep = () => Promise<void>;
+
+/** Paths a merge copy from `src` into `dest` would create: what only the new tree has. */
+function pathsOnlyIn(src: string, dest: string): string[] {
+  const added: string[] = [];
+  for (const name of fs.readdirSync(src)) {
+    const from = path.join(src, name);
+    const to = path.join(dest, name);
+    if (!exists(to)) {
+      added.push(to);
+    } else if (fs.lstatSync(from).isDirectory() && fs.lstatSync(to).isDirectory()) {
+      added.push(...pathsOnlyIn(from, to));
+    }
+  }
+  return added;
+}
+
 /**
  * Move one preserved path from the old tree into the new one. A directory is moved
  * whole, then anything only the new tree had (e.g. a tracked .gitkeep) is copied in
- * without overwriting.
+ * without overwriting. With `undo`, records how to move it back.
  */
-async function carryOver(from: string, to: string): Promise<void> {
+async function carryOver(from: string, to: string, undo?: UndoStep[]): Promise<void> {
   if (!exists(from)) {
     // Already moved; drop a leftover copy of the new tree's version, if any.
     await fs.promises.rm(`${to}.boundary-fresh`, { recursive: true, force: true });
@@ -62,9 +80,15 @@ async function carryOver(from: string, to: string): Promise<void> {
     await fs.promises.rename(to, fresh);
   }
   await fs.promises.rename(from, to);
+  undo?.push(() => fs.promises.rename(to, from));
   if (fresh) {
     const fromIsDir = fs.lstatSync(to).isDirectory();
     if (fromIsDir && fs.lstatSync(fresh).isDirectory()) {
+      // Undoing removes the new tree's files again, so the old tree goes back as it was.
+      const added = pathsOnlyIn(fresh, to);
+      undo?.push(async () => {
+        for (const p of added) await fs.promises.rm(p, { recursive: true, force: true });
+      });
       await fs.promises.cp(fresh, to, { recursive: true, force: false, errorOnExist: false });
     }
     await fs.promises.rm(fresh, { recursive: true, force: true });
@@ -77,13 +101,18 @@ async function carryOver(from: string, to: string): Promise<void> {
  * each move happens once, and a path already moved is skipped.
  */
 export async function completeProjectSwap(paths: ProjectSwapPaths): Promise<void> {
+  await finishSwap(paths);
+}
+
+async function finishSwap(paths: ProjectSwapPaths, undo?: UndoStep[]): Promise<void> {
   const { projectRoot, nextRoot, previousRoot, journalPath } = paths;
   if (exists(nextRoot)) {
     for (const rel of PRESERVED_PROJECT_PATHS) {
-      await carryOver(path.join(previousRoot, rel), path.join(nextRoot, rel));
+      await carryOver(path.join(previousRoot, rel), path.join(nextRoot, rel), undo);
     }
     if (!exists(projectRoot)) {
       await fs.promises.rename(nextRoot, projectRoot);
+      undo?.push(() => fs.promises.rename(projectRoot, nextRoot));
     }
   } else if (!exists(projectRoot) && exists(previousRoot)) {
     // The new tree is gone (e.g. temp cleanup). Put the old one back rather than lose it.
@@ -96,16 +125,38 @@ export async function completeProjectSwap(paths: ProjectSwapPaths): Promise<void
  * Replace the stack tree with `nextRoot` and keep the user's data and secrets.
  * The old tree is kept at `previousRoot` (code only, once its data has moved) until the
  * next upgrade, so nothing outside {@link PRESERVED_PROJECT_PATHS} is lost either.
+ *
+ * If a step fails, every move made so far is undone and the live tree is back as it was.
+ * If undoing fails too, the journal and `nextRoot` stay so the next launch can finish the
+ * swap; the caller must not delete `nextRoot` while the journal exists.
  */
 export async function swapProjectTreePreservingData(paths: ProjectSwapPaths): Promise<void> {
   const { projectRoot, previousRoot, journalPath } = paths;
   // The tree kept from the last upgrade holds only stack code by now.
   await fs.promises.rm(previousRoot, { recursive: true, force: true });
-  await fs.promises.writeFile(journalPath, `${JSON.stringify(paths, null, 2)}\n`, 'utf8');
-  if (exists(projectRoot)) {
-    await fs.promises.rename(projectRoot, previousRoot);
+  const undo: UndoStep[] = [];
+  try {
+    await fs.promises.writeFile(journalPath, `${JSON.stringify(paths, null, 2)}\n`, 'utf8');
+    if (exists(projectRoot)) {
+      await fs.promises.rename(projectRoot, previousRoot);
+      undo.push(() => fs.promises.rename(previousRoot, projectRoot));
+    }
+    await finishSwap(paths, undo);
+  } catch (error) {
+    try {
+      for (const step of undo.reverse()) await step();
+      await fs.promises.rm(journalPath, { force: true });
+    } catch (undoError) {
+      const message = error instanceof Error ? error.message : String(error);
+      const undoMessage = undoError instanceof Error ? undoError.message : String(undoError);
+      throw new Error(
+        `${message} (Boundary couldn’t undo the partial upgrade: ${undoMessage}. ` +
+          'It will finish the upgrade on the next launch; your data is still on disk.)',
+        { cause: undoError }
+      );
+    }
+    throw error;
   }
-  await completeProjectSwap(paths);
 }
 
 /** If a swap was interrupted, finish it. Returns true when there was one to finish. */

@@ -1,4 +1,5 @@
 import type { StartupDownload } from '../startupDownload';
+import type { IpcResult } from '../ipc/result';
 export type AssistantStackIsolationMode = 'default-ports' | 'offset-ports';
 
 export interface AssistantStackPorts {
@@ -68,19 +69,9 @@ export interface LastAppliedLlm {
   appliedAt: string;
 }
 
-export interface ApplyAssistantLlmPayload {
-  slot?: import('./onboarding').InferenceSlotId;
-}
+export type ApplyAssistantLlmResult = IpcResult;
 
-export interface ApplyAssistantLlmResult {
-  success: boolean;
-  error?: string;
-}
-
-export interface StopAssistantStackResult {
-  success: boolean;
-  error?: string;
-}
+export type StopAssistantStackResult = IpcResult;
 
 export type AssistantStackServiceProgressState =
   | 'pending'

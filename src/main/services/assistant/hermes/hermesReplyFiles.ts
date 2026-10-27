@@ -7,7 +7,10 @@ import type {
   HermesSaveReplyPayload,
   HermesSaveReplyResult,
 } from '../../../../shared/types/hermesChat';
+import { slugify } from '../../../../shared/utils/slug';
 import { getStoredHermesProject } from './hermesProjectStore';
+import { rememberDialogPick } from '../../dialogFolders';
+import { isPathUnder } from '../../hostPaths';
 
 /**
  * Reply extras that touch the host (message-actions spec, Phase 4). These are the
@@ -17,9 +20,8 @@ import { getStoredHermesProject } from './hermesProjectStore';
 
 /** Absolute host path for a project-relative path, or null if it would leave the folder. */
 export function resolveInsideProject(hostPath: string, relativePath: string): string | null {
-  const root = path.resolve(hostPath);
-  const target = path.resolve(root, relativePath);
-  return target === root || target.startsWith(`${root}${path.sep}`) ? target : null;
+  const target = path.resolve(hostPath, relativePath);
+  return isPathUnder(target, hostPath) ? target : null;
 }
 
 /** "cover-letter-for-acme.md" from the reply's first heading or line; dated fallback. */
@@ -29,12 +31,7 @@ export function suggestReplyFileName(markdown: string, now = new Date()): string
       .split('\n')
       .map((line) => line.replace(/^#+\s*|[*_`>]/g, '').trim())
       .find((line) => line.length > 0) ?? '';
-  const slug = firstLine
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-    .replace(/-+$/g, '');
+  const slug = slugify(firstLine, { max: 48 });
   if (slug) return `${slug}.md`;
   const day = now.toISOString().slice(0, 10);
   return `reply-${day}.md`;
@@ -54,6 +51,7 @@ export async function saveReplyToProject(
   const win = BrowserWindow.fromWebContents(sender);
   const picked = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
   if (picked.canceled || !picked.filePath) return { success: false, canceled: true };
+  rememberDialogPick(picked.filePath);
   try {
     const body = payload.content.endsWith('\n') ? payload.content : `${payload.content}\n`;
     await fs.writeFile(picked.filePath, body, 'utf8');

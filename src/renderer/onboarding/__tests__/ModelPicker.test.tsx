@@ -259,4 +259,58 @@ describe('ModelPicker', () => {
       'No Score',
     ]);
   });
+
+  it('marks a selection that differs from the saved model as not saved', () => {
+    const { rerender } = render(
+      <ModelPicker
+        models={models}
+        selectedModelId="provider/cheap"
+        savedModelId="provider/expensive"
+        onSelect={vi.fn()}
+        filterable
+        summaryAction={<button type="button">Save model</button>}
+      />
+    );
+    const summary = screen.getByRole('status', { name: 'Selected model' });
+    expect(within(summary).getByText('New selection · not saved')).toBeTruthy();
+    expect(within(summary).getByRole('button', { name: 'Save model' })).toBeTruthy();
+
+    rerender(
+      <ModelPicker
+        models={models}
+        selectedModelId="provider/cheap"
+        savedModelId="provider/cheap"
+        onSelect={vi.fn()}
+        filterable
+      />
+    );
+    expect(screen.queryByText('New selection · not saved')).toBeNull();
+  });
+
+  it('ties each label to its own control when two pickers share a page', () => {
+    render(
+      <div>
+        <div data-testid="local">
+          <ModelPicker
+            models={[{ id: 'qwen' }]}
+            selectedModelId="qwen"
+            onSelect={vi.fn()}
+            label="Local model"
+          />
+        </div>
+        <div data-testid="openrouter">
+          <ModelPicker
+            models={[{ id: 'gpt' }]}
+            selectedModelId="gpt"
+            onSelect={vi.fn()}
+            label="OpenRouter model"
+            filterable
+          />
+        </div>
+      </div>
+    );
+    const openRouter = screen.getByLabelText('OpenRouter model');
+    expect(screen.getByTestId('openrouter').contains(openRouter)).toBe(true);
+    expect(screen.getByTestId('local').contains(screen.getByLabelText('Local model'))).toBe(true);
+  });
 });

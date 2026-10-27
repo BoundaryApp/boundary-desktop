@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useEscapeToClose } from '../useAppShortcuts';
+import { Sheet } from '../../components/ui/sheet';
 
 interface EmptyProjectSheetProps {
   open: boolean;
@@ -17,7 +17,6 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
   onCreate,
   onCancel,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -31,29 +30,16 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
   };
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-empty-project-title">
-        <div className="wb-sheet-kicker">New project · no folder yet</div>
-        <h2 id="wb-empty-project-title">Create empty project</h2>
-        <p className="wb-sheet-lede">
-          Boundary keeps its files in its own data folder. You can attach folders from this Mac
-          later in the Project tab.
-        </p>
-        <label className="wb-field">
-          <span>Name</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit();
-            }}
-            disabled={busy}
-            autoFocus
-            placeholder="Trip planning"
-          />
-        </label>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-empty-project-title"
+      kicker="New project · no folder yet"
+      title="Create empty project"
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -65,8 +51,26 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">
+        Boundary keeps its files in its own data folder. You can attach folders from this Mac
+        later in the Project tab.
+      </p>
+      <label className="wb-field">
+        <span>Name</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+          disabled={busy}
+          autoFocus
+          placeholder="Trip planning"
+        />
+      </label>
+    </Sheet>
   );
 };

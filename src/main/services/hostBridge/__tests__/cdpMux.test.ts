@@ -2,23 +2,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CdpMux, type CdpClient } from '../cdpMux';
 import type { SitePolicy } from '../cdpPolicy';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = Record<string, any>;
 
 /** Enough of Chrome for routing tests: replies, and announces attaches before replying. */
 class FakeChrome {
   received: Json[] = [];
   targets: Json[] = [{ targetId: 'T1', type: 'page', url: 'https://example.com/' }];
+  /** Targets whose next attach fails, as when the page closes first. */
+  failAttach = new Set<string>();
+  /** While set, commands go unanswered. */
+  silent = false;
   private nextSession = 1;
   mux!: CdpMux;
 
   send = (message: Json) => {
     this.received.push(message);
+    if (this.silent) return;
     const reply = (result: Json = {}) => this.mux.handleChromeMessage({ id: message.id, result, ...(message.sessionId ? { sessionId: message.sessionId } : {}) });
     switch (message.method) {
       case 'Target.getTargets':
         return reply({ targetInfos: this.targets });
       case 'Target.attachToTarget': {
+        if (this.failAttach.delete(message.params.targetId)) {
+          return this.mux.handleChromeMessage({ id: message.id, error: { code: -32602, message: 'No target with given id found' } });
+        }
         const sessionId = `S${this.nextSession++}`;
         const targetInfo = this.targets.find((t) => t.targetId === message.params.targetId);
         this.mux.handleChromeMessage({ method: 'Target.attachedToTarget', params: { sessionId, targetInfo, waitingForDebugger: false } });
@@ -142,6 +149,49 @@ describe('CdpMux', () => {
     expect(a.events('Target.attachedToTarget')[0].params.sessionId).toBe(sessionId);
     cmd(a, 4, 'Page.enable', {}, sessionId);
     expect(a.replyTo(4)).toMatchObject({ result: {} });
+  });
+
+  it('gives a later attach to the client that asked, after an earlier attach failed', () => {
+    const a = connect();
+    const b = connect();
+    chrome.failAttach.add('T1');
+    cmd(a, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
+    expect(a.replyTo(1)?.error).toBeTruthy();
+    cmd(b, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
+    const sessionId = b.replyTo(1)?.result?.sessionId;
+    expect(b.events('Target.attachedToTarget').map((m) => m.params.sessionId)).toEqual([sessionId]);
+    expect(a.events('Target.attachedToTarget')).toHaveLength(0);
+    cmd(b, 2, 'Page.enable', {}, sessionId);
+    expect(b.replyTo(2)).toMatchObject({ result: {} });
+  });
+
+  it('forgets a queued attach when its client leaves or its page goes', () => {
+    const a = connect();
+    const b = connect();
+    // Chrome doesn't answer these attaches, so they stay queued.
+    chrome.silent = true;
+    cmd(a, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
+    mux.removeClient(a);
+    chrome.targets.push({ targetId: 'T2', type: 'page', url: 'https://example.org/' });
+    cmd(b, 1, 'Target.attachToTarget', { targetId: 'T2', flatten: true });
+    mux.handleChromeMessage({ method: 'Target.targetDestroyed', params: { targetId: 'T2' } });
+    chrome.silent = false;
+
+    const c = connect();
+    cmd(c, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
+    expect(c.events('Target.attachedToTarget').map((m) => m.params.sessionId)).toEqual([c.replyTo(1)?.result?.sessionId]);
+    mux.handleChromeMessage({ method: 'Target.targetCreated', params: { targetInfo: chrome.targets.at(-1) } });
+    cmd(c, 2, 'Target.attachToTarget', { targetId: 'T2', flatten: true });
+    expect(c.events('Target.attachedToTarget').at(-1)?.params.sessionId).toBe(c.replyTo(2)?.result?.sessionId);
+    expect(b.events('Target.attachedToTarget')).toHaveLength(0);
+  });
+
+  it('leaves pages on blocked sites out of Target.getTargets, as discovery does', () => {
+    policy = { blocked: ['blocked.example'], allowed: [] };
+    chrome.targets.push({ targetId: 'T9', type: 'page', url: 'https://blocked.example/inbox' });
+    const a = connect();
+    cmd(a, 1, 'Target.getTargets');
+    expect(a.replyTo(1)?.result.targetInfos.map((info: Json) => info.targetId)).toEqual(['T1']);
   });
 
   it('refuses navigation, new tabs and attaches to blocked sites', () => {

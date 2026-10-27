@@ -1,11 +1,12 @@
-import { useSyncExternalStore } from 'react';
 import type {
   CodingAgentBusy,
+  CodingCreateFolderResult,
   CodingFoldersResult,
+  CodingGrantPayload,
   CodingGrantRow,
 } from '../../../shared/types/codingFolders';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
 import { checklistStepFor, folderKey, type CodingPending } from './codingFolderView';
+import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
 
 /**
  * Coding-folder state shared by the Project tab and the add sheet (ADR 0028): the grant list,
@@ -36,46 +37,30 @@ const initial: CodingFoldersState = {
   error: null,
 };
 
-let state: CodingFoldersState = initial;
-const listeners = new Set<() => void>();
+const store = createIpcStore<CodingFoldersState>({
+  initial,
+  start: () => {
+    window.electronAPI.codingFolders.onProgress((message) => {
+      const step = checklistStepFor(message);
+      if (step !== null && Object.values(store.get().pending).includes('connecting')) {
+        setState({ step });
+      }
+    });
+    void refreshCodingFolders();
+  },
+});
 const changeListeners = new Set<() => void>();
-let progressUnsubscribe: (() => void) | null = null;
 
 function setState(patch: Partial<CodingFoldersState>): void {
-  state = { ...state, ...patch };
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  if (!progressUnsubscribe) {
-    try {
-      progressUnsubscribe = hermesChatIPC.onCodingFoldersProgress((message) => {
-        const step = checklistStepFor(message);
-        if (step !== null && Object.values(state.pending).includes('connecting')) {
-          setState({ step });
-        }
-      });
-    } catch {
-      progressUnsubscribe = () => undefined;
-    }
-  }
-  if (!state.loaded) void refreshCodingFolders();
-  return () => {
-    listeners.delete(listener);
-  };
+  store.update((state) => ({ ...state, ...patch }));
 }
 
 export function useCodingFolders(): CodingFoldersState {
-  return useSyncExternalStore(
-    subscribe,
-    () => state,
-    () => state
-  );
+  return useIpcStore(store);
 }
 
 export function getCodingFoldersState(): CodingFoldersState {
-  return state;
+  return store.get();
 }
 
 /** Called after every grant change so the screen can re-read the project's sources. */
@@ -97,14 +82,14 @@ function applyResult(result: CodingFoldersResult): void {
 
 export async function refreshCodingFolders(): Promise<void> {
   try {
-    applyResult(await hermesChatIPC.listCodingFolders());
+    applyResult(await window.electronAPI.codingFolders.list());
   } catch {
     setState({ loaded: true });
   }
 }
 
 function withPending(paths: readonly string[], kind: CodingPending | null) {
-  const pending = { ...state.pending };
+  const pending = { ...store.get().pending };
   for (const item of paths) {
     const key = folderKey(item);
     if (kind) pending[key] = kind;
@@ -128,8 +113,8 @@ export async function runCodingChange(
   } catch (error) {
     result = {
       success: false,
-      managed: state.managed,
-      grants: state.grants,
+      managed: store.get().managed,
+      grants: store.get().grants,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -137,7 +122,7 @@ export async function runCodingChange(
   const pending = withPending(paths, null);
   setState({
     pending,
-    step: Object.values(pending).includes('connecting') ? state.step : null,
+    step: Object.values(pending).includes('connecting') ? store.get().step : null,
     error:
       !result.success && result.error && !result.busy
         ? { hostPath: paths[0] ?? null, message: result.error }
@@ -154,10 +139,20 @@ interface QueuedChange {
   forced: boolean;
 }
 
+/**
+ * Whether a coding task is running. A rejected call counts as not busy: main checks again
+ * before a grant and answers with `busy`, which the caller then shows.
+ */
+export function readCodingAgentBusy(): Promise<CodingAgentBusy> {
+  return window.electronAPI.codingFolders
+    .busy()
+    .catch((): CodingAgentBusy => ({ busy: false, sessions: [] }));
+}
+
 const queue: QueuedChange[] = [];
 let polling = false;
 
-export const CODING_QUEUE_POLL_MS = 5_000;
+const CODING_QUEUE_POLL_MS = 5_000;
 
 async function pollQueue(pollMs: number): Promise<void> {
   if (polling) return;
@@ -166,9 +161,7 @@ async function pollQueue(pollMs: number): Promise<void> {
     while (queue.length > 0) {
       const next = queue[0];
       if (!next.forced) {
-        const busy = await hermesChatIPC
-          .codingAgentBusy()
-          .catch((): CodingAgentBusy => ({ busy: false, sessions: [] }));
+        const busy = await readCodingAgentBusy();
         if (busy.busy) {
           setState({ waitingFor: busy.sessions });
           await new Promise((resolve) => setTimeout(resolve, pollMs));
@@ -202,6 +195,68 @@ export function queueCodingChange(
   });
 }
 
+/** Add now, stop the running task and add, or add when it finishes. */
+export type CodingChangeMode = 'now' | 'stop' | 'queue';
+
+/** A grant change; `stopRunningTask` is true only for "Stop task and add". */
+export type CodingChangeRun<R extends CodingFoldersResult = CodingFoldersResult> = (
+  stopRunningTask: boolean
+) => Promise<R>;
+
+/** Run a grant change in the way the user chose. */
+export function codingChange<R extends CodingFoldersResult>(
+  paths: readonly string[],
+  mode: CodingChangeMode,
+  run: CodingChangeRun<R>
+): Promise<R> {
+  return (
+    mode === 'queue'
+      ? queueCodingChange(paths, run)
+      : runCodingChange(paths, () => run(mode === 'stop'))
+  ) as Promise<R>;
+}
+
+/** Grant coding access to a folder, then list it in the project once the grant is in. */
+export function grantAndList(
+  payload: Omit<CodingGrantPayload, 'stopRunningTask'>
+): CodingChangeRun {
+  return async (stopRunningTask) => {
+    const result = await window.electronAPI.codingFolders.grant({ ...payload, stopRunningTask });
+    if (payload.projectId && result.grants.some((grant) => grant.resource === payload.hostPath)) {
+      await window.electronAPI.projects.addSourceFolder({
+        projectId: payload.projectId,
+        hostPath: payload.hostPath,
+      });
+    }
+    return result;
+  };
+}
+
+/** Create a folder with a coding grant, then list it in the project once the grant is in. */
+export function createAndList(payload: {
+  projectId: string | null;
+  parent: string;
+  name: string;
+  initGit: boolean;
+}): CodingChangeRun<CodingCreateFolderResult> {
+  return async (stopRunningTask) => {
+    const result = await window.electronAPI.codingFolders.createFolder({
+      ...payload,
+      grant: true,
+      stopRunningTask,
+    });
+    const hostPath = result.hostPath;
+    if (
+      payload.projectId &&
+      hostPath &&
+      result.grants.some((grant) => grant.resource === hostPath)
+    ) {
+      await window.electronAPI.projects.addSourceFolder({ projectId: payload.projectId, hostPath });
+    }
+    return result;
+  };
+}
+
 /** "Stop task and add now" for everything queued. */
 export function forceQueuedCodingChanges(): void {
   for (const item of queue) item.forced = true;
@@ -219,10 +274,8 @@ export function dismissCodingError(): void {
 
 /** Test-only. */
 export function resetCodingFoldersStoreForTests(): void {
-  state = initial;
+  store.reset();
   queue.length = 0;
   polling = false;
-  progressUnsubscribe = null;
-  listeners.clear();
   changeListeners.clear();
 }

@@ -1,7 +1,5 @@
-import type { ProviderId, StackVariableDef } from './infrastructure';
 import type { SecretPreview } from './secrets';
-
-export type ProviderSetupValue = string | number | boolean;
+import type { IpcResult } from '../ipc/result';
 
 export type LlmConnectionKind = 'manual' | 'local-llm' | 'oauth' | 'infrastructure';
 export type LlmModelChangePolicy = 'fixed' | 'selectable';
@@ -40,21 +38,6 @@ export interface ListedModel {
 export type InferenceSlotId = 'local' | 'openrouter' | 'infrastructure';
 export type LlmSlotHealth = 'unknown' | 'reachable' | 'unreachable' | 'unauthorized';
 
-export interface LlmConnectionStatus {
-  configured: boolean;
-  endpointUrl?: string;
-  modelId?: string;
-  provider?: string;
-  providerDisplayName?: string;
-  authScheme?: 'bearer' | 'api-key';
-  capabilities?: LlmConnectionCapabilities;
-  apiKey?: SecretPreview;
-  encryptionAvailable: boolean;
-  pending?: PendingProviderSetup;
-  health?: LlmSlotHealth;
-  lastSeenAt?: string;
-}
-
 export interface LlmSlotStatus {
   configured: boolean;
   endpointUrl?: string;
@@ -76,9 +59,6 @@ export interface InferenceProvidersStatus {
   pending?: PendingProviderSetup;
 }
 
-/** @deprecated Use InferenceProvidersStatus */
-export type OpenAiOnboardingStatus = InferenceProvidersStatus;
-
 export function emptyInferenceProvidersStatus(
   encryptionAvailable = true
 ): InferenceProvidersStatus {
@@ -90,25 +70,13 @@ export function emptyInferenceProvidersStatus(
   };
 }
 
-export function defaultSlotStatus(
-  status: InferenceProvidersStatus | null | undefined
-): LlmSlotStatus | undefined {
-  if (!status?.appDefault) return undefined;
-  return status.slots[status.appDefault];
-}
-
+/** A provider setup an experiment started and has not finished; status reports it until a slot is configured. */
 export interface PendingProviderSetup {
-  providerId: OnboardingProviderId;
+  providerId: string;
   providerName: string;
   instanceId: string;
   taskId: string;
   startedAt: string;
-}
-
-export interface SaveOpenAiConfigInput {
-  endpointUrl: string;
-  apiKey?: string;
-  modelId?: string;
 }
 
 export interface SaveLlmConnectionInput {
@@ -123,22 +91,17 @@ export interface SaveLlmConnectionInput {
   slot?: InferenceSlotId;
 }
 
-export interface SaveLlmConnectionResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
+/** A change to the inference connections, with the status after it. */
+export type InferenceStatusResult = IpcResult<{ status?: InferenceProvidersStatus }>;
+
+export type SaveLlmConnectionResult = InferenceStatusResult;
 
 export interface UpdateLlmModelInput {
   modelId: string;
   slot?: InferenceSlotId;
 }
 
-export interface UpdateLlmModelResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
+export type UpdateLlmModelResult = InferenceStatusResult;
 
 export interface SendLlmTestMessageInput {
   message: string;
@@ -149,11 +112,7 @@ export interface SetAppDefaultInput {
   slot: InferenceSlotId;
 }
 
-export interface SetAppDefaultResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
+export type SetAppDefaultResult = InferenceStatusResult;
 
 export interface ProbeSlotHealthInput {
   slot: InferenceSlotId;
@@ -228,169 +187,11 @@ export interface StartOAuthPkceResult {
   error?: string;
 }
 
-export interface CancelOAuthPkceResult {
-  success: boolean;
-  error?: string;
-}
+export type CancelOAuthPkceResult = IpcResult;
 
-export interface SaveOpenAiConfigResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
+export type SaveOpenAiConfigResult = InferenceStatusResult;
 
-export interface ClearOpenAiConfigResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
-
-export type OnboardingProviderId = 'baseten' | 'cerebrium' | 'modal' | 'beam';
-
-export interface OnboardingProviderConfig {
-  id: OnboardingProviderId;
-  name: string;
-  description: string;
-  status: 'available' | 'coming-soon';
-  capability: string;
-  infrastructureProvider?: ProviderId;
-  modelId?: string;
-  fields: StackVariableDef[];
-  capabilities?: {
-    authFieldName?: string;
-    deploymentListing?: boolean;
-    endpointAdoption?: boolean;
-    deployableModels?: boolean;
-    /**
-     * Credential fields that must be collected before the model picker is shown
-     * (e.g. Cerebrium token + project ID for plan-limit filtering).
-     */
-    accountCredentialFields?: string[];
-  };
-}
-
-export interface StartProviderSetupInput {
-  providerId: OnboardingProviderId;
-  modelId?: string;
-  values: Record<string, ProviderSetupValue>;
-}
-
-export interface StartProviderSetupResult {
-  success: boolean;
-  pending?: PendingProviderSetup;
-  error?: string;
-}
-
-export interface DiscoverProviderEndpointsInput {
-  providerId: OnboardingProviderId;
-  values: Record<string, ProviderSetupValue>;
-}
-
-export interface DiscoveredProviderEndpoint {
-  providerId: OnboardingProviderId;
-  providerName: string;
-  modelId: string;
-  deploymentId?: string;
-  displayName: string;
-  endpointUrl: string;
-  healthStatus?: string;
-  verified: boolean;
-}
-
-export interface DiscoverProviderEndpointsResult {
-  success: boolean;
-  endpoints: DiscoveredProviderEndpoint[];
-  error?: string;
-}
-
-export interface ListProviderDeploymentsInput {
-  providerId: OnboardingProviderId;
-  values: Record<string, ProviderSetupValue>;
-}
-
-export interface ListProviderDeploymentsResult {
-  success: boolean;
-  endpoints: DiscoveredProviderEndpoint[];
-  error?: string;
-}
-
-export interface OnboardingDeployableModel {
-  providerId: OnboardingProviderId;
-  modelId: string;
-  displayName: string;
-  description?: string;
-  gated: boolean;
-  recipeId: string;
-  requiredCredentials: StackVariableDef[];
-  alreadyDeployed?: boolean;
-  /** When false, the model should be shown but not deployable (e.g. plan limits). Default true. */
-  deployable?: boolean;
-  unavailableReason?: string;
-  /** e.g. "2× HOPPER_H100, 16 CPU, 160 GB" */
-  hardwareSummary?: string;
-}
-
-export interface ListDeployableModelsInput {
-  providerId: OnboardingProviderId;
-  values: Record<string, ProviderSetupValue>;
-}
-
-export interface ListDeployableModelsResult {
-  success: boolean;
-  models: OnboardingDeployableModel[];
-  error?: string;
-}
-
-export interface AdoptProviderEndpointInput {
-  providerId: OnboardingProviderId;
-  endpointUrl: string;
-  apiKey: string;
-  modelId?: string;
-  deploymentId?: string;
-}
-
-export interface AdoptProviderEndpointResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
-
-export interface ProviderFormDraft {
-  providerId: OnboardingProviderId;
-  values: Record<string, ProviderSetupValue>;
-  selectedModelId?: string;
-}
-
-export interface GetProviderFormDraftInput {
-  providerId: OnboardingProviderId;
-}
-
-export interface GetProviderFormDraftResult {
-  success: boolean;
-  draft?: ProviderFormDraft | null;
-  error?: string;
-}
-
-export interface SaveProviderFormDraftInput {
-  providerId: OnboardingProviderId;
-  values: Record<string, ProviderSetupValue>;
-  sensitiveNames: string[];
-  selectedModelId?: string;
-}
-
-export interface SaveProviderFormDraftResult {
-  success: boolean;
-  error?: string;
-}
-
-export interface ClearProviderFormDraftInput {
-  providerId?: OnboardingProviderId;
-}
-
-export interface ClearProviderFormDraftResult {
-  success: boolean;
-  error?: string;
-}
+export type ClearOpenAiConfigResult = InferenceStatusResult;
 
 export type LocalLlmRuntime = 'ollama' | 'lmstudio';
 
@@ -418,23 +219,8 @@ export interface AdoptLocalLlmInput {
   modelId?: string;
 }
 
-export interface AdoptLocalLlmResult {
-  success: boolean;
-  status?: InferenceProvidersStatus;
-  error?: string;
-}
-
-export interface DismissLocalLlmInput {
-  runtime: LocalLlmRuntime;
-  endpointUrl: string;
-}
-
-export interface DismissLocalLlmResult {
-  success: boolean;
-  error?: string;
-}
+export type AdoptLocalLlmResult = InferenceStatusResult;
 
 export interface LocalLlmChangedPayload {
   endpoints: DiscoveredLocalLlm[];
-  toastCandidates: DiscoveredLocalLlm[];
 }

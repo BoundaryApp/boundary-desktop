@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import type {
+  HermesChatBreakdownResult,
   AgentProfile,
   HermesChatCancelPayload,
   HermesChatCreateThreadResult,
@@ -16,7 +17,6 @@ import type {
   HermesChatStartResult,
   HermesChatThreadSummary,
   HermesChatToolEvent,
-  HermesChatTransport,
   HermesChatTurnStats,
   HermesConversationKind,
   HermesCreateHermesChatPayload,
@@ -29,8 +29,7 @@ import type { MessageCompletePayload } from './vendor/gateway-contract.generated
 import { BUILTIN_ASSISTANT_SLUG } from '../../../../shared/types/hermesChat';
 import { BOUNDARY_SESSION_SOURCE, getHermesGatewaySession } from './hermesGatewaySession';
 import { mapUsageSnapshot } from './hermesUsageMap';
-import { startHermesHttpChatStream } from './hermesHttpChat';
-import { extractPathsFromToolArgs } from './hermesToolPaths';
+import { extractPathsFromToolArgs } from '../../../../shared/hermesToolPaths';
 import { ensureHermesWebuiSyncToInsights } from './hermesWebuiSync';
 import { beginRunningTurn, endRunningTurn } from './hermesRunningTurns';
 import { buildCodingAccessRequest } from '../coding/codingAccessRequests';
@@ -74,8 +73,6 @@ import {
   setSessionChannelId,
   getStandingDmSessionId,
   setStandingDmSessionId,
-  getStoredSessionAlias,
-  setStoredSessionAlias,
   getOrchestratorRecord,
   getRoomSoulSent,
   setRoomSoulSent,
@@ -89,12 +86,15 @@ import {
   channelForSession,
   mergeChannelTranscript,
   moveChannelSession,
-  parseMemberMentions,
   reconcileChannelSessions,
 } from './hermesChannels';
+import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
-import { ensureResolvedInferenceReady } from './sessionInference';
-import { lagLog, roundMs } from '../../../perf/lagLog';
+import { newestFirst } from '../../../../shared/utils/sort';
+import { ensureResolvedInferenceReady, setSessionInferenceOverride } from './sessionInference';
+import { lagLog } from '../../../perf/lagLog';
+import { sendEvent as send } from '../../../ipc';
+import { roundTenth } from '../../../../shared/lagProbe';
 import { broadcastSessionsChanged, onHermesSessionsChanged } from './hermesSessionsChanged';
 import {
   describeRewindError,
@@ -109,18 +109,19 @@ import {
   settleInterruptedTurn,
   withReplyEndings,
 } from './hermesReplyEndings';
+import { logPostWithoutTurn, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
 
-function streamKey(webContentsId: number, requestId: string): string {
-  return `${webContentsId}:${requestId}`;
-}
-
-const activeStreams = new Map<string, AbortController>();
+/**
+ * Running turns by request id, with the chat ids each covers. Not tied to a window: a turn
+ * finishes when the window that started it closes (decision D4), and any window can stop it.
+ */
+const activeStreams = new Map<string, { controller: AbortController; sessionIds: string[] }>();
 
 const CONTINUE_UNSUPPORTED_MESSAGE =
   'Continue needs the local assistant stack, and is not available in channels.';
 const localThreads = new Map<string, HermesChatThreadSummary>();
-/** Thread ids minted only for HTTP fallback — remint on JSON-RPC connect. */
-const httpFallbackThreadIds = new Set<string>();
+/** An agent's DM before its first send: a local id with no Hermes session yet (openAgentDm). */
+const dmPlaceholderIds = new Set<string>();
 /** Session ids that exist only in WebUI JSON (not in gateway state.db). */
 const webuiOnlyThreadIds = new Set<string>();
 /**
@@ -141,15 +142,6 @@ function withUnlistedNewChats(
     else extra.push(thread);
   }
   return [...extra, ...sessions];
-}
-
-/** Last renderer that started a chat — used to deliver approval prompts. */
-let lastChatSender: WebContents | null = null;
-
-function send(sender: WebContents, channel: string, data: unknown): void {
-  if (!sender.isDestroyed()) {
-    sender.send(channel, data);
-  }
 }
 
 function titleFromMessages(messages: HermesChatMessage[]): string {
@@ -197,21 +189,6 @@ async function gateResolvedInference(
   };
 }
 
-function wireApprovalNotifier(): void {
-  const gateway = getHermesGatewaySession();
-  gateway.setStoredIdArchive({ get: getStoredSessionAlias, set: setStoredSessionAlias });
-  gateway.setApprovalNotifier((event) => {
-    if (lastChatSender && !lastChatSender.isDestroyed()) {
-      send(lastChatSender, 'hermes-chat:approval', event);
-    }
-  });
-  gateway.setCredentialRequestNotifier((event) => {
-    if (!lastChatSender || lastChatSender.isDestroyed()) return false;
-    send(lastChatSender, 'hermes-chat:credential-request', event);
-    return true;
-  });
-}
-
 /**
  * How long a turn may go without a Hermes event before Boundary asks whether it is still
  * running, on a gateway that sends no `turn.heartbeat`.
@@ -244,19 +221,30 @@ async function runJsonRpcTurn(
     /** Where to record who spoke; a room's stored id rather than the runtime id. */
     speakerKey?: string;
     /**
-     * Turn context for the model (a room's header). Sent as `prompt.submit`'s `context` when
-     * the gateway takes it, otherwise put above the message text.
+     * Turn context for the model (a room's header), sent as `prompt.submit`'s `context`.
+     * Put above the message text only when Hermes refuses it because a turn is running (4082).
      */
     context?: string;
+    /** What the turn's debug-log lines say about it. */
+    log?: TurnLogFields;
   }
 ): Promise<{ assistantText: string; noReply?: HermesNoReply }> {
   const gateway = getHermesGatewaySession();
   await gateway.ensureConnected();
-  wireApprovalNotifier();
   // A turn stopped just before this one may still be winding down on Hermes; a submit
   // now would land on a busy session and be redirected or queued instead of run.
   await sessionSettled(sessionId);
 
+  const turnLog = startTurnLog(
+    requestId,
+    sessionId,
+    opts?.log ?? {
+      kind: 'hermes',
+      trigger: 'sent',
+      agent: opts?.agentSlug ?? null,
+      profile: opts?.profile ?? null,
+    }
+  );
   let ended = false;
   let visibleTokens = 0;
   let toolTurn = 0;
@@ -272,7 +260,7 @@ async function runJsonRpcTurn(
   const agentSlug = opts?.agentSlug ?? null;
 
   try {
-    maxTurns = await gateway.getMaxTurns();
+    maxTurns = await gateway.getMaxTurns(profile);
   } catch {
     maxTurns = null;
   }
@@ -304,11 +292,17 @@ async function runJsonRpcTurn(
     }
     const ttftSec =
       firstEventAt != null ? (firstEventAt - startedAt) / 1000 : null;
+    turnLog.end({
+      ...turnOutcome(finishReason, complete, signal),
+      firstEventAt,
+      visibleTokens,
+      toolCalls: toolTurn,
+    });
     sendTurnStats(sender, {
       requestId,
       sessionId,
-      prompt: latestUsage?.prompt ?? latestUsage?.input ?? null,
-      generated: latestUsage?.completion ?? latestUsage?.output ?? null,
+      prompt: latestUsage?.prompt ?? null,
+      generated: latestUsage?.completion ?? null,
       visible: visibleTokens > 0 ? visibleTokens : null,
       ttftSec,
       avgTps: latestUsage?.avgTps ?? null,
@@ -526,6 +520,7 @@ async function runJsonRpcTurn(
       maxTurns: maxTurns ?? undefined,
       args: args ?? undefined,
       summary: payload?.summary ?? payload?.result_text ?? undefined,
+      result: payload?.result_text ?? undefined,
       durationSec:
         typeof payload?.duration_s === 'number' ? payload.duration_s : undefined,
       paths,
@@ -575,7 +570,7 @@ async function runJsonRpcTurn(
       ...(opts?.displayKind ? { displayKind: opts.displayKind } : {}),
     };
     const context = opts?.context;
-    if (context && (await gateway.supportsClientContext())) {
+    if (context) {
       try {
         await gateway.submitPrompt(sessionId, userText, { ...submitOpts, context });
       } catch (err) {
@@ -584,15 +579,14 @@ async function runJsonRpcTurn(
         await gateway.submitPrompt(sessionId, `${context}\n\n${userText}`, submitOpts);
       }
     } else {
-      await gateway.submitPrompt(
-        sessionId,
-        context ? `${context}\n\n${userText}` : userText,
-        submitOpts
-      );
+      await gateway.submitPrompt(sessionId, userText, submitOpts);
     }
     if (!ended && !signal.aborted) {
       await turnDone;
     }
+  } catch (err) {
+    turnLog.end({ outcome: 'failed', error: err, visibleTokens, toolCalls: toolTurn });
+    throw err;
   } finally {
     if (quietTimer) clearTimeout(quietTimer);
     clearInterval(preparingTicker);
@@ -676,6 +670,7 @@ async function runChannelWakeTurns(
   let lastSpeaker: Pick<AgentProfile, 'displayName' | 'handle'> | null = null;
   const spoken = new Set<string>();
   const queue = [...wakeSlugs];
+  const mentioned = new Set(wakeSlugs);
 
   while (queue.length > 0 && !signal.aborted) {
     const slug = queue.shift()!;
@@ -715,6 +710,13 @@ async function runChannelWakeTurns(
         // Chunks carry agentSlug; the renderer starts a new speaker's section from it.
         speakerKey: roomKey,
         context,
+        log: {
+          kind: 'channel',
+          trigger: mentioned.has(slug) ? 'woken' : 'chain-woken',
+          agent: slug,
+          profile: null,
+          speaker: slug,
+        },
       }
     );
     if (soulIsNew && soulHash) setRoomSoulSent(roomKey, slug, soulHash);
@@ -780,7 +782,7 @@ async function webuiSessionsForList(
   if (!webuiCache) {
     const started = performance.now();
     const list = await fetchWebuiList();
-    timing.webuiMs = roundMs(performance.now() - started);
+    timing.webuiMs = roundTenth(performance.now() - started);
     return list;
   }
   const cached = webuiCache;
@@ -794,7 +796,7 @@ async function webuiSessionsForList(
       lagLog({
         proc: 'main',
         kind: 'webui-list-refresh',
-        ms: roundMs(performance.now() - started),
+        ms: roundTenth(performance.now() - started),
         webui: list?.length ?? null,
         changed,
       });
@@ -835,7 +837,7 @@ export function listHermesChatThreads(): Promise<HermesChatListThreadsResult> {
 async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult> {
   const t0 = performance.now();
   const timing: Record<string, unknown> = {};
-  const since = (from: number) => roundMs(performance.now() - from);
+  const since = (from: number) => roundTenth(performance.now() - from);
   try {
     // Best-effort: project WebUI JSON chats into state.db so session.list sees them.
     ensureHermesWebuiSyncToInsights();
@@ -873,7 +875,6 @@ async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult>
       reconcileChannelSessions(gatewayListed, (id) => gateway.storedSessionId(id));
     }
 
-    // If both fail to produce anything and gateway threw, keep local fallback below.
     // When gateway.listSessions succeeds (even empty), merge with WebUI.
     const merged = performance.now();
     const sessions = withUnlistedNewChats(
@@ -899,24 +900,8 @@ async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult>
     });
     return { success: true, threads };
   } catch (err) {
-    // Last resort: still try WebUI-only list.
-    try {
-      const webuiSessions = (await fetchWebuiList()) ?? webuiCache?.list ?? [];
-      webuiOnlyThreadIds.clear();
-      for (const t of webuiSessions) webuiOnlyThreadIds.add(t.id);
-      if (webuiSessions.length > 0) {
-        localThreads.clear();
-        for (const s of webuiSessions) rememberThread(s);
-        return { success: true, threads: fileThreads(annotateThreadsWithAgents(webuiSessions)) };
-      }
-    } catch {
-      /* ignore */
-    }
-    return {
-      success: true,
-      threads: fileThreads(annotateThreadsWithAgents(Array.from(localThreads.values()))),
-      error: err instanceof Error ? err.message : String(err),
-    };
+    // Gateway and WebUI failures are caught above, so this is a bug in Boundary's own code.
+    return { success: false, threads: [], error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1062,20 +1047,8 @@ export async function createHermesChat(
     rememberThread(thread);
     unlistedNewChats.set(id, thread);
     return { success: true, thread };
-  } catch {
-    const thread: HermesChatThreadSummary = {
-      id: randomUUID(),
-      title: 'New chat',
-      updatedAt: new Date().toISOString(),
-      agentSlug,
-      kind: 'hermes',
-      projectId,
-    };
-    httpFallbackThreadIds.add(thread.id);
-    setSessionAgentSlug(thread.id, agentSlug);
-    setConversationProjectId([thread.id], projectId);
-    rememberThread(thread);
-    return { success: true, thread };
+  } catch (err) {
+    return { success: false, error: unreachableError(agentSlug, err) };
   }
 }
 
@@ -1098,7 +1071,7 @@ export async function openAgentDm(
 
   const standing = getStandingDmSessionId(agentSlug);
   // A placeholder is an empty DM: the agent's real conversation, if it has one, comes first.
-  const placeholder = standing ? httpFallbackThreadIds.has(standing) : false;
+  const placeholder = standing ? dmPlaceholderIds.has(standing) : false;
   if (standing && !placeholder && !(await isMissingSession(standing, agentSlug))) {
     const known = localThreads.get(standing);
     return {
@@ -1138,7 +1111,7 @@ export async function openAgentDm(
   }
 
   const id = randomUUID();
-  httpFallbackThreadIds.add(id);
+  dmPlaceholderIds.add(id);
   setSessionAgentSlug(id, agentSlug);
   setStandingDmSessionId(agentSlug, id);
   // A new DM starts working in the folder the user is looking at (ADR 0024 §7).
@@ -1159,13 +1132,13 @@ export async function openAgentDm(
   return { success: true, created: true, thread };
 }
 
-/**
- * Why an agent's turn didn't send. The HTTP fallback is the default assistant with none of the
- * agent's role or tools, so an agent's turn fails visibly instead.
- */
-function agentUnreachable(agentSlug: string, err: unknown): string {
-  const name = getStoredAgent(agentSlug)?.displayName ?? agentSlug;
+/** Why a send failed when the gateway couldn't be reached or failed mid-turn (decision D3). */
+function unreachableError(agentSlug: string, err: unknown): string {
   const reason = err instanceof Error ? err.message : String(err);
+  if (agentSlug === BUILTIN_ASSISTANT_SLUG) {
+    return `Couldn't reach the assistant stack: ${reason}. Check that it is running, then retry.`;
+  }
+  const name = getStoredAgent(agentSlug)?.displayName ?? agentSlug;
   return `Couldn't reach ${name} in the assistant stack: ${reason}`;
 }
 
@@ -1179,6 +1152,7 @@ async function isMissingSession(sessionId: string, agentSlug: string): Promise<b
     await getHermesGatewaySession().resumeSession(sessionId, {
       historyBudget: DM_HISTORY_BUDGET,
       profile: resolveProfileForAgent(agentSlug),
+      omitMessages: true,
     });
     return false;
   } catch (err) {
@@ -1206,7 +1180,7 @@ async function newestAgentConversation(
   const mine = listed.filter(
     (t) => t.id !== except && (!t.source || t.source === BOUNDARY_SESSION_SOURCE)
   );
-  mine.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+  mine.sort(newestFirst);
   return mine[0] ?? null;
 }
 
@@ -1280,7 +1254,7 @@ function resumeOptsFor(
 
 async function readHermesChatHistory(sessionId: string): Promise<HermesChatHistoryResult> {
   // A placeholder has no Hermes session until its first send.
-  if (httpFallbackThreadIds.has(sessionId)) return { success: true, messages: [], sessionId };
+  if (dmPlaceholderIds.has(sessionId)) return { success: true, messages: [], sessionId };
   try {
     const gateway = getHermesGatewaySession();
     // A room is read from its record's session, even if the renderer holds an older id.
@@ -1330,23 +1304,7 @@ async function readHermesChatHistory(sessionId: string): Promise<HermesChatHisto
       sessionId: runtimeId,
     };
   } catch (err) {
-    try {
-      const webuiMessages = await getWebuiSessionHistory(sessionId);
-      if (webuiMessages.length > 0) {
-        webuiOnlyThreadIds.add(sessionId);
-        return {
-          success: true,
-          messages: finishChannelHistory(sessionId, webuiMessages),
-          sessionId,
-        };
-      }
-    } catch {
-      /* ignore */
-    }
-    const overlay = finishChannelHistory(sessionId, []);
-    if (overlay.length > 0) {
-      return { success: true, messages: overlay, sessionId };
-    }
+    // Gateway and WebUI failures are caught above, so this is a bug in Boundary's own code.
     return {
       success: false,
       messages: [],
@@ -1357,7 +1315,7 @@ async function readHermesChatHistory(sessionId: string): Promise<HermesChatHisto
 
 export async function getHermesChatContextBreakdown(
   sessionId: string
-): Promise<{ success: boolean; breakdown?: unknown; error?: string }> {
+): Promise<HermesChatBreakdownResult> {
   try {
     const gateway = getHermesGatewaySession();
     const breakdown = await gateway.getContextBreakdown(sessionId);
@@ -1371,7 +1329,7 @@ export async function getHermesChatContextBreakdown(
 }
 
 /**
- * Resolves session + transport, returns immediately with those fields, then
+ * Resolves the session, returns immediately with it, then
  * streams in the background.
  */
 export async function startHermesChatStream(
@@ -1379,20 +1337,18 @@ export async function startHermesChatStream(
   payload: HermesChatStartPayload
 ): Promise<HermesChatStartResult> {
   const requestId = payload.requestId ?? randomUUID();
-  const key = streamKey(sender.id, requestId);
+  const key = requestId;
   const toolsEnabled = payload.toolsEnabled !== false;
-
-  lastChatSender = sender;
-  wireApprovalNotifier();
 
   const existing = activeStreams.get(key);
   if (existing) {
-    existing.abort();
+    existing.controller.abort();
     activeStreams.delete(key);
   }
 
   const controller = new AbortController();
-  activeStreams.set(key, controller);
+  const stream = { controller, sessionIds: payload.sessionId ? [payload.sessionId] : [] };
+  activeStreams.set(key, stream);
 
   // Continue sends Boundary's hidden instruction rather than the user's last turn.
   const continuing = payload.continue === true;
@@ -1409,7 +1365,6 @@ export async function startHermesChatStream(
   }
 
   let sessionId = payload.sessionId;
-  let transport: HermesChatTransport = 'http';
   const agentSlug =
     payload.agentSlug?.trim() ||
     (sessionId ? getSessionAgentSlug(sessionId) : null) ||
@@ -1419,30 +1374,18 @@ export async function startHermesChatStream(
   const channelMembers = channelEarly
     ? listStoredAgents().filter((a) => channelEarly.memberSlugs.includes(a.slug))
     : [];
-  const wakeSlugsEarly = channelEarly
-    ? parseMemberMentions(userText, channelMembers)
-    : [];
+  const wakeSlugs = channelEarly ? parseMemberMentions(userText, channelMembers) : [];
 
-  if (channelEarly && sessionId && wakeSlugsEarly.length === 0) {
+  // A room post that wakes nobody runs no turn.
+  if (channelEarly && sessionId && wakeSlugs.length === 0) {
     appendChannelPost(channelEarly.sessionId, { content: userText, delivery: 'posted' });
     touchChannelUpdatedAt(channelEarly);
-    if (localThreads.has(sessionId)) {
-      const prev = localThreads.get(sessionId)!;
-      rememberThread({
-        ...prev,
-        title:
-          prev.title === 'New chat' || !prev.title
-            ? titleFromMessages(payload.messages)
-            : prev.title,
-        updatedAt: new Date().toISOString(),
-      });
-    }
+    logPostWithoutTurn(requestId, sessionId);
     activeStreams.delete(key);
     return {
       success: true,
       requestId,
       sessionId,
-      transport: 'json-rpc',
       posted: true,
     };
   }
@@ -1459,6 +1402,9 @@ export async function startHermesChatStream(
         [sessionId],
         payload.projectId === undefined ? getActiveHermesProjectId() : payload.projectId
       );
+      if (payload.inference) {
+        await setSessionInferenceOverride({ sessionId, ...payload.inference });
+      }
       rememberThread({
         id: sessionId,
         title: titleFromMessages(payload.messages),
@@ -1467,10 +1413,10 @@ export async function startHermesChatStream(
         agentSlug,
         kind: claimNewSession(agentSlug, sessionId),
       });
-    } else if (httpFallbackThreadIds.has(sessionId)) {
+    } else if (dmPlaceholderIds.has(sessionId)) {
       const prev = localThreads.get(sessionId);
       const previousId = sessionId;
-      httpFallbackThreadIds.delete(sessionId);
+      dmPlaceholderIds.delete(sessionId);
       localThreads.delete(sessionId);
       sessionId = await gateway.createSessionWithSeed(
         newSessionOpts(agentSlug, profile, previousId)
@@ -1494,7 +1440,11 @@ export async function startHermesChatStream(
       let resumedOk = false;
       let resumeError: unknown = null;
       try {
-        const resumed = await gateway.resumeSession(sessionId, ...resumeOptsFor(sessionId));
+        // The send needs only the live session, not the transcript resume would return.
+        const resumed = await gateway.resumeSession(sessionId, {
+          ...resumeOptsFor(sessionId)[0],
+          omitMessages: true,
+        });
         resumedOk = true;
           if (resumed.sessionId !== sessionId) {
           const prev = localThreads.get(sessionId);
@@ -1522,7 +1472,7 @@ export async function startHermesChatStream(
         // A renderer may still hold a room's old id; its record may already be repaired.
         if (room && room.sessionId !== sessionId) {
           try {
-            const resumed = await gateway.resumeSession(room.sessionId);
+            const resumed = await gateway.resumeSession(room.sessionId, { omitMessages: true });
             setSessionChannelId(resumed.sessionId, room.id);
             sessionId = resumed.sessionId;
             resumedOk = true;
@@ -1599,54 +1549,16 @@ export async function startHermesChatStream(
             agentSlug,
             kind,
           });
-        } else if (localThreads.has(sessionId)) {
-          const prev = localThreads.get(sessionId)!;
-          rememberThread({
-            ...prev,
-            agentSlug: prev.agentSlug ?? agentSlug,
-            title:
-              prev.title === 'New chat'
-                ? titleFromMessages(payload.messages)
-                : prev.title,
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
+        } else if (!localThreads.has(sessionId)) {
+          // A chat the list already knows keeps its stored agent.
           setSessionAgentSlug(sessionId, agentSlug);
-          rememberThread({
-            id: sessionId,
-            title: titleFromMessages(payload.messages),
-            updatedAt: new Date().toISOString(),
-            agentSlug,
-            kind: conversationKindFor(sessionId, agentSlug),
-          });
         }
-      } else if (localThreads.has(sessionId)) {
-        const prev = localThreads.get(sessionId)!;
-        rememberThread({
-          ...prev,
-          title:
-            prev.title === 'New chat' ? titleFromMessages(payload.messages) : prev.title,
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        rememberThread({
-          id: sessionId,
-          title: titleFromMessages(payload.messages),
-          updatedAt: new Date().toISOString(),
-        });
       }
     }
-
-    transport = 'json-rpc';
 
     // The room was found from the id the renderer sent, before any resume swapped it.
     const channel = resolveChannel(sessionId) ?? channelEarly;
     const isChannel = Boolean(channel);
-    const channelMembers = channel
-      ? listStoredAgents().filter((a) => channel.memberSlugs.includes(a.slug))
-      : [];
-    const wakeSlugs = channel ? parseMemberMentions(userText, channelMembers) : [];
-    const postOnly = Boolean(channel) && wakeSlugs.length === 0;
 
     let truncate: { rowId: number; confirmEmpty: boolean } | undefined;
     if (payload.rewind) {
@@ -1666,42 +1578,22 @@ export async function startHermesChatStream(
       }
     }
 
-    if (!postOnly) {
-      const blocked = await gateResolvedInference(sender, requestId, sessionId);
-      if (blocked) {
-        activeStreams.delete(key);
-        return blocked;
-      }
+    const blocked = await gateResolvedInference(sender, requestId, sessionId);
+    if (blocked) {
+      activeStreams.delete(key);
+      return blocked;
     }
 
-    // A room post that wakes nobody runs no turn. A turn runs in its own project's folder.
-    if (!postOnly) {
-      await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
-      beginRunningTurn(
-        requestId,
-        [payload.sessionId, sessionId, sessionId ? durableSessionId(sessionId) : null],
-        isChannel ? null : agentSlug
-      );
-    }
+    // A turn runs in its own project's folder.
+    await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
+    const turnSessionIds = [payload.sessionId, sessionId, sessionId ? durableSessionId(sessionId) : null];
+    stream.sessionIds = turnSessionIds.filter((id): id is string => Boolean(id));
+    beginRunningTurn(requestId, turnSessionIds, isChannel ? null : agentSlug);
 
     void (async () => {
       try {
         if (isChannel && channel) {
-          const members = listStoredAgents().filter((a) =>
-            channel.memberSlugs.includes(a.slug)
-          );
-          const wakeSlugs = parseMemberMentions(userText, members);
           const roomKey = resolveChannel(sessionId)?.sessionId ?? channel.sessionId;
-          if (wakeSlugs.length === 0) {
-            appendChannelPost(roomKey, { content: userText, delivery: 'posted' });
-            touchChannelUpdatedAt(channel);
-            send(sender, 'hermes-chat:end', {
-              requestId,
-              sessionId,
-              finishReason: 'stop',
-            });
-            return;
-          }
           const wakePost = appendChannelPost(roomKey, {
             content: userText,
             delivery: 'woke',
@@ -1741,6 +1633,14 @@ export async function startHermesChatStream(
             emitEnd: true,
             truncate,
             ...(continuing ? { displayKind: 'hidden' as const } : {}),
+            log: {
+              kind: conversationKindFor(sessionId!, agentSlug),
+              trigger: 'sent',
+              agent: agentSlug,
+              profile,
+              continued: continuing,
+              rewind: Boolean(truncate),
+            },
           }
         );
         // Stop and Send now are noted once Hermes confirms the stop (settleInterruptedTurn).
@@ -1749,173 +1649,44 @@ export async function startHermesChatStream(
         }
       } catch (err) {
         if (controller.signal.aborted) return;
-        // A refused rewind must not fall back to an HTTP turn that Hermes never sees.
-        if (payload.rewind) {
-          send(sender, 'hermes-chat:error', { requestId, error: describeRewindError(err) });
-          return;
-        }
-        // Continue only means something to Hermes, which holds the partial.
-        if (continuing) {
-          send(sender, 'hermes-chat:error', {
-            requestId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return;
-        }
-        // Channel wake has no HTTP multi-profile fallback.
-        if (isChannel) {
-          send(sender, 'hermes-chat:error', {
-            requestId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return;
-        }
-        // The HTTP API runs as the default assistant: an agent's turn must not land there.
-        if (agentSlug !== BUILTIN_ASSISTANT_SLUG) {
-          send(sender, 'hermes-chat:error', { requestId, error: agentUnreachable(agentSlug, err) });
-          return;
-        }
-        try {
-          await startHermesHttpChatStream(payload.messages, controller.signal, {
-            onDelta: (delta) => send(sender, 'hermes-chat:chunk', { requestId, delta }),
-            onEnd: (finishReason) =>
-              send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason }),
-            onError: (error) => send(sender, 'hermes-chat:error', { requestId, error }),
-          });
-        } catch (httpErr) {
-          send(sender, 'hermes-chat:error', {
-            requestId,
-            error:
-              httpErr instanceof Error
-                ? httpErr.message
-                : err instanceof Error
-                  ? err.message
-                  : String(err),
-          });
-        }
+        // A refused rewind has its own message; a room's or Continue's error is Hermes's own.
+        const error = payload.rewind
+          ? describeRewindError(err)
+          : isChannel || continuing
+            ? err instanceof Error
+              ? err.message
+              : String(err)
+            : unreachableError(agentSlug, err);
+        send(sender, 'hermes-chat:error', { requestId, error });
       } finally {
         activeStreams.delete(key);
         endRunningTurn(requestId);
       }
     })();
 
-    return { success: true, requestId, sessionId, transport };
+    return { success: true, requestId, sessionId };
   } catch (err) {
-    if (channelEarly) {
-      activeStreams.delete(key);
-      return {
-        success: false,
-        requestId,
-        sessionId,
-        error: 'Channel wake needs the local assistant stack.',
-      };
-    }
-    if (agentSlug !== BUILTIN_ASSISTANT_SLUG) {
-      activeStreams.delete(key);
-      return { success: false, requestId, sessionId, error: agentUnreachable(agentSlug, err) };
-    }
-    /* fall through to HTTP */
-  }
-
-  if (payload.rewind) {
     activeStreams.delete(key);
     return {
       success: false,
       requestId,
       sessionId,
-      errorCode: 'rewind-unsupported',
-      error: 'Edit and Retry need the local assistant stack to be running.',
+      errorCode: 'gateway-unreachable',
+      error: channelEarly
+        ? 'Channel wake needs the local assistant stack.'
+        : unreachableError(agentSlug, err),
     };
   }
-
-  if (continuing) {
-    activeStreams.delete(key);
-    return { success: false, requestId, sessionId, error: CONTINUE_UNSUPPORTED_MESSAGE };
-  }
-
-  if (!sessionId) {
-    sessionId = randomUUID();
-    httpFallbackThreadIds.add(sessionId);
-    rememberThread({
-      id: sessionId,
-      title: titleFromMessages(payload.messages),
-      updatedAt: new Date().toISOString(),
-    });
-  } else if (localThreads.has(sessionId)) {
-    const prev = localThreads.get(sessionId)!;
-    rememberThread({
-      ...prev,
-      title:
-        prev.title === 'New chat' ? titleFromMessages(payload.messages) : prev.title,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  transport = 'http';
-
-  const blocked = await gateResolvedInference(sender, requestId, sessionId);
-  if (blocked) {
-    activeStreams.delete(key);
-    return blocked;
-  }
-
-  void (async () => {
-    try {
-      sendPhase(sender, {
-        requestId,
-        sessionId,
-        phase: 'preparing',
-        elapsedSec: 0,
-      });
-      await startHermesHttpChatStream(payload.messages, controller.signal, {
-        onDelta: (delta) => {
-          send(sender, 'hermes-chat:chunk', { requestId, delta });
-          sendPhase(sender, {
-            requestId,
-            sessionId,
-            phase: 'generating',
-          });
-        },
-        onEnd: (finishReason) => {
-          sendPhase(sender, { requestId, sessionId, phase: 'done' });
-          send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason });
-        },
-        onError: (error) => send(sender, 'hermes-chat:error', { requestId, error }),
-      });
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      send(sender, 'hermes-chat:error', {
-        requestId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      activeStreams.delete(key);
-    }
-  })();
-
-  return { success: true, requestId, sessionId, transport };
 }
 
-export function handleHermesChatCancel(
-  webContentsId: number,
-  payload: HermesChatCancelPayload
-): { success: boolean } {
-  const key = streamKey(webContentsId, payload.requestId);
-  const controller = activeStreams.get(key);
-  if (controller) {
+/** Stop a turn by its request id, or every turn of a chat when `sessionId` is given. */
+export function handleHermesChatCancel(payload: HermesChatCancelPayload): { success: boolean } {
+  for (const [key, stream] of activeStreams) {
+    const sessionId = payload.sessionId;
+    if (key !== payload.requestId && !(sessionId && stream.sessionIds.includes(sessionId))) continue;
     // The reason rides on the signal so the turn can note how its reply ended.
-    controller.abort(payload.reason ?? 'stopped');
+    stream.controller.abort(payload.reason ?? 'stopped');
     activeStreams.delete(key);
   }
   return { success: true };
-}
-
-export function cancelAllHermesChatStreamsForWebContents(webContentsId: number): void {
-  const prefix = `${webContentsId}:`;
-  for (const [key, controller] of activeStreams) {
-    if (key.startsWith(prefix)) {
-      controller.abort();
-      activeStreams.delete(key);
-    }
-  }
 }

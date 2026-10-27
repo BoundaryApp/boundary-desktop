@@ -1,11 +1,5 @@
 import type { DiscoveredLocalLlm } from './types/onboarding';
 
-export function localLlmOriginKey(
-  endpoint: Pick<DiscoveredLocalLlm, 'runtime' | 'baseUrl'>
-): string {
-  return `${endpoint.runtime}:${endpoint.baseUrl.replace(/\/$/, '')}`;
-}
-
 export function hasLoadedLocalLlmModel(endpoint: DiscoveredLocalLlm): boolean {
   return endpoint.models.some((model) => model.loaded);
 }

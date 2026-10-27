@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { PasswordsLoginsPanel } from '../PasswordsLoginsPanel';
 
 const vaultApi = {
@@ -12,7 +13,7 @@ const vaultApi = {
   unlockSource: vi.fn(),
   lockSource: vi.fn(),
 };
-const chatApi = { listAgents: vi.fn() };
+const agentsApi = { list: vi.fn() };
 
 const agents = [
   { slug: 'assistant', displayName: 'Hermes', handle: 'hermes', role: '', builtIn: true, createdAt: '' },
@@ -43,11 +44,8 @@ describe('PasswordsLoginsPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(window, 'electronAPI', {
-      value: { hermesVault: vaultApi, hermesChat: chatApi },
-      configurable: true,
-    });
-    chatApi.listAgents.mockResolvedValue({ success: true, agents, standingDmByAgent: {} });
+    stubElectronAPI({ hermesVault: vaultApi, agents: agentsApi });
+    agentsApi.list.mockResolvedValue({ success: true, agents, standingDmByAgent: {} });
     vaultApi.listLogins.mockResolvedValue({ success: true, logins: [] });
     vaultApi.listSources.mockResolvedValue({ success: true, sources: [] });
   });

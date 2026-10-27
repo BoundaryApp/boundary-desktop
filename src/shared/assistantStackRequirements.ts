@@ -17,8 +17,11 @@ export const ASSISTANT_STACK_REQUIREMENTS = {
   minCpuCores: 4,
   /** Free disk space in bytes (images + volumes for core+rag+automation+coding+db) */
   minFreeDiskBytes: 25 * 1024 * 1024 * 1024,
-  requireContainerRuntime: true,
-  requireComposeV2: true,
+  /**
+   * Oldest Compose whose `--progress json` events carry `current`, `total` and `percent`
+   * (docker/compose#12000), which the start-up progress cards read. Boundary bundles 2.38.2.
+   */
+  minComposeVersion: '2.29.1',
 } as const;
 
 /**
@@ -31,20 +34,10 @@ export const ASSISTANT_STACK_RUNNING_CONTAINERS = [
 ] as const;
 
 /**
- * Running container names for a local assistant checkout (BOUNDARY_LOCAL_STACK /
- * BOUNDARY_ASSISTANT_ROOT): its own compose names, without Boundary's overlay prefix.
+ * Running container names for a local assistant checkout (BOUNDARY_ASSISTANT_ROOT or the
+ * stored root override): its own compose names, without Boundary's overlay prefix.
  */
 export const LOCAL_ASSISTANT_STACK_RUNNING_CONTAINERS = ['hermes', 'hermes-webui'] as const;
 
 /** Auto-advance delay when the assistant stack is already running. */
 export const ASSISTANT_STACK_ALREADY_RUNNING_ADVANCE_MS = 3000;
-
-export function formatBytes(bytes: number): string {
-  const gib = bytes / (1024 * 1024 * 1024);
-  if (gib >= 1) {
-    const rounded = Math.round(gib * 10) / 10;
-    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)} GB`;
-  }
-  const mib = bytes / (1024 * 1024);
-  return `${Math.round(mib)} MB`;
-}

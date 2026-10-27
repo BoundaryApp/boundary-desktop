@@ -1,5 +1,4 @@
 import Store from 'electron-store';
-import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentProfile,
@@ -16,14 +15,11 @@ import type {
   SessionProjectMark,
 } from '../../../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../../shared/types/hermesChat';
-import {
-  BUILTIN_AGENT_FALLBACK,
-  LEGACY_BUILTIN_NAME,
-} from '../../../../shared/hermesAgentIdentity';
+import { BUILTIN_AGENT_FALLBACK } from '../../../../shared/hermesAgentIdentity';
+import { newestFirst } from '../../../../shared/utils/sort';
 import {
   type AssistantStackIdentity,
   activeAssistantStackIdentity,
-  claimLegacyHermesAgentsStore,
   hermesAgentsStoreName,
 } from '../assistantStackIdentity';
 import { readStoreFromMemory } from '../../storeMemoryCache';
@@ -59,8 +55,6 @@ interface HermesAgentsStoreShape {
   lastOpened: HermesLastOpened | null;
   /** Ordered assistant speakers per session (survives reload). */
   sessionSpeakers: Record<string, SpeakerEntry[]>;
-  /** @deprecated Read-migrated into channelPosts. */
-  pendingChannelMessages: Record<string, string[]>;
   /** Durable channel user lines (0009 posts + wakes). */
   channelPosts: Record<string, ChannelPostRecord[]>;
   /** Switch markers shown in the transcript without entering Hermes history. */
@@ -113,7 +107,6 @@ const STORE_DEFAULTS: HermesAgentsStoreShape = {
   channels: [],
   lastOpened: null,
   sessionSpeakers: {},
-  pendingChannelMessages: {},
   channelPosts: {},
   sessionInferenceMarks: {},
   sessionProjectMarks: {},
@@ -128,8 +121,7 @@ let named: { identity: AssistantStackIdentity; name: string } | null = null;
 
 /**
  * The records for the stack this session talks to (one file per stack; see
- * assistantStackIdentity). Opening a local stack's store for the first time claims the
- * pre-split `hermes-agents.json`.
+ * assistantStackIdentity).
  */
 function store(): Store<HermesAgentsStoreShape> {
   const identity = activeAssistantStackIdentity();
@@ -137,14 +129,9 @@ function store(): Store<HermesAgentsStoreShape> {
   const { name } = named;
   let opened = stores.get(name);
   if (!opened) {
-    try {
-      claimLegacyHermesAgentsStore(identity, app.getPath('userData'));
-    } catch (err) {
-      console.warn('[hermesAgentStore] could not claim legacy hermes-agents store', err);
-    }
     // Read from memory: the chat list reads this store several times per chat.
     opened = readStoreFromMemory(
-      new Store<HermesAgentsStoreShape>({ name, defaults: STORE_DEFAULTS })
+      new Store<HermesAgentsStoreShape>({ name, defaults: { ...STORE_DEFAULTS } })
     );
     opened.set('stackRoot', identity.root);
     stores.set(name, opened);
@@ -154,19 +141,8 @@ function store(): Store<HermesAgentsStoreShape> {
 
 function ensureBuiltin(): AgentProfile[] {
   const agents = store().get('agents') ?? [];
-  const stored = agents.find((a) => a.slug === BUILTIN_ASSISTANT_SLUG);
-  if (!stored) {
+  if (!agents.some((a) => a.slug === BUILTIN_ASSISTANT_SLUG)) {
     const next = [BUILTIN_ASSISTANT, ...agents];
-    store().set('agents', next);
-    return next;
-  }
-  // ADR 0023: the built-in was "Assistant" before. Rename only an untouched record.
-  if (stored.displayName === LEGACY_BUILTIN_NAME && stored.handle === LEGACY_BUILTIN_NAME) {
-    const next = agents.map((a) =>
-      a.slug === BUILTIN_ASSISTANT_SLUG
-        ? { ...BUILTIN_ASSISTANT, createdAt: a.createdAt || BUILTIN_ASSISTANT.createdAt }
-        : a
-    );
     store().set('agents', next);
     return next;
   }
@@ -199,14 +175,9 @@ export function upsertStoredAgent(agent: AgentProfile): void {
   }
 }
 
-/** Standing DMs by personality. Drops the built-in's pre-0023 entry the first time it is read. */
+/** Standing DMs by personality. */
 export function getStandingDmMap(): Record<string, string | null> {
-  const map = { ...(store().get('standingDmByAgent') ?? {}) };
-  if (BUILTIN_ASSISTANT_SLUG in map) {
-    delete map[BUILTIN_ASSISTANT_SLUG];
-    store().set('standingDmByAgent', map);
-  }
-  return map;
+  return { ...(store().get('standingDmByAgent') ?? {}) };
 }
 
 export function getStandingDmSessionId(agentSlug: string): string | null {
@@ -254,15 +225,20 @@ export function setSessionAgentSlug(sessionId: string, agentSlug: string): void 
   store().set('sessionMeta', meta);
 }
 
-export function setSessionChannelId(sessionId: string, channelId: string): void {
+/** Merges `fields` into a session's meta, keeping its agent slug (the built-in agent's when unset). */
+function updateSessionMeta(sessionId: string, fields: Partial<SessionMeta>): void {
   const meta = { ...(store().get('sessionMeta') ?? {}) };
   const prior = meta[sessionId];
   meta[sessionId] = {
     ...prior,
     agentSlug: prior?.agentSlug ?? getSessionAgentSlug(sessionId) ?? BUILTIN_ASSISTANT_SLUG,
-    channelId,
+    ...fields,
   };
   store().set('sessionMeta', meta);
+}
+
+export function setSessionChannelId(sessionId: string, channelId: string): void {
+  updateSessionMeta(sessionId, { channelId });
 }
 
 export function clearSessionChannelId(sessionId: string): void {
@@ -272,22 +248,6 @@ export function clearSessionChannelId(sessionId: string): void {
   const { channelId: _drop, ...rest } = prior;
   meta[sessionId] = rest;
   store().set('sessionMeta', meta);
-}
-
-export function clearSessionMeta(sessionId: string): void {
-  const meta = { ...(store().get('sessionMeta') ?? {}) };
-  delete meta[sessionId];
-  store().set('sessionMeta', meta);
-  const marks = { ...(store().get('sessionInferenceMarks') ?? {}) };
-  if (marks[sessionId]) {
-    delete marks[sessionId];
-    store().set('sessionInferenceMarks', marks);
-  }
-  const projectMarks = { ...(store().get('sessionProjectMarks') ?? {}) };
-  if (projectMarks[sessionId]) {
-    delete projectMarks[sessionId];
-    store().set('sessionProjectMarks', projectMarks);
-  }
 }
 
 /** The stored project; `undefined` when the session has never been filed. */
@@ -311,10 +271,6 @@ export function setSessionProjectIds(entries: Record<string, string | null>): vo
     };
   }
   store().set('sessionMeta', meta);
-}
-
-export function setSessionProjectId(sessionId: string, projectId: string | null): void {
-  setSessionProjectIds({ [sessionId]: projectId });
 }
 
 export function listSessionProjectMarks(sessionId: string): SessionProjectMark[] {
@@ -354,17 +310,12 @@ export function setSessionInference(
   sessionId: string,
   inference: SessionInferenceOverride
 ): void {
-  const meta = { ...(store().get('sessionMeta') ?? {}) };
-  const prior = meta[sessionId];
-  meta[sessionId] = {
-    ...prior,
-    agentSlug: prior?.agentSlug ?? getSessionAgentSlug(sessionId) ?? BUILTIN_ASSISTANT_SLUG,
+  updateSessionMeta(sessionId, {
     inference: {
       provider: inference.provider,
       modelId: inference.modelId.trim(),
     },
-  };
-  store().set('sessionMeta', meta);
+  });
 }
 
 export function clearSessionInference(sessionId: string): void {
@@ -383,6 +334,24 @@ export function clearSessionInferenceForProvider(provider: ChatInferenceProvider
     if (row.inference?.provider !== provider) continue;
     const { inference: _drop, ...rest } = row;
     meta[id] = rest;
+    changed = true;
+  }
+  if (changed) store().set('sessionMeta', meta);
+}
+
+/**
+ * Point chat overrides for a provider at its newly saved model. The chip only offers each
+ * provider's saved model, so an override means "this provider", not a frozen model id.
+ */
+export function retargetSessionInferenceModel(
+  provider: ChatInferenceProvider,
+  modelId: string
+): void {
+  const meta = { ...(store().get('sessionMeta') ?? {}) };
+  let changed = false;
+  for (const [id, row] of Object.entries(meta)) {
+    if (row.inference?.provider !== provider || row.inference.modelId === modelId) continue;
+    meta[id] = { ...row, inference: { ...row.inference, modelId } };
     changed = true;
   }
   if (changed) store().set('sessionMeta', meta);
@@ -434,14 +403,7 @@ export function getSessionBranch(sessionId: string): HermesChatBranchInfo | null
 }
 
 export function setSessionBranch(sessionId: string, branch: HermesChatBranchInfo): void {
-  const meta = { ...(store().get('sessionMeta') ?? {}) };
-  const prior = meta[sessionId];
-  meta[sessionId] = {
-    ...prior,
-    agentSlug: prior?.agentSlug ?? getSessionAgentSlug(sessionId) ?? BUILTIN_ASSISTANT_SLUG,
-    branch,
-  };
-  store().set('sessionMeta', meta);
+  updateSessionMeta(sessionId, { branch });
 }
 
 /** A branch keeps its parent's chat override; unlike migrate, the parent keeps it too. */
@@ -490,11 +452,7 @@ export function migrateSessionInference(fromId: string, toId: string): void {
 }
 
 export function listStoredChannels(): ChannelRecord[] {
-  return [...(store().get('channels') ?? [])].sort((a, b) => {
-    const ta = Date.parse(a.updatedAt) || 0;
-    const tb = Date.parse(b.updatedAt) || 0;
-    return tb - ta;
-  });
+  return [...(store().get('channels') ?? [])].sort(newestFirst);
 }
 
 export function getStoredChannel(channelId: string): ChannelRecord | null {
@@ -503,10 +461,6 @@ export function getStoredChannel(channelId: string): ChannelRecord | null {
 
 export function getChannelBySessionId(sessionId: string): ChannelRecord | null {
   return listStoredChannels().find((c) => c.sessionId === sessionId) ?? null;
-}
-
-export function getChannelBySlug(slug: string): ChannelRecord | null {
-  return listStoredChannels().find((c) => c.slug === slug) ?? null;
 }
 
 export function upsertStoredChannel(channel: ChannelRecord): void {
@@ -606,16 +560,7 @@ export function listSessionsForChannel(channelId: string): string[] {
 }
 
 export function listChannelPosts(sessionId: string): ChannelPostRecord[] {
-  const stored = store().get('channelPosts')?.[sessionId];
-  if (stored && stored.length > 0) return [...stored];
-  const pending = store().get('pendingChannelMessages')?.[sessionId] ?? [];
-  if (pending.length === 0) return [];
-  return pending.map((content, index) => ({
-    id: `pending:${sessionId}:${index}`,
-    content,
-    createdAt: new Date(0).toISOString(),
-    delivery: 'posted' as const,
-  }));
+  return [...(store().get('channelPosts')?.[sessionId] ?? [])];
 }
 
 export function appendChannelPost(
@@ -632,11 +577,6 @@ export function appendChannelPost(
   const current = listChannelPosts(sessionId);
   all[sessionId] = [...current, post];
   store().set('channelPosts', all);
-  const pending = { ...(store().get('pendingChannelMessages') ?? {}) };
-  if (pending[sessionId]) {
-    delete pending[sessionId];
-    store().set('pendingChannelMessages', pending);
-  }
   return post;
 }
 
@@ -703,7 +643,6 @@ export function resetHermesAgentsStoreForTests(
   store().set('channels', []);
   store().set('lastOpened', null);
   store().set('sessionSpeakers', {});
-  store().set('pendingChannelMessages', {});
   store().set('channelPosts', {});
   store().set('sessionInferenceMarks', {});
   store().set('sessionProjectMarks', {});

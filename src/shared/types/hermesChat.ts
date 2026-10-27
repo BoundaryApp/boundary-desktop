@@ -1,4 +1,5 @@
-export type HermesChatTransport = 'json-rpc' | 'http';
+import { slugify } from '../utils/slug';
+import type { IpcResult } from '../ipc/result';
 
 /** Built-in default agent slug — no Hermes profile; today’s single chat, named. */
 export const BUILTIN_ASSISTANT_SLUG = 'assistant';
@@ -155,16 +156,9 @@ export interface HermesRevealProjectFilePayload {
   relativePath: string;
 }
 
-export interface HermesRevealProjectFileResult {
-  success: boolean;
-  error?: string;
-}
+export type HermesRevealProjectFileResult = IpcResult;
 
-export interface HermesChatBranchResult {
-  success: boolean;
-  thread?: HermesChatThreadSummary;
-  error?: string;
-}
+export type HermesChatBranchResult = HermesChatCreateThreadResult;
 
 /** Human-facing label for a gateway session source. */
 export function hermesSessionSourceLabel(source?: string | null): string | null {
@@ -257,30 +251,16 @@ export interface HermesMentionRecord {
   text: string;
   /** When you sent it (ISO). */
   at: string;
-  /** The post id, for jumping to the message in the room. */
-  anchor: string;
   /** `replied` once the agent answered; `waiting` until then. "Replied later" is future (0009). */
   status: 'replied' | 'waiting';
-  reply?: { text: string; at: string; rowId?: number };
+  reply?: { text: string; at: string };
   /** The reply arrived after Mentions was last opened. */
   unseen: boolean;
-}
-
-export interface HermesMentionsListPayload {
-  agentSlug?: string;
-  channelId?: string;
 }
 
 export interface HermesMentionsListResult {
   success: boolean;
   mentions: HermesMentionRecord[];
-  error?: string;
-}
-
-export interface HermesMentionsSummaryResult {
-  success: boolean;
-  /** Replies newer than the seen watermark. Never counts posts. */
-  unseen: number;
   error?: string;
 }
 
@@ -316,6 +296,11 @@ export interface HermesChatStartPayload {
    * once the chat exists: its stored project applies (ADR 0024).
    */
   projectId?: string | null;
+  /**
+   * The chat's inference when this send creates its session (Send via OpenRouter from an
+   * empty chat). Ignored once the chat exists: set it with `hermes-chat:set-session-inference`.
+   */
+  inference?: SessionInferenceOverride;
 }
 
 /** The user turn an Edit or Retry replaces, as the renderer last saw it on the server. */
@@ -329,6 +314,7 @@ export interface HermesChatRewindRequest {
 }
 
 export type HermesChatStartErrorCode =
+  | 'gateway-unreachable'
   | 'local-unreachable'
   | 'apply-failed'
   | 'rewind-stale'
@@ -338,7 +324,6 @@ export interface HermesChatStartResult {
   success: boolean;
   requestId: string;
   sessionId?: string;
-  transport?: HermesChatTransport;
   error?: string;
   errorCode?: HermesChatStartErrorCode;
   /** Channel send with no member @ — persisted as a post, no model turn. */
@@ -347,6 +332,8 @@ export interface HermesChatStartResult {
 
 export interface HermesChatCancelPayload {
   requestId: string;
+  /** Stop the chat's running turn whatever its request id (a window reopened mid-turn). */
+  sessionId?: string;
   /** Why the run is being cut short; recorded on the partial reply. Defaults to `stopped`. */
   reason?: HermesReplyEnding;
 }
@@ -382,11 +369,7 @@ export interface HermesChatListThreadsResult {
   error?: string;
 }
 
-export interface HermesChatCreateThreadResult {
-  success: boolean;
-  thread?: HermesChatThreadSummary;
-  error?: string;
-}
+export type HermesChatCreateThreadResult = IpcResult<{ thread?: HermesChatThreadSummary }>;
 
 export interface HermesOpenAgentDmPayload {
   agentSlug: string;
@@ -466,23 +449,17 @@ export interface HermesChannelCreatePayload {
   projectId?: string | null;
 }
 
-export interface HermesChannelCreateResult {
-  success: boolean;
+export type HermesChannelCreateResult = IpcResult<{
   channel?: ChannelRecord;
   thread?: HermesChatThreadSummary;
-  error?: string;
-}
+}>;
 
 export interface HermesChannelAddMemberPayload {
   channelId: string;
   agentSlug: string;
 }
 
-export interface HermesChannelAddMemberResult {
-  success: boolean;
-  channel?: ChannelRecord;
-  error?: string;
-}
+export type HermesChannelAddMemberResult = IpcResult<{ channel?: ChannelRecord }>;
 
 export interface HermesChannelRenamePayload {
   channelId: string;
@@ -492,11 +469,7 @@ export interface HermesChannelRenamePayload {
   slug?: string;
 }
 
-export interface HermesChannelRenameResult {
-  success: boolean;
-  channel?: ChannelRecord;
-  error?: string;
-}
+export type HermesChannelRenameResult = HermesChannelAddMemberResult;
 
 export interface HermesChannelDeletePayload {
   channelId: string;
@@ -518,12 +491,7 @@ export interface HermesMakeChannelFromChatPayload {
   memberSlugs?: string[];
 }
 
-export interface HermesMakeChannelFromChatResult {
-  success: boolean;
-  channel?: ChannelRecord;
-  thread?: HermesChatThreadSummary;
-  error?: string;
-}
+export type HermesMakeChannelFromChatResult = HermesChannelCreateResult;
 
 export interface HermesSetLastOpenedPayload {
   kind: HermesLastOpened['kind'];
@@ -592,7 +560,7 @@ export interface SessionInferenceOverride {
 export interface SessionInferenceMark {
   id: string;
   at: string;
-  kind: 'switched' | 'restarting';
+  kind: 'switched';
   provider: ChatInferenceProvider;
   modelId: string;
 }
@@ -633,8 +601,6 @@ export interface HermesChatUsageSnapshot {
   avgTps?: number | null;
   prompt?: number | null;
   completion?: number | null;
-  input?: number | null;
-  output?: number | null;
 }
 
 export interface HermesChatPhaseEvent {
@@ -695,7 +661,10 @@ export interface HermesChatToolEvent {
   turn?: number;
   maxTurns?: number;
   args?: Record<string, unknown>;
+  /** What the tool card shows: Hermes's summary, or the result when there is none. */
   summary?: string;
+  /** The tool's own answer (`result_text`), e.g. kanban_create's `{"ok": …}` JSON. */
+  result?: string;
   durationSec?: number;
   paths?: string[];
 }
@@ -724,7 +693,6 @@ export interface HermesChatApprovalEvent {
   allowSession?: boolean;
   allowPermanent?: boolean;
   smartDenied?: boolean;
-  patternKey?: string;
   replayed?: boolean;
   mcp?: HermesApprovalMcpCall;
 }
@@ -883,18 +851,6 @@ export interface HermesCompletePathResult {
   error?: string;
 }
 
-export interface HermesProjectTreeEntry {
-  name: string;
-  relativePath: string;
-  isDirectory: boolean;
-}
-
-export interface HermesProjectTreeResult {
-  success: boolean;
-  entries: HermesProjectTreeEntry[];
-  error?: string;
-}
-
 /** Mount honesty for one sources.yaml row (0013). */
 export type HermesSourceVisibility = 'hub' | 'readonly' | 'writable' | 'unmounted';
 
@@ -919,14 +875,6 @@ export interface HermesSourceRow {
   isHub: boolean;
 }
 
-export interface HermesIndexEntry {
-  sourceId: string;
-  path: string;
-  description: string;
-  kind: 'relative' | 'absolute';
-  visible: boolean;
-}
-
 export interface HermesSourceNextStep {
   tone: HermesSourceNextTone;
   title: string;
@@ -936,10 +884,8 @@ export interface HermesSourceNextStep {
 
 export interface HermesProjectSourcesInspect {
   projectId: string;
-  registryExists: boolean;
   stale: boolean;
   sources: HermesSourceRow[];
-  index: HermesIndexEntry[];
   nextStep?: HermesSourceNextStep;
 }
 
@@ -972,11 +918,5 @@ export interface HermesProjectSourcesRevealPayload {
 
 /** Slugify a display name into a Hermes profile name (a-z, 0-9, _, -). */
 export function agentSlugFromDisplayName(displayName: string): string {
-  const slug = displayName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return slug || 'agent';
+  return slugify(displayName, { max: 48, fallback: 'agent' });
 }

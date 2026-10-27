@@ -61,11 +61,11 @@ export function effectiveInference(
 }
 
 /** OpenRouter is the cloud slot; Local runs on this Mac. */
-export function isCloud(inference: EffectiveInference | null): boolean {
+function isCloud(inference: EffectiveInference | null): boolean {
   return inference?.slot === 'openrouter';
 }
 
-export function inferenceLabel(inference: EffectiveInference | null): string {
+function inferenceLabel(inference: EffectiveInference | null): string {
   if (!inference) return 'no model';
   return inference.modelId
     ? formatInferenceChipTitle(inference.slot, inference.modelId)

@@ -1,13 +1,12 @@
-import { promises as fs } from 'node:fs';
 import os from 'node:os';
-import { BrowserWindow } from 'electron';
-import { app } from 'electron';
+import { broadcast } from '../windows';
+import { userDataVolumeStats } from '../userDataVolume';
 import {
   ASSISTANT_STACK_REQUIREMENTS,
   ASSISTANT_STACK_RUNNING_CONTAINERS,
   LOCAL_ASSISTANT_STACK_RUNNING_CONTAINERS,
-  formatBytes,
 } from '../../../shared/assistantStackRequirements';
+import { formatBytes } from '../../../shared/utils/format';
 import type {
   CapabilityAssessment,
   CapabilityCheckResult,
@@ -39,6 +38,49 @@ export type HostCapabilityProbes = {
   getResolvedRuntime?: () => Promise<ContainerRuntime | null>;
 };
 
+/** How the capability step names a container engine. */
+export function engineLabelForRuntime(runtime: ContainerRuntime): string {
+  if (runtime.origin === 'bundled' && runtime.kind === 'podman') {
+    return 'Boundary’s bundled Podman';
+  }
+  if (runtime.origin === 'system' && runtime.kind === 'docker') {
+    return 'Docker Desktop / Docker Engine';
+  }
+  return runtime.kind === 'podman' ? 'Podman' : 'Docker';
+}
+
+/**
+ * True when `version` (e.g. `2.38.2`, `v2.30.0-desktop.1`) is at least `min`. A version that
+ * doesn't parse passes: the check only refuses a Compose it knows is too old.
+ */
+function composeVersionAtLeast(version: string, min: string): boolean {
+  const parse = (v: string) => /^v?(\d+)\.(\d+)\.(\d+)/i.exec(v.trim())?.slice(1).map(Number);
+  const have = parse(version);
+  const need = parse(min);
+  if (!have || !need) return true;
+  for (let i = 0; i < 3; i += 1) {
+    if (have[i] !== need[i]) return have[i] > need[i];
+  }
+  return true;
+}
+
+function composeDetail(composeVersion: string | null, lastError: string | null): string | undefined {
+  const min = ASSISTANT_STACK_REQUIREMENTS.minComposeVersion;
+  if (!composeVersion) {
+    return lastError
+      ? `Compose is bundled with the container engine. Engine resolve failed: ${lastError}`
+      : 'Install Compose v2 (docker compose) and retry.';
+  }
+  if (!composeVersionAtLeast(composeVersion, min)) {
+    return (
+      `Compose v${composeVersion.replace(/^v/i, '')} is older than v${min}, the first ` +
+      'release that reports download progress the way Boundary reads it. Update Docker ' +
+      'Desktop (or Docker Compose) and retry.'
+    );
+  }
+  return undefined;
+}
+
 function runtimeDetail(
   runtime: ContainerRuntime | null,
   running: boolean,
@@ -50,13 +92,7 @@ function runtimeDetail(
     return lastError ? `${generic} Last error: ${lastError}` : generic;
   }
   if (!runtime) return undefined;
-  if (runtime.origin === 'system' && runtime.kind === 'docker') {
-    return 'Using Docker Desktop / Docker Engine.';
-  }
-  if (runtime.origin === 'bundled') {
-    return 'Using Boundary’s bundled container engine (Podman).';
-  }
-  return undefined;
+  return `Using ${engineLabelForRuntime(runtime)}.`;
 }
 
 /** Docker exposes ServerVersion; Podman's infoReport uses Version.Version. */
@@ -104,14 +140,7 @@ async function defaultGetComposeVersion(): Promise<string | null> {
 }
 
 async function defaultGetFreeDiskBytes(): Promise<number> {
-  const targetPath = (() => {
-    try {
-      return app.getPath('userData');
-    } catch {
-      return os.homedir();
-    }
-  })();
-  const stats = await fs.statfs(targetPath);
+  const stats = await userDataVolumeStats();
   return Number(stats.bavail) * Number(stats.bsize);
 }
 
@@ -148,7 +177,7 @@ async function defaultIsAssistantStackRunning(): Promise<boolean> {
   );
 }
 
-export function createDefaultProbes(): HostCapabilityProbes {
+function createDefaultProbes(): HostCapabilityProbes {
   return {
     isRuntimeRunning: defaultIsRuntimeRunning,
     getComposeVersion: defaultGetComposeVersion,
@@ -195,14 +224,12 @@ export function evaluateHostCapability(
     {
       id: 'compose',
       label: 'Compose v2',
-      passed: Boolean(probes.composeVersion),
-      required: 'Available',
+      passed:
+        Boolean(probes.composeVersion) &&
+        composeVersionAtLeast(probes.composeVersion ?? '', req.minComposeVersion),
+      required: `≥ v${req.minComposeVersion}`,
       actual: probes.composeVersion ? `v${probes.composeVersion.replace(/^v/i, '')}` : 'Not found',
-      detail: probes.composeVersion
-        ? undefined
-        : lastRuntimeError
-          ? `Compose is bundled with the container engine. Engine resolve failed: ${lastRuntimeError}`
-          : 'Install Compose v2 (docker compose) and retry.',
+      detail: composeDetail(probes.composeVersion, lastRuntimeError),
     },
     {
       id: 'memory',
@@ -238,9 +265,7 @@ export function evaluateHostCapability(
 }
 
 function broadcastProvisionProgress(message: string): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('capability:progress', message);
-  }
+  broadcast('capability:progress', message);
 }
 
 let progressBridgeAttached = false;

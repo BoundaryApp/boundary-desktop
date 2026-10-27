@@ -1,4 +1,7 @@
-import { BrowserWindow, Notification } from 'electron';
+import { BrowserWindow } from 'electron';
+import { broadcast } from '../../windows';
+import { showWindowNotification } from '../../notifications';
+import { sendEvent } from '../../../ipc';
 import {
   KANBAN_COMMENT_AUTHOR,
   KANBAN_STOP_REASON,
@@ -70,27 +73,9 @@ interface KanbanDeps {
   notify: (notice: KanbanNotice) => void;
 }
 
-/** Held until closed: an unreferenced Notification can be collected before macOS shows it. */
-const liveNotifications = new Set<Notification>();
-
 function showTaskNotification(notice: KanbanNotice): void {
-  if (!Notification.isSupported()) return;
-  const notification = new Notification({ title: notice.title, body: notice.body });
-  liveNotifications.add(notification);
-  const release = () => liveNotifications.delete(notification);
-  notification.once('close', release);
-  setTimeout(release, 10 * 60_000).unref();
   // A click opens the task page in the first window (spec decision 6).
-  notification.once('click', () => {
-    release();
-    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-    win.webContents.send('hermes-kanban:open-task', notice.taskId);
-  });
-  notification.show();
+  showWindowNotification(notice, (win) => sendEvent(win.webContents, 'hermes-kanban:open-task', notice.taskId));
 }
 
 const defaultDeps: KanbanDeps = {
@@ -98,11 +83,7 @@ const defaultDeps: KanbanDeps = {
   login: loginToDashboard,
   mintTicket: mintDashboardWsTicket,
   openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
-  broadcast: (snapshot) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send('hermes-kanban:snapshot', snapshot);
-    }
-  },
+  broadcast: (snapshot) => broadcast('hermes-kanban:snapshot', snapshot),
   now: () => Date.now(),
   inBackground: () => BrowserWindow.getAllWindows().every((w) => w.isDestroyed() || !w.isFocused()),
   notify: showTaskNotification,
@@ -178,7 +159,7 @@ function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-export function toTaskSummary(raw: Json): KanbanTaskSummary | null {
+function toTaskSummary(raw: Json): KanbanTaskSummary | null {
   const id = str(raw.id);
   if (!id) return null;
   const status = STATUSES.includes(raw.status as KanbanTaskStatus)
@@ -231,7 +212,6 @@ export function toTaskDetail(raw: Json): KanbanTaskDetail | null {
   const events: KanbanTaskEvent[] = (Array.isArray(raw.events) ? (raw.events as Json[]) : []).map(
     (e) => ({
       id: num(e.id) ?? 0,
-      runId: num(e.run_id),
       kind: str(e.kind) ?? 'event',
       note: eventNote(e.payload),
       trigger:
@@ -251,20 +231,12 @@ export function toTaskDetail(raw: Json): KanbanTaskDetail | null {
     body: typeof c.body === 'string' ? c.body : '',
     createdAt: num(c.created_at) ?? 0,
   }));
-  const runs: KanbanTaskRun[] = (Array.isArray(raw.runs) ? (raw.runs as Json[]) : []).map((r) => {
-    const meta = r.metadata && typeof r.metadata === 'object' ? (r.metadata as Json) : {};
-    return {
-      id: num(r.id) ?? 0,
-      profile: str(r.profile),
-      status: str(r.status) ?? 'unknown',
-      outcome: str(r.outcome),
-      startedAt: num(r.started_at) ?? 0,
-      endedAt: num(r.ended_at),
-      summary: str(r.summary),
-      error: str(r.error),
-      workerSessionId: str(meta.worker_session_id),
-    };
-  });
+  const runs: KanbanTaskRun[] = (Array.isArray(raw.runs) ? (raw.runs as Json[]) : []).map((r) => ({
+    id: num(r.id) ?? 0,
+    outcome: str(r.outcome),
+    endedAt: num(r.ended_at),
+    error: str(r.error),
+  }));
   return {
     task,
     body: str(taskRaw.body),
@@ -543,7 +515,7 @@ function comment(taskId: string, body: string): Promise<Json> {
   });
 }
 
-function setStatus(taskId: string, status: 'ready' | 'done' | 'blocked'): Promise<Json> {
+function setStatus(taskId: string, status: 'todo' | 'ready' | 'done' | 'blocked'): Promise<Json> {
   return api(taskPath(taskId), { method: 'PATCH', body: { status } });
 }
 
@@ -554,6 +526,7 @@ function setStatus(taskId: string, status: 'ready' | 'done' | 'blocked'): Promis
  * - Comments go to `POST /tasks/{id}/comments`; a running worker has them injected at its
  *   next step.
  * - Resuming is `PATCH status=ready`, which unblocks a blocked task and reopens a review.
+ * - Sorting a triage task is `PATCH status=todo`; the dispatcher promotes it from there.
  * - Stop terminates the run, then blocks the task. Terminating alone is a reclaim: the task
  *   goes back to ready and the dispatcher starts it again. A block sent from the dashboard
  *   is sticky, so it holds until you resume it.
@@ -587,6 +560,9 @@ export async function kanbanTaskAction(
         break;
       case 'resume':
         await setStatus(taskId, 'ready');
+        break;
+      case 'move-to-todo':
+        await setStatus(taskId, 'todo');
         break;
       case 'mark-done':
         await setStatus(taskId, 'done');
@@ -653,9 +629,7 @@ export async function getKanbanTaskLog(
     const raw = await api(`/tasks/${encodeURIComponent(taskId)}/log?tail=${tail}`);
     return {
       success: true,
-      exists: raw.exists === true,
       content: typeof raw.content === 'string' ? raw.content : '',
-      truncated: raw.truncated === true,
     };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'The board did not answer.' };

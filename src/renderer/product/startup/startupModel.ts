@@ -1,6 +1,7 @@
-import { PROGRESS } from '../../../shared/assistantStackLifecycle';
+import { PROGRESS, createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle';
 import type { BoundaryAssistantContainerName } from '../../../shared/assistantStackLifecycle';
 import type {
+  AssistantStackLifecycleSnapshot,
   AssistantStackLifecycleStage,
   AssistantStackServiceProgress,
 } from '../../../shared/types/assistantStack';
@@ -154,6 +155,15 @@ const SERVICES_SPAN: [number, number] = [0.37, 0.9];
 /** Time-based fill for a stage that reports nothing measurable; never reaches the end. */
 function creep(msInStage: number, tau: number): number {
   return 0.9 * (1 - Math.exp(-Math.max(0, msInStage) / tau));
+}
+
+/** The lifecycle's service cards, or the queued placeholders before main has sent any. */
+export function startupServices(
+  lifecycle: AssistantStackLifecycleSnapshot
+): AssistantStackServiceProgress[] {
+  return lifecycle.services?.length > 0
+    ? lifecycle.services
+    : createLifecycleSnapshot('starting').services;
 }
 
 /**

@@ -9,13 +9,11 @@ import { ModelPicker } from './ModelPicker';
 interface LocalLlmDiscoveryCardsProps {
   endpoints: DiscoveredLocalLlm[];
   onUseEndpoint: (endpoint: DiscoveredLocalLlm, modelId: string) => Promise<void>;
-  variant?: 'default' | 'home';
 }
 
 export const LocalLlmDiscoveryCards: React.FC<LocalLlmDiscoveryCardsProps> = ({
   endpoints,
   onUseEndpoint,
-  variant = 'default',
 }) => {
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
@@ -31,8 +29,6 @@ export const LocalLlmDiscoveryCards: React.FC<LocalLlmDiscoveryCardsProps> = ({
         const available = endpoint.models.filter((model) => !model.loaded);
         const defaultModelId = preferredLocalLlmModelId(endpoint) ?? '';
         const selectedModelId = selectedModels[endpoint.baseUrl] ?? defaultModelId;
-        const useLabel =
-          variant === 'home' ? `Use ${endpoint.displayName}` : 'Use this endpoint';
 
         return (
           <ChoiceRow
@@ -56,7 +52,7 @@ export const LocalLlmDiscoveryCards: React.FC<LocalLlmDiscoveryCardsProps> = ({
                   void onUseEndpoint(endpoint, selectedModelId).finally(() => setSelectedUrl(null));
                 }}
               >
-                {isSelected ? 'Connecting…' : useLabel}
+                {isSelected ? 'Connecting…' : `Use ${endpoint.displayName}`}
               </Button>
             }
           >

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   formatLocalLlmNames,
   hasLoadedLocalLlmModel,
-  localLlmOriginKey,
   preferredLocalLlmModelId,
 } from '../../../shared/localLlm';
 import type { DiscoveredLocalLlm } from '../../../shared/types/onboarding';
@@ -18,10 +17,6 @@ const ollama: DiscoveredLocalLlm = {
 };
 
 describe('localLlm helpers', () => {
-  it('builds a stable origin key without a trailing slash', () => {
-    expect(localLlmOriginKey(ollama)).toBe('ollama:http://127.0.0.1:11434/v1');
-  });
-
   it('prefers a loaded model id', () => {
     expect(hasLoadedLocalLlmModel(ollama)).toBe(true);
     expect(preferredLocalLlmModelId(ollama)).toBe('llama3:latest');

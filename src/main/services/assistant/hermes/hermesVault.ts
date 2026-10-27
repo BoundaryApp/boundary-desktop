@@ -14,7 +14,7 @@ import type {
 import { VAULT_IDENTIFIER_TYPES } from '../../../../shared/types/hermesVault';
 import { resolveProfileForAgent } from './hermesAgents';
 import { getHermesGatewaySession, type HermesVaultMethod } from './hermesGatewaySession';
-import { JSON_RPC_METHOD_NOT_FOUND, JsonRpcGatewayError } from './vendor/json-rpc-channel';
+import { gatewayErrorText } from './gatewayErrorText';
 
 /**
  * Passwords & Logins over the Hermes vault RPCs. Each agent's vault lives in its own
@@ -31,27 +31,13 @@ const AGENT_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 class VaultInputError extends Error {}
 
-function scrub(text: string, secrets: readonly string[]): string {
-  let out = text;
-  for (const s of secrets) {
-    if (s) out = out.split(s).join('[REDACTED]');
-  }
-  return out;
-}
 
 function errorText(err: unknown, secrets: readonly string[] = []): string {
   if (err instanceof VaultInputError) return err.message;
-  if (err instanceof JsonRpcGatewayError) {
-    if (err.code === JSON_RPC_METHOD_NOT_FOUND) {
-      return 'This version of Hermes has no password vault. Update the agent stack and try again.';
-    }
-    return scrub(err.message, secrets) || 'Hermes refused the request.';
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  if (/connect|ticket|ECONNREFUSED|socket/i.test(message)) {
-    return 'Couldn’t reach Hermes. Start the agent stack and try again.';
-  }
-  return scrub(message, secrets) || 'Something went wrong talking to Hermes.';
+  return gatewayErrorText(err, secrets, {
+    methodMissing: 'This version of Hermes has no password vault. Update the agent stack and try again.',
+    fallback: 'Something went wrong talking to Hermes.',
+  });
 }
 
 function profileParams(agentSlug: unknown): Record<string, unknown> {
@@ -106,7 +92,7 @@ function str(value: unknown): string | null {
 }
 
 /** Logins only; payment and address items aren't managed on this screen yet. */
-export function toVaultLogins(raw: unknown): VaultLogin[] {
+function toVaultLogins(raw: unknown): VaultLogin[] {
   const items = (raw as { items?: unknown } | null)?.items;
   if (!Array.isArray(items)) return [];
   const out: VaultLogin[] = [];
@@ -131,7 +117,7 @@ export function toVaultLogins(raw: unknown): VaultLogin[] {
   return out;
 }
 
-export function toVaultSources(raw: unknown): VaultSourceStatus[] {
+function toVaultSources(raw: unknown): VaultSourceStatus[] {
   const sources = (raw as { sources?: unknown } | null)?.sources;
   if (!Array.isArray(sources)) return [];
   return (sources as Array<Record<string, unknown>>)

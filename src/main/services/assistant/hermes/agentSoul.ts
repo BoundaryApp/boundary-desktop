@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const SOUL_EXCERPT_MAX = 280;
+const SOUL_EXCERPT_MAX = 280;
 
 export function resolveSoulFilePath(dataRoot: string, slug: string): string {
   return path.join(dataRoot, 'hermes', 'profiles', slug, 'SOUL.md');

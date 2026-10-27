@@ -5,14 +5,15 @@ import { AssistantStackStartingScreen } from './AssistantStackStartingScreen';
 import { AssistantStackQuitOverlay } from './AssistantStackQuitOverlay';
 import { ProductReadyShell } from './ProductReadyShell';
 import type { ProductDestination } from './ProductIconRail';
-import { useAssistantStackLifecycle } from './useAssistantStackLifecycle';
+import { useAssistantStackLifecycle, useAssistantStackStatus } from './assistantStack';
 import { probeLog } from '../debug/lagProbe';
 
 /** How long the start-up screen stays up in its ready state before the workbench (ADR 0029). */
 export const READY_HOLD_MS = 700;
 
 export const ProductApp: React.FC = () => {
-  const { allComplete, assistantStackStatus, setupProgress, applyFirstRunFolders } = useSetup();
+  const { allComplete, setupProgress, applyFirstRunFolders } = useSetup();
+  const assistantStackStatus = useAssistantStackStatus();
   const lifecycle = useAssistantStackLifecycle();
   const [view, setView] = useState<ProductDestination>('chat');
 

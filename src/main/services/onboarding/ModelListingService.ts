@@ -1,23 +1,12 @@
 import type { ListedModel, ListEndpointModelsInput } from '../../../shared/types/onboarding';
 import {
   fetchOpenRouterAaBenchmarks,
-  isOpenRouterEndpoint,
   lookupAaBenchmarks,
 } from './openrouterAaBenchmarks';
+import { endpointPath, isOpenRouterUrl } from '../../../shared/utils/endpointUrl';
+import { llmAuthorizationHeader } from './llmEndpoint';
 
 const LIST_MODELS_TIMEOUT_MS = 30_000;
-
-function authHeader(
-  authScheme: 'bearer' | 'api-key' | undefined,
-  provider: string | undefined,
-  apiKey: string | undefined
-): string | undefined {
-  if (!apiKey) return undefined;
-  if (authScheme === 'api-key' || provider === 'baseten') {
-    return `Api-Key ${apiKey}`;
-  }
-  return `Bearer ${apiKey}`;
-}
 
 type OpenAiModelListItem = {
   id?: string;
@@ -75,7 +64,7 @@ function buildRequestHeaders(input: ListEndpointModelsInput): Record<string, str
     Accept: 'application/json',
     ...input.extraHeaders,
   };
-  const authorization = authHeader(input.authScheme, input.provider, input.apiKey);
+  const authorization = llmAuthorizationHeader(input);
   if (authorization) headers.Authorization = authorization;
   return headers;
 }
@@ -83,9 +72,9 @@ function buildRequestHeaders(input: ListEndpointModelsInput): Record<string, str
 export async function listEndpointModels(
   input: ListEndpointModelsInput
 ): Promise<{ success: boolean; models: ListedModel[]; error?: string }> {
-  const url = input.baseUrl.replace(/\/$/, '') + '/models';
+  const url = endpointPath(input.baseUrl, 'models');
   const headers = buildRequestHeaders(input);
-  const shouldFetchAa = isOpenRouterEndpoint(input.baseUrl, input.provider);
+  const shouldFetchAa = input.provider === 'openrouter' || isOpenRouterUrl(input.baseUrl);
 
   try {
     const modelsPromise = fetch(url, {

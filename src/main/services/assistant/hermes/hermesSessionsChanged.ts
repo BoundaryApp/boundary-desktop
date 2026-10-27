@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { broadcast } from '../../windows';
 
 /**
  * Hermes's `sessions.changed` signal, for main-process code that keeps its own copy of a
@@ -26,9 +26,5 @@ export function emitHermesSessionsChanged(): void {
 
 /** Tell every window to list sessions again. */
 export function broadcastSessionsChanged(): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('hermes-chat:sessions-changed', {});
-    }
-  }
+  broadcast('hermes-chat:sessions-changed');
 }

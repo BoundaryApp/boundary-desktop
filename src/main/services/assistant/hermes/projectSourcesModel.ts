@@ -2,32 +2,33 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import yaml from 'js-yaml';
+import { slugify, uniqueSlug } from '../../../../shared/utils/slug';
+import { loadYaml } from '../../loadYaml';
 import type {
-  HermesIndexEntry,
   HermesSourceNextStep,
   HermesSourceRow,
   HermesSourceSpec,
   HermesSourceVisibility,
 } from '../../../../shared/types/hermesChat';
+import { isPathUnder, samePath } from '../../hostPaths';
 
 export const SOURCES_NAME = 'sources.yaml';
-export const INDEX_NAME = 'INDEX.md';
+const INDEX_NAME = 'INDEX.md';
 export const MANIFEST_NAME = '.index-manifest.json';
-export const MANIFEST_VERSION = 2;
-export const INDEX_CAP_PER_SOURCE = 200;
-export const SOURCE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/;
-export const IMPLEMENTED_RETRIEVAL = 'files' as const;
-export const RESERVED_RETRIEVAL = new Set(['lightrag', 'both']);
-export const DEFAULT_INCLUDE = ['**/*.md', '**/*.txt'];
-export const SKIP_NAMES = new Set([
+const MANIFEST_VERSION = 2;
+const INDEX_CAP_PER_SOURCE = 200;
+const SOURCE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/;
+const IMPLEMENTED_RETRIEVAL = 'files' as const;
+const RESERVED_RETRIEVAL = new Set(['lightrag', 'both']);
+const DEFAULT_INCLUDE = ['**/*.md', '**/*.txt'];
+const SKIP_NAMES = new Set([
   'AGENTS.md',
   'INDEX.md',
   'README.md',
   SOURCES_NAME,
   MANIFEST_NAME,
 ]);
-export const SKIP_DIR_NAMES = new Set([
+const SKIP_DIR_NAMES = new Set([
   'templates',
   'applications',
   'artifacts',
@@ -37,7 +38,7 @@ export const SKIP_DIR_NAMES = new Set([
 const FRONTMATTER_DESC = /^---\s*\n[\s\S]*?^description:\s*(.+?)\s*$[\s\S]*?\n---\s*\n/m;
 const ATX_HEADING = /^#\s+(.+)$/m;
 
-export class SourcesError extends Error {
+class SourcesError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SourcesError';
@@ -54,7 +55,8 @@ export interface CatalogFile {
   description: string;
   sourceId: string;
   size: number;
-  mtimeNs: number;
+  /** Exact, as Python's `st_mtime_ns`: nanoseconds don't fit a double. */
+  mtimeNs: bigint;
   sha256: string;
 }
 
@@ -63,7 +65,7 @@ export interface LoadedSources {
   explicit: boolean;
 }
 
-export function defaultSources(): HermesSourceSpec[] {
+function defaultSources(): HermesSourceSpec[] {
   return [
     {
       id: 'project',
@@ -81,20 +83,6 @@ export function splitColonPaths(raw: string | undefined | null): string[] {
     .split(':')
     .map((part) => part.trim())
     .filter(Boolean);
-}
-
-export function samePath(a: string, b: string): boolean {
-  return path.resolve(a) === path.resolve(b);
-}
-
-export function isPathUnder(child: string, parent: string): boolean {
-  const resolvedChild = path.resolve(child);
-  const resolvedParent = path.resolve(parent);
-  if (resolvedChild === resolvedParent) return true;
-  const prefix = resolvedParent.endsWith(path.sep)
-    ? resolvedParent
-    : `${resolvedParent}${path.sep}`;
-  return resolvedChild.startsWith(prefix);
 }
 
 function asStringList(value: unknown, field: string, sourceId: string): string[] {
@@ -184,7 +172,7 @@ export function sourcesFromData(data: unknown): HermesSourceSpec[] {
 export function parseSourcesYaml(text: string): HermesSourceSpec[] {
   let data: unknown;
   try {
-    data = yaml.load(text) ?? {};
+    data = loadYaml(text) ?? {};
   } catch (err) {
     throw new SourcesError(
       `invalid sources.yaml: ${err instanceof Error ? err.message : String(err)}`
@@ -205,16 +193,6 @@ export function extraHostPathsFromSources(sources: readonly HermesSourceSpec[]):
 export function pathCoveredByRoots(hostPath: string, roots: readonly string[]): boolean {
   const resolved = path.resolve(hostPath);
   return roots.some((root) => isPathUnder(resolved, root));
-}
-
-export function sameResolvedPathSet(a: readonly string[], b: readonly string[]): boolean {
-  const normalize = (list: readonly string[]) =>
-    [...new Set(list.map((item) => path.resolve(item)))].sort((left, right) =>
-      left.localeCompare(right)
-    );
-  const left = normalize(a);
-  const right = normalize(b);
-  return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
 export function serializeColonPaths(paths: readonly string[]): string {
@@ -284,7 +262,7 @@ export function loadSources(projectRoot: string): LoadedSources {
   return { sources: parseSourcesYaml(text), explicit: true };
 }
 
-export function resolveSourceRoot(projectRoot: string, spec: HermesSourceSpec): string {
+function resolveSourceRoot(projectRoot: string, spec: HermesSourceSpec): string {
   const raw = spec.path;
   if (raw === '~') {
     throw new SourcesError(`source ${spec.id}: path must not be $HOME alone`);
@@ -303,7 +281,7 @@ export function resolveSourceRoot(projectRoot: string, spec: HermesSourceSpec): 
   return path.resolve(root);
 }
 
-export function globToRegExp(pattern: string): RegExp {
+function globToRegExp(pattern: string): RegExp {
   let i = 0;
   let out = '^';
   while (i < pattern.length) {
@@ -364,7 +342,7 @@ export function shouldSkipRel(rel: string): boolean {
   return Boolean(name?.startsWith('.'));
 }
 
-export function stripFrontmatter(content: string): string {
+function stripFrontmatter(content: string): string {
   const text = content.replace(/^\uFEFF/, '');
   if (!text.startsWith('---')) return text;
   const lines = text.split(/(?<=\n)/);
@@ -378,7 +356,7 @@ export function stripFrontmatter(content: string): string {
   return text;
 }
 
-export function descriptionFor(filePath: string, content: string): string {
+function descriptionFor(filePath: string, content: string): string {
   const match = FRONTMATTER_DESC.exec(content.replace(/^\uFEFF/, ''));
   if (match?.[1]) {
     const desc = match[1].trim().replace(/^['"]|['"]$/g, '');
@@ -391,7 +369,7 @@ export function descriptionFor(filePath: string, content: string): string {
     .replace(/[-_]/g, ' ');
 }
 
-export function indexPathFor(filePath: string, projectRoot: string): string {
+function indexPathFor(filePath: string, projectRoot: string): string {
   const resolved = path.resolve(filePath);
   const root = path.resolve(projectRoot);
   if (isPathUnder(resolved, root)) {
@@ -424,7 +402,7 @@ async function walkFiles(root: string): Promise<string[]> {
   return out.sort((a, b) => a.localeCompare(b));
 }
 
-export async function iterSourceFiles(
+async function iterSourceFiles(
   sourceRoot: string,
   spec: HermesSourceSpec
 ): Promise<string[]> {
@@ -464,13 +442,13 @@ export async function buildCatalog(
     for (const filePath of found) {
       try {
         const data = await fs.promises.readFile(filePath);
-        const st = await fs.promises.stat(filePath);
+        const st = await fs.promises.stat(filePath, { bigint: true });
         files.push({
           path: indexPathFor(filePath, projectRoot),
           description: descriptionFor(filePath, data.toString('utf8')),
           sourceId: spec.id,
-          size: st.size,
-          mtimeNs: Math.round(st.mtimeMs * 1e6),
+          size: Number(st.size),
+          mtimeNs: st.mtimeNs,
           sha256: crypto.createHash('sha256').update(data).digest('hex'),
         });
       } catch (err) {
@@ -530,7 +508,7 @@ export function renderIndex(files: CatalogFile[], grouped: boolean): string {
   return lines.join('\n');
 }
 
-export function ensureDirectory(dir: string): void {
+function ensureDirectory(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -555,6 +533,11 @@ async function writeFileAtomic(file: string, text: string): Promise<void> {
 }
 
 const indexWrites = new Map<string, Promise<string[]>>();
+
+/** `"mtime_ns": "<digits>"` as JSON.stringify writes the string form. */
+const MTIME_NS_STRING = /("mtime_ns": )"(\d+)"/g;
+/** `"mtime_ns": <digits>` in a manifest, quoted before parsing so no digit is lost. */
+const MTIME_NS_NUMBER = /("mtime_ns"\s*:\s*)(-?\d+)/g;
 
 /**
  * Regenerate INDEX.md and its manifest. A second call for the same hub while one is running
@@ -588,14 +571,15 @@ async function writeIndexNow(
       path: item.path,
       source_id: item.sourceId,
       size: item.size,
-      mtime_ns: item.mtimeNs,
+      mtime_ns: item.mtimeNs.toString(),
       sha256: item.sha256,
     })),
   };
   await writeFileAtomic(path.join(projectRoot, INDEX_NAME), renderIndex(files, grouped));
+  // mtime_ns goes out as a bare integer with every digit, the way Python writes it.
   await writeFileAtomic(
     path.join(projectRoot, MANIFEST_NAME),
-    `${JSON.stringify(manifest, null, 2)}\n`
+    `${JSON.stringify(manifest, null, 2).replace(MTIME_NS_STRING, '$1$2')}\n`
   );
   return warnings;
 }
@@ -626,7 +610,9 @@ export async function catalogIsFresh(
   let payload: unknown;
   try {
     await fs.promises.access(indexPath);
-    payload = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8'));
+    payload = JSON.parse(
+      (await fs.promises.readFile(manifestPath, 'utf8')).replace(MTIME_NS_NUMBER, '$1"$2"')
+    );
   } catch {
     return false;
   }
@@ -656,16 +642,16 @@ export async function catalogIsFresh(
     for (const filePath of found) {
       const row = byPath.get(indexPathFor(filePath, projectRoot));
       if (!row) return false;
-      let st: fs.Stats;
+      let st: fs.BigIntStats;
       try {
-        st = await fs.promises.stat(filePath);
+        st = await fs.promises.stat(filePath, { bigint: true });
       } catch {
         // buildCatalog skips files it cannot read; the manifest lists this one, so it moved.
         return false;
       }
       seen += 1;
-      if (row.size !== st.size) return false;
-      if (row.mtime_ns === Math.round(st.mtimeMs * 1e6)) continue;
+      if (row.size !== Number(st.size)) return false;
+      if (typeof row.mtime_ns === 'string' && BigInt(row.mtime_ns) === st.mtimeNs) continue;
       try {
         if ((await hashFile(filePath)) !== row.sha256) return false;
       } catch {
@@ -674,31 +660,6 @@ export async function catalogIsFresh(
     }
   }
   return seen === byPath.size && seen === recorded.length;
-}
-
-export function parseIndexMarkdown(text: string): HermesIndexEntry[] {
-  const entries: HermesIndexEntry[] = [];
-  let sourceId = 'project';
-  for (const raw of text.split(/\r?\n/)) {
-    const heading = raw.match(/^##\s+(.+?)\s*$/);
-    if (heading?.[1]) {
-      sourceId = heading[1].trim();
-      continue;
-    }
-    const row = raw.match(/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/);
-    if (!row?.[1]) continue;
-    const filePath = row[1];
-    const description = (row[2] ?? '').replace(/\\\|/g, '|');
-    const absolute = filePath.startsWith('/');
-    entries.push({
-      sourceId,
-      path: filePath,
-      description,
-      kind: absolute ? 'absolute' : 'relative',
-      visible: true,
-    });
-  }
-  return entries;
 }
 
 export function visibilityForSource(
@@ -767,17 +728,7 @@ export function refuseMessage(reason: AddFolderRefuseReason): string {
 }
 
 export function slugifySourceId(name: string, existing: string[]): string {
-  const base =
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'source';
-  if (!existing.includes(base)) return base;
-  let n = 2;
-  while (existing.includes(`${base}-${n}`)) n += 1;
-  return `${base}-${n}`;
+  return uniqueSlug(slugify(name, { max: 48, fallback: 'source' }), existing);
 }
 
 export function rowsForSources(
@@ -807,22 +758,9 @@ export function rowsForSources(
   });
 }
 
-export function annotateIndexVisibility(
-  entries: HermesIndexEntry[],
-  rows: HermesSourceRow[]
-): HermesIndexEntry[] {
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  return entries.map((entry) => {
-    const row = byId.get(entry.sourceId);
-    if (!row || row.isHub) return { ...entry, visible: true };
-    return { ...entry, visible: row.visibility !== 'unmounted' };
-  });
-}
-
 export function buildNextStep(
   rows: HermesSourceRow[],
-  stale: boolean,
-  _slug?: string
+  stale: boolean
 ): HermesSourceNextStep | undefined {
   const extras = rows.filter((row) => !row.isHub);
   if (extras.length === 0) return undefined;
@@ -852,24 +790,3 @@ export function buildNextStep(
   return undefined;
 }
 
-export function opensPreview(
-  entry: HermesIndexEntry,
-  containerPath: string
-): { title: string; detail: string } {
-  if (entry.kind === 'relative') {
-    return {
-      title: 'Opens as written',
-      detail: `${entry.path} → ${containerPath.replace(/\/$/, '')}/${entry.path}`,
-    };
-  }
-  if (!entry.visible) {
-    return {
-      title: 'Opens as written',
-      detail: `${entry.path}\nDo not prefix /opt/projects.`,
-    };
-  }
-  return {
-    title: 'Opens as written',
-    detail: `${entry.path}\nDo not prefix /opt/projects.`,
-  };
-}

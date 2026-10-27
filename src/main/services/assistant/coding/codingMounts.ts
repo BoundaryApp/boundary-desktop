@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
-import { upsertEnvLine } from '../applyLlmToProjectEnv';
+import { writeEnvValues } from '../stackEnv';
 import { resolveAssistantStackHome } from '../assistantPaths';
 import { listStoredHermesProjects } from '../hermes/hermesProjectStore';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
@@ -39,7 +39,7 @@ export function currentCodingRoots(
   return codingRootsFromPaths(codingGrantPaths(projects));
 }
 
-export function resolveCodingShadowSource(): string {
+function resolveCodingShadowSource(): string {
   return path.join(resolveAssistantStackHome(), 'coding', 'empty-env');
 }
 
@@ -98,12 +98,9 @@ export function persistCodingStackEnv(
   roots?: readonly string[],
   envRoot = resolveActiveAssistantRoot()
 ): void {
-  const envPath = path.join(envRoot, '.env');
-  let contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const env = codingStackEnv(listStoredHermesProjects(), roots ?? currentCodingRoots());
-  for (const [key, value] of Object.entries(env)) {
-    contents = upsertEnvLine(contents, key, envValue(value));
-  }
-  fs.mkdirSync(envRoot, { recursive: true });
-  fs.writeFileSync(envPath, contents, 'utf8');
+  writeEnvValues(
+    path.join(envRoot, '.env'),
+    Object.fromEntries(Object.entries(env).map(([key, value]) => [key, envValue(value)]))
+  );
 }

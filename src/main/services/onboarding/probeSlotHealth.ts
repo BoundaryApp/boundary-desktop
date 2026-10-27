@@ -1,43 +1,64 @@
-import type { ProbeSlotHealthResult } from '../../../shared/types/onboarding';
-import type { InferenceSlotId } from '../../../shared/types/onboarding';
+import type {
+  DiscoveredLocalLlm,
+  InferenceProvidersStatus,
+  InferenceSlotId,
+  LlmSlotHealth,
+  ProbeSlotHealthResult,
+} from '../../../shared/types/onboarding';
+import { broadcast } from '../windows';
 import { discoverLocalLlms } from './LocalLlmDiscovery';
 import { listEndpointModels } from './ModelListingService';
+import { sameEndpoint } from '../../../shared/utils/endpointUrl';
 import {
   getOpenAiOnboardingStatus,
   getSlotConnectionMaterial,
+  getSlotHealth,
   markSlotLastSeen,
   setSlotHealth,
 } from './OpenAiOnboardingStore';
 
-function urlsMatch(left: string | undefined, right: string | undefined): boolean {
-  if (!left || !right) return false;
-  return left.replace(/\/$/, '') === right.replace(/\/$/, '');
+/** Stores a slot's health and, when it changed, pushes the status to every window. */
+async function recordSlotHealth(
+  slot: InferenceSlotId,
+  health: LlmSlotHealth
+): Promise<InferenceProvidersStatus> {
+  const changed = getSlotHealth(slot) !== health;
+  setSlotHealth(slot, health);
+  const status = await getOpenAiOnboardingStatus();
+  if (changed) broadcast('onboarding:status', status);
+  return status;
+}
+
+/**
+ * The local slot's health from a discovery result: reachable when its endpoint is listed.
+ * Null when no local model is connected.
+ */
+export async function recordLocalSlotHealth(
+  endpoints: DiscoveredLocalLlm[]
+): Promise<{ health: LlmSlotHealth; status: InferenceProvidersStatus } | null> {
+  const material = await getSlotConnectionMaterial('local');
+  if (!material) return null;
+  const found = endpoints.some((endpoint) => sameEndpoint(endpoint.baseUrl, material.endpointUrl));
+  if (found) markSlotLastSeen('local');
+  const health: LlmSlotHealth = found ? 'reachable' : 'unreachable';
+  return { health, status: await recordSlotHealth('local', health) };
 }
 
 export async function probeSlotHealth(slot: InferenceSlotId): Promise<ProbeSlotHealthResult> {
   const material = await getSlotConnectionMaterial(slot);
   if (!material) {
-    setSlotHealth(slot, 'unknown');
     return {
       success: false,
       health: 'unknown',
-      status: await getOpenAiOnboardingStatus(),
+      status: await recordSlotHealth(slot, 'unknown'),
       error: 'That provider is not connected.',
     };
   }
 
   if (slot === 'local') {
     const discovery = await discoverLocalLlms();
-    const match = discovery.endpoints.find((endpoint) =>
-      urlsMatch(endpoint.baseUrl, material.endpointUrl)
-    );
-    if (match) {
-      markSlotLastSeen(slot);
-      setSlotHealth(slot, 'reachable');
-      return { success: true, health: 'reachable', status: await getOpenAiOnboardingStatus() };
-    }
-    setSlotHealth(slot, 'unreachable');
-    return { success: true, health: 'unreachable', status: await getOpenAiOnboardingStatus() };
+    const recorded = await recordLocalSlotHealth(discovery.endpoints);
+    if (recorded) return { success: true, ...recorded };
   }
 
   const listed = await listEndpointModels({
@@ -49,16 +70,14 @@ export async function probeSlotHealth(slot: InferenceSlotId): Promise<ProbeSlotH
   });
   if (!listed.success) {
     const health = listed.error?.includes('HTTP 401') ? 'unauthorized' : 'unreachable';
-    setSlotHealth(slot, health);
     return {
       success: true,
       health,
-      status: await getOpenAiOnboardingStatus(),
+      status: await recordSlotHealth(slot, health),
       error: listed.error,
     };
   }
 
   markSlotLastSeen(slot);
-  setSlotHealth(slot, 'reachable');
-  return { success: true, health: 'reachable', status: await getOpenAiOnboardingStatus() };
+  return { success: true, health: 'reachable', status: await recordSlotHealth(slot, 'reachable') };
 }

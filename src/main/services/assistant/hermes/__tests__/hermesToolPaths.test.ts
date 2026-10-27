@@ -70,7 +70,7 @@ describe('formatTurnStatsLine', () => {
         avgTps: 35,
       })
     ).toEqual([
-      { label: 'prompt', value: '18.8k' },
+      { label: 'prompt', value: '19k' },
       { label: 'generated', value: '708' },
       { label: 'visible', value: '7' },
       { label: 'TTFT', value: '1.2s' },

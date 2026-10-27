@@ -23,6 +23,14 @@ describe('provisionSovereignStack', () => {
     }
   });
 
+  /** Empty the userData stack home so each test provisions from scratch. */
+  async function resetStackHome(): Promise<void> {
+    const { resolveAssistantStackHome } = await import('../assistantPaths');
+    const home = resolveAssistantStackHome();
+    await fs.promises.rm(home, { recursive: true, force: true });
+    await fs.promises.mkdir(home, { recursive: true });
+  }
+
   function buildFixtureZip(): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sas-fixture-'));
     const tree = path.join(dir, 'sovereign-agent-stack-fixture');
@@ -42,10 +50,9 @@ describe('provisionSovereignStack', () => {
       markHostSetupComplete,
       markImagesBuilt,
       needsImageBuild,
-      resetBoundaryAssistantStack,
       writeProvisionMarker,
     } = await import('../provisionSovereignStack');
-    await resetBoundaryAssistantStack({ wipeWorkspace: true });
+    await resetStackHome();
     expect(needsImageBuild()).toBe(false);
 
     await writeProvisionMarker({ projectRef: 'old', hostSetupComplete: true });
@@ -75,11 +82,10 @@ describe('provisionSovereignStack', () => {
     const {
       ensureSovereignProjectProvisioned,
       readProvisionMarker,
-      resetBoundaryAssistantStack,
     } = await import('../provisionSovereignStack');
     const { resolveAssistantProjectRoot } = await import('../assistantPaths');
 
-    await resetBoundaryAssistantStack({ wipeWorkspace: true });
+    await resetStackHome();
 
     const root = await ensureSovereignProjectProvisioned({
       ref: SOVEREIGN_AGENT_STACK_REF,
@@ -109,11 +115,11 @@ describe('provisionSovereignStack', () => {
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200 })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, resetBoundaryAssistantStack } = await import(
+    const { ensureSovereignProjectProvisioned } = await import(
       '../provisionSovereignStack'
     );
     const { resolveAssistantProjectRoot } = await import('../assistantPaths');
-    await resetBoundaryAssistantStack({ wipeWorkspace: true });
+    await resetStackHome();
 
     // The pinned ref defaults to the pinned hash, which the fixture can't match.
     await expect(
@@ -127,10 +133,10 @@ describe('provisionSovereignStack', () => {
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200, headers: { 'Content-Type': 'application/zip' } })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker, resetBoundaryAssistantStack } =
+    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
       await import('../provisionSovereignStack');
 
-    await resetBoundaryAssistantStack({ wipeWorkspace: true });
+    await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
     fs.mkdirSync(path.join(root, 'data', 'hermes'), { recursive: true });
     fs.writeFileSync(path.join(root, 'data', 'hermes', 'state.db'), 'chats');
@@ -150,10 +156,10 @@ describe('provisionSovereignStack', () => {
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200, headers: { 'Content-Type': 'application/zip' } })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker, resetBoundaryAssistantStack } =
+    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
       await import('../provisionSovereignStack');
 
-    await resetBoundaryAssistantStack({ wipeWorkspace: true });
+    await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
     fs.mkdirSync(path.join(root, 'data'), { recursive: true });
     fs.writeFileSync(path.join(root, 'data', 'state.db'), 'chats');
@@ -171,35 +177,117 @@ describe('provisionSovereignStack', () => {
     expect(readProvisionMarker()?.projectRef).toBe('old-ref');
   });
 
+  it('puts the old tree and its data back when the upgrade fails part-way', async () => {
+    const zipBytes = fs.readFileSync(buildFixtureZip());
+    const fetchImpl = vi.fn(
+      async () => new Response(zipBytes, { status: 200 })
+    ) as unknown as typeof fetch;
+    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
+      await import('../provisionSovereignStack');
+    const { resolveAssistantStackHome } = await import('../assistantPaths');
+
+    await resetStackHome();
+    const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
+    fs.mkdirSync(path.join(root, 'data', 'hermes'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'data', 'hermes', 'state.db'), 'chats');
+    fs.writeFileSync(path.join(root, '.env'), 'SECRET=keep\n');
+
+    // data/ has moved into the new tree by the time carrying .env over fails.
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const spy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      if (String(to).includes('.staging-') && String(to).endsWith(`${path.sep}.env`)) {
+        throw new Error('simulated rename failure');
+      }
+      return realRename(from, to);
+    });
+    await expect(
+      ensureSovereignProjectProvisioned({ ref: 'new-ref', fetchImpl, beforeReplace: async () => {} })
+    ).rejects.toThrow(/simulated rename failure/);
+    spy.mockRestore();
+
+    const home = resolveAssistantStackHome();
+    expect(fs.readFileSync(path.join(root, 'data', 'hermes', 'state.db'), 'utf8')).toBe('chats');
+    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('SECRET=keep\n');
+    expect(fs.existsSync(path.join(home, 'project.previous'))).toBe(false);
+    expect(fs.existsSync(path.join(home, '.upgrade.json'))).toBe(false);
+    expect(fs.readdirSync(home).some((n) => n.startsWith('.staging-'))).toBe(false);
+    expect(readProvisionMarker()?.projectRef).toBe('old-ref');
+  });
+
+  it('keeps the new tree for the next launch when a failed upgrade can’t be undone', async () => {
+    const zipBytes = fs.readFileSync(buildFixtureZip());
+    const fetchImpl = vi.fn(
+      async () => new Response(zipBytes, { status: 200 })
+    ) as unknown as typeof fetch;
+    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
+      await import('../provisionSovereignStack');
+    const { resolveAssistantStackHome } = await import('../assistantPaths');
+
+    await resetStackHome();
+    const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
+    fs.mkdirSync(path.join(root, 'data', 'hermes'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'data', 'hermes', 'state.db'), 'chats');
+    fs.writeFileSync(path.join(root, '.env'), 'SECRET=keep\n');
+
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const spy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      const src = String(from);
+      if (String(to).includes('.staging-') && String(to).endsWith(`${path.sep}.env`)) {
+        throw new Error('simulated rename failure');
+      }
+      if (src.includes('.staging-') && src.endsWith(`${path.sep}data`)) {
+        throw new Error('simulated undo failure');
+      }
+      return realRename(from, to);
+    });
+    await expect(
+      ensureSovereignProjectProvisioned({ ref: 'new-ref', fetchImpl, beforeReplace: async () => {} })
+    ).rejects.toThrow(/couldn’t undo/);
+    spy.mockRestore();
+
+    const home = resolveAssistantStackHome();
+    expect(fs.readdirSync(home).some((n) => n.startsWith('.staging-'))).toBe(true);
+
+    // Next launch: the interrupted swap is finished with data/, then the upgrade runs.
+    await ensureSovereignProjectProvisioned({ ref: 'new-ref', fetchImpl, beforeReplace: async () => {} });
+    expect(fs.readFileSync(path.join(root, 'data', 'hermes', 'state.db'), 'utf8')).toBe('chats');
+    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('SECRET=keep\n');
+    expect(fs.readdirSync(home).some((n) => n.startsWith('.staging-'))).toBe(false);
+    expect(readProvisionMarker()?.projectRef).toBe('new-ref');
+  });
+
   it('reports download percent when Content-Length is present', async () => {
-    const { Readable } = await import('node:stream');
     const zipPath = buildFixtureZip();
     const zipBytes = fs.readFileSync(zipPath);
+    const half = Math.ceil(zipBytes.length / 2);
     const messages: string[] = [];
 
     const { __test } = await import('../provisionSovereignStack');
     const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sas-dl-')), 'out.zip');
 
-    const body = Readable.from([zipBytes.subarray(0, Math.ceil(zipBytes.length / 2)), zipBytes.subarray(Math.ceil(zipBytes.length / 2))]);
+    // Like global fetch: the body is a web ReadableStream. The pause lets the 250 ms
+    // progress throttle pass between chunks.
     const fetchImpl = vi.fn(async () => {
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        headers: {
-          get: (name: string) =>
-            name.toLowerCase() === 'content-length' ? String(zipBytes.length) : null,
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(zipBytes.subarray(0, half));
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          controller.enqueue(zipBytes.subarray(half));
+          controller.close();
         },
-        body,
-      };
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Length': String(zipBytes.length) },
+      });
     }) as unknown as typeof fetch;
 
     await __test.downloadArchive('https://example.test/stack.zip', dest, fetchImpl, (m) =>
       messages.push(m)
     );
 
-    expect(fs.existsSync(dest)).toBe(true);
-    expect(messages.some((m) => /Downloading archive \d+%/.test(m))).toBe(true);
+    expect(fs.readFileSync(dest).equals(zipBytes)).toBe(true);
+    expect(messages.some((m) => /Downloading archive (?!100%)\d+%/.test(m))).toBe(true);
     expect(messages.at(-1)).toBe('Downloading archive 100%');
     fs.rmSync(path.dirname(dest), { recursive: true, force: true });
   });

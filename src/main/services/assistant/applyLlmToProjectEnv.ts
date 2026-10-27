@@ -2,33 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rewriteLlmUrlForContainer } from './rewriteLlmUrlForContainer';
 import { LLM_PROXY_CLIENT_BASE_URL, LLM_PROXY_PLACEHOLDER_KEY } from './llmProxyAdmin';
+import { parseEnv, removeEnvLines, upsertEnvLines } from './stackEnv';
 
 export interface LlmConnectionForProject {
   endpointUrl: string;
   apiKey: string;
   modelId: string;
-}
-
-export function upsertEnvLine(contents: string, key: string, value: string): string {
-  const line = `${key}=${value}`;
-  const pattern = new RegExp(`^${key}=.*$`, 'm');
-  if (pattern.test(contents)) {
-    return contents.replace(pattern, line);
-  }
-  const trimmed = contents.replace(/\s*$/, '');
-  return `${trimmed}\n${line}\n`;
-}
-
-/** Drop `KEY=…` lines from dotenv contents. */
-export function removeEnvLines(contents: string, keys: readonly string[]): string {
-  const drop = new Set(keys);
-  return contents
-    .split(/(?<=\n)/)
-    .filter((line) => {
-      const eq = line.indexOf('=');
-      return eq <= 0 || !drop.has(line.slice(0, eq).trim());
-    })
-    .join('');
 }
 
 /**
@@ -56,13 +35,10 @@ export async function clearLlmKeysFromProjectEnv(projectRoot: string): Promise<b
   const envPath = path.join(projectRoot, '.env');
   if (!fs.existsSync(envPath)) return false;
   const before = await fs.promises.readFile(envPath, 'utf8');
-  let after = before;
-  for (const key of PROXY_KEY_ENV_KEYS) {
-    const pattern = new RegExp(`^${key}=(.*)$`, 'm');
-    const match = after.match(pattern);
-    if (match && match[1].trim()) after = upsertEnvLine(after, key, '');
-  }
-  if (after === before) return false;
+  const env = parseEnv(before);
+  const set = PROXY_KEY_ENV_KEYS.filter((key) => env[key]?.trim());
+  if (set.length === 0) return false;
+  const after = upsertEnvLines(before, Object.fromEntries(set.map((key) => [key, ''])));
   await fs.promises.writeFile(envPath, after, 'utf8');
   return true;
 }
@@ -70,7 +46,7 @@ export async function clearLlmKeysFromProjectEnv(projectRoot: string): Promise<b
 /**
  * Write Boundary's verified LLM connection into the project .env, which llm-proxy reads
  * when its container is created, and point OpenCode at the proxy. Hermes profiles are
- * updated via hermes config set; the live proxy gets the key through its admin API.
+ * written by hermesConfigApply.ts; the live proxy gets the key through its admin API.
  *
  * The key itself goes to .env only for a local stack checkout, where Boundary doesn't
  * drive the proxy. A Boundary-managed stack gets blank key lines.
@@ -85,19 +61,16 @@ export async function applyLlmConnectionToProjectFiles(
   const envPath = path.join(projectRoot, '.env');
   if (fs.existsSync(envPath)) {
     let contents = await fs.promises.readFile(envPath, 'utf8');
-    const updates: Array<[string, string]> = [
-      ['LLM_BINDING', 'openai'],
-      ['LLM_MODEL', llm.modelId],
-      ['LLM_BINDING_HOST', baseUrl],
-      ['LLM_BINDING_API_KEY', envKey],
-      ['LIGHTRAG_LLM_BINDING', 'openai'],
-      ['LIGHTRAG_LLM_MODEL', llm.modelId],
-      ['LIGHTRAG_LLM_BINDING_HOST', baseUrl],
-      ['LIGHTRAG_LLM_BINDING_API_KEY', envKey],
-    ];
-    for (const [key, value] of updates) {
-      contents = upsertEnvLine(contents, key, value);
-    }
+    contents = upsertEnvLines(contents, {
+      LLM_BINDING: 'openai',
+      LLM_MODEL: llm.modelId,
+      LLM_BINDING_HOST: baseUrl,
+      LLM_BINDING_API_KEY: envKey,
+      LIGHTRAG_LLM_BINDING: 'openai',
+      LIGHTRAG_LLM_MODEL: llm.modelId,
+      LIGHTRAG_LLM_BINDING_HOST: baseUrl,
+      LIGHTRAG_LLM_BINDING_API_KEY: envKey,
+    });
     // A local stack checkout is the developer's own .env; leave its other lines alone.
     if (!options.localStack) {
       contents = removeEnvLines(contents, RETIRED_ENV_KEYS);
@@ -156,10 +129,3 @@ async function updateOpenCodeLocalConfig(
   await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
   await fs.promises.writeFile(localPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
-
-/** Exported for tests */
-export const __test = {
-  upsertEnvLine,
-  removeEnvLines,
-  RETIRED_ENV_KEYS,
-};

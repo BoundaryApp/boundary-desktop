@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseMemberMentions } from '../../../../../shared/hermesMentions';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../../../shared/types/hermesChat';
 
 const getSessionAgentSlug = vi.fn();
 const setLastOpened = vi.fn();
 const setSessionTitle = vi.fn();
+const storedSessionId = vi.fn((id: string) => id);
 
 vi.mock('../hermesAgentStore', () => ({
   clearSessionChannelId: vi.fn(),
@@ -44,7 +46,7 @@ vi.mock('../hermesGatewaySession', () => ({
   getHermesGatewaySession: () => ({
     createSessionWithSeed: vi.fn(),
     ensureConnected: vi.fn(),
-    storedSessionId: (id: string) => id,
+    storedSessionId: (id: string) => storedSessionId(id),
     setSessionTitle: (...args: unknown[]) => setSessionTitle(...args),
   }),
 }));
@@ -131,6 +133,22 @@ describe('setHermesLastOpened', () => {
     expect(setLastOpened).toHaveBeenCalledWith({ kind: 'hermes', id: 'x' });
     expect(setHermesLastOpened({ kind: 'leftover' as never, id: 'x' }).success).toBe(false);
   });
+
+  it('stores the stored id for a chat opened under its runtime id, and a room by its own id', async () => {
+    const { setHermesLastOpened } = await import('../hermesChannels');
+    storedSessionId.mockImplementation((id: string) => (id === 'runtime-1' ? 'stored-1' : id));
+    try {
+      expect(setHermesLastOpened({ kind: 'dm', id: 'runtime-1' }).lastOpened).toEqual({
+        kind: 'dm',
+        id: 'stored-1',
+      });
+      expect(setLastOpened).toHaveBeenLastCalledWith({ kind: 'dm', id: 'stored-1' });
+      setHermesLastOpened({ kind: 'channel', id: 'runtime-1' });
+      expect(setLastOpened).toHaveBeenLastCalledWith({ kind: 'channel', id: 'runtime-1' });
+    } finally {
+      storedSessionId.mockImplementation((id: string) => id);
+    }
+  });
 });
 
 describe('parseMemberMentions', () => {
@@ -157,12 +175,10 @@ describe('parseMemberMentions', () => {
   ];
 
   it('returns empty when no @mention', async () => {
-    const { parseMemberMentions } = await import('../hermesChannels');
     expect(parseMemberMentions('hello room', members)).toEqual([]);
   });
 
   it('wakes mentioned members in appearance order', async () => {
-    const { parseMemberMentions } = await import('../hermesChannels');
     expect(
       parseMemberMentions(
         '@UI/UX Designer review this, then @Software Engineer estimate',
@@ -172,14 +188,12 @@ describe('parseMemberMentions', () => {
   });
 
   it('matches slug and ignores non-members', async () => {
-    const { parseMemberMentions } = await import('../hermesChannels');
     expect(
       parseMemberMentions('@software-engineer and @Staff Recruiter', members)
     ).toEqual(['software-engineer']);
   });
 
   it('prefers longer display names over prefixes', async () => {
-    const { parseMemberMentions } = await import('../hermesChannels');
     const withUi = [
       ...members,
       { slug: 'ui', displayName: 'UI', handle: 'UI' },
@@ -396,21 +410,21 @@ describe('buildChannelHeader', () => {
   it('names the room, the members with short roles, and who is answering', async () => {
     const { buildChannelHeader } = await import('../hermesChannels');
     expect(buildChannelHeader('general-2', [hermes, ana], ana)).toBe(
-      '[Boundary channel #general-2 · members: the user, @Hermes (Default agent on this machine), @Ana (Researcher) · you are @Ana]'
+      '[Boundary channel #general-2 · members by handle: the user, Hermes (Default agent on this machine), Ana (Researcher) · you are Ana]'
     );
   });
 
   it('says who spoke last on a chain wake', async () => {
     const { buildChannelHeader } = await import('../hermesChannels');
     expect(buildChannelHeader('general-2', [hermes], hermes, ana)).toBe(
-      '[Boundary channel #general-2 · members: the user, @Hermes (Default agent on this machine) · you are @Hermes · the last reply was from @Ana]'
+      '[Boundary channel #general-2 · members by handle: the user, Hermes (Default agent on this machine) · you are Hermes · the last reply was from Ana]'
     );
   });
 
   it('cuts long roles', async () => {
     const { buildChannelHeader } = await import('../hermesChannels');
     const wordy = { ...ana, role: 'x'.repeat(100) };
-    expect(buildChannelHeader('r', [wordy], wordy)).toContain(`@Ana (${'x'.repeat(59)}…)`);
+    expect(buildChannelHeader('r', [wordy], wordy)).toContain(`Ana (${'x'.repeat(59)}…)`);
   });
 });
 

@@ -17,7 +17,7 @@
  * The same from the keyboard: ⌘⌥⇧L.
  */
 import type { ProfilerOnRenderCallback } from 'react';
-import { LAG_THRESHOLDS, type LagProbeReport } from '../../shared/lagProbe';
+import { LAG_THRESHOLDS, type LagProbeReport, roundTenth } from '../../shared/lagProbe';
 
 interface EventTimingEntry extends PerformanceEntry {
   processingStart: number;
@@ -65,9 +65,6 @@ const totals = {
   react: new Map<string, { commits: number; ms: number; max: number }>(),
 };
 
-function round(ms: number): number {
-  return Math.round(ms * 10) / 10;
-}
 
 function epoch(perfTime: number): number {
   return Math.round(performance.timeOrigin + perfTime);
@@ -124,9 +121,9 @@ function observeEvents(): void {
         ms: entry.duration,
         event: entry.name,
         interactionId: entry.interactionId,
-        inputDelayMs: round(entry.processingStart - entry.startTime),
-        processingMs: round(entry.processingEnd - entry.processingStart),
-        presentationMs: round(entry.startTime + entry.duration - entry.processingEnd),
+        inputDelayMs: roundTenth(entry.processingStart - entry.startTime),
+        processingMs: roundTenth(entry.processingEnd - entry.processingStart),
+        presentationMs: roundTenth(entry.startTime + entry.duration - entry.processingEnd),
         target: describe(entry.target),
         severe: entry.duration >= LAG_THRESHOLDS.severe,
         ...context(),
@@ -153,24 +150,24 @@ function observeFrames(): void {
         .sort((a, b) => b.duration - a.duration)
         .slice(0, 4)
         .map((s) => ({
-          ms: round(s.duration),
+          ms: roundTenth(s.duration),
           invoker: s.invoker,
           type: s.invokerType,
           fn: s.sourceFunctionName || undefined,
           src: s.sourceURL ? `${s.sourceURL.split('/').pop()}:${s.sourceCharPosition}` : undefined,
           forcedLayoutMs: s.forcedStyleAndLayoutDuration
-            ? round(s.forcedStyleAndLayoutDuration)
+            ? roundTenth(s.forcedStyleAndLayoutDuration)
             : undefined,
         }));
       report({
         kind: 'slow-frame',
         at: epoch(entry.startTime),
         ms: entry.duration,
-        blockingMs: round(entry.blockingDuration),
-        scriptMs: round((entry.scripts ?? []).reduce((sum, s) => sum + s.duration, 0)),
+        blockingMs: roundTenth(entry.blockingDuration),
+        scriptMs: roundTenth((entry.scripts ?? []).reduce((sum, s) => sum + s.duration, 0)),
         // Style, layout and paint at the end of the frame.
-        renderMs: entry.renderStart ? round(end - entry.renderStart) : 0,
-        styleLayoutMs: entry.styleAndLayoutStart ? round(end - entry.styleAndLayoutStart) : 0,
+        renderMs: entry.renderStart ? roundTenth(end - entry.renderStart) : 0,
+        styleLayoutMs: entry.styleAndLayoutStart ? roundTenth(end - entry.styleAndLayoutStart) : 0,
         scripts,
         severe: entry.duration >= LAG_THRESHOLDS.severe,
         ...context(),
@@ -192,7 +189,7 @@ const frameWatch = (() => {
       report({
         kind: 'frame-gap',
         at: epoch(previous),
-        ms: round(gap),
+        ms: roundTenth(gap),
         severe: gap >= LAG_THRESHOLDS.severe,
         ...context(),
       });
@@ -239,7 +236,7 @@ function watchActivity(): void {
         report({
           kind: 'wheel-delay',
           at: epoch(event.timeStamp),
-          ms: round(delay),
+          ms: roundTenth(delay),
           severe: delay >= LAG_THRESHOLDS.severe,
           ...context(),
         });
@@ -310,7 +307,7 @@ function writeSummary(): void {
   const react = [...totals.react.entries()]
     .sort((a, b) => b[1].ms - a[1].ms)
     .slice(0, 10)
-    .map(([id, r]) => ({ id, commits: r.commits, ms: round(r.ms), maxMs: round(r.max) }));
+    .map(([id, r]) => ({ id, commits: r.commits, ms: roundTenth(r.ms), maxMs: roundTenth(r.max) }));
   report({
     kind: 'renderer-summary',
     at: Date.now(),
@@ -319,10 +316,10 @@ function writeSummary(): void {
     slowEvents: totals.slowEvents,
     worstEventMs: totals.worstEventMs,
     slowFrames: totals.slowFrames,
-    slowFrameBlockingMs: round(totals.slowFrameBlockingMs),
+    slowFrameBlockingMs: roundTenth(totals.slowFrameBlockingMs),
     worstFrameMs: totals.worstFrameMs,
     frameGaps: totals.frameGaps,
-    worstFrameGapMs: round(totals.worstFrameGapMs),
+    worstFrameGapMs: roundTenth(totals.worstFrameGapMs),
     wheelDelays: totals.wheelDelays,
     react,
     heapMB: memory ? Math.round(memory.usedJSHeapSize / 1024 / 1024) : null,
@@ -375,7 +372,7 @@ export const onReactRender: ProfilerOnRenderCallback = (id, phase, actualDuratio
   report({
     kind: 'react-commit',
     at: Date.now(),
-    ms: round(actualDuration),
+    ms: roundTenth(actualDuration),
     id,
     phase,
     activity: activity(),

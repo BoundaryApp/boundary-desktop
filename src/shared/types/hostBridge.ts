@@ -64,6 +64,7 @@ export interface HostBridgeGrant {
 /**
  * Whether Hermes can use Boundary's host tools right now. `waiting`: the bridge is up but Hermes
  * hasn't listed its tools since it started (Hermes retries a missing server only every few
- * minutes). `off`: the bridge isn't running.
+ * minutes). `off`: the bridge isn't running. `stopped`: it isn't running because the user
+ * stopped computer access (Stop agent), which lasts until they turn it back on.
  */
-export type HostToolsState = 'off' | 'waiting' | 'connected';
+export type HostToolsState = 'off' | 'waiting' | 'connected' | 'stopped';

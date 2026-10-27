@@ -1,9 +1,18 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { ComposeInventorySnapshot } from '../../../shared/types/composeInventory';
 import type { HostResourceSnapshot } from '../../../shared/types/hostResources';
-import { ComposeInventoryView, ResourcesView } from '../ResourcesScreen';
+import { ComposeInventoryView, ResourcesScreen, ResourcesView } from '../ResourcesScreen';
+
+stubElectronAPI({
+  resources: {
+    getSnapshot: vi.fn(),
+    getComposeInventory: vi.fn(async () => ({ engineRunning: false, projects: [] })),
+    subscribeComposeInventory: vi.fn(() => () => {}),
+  },
+});
 
 function gib(n: number): number {
   return n * 1024 * 1024 * 1024;
@@ -120,5 +129,32 @@ describe('ComposeInventoryView', () => {
       <ComposeInventoryView inventory={{ engineRunning: true, projects: [] }} />
     );
     expect(screen.getByText(/No Compose projects on this host/)).toBeTruthy();
+  });
+});
+
+describe('ResourcesScreen polling', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('skips ticks while a snapshot request is still running', async () => {
+    vi.useFakeTimers();
+    let finish: () => void = () => {};
+    vi.mocked(window.electronAPI.resources.getSnapshot).mockImplementation(
+      () => new Promise((resolve) => (finish = () => resolve(fixture())))
+    );
+
+    render(<ResourcesScreen />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_500);
+    });
+    expect(window.electronAPI.resources.getSnapshot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finish();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(window.electronAPI.resources.getSnapshot).toHaveBeenCalledTimes(2);
   });
 });

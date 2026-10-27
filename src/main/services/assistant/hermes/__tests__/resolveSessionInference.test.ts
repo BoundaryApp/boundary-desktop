@@ -87,7 +87,7 @@ describe('resolveSessionInference', () => {
       setActiveHermesProjectId,
       resetHermesProjectsStoreForTests,
     } = await import('../hermesProjectStore');
-    const { setSessionProjectId } = await import('../hermesAgentStore');
+    const { setSessionProjectIds } = await import('../hermesAgentStore');
     resetHermesProjectsStoreForTests();
     await saveLocalLlmEndpoint({
       runtime: 'ollama',
@@ -112,7 +112,7 @@ describe('resolveSessionInference', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    setSessionProjectId('s1', 'p1');
+    setSessionProjectIds({ s1: 'p1' });
     // The rail showing another project changes nothing for this chat (ADR 0024 §2).
     setActiveHermesProjectId(null);
     const resolved = await resolveSessionInference('s1');
@@ -126,7 +126,7 @@ describe('resolveSessionInference', () => {
       setActiveHermesProjectId,
       resetHermesProjectsStoreForTests,
     } = await import('../hermesProjectStore');
-    const { setSessionProjectId } = await import('../hermesAgentStore');
+    const { setSessionProjectIds } = await import('../hermesAgentStore');
     resetHermesProjectsStoreForTests();
     await saveLocalLlmEndpoint({
       runtime: 'ollama',
@@ -152,7 +152,7 @@ describe('resolveSessionInference', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
     setActiveHermesProjectId('p1');
-    setSessionProjectId('s1', null);
+    setSessionProjectIds({ s1: null });
     expect((await resolveSessionInference('s1'))?.provenance).toBe('app-default');
     // With no session yet, the chat will start in the rail's project, so its pin shows.
     expect((await resolveSessionInference(null))?.provenance).toBe('project-default');

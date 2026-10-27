@@ -13,6 +13,8 @@ const needsImageBuild = vi.fn();
 const markImagesBuilt = vi.fn();
 const isBoundaryOwnedAssistantRoot = vi.fn();
 const httpOk = vi.fn();
+const removeIncompleteHermesProfiles = vi.fn();
+const writeProjectsOverlay = vi.fn();
 
 vi.mock('../../containerRuntime', async () => {
   const actual = await vi.importActual<typeof import('../../containerRuntime')>(
@@ -47,7 +49,7 @@ vi.mock('../assistantPaths', () => ({
   ensureAssistantDataDirs: async () => undefined,
   ensureAssistantWorkspaceDir: async () => undefined,
   hermesConfigExists: () => true,
-  removeIncompleteHermesProfiles: async () => [],
+  removeIncompleteHermesProfiles: (...args: unknown[]) => removeIncompleteHermesProfiles(...args),
 }));
 
 vi.mock('../provisionSovereignStack', () => ({
@@ -57,13 +59,12 @@ vi.mock('../provisionSovereignStack', () => ({
   markHostSetupComplete: (...args: unknown[]) => markHostSetupComplete(...args),
   needsImageBuild: (...args: unknown[]) => needsImageBuild(...args),
   markImagesBuilt: (...args: unknown[]) => markImagesBuilt(...args),
-  resetBoundaryAssistantStack: async () => undefined,
 }));
 
 vi.mock('../hermes/hermesProjectsOverlay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../hermes/hermesProjectsOverlay')>()),
   hermesProjectsOverlayExists: () => false,
-  writeHermesProjectsOverlay: () => '/tmp/assistant-stack-home/docker-compose.projects.yml',
+  writeHermesProjectsOverlay: (...args: unknown[]) => writeProjectsOverlay(...args),
   ensureProjectMountPoints: () => undefined,
 }));
 
@@ -78,7 +79,6 @@ vi.mock('../runSovereignSetup', () => ({
 vi.mock('../applyLlmToProjectEnv', () => ({
   applyLlmConnectionToProjectFiles: async () => undefined,
   clearLlmKeysFromProjectEnv: (...args: unknown[]) => clearLlmKeysFromProjectEnv(...args),
-  upsertEnvLine: (contents: string) => contents,
 }));
 
 vi.mock('../AssistantStackStore', async () => {
@@ -98,10 +98,13 @@ vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
 
 describe('ensureAssistantStackRunning host setup gating', () => {
   const prevLocal = process.env.BOUNDARY_LOCAL_STACK;
+  const prevRoot = process.env.BOUNDARY_ASSISTANT_ROOT;
 
   beforeEach(() => {
     vi.resetModules();
     delete process.env.BOUNDARY_LOCAL_STACK;
+    delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    removeIncompleteHermesProfiles.mockReset().mockResolvedValue([]);
     runComposeStreaming.mockReset();
     runCompose.mockReset();
     runCli.mockReset();
@@ -115,6 +118,9 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     needsImageBuild.mockReset().mockReturnValue(false);
     markImagesBuilt.mockReset().mockResolvedValue(undefined);
     clearLlmKeysFromProjectEnv.mockReset().mockResolvedValue(false);
+    writeProjectsOverlay
+      .mockReset()
+      .mockReturnValue('/tmp/assistant-stack-home/docker-compose.projects.yml');
 
     getContainerRuntime.mockResolvedValue({
       kind: 'docker',
@@ -148,6 +154,11 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       delete process.env.BOUNDARY_LOCAL_STACK;
     } else {
       process.env.BOUNDARY_LOCAL_STACK = prevLocal;
+    }
+    if (prevRoot === undefined) {
+      delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    } else {
+      process.env.BOUNDARY_ASSISTANT_ROOT = prevRoot;
     }
   });
 
@@ -208,6 +219,41 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     ).toBe(false);
   });
 
+  describe('stub gateway profiles', () => {
+    /** The stack is down until compose up runs, then healthy. */
+    function stackComesUpOnCompose(): void {
+      let up = false;
+      runComposeStreaming.mockImplementation(async () => {
+        up = true;
+        return { stdout: '', stderr: '', code: 0 };
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: up })) as unknown as typeof fetch);
+    }
+
+    it('are cleaned up before up on the managed install', async () => {
+      isHostSetupComplete.mockReturnValue(true);
+      stackComesUpOnCompose();
+      const { ensureAssistantStackRunning, __test } = await import('../AssistantStackService');
+      __test.resetLifecycle();
+
+      expect((await ensureAssistantStackRunning()).success).toBe(true);
+      expect(removeIncompleteHermesProfiles).toHaveBeenCalledWith('/tmp/boundary-project/data');
+    });
+
+    it('are left alone in a local checkout that Boundary starts itself', async () => {
+      process.env.BOUNDARY_ASSISTANT_ROOT = '/tmp/dev-assistant-checkout';
+      isHostSetupComplete.mockReturnValue(true);
+      isBoundaryOwnedAssistantRoot.mockReturnValue(false);
+      stackComesUpOnCompose();
+      const { ensureAssistantStackRunning, __test } = await import('../AssistantStackService');
+      __test.resetLifecycle();
+
+      expect((await ensureAssistantStackRunning()).success).toBe(true);
+      expect(runComposeStreaming).toHaveBeenCalled();
+      expect(removeIncompleteHermesProfiles).not.toHaveBeenCalled();
+    });
+  });
+
   describe('after a pin change', () => {
     /** The stack is down until compose up runs, then healthy. */
     function stackComesUpOnCompose(): void {
@@ -250,6 +296,43 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       expect(upArgs()).not.toContain('--build');
       expect(markImagesBuilt).not.toHaveBeenCalled();
     });
+  });
+
+  it('writes the projects overlay and runs `up` in the folder remount queue', async () => {
+    isHostSetupComplete.mockReturnValue(true);
+    const events: string[] = [];
+    let up = false;
+    runComposeStreaming.mockImplementation(async () => {
+      events.push('up');
+      up = true;
+      return { stdout: '', stderr: '', code: 0 };
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: up })) as unknown as typeof fetch);
+    writeProjectsOverlay.mockImplementation(() => {
+      events.push('overlay');
+      return '/tmp/assistant-stack-home/docker-compose.projects.yml';
+    });
+    const { ensureAssistantStackRunning, __test } = await import('../AssistantStackService');
+    const { enqueueFolderRemount } = await import('../hermes/projectMountState');
+    __test.resetLifecycle();
+
+    let releaseRemount: () => void = () => undefined;
+    const before = enqueueFolderRemount(async () => {
+      await new Promise<void>((resolve) => (releaseRemount = resolve));
+      events.push('remount before');
+      return { success: true };
+    });
+    const start = ensureAssistantStackRunning();
+    await vi.waitFor(() => expect(ensureSovereignProjectProvisioned).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(events).toEqual([]);
+    const after = enqueueFolderRemount(async () => {
+      events.push('remount after');
+      return { success: true };
+    });
+    releaseRemount();
+    await Promise.all([start, before, after]);
+    expect(events).toEqual(['remount before', 'overlay', 'up', 'remount after']);
   });
 
   it('shares one in-flight ensure across concurrent callers', async () => {

@@ -17,11 +17,14 @@ interface OnboardingHomeScreenProps {
   oauthError: string | null;
   oauthPendingContinue?: { displayName: string } | null;
   onSignIn: () => void;
+  /** Stops waiting for the browser sign-in; shown while `oauthConnecting`. */
+  onCancelSignIn?: () => void;
   onContinuePendingOauth?: () => void;
   localEndpoints: DiscoveredLocalLlm[];
   onUseLocalEndpoint: (endpoint: DiscoveredLocalLlm, modelId: string) => Promise<void>;
   onUseExisting: () => void;
-  onDeploy?: () => void;
+  /** Rows experiments add, shown after the custom endpoint row. */
+  extraRows?: React.ReactNode;
   onConnectLocalManual: () => void;
 }
 
@@ -33,11 +36,12 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
   oauthError,
   oauthPendingContinue = null,
   onSignIn,
+  onCancelSignIn,
   onContinuePendingOauth,
   localEndpoints,
   onUseLocalEndpoint,
   onUseExisting,
-  onDeploy,
+  extraRows,
   onConnectLocalManual,
 }) => {
   const hasLocal = localEndpoints.length > 0;
@@ -64,18 +68,25 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
               : 'Works in under a minute · many models · no GPU setup'
           }
           action={
-            <Button
-              type="button"
-              variant="brand"
-              disabled={oauthConnecting}
-              onClick={oauthPendingContinue ? onContinuePendingOauth : onSignIn}
-            >
-              {oauthPendingContinue
-                ? 'Choose a model'
-                : oauthConnecting
-                  ? 'Waiting for authorization…'
-                  : `Sign in with ${oauthProvider!.displayName}`}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              {oauthConnecting && !oauthPendingContinue && onCancelSignIn ? (
+                <Button type="button" variant="outline" onClick={onCancelSignIn}>
+                  Cancel
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="brand"
+                disabled={oauthConnecting}
+                onClick={oauthPendingContinue ? onContinuePendingOauth : onSignIn}
+              >
+                {oauthPendingContinue
+                  ? 'Choose a model'
+                  : oauthConnecting
+                    ? 'Waiting for authorization…'
+                    : `Sign in with ${oauthProvider!.displayName}`}
+              </Button>
+            </div>
           }
         >
           {oauthPendingContinue || !oauthProvider ? null : (
@@ -89,7 +100,6 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
         <LocalLlmDiscoveryCards
           endpoints={localEndpoints}
           onUseEndpoint={onUseLocalEndpoint}
-          variant="home"
         />
       )}
 
@@ -98,13 +108,7 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
         description="Any OpenAI-compatible endpoint"
         onSelect={onUseExisting}
       />
-      {onDeploy ? (
-        <ChoiceRow
-          title="Deploy my own GPUs"
-          description="Provision an endpoint on a GPU provider"
-          onSelect={onDeploy}
-        />
-      ) : null}
+      {extraRows}
       {!hasLocal && (
         <ChoiceRow
           title="Connect a local server manually"

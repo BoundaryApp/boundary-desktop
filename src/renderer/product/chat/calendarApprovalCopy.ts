@@ -6,7 +6,7 @@ import type { HermesApprovalMcpCall } from '../../../shared/types/hermesChat';
  * Anything else, including an argument this table doesn't list, gets the generic card.
  */
 
-export const CALENDAR_SERVER_PREFIX = 'calendar-';
+const CALENDAR_SERVER_PREFIX = 'calendar-';
 
 interface ToolCopy {
   /** Kicker: "Add an event". */

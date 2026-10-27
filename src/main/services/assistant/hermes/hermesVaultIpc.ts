@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { handleResult } from '../../../ipc';
 import type {
   VaultAddLoginPayload,
   VaultLockPayload,
@@ -17,35 +17,35 @@ import {
 } from './hermesVault';
 
 export function registerHermesVaultHandlers(): void {
-  ipcMain.handle('hermes-vault:list', async (_event, payload: { agentSlug: string }) =>
+  handleResult('hermes-vault:list', async (_event, payload: { agentSlug: string }) =>
     listVaultLogins(payload)
   );
 
-  ipcMain.handle('hermes-vault:sources', async (_event, payload: { agentSlug: string }) =>
+  handleResult('hermes-vault:sources', async (_event, payload: { agentSlug: string }) =>
     listVaultSources(payload)
   );
 
   // Carries a password: no logging here or downstream.
-  ipcMain.handle('hermes-vault:add-login', async (_event, payload: VaultAddLoginPayload) =>
+  handleResult('hermes-vault:add-login', async (_event, payload: VaultAddLoginPayload) =>
     addVaultLogin(payload)
   );
 
   // Carries a password: no logging here or downstream.
-  ipcMain.handle(
+  handleResult(
     'hermes-vault:replace-password',
     async (_event, payload: VaultReplacePasswordPayload) => replaceVaultLoginPassword(payload)
   );
 
-  ipcMain.handle('hermes-vault:remove', async (_event, payload: VaultRemovePayload) =>
+  handleResult('hermes-vault:remove', async (_event, payload: VaultRemovePayload) =>
     removeVaultLogin(payload)
   );
 
   // Carries a master password: no logging here or downstream.
-  ipcMain.handle('hermes-vault:unlock', async (_event, payload: VaultUnlockPayload) =>
+  handleResult('hermes-vault:unlock', async (_event, payload: VaultUnlockPayload) =>
     unlockVaultSource(payload)
   );
 
-  ipcMain.handle('hermes-vault:lock', async (_event, payload: VaultLockPayload) =>
+  handleResult('hermes-vault:lock', async (_event, payload: VaultLockPayload) =>
     lockVaultSource(payload)
   );
 }

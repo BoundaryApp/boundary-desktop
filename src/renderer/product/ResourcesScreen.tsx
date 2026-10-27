@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { formatBytes } from '../../shared/assistantStackRequirements';
+import { formatBytes } from '../../shared/utils/format';
 import type {
   ComposeInventoryProject,
   ComposeInventorySnapshot,
 } from '../../shared/types/composeInventory';
 import type { HostResourceSnapshot, ResourceBucketId } from '../../shared/types/hostResources';
-import { hostResourcesIPC } from '../services/hostResourcesIPCService';
 import './resources.css';
 
 const POLL_MS = 1_000;
@@ -274,9 +273,13 @@ export const ResourcesScreen: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    // A sample can take longer than POLL_MS; skip ticks until the last one returns.
+    let inFlight = false;
     const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const next = await hostResourcesIPC.getSnapshot();
+        const next = await window.electronAPI.resources.getSnapshot();
         if (!cancelled) {
           setSnapshot(next);
           setError(null);
@@ -285,6 +288,8 @@ export const ResourcesScreen: React.FC = () => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
+      } finally {
+        inFlight = false;
       }
     };
     void tick();
@@ -302,12 +307,12 @@ export const ResourcesScreen: React.FC = () => {
     const apply = (next: ComposeInventorySnapshot) => {
       if (!cancelled) setInventory(next);
     };
-    void hostResourcesIPC.getComposeInventory().then(apply).catch(() => {
+    void window.electronAPI.resources.getComposeInventory().then(apply).catch(() => {
       if (!cancelled) {
         setInventory({ engineRunning: false, projects: [] });
       }
     });
-    const unsubscribe = hostResourcesIPC.subscribeComposeInventory(apply);
+    const unsubscribe = window.electronAPI.resources.subscribeComposeInventory(apply);
     return () => {
       cancelled = true;
       unsubscribe();

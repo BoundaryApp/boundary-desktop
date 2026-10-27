@@ -1,21 +1,22 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { CodingDeleteInspect } from '../../../../shared/types/codingFolders';
 
 const inspectFolderForDelete = vi.fn();
 const deleteCodingFolder = vi.fn();
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    inspectFolderForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
-    deleteCodingFolder: (...args: unknown[]) => deleteCodingFolder(...args),
-    listCodingFolders: async () => ({ success: true, managed: true, grants: [] }),
-    onCodingFoldersProgress: () => () => undefined,
+stubElectronAPI({
+  codingFolders: {
+    inspectForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
+    deleteFolder: (...args: unknown[]) => deleteCodingFolder(...args),
+    list: async () => ({ success: true, managed: true, grants: [] }),
+    onProgress: () => () => undefined,
   },
-}));
+});
 
-import { DeleteFolderSheet, formatBytes } from '../DeleteFolderSheet';
+import { DeleteFolderSheet } from '../DeleteFolderSheet';
 import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
 
 const repo = '/Users/ada/Code/contact-api';
@@ -143,13 +144,5 @@ describe('DeleteFolderSheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Move to Trash' }));
     expect(await screen.findByText(/couldn’t be moved to the Trash/)).toBeTruthy();
     expect(onDeleted).not.toHaveBeenCalled();
-  });
-});
-
-describe('formatBytes', () => {
-  it('reads like Finder', () => {
-    expect(formatBytes(512)).toBe('512 B');
-    expect(formatBytes(84 * 1024)).toBe('84 KB');
-    expect(formatBytes(1.5 * 1024 * 1024)).toBe('1.5 MB');
   });
 });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -28,29 +29,19 @@ vi.mock('streamdown', () => ({
   Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
 }));
 
-vi.mock('../../../services/hermesChatIPCService', () => {
-  const unsub = () => () => undefined;
-  return {
-    hermesChatIPC: {
-      onChatPhase: unsub,
-      onChatTool: unsub,
-      onChatApproval: unsub,
-      onChatCredentialRequest: unsub,
-      listPendingCredentialRequests: async () => [],
-      onChatTurnStats: unsub,
-      onChatSpeaker: unsub,
-      getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-      completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-    },
-  };
-});
-
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  hermesChat: {
+    listPendingCredentialRequests: async () => [],
+    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+  },
+  onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
     probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
   },
-}));
+  projects: {
+    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
+  },
+});
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));

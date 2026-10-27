@@ -2,8 +2,6 @@
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
 
-export const THEME_PREFERENCES: ThemePreference[] = ['system', 'light', 'dark'];
-
 /** --surface-0 per theme; the window paints this before the renderer loads. */
 export const THEME_WINDOW_BACKGROUND: Record<ResolvedTheme, string> = {
   dark: '#0d0d0f',

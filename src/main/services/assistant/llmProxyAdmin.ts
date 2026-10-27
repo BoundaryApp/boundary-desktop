@@ -1,4 +1,5 @@
 import { readAssistantEnvFile } from './assistantPaths';
+import { redactSecrets } from '../secrets/redact';
 
 /**
  * Client for the stack's llm-proxy admin API (compose/llm-proxy/proxy.py). The proxy holds
@@ -45,13 +46,6 @@ export function readLlmProxyAdminToken(projectRoot: string): string | null {
   return token || null;
 }
 
-function scrub(text: string, secrets: readonly string[]): string {
-  let out = text;
-  for (const s of secrets) {
-    if (s) out = out.split(s).join('«redacted»');
-  }
-  return out;
-}
 
 async function call(
   target: LlmProxyTarget,
@@ -76,7 +70,7 @@ async function call(
     if (!response.ok) {
       return {
         ok: false,
-        error: scrub(`llm-proxy admin ${response.status}: ${text.slice(0, 200)}`, [
+        error: redactSecrets(`llm-proxy admin ${response.status}: ${text.slice(0, 200)}`, [
           target.token,
           ...secrets,
         ]),
@@ -121,7 +115,7 @@ async function call(
     const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: scrub(`llm-proxy admin unreachable: ${message}`, [target.token, ...secrets]),
+      error: redactSecrets(`llm-proxy admin unreachable: ${message}`, [target.token, ...secrets]),
     };
   } finally {
     clearTimeout(timer);

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, clipboard, dialog, Notification, shell, utilityProcess, type UtilityProcess } from 'electron';
+import { broadcast } from '../windows';
 import { createFileLogger } from '../../../shared/utils/logger';
 import { persistDebugLog } from '../../persistDebugLog';
 import { denyAllHostBridgeApprovals, requestHostBridgeApproval, setHostBridgeApprovalSender } from './approvals';
@@ -9,8 +10,10 @@ import { appendAudit, trimForAudit } from './auditLog';
 import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
 import { hasCalendarAccounts } from '../assistant/calendar/calendarStore';
 import type { BoundaryBrowserState, HostToolsState } from '../../../shared/types/hostBridge';
+import type { IpcResult } from '../../../shared/ipc/result';
 import { browserRelayConfigFrom, findGoogleChrome, normalizeBrowserSettings, sitePolicyFrom } from './browserConfig';
 import { DEFAULT_BLOCKED_SITES } from './cdpPolicy';
+import { heldNotification } from '../notifications';
 import {
   addHostBridgeGrant,
   ensureHostBridgeToken,
@@ -18,13 +21,23 @@ import {
   getExpectedHermesClients,
   getHostBridgePorts,
   hasHostBridgeGrant,
+  isHostBridgeAgentStopped,
+  rotateHostBridgeTokens,
   setExpectedHermesClients,
+  setHostBridgeAgentStopped,
   setHostBridgeBrowserSettings,
   setHostBridgePorts,
   type HostBridgeBrowserSettings,
 } from './hostBridgeStore';
 import { executeHostTool, type HostToolDeps } from './hostTools';
-import { HOST_TOOLS_SETTLE_MS, HOST_TOOLS_WAKE_SETTLE_MS, hostToolsStateFor, nextExpectedClients } from './hostToolsState';
+import { dialogStartFolder, rememberDialogPick } from '../dialogFolders';
+import {
+  HERMES_SESSION_IDLE_MS,
+  HOST_TOOLS_SETTLE_MS,
+  HOST_TOOLS_WAKE_SETTLE_MS,
+  hostToolsStateFor,
+  nextExpectedClients,
+} from './hostToolsState';
 
 /**
  * Runs the host bridge (ADR 0027): forks the utilityProcess that owns the loopback listeners,
@@ -46,6 +59,10 @@ const BRIDGE_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ho
 const START_TIMEOUT_MS = 10_000;
 const STOP_TIMEOUT_MS = 2_000;
 const MAX_RESTARTS = 3;
+const AGENT_STOPPED_MESSAGE =
+  'Computer access is stopped. Turn it back on in Settings → Computer access.';
+/** A bridge that ran this long before exiting was healthy: its exit starts the restart count over. */
+const HEALTHY_RUN_MS = 60_000;
 
 let child: UtilityProcess | null = null;
 let ready: Promise<HostBridgeEndpoints> | null = null;
@@ -56,11 +73,13 @@ let restarts = 0;
 let hostToolsState: HostToolsState = 'off';
 /**
  * This launch of the bridge: when it came up, how many Hermes clients to wait for (from the last
- * launch), and how many have listed the tools so far.
+ * launch), how many are connected now, and the most that have been at once. The state uses the
+ * peak, so a client that re-initializes doesn't send the chat back to "waiting".
  */
 let bridgeRun: {
   expected: number;
   clients: number;
+  peak: number;
   settled: boolean;
   settleAt: number;
   settle: NodeJS.Timeout | null;
@@ -68,17 +87,9 @@ let bridgeRun: {
 
 /** Replies the bridge owes main, by request id (browser open / status). */
 let nextRequestId = 1;
-const pendingRequests = new Map<number, (message: BridgeToMain) => void>();
+const pendingRequests = new Map<number, { resolve: (message: BridgeToMain) => void; reject: (err: Error) => void }>();
 
-const liveNotifications = new Set<Notification>();
-const NOTIFICATION_RETAIN_MS = 10 * 60_000;
 const NOTIFICATION_CONFIRM_MS = 5_000;
-
-function broadcast(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload);
-  }
-}
 
 /** Bring Boundary forward so a native dialog isn't hidden behind another app. */
 function dialogParent(): BrowserWindow | null {
@@ -102,11 +113,7 @@ const toolDeps: HostToolDeps = {
       }
       // Held until closed (or ten minutes): an unreferenced Notification can be collected
       // before macOS shows it, and the call still looks successful.
-      const notification = new Notification({ title, body });
-      liveNotifications.add(notification);
-      const release = () => liveNotifications.delete(notification);
-      notification.once('close', release);
-      setTimeout(release, NOTIFICATION_RETAIN_MS).unref();
+      const { notification, release } = heldNotification({ title, body });
       const unconfirmed = setTimeout(() => resolve('unconfirmed'), NOTIFICATION_CONFIRM_MS);
       notification.once('show', () => {
         clearTimeout(unconfirmed);
@@ -127,12 +134,15 @@ const toolDeps: HostToolDeps = {
       title: 'Choose files for Hermes',
       message,
       buttonLabel: 'Give to Hermes',
+      defaultPath: dialogStartFolder(),
       properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
       ...(extensions.length ? { filters: [{ name: extensions.join(', '), extensions }] } : {}),
     };
     const parent = dialogParent();
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
-    return result.canceled ? [] : result.filePaths;
+    if (result.canceled) return [];
+    rememberDialogPick(result.filePaths[0]);
+    return result.filePaths;
   },
   chooseSavePath: async ({ defaultName }) => {
     const options: Electron.SaveDialogOptions = {
@@ -143,7 +153,9 @@ const toolDeps: HostToolDeps = {
     };
     const parent = dialogParent();
     const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
-    return result.canceled || !result.filePath ? null : result.filePath;
+    if (result.canceled || !result.filePath) return null;
+    rememberDialogPick(result.filePath);
+    return result.filePath;
   },
   fileSize: async (filePath) => {
     try {
@@ -160,6 +172,11 @@ const toolDeps: HostToolDeps = {
   audit: (entry) => appendAudit({ ...entry, args: trimForAudit(entry.args) }),
 };
 
+/** What the chat sees while no bridge runs: `stopped` after Stop agent, so it points to the setting. */
+function idleHostToolsState(): HostToolsState {
+  return isHostBridgeAgentStopped() ? 'stopped' : 'off';
+}
+
 function setHostToolsState(next: HostToolsState): void {
   if (next === hostToolsState) return;
   hostToolsState = next;
@@ -172,7 +189,7 @@ function updateHermesClients(): void {
   const stored = getExpectedHermesClients();
   const next = nextExpectedClients(stored, bridgeRun.clients, bridgeRun.settled);
   if (next !== stored) setExpectedHermesClients(next);
-  setHostToolsState(hostToolsStateFor(bridgeRun.clients, bridgeRun.expected, bridgeRun.settled));
+  setHostToolsState(hostToolsStateFor(bridgeRun.peak, bridgeRun.expected, bridgeRun.settled));
 }
 
 function scheduleSettle(delayMs: number): void {
@@ -193,7 +210,9 @@ function scheduleSettle(delayMs: number): void {
  */
 export function hostBridgeWakeAccepted(): void {
   if (!bridgeRun || bridgeRun.settled) return;
-  if (bridgeRun.settleAt > Date.now() + HOST_TOOLS_WAKE_SETTLE_MS) scheduleSettle(HOST_TOOLS_WAKE_SETTLE_MS);
+  if (!bridgeRun.settle || bridgeRun.settleAt > Date.now() + HOST_TOOLS_WAKE_SETTLE_MS) {
+    scheduleSettle(HOST_TOOLS_WAKE_SETTLE_MS);
+  }
 }
 
 function beginBridgeRun(): void {
@@ -201,11 +220,11 @@ function beginBridgeRun(): void {
   bridgeRun = {
     expected: getExpectedHermesClients(),
     clients: 0,
+    peak: 0,
     settled: false,
     settleAt: 0,
     settle: null,
   };
-  scheduleSettle(HOST_TOOLS_SETTLE_MS);
   updateHermesClients();
 }
 
@@ -216,6 +235,9 @@ function endBridgeRun(): void {
 
 /** Whether Hermes can use the host tools now; the chat says so while it can't. */
 export function getHostToolsState(): HostToolsState {
+  // A launch with access stopped never starts a bridge, so nothing has set `stopped` yet. Record
+  // it here, so turning access back on is a change the window that read it gets told about.
+  if (hostToolsState === 'off') hostToolsState = idleHostToolsState();
   return hostToolsState;
 }
 
@@ -236,11 +258,13 @@ async function launch(): Promise<HostBridgeEndpoints> {
 
   return new Promise<HostBridgeEndpoints>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Host bridge did not start in time.')), START_TIMEOUT_MS);
+    let readyAt: number | null = null;
 
     proc.on('message', (message: BridgeToMain) => {
       switch (message.type) {
         case 'ready':
           clearTimeout(timer);
+          readyAt = Date.now();
           setHostBridgePorts({ mcp: message.mcpPort, browser: message.browserPort });
           persistDebugLog('host-bridge', 'ready', { mcpPort: message.mcpPort, browserPort: message.browserPort });
           beginBridgeRun();
@@ -249,6 +273,9 @@ async function launch(): Promise<HostBridgeEndpoints> {
         case 'hermes-clients':
           if (child === proc && bridgeRun) {
             bridgeRun.clients = message.count;
+            bridgeRun.peak = Math.max(bridgeRun.peak, message.count);
+            // The settle fallback runs from the first client: before that Hermes may still be starting.
+            if (message.count > 0 && !bridgeRun.settle && !bridgeRun.settled) scheduleSettle(HOST_TOOLS_SETTLE_MS);
             persistDebugLog('host-bridge', 'hermes clients', { count: message.count, expected: bridgeRun.expected });
             updateHermesClients();
           }
@@ -258,15 +285,24 @@ async function launch(): Promise<HostBridgeEndpoints> {
           reject(new Error(`Host bridge failed to start: ${message.error}`));
           return;
         case 'tool-call':
+          // A call that raced Stop agent: the bridge is on its way down.
+          if (isHostBridgeAgentStopped()) {
+            post(proc, {
+              type: 'tool-result',
+              id: message.id,
+              result: { content: [{ type: 'text', text: AGENT_STOPPED_MESSAGE }], isError: true },
+            });
+            return;
+          }
           void executeHostTool(message.name, message.args, toolDeps).then((result) => {
             if (child === proc) post(proc, { type: 'tool-result', id: message.id, result });
           });
           return;
         case 'browser-open-result':
         case 'browser-status-result': {
-          const resolveRequest = pendingRequests.get(message.id);
+          const request = pendingRequests.get(message.id);
           pendingRequests.delete(message.id);
-          resolveRequest?.(message);
+          request?.resolve(message);
           return;
         }
         case 'log':
@@ -283,10 +319,14 @@ async function launch(): Promise<HostBridgeEndpoints> {
         child = null;
         ready = null;
         endBridgeRun();
-        setHostToolsState('off');
+        setHostToolsState(idleHostToolsState());
+        // Requests went to this process; fail them now rather than at their timeouts.
+        for (const request of pendingRequests.values()) request.reject(new Error('The host bridge stopped.'));
+        pendingRequests.clear();
       }
       denyAllHostBridgeApprovals();
       if (stopping) return;
+      if (readyAt !== null && Date.now() - readyAt >= HEALTHY_RUN_MS) restarts = 0;
       log('host bridge exited unexpectedly', { code });
       persistDebugLog('host-bridge', 'exited unexpectedly', { code, restarts });
       reject(new Error(`Host bridge exited (code ${code}).`));
@@ -306,6 +346,7 @@ async function launch(): Promise<HostBridgeEndpoints> {
       browserPort: preferred.browser,
       browser: browserRelayConfigFrom(getHostBridgeBrowserSettings()),
       listing: hostToolListing(),
+      sessionIdleMs: HERMES_SESSION_IDLE_MS,
     });
   });
 }
@@ -325,6 +366,7 @@ export function syncHostToolListing(): void {
 /** Start the bridge once; later calls share the same startup. */
 export function ensureHostBridgeStarted(): Promise<HostBridgeEndpoints> {
   if (quitting) return Promise.reject(new Error('Boundary is quitting.'));
+  if (isHostBridgeAgentStopped()) return Promise.reject(new Error(AGENT_STOPPED_MESSAGE));
   if (!ready) {
     stopping = false;
     ready = launch();
@@ -339,14 +381,19 @@ export function ensureHostBridgeStarted(): Promise<HostBridgeEndpoints> {
 
 /** Stop the bridge for good (Boundary is quitting). */
 export async function stopHostBridge(): Promise<void> {
-  stopping = true;
   quitting = true;
+  await shutDown();
+}
+
+/** End the running bridge and keep it from restarting itself. */
+async function shutDown(reason?: string): Promise<void> {
+  stopping = true;
   denyAllHostBridgeApprovals();
   const proc = child;
   child = null;
   ready = null;
   endBridgeRun();
-  setHostToolsState('off');
+  setHostToolsState(idleHostToolsState());
   if (!proc) return;
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
@@ -357,8 +404,91 @@ export async function stopHostBridge(): Promise<void> {
       clearTimeout(timer);
       resolve();
     });
-    post(proc, { type: 'stop' });
+    post(proc, { type: 'stop', reason });
   });
+}
+
+export interface HostBridgeAgentState {
+  stopped: boolean;
+  /** Set when access was turned back on but the bridge didn't start. */
+  error?: string;
+  /** Set when the bridge started but Hermes didn't get its tokens. */
+  hermesError?: string;
+}
+
+/**
+ * Puts the bridge's current tokens into Hermes. `ipcHandlers` passes the stack's apply path:
+ * it writes every profile's `.env` and `browser.cdp_url`, restarts Hermes when a `.env` changed
+ * (Hermes reads it only at start-up), and then wakes Hermes so it reconnects to the bridge at
+ * once rather than on its 15 s parked retry.
+ */
+export type ProvisionHermes = () => Promise<IpcResult>;
+
+const ROTATING_MESSAGE = 'Boundary is restarting its tools with new tokens. Try again in a moment.';
+
+export function getHostBridgeAgentState(): HostBridgeAgentState {
+  return { stopped: isHostBridgeAgentStopped() };
+}
+
+/**
+ * Stop agent (ADR 0027 §7): end the bridge, which closes its MCP listener and the browser relay
+ * (and Boundary's Chrome with it), deny open approvals, and answer calls still in flight with an
+ * error. Hermes then finds nothing listening for its host tools and browser. The choice is
+ * stored, so the bridge stays down across launches until `resumeHostBridgeAgent`.
+ *
+ * Both tokens are then replaced, so the stopped bridge's never work again. Hermes gets the new
+ * ones in the background now, while it has nothing to reach: the `.env` change restarts it, and
+ * turning access back on needs no restart.
+ */
+export async function stopHostBridgeAgent(provisionHermes: ProvisionHermes): Promise<HostBridgeAgentState> {
+  setHostBridgeAgentStopped(true);
+  persistDebugLog('host-bridge', 'agent stopped by the user', {});
+  await shutDown(AGENT_STOPPED_MESSAGE);
+  rotateHostBridgeTokens();
+  void provisionHermes().then((result) => {
+    if (!result.success) persistDebugLog('host-bridge', 'new tokens not provisioned into Hermes', { error: result.error });
+  });
+  return getHostBridgeAgentState();
+}
+
+/**
+ * Turn computer access back on: start a bridge with the tokens Stop agent made, then run the
+ * apply, which writes them into Hermes if the stop couldn't (the stack was down) and wakes it.
+ */
+export async function resumeHostBridgeAgent(provisionHermes: ProvisionHermes): Promise<HostBridgeAgentState> {
+  setHostBridgeAgentStopped(false);
+  setHostToolsState('off');
+  persistDebugLog('host-bridge', 'agent access turned back on', {});
+  try {
+    await ensureHostBridgeStarted();
+  } catch (err) {
+    return { ...getHostBridgeAgentState(), error: err instanceof Error ? err.message : String(err) };
+  }
+  const hermes = await provisionHermes();
+  return hermes.success ? getHostBridgeAgentState() : { ...getHostBridgeAgentState(), hermesError: hermes.error };
+}
+
+/**
+ * Rotate tokens (ADR 0027 §3): replace both tokens, replace the running bridge so the old ones
+ * stop working at once, and put the new ones into every Hermes profile. While access is stopped
+ * no bridge runs, so only Hermes is updated.
+ */
+export async function rotateHostBridgeAgentTokens(provisionHermes: ProvisionHermes): Promise<IpcResult> {
+  rotateHostBridgeTokens();
+  persistDebugLog('host-bridge', 'tokens rotated by the user', {});
+  if (!isHostBridgeAgentStopped()) {
+    await shutDown(ROTATING_MESSAGE);
+    try {
+      await ensureHostBridgeStarted();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `The new tokens are saved, but Boundary’s tools didn’t start: ${message}` };
+    }
+  }
+  const hermes = await provisionHermes();
+  return hermes.success
+    ? { success: true }
+    : { success: false, error: `Hermes didn’t get the new tokens: ${hermes.error ?? 'unknown error'}` };
 }
 
 /**
@@ -379,9 +509,15 @@ async function requestBridge<T extends BridgeToMain>(
       pendingRequests.delete(id);
       reject(new Error('The host bridge did not answer.'));
     }, timeoutMs);
-    pendingRequests.set(id, (message) => {
-      clearTimeout(timer);
-      resolve(message as T);
+    pendingRequests.set(id, {
+      resolve: (message) => {
+        clearTimeout(timer);
+        resolve(message as T);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
     });
     post(proc, build(id));
   });

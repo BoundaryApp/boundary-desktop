@@ -1,19 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type { CodingFoldersResult } from '../../../../shared/types/codingFolders';
 
 const codingAgentBusy = vi.fn();
 const listCodingFolders = vi.fn();
+const grantCodingFolder = vi.fn();
+const addSourceFolder = vi.fn();
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
-    codingAgentBusy: (...args: unknown[]) => codingAgentBusy(...args),
-    listCodingFolders: (...args: unknown[]) => listCodingFolders(...args),
-    onCodingFoldersProgress: () => () => undefined,
+stubElectronAPI({
+  codingFolders: {
+    busy: (...args: unknown[]) => codingAgentBusy(...args),
+    list: (...args: unknown[]) => listCodingFolders(...args),
+    grant: (...args: unknown[]) => grantCodingFolder(...args),
+    onProgress: () => () => undefined,
   },
-}));
+  projects: {
+    addSourceFolder: (...args: unknown[]) => addSourceFolder(...args),
+  },
+});
 
 import {
+  codingChange,
   forceQueuedCodingChanges,
+  grantAndList,
+  readCodingAgentBusy,
   getCodingFoldersState,
   onCodingGrantsChanged,
   queueCodingChange,
@@ -99,5 +109,48 @@ describe('queueCodingChange', () => {
     forceQueuedCodingChanges();
     await done;
     expect(run).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('codingChange', () => {
+  it('runs now without stopping, stops for stop, and waits for queue', async () => {
+    codingAgentBusy.mockResolvedValue({ busy: false, sessions: [] });
+    const run = vi.fn(async () => ok);
+    await codingChange(['/a'], 'now', run);
+    await codingChange(['/a'], 'stop', run);
+    await codingChange(['/a'], 'queue', run);
+    expect(run.mock.calls).toEqual([[false], [true], [false]]);
+    expect(codingAgentBusy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('grantAndList', () => {
+  it('lists the folder in the project only when the grant is in', async () => {
+    grantCodingFolder.mockResolvedValueOnce({ ...ok, grants: [{ resource: '/a' }] });
+    await grantAndList({ projectId: 'p1', hostPath: '/a', origin: 'add' })(false);
+    expect(grantCodingFolder).toHaveBeenCalledWith({
+      projectId: 'p1',
+      hostPath: '/a',
+      origin: 'add',
+      stopRunningTask: false,
+    });
+    expect(addSourceFolder).toHaveBeenCalledWith({ projectId: 'p1', hostPath: '/a' });
+
+    addSourceFolder.mockClear();
+    grantCodingFolder.mockResolvedValueOnce({
+      ...ok,
+      success: false,
+      busy: { busy: true, sessions: ['x'] },
+    });
+    const refused = await grantAndList({ projectId: 'p1', hostPath: '/a', origin: 'add' })(false);
+    expect(refused.busy?.busy).toBe(true);
+    expect(addSourceFolder).not.toHaveBeenCalled();
+  });
+});
+
+describe('readCodingAgentBusy', () => {
+  it('counts a failed call as not busy', async () => {
+    codingAgentBusy.mockRejectedValue(new Error('ipc gone'));
+    expect(await readCodingAgentBusy()).toEqual({ busy: false, sessions: [] });
   });
 });

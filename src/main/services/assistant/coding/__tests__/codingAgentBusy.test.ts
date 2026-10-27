@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { busySessionIds, codingAgentBusy, sessionTitles } from '../codingAgentBusy';
+import {
+  busySessionIds,
+  codingAgentBusy,
+  isCodingAgentTool,
+  sessionTitles,
+} from '../codingAgentBusy';
 
 function json(body: unknown, ok = true): Response {
   return { ok, json: async () => body } as Response;
@@ -72,5 +77,38 @@ describe('codingAgentBusy', () => {
     expect((await codingAgentBusy({ fetchFn: unauthorised, port: 1, password: '' })).busy).toBe(
       false
     );
+  });
+});
+
+describe('a chat turn waiting on a coding task (G10-2)', () => {
+  it('matches the tools that start, continue or wait on a task', () => {
+    expect(isCodingAgentTool('coding_start_task')).toBe(true);
+    expect(isCodingAgentTool('mcp_opencode_coding_continue_task')).toBe(true);
+    expect(isCodingAgentTool('coding_wait_for_task')).toBe(true);
+    expect(isCodingAgentTool('coding_list_roots')).toBe(false);
+    expect(isCodingAgentTool('read_file')).toBe(false);
+  });
+
+  it('is busy while a running chat turn’s last tool is a coding tool, even when OpenCode is idle', async () => {
+    const fetchFn = vi.fn(async () => json({ s1: { type: 'idle' } }));
+    const busy = await codingAgentBusy({
+      fetchFn,
+      port: 1,
+      password: '',
+      runningToolNames: () => ['read_file', 'coding_wait_for_task'],
+    });
+    expect(busy.busy).toBe(true);
+    expect(busy.sessions).toEqual(['A chat’s coding task']);
+  });
+
+  it('is not busy when no running turn is on a coding tool', async () => {
+    const fetchFn = vi.fn(async () => json({}));
+    const busy = await codingAgentBusy({
+      fetchFn,
+      port: 1,
+      password: '',
+      runningToolNames: () => ['read_file'],
+    });
+    expect(busy).toEqual({ busy: false, sessions: [] });
   });
 });

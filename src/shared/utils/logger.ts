@@ -1,36 +1,57 @@
 import debug from 'debug';
 
+/** Every logger's namespace starts with this, so the dev scripts' `DEBUG=boundary:*` enables them all. */
+const NAMESPACE_ROOT = 'boundary';
+
 /**
- * Creates a debug logger with a namespace based on the file path
- * Path segments are separated by colons as requested
- * 
+ * Main passes its `DEBUG` value to the window with this argument
+ * (`webPreferences.additionalArguments`), because preload and renderer don't see the
+ * main process's environment.
+ */
+const DEBUG_ARG_PREFIX = '--boundary-debug=';
+
+/** The argument that carries `env.DEBUG` to a window. An empty value turns logging off there. */
+export function debugArgForWindow(env: NodeJS.ProcessEnv = process.env): string {
+  return `${DEBUG_ARG_PREFIX}${env.DEBUG ?? ''}`;
+}
+
+/**
+ * Apply the `DEBUG` value main passed in argv. In preload, `debug`'s browser build stores it in
+ * `localStorage.debug`, where the renderer's copy of `debug` reads it when it loads. Main has no
+ * such argument and reads `DEBUG` from its environment.
+ */
+export function enableDebugFromArgv(argv: readonly string[] | undefined): void {
+  const arg = argv?.find((value) => value.startsWith(DEBUG_ARG_PREFIX));
+  if (arg === undefined) return;
+  debug.enable(arg.slice(DEBUG_ARG_PREFIX.length));
+}
+
+enableDebugFromArgv(typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : undefined);
+
+/**
+ * Creates a debug logger named `boundary:<name>`. The name is `customNamespace` when given
+ * (a leading `boundary:` in it is not repeated), else the file path with colons for slashes.
+ *
  * @param filePath - The file path (usually __filename or import.meta.url)
- * @param customNamespace - Optional custom namespace to append
+ * @param customNamespace - Optional name to use instead of the file path
  * @returns A debug logger function
  */
-export function createLogger(filePath: string | undefined, customNamespace?: string): debug.Debugger {
-  // Handle cases where filePath might be undefined (browser environment)
-  if (!filePath) {
-    // Fallback to a generic namespace for browser environments
-    const namespace = customNamespace ? `browser:${customNamespace}` : 'browser:unknown';
-    return debug(namespace);
-  }
-
-  // Convert file path to namespace
-  let namespace = filePath
-    // Remove the project root path
-    .replace(/^.*\/boundary-desktop\//, '')
-    // Remove file extension
-    .replace(/\.[^/.]+$/, '')
-    // Replace path separators with colons
-    .replace(/\//g, ':');
-  
-  // Add custom namespace if provided
+function createLogger(filePath: string | undefined, customNamespace?: string): debug.Debugger {
+  let name: string;
   if (customNamespace) {
-    namespace += `:${customNamespace}`;
+    name = customNamespace.replace(new RegExp(`^${NAMESPACE_ROOT}:`), '');
+  } else if (filePath) {
+    name = filePath
+      // Remove the project root path
+      .replace(/^.*\/boundary-desktop\//, '')
+      // Remove file extension
+      .replace(/\.[^/.]+$/, '')
+      // Replace path separators with colons
+      .replace(/\//g, ':');
+  } else {
+    name = 'unknown';
   }
-  
-  return debug(namespace);
+  return debug(`${NAMESPACE_ROOT}:${name}`);
 }
 
 /**
@@ -71,29 +92,4 @@ function extractPathFromUrl(importMetaUrl: string): string {
     console.warn('Failed to parse import.meta.url:', error);
     return 'unknown';
   }
-}
-
-/**
- * Creates a debug logger with a custom namespace for the current file
- * Usage: const log = createFileLoggerWithNamespace(import.meta.url, 'my-feature');
- * 
- * @param importMetaUrl - The import.meta.url from the current file
- * @param customNamespace - Custom namespace to append
- * @returns A debug logger function
- */
-export function createFileLoggerWithNamespace(importMetaUrl: string, customNamespace: string): debug.Debugger {
-  return createFileLogger(importMetaUrl, customNamespace);
-}
-
-/**
- * Helper function to create a logger for the current file in ESM
- * This is the recommended way to create loggers in ESM environments
- * Usage: const log = createESMLogger(import.meta.url);
- * 
- * @param importMetaUrl - The import.meta.url from the current file
- * @param customNamespace - Optional custom namespace to append
- * @returns A debug logger function
- */
-export function createESMLogger(importMetaUrl: string, customNamespace?: string): debug.Debugger {
-  return createFileLogger(importMetaUrl, customNamespace);
 }

@@ -6,7 +6,7 @@ import type {
   CalendarInfo,
   CalendarProvider,
 } from '../../../../shared/types/calendars';
-import { decryptFromBase64, encryptToBase64, isOsEncryptionAvailable } from '../../secrets/osEncryption';
+import { tryDecryptFromBase64 } from '../../secrets/osEncryption';
 
 /**
  * Connected calendars. The password is encrypted with the OS keychain; Boundary keeps it so it
@@ -40,28 +40,16 @@ function getStore(): Store<CalendarStoreState> {
   return store;
 }
 
-export function canStoreCalendarPasswords(): Promise<boolean> {
-  return isOsEncryptionAvailable();
-}
-
-export function encryptCalendarPassword(password: string): Promise<string> {
-  return encryptToBase64(password);
-}
-
 /** The password, or null when the keychain can't decrypt it (reset, another Mac). */
-export async function decryptCalendarPassword(account: StoredCalendarAccount): Promise<string | null> {
-  try {
-    return await decryptFromBase64(account.password, (reEncrypted) => {
-      const accounts = listCalendarAccounts();
-      if (!accounts.some((a) => a.password === account.password)) return;
-      getStore().set(
-        'accounts',
-        accounts.map((a) => (a.password === account.password ? { ...a, password: reEncrypted } : a))
-      );
-    });
-  } catch {
-    return null;
-  }
+export function decryptCalendarPassword(account: StoredCalendarAccount): Promise<string | null> {
+  return tryDecryptFromBase64(account.password, (reEncrypted) => {
+    const accounts = listCalendarAccounts();
+    if (!accounts.some((a) => a.password === account.password)) return;
+    getStore().set(
+      'accounts',
+      accounts.map((a) => (a.password === account.password ? { ...a, password: reEncrypted } : a))
+    );
+  });
 }
 
 export function listCalendarAccounts(): StoredCalendarAccount[] {

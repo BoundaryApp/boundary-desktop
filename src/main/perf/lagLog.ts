@@ -67,8 +67,3 @@ export function lagLog(entry: { kind: string; [key: string]: unknown }, force = 
 export function endLagLog(): void {
   stream?.end();
 }
-
-/** Milliseconds rounded to 0.1, for log fields. */
-export function roundMs(ms: number): number {
-  return Math.round(ms * 10) / 10;
-}

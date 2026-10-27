@@ -305,4 +305,78 @@ describe('hermesProjectsMerge', () => {
     });
     expect(projects.map((p) => p.slug)).toEqual(['live']);
   });
+
+  it('keeps each row’s updatedAt when the gateway lists it unchanged (G09-4)', () => {
+    const garden = stored({
+      id: 'b-garden',
+      name: 'Garden',
+      slug: 'garden',
+      kind: 'host-folder',
+      hermesProjectId: 'p_garden',
+      updatedAt: '2026-03-01T00:00:00.000Z',
+    });
+    const notes = stored({
+      id: 'b-notes',
+      name: 'Notes',
+      slug: 'notes',
+      kind: 'empty',
+      hermesProjectId: 'p_notes',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+    const { projects } = syncProjectsFromGateway({
+      stored: [garden, notes],
+      previousActiveId: null,
+      dataRoot: DATA_ROOT,
+      now: NOW,
+      gateway: {
+        activeId: null,
+        projects: [
+          { id: 'p_notes', slug: 'notes', name: 'Notes', primaryPath: '/opt/projects/notes' },
+          { id: 'p_garden', slug: 'garden', name: 'Garden', primaryPath: '/opt/projects/garden' },
+        ],
+      },
+    });
+    expect(projects.find((p) => p.id === 'b-garden')?.updatedAt).toBe('2026-03-01T00:00:00.000Z');
+    expect(projects.find((p) => p.id === 'b-notes')?.updatedAt).toBe('2026-02-01T00:00:00.000Z');
+  });
+
+  it('stamps updatedAt only when a name, slug or path the user sees changed', () => {
+    const notes = stored({
+      id: 'b-notes',
+      name: 'Notes',
+      slug: 'notes',
+      kind: 'empty',
+      hermesProjectId: 'fs:/opt/projects/notes',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+    const renamed = syncProjectsFromGateway({
+      stored: [notes],
+      previousActiveId: null,
+      dataRoot: DATA_ROOT,
+      now: NOW,
+      gateway: {
+        activeId: null,
+        projects: [
+          { id: 'p_notes', slug: 'notes', name: 'Field notes', primaryPath: '/opt/projects/notes' },
+        ],
+      },
+    });
+    expect(renamed.projects[0]).toMatchObject({ name: 'Field notes', updatedAt: NOW });
+
+    // A materialized id alone is not something the user sees.
+    const materialized = syncProjectsFromGateway({
+      stored: [notes],
+      previousActiveId: null,
+      dataRoot: DATA_ROOT,
+      now: NOW,
+      gateway: {
+        activeId: null,
+        projects: [{ id: 'p_notes', slug: 'notes', name: 'Notes', primaryPath: '/opt/projects/notes' }],
+      },
+    });
+    expect(materialized.projects[0]).toMatchObject({
+      hermesProjectId: 'p_notes',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+  });
 });

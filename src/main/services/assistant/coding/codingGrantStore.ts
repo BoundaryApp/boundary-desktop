@@ -1,5 +1,6 @@
 import path from 'node:path';
 import Store from 'electron-store';
+import { isPathUnder } from '../../hostPaths';
 import type {
   CodingGrant,
   CodingGrantOrigin,
@@ -95,7 +96,7 @@ export function recordHermesCodingRoots(roots: readonly string[]): void {
 export function isHermesPending(hostPath: string): boolean {
   const known = store.get('hermesRoots') ?? [];
   const wanted = key(hostPath);
-  return !known.some((root) => wanted === root || wanted.startsWith(`${root}${path.sep}`));
+  return !known.some((root) => isPathUnder(wanted, root));
 }
 
 export function getAppliedCodingAliases(): string | null {

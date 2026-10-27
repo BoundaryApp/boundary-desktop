@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { formatInferenceChipTitle } from '../../../shared/inferenceDisplay';
 import type {
   HermesProjectRecord,
@@ -6,11 +6,11 @@ import type {
   HermesSourceRow,
   ProjectInferencePin,
 } from '../../../shared/types/hermesChat';
-import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
-import { hermesChatIPC } from '../../services/hermesChatIPCService';
-import { onboardingIPC } from '../../services/onboardingIPCService';
-import { displayHostPath, projectGlyph, projectGlyphColor } from './chatTelemetryFormat';
-import type { CodingAgentBusy } from '../../../shared/types/codingFolders';
+import { useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { displayHostPath } from './chatTelemetryFormat';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { useDismiss } from '../../components/ui/use-dismiss';
+import { ProjectGlyph } from './ProjectGlyph';
 import { folderKey, folderRowView } from './codingFolderView';
 import { DeleteFolderSheet } from './DeleteFolderSheet';
 import {
@@ -20,7 +20,10 @@ import {
   refreshCodingFolders,
   runCodingChange,
   useCodingFolders,
+  type CodingChangeMode,
 } from './codingFoldersStore';
+import { useCodingGrant } from './useCodingGrant';
+import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 
 const CHECKLIST = ['Saved', 'Restarting the coding agent', 'Checking it can open the folder'];
 
@@ -33,11 +36,11 @@ function pinMode(project: HermesProjectRecord): ProjectInferencePin['mode'] {
   return project.inference?.mode ?? 'inherit';
 }
 
-interface ProjectSourcesRailProps {
+export interface ProjectSourcesRailProps {
   project: HermesProjectRecord | null;
   inspect: HermesProjectSourcesInspect | null;
-  connecting?: boolean;
-  rpcAvailable?: boolean;
+  connecting: boolean;
+  rpcAvailable: boolean;
   onChangeFolder: () => void;
   onChooseFolder: () => void;
   onRevealHub: () => void;
@@ -49,9 +52,9 @@ interface ProjectSourcesRailProps {
   onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
   /**
    * ADR 0024: how the shown project relates to what is open, e.g. "This chat lives in", with
-   * Move… beside it. Omitted on the project page, where the project is simply the subject.
+   * Move… beside it. Null on the project page, where the project is simply the subject.
    */
-  role?: ProjectRole | null;
+  role: ProjectRole | null;
 }
 
 export interface ProjectRole {
@@ -83,8 +86,8 @@ function RoleLine({ role }: { role: ProjectRole }) {
 export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   project,
   inspect,
-  connecting = false,
-  rpcAvailable = true,
+  connecting,
+  rpcAvailable,
   onChangeFolder,
   onChooseFolder,
   onRevealHub,
@@ -93,16 +96,20 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   onAddFolder,
   onRemoveSource,
   onProjectsUpdated,
-  role = null,
+  role,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [keptWritable, setKeptWritable] = useState(false);
-  const [status, setStatus] = useState<InferenceProvidersStatus | null>(null);
+  const { status } = useInferenceStatus();
   const [patchError, setPatchError] = useState<string | null>(null);
   const [patching, setPatching] = useState(false);
   const coding = useCodingFolders();
   const [allowOpen, setAllowOpen] = useState(false);
-  const [allowAgent, setAllowAgent] = useState<CodingAgentBusy | null>(null);
+  const allowGrant = useCodingGrant();
+  const allowAgent = allowGrant.agent;
+  const allowRef = useRef<HTMLDivElement | null>(null);
+  const allowTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useDismiss(allowRef, allowOpen, () => setAllowOpen(false), { returnFocusTo: allowTriggerRef });
   const [restartingHermes, setRestartingHermes] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [trashNotice, setTrashNotice] = useState<string | null>(null);
@@ -111,23 +118,13 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     setKeptWritable(false);
   }, [inspect?.projectId, inspect?.sources.map((row) => row.visibility).join(',')]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void onboardingIPC.getStatus().then((next) => {
-      if (!cancelled) setStatus(next);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [project?.id, project?.inference?.mode, project?.inference?.modelId]);
-
   const applyPin = useCallback(
     async (inference: ProjectInferencePin) => {
       if (!project || connecting || patching) return;
       setPatchError(null);
       setPatching(true);
       try {
-        const result = await hermesChatIPC.patchProject({
+        const result = await window.electronAPI.projects.patch({
           projectId: project.id,
           inference,
         });
@@ -186,28 +183,29 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
 
   const openAllowCoding = () => {
     setAllowOpen(true);
-    setAllowAgent(null);
-    void hermesChatIPC
-      .codingAgentBusy()
-      .catch((): CodingAgentBusy => ({ busy: false, sessions: [] }))
-      .then(setAllowAgent);
+    void allowGrant.check();
   };
 
-  const allowCoding = (mode: 'now' | 'stop' | 'queue') => {
+  const allowCoding = (mode: CodingChangeMode) => {
     setAllowOpen(false);
-    const run = (stopRunningTask: boolean) =>
-      hermesChatIPC.setProjectFolderCoding({
-        projectId: project.id,
-        enabled: true,
-        stopRunningTask,
+    const projectId = project.id;
+    void allowGrant
+      .apply([hubKey], mode, (stopRunningTask) =>
+        window.electronAPI.codingFolders.setProjectFolder({
+          projectId,
+          enabled: true,
+          stopRunningTask,
+        })
+      )
+      .then((result) => {
+        // A task started after the check: offer the wait-or-stop choice again.
+        if (result.busy?.busy) setAllowOpen(true);
       });
-    if (mode === 'queue') void queueCodingChange([hubKey], run);
-    else void runCodingChange([hubKey], () => run(mode === 'stop'));
   };
 
   const turnOffCoding = () => {
     void queueCodingChange([hubKey], (stopRunningTask) =>
-      hermesChatIPC.setProjectFolderCoding({
+      window.electronAPI.codingFolders.setProjectFolder({
         projectId: project.id,
         enabled: false,
         stopRunningTask,
@@ -216,13 +214,13 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   };
 
   const retryCoding = (hostPath: string | null) => {
-    void runCodingChange(hostPath ? [hostPath] : [], () => hermesChatIPC.retryCodingFolders());
+    void runCodingChange(hostPath ? [hostPath] : [], () => window.electronAPI.codingFolders.retry());
   };
 
   const restartHermes = async () => {
     setRestartingHermes(true);
     try {
-      await hermesChatIPC.restartHermesForCodingFolders();
+      await window.electronAPI.codingFolders.restartHermes();
       await refreshCodingFolders();
     } finally {
       setRestartingHermes(false);
@@ -245,7 +243,12 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const pinBusy = connecting || patching;
 
   const allowPopover = allowOpen ? (
-    <div className="wb-popover" role="dialog" aria-labelledby="wb-allow-coding-title">
+    <div
+      ref={allowRef}
+      className="wb-popover"
+      role="dialog"
+      aria-labelledby="wb-allow-coding-title"
+    >
       <h4 id="wb-allow-coding-title">Let the coding agent work in {project.name}?</h4>
       <p>
         Hermes can already edit this folder, and it asks before risky commands. The coding
@@ -260,22 +263,11 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <li>Secrets in top-level .env files stay hidden from it</li>
       </ul>
       {allowAgent?.busy ? (
-        <p className="wb-popover-warn">
-          A coding task is running
-          {allowAgent.sessions.length ? ` (${allowAgent.sessions.join(', ')})` : ''}. Allowing
-          coding restarts the coding agent, which stops it.
-        </p>
+        <CodingBusyWarning agent={allowAgent} verb="allow" look="popover" />
       ) : null}
       <div className="wb-popover-actions">
         {allowAgent?.busy ? (
-          <>
-            <button type="button" className="wb-btn-solid" onClick={() => allowCoding('queue')}>
-              Allow when it finishes
-            </button>
-            <button type="button" className="wb-btn-ghost" onClick={() => allowCoding('stop')}>
-              Stop task and allow
-            </button>
-          </>
+          <CodingBusyButtons verb="allow" look="popover" onChoose={allowCoding} />
         ) : (
           <button
             type="button"
@@ -297,18 +289,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     <div className="wb-insp-pane">
       {role ? <RoleLine role={role} /> : null}
       <div className="wb-insp-ident">
-        <span
-          className="wb-glyph"
-          style={{ background: projectGlyphColor(project.id) }}
-        >
-          {projectGlyph(project.name)}
-          {mode !== 'inherit' ? (
-            <span
-              className={`wb-inf-pin ${mode === 'local' ? 'is-local' : 'is-cloud'}`}
-              title={mode === 'local' ? 'Local default' : 'OpenRouter default'}
-            />
-          ) : null}
-        </span>
+        <ProjectGlyph project={project} pin />
         <span>
           <span className="who-name" title={project.name}>
             {project.name}
@@ -323,21 +304,29 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           </button>
         </span>
         <div className="wb-insp-more">
-          <button
-            type="button"
-            className={`wb-icon-more${menuOpen ? ' is-on' : ''}`}
-            aria-label="Project actions"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7">
-              <circle cx="7" cy="3" r="0.9" />
-              <circle cx="7" cy="7" r="0.9" />
-              <circle cx="7" cy="11" r="0.9" />
-            </svg>
-          </button>
-          {menuOpen ? (
-            <div className="wb-insp-menu" role="menu">
+          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+            <PopoverTrigger>
+              <button
+                type="button"
+                className={`wb-icon-more${menuOpen ? ' is-on' : ''}`}
+                aria-label="Project actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <circle cx="7" cy="3" r="0.9" />
+                  <circle cx="7" cy="7" r="0.9" />
+                  <circle cx="7" cy="11" r="0.9" />
+                </svg>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="wb-insp-menu"
+              role="menu"
+              side="bottom"
+              align="end"
+              sideOffset={4}
+            >
               <button
                 type="button"
                 role="menuitem"
@@ -384,19 +373,19 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
                   Refresh index
                 </button>
               ) : null}
-            </div>
-          ) : null}
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
       {!rpcAvailable ? (
-        <p className="wb-warn">Folder connected; project RPC unavailable (HTTP fallback).</p>
+        <p className="wb-warn">Folder connected; project RPC unavailable.</p>
       ) : null}
 
       {trashNotice ? (
         <div className="wb-insp-banner" role="status">
           <p>{trashNotice}</p>
-          <button type="button" className="wb-btn-tiny" onClick={() => void hermesChatIPC.showTrash()}>
+          <button type="button" className="wb-btn-tiny" onClick={() => void window.electronAPI.codingFolders.showTrash()}>
             Show in Trash
           </button>
           <button
@@ -624,6 +613,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
                   type="button"
                   className="wb-src-open"
                   disabled={connecting || connectingNow}
+                  ref={allowTriggerRef}
                   onClick={openAllowCoding}
                 >
                   Allow coding…
@@ -683,20 +673,3 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     </div>
   );
 };
-
-/** Quiet pin class for project glyphs when mode !== inherit. */
-export function projectInferencePinClass(
-  inference: ProjectInferencePin | undefined
-): string | null {
-  const mode = inference?.mode ?? 'inherit';
-  if (mode === 'inherit') return null;
-  return mode === 'local' ? 'is-local' : 'is-cloud';
-}
-
-export function projectInferencePinTitle(
-  inference: ProjectInferencePin | undefined
-): string | undefined {
-  const mode = inference?.mode ?? 'inherit';
-  if (mode === 'inherit') return undefined;
-  return mode === 'local' ? 'Local default' : 'OpenRouter default';
-}

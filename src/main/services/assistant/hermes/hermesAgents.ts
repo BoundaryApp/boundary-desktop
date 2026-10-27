@@ -20,6 +20,8 @@ import {
   builtinAgentName,
   clashesWithBuiltinAgent,
 } from '../../../../shared/hermesAgentIdentity';
+import { uniqueSlug } from '../../../../shared/utils/slug';
+import { newestFirst } from '../../../../shared/utils/sort';
 import { resolveActiveAssistantDataRoot } from '../resolveAssistantRoot';
 import { excerptSoul, readSoulFile, resolveSoulFilePath, rewriteSoulIdentity } from './agentSoul';
 import { getHermesGatewaySession } from './hermesGatewaySession';
@@ -152,15 +154,8 @@ export function listHermesAgents(): HermesAgentsListResult {
   }
 }
 
-function uniqueSlug(base: string): string {
-  let slug = base;
-  let n = 2;
-  const existing = new Set(mergeAgents().map((a) => a.slug));
-  while (existing.has(slug) || RESERVED_SLUGS.has(slug)) {
-    slug = `${base}-${n}`;
-    n += 1;
-  }
-  return slug;
+function uniqueAgentSlug(base: string): string {
+  return uniqueSlug(base, [...mergeAgents().map((a) => a.slug), ...RESERVED_SLUGS]);
 }
 
 function soulForRole(displayName: string, role: string): string {
@@ -252,11 +247,7 @@ export function annotateThreadsWithAgents(
   const channelsBySession = new Map(
     listStoredChannels().map((c) => [c.sessionId, c] as const)
   );
-  const sorted = [...threads].sort((a, b) => {
-    const ta = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-    const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
-  });
+  const sorted = [...threads].sort(newestFirst);
 
   // Claim unmarked non-channel sessions for the built-in agent.
   for (const thread of sorted) {
@@ -303,33 +294,37 @@ export function annotateThreadsWithAgents(
   });
 }
 
-export async function createHermesAgent(
-  payload: HermesAgentCreatePayload
-): Promise<HermesAgentCreateResult> {
+/** The trimmed name, role and handle of a new or edited agent, or why they are refused. */
+function agentFields(payload: {
+  displayName: string;
+  role: string;
+  handle?: string;
+}): { displayName: string; role: string; handle: string } | { error: string } {
   const displayName = payload.displayName.trim();
   const role = payload.role.trim();
-  if (!displayName) {
-    return { success: false, error: 'Display name is required.' };
-  }
-  if (!role) {
-    return { success: false, error: 'Role is required.' };
-  }
-
+  if (!displayName) return { error: 'Display name is required.' };
+  if (!role) return { error: 'Role is required.' };
   const handle = (payload.handle?.trim() || displayName).replace(/^@/, '');
   const agents = listStoredAgents();
   if (clashesWithBuiltinAgent(displayName, agents) || clashesWithBuiltinAgent(handle, agents)) {
-    return {
-      success: false,
-      error: `“${builtinAgentName(agents)}” is the built-in agent's name. Pick another.`,
-    };
+    return { error: `“${builtinAgentName(agents)}” is the built-in agent's name. Pick another.` };
   }
+  return { displayName, role, handle };
+}
+
+export async function createHermesAgent(
+  payload: HermesAgentCreatePayload
+): Promise<HermesAgentCreateResult> {
+  const fields = agentFields(payload);
+  if ('error' in fields) return { success: false, error: fields.error };
+  const { displayName, role, handle } = fields;
   const baseSlug = agentSlugFromDisplayName(
     payload.handle?.trim() ? payload.handle.replace(/^@/, '') : displayName
   );
   if (RESERVED_SLUGS.has(baseSlug) && baseSlug !== BUILTIN_ASSISTANT_SLUG) {
     return { success: false, error: `Name “${baseSlug}” is reserved.` };
   }
-  const slug = uniqueSlug(baseSlug);
+  const slug = uniqueAgentSlug(baseSlug);
 
   const agent: AgentProfile = {
     slug,
@@ -396,22 +391,9 @@ export async function updateHermesAgent(
   if (agent.builtIn || agent.slug === BUILTIN_ASSISTANT_SLUG) {
     return { success: false, error: 'The built-in agent can’t be edited.' };
   }
-  const displayName = payload.displayName.trim();
-  const role = payload.role.trim();
-  if (!displayName) {
-    return { success: false, error: 'Display name is required.' };
-  }
-  if (!role) {
-    return { success: false, error: 'Role is required.' };
-  }
-  const handle = (payload.handle?.trim() || displayName).replace(/^@/, '');
-  const agents = listStoredAgents();
-  if (clashesWithBuiltinAgent(displayName, agents) || clashesWithBuiltinAgent(handle, agents)) {
-    return {
-      success: false,
-      error: `“${builtinAgentName(agents)}” is the built-in agent's name. Pick another.`,
-    };
-  }
+  const fields = agentFields(payload);
+  if ('error' in fields) return { success: false, error: fields.error };
+  const { displayName, role, handle } = fields;
 
   const next: AgentProfile = { ...agent, displayName, handle, role };
   const renamed = displayName !== agent.displayName;
@@ -470,10 +452,6 @@ export function resolveProfileForAgent(agentSlug: string | null | undefined): st
   return agentSlug;
 }
 
-export function standingDmForAgent(agentSlug: string): string | null {
-  return getStandingDmSessionId(agentSlug);
-}
-
 export async function getHermesAgentSoul(
   payload: HermesAgentSoulPayload
 ): Promise<HermesAgentSoulResult> {
@@ -485,7 +463,7 @@ export async function getHermesAgentSoul(
 
   const filePath = resolveSoulFilePath(resolveActiveAssistantDataRoot(), slug);
   const fileSoul = readSoulFile(filePath);
-  let described: string | null = null;
+  let described: string | null;
   try {
     const snapshot = await getHermesGatewaySession().describeProfile(
       agent.builtIn ? '' : slug

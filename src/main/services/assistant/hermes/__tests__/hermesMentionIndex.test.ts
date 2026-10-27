@@ -29,7 +29,6 @@ import {
   clearMentionCacheForTests,
   listHermesMentions,
   markHermesMentionsSeen,
-  summarizeHermesMentions,
 } from '../hermesMentionIndex';
 
 const hermes: AgentProfile = {
@@ -61,11 +60,10 @@ const post = (content: string, delivery: 'woke' | 'posted', assistantCount?: num
   delivery,
   ...(assistantCount != null ? { assistantCount } : {}),
 });
-const reply = (content: string, minute: number, rowId?: number): HermesChatMessage => ({
+const reply = (content: string, minute: number): HermesChatMessage => ({
   role: 'assistant',
   content,
   timestamp: Date.UTC(2026, 9, 1, 9, minute) / 1000,
-  ...(rowId != null ? { rowId } : {}),
 });
 
 describe('buildRoomMentions (ADR 0023 §6)', () => {
@@ -78,18 +76,18 @@ describe('buildRoomMentions (ADR 0023 §6)', () => {
     const mentions = buildRoomMentions({
       channel: room(['ana', 'ben']),
       posts,
-      assistants: [reply('Ana here', 2, 11), reply('Ben here', 3, 12)],
+      assistants: [reply('Ana here', 2), reply('Ben here', 3)],
       speakers: [
         { ordinal: 0, agentSlug: 'ana' },
         { ordinal: 1, agentSlug: 'ben' },
       ],
       agents,
     });
-    expect(mentions.map((m) => [m.agentSlug, m.status, m.reply?.text, m.reply?.rowId])).toEqual([
-      ['ana', 'replied', 'Ana here', 11],
-      ['ben', 'replied', 'Ben here', 12],
+    expect(mentions.map((m) => [m.agentSlug, m.status, m.reply?.text])).toEqual([
+      ['ana', 'replied', 'Ana here'],
+      ['ben', 'replied', 'Ben here'],
     ]);
-    expect(mentions[0]).toMatchObject({ id: 'p1:ana', anchor: 'p1', channelSlug: 'research' });
+    expect(mentions[0]).toMatchObject({ id: 'p1:ana', channelSlug: 'research' });
   });
 
   it('never counts a chain-woken reply or a post as your mention', () => {
@@ -132,9 +130,9 @@ describe('buildRoomMentions (ADR 0023 §6)', () => {
       speakers: [{ ordinal: 0, agentSlug: 'ben' }],
       agents,
     });
-    expect(mentions.map((m) => [m.anchor, m.agentSlug, m.status])).toEqual([
-      ['p1', 'ben', 'replied'],
-      ['p1', 'ana', 'waiting'],
+    expect(mentions.map((m) => [m.id, m.status])).toEqual([
+      ['p1:ben', 'replied'],
+      ['p1:ana', 'waiting'],
     ]);
   });
 
@@ -178,19 +176,19 @@ describe('listHermesMentions: cache and seen watermark', () => {
       { role: 'assistant', content: 'Old reply', timestamp: Date.UTC(2026, 0, 1) / 1000 },
     ]);
     expect(getMentionsSeenAt()).toBeNull();
-    expect((await summarizeHermesMentions()).unseen).toBe(0);
+    const listed = await listHermesMentions();
+    expect(listed.mentions.filter((m) => m.unseen)).toHaveLength(0);
     expect(getMentionsSeenAt()).not.toBeNull();
   });
 
   it('counts replies newer than the watermark, and clears on mark seen', async () => {
     setMentionsSeenAt(new Date(Date.now() - 1000).toISOString());
-    const listed = await listHermesMentions({ agentSlug: 'ana' });
+    const listed = await listHermesMentions();
     expect(listed.mentions).toHaveLength(1);
     expect(listed.mentions[0]).toMatchObject({ status: 'replied', unseen: true });
-    expect((await summarizeHermesMentions()).unseen).toBe(1);
     markHermesMentionsSeen();
     setMentionsSeenAt(new Date(Date.now() + 120_000).toISOString());
-    expect((await summarizeHermesMentions()).unseen).toBe(0);
+    expect((await listHermesMentions()).mentions[0].unseen).toBe(false);
   });
 
   it('reads each room once until the room changes', async () => {
@@ -214,9 +212,10 @@ describe('listHermesMentions: cache and seen watermark', () => {
     upsertStoredChannel({ ...room([]), id: 'ch2', slug: 'quiet', sessionId: 'stored-2' });
     store.appendChannelPost('stored-2', { content: 'just notes', delivery: 'posted' });
     getSessionHistory.mockClear();
-    clearMentionCacheForTests();
-    await listHermesMentions({ channelId: 'ch2' });
+    resumeSession.mockClear();
+    await listHermesMentions();
     expect(getSessionHistory).not.toHaveBeenCalled();
+    expect(resumeSession).not.toHaveBeenCalled();
   });
 
   it('reads history by the live runtime id, and resumes when there is none', async () => {

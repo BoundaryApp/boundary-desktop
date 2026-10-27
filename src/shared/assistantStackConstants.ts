@@ -16,13 +16,6 @@ export const BOUNDARY_ASSISTANT_COMPOSE_PROFILES = [
   'db',
 ] as const;
 
-export type BoundaryAssistantComposeProfile =
-  (typeof BOUNDARY_ASSISTANT_COMPOSE_PROFILES)[number];
-
-/** Comma-joined value for COMPOSE_PROFILES. */
-export const BOUNDARY_ASSISTANT_COMPOSE_PROFILES_CSV =
-  BOUNDARY_ASSISTANT_COMPOSE_PROFILES.join(',');
-
 /** @deprecated Prefer BOUNDARY_ASSISTANT_COMPOSE_PROFILES — kept for hermes-only setup run. */
 export const BOUNDARY_ASSISTANT_COMPOSE_PROFILE = 'core';
 
@@ -31,7 +24,7 @@ export const BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE = 'docker-compose.yml';
 export const BOUNDARY_ASSISTANT_OVERLAY_FILENAME = 'docker-compose.boundary.yml';
 
 /** Public agent stack Boundary provisions for end users (not a sibling checkout). */
-export const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
+const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
 
 /**
  * Pinned git ref for the archive Boundary downloads: the commit a release tag points at,
@@ -57,11 +50,11 @@ export const BOUNDARY_ASSISTANT_CONTAINER_PREFIX = 'boundary-';
 export const BOUNDARY_ASSISTANT_IMAGE_PREFIX = 'boundary-assistant';
 
 /**
- * Where Hermes runs shell, file and execute_code tools. `ssh` (upstream's default,
- * compose/hermes/terminal-ssh.yml) runs them in the hermes-worker container, which holds
- * no secrets and can't read data/hermes. `local` runs them in the hermes container.
+ * Where Hermes runs shell, file and execute_code tools in Boundary's stack. `ssh` (upstream's
+ * default, compose/hermes/terminal-ssh.yml) runs them in the hermes-worker container, which
+ * holds no secrets and can't read data/hermes. Boundary always runs it.
  */
-export const BOUNDARY_HERMES_TERMINAL_BACKEND: 'ssh' | 'local' = 'ssh';
+export const BOUNDARY_HERMES_TERMINAL_BACKEND = 'ssh';
 
 export const SOVEREIGN_AGENT_STACK_GITHUB_URL = `https://github.com/${SOVEREIGN_AGENT_STACK_REPO}`;
 
@@ -97,24 +90,10 @@ export const DEFAULT_ASSISTANT_STACK_PORTS: AssistantStackPorts = {
 export function portsForIsolationMode(
   isolationMode: import('./types/assistantStack').AssistantStackIsolationMode
 ): AssistantStackPorts {
-  if (isolationMode === 'offset-ports') {
-    const offset = BOUNDARY_ASSISTANT_PORT_OFFSET;
-    return {
-      gateway: DEFAULT_ASSISTANT_STACK_PORTS.gateway + offset,
-      apiServer: DEFAULT_ASSISTANT_STACK_PORTS.apiServer + offset,
-      dashboard: DEFAULT_ASSISTANT_STACK_PORTS.dashboard + offset,
-      webui: DEFAULT_ASSISTANT_STACK_PORTS.webui + offset,
-      searxng: DEFAULT_ASSISTANT_STACK_PORTS.searxng + offset,
-      lightrag: DEFAULT_ASSISTANT_STACK_PORTS.lightrag + offset,
-      neo4jHttp: DEFAULT_ASSISTANT_STACK_PORTS.neo4jHttp + offset,
-      neo4jBolt: DEFAULT_ASSISTANT_STACK_PORTS.neo4jBolt + offset,
-      opencode: DEFAULT_ASSISTANT_STACK_PORTS.opencode + offset,
-      gptResearcher: DEFAULT_ASSISTANT_STACK_PORTS.gptResearcher + offset,
-      n8n: DEFAULT_ASSISTANT_STACK_PORTS.n8n + offset,
-      llmProxyAdmin: DEFAULT_ASSISTANT_STACK_PORTS.llmProxyAdmin + offset,
-    };
-  }
-  return { ...DEFAULT_ASSISTANT_STACK_PORTS };
+  const offset = isolationMode === 'offset-ports' ? BOUNDARY_ASSISTANT_PORT_OFFSET : 0;
+  return Object.fromEntries(
+    Object.entries(DEFAULT_ASSISTANT_STACK_PORTS).map(([key, port]) => [key, port + offset])
+  ) as AssistantStackPorts;
 }
 
 /** Container names assigned by Boundary's compose overlay (not the assistant base file). */

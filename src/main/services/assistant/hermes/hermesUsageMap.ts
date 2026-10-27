@@ -14,7 +14,5 @@ export function mapUsageSnapshot(raw: Record<string, unknown>): HermesChatUsageS
     avgTps: num('avg_tps'),
     prompt: num('prompt') ?? num('input'),
     completion: num('completion') ?? num('output'),
-    input: num('input'),
-    output: num('output'),
   };
 }

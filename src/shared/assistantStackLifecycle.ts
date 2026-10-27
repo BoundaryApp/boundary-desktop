@@ -8,29 +8,6 @@ import type {
   AssistantStackServiceProgressState,
 } from './types/assistantStack';
 
-/** Ordered start-path stages for the checklist UI (excludes idle/error). */
-export const ASSISTANT_STACK_START_STAGES: AssistantStackLifecycleStage[] = [
-  'provision',
-  'hostSetup',
-  'hermesInit',
-  'compose',
-  'health',
-  'configureLlm',
-  'ready',
-];
-
-export const ASSISTANT_STACK_STAGE_LABELS: Record<AssistantStackLifecycleStage, string> = {
-  idle: 'Idle',
-  provision: 'Download stack',
-  hostSetup: 'Host setup',
-  hermesInit: 'Initialize Hermes',
-  compose: 'Start containers',
-  health: 'Health checks',
-  configureLlm: 'Configure LLM',
-  ready: 'Ready',
-  error: 'Error',
-};
-
 /**
  * Re-emit a base message with elapsed seconds while a long op is silent.
  * Does not fire immediately (caller already emitted the base message).
@@ -53,7 +30,7 @@ export type BoundaryAssistantContainerName =
   (typeof BOUNDARY_ASSISTANT_CONTAINER_NAMES)[number];
 
 /** Compose service name (base file) → Boundary container_name. */
-export const COMPOSE_SERVICE_TO_CONTAINER: Record<string, BoundaryAssistantContainerName> = {
+const COMPOSE_SERVICE_TO_CONTAINER: Record<string, BoundaryAssistantContainerName> = {
   hermes: 'boundary-hermes',
   'hermes-webui': 'boundary-hermes-webui',
   searxng: 'boundary-searxng',
@@ -94,7 +71,7 @@ for (const service of ASSISTANT_UI_SERVICES) {
   }
 }
 
-export function titleForContainer(containerName: string): string {
+function titleForContainer(containerName: string): string {
   return (
     CONTAINER_TITLES[containerName as BoundaryAssistantContainerName] ?? containerName
   );
@@ -205,7 +182,7 @@ const IMAGE_HINTS: Array<[string, BoundaryAssistantContainerName]> = [
 ];
 
 /** Local image name fragments used to detect already-pulled images per container. */
-export const CONTAINER_IMAGE_HINTS: Record<BoundaryAssistantContainerName, string[]> = {
+const CONTAINER_IMAGE_HINTS: Record<BoundaryAssistantContainerName, string[]> = {
   'boundary-hermes': ['nousresearch/hermes-agent', 'hermes-agent'],
   'boundary-hermes-webui': ['nesquena/hermes-webui', 'hermes-webui'],
   'boundary-searxng': ['searxng/searxng', 'searxng'],
@@ -223,7 +200,7 @@ export const CONTAINER_IMAGE_HINTS: Record<BoundaryAssistantContainerName, strin
 };
 
 /** Local-image checkpoint — not create/start progress. */
-export const IMAGE_CACHED_PROGRESS = 0.2;
+const IMAGE_CACHED_PROGRESS = 0.2;
 
 /** Progress ceilings for a single monotonic start bar (100% = healthy/ready). */
 export const PROGRESS = {

@@ -8,8 +8,11 @@ export function taskGaveUp(task: KanbanTaskSummary): boolean {
   return task.status === 'blocked' && task.blockKind === null && task.failures > 0;
 }
 
-/** Blocked for a reason only the owner can clear, or waiting for review. */
+/**
+ * Waiting for review, in triage, or blocked for a reason only the owner can clear. The owner
+ * sorts triage for now (decision D7); the orchestrator doesn't.
+ */
 export function taskNeedsYou(task: KanbanTaskSummary): boolean {
-  if (task.status === 'review') return true;
+  if (task.status === 'review' || task.status === 'triage') return true;
   return task.status === 'blocked' && task.blockKind !== 'dependency';
 }

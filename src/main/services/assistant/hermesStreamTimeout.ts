@@ -8,8 +8,8 @@ import net from 'node:net';
  * compose/hermes/bootstrap-api-profile.sh.
  */
 
-export const HERMES_STALE_TIMEOUT_LOCAL_S = 300;
-export const HERMES_STALE_TIMEOUT_CLOUD_S = 180;
+const HERMES_STALE_TIMEOUT_LOCAL_S = 300;
+const HERMES_STALE_TIMEOUT_CLOUD_S = 180;
 
 function ipv4IsLocal(host: string): boolean {
   const [a, b] = host.split('.').map(Number);

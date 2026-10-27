@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { BOUNDARY_ASSISTANT_PROJECT_NAME } from '../../../shared/assistantStackConstants';
+import { canonicalPath } from '../hostPaths';
 
 const PROJECT_LABEL = 'com.docker.compose.project';
 const WORKING_DIR_LABEL = 'com.docker.compose.project.working_dir';
@@ -11,14 +10,6 @@ export const LIVE_STACK_PS_ARGS = [
   '--format',
   `{{.Label "${PROJECT_LABEL}"}}\t{{.Label "${WORKING_DIR_LABEL}"}}`,
 ];
-
-function canonicalPath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-}
 
 /**
  * Compose projects other than Boundary's own that have running containers started from

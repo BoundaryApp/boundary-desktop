@@ -1,76 +1,38 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { handle, handleResult } from '../../ipc';
+import { broadcast } from '../windows';
 import {
-  applyLlmConnectionToHermes,
-  applyLlmSlotToHermes,
   ensureAssistantStackAndApplyLlm,
   ensureAssistantStackRunning,
   ensureAssistantStackRunningInBackground,
   getAssistantStackLifecycle,
   getAssistantStackStatus,
-  resetBoundaryAssistantStackInstall,
   setAssistantStackLifecycleCallback,
-  setAssistantStackProgressCallback,
-  stopAssistantStack,
+  setAssistantStackReadyCallback,
 } from './AssistantStackService';
-import { markAssistantStackSetupComplete } from './AssistantStackStore';
 import { createStartupNotifier } from './startupNotice';
-import type {
-  ApplyAssistantLlmPayload,
-  AssistantStackLifecycleSnapshot,
-} from '../../../shared/types/assistantStack';
-
-function broadcastProgress(message: string): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('assistant-stack:progress', message);
-    }
-  }
-}
+import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
 
 const noticeStartup = createStartupNotifier();
 
 function broadcastLifecycle(snapshot: AssistantStackLifecycleSnapshot): void {
   noticeStartup(snapshot);
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('assistant-stack:lifecycle', snapshot);
-    }
-  }
+  broadcast('assistant-stack:lifecycle', snapshot);
 }
 
 export function registerAssistantStackHandlers(): void {
-  setAssistantStackProgressCallback(broadcastProgress);
   setAssistantStackLifecycleCallback(broadcastLifecycle);
+  setAssistantStackReadyCallback((ready) => broadcast('assistant-stack:ready', ready));
 
-  ipcMain.handle('assistant-stack:get-status', async () => getAssistantStackStatus());
+  handle('assistant-stack:get-status', async () => getAssistantStackStatus());
 
-  ipcMain.handle('assistant-stack:get-lifecycle', async () => getAssistantStackLifecycle());
+  handle('assistant-stack:get-lifecycle', async () => getAssistantStackLifecycle());
 
-  ipcMain.handle('assistant-stack:ensure-running', async () => ensureAssistantStackRunning());
+  handleResult('assistant-stack:ensure-running', async () => ensureAssistantStackRunning());
 
-  ipcMain.handle('assistant-stack:ensure-running-background', async () => {
+  handle('assistant-stack:ensure-running-background', async () => {
     ensureAssistantStackRunningInBackground();
     return { started: true };
   });
 
-  ipcMain.handle('assistant-stack:ensure-and-apply-llm', async () => ensureAssistantStackAndApplyLlm());
-
-  ipcMain.handle(
-    'assistant-stack:apply-llm',
-    async (_event, payload?: ApplyAssistantLlmPayload) => {
-      if (payload?.slot) {
-        return applyLlmSlotToHermes(payload.slot);
-      }
-      return applyLlmConnectionToHermes();
-    }
-  );
-
-  ipcMain.handle('assistant-stack:stop', async () => stopAssistantStack());
-
-  ipcMain.handle('assistant-stack:mark-setup-complete', async () => {
-    markAssistantStackSetupComplete();
-    return getAssistantStackStatus();
-  });
-
-  ipcMain.handle('assistant-stack:reset-install', async () => resetBoundaryAssistantStackInstall());
+  handleResult('assistant-stack:ensure-and-apply-llm', async () => ensureAssistantStackAndApplyLlm());
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, summarizeDownload, tallyDownload, type DownloadTally } from '../../../../shared/startupDownload';
+import { summarizeDownload, tallyDownload, type DownloadTally } from '../../../../shared/startupDownload';
 
 const layer = (id: string, text: string, current?: number, total?: number) => ({
   id,
@@ -38,13 +38,5 @@ describe('tallyDownload', () => {
   it('returns the same tally when nothing changed', () => {
     const tally = tallyDownload({}, layer('a', 'Downloading', 10, 100));
     expect(tallyDownload(tally, layer('a', 'Downloading', 10, 100))).toBe(tally);
-  });
-});
-
-describe('formatBytes', () => {
-  it('uses decimal units', () => {
-    expect(formatBytes(1_234_000_000)).toBe('1.2 GB');
-    expect(formatBytes(9_400_000)).toBe('9 MB');
-    expect(formatBytes(512_000)).toBe('512 KB');
   });
 });

@@ -1,3 +1,6 @@
+import { slugify } from '../utils/slug';
+import type { IpcResult } from '../ipc/result';
+
 /** Calendars connected over CalDAV (docs/calendar-ux-study/spec.md). */
 
 export type CalendarProvider = 'icloud' | 'fastmail' | 'nextcloud' | 'other';
@@ -40,10 +43,7 @@ export interface CalendarListResult {
   error?: string;
 }
 
-export interface CalendarPrepareResult {
-  success: boolean;
-  error?: string;
-}
+export type CalendarPrepareResult = IpcResult;
 
 export interface CalendarTestPayload {
   provider: CalendarProvider;
@@ -89,4 +89,9 @@ export type CalendarProgressStep = 'saving' | 'access' | 'checking' | 'done';
 export interface CalendarProgressEvent {
   slug: string;
   step: CalendarProgressStep;
+}
+
+/** The account's slug: its name lowercased, each run of other characters a single hyphen, at most 40 characters. */
+export function calendarSlug(name: string): string {
+  return slugify(name, { max: 40 });
 }

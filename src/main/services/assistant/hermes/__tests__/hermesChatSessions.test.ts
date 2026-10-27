@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listSessions = vi.fn();
-const createSession = vi.fn();
 const createSessionWithSeed = vi.fn();
 const resumeSession = vi.fn();
 const historyBudgetFor = vi.fn((_id: string): number | undefined => undefined);
 const resolveProfileForAgent = vi.fn((_slug: string | null | undefined): string | null => null);
 const getSessionHistory = vi.fn();
+const ensureConnected = vi.fn().mockResolvedValue({});
 const listWebuiSessions = vi.fn();
 const getWebuiSessionHistory = vi.fn();
 const submitPrompt = vi.fn().mockResolvedValue(undefined);
 const storedSessionId = vi.fn((id: string) => id);
 const getLiveStatus = vi.fn();
 const getTurnLiveness = vi.fn();
-const supportsClientContext = vi.fn().mockResolvedValue(false);
 const readAgentSoul = vi.fn((_slug: string): string | null => null);
 const roomSoulsSent = new Map<string, string>();
 const getOrchestratorRecord = vi.fn((): { slug: string; kanbanEnabled: boolean } | null => null);
@@ -28,11 +27,10 @@ vi.mock('../hermesGatewaySession', () => ({
   BOUNDARY_SESSION_SOURCE: 'boundary',
   getHermesGatewaySession: () => ({
     listSessions: (...args: unknown[]) => listSessions(...args),
-    createSession: (...args: unknown[]) => createSession(...args),
     createSessionWithSeed: (...args: unknown[]) => createSessionWithSeed(...args),
     resumeSession: (...args: unknown[]) => resumeSession(...args),
     getSessionHistory: (...args: unknown[]) => getSessionHistory(...args),
-    ensureConnected: vi.fn().mockResolvedValue({}),
+    ensureConnected: () => ensureConnected(),
     applyToolsEnabled: vi.fn().mockResolvedValue(undefined),
     getMaxTurns: vi.fn().mockResolvedValue(null),
     on: (name: string, handler: GatewayHandler) => {
@@ -46,16 +44,21 @@ vi.mock('../hermesGatewaySession', () => ({
     cancelPrompt: vi.fn().mockResolvedValue(undefined),
     getLiveStatus: (...args: unknown[]) => getLiveStatus(...args),
     getTurnLiveness: () => getTurnLiveness(),
-    supportsClientContext: () => supportsClientContext(),
     setApprovalNotifier: vi.fn(),
     setCredentialRequestNotifier: vi.fn(),
     setStoredIdArchive: vi.fn(),
   }),
 }));
 
-vi.mock('../hermesHttpChat', () => ({
-  startHermesHttpChatStream: vi.fn().mockResolvedValue(undefined),
+// Debug-log lines, so tests can check what a turn writes (ADR 0031 §6).
+const persistDebugLog = vi.fn();
+vi.mock('../../../../persistDebugLog', () => ({
+  persistDebugLog: (...args: unknown[]) => persistDebugLog(...args),
 }));
+const turnLines = () =>
+  persistDebugLog.mock.calls
+    .filter(([area]) => area === 'chat-turn')
+    .map(([, message, data]) => ({ message: message as string, ...(data as Record<string, unknown>) }));
 
 vi.mock('../hermesWebuiSync', () => ({
   ensureHermesWebuiSyncToInsights: vi.fn(),
@@ -125,13 +128,9 @@ vi.mock('../hermesAgents', () => ({
 }));
 
 vi.mock('../hermesChannels', async () => {
-  const { parseMemberMentions } = await import(
-    '../../../../../shared/hermesMentions'
-  );
   const store = await import('../hermesAgentStore');
   const actual = await vi.importActual<typeof import('../hermesChannels')>('../hermesChannels');
   return {
-    parseMemberMentions,
     buildChannelHeader: actual.buildChannelHeader,
     buildMemberSoulContext: actual.buildMemberSoulContext,
     buildOrchestratorRoomNote: actual.buildOrchestratorRoomNote,
@@ -172,9 +171,11 @@ const ensureResolvedInferenceReady = vi.fn().mockResolvedValue({
   },
 });
 
+const setSessionInferenceOverride = vi.fn().mockResolvedValue({ success: true });
 vi.mock('../sessionInference', () => ({
   ensureResolvedInferenceReady: (...args: unknown[]) =>
     ensureResolvedInferenceReady(...args),
+  setSessionInferenceOverride: (...args: unknown[]) => setSessionInferenceOverride(...args),
 }));
 
 vi.mock('../hermesWebuiSessions', async () => {
@@ -513,7 +514,6 @@ describe('startHermesChatStream WebUI seed', () => {
     });
     expect(result.success).toBe(true);
     expect(result.sessionId).toBe('seeded-1');
-    expect(result.transport).toBe('json-rpc');
   });
 });
 
@@ -556,7 +556,6 @@ describe("startHermesChatStream with an agent's session", () => {
     vi.mocked(store.getStandingDmSessionId).mockReturnValue('dm-dead');
     resumeSession.mockRejectedValue(new Error('session not found'));
     createSessionWithSeed.mockResolvedValue('fresh-1');
-    const http = await import('../hermesHttpChat');
     const { startHermesChatStream } = await import('../hermesChatSessions');
 
     const result = await startHermesChatStream(sender() as never, {
@@ -566,19 +565,17 @@ describe("startHermesChatStream with an agent's session", () => {
       messages: [{ role: 'user', content: 'plan this' }],
     });
 
-    expect(result).toMatchObject({ success: true, sessionId: 'fresh-1', transport: 'json-rpc' });
+    expect(result).toMatchObject({ success: true, sessionId: 'fresh-1' });
     expect(createSessionWithSeed).toHaveBeenCalledWith({ profile: null, historyBudget: 8000 });
     expect(store.setStandingDmSessionId).toHaveBeenCalledWith('ana', 'fresh-1');
     expect(store.setSessionAgentSlug).toHaveBeenCalledWith('fresh-1', 'ana');
     await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
     expect(submitPrompt.mock.calls[0][0]).toBe('fresh-1');
-    expect(http.startHermesHttpChatStream).not.toHaveBeenCalled();
   });
 
-  it("reports a failed agent turn instead of sending it to the default assistant over HTTP", async () => {
+  it('reports a failed agent turn', async () => {
     resumeSession.mockResolvedValue({ sessionId: 'dm-ana', messages: [] });
     submitPrompt.mockRejectedValueOnce(new Error('session not in memory'));
-    const http = await import('../hermesHttpChat');
     const { startHermesChatStream } = await import('../hermesChatSessions');
     const s = sender();
 
@@ -595,7 +592,60 @@ describe("startHermesChatStream with an agent's session", () => {
         error: expect.stringContaining("Couldn't reach Ana"),
       })
     );
-    expect(http.startHermesHttpChatStream).not.toHaveBeenCalled();
+  });
+});
+
+describe('an unreachable gateway (decision D3)', () => {
+  const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    gatewayHandlers.clear();
+    ensureResolvedInferenceReady.mockResolvedValue({ ok: true, resolved: {} });
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    vi.mocked(store.getSessionAgentSlug).mockReturnValue(null);
+  });
+
+  afterEach(() => ensureConnected.mockResolvedValue({}));
+
+  it('refuses a send with an error the chat shows, and sends nothing anywhere else', async () => {
+    ensureConnected.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    const { startHermesChatStream } = await import('../hermesChatSessions');
+    const result = await startHermesChatStream(sender as never, {
+      requestId: 'req-down',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+    expect(result).toMatchObject({ success: false, errorCode: 'gateway-unreachable' });
+    expect(result.error).toMatch(/Couldn't reach the assistant stack: connect ECONNREFUSED/);
+    expect(createSessionWithSeed).not.toHaveBeenCalled();
+    expect(submitPrompt).not.toHaveBeenCalled();
+  });
+
+  it('reports a turn that fails after it started, instead of resending it elsewhere', async () => {
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    submitPrompt.mockRejectedValueOnce(new Error('gateway not connected'));
+    const { startHermesChatStream } = await import('../hermesChatSessions');
+    await startHermesChatStream(sender as never, {
+      requestId: 'req-mid',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+    await vi.waitFor(() =>
+      expect(sender.send).toHaveBeenCalledWith('hermes-chat:error', {
+        requestId: 'req-mid',
+        error: expect.stringContaining("Couldn't reach the assistant stack: gateway not connected"),
+      })
+    );
+  });
+
+  it('does not make an offline chat when the gateway is down', async () => {
+    createSessionWithSeed.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    const { createHermesChat } = await import('../hermesChatSessions');
+    const result = await createHermesChat();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Couldn't reach the assistant stack/);
   });
 });
 
@@ -711,6 +761,34 @@ describe('startHermesChatStream inference gate', () => {
     expect(result.errorCode).toBe('local-unreachable');
     expect(submitPrompt).not.toHaveBeenCalled();
   });
+
+  it("sets a new chat's inference from its first send before the gate resolves it", async () => {
+    createSessionWithSeed.mockResolvedValue('sess-new');
+    const order: string[] = [];
+    setSessionInferenceOverride.mockImplementation(async () => {
+      order.push('override');
+      return { success: true };
+    });
+    ensureResolvedInferenceReady.mockImplementation(async () => {
+      order.push('gate');
+      return { ok: false, error: 'stop here' };
+    });
+    const { startHermesChatStream } = await import('../hermesChatSessions');
+    const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+
+    await startHermesChatStream(sender as never, {
+      requestId: 'req-new',
+      messages: [{ role: 'user', content: 'hello' }],
+      inference: { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
+    });
+
+    expect(setSessionInferenceOverride).toHaveBeenCalledWith({
+      sessionId: 'sess-new',
+      provider: 'openrouter',
+      modelId: 'anthropic/claude-sonnet-4',
+    });
+    expect(order).toEqual(['override', 'gate']);
+  });
 });
 
 describe('startHermesChatStream rewind (Edit / Retry)', () => {
@@ -771,9 +849,8 @@ describe('startHermesChatStream rewind (Edit / Retry)', () => {
     expect(submitPrompt).not.toHaveBeenCalled();
   });
 
-  it('reports a gateway refusal instead of falling back to HTTP', async () => {
+  it('reports a gateway refusal', async () => {
     submitPrompt.mockRejectedValueOnce(Object.assign(new Error('stale target'), { code: 4018 }));
-    const http = await import('../hermesHttpChat');
     const { startHermesChatStream } = await import('../hermesChatSessions');
     const { REWIND_STALE_MESSAGE } = await import('../hermesRewind');
     const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
@@ -791,7 +868,6 @@ describe('startHermesChatStream rewind (Edit / Retry)', () => {
         error: REWIND_STALE_MESSAGE,
       })
     );
-    expect(http.startHermesHttpChatStream).not.toHaveBeenCalled();
   });
 });
 
@@ -989,6 +1065,241 @@ describe('a quiet turn (slow local model)', () => {
   });
 });
 
+describe('Stop from any window (decision D4)', () => {
+  const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+  const ended = () => sender.send.mock.calls.filter(([channel]) => channel === 'hermes-chat:end');
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    gatewayHandlers.clear();
+    ensureResolvedInferenceReady.mockResolvedValue({ ok: true, resolved: {} });
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    storedSessionId.mockImplementation((id: string) => (id === 'sess-1' ? 'stored-1' : id));
+    submitPrompt.mockResolvedValue(undefined);
+    getTurnLiveness.mockResolvedValue({ heartbeatS: null });
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+  });
+
+  afterEach(() => storedSessionId.mockImplementation((id: string) => id));
+
+  async function startTurn() {
+    const sessions = await import('../hermesChatSessions');
+    await sessions.startHermesChatStream(sender as never, {
+      requestId: 'req-1',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'go' }],
+    });
+    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+    return sessions;
+  }
+
+  it('stops a turn by its request id from a window that did not start it', async () => {
+    const { handleHermesChatCancel } = await startTurn();
+    expect(handleHermesChatCancel({ requestId: 'req-1' })).toEqual({ success: true });
+    await vi.waitFor(() => expect(ended()).toHaveLength(1));
+    expect(ended()[0][1]).toMatchObject({ finishReason: 'cancel' });
+  });
+
+  it('resumes the chat without its transcript before sending (G06-15)', async () => {
+    await startTurn();
+    expect(resumeSession).toHaveBeenCalledWith('sess-1', { omitMessages: true });
+  });
+
+  it("stops a chat's turn by the chat's stored id", async () => {
+    const { handleHermesChatCancel } = await startTurn();
+    handleHermesChatCancel({ requestId: 'unknown', sessionId: 'stored-1' });
+    await vi.waitFor(() => expect(ended()).toHaveLength(1));
+  });
+
+  it("passes a tool's own result beside its display summary (new-C-1)", async () => {
+    await startTurn();
+    emitGateway('tool.complete', {
+      session_id: 'sess-1',
+      payload: {
+        tool_id: 't1',
+        name: 'kanban_create',
+        summary: 'Tried to file the task.',
+        result_text: '{"ok": false}',
+      },
+    });
+    const tool = sender.send.mock.calls.find(([channel]) => channel === 'hermes-chat:tool');
+    expect(tool?.[1]).toMatchObject({ summary: 'Tried to file the task.', result: '{"ok": false}' });
+  });
+
+  it('has no way to cancel every turn of a window', async () => {
+    const sessions = await import('../hermesChatSessions');
+    expect('cancelAllHermesChatStreamsForWebContents' in sessions).toBe(false);
+  });
+});
+
+describe('turn debug log (ADR 0031 §6)', () => {
+  const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+  const T0 = new Date('2026-10-27T09:00:00.000Z');
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    gatewayHandlers.clear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    ensureResolvedInferenceReady.mockResolvedValue({ ok: true, resolved: {} });
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    submitPrompt.mockResolvedValue(undefined);
+    getTurnLiveness.mockResolvedValue({ heartbeatS: null });
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    vi.mocked(store.getSessionAgentSlug).mockReturnValue(null);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * Lets the turn's promises run without moving the clock: vi.waitFor advances fake time,
+   * which would skew the logged durations.
+   */
+  async function until(check: () => boolean) {
+    for (let i = 0; i < 100 && !check(); i += 1) await new Promise((r) => setImmediate(r));
+    expect(check()).toBe(true);
+  }
+
+  async function startTurn(content = 'go', sessionId: string | null = 'sess-1') {
+    const sessions = await import('../hermesChatSessions');
+    await sessions.startHermesChatStream(sender as never, {
+      requestId: 'req-1',
+      ...(sessionId ? { sessionId } : {}),
+      messages: [{ role: 'user', content }],
+    });
+    await until(() => submitPrompt.mock.calls.length > 0);
+    return sessions;
+  }
+
+  const ended = () => until(() => turnLines().length === 2);
+
+  const ids = {
+    requestId: 'req-1',
+    sessionId: 'sess-1',
+    kind: 'hermes',
+    trigger: 'sent',
+    agent: 'assistant',
+    profile: null,
+  };
+
+  it('logs a sent turn when it starts and when it completes, with timings', async () => {
+    await startTurn();
+    expect(turnLines()).toEqual([{ message: 'turn start', ...ids }]);
+
+    vi.setSystemTime(T0.getTime() + 1500);
+    emitGateway('message.delta', { session_id: 'sess-1', payload: { text: 'hi' } });
+    vi.setSystemTime(T0.getTime() + 4000);
+    emitGateway('message.complete', { session_id: 'sess-1', payload: { status: 'complete' } });
+
+    await ended();
+    expect(turnLines()[1]).toEqual({
+      message: 'turn end',
+      ...ids,
+      outcome: 'completed',
+      durationMs: 4000,
+      ttftMs: 1500,
+      visibleTokens: 1,
+      toolCalls: 0,
+    });
+  });
+
+  it('logs a stopped turn', async () => {
+    const { handleHermesChatCancel } = await startTurn();
+    handleHermesChatCancel({ requestId: 'req-1' });
+    await ended();
+    expect(turnLines()[1]).toMatchObject({ message: 'turn end', ...ids, outcome: 'stopped', ttftMs: null });
+  });
+
+  it('logs Send now as interrupted', async () => {
+    const { handleHermesChatCancel } = await startTurn();
+    handleHermesChatCancel({ requestId: 'req-1', reason: 'interrupted' });
+    await ended();
+    expect(turnLines()[1]).toMatchObject({ outcome: 'interrupted' });
+  });
+
+  it("logs a failed submit with the error's name and code, not its message", async () => {
+    submitPrompt.mockRejectedValueOnce(
+      Object.assign(new TypeError('refused: QUINCE-LANTERN-58'), { code: 4001 })
+    );
+    await startTurn();
+    await ended();
+    expect(turnLines()).toEqual([
+      { message: 'turn start', ...ids },
+      {
+        message: 'turn end',
+        ...ids,
+        outcome: 'failed',
+        durationMs: 0,
+        ttftMs: null,
+        visibleTokens: 0,
+        toolCalls: 0,
+        errorName: 'TypeError',
+        errorCode: 4001,
+      },
+    ]);
+  });
+
+  it("logs a turn Hermes failed with its error code, not its error text", async () => {
+    await startTurn();
+    emitGateway('message.complete', {
+      session_id: 'sess-1',
+      payload: {
+        status: 'error',
+        error: 'provider said QUINCE-LANTERN-58',
+        error_surface: { layer: 'provider', code: 'rate_limited', retryable: true },
+      },
+    });
+    await ended();
+    expect(turnLines()[1]).toMatchObject({ outcome: 'failed', errorCode: 'rate_limited' });
+    expect(JSON.stringify(persistDebugLog.mock.calls)).not.toContain('QUINCE-LANTERN-58');
+  });
+
+  it('logs a timed-out turn', async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    getLiveStatus.mockResolvedValue('idle');
+    const { startHermesChatStream, TURN_QUIET_MS } = await import('../hermesChatSessions');
+    await startHermesChatStream(sender as never, {
+      requestId: 'req-1',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'go' }],
+    });
+    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(TURN_QUIET_MS);
+    expect(turnLines()[1]).toMatchObject({ outcome: 'timed-out' });
+  });
+
+  it('writes no message text, reply text, title or tool details to the log', async () => {
+    createSessionWithSeed.mockResolvedValue('sess-1');
+    const typed = 'PLUM-ZEBRA-7731 meet me at the lighthouse';
+    await startTurn(typed, null);
+    emitGateway('tool.start', {
+      session_id: 'sess-1',
+      payload: { tool_id: 't1', name: 'kumquat_tool', args: { path: '/tmp/KUMQUAT-PATH' } },
+    });
+    emitGateway('tool.complete', {
+      session_id: 'sess-1',
+      payload: { tool_id: 't1', name: 'kumquat_tool', summary: 'KUMQUAT-SUMMARY', result_text: 'KUMQUAT-RESULT' },
+    });
+    emitGateway('message.delta', { session_id: 'sess-1', payload: { text: 'ORCHID-REPLY-4410' } });
+    emitGateway('message.complete', {
+      session_id: 'sess-1',
+      payload: { status: 'complete', text: 'ORCHID-REPLY-4410' },
+    });
+    await ended();
+    expect(turnLines()[1]).toMatchObject({ outcome: 'completed', toolCalls: 1 });
+
+    const logged = JSON.stringify(persistDebugLog.mock.calls);
+    for (const secret of ['PLUM-ZEBRA', 'lighthouse', 'ORCHID', 'KUMQUAT', 'kumquat_tool']) {
+      expect(logged).not.toContain(secret);
+    }
+  });
+});
+
 describe('branchHermesChat', () => {
   const seed = [
     { role: 'user' as const, content: 'first' },
@@ -1152,7 +1463,11 @@ describe('createHermesChat and openAgentDm (ADR 0023)', () => {
     const { openAgentDm } = await import('../hermesChatSessions');
     const result = await openAgentDm({ agentSlug: 'ana' });
     expect(result.thread?.id).toBe('dm-ana');
-    expect(resumeSession).toHaveBeenCalledWith('dm-ana', { historyBudget: 8000, profile: 'ana' });
+    expect(resumeSession).toHaveBeenCalledWith('dm-ana', {
+      historyBudget: 8000,
+      profile: 'ana',
+      omitMessages: true,
+    });
   });
 
   it("moves a dead DM to the newest Boundary conversation in the agent's profile", async () => {
@@ -1305,7 +1620,7 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
       .filter(([channel]) => channel === 'hermes-chat:speaker')
       .map(([, payload]) => (payload as { agentSlug: string }).agentSlug);
 
-  async function wakeRoom(memberSlugs: string[], text: string) {
+  async function wakeRoom(memberSlugs: string[], text: string, until = 'hermes-chat:end') {
     const store = await import('../hermesAgentStore');
     vi.mocked(store.getChannelBySessionId).mockReturnValue({
       id: 'ch1',
@@ -1328,9 +1643,7 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
       sessionId: 'chan-1',
       messages: [{ role: 'user', content: text }],
     });
-    await vi.waitFor(() =>
-      expect(sender.send).toHaveBeenCalledWith('hermes-chat:end', expect.anything())
-    );
+    await vi.waitFor(() => expect(sender.send).toHaveBeenCalledWith(until, expect.anything()));
     return { result, sender, store };
   }
 
@@ -1357,11 +1670,7 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     const { result, sender, store } = await wakeRoom(['assistant'], '@Hermes summarise the room');
     expect(result.posted).toBeUndefined();
     expect(speakersSent(sender.send)).toEqual(['assistant']);
-    expect(submitPrompt).toHaveBeenCalledWith(
-      'chan-1',
-      '[Boundary channel #research · members: the user, @Hermes (Default agent on this machine) · you are @Hermes]\n\n@Hermes summarise the room',
-      expect.anything()
-    );
+    expect(submitPrompt).toHaveBeenCalledWith('chan-1', '@Hermes summarise the room', expect.anything());
     // The turn runs on the room session's own profile (stack v0.3.3 refuses another one).
     expect(submitPrompt.mock.calls[0][2]).not.toHaveProperty('profile');
     expect(store.appendSessionSpeaker).toHaveBeenCalledWith('chan-1', 'assistant');
@@ -1376,8 +1685,10 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     expect(speakersSent(sender.send)).toEqual(['ana', 'assistant']);
     expect(submitPrompt).toHaveBeenLastCalledWith(
       'chan-1',
-      expect.stringMatching(/you are @Hermes · the last reply was from @Ana\]\n\n@Hermes — /),
-      expect.anything()
+      expect.stringMatching(/^@Hermes — /),
+      expect.objectContaining({
+        context: expect.stringMatching(/you are Hermes · the last reply was from Ana\]/),
+      })
     );
   });
 
@@ -1399,20 +1710,17 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     ]);
   });
 
-  it('sends the header as turn context when the gateway takes it', async () => {
-    supportsClientContext.mockResolvedValue(true);
+  it('sends the header as turn context, never above the message', async () => {
     scriptReplies([[/.*/, 'ok']]);
     await wakeRoom(['assistant'], '@Hermes summarise the room');
     expect(submitPrompt).toHaveBeenCalledWith('chan-1', '@Hermes summarise the room', {
       truncate: undefined,
       context:
-        '[Boundary channel #research · members: the user, @Hermes (Default agent on this machine) · you are @Hermes]',
+        '[Boundary channel #research · members by handle: the user, Hermes (Default agent on this machine) · you are Hermes]',
     });
-    supportsClientContext.mockResolvedValue(false);
   });
 
   it('puts the header inline when context is refused because a turn is running', async () => {
-    supportsClientContext.mockResolvedValue(true);
     scriptReplies([[/.*/, 'ok']]);
     const impl = submitPrompt.getMockImplementation()!;
     submitPrompt.mockImplementationOnce(async () => {
@@ -1425,11 +1733,9 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
       expect.stringMatching(/^\[Boundary channel #research .*\]\n\n@Hermes summarise the room$/),
       { truncate: undefined }
     );
-    supportsClientContext.mockResolvedValue(false);
   });
 
   it('gives a member its own SOUL.md once per room session, and again when it changes', async () => {
-    supportsClientContext.mockResolvedValue(true);
     roomSoulsSent.clear();
     readAgentSoul.mockImplementation((slug: string) => (slug === 'ana' ? '# Ana\n\nCites sources.' : null));
     scriptReplies([[/.*/, 'ok']]);
@@ -1452,11 +1758,9 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     expect(contextOf(submitPrompt.mock.calls.at(-1)!)).not.toContain('SOUL.md');
 
     readAgentSoul.mockImplementation(() => null);
-    supportsClientContext.mockResolvedValue(false);
   });
 
   it('tells the orchestrator its kanban tools are missing in a room, and no one else', async () => {
-    supportsClientContext.mockResolvedValue(true);
     getOrchestratorRecord.mockReturnValue({ slug: 'ana', kanbanEnabled: true });
     scriptReplies([[/.*/, 'ok']]);
     const contextOf = (call: unknown[]) => (call[2] as { context?: string }).context ?? '';
@@ -1470,7 +1774,6 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     expect(contextOf(submitPrompt.mock.calls.at(-1)!)).not.toContain('kanban');
 
     getOrchestratorRecord.mockReturnValue(null);
-    supportsClientContext.mockResolvedValue(false);
   });
 
   it('chain-wakes a personality from a Hermes reply', async () => {
@@ -1501,6 +1804,69 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
     });
     expect(result.posted).toBe(true);
     expect(submitPrompt).not.toHaveBeenCalled();
+    expect(turnLines()).toEqual([
+      {
+        message: 'channel post, no turn',
+        requestId: 'req-room',
+        sessionId: 'chan-1',
+        kind: 'channel',
+        trigger: 'posted',
+      },
+    ]);
+  });
+
+  it('logs each woken and chain-woken member turn with its speaker', async () => {
+    scriptReplies([[/^@Hermes plan/m, 'Plan drafted. @Ana can you source it?']]);
+    await wakeRoom(['assistant', 'ana'], '@Hermes plan the launch');
+    const room = { requestId: 'req-room', sessionId: 'chan-1', kind: 'channel', profile: null };
+    expect(turnLines()).toEqual([
+      { message: 'turn start', ...room, trigger: 'woken', agent: 'assistant', speaker: 'assistant' },
+      expect.objectContaining({
+        message: 'turn end',
+        ...room,
+        trigger: 'woken',
+        speaker: 'assistant',
+        outcome: 'completed',
+      }),
+      { message: 'turn start', ...room, trigger: 'chain-woken', agent: 'ana', speaker: 'ana' },
+      expect.objectContaining({
+        message: 'turn end',
+        ...room,
+        trigger: 'chain-woken',
+        speaker: 'ana',
+        outcome: 'completed',
+      }),
+    ]);
+    expect(JSON.stringify(persistDebugLog.mock.calls)).not.toMatch(/plan the launch|Plan drafted|research/);
+  });
+
+  it('logs a stopped member turn and a failed one', async () => {
+    submitPrompt.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('boom'), { code: 4090 });
+    });
+    await wakeRoom(['assistant'], '@Hermes plan', 'hermes-chat:error');
+    expect(turnLines().at(-1)).toMatchObject({
+      message: 'turn end',
+      trigger: 'woken',
+      speaker: 'assistant',
+      outcome: 'failed',
+      errorName: 'Error',
+      errorCode: 4090,
+    });
+
+    persistDebugLog.mockClear();
+    submitPrompt.mockReset();
+    submitPrompt.mockResolvedValue(undefined);
+    const { handleHermesChatCancel } = await import('../hermesChatSessions');
+    const waking = wakeRoom(['assistant'], '@Hermes plan');
+    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+    handleHermesChatCancel({ requestId: 'req-room' });
+    await waking;
+    expect(turnLines().at(-1)).toMatchObject({
+      message: 'turn end',
+      speaker: 'assistant',
+      outcome: 'stopped',
+    });
   });
 });
 
@@ -1584,7 +1950,7 @@ describe('rooms stay on their stored session (Session not found fix)', () => {
       delivery: 'woke',
     });
     expect(store.appendSessionSpeaker).toHaveBeenCalledWith('stored-general', 'assistant');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-9', expect.stringMatching(/\n\n@Hermes hello$/), expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-9', '@Hermes hello', expect.anything());
   });
 
   it('starts a fresh session for a room Hermes has lost, keeping its posts', async () => {
@@ -1595,7 +1961,7 @@ describe('rooms stay on their stored session (Session not found fix)', () => {
     await send('@Hermes are you there?');
     expect(createSessionWithSeed).toHaveBeenCalledWith({ title: '#general', profile: null });
     expect(channels.moveChannelSession).toHaveBeenCalledWith(general, 'stored-new');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-new', expect.stringMatching(/\n\n@Hermes are you there\?$/), expect.anything());
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-new', '@Hermes are you there?', expect.anything());
   });
 
   it('does not start a new session when resume fails for another reason', async () => {
@@ -1713,8 +2079,8 @@ describe('a renderer holding a room’s old id (Session not found fix)', () => {
     await vi.waitFor(() =>
       expect(sender.send).toHaveBeenCalledWith('hermes-chat:end', expect.anything())
     );
-    expect(resumeSession).toHaveBeenNthCalledWith(2, 'stored-general');
-    expect(submitPrompt).toHaveBeenCalledWith('runtime-2', expect.stringMatching(/\n\n@Hermes still there\?$/), expect.anything());
+    expect(resumeSession).toHaveBeenNthCalledWith(2, 'stored-general', { omitMessages: true });
+    expect(submitPrompt).toHaveBeenCalledWith('runtime-2', '@Hermes still there?', expect.anything());
     expect(createSessionWithSeed).not.toHaveBeenCalled();
     expect(store.appendChannelPost).toHaveBeenCalledWith('stored-general', {
       content: '@Hermes still there?',

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createHermesAgent, updateHermesAgent } from './hermesAgents';
 import { getOrchestratorRecord, getStoredAgent, setOrchestratorRecord } from './hermesAgentStore';
 import { getHermesGatewaySession } from './hermesGatewaySession';
@@ -9,7 +10,7 @@ import { broadcastSessionsChanged } from './hermesSessionsChanged';
  * its own profile instead of widening the default one every platform shares. The board
  * itself is shared across profiles; the dispatcher in the default gateway runs its tasks.
  */
-export const ORCHESTRATOR_SLUG = 'orchestrator';
+const ORCHESTRATOR_SLUG = 'orchestrator';
 export const ORCHESTRATOR_DISPLAY_NAME = 'Orchestrator';
 export const ORCHESTRATOR_ROLE = [
   'Coordinate long-running, multi-step work on the Hermes kanban board.',
@@ -31,53 +32,22 @@ export const ORCHESTRATOR_ROLE = [
 ].join(' ');
 
 /**
- * Earlier built-in roles. An orchestrator still on one of them, word for word, is moved to the
- * current role; one the owner rewrote is left alone.
+ * SHA-256 of earlier built-in roles, newest first. An orchestrator still on one of them, word
+ * for word, is moved to the current role; one the owner rewrote is left alone. When the role
+ * changes, add the hash of the one it replaces.
+ *
+ * One-time migration kept at read time rather than in src/main/migrations: rewriting the role
+ * needs the gateway, and each stack has its own orchestrator. Remove after release 0.1.0.
  */
-const PREVIOUS_ORCHESTRATOR_ROLES = [
-  [
-    'Coordinate long-running, multi-step work on the Hermes kanban board.',
-    'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',
-    'a clear title, a body that says what done looks like, and an assignee (yourself, or the',
-    'specialist agent whose role fits). Unassigned tasks never run, so always set one.',
-    'Give every task a workspace the worker can run in: workspace_kind "dir" with an absolute',
-    'workspace_path for work inside an existing folder or project, "worktree" with the absolute',
-    'path of the git repo it branches from, or "scratch" for work that needs no files.',
-    'Never leave workspace_path empty for "dir" or "worktree": the board has no default folder,',
-    'so such a task is blocked before it starts.',
-    'Set max_runtime_seconds on every task: 7200 unless the work clearly needs longer. A worker',
-    'stuck in one endless reply keeps reporting in, so the cap is the only thing that stops it.',
-    'Chain tasks that depend on each other with kanban_link.',
-    'Track them with kanban_list and kanban_show, unblock or answer tasks that are waiting,',
-    'and tell the owner what finished and what is still open.',
-    'Handle quick, single-step requests yourself without the board.',
-  ].join(' '),
-  [
-    'Coordinate long-running, multi-step work on the Hermes kanban board.',
-    'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',
-    'a clear title, a body that says what done looks like, and an assignee (yourself, or the',
-    'specialist agent whose role fits). Unassigned tasks never run, so always set one.',
-    'Give every task a workspace the worker can run in: workspace_kind "dir" with an absolute',
-    'workspace_path for work inside an existing folder or project, "worktree" with the absolute',
-    'path of the git repo it branches from, or "scratch" for work that needs no files.',
-    'Never leave workspace_path empty for "dir" or "worktree": the board has no default folder,',
-    'so such a task is blocked before it starts.',
-    'Chain tasks that depend on each other with kanban_link.',
-    'Track them with kanban_list and kanban_show, unblock or answer tasks that are waiting,',
-    'and tell the owner what finished and what is still open.',
-    'Handle quick, single-step requests yourself without the board.',
-  ].join(' '),
-  [
-    'Coordinate long-running, multi-step work on the Hermes kanban board.',
-    'When a request will take many steps or outlast one sitting, break it into tasks with kanban_create:',
-    'a clear title, a body that says what done looks like, and an assignee (yourself, or the',
-    'specialist agent whose role fits). Unassigned tasks never run, so always set one.',
-    'Chain tasks that depend on each other with kanban_link.',
-    'Track them with kanban_list and kanban_show, unblock or answer tasks that are waiting,',
-    'and tell the owner what finished and what is still open.',
-    'Handle quick, single-step requests yourself without the board.',
-  ].join(' '),
-];
+const PREVIOUS_ORCHESTRATOR_ROLE_HASHES = new Set([
+  '18472d64d7402ee07c9a5dad3b2f231ae060e8954de9a024196a9567092ee045',
+  '8b6e42c6c85d20b00b394a2435671706ba8c119e65919bdbf38fe5f1dab93c49',
+  'd9fe2e6cf49f27919404da9bc4cff36a3445c0e097ac68f99f206ae7df2b1c3f',
+]);
+
+function roleHash(role: string): string {
+  return createHash('sha256').update(role.trim()).digest('hex');
+}
 
 /** Wait after a failed setup, doubling each time up to the cap, so list refreshes don't hammer Hermes. */
 const RETRY_BASE_MS = 30_000;
@@ -153,7 +123,7 @@ async function provision(): Promise<boolean> {
 
 async function refreshOutdatedRole(slug: string): Promise<void> {
   const agent = getStoredAgent(slug);
-  if (!agent || !PREVIOUS_ORCHESTRATOR_ROLES.includes(agent.role.trim())) return;
+  if (!agent || !PREVIOUS_ORCHESTRATOR_ROLE_HASHES.has(roleHash(agent.role))) return;
   const result = await updateHermesAgent({
     slug,
     displayName: agent.displayName,

@@ -4,7 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   activeAssistantStackIdentity,
-  claimLegacyHermesAgentsStore,
   hermesAgentsStoreName,
   resetAssistantStackIdentityCacheForTests,
 } from '../assistantStackIdentity';
@@ -56,41 +55,5 @@ describe('assistantStackIdentity', () => {
     expect(nameB).not.toBe(nameA);
     process.env.BOUNDARY_ASSISTANT_ROOT = `${a}/`;
     expect(hermesAgentsStoreName(activeAssistantStackIdentity())).toBe(nameA);
-  });
-
-  describe('claimLegacyHermesAgentsStore', () => {
-    const local = () => ({ kind: 'local' as const, root: '/dev/assistant' });
-
-    it('moves the pre-split store to the local stack and keeps a backup', () => {
-      fs.writeFileSync(path.join(tmp, 'hermes-agents.json'), '{"agents":[1]}');
-      expect(claimLegacyHermesAgentsStore(local(), tmp)).toBe(true);
-      const target = path.join(tmp, `${hermesAgentsStoreName(local())}.json`);
-      expect(fs.readFileSync(target, 'utf8')).toBe('{"agents":[1]}');
-      expect(fs.existsSync(path.join(tmp, 'hermes-agents.json'))).toBe(false);
-      expect(fs.readFileSync(path.join(tmp, 'hermes-agents.pre-split.json'), 'utf8')).toBe(
-        '{"agents":[1]}'
-      );
-    });
-
-    it('never overwrites a stack store that already exists', () => {
-      fs.writeFileSync(path.join(tmp, 'hermes-agents.json'), '{"old":true}');
-      const target = path.join(tmp, `${hermesAgentsStoreName(local())}.json`);
-      fs.writeFileSync(target, '{"current":true}');
-      expect(claimLegacyHermesAgentsStore(local(), tmp)).toBe(false);
-      expect(fs.readFileSync(target, 'utf8')).toBe('{"current":true}');
-      expect(fs.existsSync(path.join(tmp, 'hermes-agents.json'))).toBe(true);
-    });
-
-    it('leaves the pre-split store alone for the managed stack', () => {
-      fs.writeFileSync(path.join(tmp, 'hermes-agents.json'), '{}');
-      const managed = { kind: 'managed' as const, root: '/userData/project' };
-      expect(claimLegacyHermesAgentsStore(managed, tmp)).toBe(false);
-      expect(fs.existsSync(path.join(tmp, 'hermes-agents.json'))).toBe(true);
-      expect(fs.existsSync(path.join(tmp, 'hermes-agents-managed.json'))).toBe(false);
-    });
-
-    it('does nothing without a pre-split store', () => {
-      expect(claimLegacyHermesAgentsStore(local(), tmp)).toBe(false);
-    });
   });
 });

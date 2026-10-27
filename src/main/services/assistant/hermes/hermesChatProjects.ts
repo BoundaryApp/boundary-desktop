@@ -51,13 +51,6 @@ export function conversationProjectId(sessionId: string | null | undefined): str
   return id && getStoredHermesProject(id) ? id : null;
 }
 
-export function conversationProject(
-  sessionId: string | null | undefined
-): HermesProjectRecord | null {
-  const id = conversationProjectId(sessionId);
-  return id ? getStoredHermesProject(id) : null;
-}
-
 /** File a new conversation: the room record for a channel, session meta otherwise. */
 export function setConversationProjectId(
   sessionIds: Array<string | null | undefined>,
@@ -103,7 +96,9 @@ export function projectForCwd(
  *
  * Before Boundary read WebUI's workspace, every WebUI chat was filed under No project. The
  * first list that includes WebUI chats files those again from their workspace, once. A chat
- * someone moved by hand has a move mark and keeps its place.
+ * someone moved by hand has a move mark and keeps its place. This is a one-time migration
+ * kept here rather than in src/main/migrations: it needs the chat list's WebUI workspaces, and
+ * each stack records its own `webuiRefiledAt`. Remove after release 0.1.0.
  */
 export function fileThreads(threads: HermesChatThreadSummary[]): HermesChatThreadSummary[] {
   const projects = listStoredHermesProjects();

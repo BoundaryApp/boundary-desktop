@@ -3,6 +3,7 @@ import type {
   HermesChatCredentialRequestEvent,
   HermesChatCredentialRespondPayload,
 } from '../../../shared/types/hermesChat';
+import { InterruptCard } from '../../components/ui/interrupt-card';
 import {
   credentialKicker,
   credentialNote,
@@ -59,89 +60,74 @@ export const CredentialInterrupt: React.FC<CredentialInterruptProps> = ({
     onRespond({});
   }, [busy, onRespond]);
 
-  const onKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      // Enter submits through the form.
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        skip();
-      }
-    },
-    [skip]
-  );
-
-  const countLabel = queueSize > 1 ? `1 / ${queueSize}` : null;
   const valueLabel = credentialValueLabel(request);
   const isCode = request.kind === 'vault.code';
 
   return (
-    <div className="wb-approve-host">
-      <form
-        className={`wb-approve wb-credential${queueSize > 1 ? ' is-stack' : ''}`}
-        role="alertdialog"
-        aria-labelledby="wb-credential-title"
-        aria-describedby="wb-credential-note"
-        aria-busy={busy}
-        onKeyDown={onKeyDown}
-        onSubmit={(event) => {
-          event.preventDefault();
-          save();
-        }}
-      >
-        <div className="kicker is-warn">
-          <span id="wb-credential-title" title={credentialKicker(request)}>
-            {credentialKicker(request)}
-          </span>
-          {countLabel ? <span className="count">{countLabel}</span> : null}
-        </div>
-        <p className="why">{credentialWhy(request)}</p>
-        <div className="wb-credential-fields">
-          {isLogin ? (
-            <label className="wb-field">
-              <span>Username or email</span>
-              <input
-                ref={firstRef}
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={identifier}
-                disabled={busy}
-                onChange={(event) => setIdentifier(event.target.value)}
-              />
-            </label>
-          ) : null}
+    <InterruptCard
+      as="form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save();
+      }}
+      className="wb-credential"
+      labelledBy="wb-credential-title"
+      describedBy="wb-credential-note"
+      kicker={credentialKicker(request)}
+      kickerId="wb-credential-title"
+      warn
+      queueSize={queueSize}
+      busy={busy}
+      // Enter submits through the form.
+      onEscape={skip}
+    >
+      <p className="why">{credentialWhy(request)}</p>
+      <div className="wb-credential-fields">
+        {isLogin ? (
           <label className="wb-field">
-            <span>{valueLabel}</span>
+            <span>Username or email</span>
             <input
-              ref={isLogin ? undefined : firstRef}
-              type={isCode ? 'text' : 'password'}
-              inputMode={isCode ? 'numeric' : undefined}
-              autoComplete={isCode ? 'one-time-code' : 'off'}
+              ref={firstRef}
+              type="text"
+              autoComplete="off"
               spellCheck={false}
-              className={isCode ? undefined : 'mono'}
-              value={value}
+              value={identifier}
               disabled={busy}
-              onChange={(event) => setValue(event.target.value)}
+              onChange={(event) => setIdentifier(event.target.value)}
             />
           </label>
-        </div>
-        <p className="wb-credential-note" id="wb-credential-note">
-          {credentialNote(request)}
-        </p>
-        {error ? (
-          <p className="wb-credential-error" role="alert">
-            {error}
-          </p>
         ) : null}
-        <div className="wb-approve-actions">
-          <button type="submit" className="run" disabled={!canSave}>
-            Save <kbd>↵</kbd>
-          </button>
-          <button type="button" className="reject" disabled={busy} onClick={skip}>
-            Skip
-          </button>
-        </div>
-      </form>
-    </div>
+        <label className="wb-field">
+          <span>{valueLabel}</span>
+          <input
+            ref={isLogin ? undefined : firstRef}
+            type={isCode ? 'text' : 'password'}
+            inputMode={isCode ? 'numeric' : undefined}
+            autoComplete={isCode ? 'one-time-code' : 'off'}
+            spellCheck={false}
+            className={isCode ? undefined : 'mono'}
+            value={value}
+            disabled={busy}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </label>
+      </div>
+      <p className="wb-credential-note" id="wb-credential-note">
+        {credentialNote(request)}
+      </p>
+      {error ? (
+        <p className="wb-credential-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="wb-approve-actions">
+        <button type="submit" className="run" disabled={!canSave}>
+          Save <kbd>↵</kbd>
+        </button>
+        <button type="button" className="reject" disabled={busy} onClick={skip}>
+          Skip
+        </button>
+      </div>
+    </InterruptCard>
   );
 };

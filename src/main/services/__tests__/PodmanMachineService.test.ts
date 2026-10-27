@@ -1,6 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PodmanMachineService, resetApplehvFallbackGate } from '../containerRuntime/PodmanMachineService';
+import {
+  PodmanMachineService,
+  findMachineHelperPids,
+  resetApplehvFallbackGate,
+} from '../containerRuntime/PodmanMachineService';
 import { ContainerRuntimeUnavailableError } from '../containerRuntime/types';
+
+// ensureRunning reaps leftover helpers from `ps` before a start. Give it an empty
+// listing so a test run never signals real processes on the developer's machine.
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  return {
+    ...actual,
+    spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+  };
+});
 
 describe('PodmanMachineService', () => {
   afterEach(() => {
@@ -366,5 +380,100 @@ describe('PodmanMachineService', () => {
     // force missing then init fail
     vi.spyOn(svc, 'status').mockResolvedValue('missing');
     await expect(svc.ensureRunning()).rejects.toBeInstanceOf(ContainerRuntimeUnavailableError);
+  });
+});
+
+describe('PodmanMachineService socket wait', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('gives up on a machine whose API never answers within 90 s overall', async () => {
+    vi.useFakeTimers();
+    const timeouts: number[] = [];
+    const execFile = vi.fn(
+      (_bin: string, args: string[], options: { timeout: number }) => {
+        if (args[0] === 'machine' && args[1] === 'list') {
+          return Promise.resolve({ stdout: 'boundary\ttrue\n', stderr: '' });
+        }
+        if (args[0] === 'machine' && args[1] === 'inspect') {
+          return Promise.resolve({
+            stdout: JSON.stringify({
+              ConnectionInfo: { PodmanSocket: { Path: '/tmp/p.sock' } },
+              Rootful: true,
+            }),
+            stderr: '',
+          });
+        }
+        if (args[0] === 'info') {
+          // A hung machine: execFile only gives up when its timeout fires.
+          timeouts.push(options.timeout);
+          return new Promise((_resolve, reject) => {
+            setTimeout(() => reject(new Error('timed out')), options.timeout);
+          });
+        }
+        return Promise.reject(new Error(`unexpected ${args.join(' ')}`));
+      }
+    );
+    const svc = new PodmanMachineService({
+      execFile: execFile as never,
+      env: {},
+      podmanPath: '/podman',
+    });
+
+    const started = Date.now();
+    let failedAt = 0;
+    const result = svc.ensureRunning().catch((error: unknown) => {
+      failedAt = Date.now();
+      return error;
+    });
+    await vi.advanceTimersByTimeAsync(120_000);
+    const error = await result;
+
+    expect(error).toBeInstanceOf(ContainerRuntimeUnavailableError);
+    expect((error as Error).message).toMatch(/Timed out waiting for Podman machine socket/);
+    expect(failedAt - started).toBeLessThanOrEqual(90_000);
+    expect(Math.max(...timeouts)).toBeLessThanOrEqual(15_000);
+    expect(timeouts.every((t) => t > 0)).toBe(true);
+  });
+});
+
+describe('findMachineHelperPids', () => {
+  const tmp = '/var/folders/x/T/podman';
+  const machineDir = '/Users/u/.local/share/containers/podman/machine';
+  const helpers = '/Applications/Boundary.app/Contents/Resources/podman/bin';
+
+  it("matches the boundary machine's own krunkit, gvproxy and vfkit", () => {
+    const ps = [
+      `  1001 ${helpers}/gvproxy -mtu 1500 -listen-vfkit unixgram://${tmp}/boundary-gvproxy.sock -forward-sock ${tmp}/boundary-api.sock -pid-file ${tmp}/gvproxy.pid`,
+      `  1002 ${helpers}/krunkit --cpus 4 --device virtio-blk,path=${machineDir}/libkrun/boundary-arm64.raw --device virtio-net,unixSocketPath=${tmp}/boundary-gvproxy.sock,mac=5a:94:ef:e4:0c:ee`,
+      `  1003 ${helpers}/vfkit --device virtio-blk,path=${machineDir}/applehv/boundary-arm64.raw --device virtio-vsock,port=1025,socketURL=${tmp}/boundary.sock,listen`,
+    ].join('\n');
+    expect(findMachineHelperPids(ps, 'boundary')).toEqual([1001, 1002, 1003]);
+  });
+
+  it('leaves other machines and non-helper processes alone', () => {
+    const ps = [
+      // Another machine whose name starts with "boundary".
+      `  2001 /opt/homebrew/bin/gvproxy -listen-vfkit unixgram://${tmp}/boundary-test-gvproxy.sock -forward-sock ${tmp}/boundary-test-api.sock`,
+      `  2002 /opt/homebrew/bin/krunkit --device virtio-blk,path=${machineDir}/libkrun/boundary-test-arm64.raw`,
+      // podman-machine-default run from a checkout named boundary-desktop.
+      `  3001 /Users/u/src/boundary-desktop/resources/podman/bin/vfkit --device virtio-blk,path=${machineDir}/applehv/podman-machine-default-arm64.raw`,
+      // Tools whose arguments name a helper and this machine's files.
+      `  4001 tail -f /Users/u/Library/Logs/boundary-desktop/krunkit.log ${tmp}/boundary-gvproxy.sock`,
+      `  4002 /usr/bin/vim ${tmp}/boundary-gvproxy.sock gvproxy`,
+      `  4003 grep -E krunkit|gvproxy|vfkit boundary-arm64.raw`,
+      `  4004 /usr/bin/less /opt/gvproxy ${tmp}/boundary.sock`,
+      // Unrelated helper.
+      `  5001 /opt/homebrew/bin/gvproxy -listen-vfkit unixgram://${tmp}/podman-machine-default-gvproxy.sock`,
+      '',
+    ].join('\n');
+    expect(findMachineHelperPids(ps, 'boundary')).toEqual([]);
+  });
+
+  it('treats the machine name literally', () => {
+    const ps = `  6001 ${helpers}/gvproxy -listen-vfkit unixgram://${tmp}/boundaryX-gvproxy.sock`;
+    expect(findMachineHelperPids(ps, 'boundary')).toEqual([]);
+    expect(findMachineHelperPids(ps, 'boundaryX')).toEqual([6001]);
   });
 });

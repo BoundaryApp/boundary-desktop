@@ -6,7 +6,7 @@ import {
   type ChannelRecord,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { useEscapeToClose } from '../useAppShortcuts';
+import { Sheet } from '../../components/ui/sheet';
 import { InfoTip } from '../../components/ui/info-tip';
 
 interface ChannelCreateSheetProps {
@@ -30,7 +30,6 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
   onCancel,
   onCreate,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
@@ -59,70 +58,21 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
   };
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div
-        className="wb-sheet"
-        role="dialog"
-        aria-labelledby="wb-channel-create-title"
-      >
-        <div className="wb-sheet-kicker">New channel · shared transcript</div>
-        <h2>
-          <span id="wb-channel-create-title">New channel</span>
-          <InfoTip label="channels">
-            A topic room. You post; members read later. @ is how you ask someone to reply now.
-          </InfoTip>
-        </h2>
-        <p className="wb-sheet-lede">
-          {builtinAgentName(agents)} starts as a member; uncheck it for a room nobody answers in.
-        </p>
-        <label className="wb-field">
-          <span>Name</span>
-          <input
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
-            }}
-            disabled={busy}
-            autoFocus
-            placeholder="launch-prep"
-          />
-        </label>
-        <label className="wb-field">
-          <span>Slug</span>
-          <input
-            className="mono"
-            value={slug || derivedSlug}
-            onChange={(e) => {
-              setSlugTouched(true);
-              setSlug(e.target.value);
-            }}
-            disabled={busy}
-          />
-        </label>
-        <div className="wb-field">
-          <span>Initial members</span>
-          <div className="wb-member-picks">
-            {[...agents].sort((a, b) => Number(b.builtIn) - Number(a.builtIn)).map((agent) => {
-              const on = memberSlugs.includes(agent.slug);
-              return (
-                <button
-                  key={agent.slug}
-                  type="button"
-                  className={`wb-btn-tiny${on ? ' is-on' : ''}`}
-                  aria-pressed={on}
-                  disabled={busy}
-                  onClick={() => toggleMember(agent.slug)}
-                >
-                  {on ? '✓ ' : ''}
-                  {agent.displayName}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-channel-create-title"
+      kicker="New channel · shared transcript"
+      title="New channel"
+      titleAside={
+        <InfoTip label="channels">
+          A topic room. You post; members read later. @ is how you ask someone to reply now.
+        </InfoTip>
+      }
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -145,9 +95,59 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
           >
             Cancel
           </button>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">
+        {builtinAgentName(agents)} starts as a member; uncheck it for a room nobody answers in.
+      </p>
+      <label className="wb-field">
+        <span>Name</span>
+        <input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
+          }}
+          disabled={busy}
+          autoFocus
+          placeholder="launch-prep"
+        />
+      </label>
+      <label className="wb-field">
+        <span>Slug</span>
+        <input
+          className="mono"
+          value={slug || derivedSlug}
+          onChange={(e) => {
+            setSlugTouched(true);
+            setSlug(e.target.value);
+          }}
+          disabled={busy}
+        />
+      </label>
+      <div className="wb-field">
+        <span>Initial members</span>
+        <div className="wb-member-picks">
+          {[...agents].sort((a, b) => Number(b.builtIn) - Number(a.builtIn)).map((agent) => {
+            const on = memberSlugs.includes(agent.slug);
+            return (
+              <button
+                key={agent.slug}
+                type="button"
+                className={`wb-btn-tiny${on ? ' is-on' : ''}`}
+                aria-pressed={on}
+                disabled={busy}
+                onClick={() => toggleMember(agent.slug)}
+              >
+                {on ? '✓ ' : ''}
+                {agent.displayName}
+              </button>
+            );
+          })}
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 };
 
@@ -169,7 +169,6 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
   onCancel,
   onCreate,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
@@ -186,39 +185,16 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
   if (!open) return null;
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-make-channel-title">
-        <div className="wb-sheet-kicker">Chat · become a channel</div>
-        <h2 id="wb-make-channel-title">Make channel</h2>
-        <p className="wb-sheet-lede">
-          This chat becomes the room's transcript, and {builtinName} joins as a member.
-        </p>
-        <label className="wb-field">
-          <span>Name</span>
-          <input
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
-            }}
-            disabled={busy}
-            autoFocus
-          />
-        </label>
-        <label className="wb-field">
-          <span>Slug</span>
-          <input
-            className="mono"
-            value={slug || derivedSlug}
-            onChange={(e) => {
-              setSlugTouched(true);
-              setSlug(e.target.value);
-            }}
-            disabled={busy}
-          />
-        </label>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-make-channel-title"
+      kicker="Chat · become a channel"
+      title="Make channel"
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -235,9 +211,37 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">
+        This chat becomes the room's transcript, and {builtinName} joins as a member.
+      </p>
+      <label className="wb-field">
+        <span>Name</span>
+        <input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
+          }}
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <label className="wb-field">
+        <span>Slug</span>
+        <input
+          className="mono"
+          value={slug || derivedSlug}
+          onChange={(e) => {
+            setSlugTouched(true);
+            setSlug(e.target.value);
+          }}
+          disabled={busy}
+        />
+      </label>
+    </Sheet>
   );
 };
 
@@ -260,48 +264,52 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
   onCancel,
   onAdd,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   if (!open || !agent) return null;
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-add-channel-title">
-        <div className="wb-sheet-kicker">Membership · explicit add</div>
-        <h2 id="wb-add-channel-title">Add {agent.displayName} to a channel</h2>
-        <p className="wb-sheet-lede">Only members can be @’d, and they read posts later.</p>
-        {channels.length === 0 ? (
-          <p className="wb-sheet-help">Create a channel from the left rail first.</p>
-        ) : (
-          <div className="wb-agent-list">
-            {channels.map((ch) => {
-              const already = ch.memberSlugs.includes(agent.slug);
-              return (
-                <div key={ch.id} className="wb-agent-row">
-                  <span className="wb-agent-copy">
-                    <b title={`#${ch.slug}`}>#{ch.slug}</b>
-                    <span>{ch.title}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className="wb-btn-tiny"
-                    disabled={busy || already}
-                    onClick={() => onAdd(ch.id)}
-                  >
-                    {already ? 'In channel' : 'Add'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-add-channel-title"
+      kicker="Membership · explicit add"
+      title={`Add ${agent.displayName} to a channel`}
+      error={error}
+      actions={
+        <>
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Back
           </button>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">Only members can be @’d, and they read posts later.</p>
+      {channels.length === 0 ? (
+        <p className="wb-sheet-help">Create a channel from the left rail first.</p>
+      ) : (
+        <div className="wb-agent-list">
+          {channels.map((ch) => {
+            const already = ch.memberSlugs.includes(agent.slug);
+            return (
+              <div key={ch.id} className="wb-agent-row">
+                <span className="wb-agent-copy">
+                  <b title={`#${ch.slug}`}>#{ch.slug}</b>
+                  <span>{ch.title}</span>
+                </span>
+                <button
+                  type="button"
+                  className="wb-btn-tiny"
+                  disabled={busy || already}
+                  onClick={() => onAdd(ch.id)}
+                >
+                  {already ? 'In channel' : 'Add'}
+                </button>
+              </div>
+            );
+          })}
         </div>
-      </div>
-    </div>
+      )}
+    </Sheet>
   );
 };
 
@@ -323,7 +331,6 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
   onCancel,
   onRename,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
@@ -345,37 +352,16 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
   if (!open || !channel) return null;
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-rename-channel-title">
-        <div className="wb-sheet-kicker">Channel · rename</div>
-        <h2 id="wb-rename-channel-title">Rename #{channel.slug}</h2>
-        <p className="wb-sheet-lede">Members and the transcript stay as they are.</p>
-        <label className="wb-field">
-          <span>Name</span>
-          <input
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
-            }}
-            disabled={busy}
-            autoFocus
-          />
-        </label>
-        <label className="wb-field">
-          <span>Slug</span>
-          <input
-            className="mono"
-            value={slug || derivedSlug}
-            onChange={(e) => {
-              setSlugTouched(true);
-              setSlug(e.target.value);
-            }}
-            disabled={busy}
-          />
-        </label>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-rename-channel-title"
+      kicker="Channel · rename"
+      title={`Rename #${channel.slug}`}
+      error={error}
+      actions={
+        <>
           <button
             type="button"
             className="wb-btn-solid"
@@ -387,9 +373,35 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">Members and the transcript stay as they are.</p>
+      <label className="wb-field">
+        <span>Name</span>
+        <input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (!slugTouched) setSlug(agentSlugFromDisplayName(e.target.value));
+          }}
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <label className="wb-field">
+        <span>Slug</span>
+        <input
+          className="mono"
+          value={slug || derivedSlug}
+          onChange={(e) => {
+            setSlugTouched(true);
+            setSlug(e.target.value);
+          }}
+          disabled={busy}
+        />
+      </label>
+    </Sheet>
   );
 };
 
@@ -414,31 +426,35 @@ export const ChannelDeleteSheet: React.FC<ChannelDeleteSheetProps> = ({
   onCancel,
   onDelete,
 }) => {
-  useEscapeToClose(onCancel, busy || !open);
   if (!open || !channel) return null;
 
   return (
-    <div className="wb-sheet-backdrop" role="presentation">
-      <div className="wb-sheet" role="dialog" aria-labelledby="wb-delete-channel-title">
-        <div className="wb-sheet-kicker">Channel · delete</div>
-        <h2 id="wb-delete-channel-title">Delete #{channel.slug}</h2>
-        <p className="wb-sheet-lede">
-          The room, its members and its Mentions go. The transcript stays as a Hermes chat in{' '}
-          {projectName}.
-        </p>
-        <p className="wb-hint" style={{ padding: 0 }}>
-          Posts since the last @ never reached Hermes, so they won't be in that chat.
-        </p>
-        {error ? <p className="wb-sheet-error">{error}</p> : null}
-        <div className="wb-sheet-actions">
+    <Sheet
+      open={open}
+      onClose={onCancel}
+      busy={busy}
+      titleId="wb-delete-channel-title"
+      kicker="Channel · delete"
+      title={`Delete #${channel.slug}`}
+      error={error}
+      actions={
+        <>
           <button type="button" className="wb-btn-danger" disabled={busy} onClick={onDelete}>
             Delete channel
           </button>
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="wb-sheet-lede">
+        The room, its members and its Mentions go. The transcript stays as a Hermes chat in{' '}
+        {projectName}.
+      </p>
+      <p className="wb-hint" style={{ padding: 0 }}>
+        Posts since the last @ never reached Hermes, so they won't be in that chat.
+      </p>
+    </Sheet>
   );
 };

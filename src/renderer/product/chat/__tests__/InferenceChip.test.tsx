@@ -1,6 +1,7 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { InferenceChip } from '../InferenceChip';
 
 const getStatus = vi.fn();
@@ -8,21 +9,24 @@ const probeSlotHealth = vi.fn();
 const getSessionInference = vi.fn();
 const setSessionInference = vi.fn();
 const clearSessionInference = vi.fn();
+// The status main pushes when a slot's health changes.
+const pushStatus = vi.hoisted(() => ({ current: null as ((status: unknown) => void) | null }));
 
-vi.mock('../../../services/onboardingIPCService', () => ({
-  onboardingIPC: {
+stubElectronAPI({
+  onboarding: {
     getStatus: (...args: unknown[]) => getStatus(...args),
     probeSlotHealth: (...args: unknown[]) => probeSlotHealth(...args),
+    onStatus: (cb: (status: unknown) => void) => {
+      pushStatus.current = cb;
+      return () => undefined;
+    },
   },
-}));
-
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
+  hermesChat: {
     getSessionInference: (...args: unknown[]) => getSessionInference(...args),
     setSessionInference: (...args: unknown[]) => setSessionInference(...args),
     clearSessionInference: (...args: unknown[]) => clearSessionInference(...args),
   },
-}));
+});
 
 const bothConfigured = {
   configured: true,
@@ -166,5 +170,107 @@ describe('InferenceChip', () => {
     const chip = await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ });
     fireEvent.click(chip);
     expect(screen.getByText('cloud · sees what the agent reads')).toBeTruthy();
+  });
+  it('with no session yet, shows what main resolves for a new chat, project pin included', async () => {
+    getSessionInference.mockResolvedValue({
+      success: false,
+      override: null,
+      resolved: {
+        slot: 'openrouter',
+        modelId: 'anthropic/claude-sonnet-4',
+        providerDisplayName: 'OpenRouter',
+        provenance: 'project-default',
+        configured: true,
+        needsRestart: false,
+      },
+      marks: [],
+      error: 'Missing session.',
+    });
+    const onResolvedChange = vi.fn();
+    render(<InferenceChip sessionId={null} onResolvedChange={onResolvedChange} />);
+    expect(await screen.findByRole('button', { name: /Inference · OpenRouter · claude-sonnet-4/ })).toBeTruthy();
+    expect(getSessionInference).toHaveBeenCalledWith({ sessionId: '' });
+    expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ slot: 'openrouter' }));
+    expect(probeSlotHealth).not.toHaveBeenCalled();
+  });
+
+  it('drops a slow answer for the chat it has left', async () => {
+    let answerS1!: (value: unknown) => void;
+    getSessionInference.mockImplementation(({ sessionId }: { sessionId: string }) =>
+      sessionId === 's1'
+        ? new Promise((resolve) => (answerS1 = resolve))
+        : Promise.resolve({
+            success: true,
+            override: null,
+            resolved: {
+              slot: 'openrouter',
+              modelId: 'anthropic/claude-sonnet-4',
+              providerDisplayName: 'OpenRouter',
+              provenance: 'chat-override',
+              configured: true,
+              needsRestart: false,
+            },
+            marks: [],
+          })
+    );
+    const { rerender } = render(<InferenceChip sessionId="s1" />);
+    rerender(<InferenceChip sessionId="s2" />);
+    await screen.findByRole('button', { name: /Inference · OpenRouter/ });
+    await act(async () =>
+      answerS1({
+        success: true,
+        override: null,
+        resolved: {
+          slot: 'local',
+          modelId: 'qwen3:14b',
+          providerDisplayName: 'Local',
+          provenance: 'app-default',
+          configured: true,
+          health: 'unreachable',
+          needsRestart: false,
+        },
+        marks: [],
+      })
+    );
+    expect(screen.getByRole('button', { name: /Inference · OpenRouter/ })).toBeTruthy();
+  });
+
+  it('falls back to no provider when main does not answer', async () => {
+    getSessionInference.mockRejectedValue(new Error('ipc closed'));
+    const onResolvedChange = vi.fn();
+    render(<InferenceChip sessionId="s1" onResolvedChange={onResolvedChange} />);
+    await waitFor(() => expect(onResolvedChange).toHaveBeenCalledWith(null));
+    expect(screen.getByRole('button', { name: /Inference · No provider/ })).toBeTruthy();
+  });
+
+  it('takes the probed health without asking main again, and re-resolves on refreshKey', async () => {
+    probeSlotHealth.mockResolvedValue({ success: false, health: 'unreachable' });
+    const onResolvedChange = vi.fn();
+    const { rerender } = render(<InferenceChip sessionId="s1" refreshKey={0} onResolvedChange={onResolvedChange} />);
+    await waitFor(() =>
+      expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'unreachable' }))
+    );
+    expect(getSessionInference).toHaveBeenCalledTimes(1);
+    rerender(<InferenceChip sessionId="s1" refreshKey={1} onResolvedChange={onResolvedChange} />);
+    await waitFor(() => expect(getSessionInference).toHaveBeenCalledTimes(2));
+  });
+
+  it('takes the local health main pushes, so a chat on Local learns it went unreachable', async () => {
+    const onResolvedChange = vi.fn();
+    render(<InferenceChip sessionId="s1" onResolvedChange={onResolvedChange} />);
+    await waitFor(() =>
+      expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'reachable' }))
+    );
+
+    await act(async () =>
+      pushStatus.current?.({
+        ...bothConfigured,
+        slots: { ...bothConfigured.slots, local: { ...bothConfigured.slots.local, health: 'unreachable' } },
+      })
+    );
+    expect(onResolvedChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slot: 'local', health: 'unreachable' })
+    );
+    expect(getSessionInference).toHaveBeenCalledTimes(1);
   });
 });

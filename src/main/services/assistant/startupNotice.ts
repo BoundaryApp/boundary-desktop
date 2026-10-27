@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Notification } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { showWindowNotification } from '../notifications';
 import { describeStartupError } from '../../../shared/startupErrors';
 import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
 
@@ -15,7 +16,7 @@ export interface StartupNotice {
   body: string;
 }
 
-export function startupNoticeFor(
+function startupNoticeFor(
   prev: AssistantStackLifecycleSnapshot['phase'],
   next: AssistantStackLifecycleSnapshot,
   elapsedMs: number
@@ -37,30 +38,9 @@ export interface StartupNoticeDeps {
   notify: (notice: StartupNotice) => void;
 }
 
-/** Held until closed: an unreferenced Notification can be collected before macOS shows it. */
-const liveNotifications = new Set<Notification>();
-
-function firstWindow(): BrowserWindow | undefined {
-  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-}
-
 function showStartupNotification(notice: StartupNotice): void {
   if (process.platform === 'darwin') app.dock?.bounce('informational');
-  if (!Notification.isSupported()) return;
-  const notification = new Notification({ title: notice.title, body: notice.body });
-  liveNotifications.add(notification);
-  const release = () => liveNotifications.delete(notification);
-  notification.once('close', release);
-  setTimeout(release, 10 * 60_000).unref();
-  notification.once('click', () => {
-    release();
-    const win = firstWindow();
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-  });
-  notification.show();
+  showWindowNotification(notice);
 }
 
 const defaultDeps: StartupNoticeDeps = {

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearOpenRouterAaCache,
   fetchOpenRouterAaBenchmarks,
-  isOpenRouterEndpoint,
   lookupAaBenchmarks,
   parseAaBenchmarksResponse,
 } from '../openrouterAaBenchmarks';
@@ -12,14 +11,6 @@ describe('openrouterAaBenchmarks', () => {
     clearOpenRouterAaCache();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-  });
-
-  describe('isOpenRouterEndpoint', () => {
-    it('detects by provider or hostname', () => {
-      expect(isOpenRouterEndpoint('https://example.com/v1', 'openrouter')).toBe(true);
-      expect(isOpenRouterEndpoint('https://openrouter.ai/api/v1', 'manual')).toBe(true);
-      expect(isOpenRouterEndpoint('https://example.com/v1', 'manual')).toBe(false);
-    });
   });
 
   describe('parseAaBenchmarksResponse', () => {

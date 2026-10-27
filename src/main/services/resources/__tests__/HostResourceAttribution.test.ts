@@ -8,6 +8,7 @@ import {
   dockerCpuShare,
   isAssistantStackContainer,
   llmDiskDirectories,
+  measureDiskUsage,
   parseNetstatListenPid,
   parsePodmanMachineMemoryBytes,
   parseWindowsProcessSample,
@@ -195,6 +196,32 @@ describe('walkDirectoryBytes', () => {
     await writeFile(path.join(root, 'nested', 'b.bin'), Buffer.alloc(64));
     expect(await walkDirectoryBytes(root)).toBe(192);
     expect(await walkDirectoryBytes(path.join(root, 'missing'))).toBe(0);
+  });
+});
+
+describe('measureDiskUsage', () => {
+  it('leaves a managed stack data root under userData out of the app bucket', async () => {
+    const userData = await mkdtemp(path.join(os.tmpdir(), 'resources-userdata-'));
+    const dataRoot = path.join(userData, 'assistant-stack', 'project', 'data');
+    await mkdir(dataRoot, { recursive: true });
+    await writeFile(path.join(userData, 'app.bin'), Buffer.alloc(1024 * 1024));
+    await writeFile(path.join(dataRoot, 'x'), Buffer.alloc(1024 * 1024));
+
+    const usage = await measureDiskUsage(userData, dataRoot, []);
+    expect(usage.stack).toBeGreaterThanOrEqual(1024 * 1024);
+    expect(usage.app).toBeGreaterThanOrEqual(1024 * 1024);
+    expect(usage.app).toBeLessThan(1.5 * 1024 * 1024);
+  });
+
+  it('counts all of userData when the data root lives elsewhere', async () => {
+    const userData = await mkdtemp(path.join(os.tmpdir(), 'resources-userdata-'));
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'resources-stack-'));
+    await writeFile(path.join(userData, 'app.bin'), Buffer.alloc(1024 * 1024));
+    await writeFile(path.join(dataRoot, 'x'), Buffer.alloc(1024 * 1024));
+
+    const usage = await measureDiskUsage(userData, dataRoot, []);
+    expect(usage.app).toBeGreaterThanOrEqual(1024 * 1024);
+    expect(usage.stack).toBeGreaterThanOrEqual(1024 * 1024);
   });
 });
 

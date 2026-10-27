@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, ExternalLink, Loader2 } from 'lucide-react';
+import { CalendarDays, ExternalLink } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
 import { Pill } from '../components/ui/badge';
-import { useSetup } from '../setup/SetupContext';
-import { assistantStackIPC } from '../services/assistantStackIPCService';
+import { refreshAssistantStackStatus, useAssistantStackStatus } from './assistantStack';
 import type { AssistantUiServiceCard } from '../../shared/types/assistantStack';
 import { openSettings } from './settingsNavigation';
 import { useCalendarAccounts } from './useCalendarAccounts';
@@ -63,41 +62,32 @@ const CalendarServiceCard: React.FC = () => {
 };
 
 export const AssistantServicesScreen: React.FC = () => {
-  const { assistantStackStatus, refreshAssistantStack } = useSetup();
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
+  const assistantStackStatus = useAssistantStackStatus();
   const [openError, setOpenError] = useState<string | null>(null);
 
+  // uiServices health isn't pushed; take a fresh snapshot when the screen opens.
   useEffect(() => {
-    void refreshAssistantStack();
-  }, [refreshAssistantStack]);
+    void refreshAssistantStackStatus();
+  }, []);
 
   const services: AssistantUiServiceCard[] =
     assistantStackStatus?.uiServices ?? [];
   const ready = Boolean(assistantStackStatus?.ready);
   const offset = assistantStackStatus?.isolationMode === 'offset-ports';
 
-  const handleStart = useCallback(async () => {
-    setStarting(true);
-    setStartError(null);
-    try {
-      const result = await assistantStackIPC.ensureRunning();
-      if (!result.success) {
-        setStartError(result.error ?? 'Failed to start the assistant stack.');
-      }
-      await refreshAssistantStack();
-    } catch (err) {
-      setStartError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setStarting(false);
-    }
-  }, [refreshAssistantStack]);
+  // Starting moves the lifecycle to `starting`, so ProductApp swaps this screen for the start-up
+  // screen, which shows progress and any failure.
+  const handleStart = useCallback(() => {
+    void window.electronAPI.assistantStack.ensureRunning().catch(() => {
+      /* lifecycle carries failures */
+    });
+  }, []);
 
   const handleOpen = useCallback(async (service: AssistantUiServiceCard) => {
     setOpenError(null);
     try {
       const result = await window.electronAPI.urls.openUrl(service.url);
-      if (!result?.success) {
+      if (!result.success) {
         setOpenError(`Could not open ${service.title}.`);
       }
     } catch (err) {
@@ -142,23 +132,14 @@ export const AssistantServicesScreen: React.FC = () => {
                 Not ready
               </Pill>
               <span>Your assistant isn’t running yet.</span>
-              <Button type="button" onClick={() => void handleStart()} disabled={starting}>
-                {starting ? 'Starting…' : 'Start assistant'}
+              <Button type="button" onClick={handleStart}>
+                Start assistant
               </Button>
             </>
           )}
         </div>
 
-        {(startError || openError) && (
-          <Callout variant="destructive">{startError ?? openError}</Callout>
-        )}
-
-        {starting && (
-          <div className="flex items-center gap-2 text-ui text-fg-faint" role="status">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            Bringing up assistant services…
-          </div>
-        )}
+        {openError && <Callout variant="destructive">{openError}</Callout>}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((service) => (

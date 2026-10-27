@@ -1,10 +1,12 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext } from 'react';
 import { useAui, useAuiState } from '@assistant-ui/store';
 import type { HermesNoReply, HermesNoReplyReason } from '../../../shared/types/hermesChat';
 import { useHistoryRefreshing } from './HermesChatRuntimeProvider';
-import { RetryIcon, useCanRewind } from './MessageActions';
+import { RetryIcon, useCanRewind, useReplyEnding } from './MessageActions';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
+import { formatElapsed, useNowSeconds } from './kanbanActivity';
 import { WorkingDot } from './WorkingDot';
+import { useMessageCustom } from './messageCustom';
 
 // What the transcript says when a reply is not there: a turn still running on Hermes
 // after its chat was reopened, or a turn that ended without any reply. Hermes saves
@@ -22,6 +24,8 @@ function useChatRunningTurn() {
   return findRunningTurn(useRunningTurns(), chatId, sameChat);
 }
 
+const STOPPED: HermesNoReply = { reason: 'stopped' };
+
 export function noReplyText(reason: HermesNoReplyReason, speakerName: string): string {
   switch (reason) {
     case 'stopped':
@@ -33,23 +37,19 @@ export function noReplyText(reason: HermesNoReplyReason, speakerName: string): s
     case 'halted':
       return `${speakerName} stopped without replying`;
     case 'timeout':
-      return `No reply after 10 minutes`;
+      // Main gives up after TURN_QUIET_MS (3 minutes) without an event, once Hermes says the
+      // session is idle or stops answering.
+      return 'No reply after 3 minutes';
     case 'empty':
       return `${speakerName} finished without a reply`;
+    case 'unknown':
     default:
       return 'No reply to this message';
   }
 }
 
-export function formatWorkingElapsed(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-}
-
 /** The line itself; Retry when the caller can rerun the turn. */
-export const NoReplyLine: React.FC<{
+const NoReplyLine: React.FC<{
   noReply: HermesNoReply;
   speakerName: string;
   onRetry?: () => void;
@@ -84,10 +84,7 @@ export const UnansweredNote: React.FC<{ speakerName: string; inRoom: boolean }> 
   const id = useAuiState((s) => s.message.id);
   const isLast = useAuiState((s) => s.message.isLast);
   const threadRunning = useAuiState((s) => s.thread.isRunning);
-  const saved = useAuiState(
-    (s) => (s.message.metadata as { custom?: { noReply?: HermesNoReply } } | undefined)?.custom
-      ?.noReply
-  );
+  const saved = useMessageCustom().noReply;
   const canRewind = useCanRewind();
   const background = useChatRunningTurn();
   const refreshing = useHistoryRefreshing();
@@ -108,20 +105,23 @@ export const UnansweredNote: React.FC<{ speakerName: string; inRoom: boolean }> 
 export const BackgroundTurnNote: React.FC<{ speakerName: string }> = ({ speakerName }) => {
   const threadRunning = useAuiState((s) => s.thread.isRunning);
   const turn = useChatRunningTurn();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!turn) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [turn]);
   if (!turn || threadRunning) return null;
-  const elapsed = (now - Date.parse(turn.startedAt)) / 1000;
+  return <BackgroundTurnLine speakerName={speakerName} startedAt={turn.startedAt} />;
+};
+
+/** The note itself, with its own clock so it ticks only while it shows. */
+const BackgroundTurnLine: React.FC<{ speakerName: string; startedAt: string }> = ({
+  speakerName,
+  startedAt,
+}) => {
+  const nowS = useNowSeconds(1000);
+  const elapsed = nowS - Date.parse(startedAt) / 1000;
   return (
     <div className="wb-msg">
       <p className="wb-turn-note is-working" role="status">
         <WorkingDot label={`${speakerName} is working`} />
         <span>
-          {speakerName} is still working · {formatWorkingElapsed(elapsed)}
+          {speakerName} is still working · {formatElapsed(elapsed)}
         </span>
       </p>
     </div>
@@ -129,14 +129,13 @@ export const BackgroundTurnNote: React.FC<{ speakerName: string }> = ({ speakerN
 };
 
 /**
- * On a live reply that ended without any text (the turn failed, or Hermes ended it): why.
- * Retry is in the reply's own action row.
+ * On a live reply that ended without any text (the turn failed, Hermes ended it, or you
+ * stopped it): why. Retry is in the reply's own action row.
  */
 export const LiveNoReplyNote: React.FC<{ speakerName: string }> = ({ speakerName }) => {
-  const noReply = useAuiState(
-    (s) => (s.message.metadata as { custom?: { noReply?: HermesNoReply } } | undefined)?.custom
-      ?.noReply
-  );
+  const saved = useMessageCustom().noReply;
+  const stoppedEmpty = useReplyEnding() === 'stopped-empty';
+  const noReply = saved ?? (stoppedEmpty ? STOPPED : null);
   const hasText = useAuiState((s) =>
     s.message.content.some((part) => part.type === 'text' && part.text.trim().length > 0)
   );

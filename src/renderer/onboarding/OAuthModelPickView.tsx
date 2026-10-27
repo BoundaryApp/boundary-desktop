@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { ListedModel, OAuthPkceCredentialsBundle } from '../../shared/types/onboarding';
-import { onboardingIPC } from '../services/onboardingIPCService';
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
-import { useOnboarding } from './OnboardingContext';
+import { takeInferenceStatus } from './inferenceStatus';
 import { ModelPicker } from './ModelPicker';
 
 interface OAuthModelPickViewProps {
@@ -11,7 +10,6 @@ interface OAuthModelPickViewProps {
 }
 
 export const OAuthModelPickView: React.FC<OAuthModelPickViewProps> = ({ credentials }) => {
-  const { refresh } = useOnboarding();
   const [models, setModels] = useState<ListedModel[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
@@ -22,7 +20,7 @@ export const OAuthModelPickView: React.FC<OAuthModelPickViewProps> = ({ credenti
     setLoadingModels(true);
     setError(null);
     try {
-      const result = await onboardingIPC.listEndpointModels({
+      const result = await window.electronAPI.onboarding.listEndpointModels({
         baseUrl: credentials.endpointUrl,
         apiKey: credentials.apiKey,
         authScheme: credentials.authScheme,
@@ -54,7 +52,7 @@ export const OAuthModelPickView: React.FC<OAuthModelPickViewProps> = ({ credenti
     setSaving(true);
     setError(null);
     try {
-      const result = await onboardingIPC.saveLlmConnection({
+      const result = await window.electronAPI.onboarding.saveLlmConnection({
         endpointUrl: credentials.endpointUrl,
         // Prefer the securely stored key from the OAuth exchange; allow a fresh key if present.
         apiKey: credentials.apiKey,
@@ -69,7 +67,7 @@ export const OAuthModelPickView: React.FC<OAuthModelPickViewProps> = ({ credenti
         setError(result.error ?? 'Unable to save LLM connection.');
         return;
       }
-      await refresh();
+      await takeInferenceStatus(result);
     } finally {
       setSaving(false);
     }

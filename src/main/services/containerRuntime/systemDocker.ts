@@ -70,7 +70,7 @@ export function readDockerContextEndpoint(
  * Sockets the common macOS Docker setups listen on, most specific first. Docker Desktop
  * and OrbStack only symlink `/var/run/docker.sock` when the user allowed it, so it goes last.
  */
-export function wellKnownDockerSockets(homeDir: string): string[] {
+function wellKnownDockerSockets(homeDir: string): string[] {
   return [
     path.join(homeDir, '.docker', 'run', 'docker.sock'),
     path.join(homeDir, '.orbstack', 'run', 'docker.sock'),
@@ -145,7 +145,7 @@ export async function findReachableDockerEndpoint(
  * Directories the docker CLI is installed to on macOS. An app launched from Finder or the
  * Dock inherits only `/usr/bin:/bin:/usr/sbin:/sbin`, which has none of them.
  */
-export function wellKnownDockerCliDirs(homeDir: string): string[] {
+function wellKnownDockerCliDirs(homeDir: string): string[] {
   return [
     '/usr/local/bin',
     '/opt/homebrew/bin',

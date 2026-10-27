@@ -60,3 +60,20 @@ export const ConversationMark: React.FC<ConversationMarkProps> = ({
     </span>
   );
 };
+
+interface AgentMarkProps {
+  /** The built-in agent gets the Hermes sparkle; a personality gets its DM circle. */
+  agent: Pick<AgentProfile, 'slug' | 'displayName' | 'builtIn'> | null | undefined;
+  size?: ConversationMarkSize;
+  className?: string;
+}
+
+/** An agent's mark, wherever an agent rather than a conversation is named. */
+export const AgentMark: React.FC<AgentMarkProps> = ({ agent, size, className }) => (
+  <ConversationMark
+    kind={agent?.builtIn ? 'hermes' : 'dm'}
+    agent={agent}
+    size={size}
+    className={className}
+  />
+);

@@ -1,4 +1,5 @@
 import type { CalendarInfo, CalendarTestResult } from '../../../../shared/types/calendars';
+import { redactSecrets } from '../../secrets/redact';
 import { CALDAV_MCP_SERVICE } from './calendarModel';
 
 /**
@@ -12,7 +13,7 @@ import { CALDAV_MCP_SERVICE } from './calendarModel';
  * anonymous PROPFIND with 207, and the `caldav` library falls back to the URL it was given when no
  * principal comes back, so "the library found a principal" proves nothing.
  */
-export const CALDAV_PROBE_PROGRAM = String.raw`
+const CALDAV_PROBE_PROGRAM = String.raw`
 import json
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlsplit
@@ -119,13 +120,12 @@ export function parseCaldavProbeOutput(stdout: string, password: string): Calend
   } catch {
     return { status: 'error', error: 'The calendar service gave an answer Boundary couldn’t read.' };
   }
-  const scrub = (text: string) => (password ? text.split(password).join('[REDACTED]') : text);
   if (parsed.status === 'ok' && typeof parsed.url === 'string') {
     return { status: 'ok', url: parsed.url, calendars: calendarsFrom(parsed.calendars) };
   }
   if (parsed.status === 'rejected') return { status: 'rejected' };
   if (parsed.status === 'unreachable') {
-    return { status: 'unreachable', error: scrub(String(parsed.error ?? 'No answer')) };
+    return { status: 'unreachable', error: redactSecrets(String(parsed.error ?? 'No answer'), [password]) };
   }
   return { status: 'error', error: 'The calendar service gave an answer Boundary couldn’t read.' };
 }

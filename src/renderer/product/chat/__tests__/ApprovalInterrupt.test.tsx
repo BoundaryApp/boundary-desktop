@@ -75,6 +75,16 @@ describe('ApprovalInterrupt', () => {
     expect(screen.getByText('1 / 2')).toBeTruthy();
   });
 
+  it('runs on Enter in the card but lets Enter press the focused button', () => {
+    const onRespond = vi.fn();
+    render(<ApprovalInterrupt approval={event()} queueSize={1} onRespond={onRespond} />);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reject' }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
+    expect(onRespond).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Enter' });
+    expect(onRespond).toHaveBeenCalledWith('once');
+  });
+
   it('sends deny from Reject', () => {
     const onRespond = vi.fn();
     render(

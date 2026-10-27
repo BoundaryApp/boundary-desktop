@@ -70,7 +70,7 @@ BOUNDARY_EMULATE_NO_DOCKER=1 bun run dev
      ```
    - In the app: complete Setup → LLM → **Start the assistant stack**. Expect containers such as `boundary-hermes` / `boundary-hermes-webui` / `boundary-lightrag` / `boundary-n8n` / `boundary-opencode` (not the bare developer names).
    - Ready gate: Hermes API `http://127.0.0.1:8643/health` (or offset API port, e.g. `18643`, if a developer stack already holds the defaults). Secondary UIs may still be starting.
-   - After setup, the **product home** is in-app chat (Workbench). App chrome reaches **Services** (browser cards for Hermes WebUI, SearXNG, LightRAG, Neo4j, GPT Researcher, n8n, OpenCode) and **Settings**. Chat uses a main-process Hermes bridge (dashboard JSON-RPC when available, HTTP `/v1/chat/completions` fallback). Host-folder Projects, instrument telemetry, and tool-approval cards remain later phases.
+   - After setup, the **product home** is in-app chat (Workbench). App chrome reaches **Services** (browser cards for Hermes WebUI, SearXNG, LightRAG, Neo4j, GPT Researcher, n8n, OpenCode) and **Settings**. Chat uses a main-process Hermes bridge to the dashboard's JSON-RPC gateway. Host-folder Projects, instrument telemetry, and tool-approval cards remain later phases.
    - Quit Boundary: `compose -p boundary-assistant … down --timeout 10 --volumes --remove-orphans` with those four profiles (removes anonymous/named project volumes; host bind mounts under Boundary `userData` are preserved). A manual developer stack (`../assistant` default project) is left running.
 
    **Developing assistant + desktop together (dual-stack)**  

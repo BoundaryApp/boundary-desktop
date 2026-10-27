@@ -75,10 +75,12 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
         >
           <span style={{ width: `${pct}%` }} />
         </div>
-        <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
-          {lifecycle.message && <p className="su-log">{lifecycle.message}</p>}
-          <ServiceProgressCards services={services} tone="stop" />
-        </StartupDetails>
+        <div className="su-footer">
+          <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
+            {lifecycle.message && <p className="su-log">{lifecycle.message}</p>}
+            <ServiceProgressCards services={services} tone="stop" />
+          </StartupDetails>
+        </div>
       </div>
     </div>
   );

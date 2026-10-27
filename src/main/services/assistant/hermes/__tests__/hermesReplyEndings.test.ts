@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type Handler = (event: { session_id?: string }) => void;
+type Handler = (event: { session_id?: string; payload?: unknown }) => void;
 const handlers = new Map<string, Set<Handler>>();
 const getSessionHistory = vi.fn();
 const getReplyEndings = vi.fn();
@@ -27,7 +27,7 @@ vi.mock('../hermesAgentStore', () => ({
   setNoReply: (...args: unknown[]) => setNoReply(...args),
 }));
 
-const emit = (event: string, payload: { session_id?: string }) => {
+const emit = (event: string, payload: { session_id?: string; payload?: unknown }) => {
   for (const handler of [...(handlers.get(event) ?? [])]) handler(payload);
 };
 
@@ -69,6 +69,23 @@ describe('hermesReplyEndings', () => {
     emit('message.complete', { session_id: 's1' });
     await vi.waitFor(() => expect(settled).toBe(true));
     expect(setReplyEnding).toHaveBeenCalledWith('s1', 2, 'stopped');
+  });
+
+  it('takes only an interrupted completion of this session as the stop confirmation (G07-19)', async () => {
+    const { sessionSettled, settleInterruptedTurn } = await import('../hermesReplyEndings');
+    settleInterruptedTurn('s1', 'stopped', true);
+    let settled = false;
+    void sessionSettled('s1').then(() => {
+      settled = true;
+    });
+
+    emit('message.complete', { payload: { status: 'interrupted' } });
+    emit('message.complete', { session_id: 's1', payload: { status: 'complete' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    emit('message.complete', { session_id: 's1', payload: { status: 'interrupted' } });
+    await vi.waitFor(() => expect(settled).toBe(true));
   });
 
   it('gives up waiting after the settle window', async () => {

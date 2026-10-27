@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { shell } from 'electron';
 import type {
+  CodingAgentBusy,
+  CodingGrant,
   CodingDeleteFolderPayload,
   CodingDeleteFolderResult,
   CodingDeleteInspect,
@@ -14,14 +16,17 @@ import {
   removeHermesProjectSource,
 } from '../hermes/hermesProjectSources';
 import { getStoredHermesProject, listStoredHermesProjects } from '../hermes/hermesProjectStore';
-import { loadSources, samePath } from '../hermes/projectSourcesModel';
+import { loadSources } from '../hermes/projectSourcesModel';
+import { samePath } from '../../hostPaths';
 import {
+  auditCodingChange,
   codingGrantDeps,
+  isCoveredByOtherGrant,
   listCodingGrants,
   revokeCoding,
   scheduleCodingRemount,
 } from './codingGrants';
-import { codingGrantRefuseMessage, refuseCodingGrantReason } from './codingGrantRules';
+import { codingGrantRefuseMessage, folderFacts, refuseCodingGrantReason } from './codingGrantRules';
 import { findCodingGrant, removeCodingGrantRecord } from './codingGrantStore';
 
 /**
@@ -30,7 +35,7 @@ import { findCodingGrant, removeCodingGrantRecord } from './codingGrantStore';
  * only once the coding agent no longer has it mounted.
  */
 
-export const DELETE_WALK_CAP = 100_000;
+const DELETE_WALK_CAP = 100_000;
 
 interface FolderWalk {
   files: number;
@@ -40,8 +45,11 @@ interface FolderWalk {
   truncated: boolean;
 }
 
-/** Count files and bytes without following symlinks, stopping at a cap. */
-export function walkFolder(root: string, cap = DELETE_WALK_CAP): FolderWalk {
+/**
+ * Count files and bytes without following symlinks, stopping at a cap. Asynchronous, so a
+ * large tree (a `node_modules`, say) doesn't hold up the main process.
+ */
+export async function walkFolder(root: string, cap = DELETE_WALK_CAP): Promise<FolderWalk> {
   const walk: FolderWalk = {
     files: 0,
     bytes: 0,
@@ -57,15 +65,16 @@ export function walkFolder(root: string, cap = DELETE_WALK_CAP): FolderWalk {
     const { dir, inNodeModules } = stack.pop()!;
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
+    const files: string[] = [];
     for (const entry of entries) {
       seen += 1;
       if (seen > cap) {
         walk.truncated = true;
-        return walk;
+        break;
       }
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
@@ -73,20 +82,23 @@ export function walkFolder(root: string, cap = DELETE_WALK_CAP): FolderWalk {
         stack.push({ dir: full, inNodeModules: inNodeModules || entry.name === 'node_modules' });
         continue;
       }
-      if (!entry.isFile()) continue;
-      try {
-        const stat = fs.lstatSync(full);
-        walk.files += 1;
-        walk.bytes += stat.size;
-        if (inNodeModules) walk.nodeModulesBytes += stat.size;
-        // .git internals change on every fetch; they don't say when the user last worked here.
-        if (!full.includes(`${path.sep}.git${path.sep}`)) {
-          walk.lastChangedMs = Math.max(walk.lastChangedMs, stat.mtimeMs);
-        }
-      } catch {
-        /* vanished mid-walk */
-      }
+      if (entry.isFile()) files.push(full);
     }
+    const stats = await Promise.all(
+      // A file that vanished mid-walk is skipped.
+      files.map((full) => fs.promises.lstat(full).catch((): null => null))
+    );
+    stats.forEach((stat, index) => {
+      if (!stat) return;
+      walk.files += 1;
+      walk.bytes += stat.size;
+      if (inNodeModules) walk.nodeModulesBytes += stat.size;
+      // .git internals change on every fetch; they don't say when the user last worked here.
+      if (!files[index].includes(`${path.sep}.git${path.sep}`)) {
+        walk.lastChangedMs = Math.max(walk.lastChangedMs, stat.mtimeMs);
+      }
+    });
+    if (walk.truncated) return walk;
   }
   return walk;
 }
@@ -112,7 +124,7 @@ function isProjectFolder(hostPath: string): boolean {
 async function gitFacts(hostPath: string) {
   const deps = codingGrantDeps();
   const facts = {
-    isGit: fs.existsSync(path.join(hostPath, '.git')),
+    isGit: folderFacts(hostPath).isGit,
     hasRemote: false,
     unpushed: 0,
     onlyStartCommit: false,
@@ -158,15 +170,35 @@ function refuseDelete(hostPath: string): string | null {
   return null;
 }
 
+interface DeleteChecks {
+  grant: CodingGrant;
+  git: Awaited<ReturnType<typeof gitFacts>>;
+  busy: CodingAgentBusy;
+  requiresTypedName: boolean;
+}
+
+/** What deciding a delete needs: everything in the review except the walk. A string is a refusal. */
+async function deleteChecks(resolved: string): Promise<DeleteChecks | string> {
+  const refused = refuseDelete(resolved);
+  if (refused) return refused;
+  const grant = findCodingGrant(resolved)!;
+  const git = await gitFacts(resolved);
+  const busy = await codingGrantDeps().busy();
+  return {
+    grant,
+    git,
+    busy,
+    requiresTypedName: deleteNeedsTypedName({ createdByBoundary: grant.createdByBoundary, ...git }),
+  };
+}
+
 /** The facts the delete review leads with (ADR 0028 §11). */
 export async function inspectFolderForDelete(hostPath: string): Promise<CodingDeleteInspect> {
   const resolved = path.resolve(hostPath);
-  const refused = refuseDelete(resolved);
-  if (refused) return { success: false, error: refused };
-  const grant = findCodingGrant(resolved)!;
-  const walk = walkFolder(resolved);
-  const git = await gitFacts(resolved);
-  const busy = await codingGrantDeps().busy();
+  const checks = await deleteChecks(resolved);
+  if (typeof checks === 'string') return { success: false, error: checks };
+  const { grant, git, busy, requiresTypedName } = checks;
+  const walk = await walkFolder(resolved);
   return {
     success: true,
     hostPath: resolved,
@@ -181,7 +213,7 @@ export async function inspectFolderForDelete(hostPath: string): Promise<CodingDe
     lastChanged: walk.lastChangedMs ? new Date(walk.lastChangedMs).toISOString() : null,
     truncated: walk.truncated,
     ...git,
-    requiresTypedName: deleteNeedsTypedName({ createdByBoundary: grant.createdByBoundary, ...git }),
+    requiresTypedName,
     busy,
   };
 }
@@ -241,38 +273,47 @@ export async function deleteCodingFolder(
   payload: CodingDeleteFolderPayload
 ): Promise<CodingDeleteFolderResult> {
   const deps = codingGrantDeps();
-  const facts = await inspectFolderForDelete(payload.hostPath);
   const fail = (error: string, extra: Partial<CodingDeleteFolderResult> = {}) => ({
     ...listCodingGrants(),
     success: false,
     error,
     ...extra,
   });
-  if (!facts.success || !facts.hostPath)
-    return fail(facts.error ?? 'That folder can’t be deleted.');
-  const hostPath = facts.hostPath;
-  if (facts.requiresTypedName && payload.confirmName?.trim() !== facts.name) {
-    return fail(`Type ${facts.name} to confirm.`);
+  // The review already walked the folder; the delete re-checks only what decides it.
+  const hostPath = path.resolve(payload.hostPath);
+  const checks = await deleteChecks(hostPath);
+  if (typeof checks === 'string') return fail(checks);
+  const name = path.basename(hostPath);
+  if (checks.requiresTypedName && payload.confirmName?.trim() !== name) {
+    return fail(`Type ${name} to confirm.`);
   }
-  if (facts.busy?.busy) {
+  if (checks.busy.busy) {
     return fail('A coding task is running. Let it finish, then delete the folder.', {
-      busy: facts.busy,
+      busy: checks.busy,
     });
   }
 
+  // Inside another grant, that grant's mount keeps the folder mounted, so a restart
+  // wouldn't release it (G10-15).
+  const covered = isCoveredByOtherGrant(hostPath);
   removeCodingGrantRecord(hostPath);
-  const outcome = await scheduleCodingRemount();
+  // One audit entry for the revoke and the move: the move, or why it didn't happen.
+  const failAudited = (error: string, extra: Partial<CodingDeleteFolderResult> = {}) => {
+    auditCodingChange('coding_delete', { path: hostPath }, 'moved to the Trash', error);
+    return fail(error, extra);
+  };
+  const outcome = covered ? { success: true } : await scheduleCodingRemount();
   if (!outcome.success) {
-    return fail(
-      `Coding access was removed, but the coding agent didn’t restart, so ${facts.name} wasn’t moved. ${
+    return failAudited(
+      `Coding access was removed, but the coding agent didn’t restart, so ${name} wasn’t moved. ${
         outcome.error ?? ''
       }`.trim()
     );
   }
   const busyAgain = await deps.busy();
   if (busyAgain.busy) {
-    return fail(
-      `A coding task started, so ${facts.name} wasn’t moved. Try again when it finishes.`,
+    return failAudited(
+      `A coding task started, so ${name} wasn’t moved. Try again when it finishes.`,
       {
         busy: busyAgain,
       }
@@ -281,12 +322,13 @@ export async function deleteCodingFolder(
   try {
     await deps.trash(hostPath);
   } catch (error) {
-    return fail(
-      `Coding access was removed, but ${facts.name} couldn’t be moved to the Trash: ${
+    return failAudited(
+      `Coding access was removed, but ${name} couldn’t be moved to the Trash: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
   }
+  auditCodingChange('coding_delete', { path: hostPath }, 'moved to the Trash');
   await removeFromProjects(hostPath);
   return { ...listCodingGrants(), trashed: true };
 }

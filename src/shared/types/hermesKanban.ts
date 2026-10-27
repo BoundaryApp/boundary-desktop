@@ -51,7 +51,6 @@ export interface KanbanSnapshot {
 
 export interface KanbanTaskEvent {
   id: number;
-  runId: number | null;
   kind: string;
   /** Text the event carries: a heartbeat note, a block reason, or a failure's error. */
   note: string | null;
@@ -75,15 +74,9 @@ export interface KanbanTaskComment {
 
 export interface KanbanTaskRun {
   id: number;
-  profile: string | null;
-  status: string;
   outcome: string | null;
-  startedAt: number;
   endedAt: number | null;
-  summary: string | null;
   error: string | null;
-  /** Recorded when the run completes; the worker's own Hermes session. */
-  workerSessionId: string | null;
 }
 
 export interface KanbanTaskDetail {
@@ -101,7 +94,7 @@ export type KanbanTaskDetailResult =
   | { success: false; error: string };
 
 export type KanbanTaskLogResult =
-  | { success: true; exists: boolean; content: string; truncated: boolean }
+  | { success: true; content: string }
   | { success: false; error: string };
 
 /**
@@ -128,6 +121,8 @@ export type KanbanTaskAction =
   | { kind: 'reply-resume'; body: string }
   /** Unblock without a comment: a stopped task, or a block you've cleared yourself. */
   | { kind: 'resume' }
+  /** Sort a triage task into To do, where the dispatcher queues it. */
+  | { kind: 'move-to-todo' }
   /** Finish the task as it stands (a block or a review you accept). */
   | { kind: 'mark-done' }
   /** Send a review back with notes (comment, then reopen). */
@@ -154,6 +149,14 @@ export type KanbanBoardViewResult =
  * `manual_reclaim: …`), which is how the task page tells your stop from a crash.
  */
 export const KANBAN_STOP_REASON = 'stopped from Boundary';
+
+/**
+ * Whether a run error or event note records your stop. Hermes may prefix the reason (the run
+ * error reads `manual_reclaim: stopped from Boundary`), so this matches it anywhere in the text.
+ */
+export function isBoundaryStop(text: string | null | undefined): boolean {
+  return Boolean(text?.includes(KANBAN_STOP_REASON));
+}
 
 /** The comment author Boundary posts as. */
 export const KANBAN_COMMENT_AUTHOR = 'user';

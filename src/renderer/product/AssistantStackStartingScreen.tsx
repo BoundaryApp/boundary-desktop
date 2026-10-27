@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useSetup } from '../setup/SetupContext';
-import { assistantStackIPC } from '../services/assistantStackIPCService';
-import { createLifecycleSnapshot } from '../../shared/assistantStackLifecycle';
+import React, { useEffect } from 'react';
 import type { AssistantStackLifecycleSnapshot } from '../../shared/types/assistantStack';
+import { useStackStart } from './assistantStack';
 import { StartupScreen } from './startup/StartupScreen';
+import { startupServices } from './startup/startupModel';
 
 export interface AssistantStackStartingScreenProps {
   lifecycle: AssistantStackLifecycleSnapshot;
@@ -12,52 +11,15 @@ export interface AssistantStackStartingScreenProps {
 export const AssistantStackStartingScreen: React.FC<AssistantStackStartingScreenProps> = ({
   lifecycle,
 }) => {
-  const { refreshAssistantStack } = useSetup();
-  const [retrying, setRetrying] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
+  const { start, running, error: startError } = useStackStart();
 
   useEffect(() => {
     // If main has not started ensure yet (idle + not ready), kick it off.
     if (lifecycle.phase !== 'idle') return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await assistantStackIPC.ensureRunning();
-        if (!cancelled) {
-          await refreshAssistantStack();
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setLocalError(err instanceof Error ? err.message : String(err));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [lifecycle.phase, refreshAssistantStack]);
+    void start('ensureRunning');
+  }, [lifecycle.phase, start]);
 
-  const handleRetry = useCallback(async () => {
-    setRetrying(true);
-    setLocalError(null);
-    try {
-      const result = await assistantStackIPC.ensureAndApplyLlm();
-      if (!result.success) {
-        setLocalError(result.error ?? 'Failed to start the assistant stack.');
-      }
-      await refreshAssistantStack();
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRetrying(false);
-    }
-  }, [refreshAssistantStack]);
-
-  const services =
-    lifecycle.services?.length > 0
-      ? lifecycle.services
-      : createLifecycleSnapshot('starting').services;
-  const error = localError ?? lifecycle.error ?? null;
+  const error = startError ?? lifecycle.error ?? null;
   const isError = lifecycle.phase === 'error' || Boolean(error);
 
   return (
@@ -66,11 +28,11 @@ export const AssistantStackStartingScreen: React.FC<AssistantStackStartingScreen
       stage={isError ? 'error' : lifecycle.stage}
       stageStartedAt={lifecycle.stageStartedAt}
       message={lifecycle.message}
-      services={services}
+      services={startupServices(lifecycle)}
       download={lifecycle.download}
       error={error}
-      onRetry={isError ? () => void handleRetry() : undefined}
-      retrying={retrying}
+      onRetry={isError ? () => void start() : undefined}
+      retrying={running}
     />
   );
 };

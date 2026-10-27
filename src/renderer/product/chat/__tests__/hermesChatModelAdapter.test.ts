@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import {
   CONTINUE_LATEST_ONLY_MESSAGE,
   CONTINUE_RUN_CONFIG,
@@ -15,8 +16,8 @@ const onChatEnd = vi.fn();
 const onChatError = vi.fn();
 const onChatTool = vi.fn(() => () => undefined);
 
-vi.mock('../../../services/hermesChatIPCService', () => ({
-  hermesChatIPC: {
+stubElectronAPI({
+  hermesChat: {
     startChat: (...args: unknown[]) => startChat(...args),
     cancelChat: (...args: unknown[]) => cancelChat(...args),
     onChatChunk: (...args: unknown[]) => onChatChunk(...args),
@@ -24,7 +25,12 @@ vi.mock('../../../services/hermesChatIPCService', () => ({
     onChatError: (...args: unknown[]) => onChatError(...args),
     onChatTool: (...args: unknown[]) => onChatTool(...args),
   },
-}));
+});
+
+/** The adapter makes the turn's request id; tests pick it so their events match. */
+function useRequestId(id: string): void {
+  vi.spyOn(crypto, 'randomUUID').mockReturnValue(id as ReturnType<typeof crypto.randomUUID>);
+}
 
 describe('createHermesChatModelAdapter', () => {
   beforeEach(() => {
@@ -45,7 +51,8 @@ describe('createHermesChatModelAdapter', () => {
     });
     onChatError.mockImplementation(() => () => undefined);
 
-    startChat.mockResolvedValue({ success: true, requestId: 'req-1', sessionId: 'session-1', transport: 'json-rpc' });
+    useRequestId('req-1');
+    startChat.mockResolvedValue({ success: true, requestId: 'req-1', sessionId: 'session-1' });
 
     const adapter = createHermesChatModelAdapter(() => 'session-1');
     const abort = new AbortController();
@@ -105,11 +112,11 @@ describe('createHermesChatModelAdapter', () => {
       return () => undefined;
     });
     onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-room');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-room',
       sessionId: 'chan-1',
-      transport: 'json-rpc',
     });
 
     const adapter = createHermesChatModelAdapter(() => 'chan-1');
@@ -156,11 +163,11 @@ describe('createHermesChatModelAdapter', () => {
     onChatChunk.mockImplementation(() => () => undefined);
     onChatEnd.mockImplementation(() => () => undefined);
     onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-abort');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-abort',
       sessionId: 's1',
-      transport: 'http',
     });
     cancelChat.mockResolvedValue({ success: true });
 
@@ -198,11 +205,11 @@ describe('createHermesChatModelAdapter', () => {
     onChatChunk.mockImplementation(() => () => undefined);
     onChatEnd.mockImplementation(() => () => undefined);
     onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-detach');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-detach',
       sessionId: 's1',
-      transport: 'http',
     });
 
     const adapter = createHermesChatModelAdapter(() => 's1');
@@ -243,11 +250,11 @@ describe('createHermesChatModelAdapter', () => {
       return () => undefined;
     });
     onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-2');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-2',
       sessionId: 'gateway-session',
-      transport: 'json-rpc',
     });
 
     const onResolved = vi.fn();
@@ -281,11 +288,11 @@ describe('createHermesChatModelAdapter', () => {
       return () => undefined;
     });
     onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-tools');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-tools',
       sessionId: 's1',
-      transport: 'json-rpc',
     });
 
     const adapter = createHermesChatModelAdapter(() => 's1', {
@@ -313,12 +320,17 @@ describe('createHermesChatModelAdapter', () => {
     );
   });
 
-  it('returns without an assistant turn when start reports a channel post', async () => {
+  it('yields only a room-post marker when start reports a channel post', async () => {
+    const unsubChunk = vi.fn();
+    const unsubEnd = vi.fn();
+    onChatChunk.mockImplementation(() => unsubChunk);
+    onChatEnd.mockImplementation(() => unsubEnd);
+    onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-post');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-post',
       sessionId: 'chan-1',
-      transport: 'json-rpc',
       posted: true,
     });
 
@@ -341,13 +353,16 @@ describe('createHermesChatModelAdapter', () => {
       yields.push(update);
     }
 
-    expect(yields).toEqual([]);
-    expect(onChatChunk).not.toHaveBeenCalled();
-    expect(onChatEnd).not.toHaveBeenCalled();
+    expect(yields).toEqual([{ content: [], metadata: { custom: { roomPost: true } } }]);
+    // Listening started before the start reply; a post stops it and leaves the turn unowned.
+    expect(unsubChunk).toHaveBeenCalled();
+    expect(unsubEnd).toHaveBeenCalled();
+    expect(isOwnedRunningTurn('req-post')).toBe(false);
   });
 
   it('does not throw a generic error when start reports local-unreachable', async () => {
     const onLocalUnreachable = vi.fn();
+    useRequestId('req-offline');
     startChat.mockResolvedValue({
       success: false,
       requestId: 'req-offline',
@@ -377,7 +392,7 @@ describe('createHermesChatModelAdapter', () => {
 
     expect(yields).toEqual([]);
     expect(onLocalUnreachable).toHaveBeenCalled();
-    expect(onChatChunk).not.toHaveBeenCalled();
+    expect(isOwnedRunningTurn('req-offline')).toBe(false);
   });
 });
 
@@ -430,6 +445,7 @@ describe('createHermesChatModelAdapter server path', () => {
   it('keeps the chat usable after a send that failed before Hermes took it', async () => {
     const path = new ServerPath();
     const adapter = createHermesChatModelAdapter(() => 's1', { getServerPath: () => path });
+    useRequestId('req-fail');
     startChat.mockResolvedValueOnce({
       success: false,
       requestId: 'req-fail',
@@ -448,23 +464,6 @@ describe('createHermesChatModelAdapter server path', () => {
         { id: 'u2', role: 'user', text: 'again', rowId: null },
       ])
     ).toEqual({ kind: 'append' });
-  });
-
-  it('stops offering rewinds after an HTTP-fallback turn', async () => {
-    const path = new ServerPath();
-    const adapter = createHermesChatModelAdapter(() => 's1', { getServerPath: () => path });
-    onChatEnd.mockImplementation((cb) => {
-      queueMicrotask(() => cb({ requestId: 'req-http' }));
-      return () => undefined;
-    });
-    startChat.mockResolvedValueOnce({
-      success: true,
-      requestId: 'req-http',
-      sessionId: 's1',
-      transport: 'http',
-    });
-    await drain(run(adapter, [user('u1', 'hi')], 'a1'));
-    expect(path.canRewind()).toBe(false);
   });
 
   it('records the files this turn wrote on the reply', async () => {
@@ -487,11 +486,11 @@ describe('createHermesChatModelAdapter server path', () => {
       });
       return () => undefined;
     });
+    useRequestId('req-files');
     startChat.mockResolvedValueOnce({
       success: true,
       requestId: 'req-files',
       sessionId: 's1',
-      transport: 'json-rpc',
     });
     const adapter = createHermesChatModelAdapter(() => 's1');
     const updates: Array<{ metadata?: { custom?: Record<string, unknown> } }> = [];
@@ -534,11 +533,11 @@ describe('createHermesChatModelAdapter Continue (run control)', () => {
       queueMicrotask(() => cb({ requestId: 'req-cont' }));
       return () => undefined;
     });
+    useRequestId('req-cont');
     startChat.mockResolvedValue({
       success: true,
       requestId: 'req-cont',
       sessionId: 's1',
-      transport: 'json-rpc',
     });
   });
 
@@ -576,5 +575,105 @@ describe('createHermesChatModelAdapter Continue (run control)', () => {
       CONTINUE_LATEST_ONLY_MESSAGE
     );
     expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it('owns and hears its turn before startChat replies, with the request id it sent', async () => {
+    let chunkCb: ((e: { requestId: string; delta: string }) => void) | null = null;
+    let endCb: ((e: { requestId: string }) => void) | null = null;
+    onChatChunk.mockImplementation((cb) => {
+      chunkCb = cb;
+      return () => undefined;
+    });
+    onChatEnd.mockImplementation((cb) => {
+      endCb = cb;
+      return () => undefined;
+    });
+    onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-early');
+    let ownedAtStart = false;
+    startChat.mockImplementation(async (payload: { requestId?: string }) => {
+      // Main sends events for the request while the start handler is still running.
+      ownedAtStart = isOwnedRunningTurn(payload.requestId ?? '');
+      chunkCb?.({ requestId: payload.requestId ?? '', delta: 'Early' });
+      endCb?.({ requestId: payload.requestId ?? '' });
+      return { success: true, requestId: payload.requestId, sessionId: 's1' };
+    });
+
+    const adapter = createHermesChatModelAdapter(() => 's1');
+    const gen = adapter.run({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] } as never],
+      abortSignal: new AbortController().signal,
+      context: {} as never,
+      unstable_getMessage: (() => undefined) as never,
+    });
+    const yields: string[] = [];
+    for await (const update of gen) {
+      const text = update.content
+        ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+        .map((p) => p.text)
+        .join('');
+      if (text) yields.push(text);
+    }
+
+    expect(startChat).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'req-early' }));
+    expect(ownedAtStart).toBe(true);
+    expect(yields.at(-1)).toBe('Early');
+  });
+});
+
+describe('filed task cards from live tool results (new-C-1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function runWithTool(event: Record<string, unknown>) {
+    let toolCb: ((e: Record<string, unknown>) => void) | null = null;
+    let endCb: ((e: { requestId: string }) => void) | null = null;
+    onChatTool.mockImplementation(((cb: (e: Record<string, unknown>) => void) => {
+      toolCb = cb;
+      return () => undefined;
+    }) as never);
+    onChatChunk.mockImplementation(() => () => undefined);
+    onChatEnd.mockImplementation((cb) => {
+      endCb = cb;
+      return () => undefined;
+    });
+    onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-kanban');
+    startChat.mockResolvedValue({ success: true, requestId: 'req-kanban', sessionId: 's1' });
+
+    const adapter = createHermesChatModelAdapter(() => 's1');
+    const gen = adapter.run({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'file it' }] } as never],
+      abortSignal: new AbortController().signal,
+      context: {} as never,
+      unstable_getMessage: (() => undefined) as never,
+    });
+    const updates: Array<{ metadata?: { custom?: Record<string, unknown> } }> = [];
+    const consume = (async () => {
+      for await (const update of gen) updates.push(update as never);
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+    toolCb!({ requestId: 'req-kanban', toolId: 't1', name: 'kanban_create', status: 'done', args: { title: 'T' }, ...event });
+    endCb!({ requestId: 'req-kanban' });
+    await consume;
+    return updates.at(-1)?.metadata?.custom?.tasksFiled;
+  }
+
+  it('does not file a refused kanban_create whose summary is prose', async () => {
+    const filed = await runWithTool({
+      summary: 'Tried to file the task.',
+      result: '{"ok": false, "error": "assignee unknown"}',
+    });
+    expect(filed).toBeUndefined();
+  });
+
+  it('files an accepted kanban_create with its task id', async () => {
+    const filed = await runWithTool({
+      summary: 'Filed the task.',
+      result: '{"ok": true, "task_id": "t_9"}',
+    });
+    expect(filed).toEqual([{ title: 'T', assignee: null, taskId: 't_9' }]);
   });
 });
