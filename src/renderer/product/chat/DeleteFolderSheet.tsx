@@ -124,6 +124,9 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
       error={trash.error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={deleting} onClick={onClose}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-danger"
@@ -131,9 +134,6 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             onClick={() => void moveToTrash()}
           >
             {deleting ? 'Moving to the Trash…' : 'Move to Trash'}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={deleting} onClick={onClose}>
-            Cancel
           </button>
           <span className="wb-sheet-note">Restarts the coding agent</span>
         </>

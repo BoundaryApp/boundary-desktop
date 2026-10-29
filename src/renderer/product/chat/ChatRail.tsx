@@ -458,12 +458,12 @@ export const ChatRail: React.FC<ChatRailProps> = ({
             <p className="wb-empty">Loading…</p>
           ) : null}
           {!loadingThreads && personalities.length === 0 ? (
-            <div className="wb-empty">
-              No agents yet.
-              <button type="button" className="wb-empty-action" onClick={onNewAgent}>
-                New agent
+            <p className="wb-rail-empty">
+              No agents yet.{' '}
+              <button type="button" onClick={onNewAgent}>
+                Create one
               </button>
-            </div>
+            </p>
           ) : null}
           {personalities.map((agent) => {
             const standingId = standingDmByAgent[agent.slug] ?? null;

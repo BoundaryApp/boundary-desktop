@@ -29,7 +29,7 @@ import {
   setHostBridgePorts,
   type HostBridgeBrowserSettings,
 } from './hostBridgeStore';
-import { executeHostTool, type HostToolDeps } from './hostTools';
+import { executeHostTool, notificationFailureMessage, type HostToolDeps } from './hostTools';
 import { dialogStartFolder, rememberDialogPick } from '../dialogFolders';
 import {
   HERMES_SESSION_IDLE_MS,
@@ -122,7 +122,8 @@ const toolDeps: HostToolDeps = {
       notification.once('failed', (_event, error) => {
         clearTimeout(unconfirmed);
         release();
-        reject(new Error(error));
+        // A dev build runs as Electron.app, which is the name System Settings shows.
+        reject(new Error(notificationFailureMessage(error, app.isPackaged ? app.getName() : 'Electron')));
       });
       notification.show();
     }),

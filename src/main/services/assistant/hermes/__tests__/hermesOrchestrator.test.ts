@@ -11,6 +11,7 @@ const updateHermesAgent = vi.fn();
 const enableProfileToolsets = vi.fn();
 const createSessionWithSeed = vi.fn();
 const broadcastSessionsChanged = vi.fn();
+const openListeners = vi.hoisted(() => new Set<() => void>());
 
 vi.mock('../hermesAgents', () => ({
   createHermesAgent: (...args: unknown[]) => createHermesAgent(...args),
@@ -33,6 +34,10 @@ vi.mock('../hermesGatewaySession', () => ({
     ensureConnected: vi.fn().mockResolvedValue(undefined),
     enableProfileToolsets: (...args: unknown[]) => enableProfileToolsets(...args),
     createSessionWithSeed: (...args: unknown[]) => createSessionWithSeed(...args),
+    onOpen: (listener: () => void) => {
+      openListeners.add(listener);
+      return () => openListeners.delete(listener);
+    },
   }),
 }));
 
@@ -45,6 +50,7 @@ import {
   ORCHESTRATOR_DISPLAY_NAME,
   ORCHESTRATOR_ROLE,
   resetOrchestratorForTests,
+  retryOrchestratorOnGatewayOpen,
 } from '../hermesOrchestrator';
 
 /** The role before stack v0.3.3 refused worktrees on the coding repos. */
@@ -72,6 +78,7 @@ describe('ensureOrchestratorAgent', () => {
     enableProfileToolsets.mockReset().mockResolvedValue(true);
     createSessionWithSeed.mockReset().mockResolvedValue('setup-1');
     broadcastSessionsChanged.mockReset();
+    openListeners.clear();
     resetOrchestratorForTests();
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(0);
@@ -134,6 +141,32 @@ describe('ensureOrchestratorAgent', () => {
     vi.setSystemTime(30_000 + 60_000);
     await ensureOrchestratorAgent();
     expect(enableProfileToolsets).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries at once when the gateway opens, without waiting out the backoff', async () => {
+    retryOrchestratorOnGatewayOpen();
+    createHermesAgent.mockResolvedValueOnce({ success: false, error: 'gateway not up' });
+    await ensureOrchestratorAgent();
+    expect(state.record).toBeNull();
+
+    // Inside the 30 s wait a list refresh does nothing, but the gateway opening does.
+    vi.setSystemTime(1_000);
+    await ensureOrchestratorAgent();
+    expect(createHermesAgent).toHaveBeenCalledTimes(1);
+    for (const listener of openListeners) listener();
+    // The open started a run; this call joins it rather than starting another.
+    await ensureOrchestratorAgent();
+    expect(state.record).toEqual({ slug: 'orchestrator', kanbanEnabled: true });
+    expect(createHermesAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it('does nothing on a gateway open once set up', async () => {
+    retryOrchestratorOnGatewayOpen();
+    await ensureOrchestratorAgent();
+    for (const listener of openListeners) listener();
+    await ensureOrchestratorAgent();
+    expect(createHermesAgent).toHaveBeenCalledTimes(1);
+    expect(enableProfileToolsets).toHaveBeenCalledTimes(1);
   });
 
   it('adopts an existing orchestrator agent instead of making a second one', async () => {

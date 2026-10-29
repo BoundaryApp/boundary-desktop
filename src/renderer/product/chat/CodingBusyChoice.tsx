@@ -56,24 +56,36 @@ export const CodingBusyButtons: React.FC<{
   disabled?: boolean;
 }> = ({ verb, look, onChoose, queued = false, disabled = false }) => {
   const label = verb === 'allow' ? 'Allow' : 'Add';
-  return (
+  const queue = (
+    <button
+      type="button"
+      className={BUTTON_CLASS[look].queue}
+      disabled={disabled}
+      onClick={() => onChoose('queue')}
+    >
+      {queued ? 'Waiting for it to finish…' : `${label} when it finishes`}
+    </button>
+  );
+  const stop = (
+    <button
+      type="button"
+      className={BUTTON_CLASS[look].stop}
+      disabled={disabled}
+      onClick={() => onChoose('stop')}
+    >
+      Stop task and {verb}
+    </button>
+  );
+  // Sheets and popovers end on their solid button; the interrupt card leads with it.
+  return look === 'interrupt' ? (
     <>
-      <button
-        type="button"
-        className={BUTTON_CLASS[look].queue}
-        disabled={disabled}
-        onClick={() => onChoose('queue')}
-      >
-        {queued ? 'Waiting for it to finish…' : `${label} when it finishes`}
-      </button>
-      <button
-        type="button"
-        className={BUTTON_CLASS[look].stop}
-        disabled={disabled}
-        onClick={() => onChoose('stop')}
-      >
-        Stop task and {verb}
-      </button>
+      {queue}
+      {stop}
+    </>
+  ) : (
+    <>
+      {stop}
+      {queue}
     </>
   );
 };

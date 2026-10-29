@@ -126,6 +126,20 @@ async function attempt(
 
 const NOTIFY_DEFAULT_TITLE = 'Boundary';
 
+/**
+ * The error a failed notification hands back. macOS reports a missing notification permission
+ * as `UNErrorDomain error 1`, which models misread as a headless environment; say what to do
+ * instead. `appName` is the name System Settings lists: Electron in a dev build.
+ */
+export function notificationFailureMessage(error: string, appName: string): string {
+  if (!/\bUNErrorDomain error 1\b/.test(error)) return error;
+  return (
+    `macOS isn't allowing ${appName} to show notifications. Ask the user to turn on Allow ` +
+    `notifications for ${appName} in System Settings → Notifications, then try again. ` +
+    "Don't retry before they have."
+  );
+}
+
 function parseNotifyArgs(args: Record<string, unknown>): Parsed<{ title: string; body: string }> {
   const extra = unexpected(args, ['title', 'body']);
   if (extra) return { error: extra };

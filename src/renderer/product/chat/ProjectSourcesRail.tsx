@@ -266,6 +266,9 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <CodingBusyWarning agent={allowAgent} verb="allow" look="popover" />
       ) : null}
       <div className="wb-popover-actions">
+        <button type="button" className="wb-btn-ghost" onClick={() => setAllowOpen(false)}>
+          Not now
+        </button>
         {allowAgent?.busy ? (
           <CodingBusyButtons verb="allow" look="popover" onChoose={allowCoding} />
         ) : (
@@ -278,9 +281,6 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             {allowAgent ? 'Allow coding' : 'Checking…'}
           </button>
         )}
-        <button type="button" className="wb-btn-ghost" onClick={() => setAllowOpen(false)}>
-          Not now
-        </button>
       </div>
     </div>
   ) : null;

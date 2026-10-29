@@ -11,9 +11,11 @@ import {
   revealHermesAgentSoul,
   updateHermesAgent,
 } from './hermesAgents';
-import { ensureOrchestratorAgent } from './hermesOrchestrator';
+import { ensureOrchestratorAgent, retryOrchestratorOnGatewayOpen } from './hermesOrchestrator';
 
 export function registerAgentHandlers(): void {
+  retryOrchestratorOnGatewayOpen();
+
   handleResult('hermes-agents:list', async () => {
     void ensureOrchestratorAgent();
     return listHermesAgents();

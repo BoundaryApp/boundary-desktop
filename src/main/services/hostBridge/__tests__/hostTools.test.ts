@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ApprovalOutcome } from '../approvals';
-import { executeHostTool, type HostToolDeps } from '../hostTools';
+import { executeHostTool, notificationFailureMessage, type HostToolDeps } from '../hostTools';
 import { HOST_TOOLS } from '../toolCatalog';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -96,6 +96,12 @@ describe('desktop_notification', () => {
       expect((await executeHostTool('desktop_notification', args, d)).isError).toBeUndefined();
       expect(d.showNotification).toHaveBeenCalledWith('Boundary', 'hi');
     }
+  });
+
+  it('turns the macOS permission error into what to do, and passes other errors through', () => {
+    const denied = notificationFailureMessage('The operation couldn’t be completed. (UNErrorDomain error 1.)', 'Electron');
+    expect(denied).toMatch(/turn on Allow notifications for Electron in System Settings → Notifications/);
+    expect(notificationFailureMessage('UNErrorDomain error 10', 'Boundary')).toBe('UNErrorDomain error 10');
   });
 
   it('rejects bad arguments before asking, and says so when the system does not confirm', async () => {

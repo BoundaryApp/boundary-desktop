@@ -92,6 +92,9 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
       title={`Stop the coding agent working in ${name}?`}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" onClick={onCancel}>
+            Cancel
+          </button>
           {choice === 'delete' ? (
             <button type="button" className="wb-btn-solid" onClick={onReviewDelete}>
               Review folder…
@@ -101,9 +104,6 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
               Remove access
             </button>
           )}
-          <button type="button" className="wb-btn-ghost" onClick={onCancel}>
-            Cancel
-          </button>
           <span className="wb-sheet-note">Restarts the coding agent</span>
         </>
       }

@@ -51,11 +51,13 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-new-project-title"
-      kicker="New project"
       title={`Start a project from ${folder.name}`}
       error={error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -63,9 +65,6 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
             onClick={submit}
           >
             {busy ? 'Creating…' : 'Create project'}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
           </button>
           {canCode && coding ? (
             <span className="wb-sheet-note">Restarts the coding agent</span>

@@ -195,6 +195,9 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
       error={error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -202,9 +205,6 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
             onClick={() => onMove(dest)}
           >
             {busy ? 'Moving…' : `${verb} ${toProject?.name ?? 'No project'}`}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
           </button>
         </>
       }

@@ -214,6 +214,7 @@ export class HermesGatewaySession {
   private credentialRequestNotifier: CredentialRequestNotifier | null = null;
   // This connection's `gateway.capabilities`, asked once per connection ({} when unanswered).
   private capabilities: Promise<Record<string, unknown>> | null = null;
+  private readonly openListeners = new Set<() => void>();
 
   constructor() {
     // Attached once: the client keeps them across every socket it opens.
@@ -235,6 +236,12 @@ export class HermesGatewaySession {
 
   get connectionState(): GatewayConnectionState {
     return this.state;
+  }
+
+  /** Called each time a dial opens a socket, the first one and every redial. Returns an unsubscribe. */
+  onOpen(listener: () => void): () => void {
+    this.openListeners.add(listener);
+    return () => this.openListeners.delete(listener);
   }
 
   setApprovalNotifier(notifier: ApprovalNotifier | null): void {
@@ -282,6 +289,13 @@ export class HermesGatewaySession {
           this.openedAt = Date.now();
           this.capabilities = null;
           void this.replayPendingApprovals(this.sessionsToReplay()).catch((): void => undefined);
+          for (const listener of this.openListeners) {
+            try {
+              listener();
+            } catch (err) {
+              console.warn('[hermesGatewaySession] open listener failed', err);
+            }
+          }
         },
         (err: unknown) => {
           if (this.state === 'disposed') throw err;

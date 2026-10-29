@@ -63,7 +63,6 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-channel-create-title"
-      kicker="New channel · shared transcript"
       title="New channel"
       titleAside={
         <InfoTip label="channels">
@@ -73,6 +72,14 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       error={error}
       actions={
         <>
+          <button
+            type="button"
+            className="wb-btn-ghost"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -86,14 +93,6 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
             }
           >
             Create channel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-ghost"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            Cancel
           </button>
         </>
       }
@@ -190,11 +189,13 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-make-channel-title"
-      kicker="Chat · become a channel"
       title="Make channel"
       error={error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -207,9 +208,6 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
             }
           >
             Make channel
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
           </button>
         </>
       }
@@ -272,13 +270,12 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-add-channel-title"
-      kicker="Membership · explicit add"
       title={`Add ${agent.displayName} to a channel`}
       error={error}
       actions={
         <>
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Back
+            Done
           </button>
         </>
       }
@@ -357,11 +354,13 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-rename-channel-title"
-      kicker="Channel · rename"
       title={`Rename #${channel.slug}`}
       error={error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -369,9 +368,6 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
             onClick={() => onRename({ title: title.trim(), slug: (slug || derivedSlug).trim() })}
           >
             Rename
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
           </button>
         </>
       }
@@ -434,16 +430,15 @@ export const ChannelDeleteSheet: React.FC<ChannelDeleteSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-delete-channel-title"
-      kicker="Channel · delete"
       title={`Delete #${channel.slug}`}
       error={error}
       actions={
         <>
-          <button type="button" className="wb-btn-danger" disabled={busy} onClick={onDelete}>
-            Delete channel
-          </button>
           <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
             Cancel
+          </button>
+          <button type="button" className="wb-btn-danger" disabled={busy} onClick={onDelete}>
+            Delete channel
           </button>
         </>
       }

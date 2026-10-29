@@ -35,11 +35,13 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-empty-project-title"
-      kicker="New project · no folder yet"
       title="Create empty project"
       error={error}
       actions={
         <>
+          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button
             type="button"
             className="wb-btn-solid"
@@ -47,9 +49,6 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
             onClick={submit}
           >
             {busy ? 'Creating…' : 'Create project'}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
           </button>
         </>
       }

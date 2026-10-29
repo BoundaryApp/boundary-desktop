@@ -58,7 +58,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   const ids = useChatIds(cached);
   const lists = useChatLists(cached, ids);
   const { activeThreadId, sameChat } = ids;
-  const { threads, agents, channels, standingDmByAgent, mentions } = lists;
+  const { threads, agents, channels, standingDmByAgent, orchestratorSlug, mentions } = lists;
 
   const activeThread = useMemo(
     () =>
@@ -183,18 +183,21 @@ export const WorkbenchChatScreen: React.FC = () => {
       const at = threads.find((t) => t.kind === 'dm' && t.agentSlug === slug)?.updatedAt;
       return at ? Date.parse(at) : 0;
     };
+    // The Orchestrator shows before its first DM: Boundary made it, so a new install has
+    // an agent to start board work with instead of an empty section.
     return agents
       .filter(
         (a) =>
           a.slug !== BUILTIN_ASSISTANT_SLUG &&
-          (Boolean(standingDmByAgent[a.slug]) ||
+          (a.slug === orchestratorSlug ||
+            Boolean(standingDmByAgent[a.slug]) ||
             threads.some((t) => t.agentSlug === a.slug && t.kind === 'dm'))
       )
       .sort(
         (a, b) =>
           lastActive(b.slug) - lastActive(a.slug) || a.displayName.localeCompare(b.displayName)
       );
-  }, [agents, standingDmByAgent, threads]);
+  }, [agents, standingDmByAgent, orchestratorSlug, threads]);
 
   // The open DM's agent in rooms: the In channels tab and its count.
   const activeAgentMentions = useMemo(
@@ -265,6 +268,7 @@ export const WorkbenchChatScreen: React.FC = () => {
       idAliases: ids.idAliases,
       agents,
       standingDmByAgent,
+      orchestratorSlug,
       channels,
       mentions,
       projects: projects.projects,
@@ -276,6 +280,7 @@ export const WorkbenchChatScreen: React.FC = () => {
     ids.idAliases,
     agents,
     standingDmByAgent,
+    orchestratorSlug,
     channels,
     mentions,
     projects.projects,
