@@ -834,7 +834,9 @@ function ConnectSheet({
               <li key={a.slug}>
                 <span className="wb-cal-agent">
                   <b>{a.displayName}</b>
-                  <span>{a.builtIn ? 'Your main agent' : a.role}</span>
+                  <span title={a.builtIn ? undefined : a.role}>
+                    {a.builtIn ? 'Your main agent' : a.role}
+                  </span>
                 </span>
                 <div className="wb-vault-seg" role="group" aria-label={`${a.displayName} access`}>
                   {ACCESS_LEVELS.map(({ level, label }) => (

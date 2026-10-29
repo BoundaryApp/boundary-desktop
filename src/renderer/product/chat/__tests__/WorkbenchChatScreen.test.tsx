@@ -329,7 +329,8 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.getByRole('button', { name: 'Message an agent' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'New channel' })).toBeTruthy();
     // The built-in agent has chats, not a DM row (ADR 0023).
-    expect(screen.getByText('No agents yet.')).toBeTruthy();
+    expect(screen.getByText(/^No agents yet\./)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Create one' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'All agents…' })).toBeTruthy();
     expect(screen.getByText(/^No channels (in .+\.|yet\.)$/)).toBeTruthy();
 
@@ -621,6 +622,22 @@ describe('WorkbenchChatScreen chrome', () => {
     );
     expect(screen.getByRole('dialog', { name: 'New agent' })).toBeTruthy();
     expect(screen.getByText('The role becomes its standing instructions.')).toBeTruthy();
+  });
+
+  it('ends the Agents roster with Done then New agent, and Done closes it', async () => {
+    await renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'All agents…' }));
+    const roster = screen.getByRole('dialog', { name: 'Agents' });
+    expect(within(roster).queryByText(/fourth app destination/)).toBeNull();
+    expect(within(roster).queryByRole('button', { name: 'Back' })).toBeNull();
+
+    const footer = roster.querySelector('.wb-sheet-actions');
+    expect(
+      Array.from(footer?.querySelectorAll('button') ?? []).map((b) => b.textContent)
+    ).toEqual(['Done', 'New agent']);
+
+    fireEvent.click(within(roster).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Agents' })).toBeNull();
   });
 
   it('shows Starting… while an agent is created, then opens its DM', async () => {
@@ -1082,6 +1099,31 @@ describe('WorkbenchChatScreen chrome', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Message' }));
       await waitFor(() => expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'ana', projectId: 'p1' }));
       expect(createHermesChat).not.toHaveBeenCalled();
+    });
+
+    it('lists the Orchestrator under Direct messages before its first DM, and opens one on click', async () => {
+      const orchestrator = { ...ana, slug: 'orchestrator', displayName: 'Orchestrator', handle: 'orchestrator' };
+      openAgentDm.mockResolvedValue({
+        success: true,
+        created: true,
+        thread: { id: 't-orch', title: 'DM · Orchestrator', agentSlug: 'orchestrator', kind: 'dm' },
+      });
+      listAgents.mockResolvedValue({
+        success: true,
+        agents: [hermes, ana, orchestrator],
+        standingDmByAgent: {},
+        orchestratorSlug: 'orchestrator',
+      });
+      listThreads.mockResolvedValue({ success: true, threads: [] });
+      await renderScreen();
+      const row = await screen.findByRole('button', { name: /^Orchestrator/ });
+      expect(screen.queryByText('No agents yet.')).toBeNull();
+      // Other agents still wait for a DM before they get a row.
+      expect(screen.queryByRole('button', { name: /^Ana/ })).toBeNull();
+      fireEvent.click(row);
+      await waitFor(() =>
+        expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'orchestrator', projectId: 'p1' })
+      );
     });
 
     it('opens All chats in the project from the Hermes section, and the top row resets it', async () => {

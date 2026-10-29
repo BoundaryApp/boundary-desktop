@@ -28,6 +28,7 @@ import { getHermesGatewaySession } from './hermesGatewaySession';
 import {
   getSessionAgentSlug,
   getSessionChannelId,
+  getOrchestratorRecord,
   getStandingDmMap,
   getStandingDmSessionId,
   getStoredAgent,
@@ -143,6 +144,7 @@ export function listHermesAgents(): HermesAgentsListResult {
       success: true,
       agents: mergeAgents(),
       standingDmByAgent: getStandingDmMap(),
+      orchestratorSlug: getOrchestratorRecord()?.slug ?? null,
     };
   } catch (err) {
     return {

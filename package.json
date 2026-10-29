@@ -1,7 +1,7 @@
 {
   "name": "boundary-desktop",
   "productName": "Boundary",
-  "version": "0.0.1-rc.4",
+  "version": "0.0.1-rc.5",
   "description": "Boundary",
   "main": ".vite/build/index.js",
   "type": "module",

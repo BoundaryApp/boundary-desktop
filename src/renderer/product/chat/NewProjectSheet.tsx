@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { CodingFolderInspect } from '../../../shared/types/codingFolders';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { displayHostPath } from './chatTelemetryFormat';
 
 /**
@@ -51,26 +51,20 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-new-project-title"
-      kicker="New project"
       title={`Start a project from ${folder.name}`}
       error={error}
       actions={
-        <>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !name.trim()}
-            onClick={submit}
-          >
-            {busy ? 'Creating…' : 'Create project'}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel={busy ? 'Creating…' : 'Create project'}
+          confirmDisabled={!name.trim()}
+          onConfirm={submit}
+        >
           {canCode && coding ? (
             <span className="wb-sheet-note">Restarts the coding agent</span>
           ) : null}
-        </>
+        </SheetConfirmActions>
       }
     >
       <label className="wb-field">

@@ -243,6 +243,9 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="sheet" /> : null}
       {error ? <p className="wb-sheet-error">{error}</p> : null}
       <div className="wb-sheet-actions">
+        <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onBack}>
+          Back
+        </button>
         {agent?.busy ? (
           <CodingBusyButtons
             verb="add"
@@ -259,9 +262,6 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
             {busy ? 'Creating…' : access === 'code' ? 'Create and add' : 'Create as reference'}
           </button>
         )}
-        <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onBack}>
-          Back
-        </button>
         {access === 'code' ? (
           <span className="wb-sheet-note">Restarts the coding agent</span>
         ) : null}

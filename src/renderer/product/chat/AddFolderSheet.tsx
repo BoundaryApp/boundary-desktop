@@ -139,15 +139,7 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           <div className="wb-sheet-actions">
             <button
               type="button"
-              className="wb-btn-solid"
-              disabled={picking}
-              onClick={() => void pick()}
-            >
-              {picking ? 'Choosing…' : 'Choose folder…'}
-            </button>
-            <button
-              type="button"
-              className="wb-btn-ghost"
+              className="wb-btn-ghost is-start"
               disabled={picking}
               onClick={() => setStep('new')}
             >
@@ -155,6 +147,14 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
             </button>
             <button type="button" className="wb-btn-ghost" disabled={picking} onClick={onCancel}>
               Cancel
+            </button>
+            <button
+              type="button"
+              className="wb-btn-solid"
+              disabled={picking}
+              onClick={() => void pick()}
+            >
+              {picking ? 'Choosing…' : 'Choose folder…'}
             </button>
           </div>
         </>
@@ -227,6 +227,14 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           </div>
           {error ? <p className="wb-sheet-error">{error}</p> : null}
           <div className="wb-sheet-actions">
+            <button
+              type="button"
+              className="wb-btn-ghost"
+              disabled={busy}
+              onClick={() => setStep('pick')}
+            >
+              Back
+            </button>
             {access === 'code' ? (
               <button type="button" className="wb-btn-solid" onClick={() => setStep('confirm')}>
                 Continue
@@ -241,14 +249,6 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
                 {busy ? 'Adding…' : 'Add as reference'}
               </button>
             )}
-            <button
-              type="button"
-              className="wb-btn-ghost"
-              disabled={busy}
-              onClick={() => setStep('pick')}
-            >
-              Back
-            </button>
           </div>
         </>
       ) : null}
@@ -279,6 +279,9 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           </div>
           {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="sheet" /> : null}
           <div className="wb-sheet-actions">
+            <button type="button" className="wb-btn-ghost" onClick={() => setStep('access')}>
+              Back
+            </button>
             {agent?.busy ? (
               <CodingBusyButtons
                 verb="add"
@@ -295,9 +298,6 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
                 {agent ? 'Give coding access' : 'Checking…'}
               </button>
             )}
-            <button type="button" className="wb-btn-ghost" onClick={() => setStep('access')}>
-              Back
-            </button>
             <span className="wb-sheet-note">Restarts the coding agent, about 10 seconds</span>
           </div>
         </>

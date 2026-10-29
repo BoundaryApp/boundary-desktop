@@ -66,6 +66,9 @@ export function useChatLists(
   const [standingDmByAgent, setStandingDmByAgent] = useState<Record<string, string | null>>(
     cached?.standingDmByAgent ?? {}
   );
+  const [orchestratorSlug, setOrchestratorSlug] = useState<string | null>(
+    cached?.orchestratorSlug ?? null
+  );
   const [channels, setChannels] = useState<ChannelRecord[]>(cached?.channels ?? []);
   const [mentions, setMentions] = useState<HermesMentionRecord[]>(cached?.mentions ?? []);
   const [mentionsLoading, setMentionsLoading] = useState(false);
@@ -77,6 +80,7 @@ export function useChatLists(
     if (!result.success) return;
     setAgents(keepIfEqual(result.agents));
     setStandingDmByAgent(keepIfEqual(result.standingDmByAgent));
+    setOrchestratorSlug(result.orchestratorSlug ?? null);
   }, []);
 
   const applyThreads = useCallback(
@@ -217,6 +221,7 @@ export function useChatLists(
     agents,
     standingDmByAgent,
     setStandingDmByAgent,
+    orchestratorSlug,
     channels,
     setChannels,
     mentions,

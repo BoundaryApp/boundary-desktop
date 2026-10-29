@@ -18,6 +18,7 @@ export interface ChatScreenSnapshot {
   idAliases: Record<string, string>;
   agents: AgentProfile[];
   standingDmByAgent: Record<string, string | null>;
+  orchestratorSlug: string | null;
   channels: ChannelRecord[];
   mentions: HermesMentionRecord[];
   projects: HermesProjectRecord[];

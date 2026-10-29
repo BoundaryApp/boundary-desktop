@@ -387,6 +387,8 @@ export interface HermesAgentsListResult {
   agents: AgentProfile[];
   /** Standing DM session id per agent slug (may be null if none yet). */
   standingDmByAgent: Record<string, string | null>;
+  /** The Orchestrator's slug once Boundary has created or adopted it, so the rail can show it before its first DM. */
+  orchestratorSlug?: string | null;
   error?: string;
 }
 

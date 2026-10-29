@@ -85,6 +85,19 @@ export function ensureOrchestratorAgent(): Promise<void> {
   return inflight;
 }
 
+/**
+ * Try the setup again each time the gateway opens, without waiting out the backoff. On a
+ * fresh install the first agent list often comes before the stack is up, and the list isn't
+ * asked for again until a chat changes, so a failed first try could otherwise stay failed.
+ * Chat-list polling dials the gateway, so this runs soon after the stack comes up.
+ */
+export function retryOrchestratorOnGatewayOpen(): () => void {
+  return getHermesGatewaySession().onOpen(() => {
+    nextAttemptAt = 0;
+    void ensureOrchestratorAgent();
+  });
+}
+
 /** True once the agent exists and its profile has kanban. */
 async function provision(): Promise<boolean> {
   const record = getOrchestratorRecord();

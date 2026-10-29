@@ -118,6 +118,34 @@ describe('connection owner (G06-6, new-C-2)', () => {
     expect(gw.connectionState).toBe('open');
   });
 
+  it('tells open listeners about the first socket and each redial, until they unsubscribe', async () => {
+    const gw = newSession();
+    const opened = vi.fn();
+    const unsubscribe = gw.onOpen(opened);
+    await gw.ensureConnected();
+    expect(opened).toHaveBeenCalledTimes(1);
+
+    FakeWS.latest.close();
+    await tick(40);
+    expect(gw.connectionState).toBe('open');
+    expect(opened).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    FakeWS.latest.close();
+    await tick(40);
+    expect(opened).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens even when an open listener throws', async () => {
+    const gw = newSession();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    gw.onOpen(() => {
+      throw new Error('listener broke');
+    });
+    await gw.ensureConnected();
+    expect(gw.connectionState).toBe('open');
+  });
+
   it('does not redial after dispose', async () => {
     const gw = newSession();
     await gw.ensureConnected();

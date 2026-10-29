@@ -4,7 +4,7 @@ import {
   type AgentProfile,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
 
@@ -73,7 +73,6 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       onClose={onCancel}
       busy={busy}
       titleId="wb-agent-create-title"
-      kicker={editing ? 'Edit · name + role' : 'Create · name + role'}
       title={editing ? 'Edit agent' : 'New agent'}
       titleAside={
         editing ? null : (
@@ -85,30 +84,19 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       }
       error={error}
       actions={
-        <>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !displayName.trim() || !role.trim()}
-            onClick={() =>
-              onCreate({
-                displayName: displayName.trim(),
-                handle: (handle || derivedHandle).trim(),
-                role: role.trim(),
-              })
-            }
-          >
-            {editing ? 'Save' : 'Create agent'}
-          </button>
-          <button
-            type="button"
-            className="wb-btn-ghost"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel={editing ? 'Save' : 'Create agent'}
+          confirmDisabled={!displayName.trim() || !role.trim()}
+          onConfirm={() =>
+            onCreate({
+              displayName: displayName.trim(),
+              handle: (handle || derivedHandle).trim(),
+              role: role.trim(),
+            })
+          }
+        />
       }
     >
       {editing ? (
@@ -193,9 +181,6 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
       onClose={onClose}
       titleId="wb-roster-title"
       className="wb-sheet-wide"
-      kicker={
-        messaging ? 'Direct message · one ongoing thread each' : 'Inside Chat · not a fourth app destination'
-      }
       title={messaging ? 'Message an agent' : 'Agents'}
       titleAside={
         <InfoTip label={messaging ? 'direct messages' : 'agents'}>
@@ -204,18 +189,20 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
             : `${hermesName} is the built-in agent you chat with any time. The others are people you DM or @ in a channel, each with private memory and a role. Past chats live in All chats.`}
         </InfoTip>
       }
+      actions={
+        <>
+          <button type="button" className="wb-btn-ghost" onClick={onClose}>
+            Done
+          </button>
+          <button type="button" className="wb-btn-solid" onClick={onNewAgent}>
+            New agent
+          </button>
+        </>
+      }
     >
       {messaging ? (
         <p className="wb-sheet-lede">Each agent keeps one ongoing thread with you.</p>
       ) : null}
-      <div className="wb-sheet-actions" style={{ marginBottom: 16 }}>
-        <button type="button" className="wb-btn-solid" onClick={onNewAgent}>
-          New agent
-        </button>
-        <button type="button" className="wb-btn-ghost" onClick={onClose}>
-          Back
-        </button>
-      </div>
       {listed.length === 0 ? (
         <p className="wb-sheet-help">No agents yet. Create one to start a DM.</p>
       ) : (
@@ -225,7 +212,9 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
               <AgentMark agent={agent} />
               <span className="wb-agent-copy">
                 <b title={agent.displayName}>{agent.displayName}</b>
-                <span>{agent.role}</span>
+                <span className="role" title={agent.role}>
+                  {agent.role}
+                </span>
                 <span className="handle mono">
                   {agent.builtIn ? 'built-in' : `@${agent.handle}`}
                 </span>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentProfile,
   ChannelRecord,
@@ -199,7 +199,7 @@ function RoomPane({
       </div>
       <div className="wb-src-hed">
         <span>
-          Members · read later
+          Members
           <InfoTip label="room members">
             Members read the room’s posts later. @ someone to ask them to answer now.
           </InfoTip>
@@ -273,6 +273,9 @@ function RoomPane({
   );
 }
 
+/** Lines of role shown before "Show more" in the Agent tab. */
+const ROLE_LINES = 4;
+
 function AgentPane({
   agent,
   onAddToChannel,
@@ -282,16 +285,16 @@ function AgentPane({
   onAddToChannel: () => void;
   onEdit?: () => void;
 }) {
-  const [excerpt, setExcerpt] = useState<string | null>(null);
   const [canOpen, setCanOpen] = useState(false);
+  const roleRef = useRef<HTMLParagraphElement>(null);
+  const [roleLong, setRoleLong] = useState(false);
+  const [roleOpen, setRoleOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setExcerpt(null);
     setCanOpen(false);
     void window.electronAPI.agents.getSoul({ slug: agent.slug }).then((result) => {
       if (cancelled || !result.success) return;
-      setExcerpt(result.excerpt ?? null);
       setCanOpen(Boolean(result.canOpen));
     });
     return () => {
@@ -299,6 +302,23 @@ function AgentPane({
     };
     // An edit rewrites the soul, so a new name or role reloads it.
   }, [agent.slug, agent.displayName, agent.role]);
+
+  useLayoutEffect(() => setRoleOpen(false), [agent.slug]);
+
+  // The role is the agent's standing instructions and can run to paragraphs.
+  useLayoutEffect(() => {
+    const body = roleRef.current;
+    if (!body) return undefined;
+    const measure = () => {
+      const line = parseFloat(getComputedStyle(body).lineHeight) || 20;
+      setRoleLong(body.scrollHeight > line * ROLE_LINES + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [agent.role]);
 
   return (
     <div className="wb-insp-pane">
@@ -313,14 +333,20 @@ function AgentPane({
       </div>
       <div className="wb-insp-soul">
         <div className="kicker">Role</div>
-        <p>{agent.role}</p>
+        <p ref={roleRef} className={roleLong && !roleOpen ? 'is-clamped' : undefined}>
+          {agent.role}
+        </p>
+        {roleLong ? (
+          <button
+            type="button"
+            className="wb-show-more"
+            aria-expanded={roleOpen}
+            onClick={() => setRoleOpen((v) => !v)}
+          >
+            {roleOpen ? 'Show less' : 'Show more'}
+          </button>
+        ) : null}
       </div>
-      {excerpt ? (
-        <div className="wb-insp-soul prose">
-          <div className="kicker">Soul</div>
-          <p>{excerpt}</p>
-        </div>
-      ) : null}
       <p className="wb-insp-note">Private memory. Shared folder only when a project is bound.</p>
       <div className="wb-insp-actions">
         <button type="button" className="wb-btn-tiny" onClick={onAddToChannel}>

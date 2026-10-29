@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { CodingDeleteInspect } from '../../../shared/types/codingFolders';
 import { formatBytes } from '../../../shared/utils/format';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { displayHostPath } from './chatTelemetryFormat';
 import { runCodingChange } from './codingFoldersStore';
@@ -123,20 +123,16 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
       title={`Move ${name} to the Trash?`}
       error={trash.error}
       actions={
-        <>
-          <button
-            type="button"
-            className="wb-btn-danger"
-            disabled={!canDelete}
-            onClick={() => void moveToTrash()}
-          >
-            {deleting ? 'Moving to the Trash…' : 'Move to Trash'}
-          </button>
-          <button type="button" className="wb-btn-ghost" disabled={deleting} onClick={onClose}>
-            Cancel
-          </button>
+        <SheetConfirmActions
+          busy={deleting}
+          onCancel={onClose}
+          confirmLabel={deleting ? 'Moving to the Trash…' : 'Move to Trash'}
+          confirmDisabled={!canDelete}
+          tone="danger"
+          onConfirm={() => void moveToTrash()}
+        >
           <span className="wb-sheet-note">Restarts the coding agent</span>
-        </>
+        </SheetConfirmActions>
       }
     >
       {!facts ? <p className="wb-sheet-help">Reading what’s in the folder…</p> : null}
