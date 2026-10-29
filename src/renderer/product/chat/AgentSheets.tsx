@@ -4,7 +4,7 @@ import {
   type AgentProfile,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
 
@@ -84,30 +84,19 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       }
       error={error}
       actions={
-        <>
-          <button
-            type="button"
-            className="wb-btn-ghost"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !displayName.trim() || !role.trim()}
-            onClick={() =>
-              onCreate({
-                displayName: displayName.trim(),
-                handle: (handle || derivedHandle).trim(),
-                role: role.trim(),
-              })
-            }
-          >
-            {editing ? 'Save' : 'Create agent'}
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel={editing ? 'Save' : 'Create agent'}
+          confirmDisabled={!displayName.trim() || !role.trim()}
+          onConfirm={() =>
+            onCreate({
+              displayName: displayName.trim(),
+              handle: (handle || derivedHandle).trim(),
+              role: role.trim(),
+            })
+          }
+        />
       }
     >
       {editing ? (

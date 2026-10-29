@@ -6,7 +6,7 @@ import {
   type ChannelRecord,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { InfoTip } from '../../components/ui/info-tip';
 
 interface ChannelCreateSheetProps {
@@ -71,30 +71,19 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       }
       error={error}
       actions={
-        <>
-          <button
-            type="button"
-            className="wb-btn-ghost"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !title.trim()}
-            onClick={() =>
-              onCreate({
-                title: title.trim(),
-                slug: (slug || derivedSlug).trim(),
-                memberSlugs,
-              })
-            }
-          >
-            Create channel
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel="Create channel"
+          confirmDisabled={!title.trim()}
+          onConfirm={() =>
+            onCreate({
+              title: title.trim(),
+              slug: (slug || derivedSlug).trim(),
+              memberSlugs,
+            })
+          }
+        />
       }
     >
       <p className="wb-sheet-lede">
@@ -192,24 +181,18 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
       title="Make channel"
       error={error}
       actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !title.trim()}
-            onClick={() =>
-              onCreate({
-                title: title.trim(),
-                slug: (slug || derivedSlug).trim(),
-              })
-            }
-          >
-            Make channel
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel="Make channel"
+          confirmDisabled={!title.trim()}
+          onConfirm={() =>
+            onCreate({
+              title: title.trim(),
+              slug: (slug || derivedSlug).trim(),
+            })
+          }
+        />
       }
     >
       <p className="wb-sheet-lede">
@@ -357,19 +340,13 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
       title={`Rename #${channel.slug}`}
       error={error}
       actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !title.trim()}
-            onClick={() => onRename({ title: title.trim(), slug: (slug || derivedSlug).trim() })}
-          >
-            Rename
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel="Rename"
+          confirmDisabled={!title.trim()}
+          onConfirm={() => onRename({ title: title.trim(), slug: (slug || derivedSlug).trim() })}
+        />
       }
     >
       <p className="wb-sheet-lede">Members and the transcript stay as they are.</p>
@@ -433,14 +410,13 @@ export const ChannelDeleteSheet: React.FC<ChannelDeleteSheetProps> = ({
       title={`Delete #${channel.slug}`}
       error={error}
       actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="wb-btn-danger" disabled={busy} onClick={onDelete}>
-            Delete channel
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel="Delete channel"
+          tone="danger"
+          onConfirm={onDelete}
+        />
       }
     >
       <p className="wb-sheet-lede">

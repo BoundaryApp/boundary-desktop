@@ -4,7 +4,7 @@ import type {
   SessionInferenceOverride,
 } from '../../../shared/types/hermesChat';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { displayHostPath } from './chatTelemetryFormat';
 import { ProjectGlyph } from './ProjectGlyph';
 import { effectiveInference, moveEffects, type MoveEffect } from './projectMove';
@@ -194,19 +194,13 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
       title={target.isDm ? `Where ${agentName} works` : `Move ${target.label}`}
       error={error}
       actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || unchanged}
-            onClick={() => onMove(dest)}
-          >
-            {busy ? 'Moving…' : `${verb} ${toProject?.name ?? 'No project'}`}
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel={busy ? 'Moving…' : `${verb} ${toProject?.name ?? 'No project'}`}
+          confirmDisabled={unchanged}
+          onConfirm={() => onMove(dest)}
+        />
       }
     >
       <div className="wb-move-list" role="radiogroup" aria-label="Destination">

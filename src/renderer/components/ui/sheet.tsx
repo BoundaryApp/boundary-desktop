@@ -99,5 +99,50 @@ function Sheet({
   )
 }
 
-export { Sheet }
+interface SheetConfirmActionsProps {
+  /** Disables both buttons while the action runs. */
+  busy?: boolean
+  onCancel: () => void
+  cancelLabel?: React.ReactNode
+  /** The confirm button's text, including its busy wording ("Creating…"). */
+  confirmLabel: React.ReactNode
+  onConfirm: () => void
+  /** Also disables the confirm button, e.g. while a required field is empty. */
+  confirmDisabled?: boolean
+  /** `danger` for an action that removes something. */
+  tone?: "solid" | "danger"
+  /** After the buttons, e.g. a `wb-sheet-note`. */
+  children?: React.ReactNode
+}
+
+/** A sheet's Cancel and confirm buttons, for its `actions`. */
+function SheetConfirmActions({
+  busy = false,
+  onCancel,
+  cancelLabel = "Cancel",
+  confirmLabel,
+  onConfirm,
+  confirmDisabled = false,
+  tone = "solid",
+  children,
+}: SheetConfirmActionsProps) {
+  return (
+    <>
+      <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+        {cancelLabel}
+      </button>
+      <button
+        type="button"
+        className={tone === "danger" ? "wb-btn-danger" : "wb-btn-solid"}
+        disabled={busy || confirmDisabled}
+        onClick={onConfirm}
+      >
+        {confirmLabel}
+      </button>
+      {children}
+    </>
+  )
+}
+
+export { Sheet, SheetConfirmActions }
 export type { SheetProps }

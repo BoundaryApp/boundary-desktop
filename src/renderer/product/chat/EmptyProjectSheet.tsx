@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Sheet } from '../../components/ui/sheet';
+import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 
 interface EmptyProjectSheetProps {
   open: boolean;
@@ -38,19 +38,13 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
       title="Create empty project"
       error={error}
       actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="wb-btn-solid"
-            disabled={busy || !name.trim()}
-            onClick={submit}
-          >
-            {busy ? 'Creating…' : 'Create project'}
-          </button>
-        </>
+        <SheetConfirmActions
+          busy={busy}
+          onCancel={onCancel}
+          confirmLabel={busy ? 'Creating…' : 'Create project'}
+          confirmDisabled={!name.trim()}
+          onConfirm={submit}
+        />
       }
     >
       <p className="wb-sheet-lede">
