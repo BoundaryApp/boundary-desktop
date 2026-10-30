@@ -763,6 +763,36 @@ describe('startHermesChatStream inference gate', () => {
     expect(submitPrompt).not.toHaveBeenCalled();
   });
 
+  it('returns a privacy refusal for every kind of send without submitting a prompt', async () => {
+    const refusal = {
+      ok: false,
+      error: 'This project is private and this chat’s model isn’t, so your message wasn’t sent.',
+      errorCode: 'private-refused',
+    };
+    ensureResolvedInferenceReady.mockResolvedValueOnce(refusal).mockResolvedValueOnce(refusal);
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    const { startHermesChatStream } = await import('../hermesChatSessions');
+    const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+
+    const send = await startHermesChatStream(sender as never, {
+      requestId: 'req-private',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+    const resumed = await startHermesChatStream(sender as never, {
+      requestId: 'req-private-continue',
+      sessionId: 'sess-1',
+      messages: [],
+      continue: true,
+    });
+
+    expect(send).toMatchObject({ success: false, errorCode: 'private-refused' });
+    expect(resumed).toMatchObject({ success: false, errorCode: 'private-refused' });
+    expect(submitPrompt).not.toHaveBeenCalled();
+  });
+
   it("sets a new chat's inference from its first send before the gate resolves it", async () => {
     createSessionWithSeed.mockResolvedValue('sess-new');
     const order: string[] = [];

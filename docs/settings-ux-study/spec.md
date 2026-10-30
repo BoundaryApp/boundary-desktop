@@ -41,7 +41,7 @@ A user changes a setting from the place it has an effect and sees the effect wit
 | App default, fallbacks | General | Models: stack order | — |
 | Chat override | Composer chip | Composer chip, now listing the whole stack in order | Models › Exceptions |
 | Project pin | Project inspector | Project inspector, same list | Models › Exceptions |
-| Privacy lock | Disabled row in inspector | Working switch in the inspector | Models › Exceptions |
+| Privacy lock | Working switch in the inspector | Working switch in the inspector | Models › Exceptions |
 | Share my model | Inside the Local card | Local entry details and Circles | Settings search |
 | Trusted, Private per person | Circles | Shared entry details and Circles | — |
 | Calendars | Settings tab | Services card, sheet over chat from the setup offer | Settings search |
@@ -96,7 +96,6 @@ Confirm each against source when its phase starts, as the stack contract require
 - **ADR 0033 needs amending** for type stacks: the resolve order becomes chat → project → request type → Chat stack. Context sizing (§8) has to apply per stack, and Hermes sees only the Chat stack.
 - **Two models from one source.** `ChainEditor` offers each slot's saved model only, though entries can carry a `modelId`. The add sheet needs the slot's model list, plus context lengths for models not yet selected.
 - **Image support isn't known** for most models. Phase 5 needs a source, or the check stays out.
-- **The privacy lock's enforcement needs checking end to end.** `privacyLocalOnly` is stored on the project and the inspector row is disabled.
 - **Untrusted providers.** ADR 0034 §3 describes approvals per tool call; the code skips the entry until change request 0015 lands. The prototype follows the code.
 
 ## Phases

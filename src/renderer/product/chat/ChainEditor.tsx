@@ -67,6 +67,27 @@ export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext
   };
 }
 
+/** Local is private; a shared model is when its provider is marked private (ADR 0033 §4). */
+function entryIsPrivate(entry: InferenceChainEntry, ctx: ChainContext): boolean {
+  if (entry.slot === 'local') return true;
+  return entry.slot === 'peer' && ctx.circles.providers[entry.peer?.providerId ?? '']?.private === true;
+}
+
+/** The fallbacks' views; in a private project the chain stops at its first entry that isn't private. */
+function chainViews(
+  primary: InferenceChainEntry | null,
+  fallbacks: InferenceChainEntry[],
+  ctx: ChainContext,
+  privacyLocked: boolean
+): ChainEntryView[] {
+  let cut = privacyLocked && primary !== null && !entryIsPrivate(primary, ctx);
+  return fallbacks.map((entry) => {
+    const view = describeChainEntry(entry, ctx);
+    cut ||= privacyLocked && !entryIsPrivate(entry, ctx);
+    return cut ? { ...view, detail: 'Not used: this project is private.', skipped: true } : view;
+  });
+}
+
 /** Entries the user could add: the other connected provider, and models members share. */
 export function chainCandidates(
   primary: InferenceChainEntry | null,
@@ -111,13 +132,23 @@ export interface ChainEditorProps {
   fallbacks: InferenceChainEntry[];
   ctx: ChainContext;
   disabled?: boolean;
+  /** The chain belongs to a private project, so the lock cuts it (ADR 0033 §4). */
+  privacyLocked?: boolean;
   /** Said under an empty list: what happens when the first entry doesn't answer. */
   emptyNote: string;
   onChange: (next: InferenceChainEntry[]) => void;
 }
 
-export const ChainEditor: React.FC<ChainEditorProps> = ({ primary, fallbacks, ctx, disabled = false, emptyNote, onChange }) => {
-  const views = fallbacks.map((entry) => describeChainEntry(entry, ctx));
+export const ChainEditor: React.FC<ChainEditorProps> = ({
+  primary,
+  fallbacks,
+  ctx,
+  disabled = false,
+  privacyLocked = false,
+  emptyNote,
+  onChange,
+}) => {
+  const views = chainViews(primary, fallbacks, ctx, privacyLocked);
   const candidates = chainCandidates(primary, fallbacks, ctx).filter(
     (candidate) => candidate.entry.slot === 'peer' || isVisibleChatProvider(candidate.entry.slot)
   );

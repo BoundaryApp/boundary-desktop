@@ -360,6 +360,27 @@ describe('createHermesChatModelAdapter', () => {
     expect(isOwnedRunningTurn('req-post')).toBe(false);
   });
 
+  it('hands a privacy refusal to the chat instead of throwing', async () => {
+    const onPrivateRefused = vi.fn();
+    useRequestId('req-private');
+    startChat.mockResolvedValue({
+      success: false,
+      requestId: 'req-private',
+      sessionId: 's1',
+      errorCode: 'private-refused',
+      error: 'This project is private and this chat’s model isn’t, so your message wasn’t sent.',
+    });
+    const adapter = createHermesChatModelAdapter(() => 's1', { onPrivateRefused });
+    const gen = adapter.run({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
+      abortSignal: new AbortController().signal,
+      context: {} as never,
+      unstable_getMessage: (() => undefined) as never,
+    });
+    await expect(gen.next()).resolves.toMatchObject({ done: true });
+    expect(onPrivateRefused).toHaveBeenCalled();
+  });
+
   it('does not throw a generic error when start reports local-unreachable', async () => {
     const onLocalUnreachable = vi.fn();
     useRequestId('req-offline');

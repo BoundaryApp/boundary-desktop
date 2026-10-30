@@ -121,6 +121,8 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
       : resolved?.provenance === 'chat-override'
         ? 'tried next in this chat'
         : `tried next · ${formatInferenceProvenance(resolved!.provenance)}`;
+  const privacyLocked = resolved?.privacyLocked === true;
+  const privacyRefused = resolved?.privacyRefused === true;
 
   // A chat that inherits gets its own override: levels are not merged (ADR 0033 §1).
   const toggleFallback = async () => {
@@ -163,7 +165,9 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   const title = resolved?.configured
     ? formatInferenceChipTitle(resolved.slot, resolved.modelId)
     : 'No provider';
-  const provenance = resolved
+  const provenance = privacyRefused
+    ? 'not private, can’t send'
+    : resolved
     ? formatInferenceProvenance(resolved.provenance, {
         applying,
         unreachable: resolved.slot === 'local' && resolved.health === 'unreachable',
@@ -172,7 +176,8 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   // The app default is the expected state, so the chip names only a chat or project
   // override, a restart, or a local server that stopped answering.
   const note =
-    resolved && (applying || resolved.provenance !== 'app-default' || provenance === 'unreachable')
+    resolved &&
+    (applying || privacyRefused || resolved.provenance !== 'app-default' || provenance === 'unreachable')
       ? provenance
       : null;
 
@@ -212,8 +217,10 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
           <div className="wb-inf-kicker">This chat</div>
           {options.map((option) => {
             const selected = resolved?.slot === option.slot;
-            const detail =
-              selected && resolved.provenance === 'chat-override'
+            const blocked = privacyLocked && option.slot !== 'local';
+            const detail = blocked
+              ? 'not private'
+              : selected && resolved.provenance === 'chat-override'
                 ? 'overridden for this chat'
                 : selected && resolved.provenance === 'project-default'
                   ? 'from project default'
@@ -229,6 +236,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
                 role="option"
                 aria-selected={selected}
                 className={`wb-inf-opt${selected ? ' is-on' : ''}`}
+                disabled={blocked}
                 onClick={() => void pick(option.slot, option.modelId)}
               >
                 {option.label}
@@ -243,7 +251,8 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
                 slot={fallbackSlot}
                 modelId={fallbackStatus?.modelId}
                 on={fallbackOn}
-                detail={fallbackDetail}
+                disabled={privacyLocked}
+                detail={privacyLocked ? 'not used · this project is private' : fallbackDetail}
                 onToggle={() => void toggleFallback()}
               />
             </>

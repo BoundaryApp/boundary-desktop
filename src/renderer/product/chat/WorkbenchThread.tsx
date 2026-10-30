@@ -421,6 +421,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       credential: Boolean(credentialRequest),
       approval: Boolean(approval),
       offline: offlinePrompt,
+      private: inference.privateRefused,
     })
   );
 
@@ -773,6 +774,27 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 </div>
               </div>
             ) : null}
+            {inference.privateRefused ? (
+              <div className="wb-offline-prompt" role="alert">
+                <p>
+                  This project is private and this chat’s model isn’t, so nothing can be sent.{' '}
+                  {inference.localModelId
+                    ? 'Use your local model here, or pin one for the project.'
+                    : 'Connect a local model in Settings, mark a shared model’s provider Private in Circles, or turn off Private for the project.'}
+                </p>
+                {inference.localModelId ? (
+                  <div className="wb-offline-actions">
+                    <button
+                      type="button"
+                      className="wb-btn is-solid"
+                      onClick={() => void inference.sendViaLocal()}
+                    >
+                      Send with {formatInferenceChipTitle('local', inference.localModelId)}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="wb-input-box">
               <ComposerPrimitive.Input
                 ref={inputRef as never}
@@ -839,7 +861,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 applying={phase === 'restarting'}
                 projectInferenceKey={
                   activeProject
-                    ? `${activeProject.id}:${activeProject.inference?.mode ?? 'inherit'}:${activeProject.inference?.modelId ?? ''}`
+                    ? `${activeProject.id}:${activeProject.inference?.mode ?? 'inherit'}:${activeProject.inference?.modelId ?? ''}:${activeProject.inference?.privacyLocalOnly === true}`
                     : null
                 }
                 refreshKey={inference.refreshKey}

@@ -8,8 +8,9 @@ import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/infere
 import { useInferenceSendHandlers } from './HermesChatRuntimeProvider';
 
 /**
- * The chat's inference as the chip resolves it, the switch marks, and the offline prompt
- * shown when a send finds the local model unreachable (retry it, or send via OpenRouter).
+ * The chat's inference as the chip resolves it, the switch marks, the offline prompt shown when
+ * a send finds the local model unreachable (retry it, or send via OpenRouter), and the prompt
+ * shown while a private project's chat has no private model to send to.
  */
 export function useChatInference({
   sessionId,
@@ -27,8 +28,16 @@ export function useChatInference({
   // Bumped after the offline prompt changes main's state, so the chip re-resolves.
   const [refreshKey, setRefreshKey] = useState(0);
   const [applyError, setApplyError] = useState<string | null>(null);
-  const openRouterSlot = useInferenceStatus().status?.slots.openrouter;
-  const openRouterConfigured = Boolean(openRouterSlot?.configured && openRouterSlot.modelId);
+  // Main refused a send the last answer allowed, or a chat with no chip to answer.
+  const [refusedSend, setRefusedSend] = useState(false);
+  const slots = useInferenceStatus().status?.slots;
+  const openRouterSlot = slots?.openrouter;
+  const privacyLocked = resolvedInference?.privacyLocked === true;
+  // A private project never offers the cloud (ADR 0033 §4); main refuses it anyway.
+  const openRouterConfigured =
+    !privacyLocked && Boolean(openRouterSlot?.configured && openRouterSlot.modelId);
+  const localSlot = slots?.local;
+  const localModelId = localSlot?.configured ? (localSlot.modelId ?? null) : null;
   // Send via OpenRouter before the chat has a session: its first send carries the choice.
   const newChatInferenceRef = useRef<SessionInferenceOverride | null>(null);
 
@@ -41,6 +50,10 @@ export function useChatInference({
       setApplyError(error);
       setOfflinePrompt(false);
     },
+    onPrivateRefused: () => {
+      setRefusedSend(true);
+      setRefreshKey((n) => n + 1);
+    },
     takeNewChatInference: () => {
       const inference = newChatInferenceRef.current;
       newChatInferenceRef.current = null;
@@ -52,6 +65,11 @@ export function useChatInference({
   useEffect(() => {
     if (resolvedInference?.slot !== 'local') setOfflinePrompt(false);
   }, [resolvedInference]);
+
+  useEffect(() => {
+    if (resolvedInference && !resolvedInference.privacyRefused) setRefusedSend(false);
+  }, [resolvedInference]);
+  useEffect(() => setRefusedSend(false), [sessionId]);
 
   /** False, and the prompt shows, when the chat's local model is known to be unreachable. */
   const checkReachable = useCallback((): boolean => {
@@ -89,6 +107,22 @@ export function useChatInference({
     send();
   }, [send, openRouterSlot, sessionId]);
 
+  const sendViaLocal = useCallback(async () => {
+    if (!localModelId) return;
+    if (sessionId) {
+      await window.electronAPI.hermesChat.setSessionInference({
+        sessionId,
+        provider: 'local',
+        modelId: localModelId,
+      });
+      setRefreshKey((n) => n + 1);
+    } else {
+      newChatInferenceRef.current = { provider: 'local', modelId: localModelId };
+    }
+    setRefusedSend(false);
+    send();
+  }, [send, localModelId, sessionId]);
+
   const refreshAfterTurn = useCallback(() => setRefreshKey((n) => n + 1), []);
 
   return {
@@ -100,6 +134,9 @@ export function useChatInference({
     applyError,
     refreshKey,
     openRouterConfigured,
+    privateRefused: refusedSend || resolvedInference?.privacyRefused === true,
+    localModelId,
+    sendViaLocal,
     checkReachable,
     retryLocal,
     sendViaOpenRouter,

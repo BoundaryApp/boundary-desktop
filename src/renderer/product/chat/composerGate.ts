@@ -3,7 +3,13 @@
  * connecting, the assistant is restarting for an inference switch, a credential prompt or an
  * approval waits on an answer, or the local model was found unreachable.
  */
-export type ComposerBlock = 'connecting' | 'restarting' | 'credential' | 'approval' | 'offline';
+export type ComposerBlock =
+  | 'connecting'
+  | 'restarting'
+  | 'credential'
+  | 'approval'
+  | 'offline'
+  | 'private';
 
 export function composerBlockFor(state: {
   connecting: boolean;
@@ -11,12 +17,14 @@ export function composerBlockFor(state: {
   credential: boolean;
   approval: boolean;
   offline: boolean;
+  private: boolean;
 }): ComposerBlock | null {
   if (state.connecting) return 'connecting';
   if (state.restarting) return 'restarting';
   if (state.credential) return 'credential';
   if (state.approval) return 'approval';
   if (state.offline) return 'offline';
+  if (state.private) return 'private';
   return null;
 }
 
@@ -26,6 +34,7 @@ const PLACEHOLDER: Record<ComposerBlock, string> = {
   credential: 'Answer the prompt above to continue…',
   approval: 'Answer the approval to continue…',
   offline: 'Local model is unreachable…',
+  private: 'This project is private and this chat’s model isn’t…',
 };
 
 export interface ComposerGate {
@@ -36,7 +45,7 @@ export interface ComposerGate {
   inputLocked: boolean;
   /**
    * The Run button is hidden while idle. A waiting prompt keeps it, since Stop answers the
-   * prompt; the offline prompt has its own buttons.
+   * prompt; the offline and private prompts have their own buttons.
    */
   hideIdleRunButton: boolean;
   /** The input's placeholder, or null for the conversation's own. */
@@ -49,8 +58,9 @@ export function composerGate(block: ComposerBlock | null): ComposerGate {
   return {
     block,
     canSend: block === null,
-    inputLocked: block !== null && block !== 'offline',
-    hideIdleRunButton: block === 'connecting' || block === 'restarting' || block === 'offline',
+    inputLocked: block !== null && block !== 'offline' && block !== 'private',
+    hideIdleRunButton:
+      block === 'connecting' || block === 'restarting' || block === 'offline' || block === 'private',
     placeholder: block ? PLACEHOLDER[block] : null,
     title: block ? PLACEHOLDER[block].replace(/…$/, '') : 'Press Enter to send',
   };

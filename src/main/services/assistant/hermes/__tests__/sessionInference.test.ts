@@ -5,8 +5,17 @@ import {
   clearOpenAiConfig,
   saveLlmConnection,
   saveLocalLlmEndpoint,
+  setAppDefault,
   setAppFallbacks,
 } from '../../../onboarding/OpenAiOnboardingStore';
+import type { ProjectInferencePin } from '../../../../../shared/types/hermesChat';
+import type { InferenceChainEntry } from '../../../../../shared/types/inferenceChain';
+import { setConversationProjectId } from '../hermesChatProjects';
+import {
+  getStoredHermesProject,
+  resetHermesProjectsStoreForTests,
+  upsertStoredHermesProject,
+} from '../hermesProjectStore';
 import {
   resetHermesAgentsStoreForTests,
   setSessionInference,
@@ -23,6 +32,7 @@ vi.mock('../../../onboarding/probeSlotHealth', () => ({
 let routerPushed = false;
 let latestServed: Record<string, unknown> | null = null;
 const sharedProviderNames = vi.fn();
+let providerPrivate = false;
 const setInferenceRouterChain = vi.fn();
 vi.mock('../../../inference/inferenceRouterService', () => ({
   inferenceRouterPushed: () => routerPushed,
@@ -33,6 +43,12 @@ vi.mock('../../../inference/inferenceRouterService', () => ({
 vi.mock('../../../circles/circlesService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../circles/circlesService')>()),
   sharedProviderNames: (...args: unknown[]) => sharedProviderNames(...args),
+  sharedModelFacts: () => ({
+    providerPrivate: () => providerPrivate,
+    providerTrusted: () => true,
+    circleJoined: () => true,
+    peerOffer: () => ({ 'qwen3-8b': { contextLength: 16_384 } }),
+  }),
 }));
 
 vi.mock('../../hermesProfileLimits', async (importOriginal) => ({
@@ -227,6 +243,156 @@ describe('ensureResolvedInferenceReady', () => {
       const [connection] = applyLlmConnectionToHermes.mock.calls[0];
       expect(connection.plan).toBeUndefined();
     });
+  });
+});
+
+describe('a private project (ADR 0033 §4)', () => {
+  const peer: InferenceChainEntry = {
+    slot: 'peer',
+    modelId: 'qwen3-8b',
+    peer: { circleId: 'circle', providerId: 'bo' },
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    clearOpenAiConfig();
+    resetHermesAgentsStoreForTests();
+    resetHermesProjectsStoreForTests();
+    clearLastAppliedLlm();
+    resetRunningTurnsForTests();
+    routerPushed = false;
+    providerPrivate = false;
+    await saveLocalLlmEndpoint({
+      runtime: 'ollama',
+      endpointUrl: 'http://127.0.0.1:11434/v1/',
+      modelId: 'qwen3:14b',
+    });
+    await saveLlmConnection({
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-key',
+      modelId: 'anthropic/claude-sonnet-4',
+      provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
+    });
+    upsertStoredHermesProject({
+      id: 'p1',
+      name: 'Job Search',
+      hostPath: '/tmp/job',
+      containerPath: '/opt/projects/job',
+      slug: 'job',
+      kind: 'host-folder',
+      inference: { mode: 'local', modelId: 'qwen3:14b', privacyLocalOnly: true },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    setConversationProjectId(['s1'], 'p1');
+    applyLlmConnectionToHermes.mockResolvedValue({ success: true });
+    probeSlotHealth.mockResolvedValue({ success: true, health: 'reachable' });
+  });
+
+  const pin = (inference: ProjectInferencePin) =>
+    upsertStoredHermesProject({ ...getStoredHermesProject('p1')!, inference: { ...inference, privacyLocalOnly: true } });
+
+  it('refuses a one-entry OpenRouter chain and applies nothing', async () => {
+    pin({ mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4' });
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    const result = await ensureResolvedInferenceReady('s1');
+    expect(result).toMatchObject({ ok: false, errorCode: 'private-refused' });
+    expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+  });
+
+  it('refuses a chat already pinned to OpenRouter, and keeps the pin for when Private is off', async () => {
+    setSessionInference('s1', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' });
+    const { ensureResolvedInferenceReady, getSessionInferenceSnapshot } = await import('../sessionInference');
+    expect(await ensureResolvedInferenceReady('s1')).toMatchObject({ ok: false, errorCode: 'private-refused' });
+    const snapshot = await getSessionInferenceSnapshot('s1');
+    expect(snapshot.override).toMatchObject({ provider: 'openrouter' });
+    expect(snapshot.resolved).toMatchObject({ privacyLocked: true, privacyRefused: true });
+  });
+
+  it('refuses a cloud app default when the project inherits', async () => {
+    pin({ mode: 'inherit' });
+    await setAppDefault('openrouter');
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    expect(await ensureResolvedInferenceReady('s1')).toMatchObject({ ok: false, errorCode: 'private-refused' });
+  });
+
+  it('refuses a chain that starts in the cloud, though a private entry follows', async () => {
+    pin({ mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', fallbacks: [{ slot: 'local' }] });
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    expect(await ensureResolvedInferenceReady('s1')).toMatchObject({ ok: false, errorCode: 'private-refused' });
+  });
+
+  it('cuts a cloud fallback, so an unreachable local model stops without offering it', async () => {
+    pin({ mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] });
+    probeSlotHealth.mockResolvedValue({ success: true, health: 'unreachable' });
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    const result = await ensureResolvedInferenceReady('s1');
+    expect(result).toMatchObject({ ok: false, errorCode: 'local-unreachable' });
+    expect(JSON.stringify(result)).not.toContain('OpenRouter');
+  });
+
+  it('leaves a routed chain for the direct local model once the lock cuts it to one entry', async () => {
+    pin({ mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] });
+    setLastAppliedLlm({
+      slot: 'local',
+      endpointUrl: 'http://127.0.0.1:11434/v1',
+      modelId: 'qwen3:14b',
+      contextLength: 32_768,
+      routed: true,
+      appliedAt: '2026-10-29T00:00:00.000Z',
+    });
+    routerPushed = true;
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+    expect(setInferenceRouterChain).not.toHaveBeenCalled();
+    expect(applyLlmConnectionToHermes.mock.calls[0][0].plan).toBeUndefined();
+  });
+
+  it('sends to a shared model whose provider is marked private', async () => {
+    providerPrivate = true;
+    pin({ mode: 'local', modelId: 'qwen3:14b', fallbacks: [peer, { slot: 'openrouter' }] });
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+    const { plan } = applyLlmConnectionToHermes.mock.calls[0][0];
+    expect(Object.keys(plan.chain.upstreams)).toEqual(['local:qwen3:14b', 'peer:circle:bo:qwen3-8b']);
+  });
+
+  it('cuts a shared model whose provider is not marked private', async () => {
+    pin({ mode: 'local', modelId: 'qwen3:14b', fallbacks: [peer] });
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+    expect(applyLlmConnectionToHermes.mock.calls[0]?.[0]?.plan).toBeUndefined();
+  });
+
+  it("won't widen the router's chain under a running private turn", async () => {
+    await setAppFallbacks([{ slot: 'openrouter' }]);
+    setLastAppliedLlm({
+      slot: 'local',
+      endpointUrl: 'http://127.0.0.1:11434/v1',
+      modelId: 'qwen3:14b',
+      contextLength: 32_768,
+      routed: true,
+      appliedAt: '2026-10-29T00:00:00.000Z',
+    });
+    routerPushed = true;
+    beginRunningTurn('private-turn', ['s1'], null);
+    const { ensureResolvedInferenceReady } = await import('../sessionInference');
+    const result = await ensureResolvedInferenceReady('other-chat');
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('private project') });
+    expect(setInferenceRouterChain).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start a chat on a cloud model, and allows local', async () => {
+    const { setSessionInferenceOverride } = await import('../sessionInference');
+    const cloud = await setSessionInferenceOverride({
+      sessionId: 's1',
+      provider: 'openrouter',
+      modelId: 'anthropic/claude-sonnet-4',
+    });
+    expect(cloud).toMatchObject({ success: false, override: null });
+    const local = await setSessionInferenceOverride({ sessionId: 's1', provider: 'local', modelId: 'qwen3:14b' });
+    expect(local.success).toBe(true);
   });
 });
 
