@@ -42,6 +42,13 @@ import { startLocalLlmWatcher } from './services/onboarding/LocalLlmWatcher';
 import { registerExperiments, startExperimentsBeforeWindow } from './experiments';
 import { claimSingleInstance } from './singleInstance';
 import { runStartupMigrations } from './migrations';
+import {
+  checkForUpdatesFromMenu,
+  quitAndInstallUpdate,
+  recordDataVersion,
+  registerUpdateHandlers,
+  startUpdates,
+} from './services/updates/ipcHandlers';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -283,7 +290,10 @@ async function saveMacDisplayForQuit(): Promise<void> {
 // to ensure it completes before the window is created
 
 // Before the services below read the data these change.
-if (isPrimaryInstance) runStartupMigrations();
+if (isPrimaryInstance) {
+  runStartupMigrations();
+  recordDataVersion(store as unknown as Store<Record<string, unknown>>, app.getVersion());
+}
 
 registerAppearanceHandlers(store);
 registerUrlHandlers();
@@ -303,6 +313,7 @@ registerCalendarHandlers();
 startCalendarHealthChecks();
 registerHostBridgeHandlers();
 registerCirclesHandlers();
+registerUpdateHandlers(() => stopStackThen(quitAndInstallUpdate));
 startLocalLlmWatcher();
 
 registerExperiments();
@@ -638,6 +649,8 @@ const createMenu = () => {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
+        { label: 'Check for Updates…', click: checkForUpdatesFromMenu },
+        { type: 'separator' },
         { ...commandItem('go-settings'), label: 'Settings…' },
         { type: 'separator' },
         { role: 'services' },
@@ -732,6 +745,7 @@ async function onAppReady(): Promise<void> {
   });
   // Create the application menu
   createMenu();
+  await startUpdates();
   // Older builds kept these secrets in plaintext in boundary-config. Nothing reads them now.
   const legacyStore = store as unknown as Store<Record<string, unknown>>;
   for (const key of ['apiKey', 'secretToken', 'databaseUrl']) {
@@ -841,6 +855,16 @@ app.on('before-quit', (e) => {
     return;
   }
   e.preventDefault();
+  stopStackThen(() => app.exit(0));
+});
+
+/**
+ * Show the quit screen, stop the stack, then finish. `autoUpdater.quitAndInstall()` closes the
+ * windows before `before-quit` fires, so the update path calls this first and `before-quit`
+ * passes through.
+ */
+function stopStackThen(finish: () => void): void {
+  if (isElectronQuitAfterShutdown) return;
   isElectronQuitAfterShutdown = true;
 
   // Show quit overlay before any teardown so progress events have a live window.
@@ -857,11 +881,11 @@ app.on('before-quit', (e) => {
     // Brief yield so the renderer can paint the quit overlay.
     await new Promise((r) => setTimeout(r, 150));
     const stepMs = await runQuitTeardown();
-    persistDebugLog('startup', 'before-quit cleanup done, app.exit', { stepMs });
+    persistDebugLog('startup', 'before-quit cleanup done', { stepMs });
     // app.quit() after preventDefault can close windows without exiting on macOS.
-    app.exit(0);
+    finish();
   })();
-});
+}
 
 // Handle app quit properly
 app.on('quit', () => {

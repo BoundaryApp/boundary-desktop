@@ -10,6 +10,7 @@ import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { ModelPicker } from '../onboarding/ModelPicker';
 import { Segmented } from '../components/ui/segmented';
+import { UpdatesPanel } from './UpdatesPanel';
 import { InfoTip } from '../components/ui/info-tip';
 import { useThemePreference } from '../theme';
 import { takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
@@ -57,8 +58,11 @@ function localPill(slot: LlmSlotStatus | undefined): { label: string; tone: stri
   return { label: 'Connected', tone: 'is-ok' };
 }
 
-function openRouterPill(slot: LlmSlotStatus | undefined): { label: string; tone: string } {
-  if (!slot) return { label: 'Not set', tone: '' };
+function openRouterPill(
+  slot: LlmSlotStatus | undefined,
+  keySaved: boolean
+): { label: string; tone: string } {
+  if (!slot) return { label: keySaved ? 'Disconnected' : 'Not set', tone: '' };
   const health = slotHealth(slot);
   if (health === 'unauthorized') return { label: 'Unauthorized', tone: 'is-bad' };
   if (health === 'reachable') return { label: 'Connected', tone: 'is-ok' };
@@ -82,6 +86,7 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'coding', label: 'Coding agent' },
   { id: 'browser', label: 'Agent browser' },
   { id: 'access', label: 'Computer access' },
+  { id: 'updates', label: 'Updates' },
 ];
 
 export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
@@ -226,7 +231,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         provider: result.credentials.providerId,
         extraHeaders: result.credentials.extraHeaders,
       });
-      const keep = selectedOpenRouterModel;
+      const keep = selectedOpenRouterModel || status?.savedOpenRouterKey?.modelId;
       const modelId =
         (keep && listed.models.some((model) => model.id === keep) && keep) ||
         listed.models[0]?.id;
@@ -343,8 +348,43 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
       } else {
         setOpenRouterModels([]);
         setSelectedOpenRouterModel('');
+        setNotice('OpenRouter disconnected. Its key stays saved on this Mac until you remove it.');
       }
       setTestBySlot((current) => ({ ...current, [slot]: undefined }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReconnectSavedKey = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await window.electronAPI.onboarding.reconnectSavedOpenRouterKey();
+      await takeInferenceStatus(result);
+      if (!result.success) {
+        setError(result.error ?? 'Unable to reconnect OpenRouter.');
+        return;
+      }
+      setNotice('OpenRouter reconnected with the saved key.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleForgetSavedKey = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await window.electronAPI.onboarding.forgetSavedOpenRouterKey();
+      await takeInferenceStatus(result);
+      if (!result.success) {
+        setError(result.error ?? 'Unable to remove the saved key.');
+        return;
+      }
+      setNotice('Saved OpenRouter key removed from this Mac. It stays active at OpenRouter.');
     } finally {
       setBusy(false);
     }
@@ -388,7 +428,8 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const localHealth = slotHealth(local);
   const openRouterHealth = slotHealth(openrouter);
   const localMeta = localPill(local);
-  const openRouterMeta = openRouterPill(openrouter);
+  const savedOpenRouterKey = openrouter ? undefined : status?.savedOpenRouterKey;
+  const openRouterMeta = openRouterPill(openrouter, Boolean(savedOpenRouterKey));
 
   return (
     <section className="wb-inference" aria-label="Settings">
@@ -426,6 +467,8 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
           <AgentBrowserPanel />
         ) : tab === 'access' ? (
           <ComputerAccessPanel />
+        ) : tab === 'updates' ? (
+          <UpdatesPanel />
         ) : (
           <>
 
@@ -460,12 +503,16 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
             </InfoTip>
           </h2>
 
+          {status && !local && !openrouter && !infrastructure && (
+            <div className="wb-inference-banner is-warn" role="status">
+              <p>No model provider is connected. Chats can’t send until you connect one below.</p>
+            </div>
+          )}
           {local && localHealth === 'unreachable' && (
             <div className="wb-inference-banner is-warn">
               <p>
-                {local.providerDisplayName ?? 'Local'} is not reachable
-                {local.endpointUrl ? ` at ${local.endpointUrl}` : ''}. Local stays configured. The
-                default does not change.
+                {local.providerDisplayName ?? 'Local'} isn’t reachable
+                {local.endpointUrl ? ` at ${local.endpointUrl}` : ''}.
               </p>
               <button type="button" className="wb-inference-btn" onClick={() => void probe('local')}>
                 Retry
@@ -474,16 +521,13 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
           )}
           {openrouter && openRouterHealth === 'unauthorized' && (
             <div className="wb-inference-banner is-bad">
-              <p>
-                OpenRouter returned unauthorized. The stored key is no longer valid. Reconnect to keep
-                the cloud card.
-              </p>
+              <p>OpenRouter no longer accepts the saved key.</p>
               <button
                 type="button"
                 className="wb-inference-btn"
                 onClick={() => void handleConnectOpenRouter()}
               >
-                Reconnect
+                Sign in again
               </button>
             </div>
           )}
@@ -511,11 +555,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                   </div>
                   {!local ? (
                     <div className="wb-inference-empty">
-                      <p>
-                        {openrouter
-                          ? 'Optional. Scan if Ollama or LM Studio is running.'
-                          : 'Boundary looks for Ollama and LM Studio on this Mac.'}
-                      </p>
+                      <p>Finds Ollama and LM Studio on this Mac.</p>
                       <div className="wb-inference-actions">
                         <button
                           type="button"
@@ -650,30 +690,57 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                   </div>
                   {!openrouter ? (
                     <div className="wb-inference-empty">
-                      <p>
-                        {local
-                          ? 'Optional. Adds a cloud model for the projects you choose.'
-                          : 'Connect with OAuth. Boundary stores one key.'}
-                      </p>
+                      {savedOpenRouterKey ? (
+                        <p>
+                          Disconnected. Your key
+                          {savedOpenRouterKey.preview ? ` (${savedOpenRouterKey.preview})` : ''} is saved
+                          on this Mac and unused until you reconnect.
+                        </p>
+                      ) : null}
                       <p className="wb-inference-cloud">{cloudInferenceNotice('OpenRouter')}</p>
                       <div className="wb-inference-actions">
-                        <button
-                          type="button"
-                          className={`wb-inference-btn ${local ? '' : 'is-solid'}`}
-                          disabled={busy}
-                          onClick={() => void handleConnectOpenRouter()}
-                        >
-                          Connect OpenRouter
-                        </button>
+                        {savedOpenRouterKey ? (
+                          <>
+                            <button
+                              type="button"
+                              className="wb-inference-btn is-solid"
+                              disabled={busy}
+                              onClick={() => void handleReconnectSavedKey()}
+                            >
+                              Reconnect
+                            </button>
+                            <button
+                              type="button"
+                              className="wb-inference-btn"
+                              disabled={busy}
+                              onClick={() => void handleConnectOpenRouter()}
+                            >
+                              Sign in again
+                            </button>
+                            <button
+                              type="button"
+                              className="wb-inference-btn"
+                              disabled={busy}
+                              onClick={() => void handleForgetSavedKey()}
+                            >
+                              Remove saved key
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`wb-inference-btn ${local ? '' : 'is-solid'}`}
+                            disabled={busy}
+                            onClick={() => void handleConnectOpenRouter()}
+                          >
+                            Connect OpenRouter
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : (
                     <>
                       <dl>
-                        <div className="wb-inference-meta">
-                          <dt>Account</dt>
-                          <dd>via OAuth</dd>
-                        </div>
                         <div className="wb-inference-meta">
                           <dt>Key</dt>
                           <dd className="mono">{openrouter.apiKey?.preview ?? 'stored'}</dd>
@@ -801,7 +868,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                       <span className="wb-inference-radio" aria-hidden="true" />
                       <span>
                         <b>Local{local?.modelId ? ` · ${local.modelId}` : ''}</b>
-                        <span>Stays on this machine. Cloud is off unless a chat or project asks.</span>
                       </span>
                     </button>
                     <button
@@ -816,7 +882,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                           OpenRouter
                           {openrouter?.modelId ? ` · ${openrouter.modelId}` : ''}
                         </b>
-                        <span>Cloud is the machine default. Local stays available as an override.</span>
                       </span>
                     </button>
                   </>
@@ -844,7 +909,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                 {status?.appDefault === 'infrastructure' && infrastructure && (
                   <p className="wb-inference-note">
                     Assistant is using your existing {infrastructure.providerDisplayName ?? 'GPU'}{' '}
-                    endpoint. GPU providers will return to Settings later.
+                    endpoint.
                   </p>
                 )}
               </div>

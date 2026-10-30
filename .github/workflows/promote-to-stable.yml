@@ -1,0 +1,38 @@
+name: Promote to Stable
+
+# Moves a release that testers ran on the beta feed to the stable feed and marks it Latest.
+# It reuses the release's assets, so the bundle that was tested is the bundle that ships.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to promote (e.g., v0.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Write the stable update feed and mark the release Latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.version }}
+        run: |
+          version="${TAG#v}"
+          case "${version}" in *-*) echo "::error::${TAG} is a prerelease version."; exit 1 ;; esac
+          zip="Boundary-darwin-arm64-${version}.zip"
+          gh release download "${TAG}" --pattern "${zip}"
+          node scripts/write-update-feed.mjs --channel stable --version "${version}" \
+            --zip "${zip}" --repo "${GITHUB_REPOSITORY}" \
+            --notes-file .github/update-summary.txt --out stable-darwin-arm64.json
+          gh release upload update-feed stable-darwin-arm64.json --clobber
+          gh release edit "${TAG}" --prerelease=false --latest

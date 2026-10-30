@@ -93,7 +93,7 @@ export default {
     // Used only by experiments; unused in a tree without them.
     ...(hasExperiments
       ? []
-      : ['@radix-ui/react-progress', 'better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
+      : ['@radix-ui/react-progress', 'better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3', 'phaser']),
   ],
   treatConfigHintsAsErrors: true,
   preprocessor: './scripts/knip-allowances.mjs',

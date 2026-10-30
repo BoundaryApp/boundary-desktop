@@ -3084,30 +3084,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   padding: 6px 8px 0;
 }
 
-.wb-inf-lock {
-  margin: 10px 14px 8px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-0);
-}
-
-.wb-inf-lock.is-disabled {
-  opacity: 0.72;
-}
-
-.wb-inf-lock b {
-  display: block;
-  font-weight: var(--weight-medium);
-}
-
-.wb-inf-lock span {
-  display: block;
-  color: var(--text-muted);
-  font-size: var(--size-xs);
-  margin-top: 3px;
-}
-
 .wb-src {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3851,10 +3827,23 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Inference Settings — docs/inference-ux-study/01-settings.html */
 .wb-inference {
+  /* Reading scale: everything under Settings that uses the chrome sizes picks these up. */
+  --size-2xs: var(--size-meta);
+  --size-xs: var(--size-small);
+  --size-ui: var(--size-body);
+  --size-title: var(--size-section);
+  --size-heading: var(--size-page);
+  --leading-ui: var(--leading-body);
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px 40px 48px;
+  padding: var(--space-8) var(--space-10) 56px;
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+}
+
+.wb-inference .text-xs {
+  font-size: var(--size-small);
 }
 
 .wb-inference h1 {
@@ -3871,7 +3860,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-settings-section {
-  max-width: 920px;
+  max-width: var(--reading-column);
 }
 
 .wb-settings-section h2 {
@@ -3883,6 +3872,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  min-height: var(--row-min-height);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -3897,7 +3887,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-settings-hint {
   margin: 2px 0 0;
   font-size: var(--size-xs);
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 /* A row's copy takes the space; its button never gets pushed out. */
@@ -3966,14 +3956,17 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-settings-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
-  max-width: 920px;
+  width: fit-content;
+  max-width: 100%;
   margin: var(--space-4) 0 var(--space-2);
   border-bottom: 1px solid var(--line);
 }
 
 .wb-settings-tabs button {
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
   border: 0;
   background: none;
@@ -3994,7 +3987,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Passwords & Logins — docs/passwords-logins-study */
 .wb-vault {
-  max-width: 720px;
+  max-width: var(--reading-column);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -4514,7 +4507,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inference-banner {
-  max-width: 920px;
+  max-width: var(--reading-column);
   margin: 0 0 16px;
   padding: 9px 11px;
   border-radius: var(--radius-md);
@@ -4544,9 +4537,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-inference-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  max-width: 920px;
+  max-width: var(--reading-column);
 }
 
 .wb-inference-card,
@@ -4574,7 +4566,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inference-default {
-  max-width: 920px;
+  max-width: var(--reading-column);
   margin-top: 14px;
 }
 
@@ -4622,7 +4614,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-xs);
 }
 
-.wb-inference-meta dt { color: var(--text-faint); }
+.wb-inference-meta dt { color: var(--text-muted); }
 .wb-inference-meta dt { flex-shrink: 0; }
 .wb-inference-meta dd { margin: 0; color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; }
 
@@ -4642,7 +4634,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inference-btn {
-  padding: 5px 10px;
+  min-height: var(--control-height);
+  padding: 5px var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   color: var(--text);
@@ -4725,10 +4718,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   margin: 12px 0 0;
 }
 .wb-inference-note.is-bad { color: var(--danger); }
-
-@media (max-width: 820px) {
-  .wb-inference-cards { grid-template-columns: 1fr; }
-}
 
 /* 0023 — chat types: one mark per kind, typed rail sections, two-line headers ------------ */
 /* Living spec: docs/chat-types-ux-study/01-chat-types.html. */
@@ -5378,6 +5367,38 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Working dot: an agent is processing a turn for this chat (any list or row that names
    it). The core stays put; a halo breathes out from it. Static under reduced motion. */
+/* Static on purpose: the pulsing working dot means an agent is running. */
+.wb-update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.wb-update-notice {
+  flex-shrink: 0;
+  margin: 8px 16px;
+}
+
+.wb-update-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.wb-update-work {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-update-work li {
+  padding: 4px 0;
+}
+
 .wb-working-dot {
   position: relative;
   flex-shrink: 0;
@@ -7484,7 +7505,7 @@ button.wb-task-card:hover {
 .wb-cal-cards {
   display: grid;
   gap: 12px;
-  max-width: 920px;
+  max-width: var(--reading-column);
 }
 
 .wb-cal-card .hed {

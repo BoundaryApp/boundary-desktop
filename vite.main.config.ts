@@ -3,6 +3,9 @@ import { defineConfig } from 'vite';
 // https://vitejs.dev/config
 export default defineConfig({
   plugins: [],
+  define: {
+    __BOUNDARY_UPDATE_FEED_URL__: JSON.stringify(process.env.BOUNDARY_UPDATE_FEED_URL ?? ''),
+  },
   build: {
     lib: {
       entry: 'src/main/index.ts',

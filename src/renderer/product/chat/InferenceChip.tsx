@@ -249,7 +249,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
             </>
           ) : null}
           <button type="button" className="wb-inf-reset" onClick={() => void reset()}>
-            Use project default
+            Use default
           </button>
         </PopoverContent>
       </Popover>

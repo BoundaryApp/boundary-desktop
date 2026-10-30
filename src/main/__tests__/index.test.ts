@@ -161,6 +161,13 @@ vi.mock('../persistDebugLog', () => ({
 }));
 vi.mock('../services/dockerService', () => ({ dockerService: { destroy: h.services.dockerDestroy } }));
 vi.mock('../services/onboarding/ipcHandlers', () => ({ registerOnboardingHandlers: vi.fn() }));
+vi.mock('../services/updates/ipcHandlers', () => ({
+  checkForUpdatesFromMenu: vi.fn(),
+  quitAndInstallUpdate: vi.fn(),
+  recordDataVersion: vi.fn(),
+  registerUpdateHandlers: vi.fn(),
+  startUpdates: vi.fn(async () => undefined),
+}));
 vi.mock('../services/capability/ipcHandlers', () => ({ registerCapabilityHandlers: vi.fn() }));
 vi.mock('../services/setup/ipcHandlers', () => ({ registerSetupHandlers: vi.fn() }));
 vi.mock('../services/assistant/ipcHandlers', () => ({ registerAssistantStackHandlers: vi.fn() }));

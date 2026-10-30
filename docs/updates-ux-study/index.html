@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Updates study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;560;650&display=swap" />
+  <link rel="stylesheet" href="../../src/renderer/styles/tokens.css" />
+  <link rel="stylesheet" href="../../src/renderer/product/startup/startup.css" />
+  <link rel="stylesheet" href="../../src/renderer/product/chat/workbench.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--surface-rail); color: var(--text); font-family: var(--font-ui); font-size: var(--size-ui); line-height: 1.5; }
+    .page { max-width: 1040px; margin: 0 auto; padding: 28px 16px 80px; }
+    .kicker { color: var(--brand); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    .page > h1 { margin: 0 0 10px; font-size: 28px; font-weight: 560; letter-spacing: -0.03em; }
+    .lede { color: var(--text-muted); max-width: 72ch; margin: 0; }
+    .rec { margin-top: 16px; border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); background: color-mix(in srgb, var(--brand) 8%, var(--surface-1)); border-radius: 12px; padding: 14px 18px; color: var(--text-muted); max-width: 86ch; }
+    .rec b { color: var(--text); font-weight: 560; }
+    .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 20px 0 8px; }
+    .bar.sub { margin: 0 0 10px; }
+    .bar .lbl { font-size: var(--size-xs); color: var(--text-faint); margin-right: 4px; }
+    .bar button { font: inherit; font-size: var(--size-xs); padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface-1); color: var(--text); cursor: pointer; }
+    .bar button[aria-pressed='true'] { border-color: var(--brand); color: var(--brand); }
+    .bar .sep { flex: 1; }
+    .note { color: var(--text-muted); max-width: 86ch; margin: 12px 0 0; }
+    .note b { color: var(--text); font-weight: 560; }
+
+    /* Mock window ---------------------------------------------------------- */
+    .win { position: relative; height: 660px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-0); display: flex; }
+    .win .su-root { position: absolute; }
+    .lights { position: absolute; left: 14px; top: 14px; display: flex; gap: 8px; z-index: 60; }
+    .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .lights i + i { background: #febc2e; } .lights i + i + i { background: #28c840; }
+    .win .wb-icon-rail { padding-top: 44px; position: relative; }
+    .win .wb-icon-btn { position: relative; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+
+    /* Proposed: static update dot on a rail icon (not the pulsing WorkingDot). */
+    .up-dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 2px var(--surface-rail); }
+    .up-dot.is-warn { background: var(--warn); }
+    .up-tip { position: absolute; left: 52px; bottom: 14px; z-index: 30; white-space: nowrap; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--solid-bg); color: var(--solid-fg); font-size: var(--size-xs); box-shadow: var(--shadow-popover); }
+    .up-tab-dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--brand); vertical-align: 2px; }
+    .up-tab-dot.is-warn { background: var(--warn); }
+
+    /* Proposed: the Boundary app menu with Restart to Update… */
+    .up-menu { position: absolute; right: 16px; top: 74px; z-index: 50; width: 230px; padding: 5px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-2); box-shadow: var(--shadow-popover); font-size: var(--size-ui); }
+    .up-menu div { display: flex; justify-content: space-between; padding: 3px 10px; border-radius: 4px; }
+    .up-menu div.is-hl { background: var(--brand); color: #fff; }
+    .up-menu div span { color: var(--text-faint); }
+    .up-menu div.is-hl span { color: inherit; }
+    .up-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+    .up-menu-cap { position: absolute; right: 16px; top: 52px; z-index: 50; font-size: var(--size-2xs); color: var(--text-faint); }
+
+    /* Chat placeholder ---------------------------------------------------- */
+    .chat { flex: 1; display: flex; flex-direction: column; }
+    .chat-head { height: 42px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 16px 0 32px; font-weight: 560; background: var(--surface-0); }
+    .chat-body { flex: 1; padding: 28px 0; display: flex; flex-direction: column; gap: 14px; align-items: center; overflow: hidden; }
+    .chat-body .msg { width: min(560px, 100% - 48px); display: flex; flex-direction: column; gap: 7px; }
+    .chat-body .msg.you { align-items: flex-end; }
+    .chat-body .msg i { display: block; height: 9px; border-radius: 5px; background: var(--line); }
+    .chat-body .msg.you i { background: var(--surface-2); border: 1px solid var(--line); height: 28px; width: 46%; border-radius: var(--radius-lg); }
+    .composer { width: min(560px, 100% - 48px); margin: 0 auto 18px; height: 74px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--text-faint); padding: 12px 14px; }
+    .up-wbbanner { margin: 0; border-radius: 0; border-width: 0 0 1px; max-width: none; padding: 9px 16px 9px 32px; }
+    .up-wbbanner .actions { display: flex; gap: 6px; align-items: center; }
+    .up-x { border: 0; background: none; color: var(--text-faint); font: inherit; cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm); }
+    .up-x:hover { background: var(--surface-hover); color: var(--text); }
+
+    /* Proposed: workbench notice (no toast primitive exists yet). */
+    .up-notice { position: absolute; right: 16px; bottom: 16px; z-index: 30; width: 340px; display: flex; gap: 10px; align-items: flex-start; padding: 12px 12px 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--shadow-popover); animation: wb-rise-in var(--dur-panel) var(--ease); }
+    .up-notice.is-warn { border-color: var(--warn-line); background: var(--warn-dim); }
+    .up-notice p { margin: 0; flex: 1; }
+    .up-notice .actions { display: flex; gap: 6px; margin-top: 8px; }
+
+    /* Settings → Updates (mock-only pieces; rows and banners are shipped classes) */
+    .win .wb-inference { padding: 22px 32px 40px; }
+    .up-section { max-width: 760px; }
+    .up-section h2 { margin: var(--space-6) 0 var(--space-2); font-size: var(--size-title); font-weight: var(--weight-medium); }
+    .up-rows { display: grid; gap: var(--space-2); }
+    .up-rows .wb-settings-row { align-items: flex-start; }
+    .up-ver { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+    .up-ver .mono { font-family: var(--font-mono); font-size: var(--size-xs); color: var(--text-muted); }
+    .up-state { font-size: var(--size-xs); color: var(--text-muted); }
+    .up-state.is-ok { color: var(--ok); } .up-state.is-warn { color: var(--warn); } .up-state.is-brand { color: var(--brand); }
+    .up-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .up-sub { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius-md); background: var(--surface-0); border: 1px solid var(--line); font-size: var(--size-xs); color: var(--text-muted); }
+    .up-sub ul { margin: 6px 0 0; padding-left: 18px; font-family: var(--font-mono); }
+    .up-banner { max-width: 760px; align-items: flex-start; padding: 12px 14px; margin: 14px 0 0; }
+    .up-banner.is-brand { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); background: color-mix(in srgb, var(--brand) 7%, var(--surface-1)); }
+    .up-banner h3 { margin: 0 0 2px; font-size: var(--size-ui); font-weight: var(--weight-strong); }
+    .up-banner p { font-size: var(--size-ui) !important; color: var(--text-muted); }
+    .up-banner .up-actions { margin-top: 2px; }
+    .up-new { max-width: 760px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); padding: 12px 16px; }
+    .up-new h3 { margin: 0 0 6px; font-size: var(--size-ui); font-weight: var(--weight-medium); }
+    .up-new ul { margin: 0 0 8px; padding-left: 18px; color: var(--text-muted); }
+    .up-new li b { color: var(--text); font-weight: 560; }
+    .up-new + .up-new { margin-top: 8px; }
+    .up-link { border: 0; background: none; padding: 0; font: inherit; font-size: var(--size-xs); color: var(--brand); cursor: pointer; }
+    .up-switch { position: relative; flex-shrink: 0; width: 30px; height: 18px; border-radius: 999px; border: 0; background: var(--line-strong); cursor: pointer; padding: 0; }
+    .up-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); transition: transform var(--dur-fast) var(--ease); }
+    .up-switch[aria-checked='true'] { background: var(--brand); }
+    .up-switch[aria-checked='true']::after { transform: translateX(12px); }
+    .up-switch:disabled { opacity: 0.45; cursor: default; }
+    .up-seg { display: inline-flex; flex-shrink: 0; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-0); }
+    .up-seg button { font: inherit; font-size: var(--size-xs); border: 0; background: none; color: var(--text-muted); padding: 3px 10px; border-radius: 6px; cursor: pointer; }
+    .up-seg button[aria-checked='true'] { background: var(--surface-1); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+    .up-check { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: var(--size-xs); color: var(--text-faint); max-width: 760px; }
+    .up-check.is-warn span { color: var(--warn); }
+    .wb-inference-btn { cursor: pointer; font-family: inherit; }
+    .up-danger { border-color: var(--danger-line) !important; background: var(--danger-dim) !important; color: var(--danger) !important; }
+
+    /* Dialog content */
+    .up-work { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+    .up-work li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-0); }
+    .up-work .ic { width: 26px; height: 26px; flex-shrink: 0; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--brand-dim); color: var(--brand); }
+    .up-work .ic svg { width: 14px; height: 14px; }
+    .up-work b { display: block; font-weight: 560; }
+    .up-work small { color: var(--text-faint); font-size: var(--size-xs); }
+    .up-work .wb-working-dot { margin-left: auto; }
+    .up-foot { font-size: var(--size-xs); color: var(--text-faint); margin: 0 0 16px; }
+    .wb-sheet-actions { justify-content: flex-end; flex-wrap: wrap; }
+    .wb-sheet-actions .wb-btn-solid, .wb-sheet-actions .wb-btn-ghost { width: auto; padding: 7px 12px; text-align: center; }
+    .wb-sheet-actions .spacer { flex: 1; }
+    .up-kv { margin: 0 0 12px; display: grid; gap: 8px; }
+    .up-kv div { padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface-0); }
+    .up-kv dt { font-size: var(--size-2xs); font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+    .up-kv dd { margin: 2px 0 0; color: var(--text-muted); }
+    .up-kv div.is-lost { border-color: var(--danger-line); background: var(--danger-dim); }
+    .up-kv div.is-lost dd { color: var(--text); }
+
+    /* Start-up screen additions */
+    .su-actions { display: flex; gap: 8px; justify-content: center; }
+    .su-actions button { font: inherit; font-weight: 560; height: 32px; padding: 0 12px; border-radius: var(--radius-md); cursor: pointer; border: 1px solid var(--line); background: none; color: var(--text); }
+    .su-actions button.solid { border: 0; background: var(--solid-bg); color: var(--solid-fg); }
+    .su-kick { font-size: var(--size-2xs); font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .up-notice, .up-switch::after { animation: none !important; transition: none !important; }
+    }
+    @media (max-width: 760px) { .win { height: 720px; } .win .wb-inference { padding: 18px 16px 32px; } .up-menu, .up-menu-cap { display: none; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">Updates UX study</div>
+  <h1>Updates for Boundary and your tools</h1>
+  <p class="lede">Two kinds of update reach a Mac: Boundary itself, which installs on quit, and your tools, which download while they run and install on the next launch. This mock shows where each one surfaces and what it says. The written study, scenario copy and open questions are in <code>README.md</code> next to this file.</p>
+  <div class="rec"><b>Recommendation.</b> Updates surface at the quietest level that works. Failed checks are silent. A new version gets one notice asking before it downloads. A static dot on the Settings icon says an update is ready and clears once the <b>Updates</b> page is opened. Installs happen on the start-up screen of a launch the user started. Dialogs appear only to confirm something the user chose: restarting while work runs, or going back.</div>
+
+  <div class="bar" id="scenarios">
+    <span class="lbl">Scenario</span>
+    <button data-scenario="available">Update available</button>
+    <button data-scenario="indicator">Update ready</button>
+    <button data-scenario="page">Updates page</button>
+    <button data-scenario="restart">Restart with work running</button>
+    <button data-scenario="apply">Updating on launch</button>
+    <button data-scenario="rollback">Automatic undo</button>
+    <button data-scenario="goback">Go back</button>
+    <button data-scenario="first">Update Boundary first</button>
+    <button data-scenario="required">Required update</button>
+    <button data-scenario="olddata">Older app, newer data</button>
+    <button data-scenario="quit">Quit with update waiting</button>
+    <span class="sep"></span>
+    <button id="speed">Speed ×4</button>
+    <button id="theme">Dark theme</button>
+  </div>
+  <div class="bar sub" id="variants" hidden></div>
+  <div class="win" id="win"></div>
+  <p class="note" id="note"></p>
+</div>
+
+<script>
+const ICON = {
+  MessageCircle: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>',
+  Search: '<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  BookOpen: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  Network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>',
+  Workflow: '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>',
+  Database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
+  Code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+  KeyRound: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+  ChevronRight: '<path d="m9 18 6-6-6-6"/>',
+  Kanban: '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
+  Sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/>',
+};
+const svg = (name) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
+
+// STARTUP_TOOLS in src/renderer/product/startup/startupModel.ts (eight tools).
+const TOOLS = [
+  ['assistant', 'Assistant', 'MessageCircle'], ['search', 'Search', 'Search'], ['research', 'Research', 'BookOpen'],
+  ['memory', 'Memory', 'Network'], ['automations', 'Automations', 'Workflow'], ['database', 'Database', 'Database'],
+  ['coding', 'Coding', 'Code'], ['model', 'Model', 'KeyRound'],
+];
+// Example `summary` lines from a channel file entry (README, Release notes).
+const SUMMARY = [
+  { tool: 'search', title: 'Faster search', text: 'Search answers sooner when some engines are slow.' },
+  { tool: 'memory', title: 'Memory reads PDFs', text: 'Long-term memory can take in PDF files you share.' },
+  { tool: null, title: 'Fixes', text: 'Coding jobs no longer stop when a folder name has a space in it.' },
+];
+
+const NOTES = {
+  available: 'The default path. A check found a new version, and Boundary asks before downloading anything. The notice appears once per version and never takes focus. Squirrel gives no progress or cancel, so the downloading stage has no percentage. Try each button.',
+  indicator: 'An update is ready. The only signs are a <b>static</b> dot on the Settings icon (the Chat icon’s pulsing dot means an agent is working, so the two never look alike), its tooltip, and <b>Restart to Update…</b> in the Boundary menu. Click the Settings icon: opening the <b>Updates</b> page clears the dot, whether or not you install.',
+  page: 'Settings → <b>Updates</b>, in the states a user can find it in. Rows and banners are the shipped Settings classes; the version rows, switches and summary block are proposed. Try <b>Go back…</b>, <b>Restart to update</b>, <b>Update now</b>, <b>Skip this version</b> and the preferences.',
+  restart: 'The user pressed <b>Restart to update</b> while work was running. The default waits for the listed work; work started after this point is not counted. With nothing running there is no dialog at all.',
+  apply: 'A launch with a staged update, on the ADR 0029 start-up screen. The story area shows the update’s summary lines from the start and highlights the tile each one is about. Toggle the engine stage to see the first launch after a Boundary update that changes the bundled Podman.',
+  rollback: 'The health gate fails after installing. Boundary puts back the previous tree and data, starts again, and leaves a notice in the workbench that stays until closed. If Boundary is in the background, the ADR 0029 notification says the update was undone.',
+  goback: 'Going back by hand. The dialog names the backup’s date and time, what is lost and what is kept, and the destructive button repeats the cost. Going back also skips the version, so automatic updates don’t reinstall it on the next launch.',
+  first: 'The newest release of your tools needs a newer Boundary. One restart installs Boundary, and the new Boundary installs your tools as it starts. If this Mac isn’t offered the app update yet, none of this appears.',
+  required: 'The running Boundary is below <code>minimumSupported</code> (or withdrawn). A banner that returns on every launch and a warning-coloured dot that stays until the update installs. Never a dialog, never an automatic install.',
+  olddata: 'Someone installed an older Boundary by hand. It stops before opening any store and names the version it needs. There is no <b>Try again</b>, because trying again can’t help.',
+  quit: 'Quitting with updates waiting. The quit screen (ADR 0029 decision 16) says what installs, so the slower next launch isn’t a surprise.',
+};
+
+const PAGE_VARIANTS = [
+  ['ready', 'Both ready'], ['downloading', 'Downloading'], ['uptodate', 'Up to date'], ['autooff', 'Automatic off'],
+  ['tools', 'Tools ready'], ['waiting', 'Waiting for work'], ['rolledback', 'Undone'], ['skipped', 'Skipped'],
+  ['changes', 'Files you changed'], ['offline', 'Offline'], ['badsig', 'Bad signature'], ['lowdisk', 'Low disk'],
+  ['failed', 'Download failed'], ['local', 'Local stack'], ['downloads', 'Running from Downloads'], ['withdrawn', 'Withdrawn'],
+];
+
+const win = document.getElementById('win');
+const note = document.getElementById('note');
+const variantsBar = document.getElementById('variants');
+let state = {};
+let speed = 4, simTimer = 0, sim = null, noticeTimer = 0;
+
+function reset() {
+  clearInterval(simTimer); clearTimeout(noticeTimer); sim = null;
+  state = { view: 'chat', variant: 'ready', dot: 'brand', dialog: null, notice: null, banner: null, menu: false,
+    tip: 'Settings · Update ready', auto: true, checks: true, channel: 'stable', channelNote: false, check: null, engine: false };
+}
+
+/* Workbench ---------------------------------------------------------------- */
+
+function rail(active) {
+  const dot = state.dot ? `<span class="up-dot${state.dot === 'warn' ? ' is-warn' : ''}"></span>` : '';
+  return `<nav class="wb-icon-rail" aria-label="App">
+    <div class="wb-mark"></div>
+    <button class="wb-icon-btn${active === 'chat' ? ' is-on' : ''}" data-go="chat" aria-label="Chat"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z"/></svg></button>
+    <button class="wb-icon-btn" aria-label="Services"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg></button>
+    <button class="wb-icon-btn" aria-label="Resources"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9.5" width="3" height="4"/><rect x="6.5" y="6.5" width="3" height="7"/><rect x="10.5" y="3.5" width="3" height="10"/></svg></button>
+    <button class="wb-icon-btn end${active === 'settings' ? ' is-on' : ''}" data-go="settings" aria-label="${state.tip || 'Settings'}" title="${state.tip || 'Settings'}"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1"/></svg>${dot}</button>
+    ${state.showTip && state.dot ? `<div class="up-tip">${state.tip}</div>` : ''}
+  </nav>`;
+}
+
+function chat() {
+  const banner = state.banner ? wbBanner(state.banner) : '';
+  const msgs = [['you'], ['', 92, 80, 64], ['you'], ['', 88, 94, 72, 40]].map(([who, ...ws]) =>
+    `<div class="msg ${who}">${who ? '<i></i>' : ws.map((w) => `<i style="width:${w}%"></i>`).join('')}</div>`).join('');
+  return `<div class="main">${banner}<div class="chat"><div class="chat-head">Trip planning</div><div class="chat-body">${msgs}</div><div class="composer">Message your assistant…</div></div>${notice()}</div>`;
+}
+
+function wbBanner(kind) {
+  if (kind === 'available') {
+    return `<div class="wb-inference-banner up-wbbanner"><p><b>Boundary 0.3.0 is available.</b> See what’s installed and choose when updates install.</p>
+      <div class="actions"><button class="wb-inference-btn is-solid" data-act="download">Download</button><button class="wb-inference-btn" data-act="hide-banner">Later</button></div></div>`;
+  }
+  if (kind === 'downloading') {
+    return `<div class="wb-inference-banner up-wbbanner"><p><b>Downloading Boundary 0.3.0.</b></p>
+      <div class="actions"><button class="wb-inference-btn" data-act="download-done">Finish download (mock)</button><button class="up-x" data-act="hide-banner" title="Close" aria-label="Close">✕</button></div></div>`;
+  }
+  if (kind === 'ready') {
+    return `<div class="wb-inference-banner up-wbbanner"><p><b>Boundary 0.3.0 is ready to install.</b></p>
+      <div class="actions"><button class="wb-inference-btn is-solid" data-act="restart">Restart to install</button><button class="wb-inference-btn" data-act="hide-banner">Later</button></div></div>`;
+  }
+  if (kind === 'required') {
+    return `<div class="wb-inference-banner is-warn up-wbbanner"><p><b>This version of Boundary has a security problem that 0.3.0 fixes.</b> Boundary keeps working, but update as soon as you can.</p>
+      <div class="actions"><button class="wb-inference-btn is-solid" data-act="restart">Restart to update</button><button class="wb-inference-btn" data-act="noop">What’s fixed</button><button class="up-x" data-act="hide-banner" title="Hide until Boundary restarts" aria-label="Hide until Boundary restarts">✕</button></div></div>`;
+  }
+  return '';
+}
+
+function notice() {
+  const n = state.notice;
+  if (!n) return '';
+  if (n === 'updated') return `<div class="up-notice" role="status">${svg('Sparkles').replace('<svg', '<svg style="width:16px;height:16px;color:var(--brand);margin-top:2px"')}<div style="flex:1"><p>${state.engine ? 'Boundary is now 0.3.0, and your tools are on 0.3.5.' : 'Your tools were updated to 0.3.5.'}</p><div class="actions"><button class="wb-inference-btn" data-act="see-changes">See what changed</button></div></div><button class="up-x" data-act="close-notice" aria-label="Close">✕</button></div>`;
+  if (n === 'undone') return `<div class="up-notice is-warn" role="status"><div style="flex:1"><p><b>The update to your tools didn’t work, so Boundary undid it.</b> Nothing you saved was lost.</p><div class="actions"><button class="wb-inference-btn" data-act="see-undone">Details</button></div></div><button class="up-x" data-act="close-notice" aria-label="Close">✕</button></div>`;
+  if (n === 'wentback') return `<div class="up-notice" role="status"><div style="flex:1"><p>Your tools are back on 0.3.4. Boundary won’t install 0.3.5 again by itself.</p><div class="actions"><button class="wb-inference-btn" data-act="see-skipped">Updates</button></div></div><button class="up-x" data-act="close-notice" aria-label="Close">✕</button></div>`;
+  return '';
+}
+
+/* Settings → Updates --------------------------------------------------------- */
+
+const btn = (label, act, cls = '') => `<button class="wb-inference-btn ${cls}" data-act="${act}">${label}</button>`;
+function row(label, version, stateHtml, actions = '', extra = '') {
+  return `<div class="wb-settings-row"><div><div class="up-ver"><p class="wb-settings-label">${label}</p>${version ? `<span class="mono">${version}</span>` : ''}</div>${stateHtml ? `<p class="wb-settings-hint">${stateHtml}</p>` : ''}${extra}</div>${actions ? `<div class="up-actions">${actions}</div>` : ''}</div>`;
+}
+function banner(tone, title, body, actions = '') {
+  return `<div class="wb-inference-banner up-banner ${tone}" role="status"><div style="flex:1"><h3>${title}</h3><p>${body}</p></div>${actions ? `<div class="up-actions">${actions}</div>` : ''}</div>`;
+}
+const st = (text, tone = '') => `<span class="up-state ${tone}">${text}</span>`;
+
+function updatesPage() {
+  const v = state.variant;
+  let top = '', app = '', tools = '', engine = '', whatsNew = '', goBack = '';
+  app = row('Boundary', '0.2.0', st('Up to date', 'is-ok'));
+  tools = row('Your tools', '0.3.4', st('Up to date', 'is-ok'));
+  engine = row('Container engine', 'Podman 5.6', 'Comes with Boundary and updates with it.');
+  const skip = btn('Skip this version', 'skip');
+  const newBlock = (ver, lines) => `<div class="up-new"><h3>Your tools ${ver}</h3><ul>${lines.map((l) => `<li><b>${l.title}.</b> ${l.text}</li>`).join('')}</ul><button class="up-link" data-act="noop">Technical notes</button></div>`;
+  const appNew = `<div class="up-new"><h3>Boundary 0.3.0</h3><ul><li><b>Updates page.</b> See what’s installed, choose when updates install, and go back if one breaks something.</li></ul><button class="up-link" data-act="noop">Technical notes</button></div>`;
+
+  switch (v) {
+    case 'ready':
+      top = banner('is-brand', 'Updates are ready', 'Boundary 0.3.0 and an update to your tools have downloaded. Both install the next time Boundary starts, or now if you restart.', btn('Restart to update', 'restart', 'is-solid'));
+      app = row('Boundary', '0.2.0', st('0.3.0 is ready to install', 'is-brand'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 is ready to install', 'is-brand'), skip);
+      whatsNew = appNew + newBlock('0.3.5', SUMMARY);
+      break;
+    case 'tools':
+      top = banner('is-brand', 'An update to your tools is ready', 'It installs the next time Boundary starts. <b>Update now</b> installs it without quitting; your tools stop while it does.', btn('Update now', 'update-now', 'is-solid'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 is ready to install', 'is-brand'), skip);
+      whatsNew = newBlock('0.3.5', SUMMARY);
+      break;
+    case 'downloading':
+      app = row('Boundary', '0.2.0', st('Downloading 0.3.0'));
+      tools = row('Your tools', '0.3.4', st('Downloading 0.3.5 · 640 MB so far'), skip);
+      whatsNew = appNew + newBlock('0.3.5', SUMMARY);
+      break;
+    case 'uptodate':
+      goBack = true;
+      whatsNew = newBlock('0.3.4 · installed 26 Oct', SUMMARY.slice(0, 2));
+      break;
+    case 'autooff':
+      app = row('Boundary', '0.2.0', st('0.3.0 is available', 'is-brand'), btn('Download', 'download'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 is available', 'is-brand'), btn('Download', 'download') + skip);
+      whatsNew = appNew + newBlock('0.3.5', SUMMARY);
+      break;
+    case 'waiting':
+      top = banner('is-brand', 'Boundary restarts when 3 tasks finish', 'It installs the update as soon as they’re done.', btn('Restart now', 'restart-now') + btn('Cancel restart', 'cancel-wait'));
+      app = row('Boundary', '0.2.0', st('0.3.0 is ready to install', 'is-brand'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 is ready to install', 'is-brand'));
+      break;
+    case 'rolledback':
+      top = banner('is-warn', 'The update to your tools didn’t work', '0.3.5 didn’t start on this Mac, so Boundary put back 0.3.4 and your data. Nothing you saved was lost. Boundary won’t install 0.3.5 again by itself.', btn('Try again', 'update-now') + btn('Show details', 'noop') + btn('Copy details', 'noop'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 didn’t start and was undone on 26 Oct', 'is-warn'));
+      break;
+    case 'skipped':
+      tools = row('Your tools', '0.3.4', 'You skipped 0.3.5. Boundary offers the next version when it comes out.', btn('Undo', 'unskip'));
+      break;
+    case 'changes':
+      top = banner('is-brand', 'An update to your tools is ready', 'It installs the next time Boundary starts. <b>Update now</b> installs it without quitting; your tools stop while it does.', btn('Update now', 'update-now', 'is-solid'));
+      tools = row('Your tools', '0.3.4', st('0.3.5 is ready to install', 'is-brand'), skip,
+        `<div class="up-sub">You changed 2 files in your tools. The update replaces them and keeps your versions in a separate folder.<ul><li>searxng/settings.yml</li><li>scripts/nightly-export.sh</li></ul></div>`);
+      whatsNew = newBlock('0.3.5', SUMMARY);
+      break;
+    case 'offline':
+      state.check = state.check || 'offline';
+      break;
+    case 'badsig':
+      top = banner('is-warn', 'Boundary ignored an update list', 'The update list Boundary downloaded failed its signature check, so Boundary ignored it. Your installed versions aren’t affected.');
+      break;
+    case 'lowdisk':
+      tools = row('Your tools', '0.3.4', st('0.3.5 needs 6 GB free to download, and this Mac has 2.1 GB. Free up some space and Boundary tries again by itself.', 'is-warn'), skip);
+      goBack = true;
+      break;
+    case 'failed':
+      app = row('Boundary', '0.2.0', st('The downloaded Boundary 0.3.0 didn’t pass the code-signature check, so Boundary deleted it.', 'is-warn'), btn('Try again', 'noop'));
+      tools = row('Your tools', '0.3.4', st('Downloading 0.3.5 stopped. Couldn’t download your tools.', 'is-warn'), btn('Try again', 'noop') + skip);
+      break;
+    case 'local':
+      tools = row('Your tools', '0.4.2', 'Updates are off. Boundary is using the tools in <span class="mono">~/code/assistant</span>, which you update yourself.', '',
+        `<p class="wb-settings-hint" style="color:var(--warn)">These tools report 0.4.2, and this Boundary was tested with 0.3.4 and 0.3.5. Some features may not work.</p>`);
+      break;
+    case 'downloads':
+      app = row('Boundary', '0.2.0', st('Boundary is running from Downloads, so it can’t update itself.', 'is-warn'), btn('Move to Applications', 'noop', 'is-solid'));
+      break;
+    case 'withdrawn':
+      tools = row('Your tools', '0.3.4', '0.3.5 was withdrawn before it installed, so Boundary removed the download.');
+      break;
+    case 'first':
+      top = banner('is-brand', 'Boundary 0.3.0 brings a new version of your tools', 'Restart to install Boundary. Your tools update to 0.4.0 as it starts.', btn('Restart to update', 'restart', 'is-solid'));
+      app = row('Boundary', '0.2.0', st('0.3.0 is ready to install', 'is-brand'));
+      tools = row('Your tools', '0.3.5', st('0.4.0 needs Boundary 0.3.0', 'is-brand'), skip);
+      whatsNew = appNew + newBlock('0.4.0', [{ title: 'Coding agent', text: 'Coding jobs can run tests in their own container before they report back.' }, ...SUMMARY.slice(2)]);
+      break;
+    case 'required':
+      top = banner('is-warn', 'This version of Boundary has a security problem that 0.3.0 fixes', 'Boundary keeps working, but update as soon as you can.', btn('Restart to update', 'restart', 'is-solid') + btn('What’s fixed', 'noop'));
+      app = row('Boundary', '0.2.0', st('0.3.0 is ready to install', 'is-warn'));
+      break;
+  }
+
+  const checkLine = (() => {
+    if (!state.checks && state.check !== 'checking' && state.check !== 'done') return `<div class="up-check"><span>Boundary doesn’t check for updates.</span>${btn('Check now', 'check')}</div>`;
+    if (state.check === 'checking') return `<div class="up-check"><span>Checking…</span>${btn('Check now', 'noop')}</div>`;
+    if (state.check === 'done') return `<div class="up-check"><span>Boundary and your tools are up to date.</span>${btn('Check now', 'check')}</div>`;
+    if (state.check === 'offline') return `<div class="up-check is-warn"><span>Couldn’t check for updates. Last checked 3 days ago.</span>${btn('Check now', 'check-offline')}</div>`;
+    if (state.check === 'offline2') return `<div class="up-check is-warn"><span>Boundary couldn’t reach GitHub. Check your connection, then try again.</span>${btn('Check now', 'check-offline')}</div>`;
+    return `<div class="up-check"><span>Last checked 2 hours ago.</span>${btn('Check now', 'check')}</div>`;
+  })();
+
+  const autoHint = 'Boundary downloads updates in the background and installs them the next time it starts. It never restarts by itself.';
+  const checksHint = state.checks
+    ? 'Boundary downloads one signed file from GitHub. It sends no ID and nothing about how you use it.'
+    : 'Boundary doesn’t check for updates, so it can’t tell you about security fixes. <b>Check now</b> still checks once.';
+  const channelHint = state.channelNote
+    ? 'You stay on 0.3.0-beta.2 until Stable has a newer version.'
+    : 'Beta gets new versions first. They pass the same tests, but fewer people have used them.';
+  const prefs = `<div class="up-rows">
+    <div class="wb-settings-row"><div><p class="wb-settings-label">Update automatically</p><p class="wb-settings-hint">${autoHint}</p></div><button class="up-switch" role="switch" aria-label="Update automatically" aria-checked="${state.auto && state.checks}" ${state.checks ? '' : 'disabled'} data-act="toggle-auto"></button></div>
+    <div class="wb-settings-row"><div><p class="wb-settings-label">Release channel</p><p class="wb-settings-hint">${channelHint}</p></div><div class="up-seg" role="radiogroup" aria-label="Release channel"><button role="radio" aria-checked="${state.channel === 'stable'}" data-act="ch-stable">Stable</button><button role="radio" aria-checked="${state.channel === 'beta'}" data-act="ch-beta">Beta</button></div></div>
+    <div class="wb-settings-row"><div><p class="wb-settings-label">Check for updates</p><p class="wb-settings-hint">${checksHint}</p></div><button class="up-switch" role="switch" aria-label="Check for updates" aria-checked="${state.checks}" data-act="toggle-checks"></button></div>
+  </div>${checkLine}`;
+
+  const goBackHtml = goBack
+    ? row('Go back to 0.3.4', '', 'Puts back your tools and their data as they were on 26 Oct at 09:14, before the update. Available until 9 Nov. The copy uses 1.8 GB.', btn('Go back…', 'goback'))
+    : `<p class="wb-settings-hint" style="margin:0">${v === 'skipped' ? 'Going back isn’t possible. The copy from before the last update was removed on 9 Nov.' : 'Going back becomes possible after your tools update. Boundary keeps a copy of your tools and data from just before each update.'}</p>`;
+
+  return `<div class="main"><section class="wb-inference" aria-label="Settings">
+    <h1>Settings</h1>
+    <div class="wb-settings-tabs" role="tablist">${['General', 'Passwords & Logins', 'Calendars', 'Coding agent', 'Agent browser', 'Computer access', 'Updates'].map((t) => `<button role="tab" aria-selected="${t === 'Updates'}">${t}${t === 'Updates' && state.dot ? `<span class="up-tab-dot${state.dot === 'warn' ? ' is-warn' : ''}"></span>` : ''}</button>`).join('')}</div>
+    ${top}
+    <div class="up-section"><h2>Versions</h2><div class="up-rows">${app}${tools}${engine}</div></div>
+    ${whatsNew ? `<div class="up-section"><h2>What’s new</h2>${whatsNew}</div>` : ''}
+    <div class="up-section"><h2>Preferences</h2>${prefs}</div>
+    <div class="up-section"><h2>Go back</h2>${goBackHtml}</div>
+  </section>${notice()}</div>`;
+}
+
+/* Dialogs ------------------------------------------------------------------- */
+
+function dialog() {
+  if (state.dialog === 'restart') {
+    return `<div class="wb-sheet-backdrop" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><div class="wb-sheet">
+      <div class="wb-sheet-kicker">Restart to update</div>
+      <h2 id="dlg-t">Some work is still running</h2>
+      <p class="wb-sheet-lede">Restarting stops it where it is. Boundary can wait and restart as soon as it finishes.</p>
+      <ul class="up-work">
+        <li><span class="ic">${svg('MessageCircle')}</span><div><b>Trip planning</b><small>Your assistant is replying</small></div><span class="wb-working-dot"></span></li>
+        <li><span class="ic">${svg('Kanban')}</span><div><b>Summarise Q3 invoices</b><small>Board task, running for 12 min</small></div><span class="wb-working-dot"></span></li>
+        <li><span class="ic">${svg('Code')}</span><div><b>Fix login redirect</b><small>Coding job in ~/code/site</small></div><span class="wb-working-dot"></span></li>
+      </ul>
+      <p class="up-foot">Boundary can’t see whether an automation is running. A restart stops any that are.</p>
+      <div class="wb-sheet-actions"><button class="wb-btn-ghost" data-act="cancel">Cancel</button><span class="spacer"></span><button class="wb-btn-ghost" data-act="restart-now">Restart now</button><button class="wb-btn-solid" data-act="wait">Restart when finished</button></div>
+    </div></div>`;
+  }
+  if (state.dialog === 'goback') {
+    return `<div class="wb-sheet-backdrop" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><div class="wb-sheet">
+      <div class="wb-sheet-kicker">Go back</div>
+      <h2 id="dlg-t">Go back to 0.3.4?</h2>
+      <p class="wb-sheet-lede">Your tools and their data return to how they were on 26 Oct at 09:14, just before the update.</p>
+      <dl class="up-kv">
+        <div class="is-lost"><dt>Lost</dt><dd>Anything your tools saved after that: chats and replies, what your assistant remembered, board tasks, and changes to automations.</dd></div>
+        <div><dt>Kept</dt><dd>Files in your project folders and Boundary’s own settings stay as they are.</dd></div>
+      </dl>
+      <p class="up-foot">Boundary won’t install 0.3.5 again by itself.</p>
+      <div class="wb-sheet-actions"><button class="wb-btn-ghost" data-act="cancel">Cancel</button><button class="wb-btn-ghost up-danger" data-act="goback-confirm">Go back and lose changes since 26 Oct</button></div>
+    </div></div>`;
+  }
+  return '';
+}
+
+function menu() {
+  if (!state.menu) return '';
+  return `<span class="up-menu-cap">Boundary menu</span><div class="up-menu" aria-hidden="true"><div>About Boundary</div><div class="is-hl">Restart to Update…</div><hr><div>Settings… <span>⌘,</span></div><hr><div>Services</div><hr><div>Hide Boundary <span>⌘H</span></div><div>Hide Others <span>⌥⌘H</span></div><div>Show All</div><hr><div>Quit Boundary <span>⌘Q</span></div></div>`;
+}
+
+/* Start-up screen (ADR 0029 markup, live startup.css) ----------------------- */
+
+function face(mood) {
+  const eyes = mood === 'sleeping' ? '<path d="M24 40 q5 5 10 0"/><path d="M46 40 q5 5 10 0"/>'
+    : mood === 'ready' ? '<path d="M24 42 q5 -7 10 0"/><path d="M46 42 q5 -7 10 0"/>'
+    : mood === 'error' ? '<path d="M25 41 h8"/><path d="M47 41 h8"/>'
+    : '<g class="su-face-blink"><rect x="25" y="34" width="8" height="13" rx="4"/><rect x="47" y="34" width="8" height="13" rx="4"/></g>';
+  return `<svg class="su-face" data-mood="${mood}" viewBox="0 0 80 80"><line class="su-face-stalk" x1="40" y1="14" x2="40" y2="6"/><circle class="su-face-bulb" cx="40" cy="6" r="3.5"/><rect class="su-face-body" x="10" y="14" width="60" height="54" rx="18"/><g class="su-face-eyes">${eyes}</g></svg>`;
+}
+function ring(states, highlighted, mood) {
+  const step = 360 / TOOLS.length;
+  return `<div class="su-ring"><svg class="su-boundary" viewBox="0 0 300 300"><circle cx="150" cy="150" r="140"/></svg>${face(mood)}
+    <ul class="su-tiles">${TOOLS.map(([, label, icon], i) => `<li class="su-tile" style="--a:${i * step}deg" data-state="${states[i]}" ${i === highlighted ? 'data-highlighted' : ''}><span role="img" aria-label="${label}"><span class="su-tile-box">${svg(icon)}</span></span><span class="su-tile-label">${label}</span></li>`).join('')}</ul></div>`;
+}
+function startup({ rootState, mood, states, highlighted = -1, kick = '', headline, line, hint = '', fill = null, story = '', actions = '' }) {
+  return `<div class="su-root" data-state="${rootState}"><div class="su-column">${ring(states, highlighted, mood)}
+    <div class="su-heading">${kick ? `<span class="su-kick">${kick}</span>` : ''}<h1>${headline}</h1><p>${line}</p>${hint ? `<p class="su-hint">${hint}</p>` : ''}</div>
+    ${fill === null ? '' : `<div class="su-bar"><span style="width:${Math.round(fill * 100)}%"></span></div>`}
+    ${story}${actions}
+    <div class="su-details"><button type="button" class="su-disclosure" aria-expanded="false">${svg('ChevronRight')}Show details</button></div>
+  </div></div>`;
+}
+
+// Stages: [id, seconds, line]. `tiles` says what the ring does during the stage.
+const FLOWS = {
+  apply: {
+    headline: 'Updating your tools',
+    stages: [['backup', 3, 'Saving a copy of your data first', 'dark'], ['install', 4, 'Installing the new version', 'dark'],
+      ['compose', 10, 'Starting your tools', 'wave'], ['health', 3, 'Making sure everything works', 'done']],
+    ready: ['Your tools are up to date', 'Now on 0.3.5.'], after: 'updated',
+  },
+  rollback: {
+    headline: 'Updating your tools',
+    stages: [['backup', 3, 'Saving a copy of your data first', 'dark'], ['install', 4, 'Installing the new version', 'dark'],
+      ['compose', 8, 'Starting your tools', 'wave'], ['health', 4, 'Making sure everything works', 'fail'],
+      ['undo', 5, 'Your tools didn’t start after updating. Boundary is putting back 0.3.4 and your data as they were.', 'dark', 'Undoing the update'],
+      ['compose2', 7, 'Starting your tools', 'wave', 'Starting your assistant'], ['health2', 2, 'Making sure everything works', 'done', 'Starting your assistant']],
+    ready: ['Your assistant is ready', 'The update was undone. Your tools are on 0.3.4.'], after: 'undone',
+  },
+  goback: {
+    headline: 'Going back to 0.3.4',
+    stages: [['stop', 3, 'Stopping your tools', 'stop'], ['restore', 4, 'Putting back your tools and your data from 26 Oct', 'dark'],
+      ['compose', 8, 'Starting your tools', 'wave'], ['health', 2, 'Making sure everything works', 'done']],
+    ready: ['Your tools are back on 0.3.4', ''], after: 'wentback',
+  },
+};
+
+function runFlow(name) {
+  clearInterval(simTimer);
+  const flow = JSON.parse(JSON.stringify(FLOWS[name]));
+  if (name === 'apply' && state.engine) {
+    flow.stages.unshift(['engine', 5, 'Updating the container engine', 'dark', 'Finishing the update', 'This runs once after this update.']);
+    flow.ready = ['Your tools are up to date', 'Boundary is now 0.3.0, and your tools are on 0.3.5.'];
+  }
+  const total = flow.stages.reduce((s, x) => s + x[1], 0);
+  sim = { name, flow, t0: performance.now(), high: 0, card: 0, cardAt: performance.now(), total, last: {} };
+  state.view = 'startup';
+  state.dialog = null;
+  // Build the screen once; tick() changes attributes and text so CSS animations run once per change.
+  win.innerHTML = '<div class="lights"><i></i><i></i><i></i></div>' + `<div class="su-root" data-state="working"><div class="su-column">${ring(TOOLS.map(() => 'pending'), -1, 'working')}
+    <div class="su-heading"></div><div class="su-bar"><span style="width:0%"></span></div><div class="su-storyslot" style="width:100%"></div>
+    <div class="su-details"><button type="button" class="su-disclosure" aria-expanded="false">${svg('ChevronRight')}Show details</button></div></div></div>`;
+  simTimer = setInterval(tick, 200);
+  tick();
+}
+
+function setOnce(key, value, apply) {
+  if (sim.last[key] === value) return;
+  sim.last[key] = value;
+  apply(value);
+}
+
+function tick() {
+  if (!sim) return;
+  const { flow } = sim;
+  const t = (performance.now() - sim.t0) / 1000 * speed;
+  const root = win.querySelector('.su-root');
+  if (!root) return;
+  let acc = 0, cur = null, inStage = 0;
+  for (const s of flow.stages) { if (t < acc + s[1]) { cur = s; inStage = t - acc; break; } acc += s[1]; }
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let states, mood, rootState, headline, line, hint = '', kick = '', story = '', highlighted = -1, fill;
+  if (!cur) {
+    // Ready: held for about three seconds here so it can be read (the app holds 700ms, ADR 0029 decision 8).
+    states = TOOLS.map(() => 'done'); mood = 'ready'; rootState = 'ready';
+    [headline, line] = flow.ready; fill = 1;
+    if (t > sim.total + 3 * speed) {
+      clearInterval(simTimer);
+      const after = flow.after; sim = null;
+      state.view = 'chat'; state.notice = after; state.dot = null;
+      state.variant = after === 'undone' ? 'rolledback' : after === 'wentback' ? 'skipped' : 'uptodate';
+      render();
+      if (after === 'updated') noticeTimer = setTimeout(() => { if (state.notice === 'updated') { state.notice = null; render(); } }, 10000);
+      return;
+    }
+  } else {
+    const [id, len, stageLine, tiles, headlineOverride, stageHint] = cur;
+    const f = Math.min(1, inStage / len);
+    const order = [7, 1, 0, 2, 4, 5, 6, 3];
+    states = TOOLS.map(() => 'pending');
+    if (tiles === 'stop') states = TOOLS.map((_, i) => ((order.indexOf(i) + 1) / 8.5 <= f ? 'pending' : 'done'));
+    if (tiles === 'wave') states = TOOLS.map((_, i) => { const d = (order.indexOf(i) + 1) / 8.5; return f >= d ? 'done' : f >= d - 0.45 ? 'working' : 'pending'; });
+    if (tiles === 'done') states = TOOLS.map((_, i) => (i === 0 && f < 0.7 ? 'working' : 'done'));
+    if (tiles === 'fail') states = TOOLS.map((_, i) => (i === 0 ? (f > 0.6 ? 'error' : 'working') : 'done'));
+    const failed = tiles === 'fail' && f > 0.6;
+    mood = failed ? 'error' : 'working'; rootState = failed ? 'error' : 'working';
+    headline = headlineOverride || flow.headline; line = stageLine; hint = stageHint || '';
+    sim.high = Math.max(sim.high, Math.min(0.98, (acc + inStage) / sim.total)); fill = sim.high;
+    // Story: the update's summary lines from the start, with the tile each one is about highlighted.
+    const showStory = sim.name === 'apply' || (sim.name === 'rollback' && ['backup', 'install', 'compose'].includes(id));
+    if (showStory) {
+      if (!reduce && performance.now() - sim.cardAt > 6000 && !win.matches(':hover')) { sim.card = (sim.card + 1) % SUMMARY.length; sim.cardAt = performance.now(); }
+      const c = SUMMARY[sim.card];
+      highlighted = c.tool ? TOOLS.findIndex(([tid]) => tid === c.tool) : -1;
+      kick = 'What’s new in 0.3.5';
+      story = `<section class="su-story"><div class="su-card"><span class="su-card-icon">${svg(c.tool ? TOOLS[highlighted][2] : 'Sparkles')}</span><div><h2>${c.title}</h2><p>${c.text}</p></div></div>
+        <div class="su-dots">${SUMMARY.map((_, i) => `<button type="button" data-card="${i}" aria-label="Item ${i + 1}" ${i === sim.card ? 'aria-current="true"' : ''}></button>`).join('')}</div></section>`;
+    }
+  }
+  setOnce('root', rootState, (v) => { root.dataset.state = v; });
+  root.querySelectorAll('.su-tile').forEach((li, i) => {
+    if (li.dataset.state !== states[i]) li.dataset.state = states[i];
+    li.toggleAttribute('data-highlighted', i === highlighted);
+  });
+  setOnce('mood', mood, () => { root.querySelector('.su-face').outerHTML = face(mood); });
+  setOnce('heading', kick + headline + line + hint, () => {
+    root.querySelector('.su-heading').innerHTML = `${kick ? `<span class="su-kick">${kick}</span>` : ''}<h1>${headline}</h1>${line ? `<p>${line}</p>` : ''}${hint ? `<p class="su-hint">${hint}</p>` : ''}`;
+  });
+  setOnce('story', story, (v) => { root.querySelector('.su-storyslot').innerHTML = v; });
+  root.querySelector('.su-bar > span').style.width = `${Math.round(fill * 100)}%`;
+}
+
+/* Static screens ----------------------------------------------------------- */
+
+function oldData() {
+  return startup({ rootState: 'error', mood: 'error', states: TOOLS.map(() => 'pending'),
+    headline: 'This copy of Boundary is older than your data',
+    line: 'Boundary 0.3.0 last opened your data, and this copy is 0.2.1. Install 0.3.0 or later to keep going. Nothing has been changed.',
+    actions: '<div class="su-actions"><button class="solid">Download Boundary</button><button>Quit</button></div>' });
+}
+function quitScreen(which) {
+  const lines = {
+    app: 'Stopping your tools. Boundary installs its update and closes.',
+    tools: 'Stopping your tools. They update the next time Boundary starts.',
+    both: 'Stopping your tools. Boundary installs its update and closes, and your tools update when it next starts.',
+  };
+  return `<div class="su-root" data-state="working"><div class="su-column">${ring(TOOLS.map((_, i) => (i < 3 ? 'pending' : i < 5 ? 'working' : 'done')), -1, 'sleeping')}
+    <div class="su-heading"><h1>Shutting down your assistant</h1><p>${lines[which]}</p></div><div class="su-bar"><span style="width:46%"></span></div>
+    <div class="su-details"><button type="button" class="su-disclosure" aria-expanded="false">${svg('ChevronRight')}Show details</button></div></div></div>`;
+}
+
+/* Render ------------------------------------------------------------------- */
+
+let scenario = 'available';
+function render() {
+  if (state.view === 'startup') return; // the simulation draws itself
+  const lights = '<div class="lights"><i></i><i></i><i></i></div>';
+  if (state.view === 'olddata') { win.innerHTML = lights + oldData(); return; }
+  if (state.view === 'quit') { win.innerHTML = lights + quitScreen(state.quit); return; }
+  const active = state.view === 'settings' ? 'settings' : 'chat';
+  win.innerHTML = lights + rail(active) + (state.view === 'settings' ? updatesPage() : chat()) + dialog() + menu();
+}
+
+function setVariants(list, current, onPick) {
+  variantsBar.hidden = !list;
+  if (!list) return;
+  variantsBar.innerHTML = '<span class="lbl">State</span>' + list.map(([id, label]) => `<button data-variant="${id}" aria-pressed="${id === current}">${label}</button>`).join('');
+  variantsBar.onclick = (e) => { const b = e.target.closest('[data-variant]'); if (!b) return; onPick(b.dataset.variant); setVariants(list, b.dataset.variant, onPick); };
+}
+
+function start(name) {
+  scenario = name; reset();
+  document.querySelectorAll('[data-scenario]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scenario === name)));
+  note.innerHTML = NOTES[name];
+  setVariants(null);
+  switch (name) {
+    case 'available':
+      state.banner = 'available'; break;
+    case 'indicator':
+      state.showTip = true; state.menu = true; break;
+    case 'page':
+      state.view = 'settings'; state.dot = null;
+      setVariants(PAGE_VARIANTS, 'ready', (v) => { state.variant = v; state.check = null; state.dialog = null; state.dot = null; render(); });
+      break;
+    case 'restart':
+      state.view = 'settings'; state.dot = null; state.dialog = 'restart'; break;
+    case 'apply':
+      setVariants([['plain', 'Your tools only'], ['engine', 'After a Boundary update (engine stage)']], 'plain', (v) => { state.engine = v === 'engine'; runFlow('apply'); });
+      runFlow('apply'); return;
+    case 'rollback':
+      runFlow('rollback'); return;
+    case 'goback':
+      state.view = 'settings'; state.dot = null; state.variant = 'uptodate'; state.dialog = 'goback'; break;
+    case 'first':
+      state.view = 'settings'; state.dot = null; state.variant = 'first'; break;
+    case 'required':
+      state.dot = 'warn'; state.tip = 'Settings · Security update'; state.showTip = true; state.banner = 'required'; state.variant = 'required'; break;
+    case 'olddata':
+      state.view = 'olddata'; break;
+    case 'quit':
+      state.view = 'quit'; state.quit = 'both';
+      setVariants([['both', 'Both waiting'], ['app', 'Boundary waiting'], ['tools', 'Your tools waiting']], 'both', (v) => { state.quit = v; render(); });
+      break;
+  }
+  render();
+}
+
+win.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-card]');
+  if (card && sim) { sim.card = Number(card.dataset.card); sim.cardAt = performance.now(); tick(); return; }
+  const go = e.target.closest('[data-go]');
+  if (go) {
+    state.view = go.dataset.go; state.menu = false; state.showTip = false;
+    // Opening the Updates page clears the dot, unless the update is required.
+    if (state.view === 'settings' && state.dot !== 'warn') state.dot = null;
+    render(); return;
+  }
+  const a = e.target.closest('[data-act]');
+  if (!a) return;
+  const act = a.dataset.act;
+  const acts = {
+    restart: () => { state.dialog = 'restart'; state.view = state.view === 'chat' ? 'settings' : state.view; if (state.dot !== 'warn') state.dot = null; },
+    'update-now': () => runFlow('apply'),
+    'restart-now': () => { state.engine = true; runFlow('apply'); },
+    wait: () => { state.dialog = null; state.variant = 'waiting'; state.tip = 'Settings · Restarts when work finishes'; },
+    'cancel-wait': () => { state.variant = 'ready'; },
+    cancel: () => { state.dialog = null; },
+    goback: () => { state.dialog = 'goback'; },
+    'goback-confirm': () => { state.dialog = null; runFlow('goback'); },
+    skip: () => { state.variant = 'skipped'; },
+    unskip: () => { state.variant = 'tools'; },
+    download: () => { state.variant = 'downloading'; },
+    'toggle-auto': () => { state.auto = !state.auto; },
+    'toggle-checks': () => { state.checks = !state.checks; state.check = null; },
+    'ch-beta': () => { state.channel = 'beta'; state.channelNote = false; },
+    'ch-stable': () => { if (state.channel === 'beta') state.channelNote = true; state.channel = 'stable'; },
+    check: () => { state.check = 'checking'; setTimeout(() => { state.check = 'done'; render(); }, 900); },
+    'check-offline': () => { state.check = 'checking'; setTimeout(() => { state.check = 'offline2'; render(); }, 900); },
+    'close-notice': () => { state.notice = null; },
+    'see-changes': () => { state.notice = null; state.view = 'settings'; state.variant = 'uptodate'; },
+    'see-undone': () => { state.notice = null; state.view = 'settings'; state.variant = 'rolledback'; },
+    'see-skipped': () => { state.notice = null; state.view = 'settings'; state.variant = 'skipped'; },
+    'hide-banner': () => { state.banner = null; },
+    download: () => { state.banner = 'downloading'; },
+    'download-done': () => { state.banner = 'ready'; },
+    noop: () => {},
+  };
+  if (acts[act]) { acts[act](); if (state.view !== 'startup') render(); }
+});
+
+document.querySelectorAll('[data-scenario]').forEach((b) => b.addEventListener('click', () => start(b.dataset.scenario)));
+document.getElementById('speed').addEventListener('click', (e) => { speed = speed === 4 ? 1 : 4; e.target.textContent = speed === 4 ? 'Speed ×4' : 'Speed ×1'; });
+document.getElementById('theme').addEventListener('click', (e) => {
+  const light = document.documentElement.dataset.theme !== 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  e.target.textContent = light ? 'Dark theme' : 'Light theme';
+});
+start('available');
+</script>
+</body>
+</html>

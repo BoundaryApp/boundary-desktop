@@ -29,6 +29,7 @@ describe('backupStackDataBeforeUpgrade', () => {
     write('n8n/database.sqlite', 'n8n');
     write('hermes/state.db', 'hermes');
     write('neo4j/data/graph', 'neo4j');
+    write('db/18/docker/PG_VERSION', '18');
     write('gptr/outputs/report.md', 'report');
 
     const target = await backupStackDataBeforeUpgrade({ dataRoot, backupsRoot, name: 'data-at-old' });
@@ -37,6 +38,7 @@ describe('backupStackDataBeforeUpgrade', () => {
     expect(fs.readFileSync(path.join(target!, 'n8n', 'database.sqlite'), 'utf8')).toBe('n8n');
     expect(fs.readFileSync(path.join(target!, 'hermes', 'state.db'), 'utf8')).toBe('hermes');
     expect(fs.readFileSync(path.join(target!, 'neo4j', 'data', 'graph'), 'utf8')).toBe('neo4j');
+    expect(fs.existsSync(path.join(target!, 'db', '18', 'docker', 'PG_VERSION'))).toBe(true);
     expect(fs.existsSync(path.join(target!, 'gptr'))).toBe(false);
     expect(fs.existsSync(path.join(target!, 'rag_storage'))).toBe(false);
   });

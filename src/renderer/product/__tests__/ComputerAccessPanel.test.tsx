@@ -80,19 +80,19 @@ describe('Stop agent', () => {
   });
 });
 
-describe('Rotate tokens', () => {
+describe('Replace tokens', () => {
   it('shows it is working, then that the new tokens are in use', async () => {
     let finish!: (result: { success: boolean }) => void;
     hostBridge.rotateTokens.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
     render(<ComputerAccessPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Rotate tokens' }));
-    const button = await screen.findByRole('button', { name: 'Rotating…' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace tokens' }));
+    const button = await screen.findByRole('button', { name: 'Replacing…' });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Stop agent' }) as HTMLButtonElement).disabled).toBe(true);
 
     finish({ success: true });
     expect(await screen.findByText('New tokens are in use. The old ones no longer work.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Rotate tokens' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Replace tokens' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('says what failed', async () => {
@@ -101,7 +101,7 @@ describe('Rotate tokens', () => {
       error: 'Hermes didn’t get the new tokens: Assistant stack is not ready.',
     });
     render(<ComputerAccessPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Rotate tokens' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace tokens' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/Hermes didn’t get the new tokens/);
     expect(screen.queryByText(/New tokens are in use/)).toBeNull();
   });
@@ -110,7 +110,7 @@ describe('Rotate tokens', () => {
     hostBridge.agentStopped.mockResolvedValueOnce({ stopped: true });
     render(<ComputerAccessPanel />);
     await screen.findByRole('button', { name: 'Turn access back on' });
-    expect(screen.queryByRole('button', { name: 'Rotate tokens' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Replace tokens' })).toBeNull();
   });
 
   it('says so when access is back on but Hermes did not get the new tokens', async () => {

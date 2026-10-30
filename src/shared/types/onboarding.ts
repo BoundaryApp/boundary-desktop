@@ -59,6 +59,8 @@ export interface InferenceProvidersStatus {
   appFallbacks?: import('./inferenceChain').InferenceChainEntry[];
   slots: Partial<Record<InferenceSlotId, LlmSlotStatus>>;
   pending?: PendingProviderSetup;
+  /** OpenRouter was disconnected and its key is kept for a reconnect. Nothing sends with it. */
+  savedOpenRouterKey?: { preview?: string; modelId?: string };
 }
 
 export function emptyInferenceProvidersStatus(

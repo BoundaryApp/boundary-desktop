@@ -4,10 +4,11 @@ import { dispatchAppCommand, useAppCommand, useAppShortcuts } from './useAppShor
 import { ProductIconRail, type ProductDestination } from './ProductIconRail';
 import { AssistantServicesScreen } from './AssistantServicesScreen';
 import { ProductSettingsScreen } from './ProductSettingsScreen';
+import { UpdateNotice } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
 import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
-import { useOpenSettingsRequests, type OpenSettingsRequest } from './settingsNavigation';
+import { openSettings, useOpenSettingsRequests, type OpenSettingsRequest } from './settingsNavigation';
 import { onReactRender } from '../debug/lagProbe';
 import { experimentDestinations } from '../experiments';
 import { useTaskOpenRequest } from './chat/kanbanActivity';
@@ -50,6 +51,12 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       onNavigate('chat');
     }
   });
+
+  // Boundary menu → Check for Updates…
+  useEffect(
+    () => window.electronAPI?.updates?.onOpen(() => openSettings({ tab: 'updates' })),
+    []
+  );
 
   // A task notification was clicked: its page lives on the chat screen.
   const taskOpen = useTaskOpenRequest();
@@ -98,6 +105,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Chat draws its own band from the rail and thread headers. */}
         {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
+        <UpdateNotice />
         <Profiler id={`screen:${view}`} onRender={onReactRender}>
           {main}
         </Profiler>

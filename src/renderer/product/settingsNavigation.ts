@@ -1,7 +1,14 @@
 import { useEffect, useRef } from 'react';
 
 /** Settings tabs that other screens can open directly. */
-export type SettingsTab = 'general' | 'passwords' | 'calendars' | 'coding' | 'browser' | 'access';
+export type SettingsTab =
+  | 'general'
+  | 'passwords'
+  | 'calendars'
+  | 'coding'
+  | 'browser'
+  | 'access'
+  | 'updates';
 
 export interface OpenSettingsRequest {
   tab: SettingsTab;

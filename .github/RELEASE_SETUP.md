@@ -28,6 +28,16 @@ Boundary uses **Electron Forge** (not electron-builder):
 
 Before macOS packaging, run `bun run fetch:container-runtime` (also invoked by `dist:mac`) so `resources/container-runtime` is populated for `extraResource`.
 
+## Updates
+
+Boundary updates itself from feeds on the `update-feed` release (docs/updates-plan.md decision 4). In the public repository, set the Actions variable (Settings → Secrets and variables → Actions → **Variables**):
+
+```
+BOUNDARY_UPDATE_FEED_URL=https://github.com/BoundaryApp/boundary-desktop/releases/download/update-feed
+```
+
+Builds without it have updates off, and the release skips the feed step. Every release is published as a prerelease on the beta feed. **Promote to Stable** (Actions → **Run workflow**, with a tag such as `v0.0.1`) writes the stable feed from that release's assets and marks it Latest. `.github/update-summary.txt` holds the line shown in the update notice; change it with each release.
+
 ## Required GitHub Secrets
 
 Add these secrets (Settings → Secrets and variables → Actions):
@@ -95,7 +105,7 @@ Artifacts are uploaded from `out/make/`:
 ### macOS
 
 - `*.dmg` — installer disk image
-- `*.zip` — app archive (keep for future auto-update)
+- `*.zip` — app archive that update feeds point at
 
 ### Windows
 
