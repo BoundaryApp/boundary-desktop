@@ -141,6 +141,7 @@ own plan to find nothing left to write.
 | `data/hermes/profiles/api-server/.env`, `compose/hermes/api-server.env` (`API_SERVER_KEY`) | read | `resolveApiServerKey` | `test:stack` HTTP (credentials) |
 | `data/hermes/config.yaml`, `data/hermes/profiles/<name>/config.yaml` | read | `readHermesProfileConfig` (hermesConfigApply.ts), `hermesConfigExists`, `removeIncompleteHermesProfiles` (assistantPaths.ts) | unit: hermesConfigApply |
 | `data/hermes/.env`, `data/hermes/profiles/<name>/.env` | read and written | `writeHostBridgeTokensToProfiles` (hostBridge/hermesProvision.ts), `editProfileEnv` (calendarService.ts) | unit tests only |
+| `scripts/setup.sh` and the scripts it runs, under macOS `/bin/bash` 3.2 | run | `runSovereignSetup` | the stack's `make bash32-test` (stub `docker`); manual: packaged install |
 | `data/hermes/profiles/<name>/SOUL.md` | read | `resolveSoulFilePath` (agentSoul.ts) | none |
 | `data/hermes/agents/registry.json` | read | `readRegistryAgents` (hermesAgents.ts) | none |
 | `compose/hermes/worker/ssh/id_ed25519` | read | hermesWorkerKey.ts | none |
