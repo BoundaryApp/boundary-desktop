@@ -4,7 +4,16 @@ import type { AssistantStackStatus } from '../../shared/types/assistantStack';
 import type { InferenceProvidersStatus } from '../../shared/types/onboarding';
 import type { OptionalSetupOutcome, SetupProgress } from '../../shared/types/setupProgress';
 
-export type SetupStepId = 'capability' | 'llm-onboarding' | 'folders' | 'assistant-stack';
+/** Ids of the steps experiments add (renderer/experiments.ts); each merges its own in. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- experiments add members by declaration merging
+export interface ExperimentSetupStepIds {}
+
+export type SetupStepId =
+  | 'capability'
+  | 'llm-onboarding'
+  | 'folders'
+  | 'assistant-stack'
+  | keyof ExperimentSetupStepIds;
 
 export type SetupFlowSnapshot = {
   capabilityStatus: CapabilityStatus | null;

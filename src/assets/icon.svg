@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Boundary's app icon: the holed stone with the cold light in the hole, on Apple's 1024 grid
+       (824 body, 100 margin). scripts/build-icons.sh renders icon.png and icon.icns from this. -->
+  <defs>
+    <radialGradient id="iconBg" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#25204a"/>
+      <stop offset=".6" stop-color="#110f20"/>
+      <stop offset="1" stop-color="#07070d"/>
+    </radialGradient>
+    <radialGradient id="stoneFill" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#b3ada2"/>
+      <stop offset=".55" stop-color="#77736a"/>
+      <stop offset="1" stop-color="#3d3a35"/>
+    </radialGradient>
+    <radialGradient id="holeLight">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".22" stop-color="#eef0ff"/>
+      <stop offset=".45" stop-color="#b9b6ff" stop-opacity=".85"/>
+      <stop offset=".7" stop-color="#8b87f8" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#8b87f8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="coldGlow">
+      <stop offset="0" stop-color="#b3b0ff" stop-opacity=".85"/>
+      <stop offset=".4" stop-color="#8b87f8" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#8b87f8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#iconBg)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="185" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width="2"/>
+  <ellipse cx="512" cy="792" rx="230" ry="22" fill="#000" opacity=".4"/>
+  <!-- The stone is drawn in a 100-unit box and scaled into the 640 content area. -->
+  <g transform="translate(192 190) scale(6.4)">
+    <path fill-rule="evenodd" fill="url(#stoneFill)" stroke="#2f2d29" stroke-width="1"
+      d="M12 56C8 34 25 11 53 9C76 8 90 21 92 38C93 48 89 56 89 66C88 82 70 93 45 92C24 91 14 76 12 56Z M45.5 37a12.5 11 0 1 0 25 0a12.5 11 0 1 0 -25 0Z"/>
+    <path d="M46.75 40.85A12.5 11 0 0 0 69.25 40.85" fill="none" stroke="#b3b0ff" stroke-opacity=".5" stroke-width="1.6"/>
+    <ellipse cx="58" cy="37" rx="23.75" ry="20.9" fill="url(#coldGlow)" opacity=".8"/>
+    <ellipse cx="58" cy="37" rx="13.125" ry="11.55" fill="url(#holeLight)"/>
+  </g>
+</svg>

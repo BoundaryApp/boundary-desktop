@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { SETUP_STEPS } from '../steps';
+import { describe, expect, it, vi } from 'vitest';
+
+// The app's own steps; each experiment tests the steps it adds beside its code.
+vi.mock('../../experiments', () => ({ rendererExperiments: [] }));
+
+import { setupSteps } from '../steps';
 import {
   areAllSetupStepsComplete,
   resolveActiveSetupStep,
@@ -38,33 +42,33 @@ function snapshot(setupProgress: SetupProgress | null, stackDone = false): Setup
   };
 }
 
-describe('SETUP_STEPS Folders step', () => {
+describe('setupSteps() Folders step', () => {
   it('sits between Model and Assistant, optional, within the five-step cap', () => {
-    expect(SETUP_STEPS.map((step) => step.label)).toEqual([
+    expect(setupSteps().map((step) => step.label)).toEqual([
       'Machine',
       'Model',
       'Folders',
       'Assistant',
     ]);
-    expect(SETUP_STEPS.length).toBeLessThanOrEqual(5);
-    expect(SETUP_STEPS.filter((step) => step.optional).length).toBeLessThanOrEqual(2);
-    expect(SETUP_STEPS.find((step) => step.id === 'folders')?.optional).toBe(true);
+    expect(setupSteps().length).toBeLessThanOrEqual(5);
+    expect(setupSteps().filter((step) => step.optional).length).toBeLessThanOrEqual(2);
+    expect(setupSteps().find((step) => step.id === 'folders')?.optional).toBe(true);
   });
 
   it('comes after Model on a first run', () => {
-    expect(resolveActiveSetupStep(SETUP_STEPS, snapshot(progress()))?.id).toBe('folders');
+    expect(resolveActiveSetupStep(setupSteps(), snapshot(progress()))?.id).toBe('folders');
   });
 
   it('moves on to Assistant once skipped or done', () => {
     for (const outcome of ['skipped', 'done'] as const) {
       const ctx = snapshot(progress({ outcomes: { folders: outcome } }));
-      expect(resolveActiveSetupStep(SETUP_STEPS, ctx)?.id).toBe('assistant-stack');
+      expect(resolveActiveSetupStep(setupSteps(), ctx)?.id).toBe('assistant-stack');
     }
   });
 
   it('skipping lands in chat once the stack is set up', () => {
     const ctx = snapshot(progress({ outcomes: { folders: 'skipped' } }), true);
-    expect(areAllSetupStepsComplete(SETUP_STEPS, ctx)).toBe(true);
+    expect(areAllSetupStepsComplete(setupSteps(), ctx)).toBe(true);
   });
 
   it('is skipped for upgraders who already had projects', () => {
@@ -72,21 +76,21 @@ describe('SETUP_STEPS Folders step', () => {
       progress({ completedBeforeOptionalSteps: true, hadProjectsBeforeOptionalSteps: true }),
       true
     );
-    expect(resolveActiveSetupStep(SETUP_STEPS, ctx)).toBeNull();
-    expect(areAllSetupStepsComplete(SETUP_STEPS, ctx)).toBe(true);
+    expect(resolveActiveSetupStep(setupSteps(), ctx)).toBeNull();
+    expect(areAllSetupStepsComplete(setupSteps(), ctx)).toBe(true);
   });
 
   it('is shown once to upgraders who had no projects', () => {
     const ctx = snapshot(progress({ completedBeforeOptionalSteps: true }), true);
-    expect(resolveActiveSetupStep(SETUP_STEPS, ctx)?.id).toBe('folders');
+    expect(resolveActiveSetupStep(setupSteps(), ctx)?.id).toBe('folders');
     const answered = snapshot(
       progress({ completedBeforeOptionalSteps: true, outcomes: { folders: 'skipped' } }),
       true
     );
-    expect(areAllSetupStepsComplete(SETUP_STEPS, answered)).toBe(true);
+    expect(areAllSetupStepsComplete(setupSteps(), answered)).toBe(true);
   });
 
   it('never holds setup when the progress record could not be read', () => {
-    expect(resolveActiveSetupStep(SETUP_STEPS, snapshot(null))?.id).toBe('assistant-stack');
+    expect(resolveActiveSetupStep(setupSteps(), snapshot(null))?.id).toBe('assistant-stack');
   });
 });

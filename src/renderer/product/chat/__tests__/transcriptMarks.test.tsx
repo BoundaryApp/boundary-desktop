@@ -118,6 +118,14 @@ describe('transcript marks', () => {
     expect(follows(secondQuestion, switched)).toBe(true);
   });
 
+  it('says which provider answered when a fallback did (ADR 0033 §3)', async () => {
+    chip.marks = [
+      { id: 'f1', at: at(11).toISOString(), kind: 'fell-back', provider: 'openrouter', modelId: 'x/model-a' },
+    ];
+    render(<Harness projectMarks={[]} />);
+    expect(await screen.findByText('Answered by OpenRouter · model-a, a fallback')).toBeTruthy();
+  });
+
   it('draws a mark newer than every message after the last one', async () => {
     render(<Harness projectMarks={[move('m1', at(14).toISOString(), 'p2')]} />);
     const lastAnswer = await screen.findByText('second answer');

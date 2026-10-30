@@ -5,8 +5,16 @@ import { useKanbanSnapshot } from './chat/kanbanActivity';
 import { useRunningTurns } from './chat/runningTurns';
 import { WorkingDot } from './chat/WorkingDot';
 import { isMacPlatform } from './useAppShortcuts';
+import { experimentDestinations } from '../experiments';
 
-export type ProductDestination = 'chat' | 'services' | 'resources' | 'settings';
+/** `experiment:<id>` is a screen a private experiment adds (`ExperimentDestination`). */
+export type ProductDestination =
+  | 'chat'
+  | 'services'
+  | 'resources'
+  | 'circles'
+  | 'settings'
+  | `experiment:${string}`;
 
 interface ProductIconRailProps {
   active: ProductDestination | null;
@@ -25,19 +33,21 @@ function RailButton({
   className = '',
 }: {
   label: string;
-  command: AppCommand;
+  /** Experiment destinations have no shortcut. */
+  command?: AppCommand;
   active: boolean;
   onClick: () => void;
   disabled?: boolean;
   children: React.ReactNode;
   className?: string;
 }) {
+  const shortcut = command ? formatShortcut(command, isMacPlatform()) : null;
   return (
     <button
       type="button"
-      title={`${label}  ${formatShortcut(command, isMacPlatform())}`}
+      title={shortcut ? `${label}  ${shortcut}` : label}
       aria-label={label}
-      aria-keyshortcuts={formatShortcut(command, isMacPlatform()).replace('⌘', 'Meta+')}
+      aria-keyshortcuts={shortcut ? shortcut.replace('⌘', 'Meta+') : undefined}
       aria-current={active ? 'page' : undefined}
       disabled={disabled}
       onClick={onClick}
@@ -106,6 +116,31 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
           <rect x="10.5" y="3.5" width="3" height="10" />
         </svg>
       </RailButton>
+      <RailButton
+        label="Circles"
+        command="go-circles"
+        active={active === 'circles'}
+        onClick={() => onNavigate('circles')}
+        disabled={disabled}
+      >
+        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <circle cx="8" cy="8" r="5.5" />
+          <circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none" />
+          <circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
+          <circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
+        </svg>
+      </RailButton>
+      {experimentDestinations().map(({ id, label, Icon }) => (
+        <RailButton
+          key={id}
+          label={label}
+          active={active === `experiment:${id}`}
+          onClick={() => onNavigate(`experiment:${id}`)}
+          disabled={disabled}
+        >
+          <Icon />
+        </RailButton>
+      ))}
       <RailButton
         label="Settings"
         command="go-settings"

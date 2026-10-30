@@ -138,6 +138,15 @@ import {
 import { hasCalendarAccounts } from './calendar/calendarStore';
 import { CALENDAR_COMPOSE_PROFILE } from './calendar/calendarModel';
 import { rewriteLlmUrlForContainer } from './rewriteLlmUrlForContainer';
+import { planAppInferenceChain, type ChainPlan } from '../inference/inferenceChainService';
+import {
+  ensureInferenceRouter,
+  HERMES_ROUTER_PROVIDER_KEY,
+  HERMES_ROUTER_SESSION_HEADER,
+  inferenceRouterProxyUrl,
+  noteInferenceRouterPushed,
+  setInferenceRouterChain,
+} from '../inference/inferenceRouterService';
 import { runSovereignSetup } from './runSovereignSetup';
 import { syncStackImagePins } from './stackImagePins';
 import { persistDebugLog } from '../../persistDebugLog';
@@ -1607,6 +1616,13 @@ function desiredHermesConfig(input: {
   limits: HermesProfileLimits | null;
   defaultConfig: Record<string, unknown> | null | undefined;
   bridge: HostBridgeEndpoints | null;
+  /**
+   * llm-proxy talks to the inference router, so Hermes sends it the session header (ADR 0033
+   * §7). When false, profiles in `routerEntryProfiles` get the header turned off; others are
+   * left alone so a stack that never routed isn't rewritten.
+   */
+  routed?: boolean;
+  routerEntryProfiles?: ReadonlySet<string>;
 }): DesiredHermesProfile[] {
   const mcpEntries = defaultMcpServerEntries(input.defaultConfig);
   const browserCdpUrl = input.bridge ? hermesBrowserCdpUrl(input.bridge) : undefined;
@@ -1638,11 +1654,22 @@ function desiredHermesConfig(input: {
       set.push([BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT]);
     }
     if (input.bridge) set.push(...hostBridgeHermesConfigSets(input.bridge.mcpPort));
+    const entries = agent ? [...mcpEntries] : [];
+    if (input.modelId && (input.routed || input.routerEntryProfiles?.has(profile))) {
+      entries.push([
+        HERMES_ROUTER_PROVIDER_KEY,
+        {
+          base_url: LLM_PROXY_CLIENT_BASE_URL,
+          api_key: LLM_PROXY_PLACEHOLDER_KEY,
+          session_affinity_header: input.routed ? HERMES_ROUTER_SESSION_HEADER : '',
+        },
+      ]);
+    }
     return {
       profile,
       set,
       setIfUnset,
-      entries: agent ? mcpEntries : [],
+      entries,
       ...(browserCdpUrl !== undefined ? { browserCdpUrl } : {}),
     };
   });
@@ -1732,6 +1759,8 @@ type LlmConnectionRequest =
       apiKey: string;
       modelId: string;
       slot?: InferenceSlotId;
+      /** The chain to serve; absent means this connection alone (ADR 0033). */
+      plan?: ChainPlan;
     }
   | undefined;
 
@@ -1833,17 +1862,27 @@ async function applyLlmConnectionOnce(
       );
     }
 
-    const contextLength = await lookupModelContextLength(llm);
+    // A chat send passes its plan; start-up and Settings serve the app default's chain.
+    const plan = connection ? (connection.plan ?? { kind: 'direct' as const }) : await planAppInferenceChain();
+    const routed = !local && plan.kind === 'routed' ? plan : null;
+    const contextLength = routed?.chain.contextLength ?? (await lookupModelContextLength(llm));
     const upstreamUrl = rewriteLlmUrlForContainer(llm.endpointUrl);
+    setInferenceRouterChain(routed?.chain ?? null);
 
     if (!local) {
       // The real endpoint and key go to llm-proxy, in memory only, on every apply (ADR 0026).
-      // Everything inside the stack talks to the proxy with a placeholder key.
+      // Everything inside the stack talks to the proxy with a placeholder key. A chain sends
+      // the proxy to the router instead, which holds the real keys (ADR 0033 §5).
       stage('Updating the model proxy…');
-      const upstream: LlmProxyUpstream = { url: upstreamUrl, apiKey: llm.apiKey };
+      const router = routed ? await ensureInferenceRouter() : null;
+      const upstream: LlmProxyUpstream = router
+        ? { url: inferenceRouterProxyUrl(router.port), apiKey: router.token }
+        : { url: upstreamUrl, apiKey: llm.apiKey };
       keepLlmProxyUpstream(() => llmProxyTarget(root), upstream);
       let proxied = await pushLlmConnectionToProxy(root, upstream);
       if (proxied.status) noteLlmProxyPushed(proxied.status);
+      // The keeper pushes the same upstream again if this one fails, so the router counts as pushed.
+      if (router) noteInferenceRouterPushed(router.port);
       if (!proxied.ok) {
         persistDebugLog('assistant-stack', 'llm-proxy push failed; recreating it', {
           error: proxied.error,
@@ -1875,9 +1914,17 @@ async function applyLlmConnectionOnce(
         profiles,
         agents: agentProfileNames(),
         modelId: local ? undefined : llm.modelId,
-        limits: profileLimitsFor(root, upstreamUrl, contextLength),
+        limits: profileLimitsFor(
+          root,
+          routed ? rewriteLlmUrlForContainer(routed.slowestUrl) : upstreamUrl,
+          contextLength
+        ),
         defaultConfig: readHermesProfileConfig(dataRoot, ''),
         bridge,
+        routed: Boolean(routed),
+        routerEntryProfiles: new Set(
+          profiles.filter((profile) => hasHermesRouterEntry(readHermesProfileConfig(dataRoot, profile)))
+        ),
       }),
       { required: local ? [] : HERMES_CONFIG_PROFILES }
     );
@@ -1930,7 +1977,7 @@ async function applyLlmConnectionOnce(
       })
     );
 
-    rememberLastApplied(slot, llm.endpointUrl, llm.modelId, contextLength);
+    rememberLastApplied(slot, llm.endpointUrl, llm.modelId, contextLength, Boolean(routed));
     return { success: true };
   } catch (error) {
     const message = redactSecrets(error instanceof Error ? error.message : String(error), [
@@ -1981,15 +2028,25 @@ function rememberLastApplied(
   slot: InferenceSlotId,
   endpointUrl: string,
   modelId: string,
-  contextLength?: number
+  contextLength: number | undefined,
+  routed: boolean
 ): void {
   setLastAppliedLlm({
     slot,
     endpointUrl,
     modelId,
     ...(contextLength ? { contextLength } : {}),
+    ...(routed ? { routed } : {}),
     appliedAt: new Date().toISOString(),
   });
+}
+
+/** A profile already holds Boundary's router provider entry, from an earlier routed apply. */
+function hasHermesRouterEntry(config: Record<string, unknown> | null | undefined): boolean {
+  const providers = config?.providers;
+  return Boolean(
+    providers && typeof providers === 'object' && HERMES_ROUTER_PROVIDER_KEY.split('.')[1] in providers
+  );
 }
 
 /** Profiles of the agents Boundary created (ADR 0010); the built-in one is the default profile. */

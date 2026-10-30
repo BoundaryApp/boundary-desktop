@@ -26,6 +26,7 @@ const api = {
     getStatus: invoker('onboarding:get-status'),
     clearLlmSlot: invoker('onboarding:clear-llm-slot'),
     setAppDefault: invoker('onboarding:set-app-default'),
+    setAppFallbacks: invoker('onboarding:set-app-fallbacks'),
     probeSlotHealth: invoker('onboarding:probe-slot-health'),
     discoverLocalLlms: invoker('onboarding:discover-local-llms'),
     adoptLocalLlm: invoker('onboarding:adopt-local-llm'),
@@ -79,6 +80,22 @@ const api = {
         );
       };
     },
+  },
+  circles: {
+    getState: invoker('circles:get-state'),
+    start: invoker('circles:start'),
+    setDisplayName: invoker('circles:set-display-name'),
+    create: invoker('circles:create'),
+    join: invoker('circles:join'),
+    createInvite: invoker('circles:create-invite'),
+    revokeInvite: invoker('circles:revoke-invite'),
+    setRole: invoker('circles:set-role'),
+    removeMember: invoker('circles:remove-member'),
+    leave: invoker('circles:leave'),
+    setProviderSettings: invoker('circles:set-provider-settings'),
+    setSharing: invoker('circles:set-sharing'),
+    revealDiagnostics: invoker('circles:reveal-diagnostics'),
+    onState: listen('circles:state'),
   },
   hostBridge: {
     onApproval: listen('host-bridge:approval'),

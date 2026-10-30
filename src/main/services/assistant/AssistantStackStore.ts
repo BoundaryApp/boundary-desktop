@@ -98,11 +98,26 @@ export function clearLastAppliedLlm(): void {
   store.delete('lastAppliedLlm');
 }
 
+/**
+ * Whether what Hermes and llm-proxy hold matches `next`. With `routed` given, whether llm-proxy
+ * goes through the router must match too, and for a routed chain so must the context length
+ * Hermes was sized for (ADR 0033 §8–9).
+ */
 export function llmFingerprintsMatch(
   applied: LastAppliedLlm | null,
-  next: { slot: InferenceSlotId; endpointUrl: string; modelId: string }
+  next: {
+    slot: InferenceSlotId;
+    endpointUrl: string;
+    modelId: string;
+    routed?: boolean;
+    contextLength?: number;
+  }
 ): boolean {
   if (!applied) return false;
+  if (next.routed !== undefined) {
+    if (Boolean(applied.routed) !== next.routed) return false;
+    if (next.routed && applied.contextLength !== next.contextLength) return false;
+  }
   return (
     applied.slot === next.slot &&
     applied.modelId === next.modelId &&

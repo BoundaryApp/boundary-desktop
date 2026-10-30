@@ -18,8 +18,10 @@ import type { SetupStepProps } from '../types';
 import { useAssistantStackLifecycle } from '../../product/assistantStack';
 import { rendererExperiments } from '../../experiments';
 
-const ProviderSetupView = rendererExperiments.find((e) => e.ProviderSetupView)?.ProviderSetupView;
-const homeRows = rendererExperiments.flatMap((e) => (e.HomeRow ? [e.HomeRow] : []));
+// Read when called, not at load: an experiment can import setup modules that import this one.
+const providerSetupView = () =>
+  rendererExperiments.find((e) => e.ProviderSetupView)?.ProviderSetupView;
+const homeRows = () => rendererExperiments.flatMap((e) => (e.HomeRow ? [e.HomeRow] : []));
 
 type OnboardingView = 'home' | 'oauth-model' | 'existing' | 'provider-setup';
 
@@ -90,7 +92,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
       stackLifecycle.stage !== undefined);
 
   useEffect(() => {
-    if (status?.pending && ProviderSetupView) {
+    if (status?.pending && providerSetupView()) {
       setPendingSetup(status.pending);
       setView('provider-setup');
       return;
@@ -222,6 +224,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     );
   }
 
+  const ProviderSetupView = providerSetupView();
   if (view === 'provider-setup' && ProviderSetupView) {
     return <ProviderSetupView pending={pendingSetup} onHome={goHome} />;
   }
@@ -253,7 +256,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
           setExistingVariant('local');
           setView('existing');
         }}
-        extraRows={homeRows.map((HomeRow, index) => (
+        extraRows={homeRows().map((HomeRow, index) => (
           <HomeRow
             key={index}
             onSelect={() => {

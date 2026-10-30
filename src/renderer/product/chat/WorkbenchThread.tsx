@@ -490,6 +490,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   // Run control (run-control spec Phase 1): one button in the input's corner sends while
   // idle and stops while a run is in flight. There is no Stop while nothing runs.
   const running = useAuiState((s) => s.thread.isRunning);
+  // A turn a fallback answered leaves a mark in main; fetch it when the turn ends (ADR 0033 §3).
+  const wasRunning = useRef(running);
+  const { refreshAfterTurn } = inference;
+  useEffect(() => {
+    if (wasRunning.current && !running) refreshAfterTurn();
+    wasRunning.current = running;
+  }, [running, refreshAfterTurn]);
   // A turn on this chat that this screen is not streaming: started in another window, or
   // before the chat screen remounted. Stop cancels it in main by its request id.
   const chatTurn = findRunningTurn(useRunningTurns(), sessionId, sameChat);
@@ -600,7 +607,10 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
           ...inferenceMarks.map((mark) => ({
             id: mark.id,
             at: mark.at,
-            text: `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
+            text:
+              mark.kind === 'fell-back'
+                ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
+                : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
             className: 'wb-switch-mark',
           })),
         ],

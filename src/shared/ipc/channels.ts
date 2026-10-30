@@ -6,6 +6,7 @@
  * each channel with `invoker` and subscribes to events with `listen` (src/preload.ts), so
  * `window.electronAPI` takes its types from here.
  */
+import type { CircleRole, CircleSharing, CirclesResult, CirclesState } from '../types/circles';
 import type { AppCommand } from '../appCommands';
 import type { ThemePreference } from '../theme';
 import type { IpcResult } from './result';
@@ -172,6 +173,8 @@ import type {
   SendLlmTestMessageResult,
   SetAppDefaultInput,
   SetAppDefaultResult,
+  SetAppFallbacksInput,
+  SetAppFallbacksResult,
   StartOAuthPkceInput,
   StartOAuthPkceResult,
   UpdateLlmModelInput,
@@ -191,6 +194,27 @@ import type {
  * handler resolves to. An interface, so private experiments can add channels by merging.
  */
 export interface IpcInvokeChannels {
+  'circles:get-state': () => CirclesState;
+  /** Starts the network process if needed; the state comes back on `circles:state` too. */
+  'circles:start': () => CirclesResult;
+  'circles:set-display-name': (input: { name: string }) => CirclesResult;
+  'circles:create': (input: { name: string }) => CirclesResult<{ key: string }>;
+  /** Resolves once an online admin has admitted this device, or with the refusal. */
+  'circles:join': (input: { code: string }) => CirclesResult<{ key: string }>;
+  'circles:create-invite': (input: {
+    key: string;
+    expiresInMs?: number;
+  }) => CirclesResult<{ invite: { id: string; code: string; expires: number } }>;
+  'circles:revoke-invite': (input: { key: string; inviteId: string }) => CirclesResult;
+  'circles:set-role': (input: { key: string; identity: string; role: CircleRole }) => CirclesResult;
+  'circles:remove-member': (input: { key: string; identity: string }) => CirclesResult;
+  'circles:leave': (input: { key: string }) => CirclesResult;
+  /** What this user shares from their local model server, and with which Circles (ADR 0034). */
+  'circles:set-sharing': (input: CircleSharing) => CirclesResult;
+  /** Shows the Circles diagnostics file in Finder, for pulling it off a test machine. */
+  'circles:reveal-diagnostics': () => IpcResult;
+  /** What the user accepts from one provider (ADR 0034 §3); applies from the next send. */
+  'circles:set-provider-settings': (input: { identity: string; private: boolean; trusted: boolean }) => CirclesResult;
   'appearance:get-theme': () => ThemePreference;
   'appearance:set-theme': (preference: ThemePreference) => IpcResult;
   'urls:open-url': (url: string) => IpcResult;
@@ -198,6 +222,7 @@ export interface IpcInvokeChannels {
   'onboarding:get-status': () => InferenceProvidersStatus;
   'onboarding:clear-llm-slot': (input: ClearLlmSlotInput) => ClearOpenAiConfigResult;
   'onboarding:set-app-default': (input: SetAppDefaultInput) => SetAppDefaultResult;
+  'onboarding:set-app-fallbacks': (input: SetAppFallbacksInput) => SetAppFallbacksResult;
   'onboarding:probe-slot-health': (input: ProbeSlotHealthInput) => ProbeSlotHealthResult;
   'onboarding:discover-local-llms': () => DiscoverLocalLlmsResult;
   'onboarding:adopt-local-llm': (input: AdoptLocalLlmInput) => AdoptLocalLlmResult;
@@ -396,6 +421,7 @@ export interface IpcInvokeChannels {
  * `sendEvent` or `broadcast`, which check the payload against this map.
  */
 export interface IpcEventChannels {
+  'circles:state': CirclesState;
   'app:menu-command': AppCommand;
   'local-llm:changed': LocalLlmChangedPayload;
   'capability:progress': string;

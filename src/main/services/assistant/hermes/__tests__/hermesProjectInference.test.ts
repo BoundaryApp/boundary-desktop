@@ -63,6 +63,50 @@ describe('patchHermesProject', () => {
     expect(cleared.project?.inference).toEqual({ mode: 'inherit' });
   });
 
+  it('keeps fallbacks on a pin, dropping the pinned entry and clearing them on inherit', async () => {
+    await saveLocalLlmEndpoint({
+      runtime: 'ollama',
+      endpointUrl: 'http://127.0.0.1:11434/v1/',
+      modelId: 'qwen3:14b',
+    });
+    await saveLlmConnection({
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-key',
+      modelId: 'anthropic/claude-sonnet-4',
+      provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
+    });
+    const pinned = await patchHermesProject({
+      projectId: 'p1',
+      inference: { mode: 'local', fallbacks: [{ slot: 'local' }, { slot: 'openrouter' }] },
+    });
+    expect(pinned.project?.inference).toEqual({
+      mode: 'local',
+      modelId: 'qwen3:14b',
+      fallbacks: [{ slot: 'openrouter' }],
+    });
+    const cleared = await patchHermesProject({
+      projectId: 'p1',
+      inference: { mode: 'inherit', fallbacks: [{ slot: 'openrouter' }] },
+    });
+    expect(cleared.project?.inference).toEqual({ mode: 'inherit' });
+  });
+
+  it('rejects a fallback that is not connected', async () => {
+    await saveLocalLlmEndpoint({
+      runtime: 'ollama',
+      endpointUrl: 'http://127.0.0.1:11434/v1/',
+      modelId: 'qwen3:14b',
+    });
+    const result = await patchHermesProject({
+      projectId: 'p1',
+      inference: { mode: 'local', fallbacks: [{ slot: 'openrouter' }] },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/connect that provider/i);
+    expect(getStoredHermesProject('p1')?.inference?.mode).toBe('inherit');
+  });
+
   it('rejects a pin when the slot is not connected', async () => {
     const result = await patchHermesProject({
       projectId: 'p1',

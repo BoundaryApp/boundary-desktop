@@ -1946,6 +1946,42 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-hover);
 }
 
+.wb-inf-kicker--then {
+  padding-top: 10px;
+}
+
+.wb-inf-fallback-switch {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-ui);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.wb-inf-fallback-switch:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.wb-inf-fallback-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wb-inf-fallback-switch small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
 .wb-inf-reset {
   display: block;
   width: 100%;
@@ -3042,6 +3078,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-muted);
   font-size: var(--size-2xs);
   margin-top: 2px;
+}
+
+.wb-inf-rail-fallback {
+  padding: 6px 8px 0;
 }
 
 .wb-inf-lock {
@@ -4655,6 +4695,25 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-inference-choice.is-on .wb-inference-radio {
   border-color: var(--brand);
   box-shadow: inset 0 0 0 3px var(--brand);
+}
+
+.wb-inference-fallback-head {
+  margin-top: 16px;
+}
+
+.wb-inference-box {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--text-faint);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.wb-inference-check.is-on .wb-inference-box {
+  border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: inset 0 0 0 2px var(--surface-1);
 }
 
 .wb-inference-choice b { display: block; font-weight: var(--weight-medium); overflow-wrap: anywhere; }
@@ -7668,4 +7727,223 @@ button.wb-task-card:hover {
   .wb-cal-progress li.is-now .wb-cal-progress-mark {
     animation: none;
   }
+}
+
+/* Ordered fallbacks after a chain's first entry (ADR 0033 §1), in Settings and a project's
+   Inference block. Skipped entries stay listed, dimmed, with the reason. */
+.wb-chain-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-chain-list,
+.wb-chain-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-chain-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+}
+
+.wb-chain-row.is-skipped .wb-chain-text b {
+  color: var(--text-muted);
+}
+
+.wb-chain-num {
+  min-width: 14px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+
+.wb-chain-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--size-ui);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.wb-chain-text b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.wb-chain-text small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+.wb-chain-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.wb-chain-actions button,
+.wb-chain-add {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+}
+
+.wb-chain-actions button {
+  padding: 3px;
+}
+
+.wb-chain-actions svg,
+.wb-chain-add svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.wb-chain-actions button:hover:not(:disabled),
+.wb-chain-add:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wb-chain-actions button:disabled,
+.wb-chain-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wb-chain-add {
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  align-items: flex-start;
+}
+
+.wb-chain-add svg {
+  margin-top: 2px;
+}
+
+.wb-chain-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+/* Sharing the local model with Circles (ADR 0034), inside Settings' Local card. */
+.wb-share {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.wb-share-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--size-ui);
+  font-weight: var(--weight-medium);
+}
+
+.wb-share-status,
+.wb-share-note,
+.wb-share-error {
+  margin: 0;
+  font-size: var(--size-xs);
+}
+
+.wb-share-status {
+  color: var(--text);
+}
+
+.wb-share-note {
+  color: var(--text-muted);
+}
+
+.wb-share-error {
+  color: var(--danger);
+}
+
+.wb-share-set {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.wb-share-set legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wb-share-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: var(--size-ui);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.wb-share-option input {
+  margin-top: 3px;
+  accent-color: var(--gen);
+}
+
+.wb-share-option small {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+.wb-share-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.wb-share-switch .wb-switch {
+  flex: none;
+}
+
+.wb-share-switch b {
+  display: block;
+  color: var(--text);
+  font-size: var(--size-ui);
+  font-weight: var(--weight-medium);
+}
+
+.wb-share-switch small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
 }

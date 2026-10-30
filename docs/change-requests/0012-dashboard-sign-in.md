@@ -1,7 +1,7 @@
 # 0012 · Dashboard sign-in from Boundary, a task deep link, and a board without the dashboard shell
 
 **Serves:** [task activity spec](../kanban-activity-ux-study/spec.md) (**Open board** and **Open in board**).
-**Status:** R1–R3 delivered (stack overlay on `feat/dashboard-board-links`, unreleased) · Boundary wired
+**Status:** R1–R3 delivered (v0.3.5) · Boundary wired (pinned v0.3.6)
 
 ## Background
 

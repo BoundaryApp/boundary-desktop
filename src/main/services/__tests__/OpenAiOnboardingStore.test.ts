@@ -35,6 +35,7 @@ describe('OpenAiOnboardingStore', () => {
       configured: false,
       encryptionAvailable: true,
       appDefault: null,
+      appFallbacks: [],
       slots: {},
     });
   });

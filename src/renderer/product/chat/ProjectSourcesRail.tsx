@@ -7,6 +7,8 @@ import type {
   ProjectInferencePin,
 } from '../../../shared/types/hermesChat';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { useCirclesState } from '../circles/useCircles';
+import { ChainEditor } from './ChainEditor';
 import { displayHostPath } from './chatTelemetryFormat';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { useDismiss } from '../../components/ui/use-dismiss';
@@ -99,6 +101,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   role,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const circles = useCirclesState();
   const [keptWritable, setKeptWritable] = useState(false);
   const { status } = useInferenceStatus();
   const [patchError, setPatchError] = useState<string | null>(null);
@@ -241,6 +244,11 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const localReady = Boolean(localSlot?.configured && localSlot.modelId);
   const openrouterReady = Boolean(openrouterSlot?.configured && openrouterSlot.modelId);
   const pinBusy = connecting || patching;
+  // A pinned project's fallbacks; inheriting takes the app default's whole chain (ADR 0033 §1).
+  const pin = project.inference;
+  // Picking another provider keeps the fallbacks; main drops one that became the pin.
+  const pinTo = (next: 'local' | 'openrouter', modelId?: string): void =>
+    void applyPin({ mode: next, modelId, ...(pin?.fallbacks ? { fallbacks: pin.fallbacks } : {}) });
 
   const allowPopover = allowOpen ? (
     <div
@@ -540,12 +548,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             aria-selected={mode === 'local'}
             className={`wb-inf-rail-opt${mode === 'local' ? ' is-on' : ''}`}
             disabled={pinBusy}
-            onClick={() =>
-              void applyPin({
-                mode: 'local',
-                modelId: localSlot!.modelId,
-              })
-            }
+            onClick={() => pinTo('local', localSlot!.modelId)}
           >
             {formatInferenceChipTitle('local', localSlot!.modelId!)}
             <small>{mode === 'local' ? 'pinned for this project' : 'pin this project'}</small>
@@ -558,12 +561,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             aria-selected={mode === 'openrouter'}
             className={`wb-inf-rail-opt${mode === 'openrouter' ? ' is-on' : ''}`}
             disabled={pinBusy}
-            onClick={() =>
-              void applyPin({
-                mode: 'openrouter',
-                modelId: openrouterSlot!.modelId,
-              })
-            }
+            onClick={() => pinTo('openrouter', openrouterSlot!.modelId)}
           >
             {formatInferenceChipTitle('openrouter', openrouterSlot!.modelId!)}
             <small>
@@ -572,6 +570,19 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           </button>
         ) : null}
       </div>
+      {mode !== 'inherit' && status ? (
+        <div className="wb-inf-rail-fallback">
+          <div className="wb-inf-kicker">If it doesn't answer</div>
+          <ChainEditor
+            primary={{ slot: mode }}
+            fallbacks={pin?.fallbacks ?? []}
+            ctx={{ slots: status.slots, circles }}
+            disabled={pinBusy}
+            emptyNote="Nothing else. Chats in this project stop and ask."
+            onChange={(next) => void applyPin({ ...pin!, mode, fallbacks: next })}
+          />
+        </div>
+      ) : null}
       <div className="wb-inf-lock is-disabled" aria-disabled="true">
         <b>Privacy: local only</b>
         <span>

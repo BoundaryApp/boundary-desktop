@@ -176,6 +176,7 @@ vi.mock('../sessionInference', () => ({
   ensureResolvedInferenceReady: (...args: unknown[]) =>
     ensureResolvedInferenceReady(...args),
   setSessionInferenceOverride: (...args: unknown[]) => setSessionInferenceOverride(...args),
+  noteFallbackServed: vi.fn(async () => undefined),
 }));
 
 vi.mock('../hermesWebuiSessions', async () => {

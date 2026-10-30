@@ -66,6 +66,8 @@ export interface LastAppliedLlm {
   modelId: string;
   /** Context window the model server reported for it, when it said. */
   contextLength?: number;
+  /** llm-proxy was pointed at the inference router for a chain (ADR 0033). */
+  routed?: boolean;
   appliedAt: string;
 }
 

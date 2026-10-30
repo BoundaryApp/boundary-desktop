@@ -91,7 +91,7 @@ import {
 import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
 import { newestFirst } from '../../../../shared/utils/sort';
-import { ensureResolvedInferenceReady, setSessionInferenceOverride } from './sessionInference';
+import { ensureResolvedInferenceReady, noteFallbackServed, setSessionInferenceOverride } from './sessionInference';
 import { lagLog } from '../../../perf/lagLog';
 import { sendEvent as send } from '../../../ipc';
 import { roundTenth } from '../../../../shared/lagProbe';
@@ -1588,6 +1588,7 @@ export async function startHermesChatStream(
     await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
     const turnSessionIds = [payload.sessionId, sessionId, sessionId ? durableSessionId(sessionId) : null];
     stream.sessionIds = turnSessionIds.filter((id): id is string => Boolean(id));
+    const turnStartedAt = Date.now();
     beginRunningTurn(requestId, turnSessionIds, isChannel ? null : agentSlug);
 
     void (async () => {
@@ -1661,6 +1662,7 @@ export async function startHermesChatStream(
       } finally {
         activeStreams.delete(key);
         endRunningTurn(requestId);
+        if (sessionId) noteFallbackServed(sessionId, turnStartedAt);
       }
     })();
 

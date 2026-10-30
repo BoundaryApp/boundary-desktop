@@ -13,8 +13,11 @@ import type {
   SaveOpenAiConfigResult,
   ClearOpenAiConfigResult,
   SetAppDefaultResult,
+  SetAppFallbacksResult,
   UpdateLlmModelResult,
 } from '../../../shared/types/onboarding';
+import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
+import { isVisibleChatProvider } from '../../../shared/inferenceDisplay';
 import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
 import { isLoopbackHostname } from '../assistant/rewriteLlmUrlForContainer';
 import { secretPreview } from '../secrets/secretPreview';
@@ -46,6 +49,8 @@ interface OpenAiOnboardingStoreShape {
   schemaVersion?: number;
   slots?: InferenceSlots;
   appDefault?: InferenceSlotId | null;
+  /** Slot entries tried after the app default (ADR 0033). Peer entries arrive with Circles. */
+  appFallbacks?: InferenceChainEntry[];
   pendingProviderSetup?: PendingProviderSetup;
   endpointUrl?: string;
   encryptedApiKey?: string;
@@ -295,6 +300,7 @@ export async function getOpenAiOnboardingStatus(): Promise<InferenceProvidersSta
     configured: await slotIsConfigured(defaultConnection),
     encryptionAvailable,
     appDefault,
+    appFallbacks: getAppFallbacks(),
     slots: {},
   };
 
@@ -704,6 +710,71 @@ export async function setAppDefault(slot: InferenceSlotId): Promise<SetAppDefaul
     success: true,
     status: await getOpenAiOnboardingStatus(),
   };
+}
+
+export function getAppFallbacks(): InferenceChainEntry[] {
+  ensureV2Document();
+  return store.get('appFallbacks') ?? [];
+}
+
+const HEX_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * Check a chain's fallbacks against its first entry. Only connected chat providers and
+ * well-formed shared models are accepted, each slot and model once, and never the first
+ * entry's own slot and model. A shared model is kept even while it is stale, so the user
+ * sees it (ADR 0033 §10).
+ */
+export async function keepChainFallbacks(
+  primary: { slot: InferenceSlotId; modelId?: string } | null,
+  entries: InferenceChainEntry[]
+): Promise<{ ok: true; fallbacks: InferenceChainEntry[] } | { ok: false; error: string }> {
+  ensureV2Document();
+  const slots = readSlots();
+  const modelFor = (entry: InferenceChainEntry) =>
+    entry.modelId?.trim() || (entry.slot === 'peer' ? '' : slots[entry.slot]?.modelId?.trim()) || '';
+  const seen = new Set<string>(primary ? [`${primary.slot}:${modelFor(primary)}`] : []);
+  const fallbacks: InferenceChainEntry[] = [];
+  for (const entry of entries) {
+    if (entry.slot === 'peer') {
+      const modelId = entry.modelId?.trim() ?? '';
+      const { circleId, providerId } = entry.peer ?? { circleId: '', providerId: '' };
+      if (!HEX_KEY.test(circleId) || !HEX_KEY.test(providerId) || !modelId || modelId.length > 200) {
+        return { ok: false, error: 'That shared model isn’t one Boundary knows.' };
+      }
+      const key = `peer:${circleId}:${providerId}:${modelId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fallbacks.push({ slot: 'peer', modelId, peer: { circleId, providerId } });
+      continue;
+    }
+    // Fallbacks are the providers a chat can switch to; infrastructure stays hidden (ADR 0015 §3).
+    if (!isVisibleChatProvider(entry.slot) || !(await slotIsConfigured(slots[entry.slot]))) {
+      return { ok: false, error: 'Connect that provider before adding it as a fallback.' };
+    }
+    const key = `${entry.slot}:${modelFor(entry)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // A blank model follows the slot's own model when that changes later.
+    const picked = entry.modelId?.trim();
+    fallbacks.push({ slot: entry.slot, ...(picked ? { modelId: picked } : {}) });
+  }
+  return { ok: true, fallbacks };
+}
+
+/**
+ * Store the app default's fallbacks (see keepChainFallbacks). Saving doesn't restart Hermes;
+ * the next send pushes the chain to the router (ADR 0033 §9).
+ */
+export async function setAppFallbacks(entries: InferenceChainEntry[]): Promise<SetAppFallbacksResult> {
+  ensureV2Document();
+  const appDefault = store.get('appDefault') ?? null;
+  const kept = await keepChainFallbacks(appDefault ? { slot: appDefault } : null, entries);
+  if (kept.ok === false) {
+    return { success: false, error: kept.error, status: await getOpenAiOnboardingStatus() };
+  }
+  store.set('appFallbacks', kept.fallbacks);
+  return { success: true, status: await getOpenAiOnboardingStatus() };
 }
 
 export function setSlotHealth(slot: InferenceSlotId, health: LlmSlotHealth): void {

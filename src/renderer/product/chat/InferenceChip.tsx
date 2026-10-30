@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatInferenceChipTitle,
   formatInferenceProvenance,
+  isVisibleChatProvider,
 } from '../../../shared/inferenceDisplay';
 import type {
   ChatInferenceProvider,
@@ -11,6 +12,7 @@ import type {
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { CLOUD_INFERENCE_SHORT } from '../cloudInferenceCopy';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { FallbackSwitch, fallbackSlotFor, toggledFallbacks } from './FallbackSwitch';
 
 /** The providers a chat can pick, in menu order; see isVisibleChatProvider. */
 const CHAT_PROVIDERS: ChatInferenceProvider[] = ['local', 'openrouter'];
@@ -105,6 +107,36 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
       ];
     });
   }, [status]);
+
+  // The fallback of whichever level supplied the model (ADR 0033 §1). Shown when it is on, or
+  // when the other provider is connected and could be turned on.
+  const fallbackSlot = resolved?.configured ? fallbackSlotFor(resolved.slot) : null;
+  const fallbackStatus = fallbackSlot ? status?.slots[fallbackSlot] : undefined;
+  const fallbackOn = Boolean(fallbackSlot && resolved?.fallbacks?.some((entry) => entry.slot === fallbackSlot));
+  const fallbackReady = Boolean(fallbackStatus?.configured && fallbackStatus.modelId);
+  const fallbackDetail = !fallbackReady
+    ? 'not connected, skipped'
+    : !fallbackOn
+      ? 'off · the chat stops and asks'
+      : resolved?.provenance === 'chat-override'
+        ? 'tried next in this chat'
+        : `tried next · ${formatInferenceProvenance(resolved!.provenance)}`;
+
+  // A chat that inherits gets its own override: levels are not merged (ADR 0033 §1).
+  const toggleFallback = async () => {
+    if (!sessionId || !resolved || !fallbackSlot || !isVisibleChatProvider(resolved.slot)) return;
+    try {
+      await window.electronAPI.hermesChat.setSessionInference({
+        sessionId,
+        provider: resolved.slot,
+        modelId: resolved.modelId,
+        fallbacks: toggledFallbacks(resolved.fallbacks, fallbackSlot, !fallbackOn),
+      });
+    } catch {
+      // The refresh below shows what main kept.
+    }
+    await refresh();
+  };
 
   const pick = async (slot: ChatInferenceProvider, modelId: string) => {
     if (!sessionId) return;
@@ -204,6 +236,18 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
               </button>
             );
           })}
+          {fallbackSlot && (fallbackOn || fallbackReady) ? (
+            <>
+              <div className="wb-inf-kicker wb-inf-kicker--then">If it doesn't answer</div>
+              <FallbackSwitch
+                slot={fallbackSlot}
+                modelId={fallbackStatus?.modelId}
+                on={fallbackOn}
+                detail={fallbackDetail}
+                onToggle={() => void toggleFallback()}
+              />
+            </>
+          ) : null}
           <button type="button" className="wb-inf-reset" onClick={() => void reset()}>
             Use project default
           </button>

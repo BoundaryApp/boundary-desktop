@@ -5,9 +5,11 @@ import { ProductIconRail, type ProductDestination } from './ProductIconRail';
 import { AssistantServicesScreen } from './AssistantServicesScreen';
 import { ProductSettingsScreen } from './ProductSettingsScreen';
 import { ResourcesScreen } from './ResourcesScreen';
+import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
 import { useOpenSettingsRequests, type OpenSettingsRequest } from './settingsNavigation';
 import { onReactRender } from '../debug/lagProbe';
+import { experimentDestinations } from '../experiments';
 import { useTaskOpenRequest } from './chat/kanbanActivity';
 import 'streamdown/styles.css';
 import './chat/workbench.css';
@@ -38,6 +40,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     if (command === 'go-chat') onNavigate('chat');
     else if (command === 'go-services') onNavigate('services');
     else if (command === 'go-resources') onNavigate('resources');
+    else if (command === 'go-circles') onNavigate('circles');
     else if (command === 'go-settings') {
       setSettingsRequest(null);
       onNavigate('settings');
@@ -60,8 +63,14 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     dispatchAppCommand(pendingChatCommand);
   }, [pendingChatCommand, view]);
 
+  const experiment = view.startsWith('experiment:')
+    ? experimentDestinations().find(({ id }) => view === `experiment:${id}`)
+    : undefined;
+
   let main: React.ReactNode;
-  if (view === 'settings') {
+  if (experiment) {
+    main = <experiment.Screen />;
+  } else if (view === 'settings') {
     main = (
       <ProductSettingsScreen
         key={settingsRequest?.seq ?? 0}
@@ -75,6 +84,8 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     main = <AssistantServicesScreen />;
   } else if (view === 'resources') {
     main = <ResourcesScreen />;
+  } else if (view === 'circles') {
+    main = <CirclesScreen />;
   } else {
     main = <WorkbenchChatScreen />;
   }

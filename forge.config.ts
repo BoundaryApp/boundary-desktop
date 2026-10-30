@@ -25,6 +25,21 @@ const VITE_EXTERNAL_PACKAGE_ROOTS = [
   'better-sqlite3',
   'dockerode',
   'ssh2',
+  // The Circles network process (vite.circlesNetwork.config.ts).
+  'autobase',
+  'blind-pairing',
+  'compact-encoding',
+  'corestore',
+  'hyperbee',
+  'hypercore-crypto',
+  'hyperswarm',
+  'protomux',
+  'z32',
+  // Optional native addons of quickbit-universal and simdle-universal, under Hypercore. The tree
+  // below follows `dependencies` only, so they are named here; without them Hypercore falls back
+  // to JavaScript.
+  'quickbit-native',
+  'simdle-native',
 ] as const;
 
 function readPackageJson(packageName: string, fromDir: string): { dependencies?: Record<string, string> } | null {
@@ -51,7 +66,29 @@ function collectPackageTree(roots: readonly string[], sourceRoot: string): strin
   return [...seen];
 }
 
-async function copyViteExternalPackages(buildPath: string): Promise<string[]> {
+/**
+ * Whether to copy a path inside a package. Holepunch addons ship a `prebuilds/<platform>-<arch>`
+ * folder for every target (175 MB for rocksdb-native alone); only the one being packaged is
+ * kept. require-addon picks the folder named for the running platform and arch (`-musl` and
+ * other suffixes are variants of it), so nothing else is ever loaded, and osx-sign would otherwise
+ * meet Linux, Windows and iOS binaries. `.bare` files are the same addons built for the Bare
+ * runtime, which Node never loads; left in, they would be unsigned Mach-O files inside the asar.
+ * Prebuilds that are files rather than folders, such as better-sqlite3's, are left alone.
+ */
+function isPrebuildForTarget(srcPath: string, platform: string, arch: string): boolean {
+  if (srcPath.endsWith('.bare')) return false;
+  const parts = srcPath.split(path.sep);
+  const at = parts.lastIndexOf('prebuilds');
+  if (at === -1 || at !== parts.length - 2 || !fs.statSync(srcPath).isDirectory()) return true;
+  const [folderPlatform, folderArchs = ''] = parts[at + 1].split('-');
+  if (folderPlatform !== platform) return false;
+  const archs = folderArchs.split('+');
+  return arch === 'universal' && platform === 'darwin'
+    ? archs.includes('arm64') || archs.includes('x64')
+    : archs.includes(arch);
+}
+
+async function copyViteExternalPackages(buildPath: string, platform: string, arch: string): Promise<string[]> {
   const sourceRoot = projectRoot;
   const sourceNodeModules = path.join(sourceRoot, 'node_modules');
   const destNodeModules = path.join(buildPath, 'node_modules');
@@ -73,6 +110,7 @@ async function copyViteExternalPackages(buildPath: string): Promise<string[]> {
     await fs.promises.cp(sourcePath, destPath, {
       recursive: true,
       preserveTimestamps: true,
+      filter: (srcPath) => isPrebuildForTarget(srcPath, platform, arch),
     });
     copied.push(packageName);
   }
@@ -124,8 +162,8 @@ const shouldSign = Boolean(
 
 const config: ForgeConfig = {
   hooks: {
-    packageAfterCopy: async (_config, buildPath) => {
-      await copyViteExternalPackages(buildPath);
+    packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
+      await copyViteExternalPackages(buildPath, platform, arch);
       await copyExperimentResources(buildPath);
     },
     postStart: async (_config, child: ChildProcess) => {
@@ -212,7 +250,8 @@ const config: ForgeConfig = {
         }
       : {}),
   },
-  // Rebuild nothing. better-sqlite3 ships N-API prebuilds that load in both Node and Electron.
+  // Rebuild nothing. better-sqlite3 and the Holepunch addons (sodium-native, udx-native,
+  // rocksdb-native and the rest) ship N-API prebuilds that load in both Node and Electron.
   // ssh2's crypto addon and cpu-features are optional: @electron/rebuild skips ssh2's (its
   // binding.gyp isn't at the package root) and doesn't produce cpu-features, and ssh2 falls back
   // to JS crypto without either. An empty list also stops Forge rewriting .node files in place.
@@ -222,7 +261,8 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
-    new MakerDMG({}, ['darwin']),
+    // The mounted disk image shows the app icon instead of a generic drive.
+    new MakerDMG({ icon: 'src/assets/icon.icns' }, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],
@@ -247,6 +287,12 @@ const config: ForgeConfig = {
           // Host bridge utilityProcess (ADR 0027), forked by hostBridgeService.ts.
           entry: 'src/main/services/hostBridge/bridgeProcess.ts',
           config: 'vite.hostBridge.config.ts',
+          target: 'main',
+        },
+        {
+          // Circles network utilityProcess (ADR 0032 §1), forked by circles/networkSpike.ts.
+          entry: 'src/main/services/circles/networkProcess.ts',
+          config: 'vite.circlesNetwork.config.ts',
           target: 'main',
         },
       ],
