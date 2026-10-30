@@ -40,7 +40,7 @@ export const SOVEREIGN_AGENT_STACK_REF = '23a9dcc2bdc2964d141172d6c5ede68ba1a1fc
  *   curl -sL https://github.com/kaxline/sovereign-agent-stack/archive/<ref>.zip | shasum -a 256
  */
 export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
-  '53567bf92f7f6f7290f94ac174703b25b61b3e4b60a87b139053ed322342710b';
+  'a6c72293b1ec0f158593a801ea385fdc6c01b369197a23e992ef11f560dd3e84';
 
 /**
  * Second-copy settings from the stack's docs/extending.md, passed in the compose
