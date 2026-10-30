@@ -39,6 +39,9 @@ jobs:
       - name: Repeated blocks
         run: bun run check:duplicates
 
+      - name: Stack archive checksum
+        run: bun run check:stack-archive
+
       - name: Type check
         continue-on-error: true
         run: bun run type-check
