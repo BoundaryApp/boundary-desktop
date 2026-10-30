@@ -13,6 +13,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    └── 0016 Chat inference override and honest apply
  │    │         └── 0017 Project inference pin and resolve order
  │    │              └── 0033 Inference chains and a host-side router (amends 0016 §4)
+ │    │                   └── 0035 Turn admission and a model gate in the router (proposed, would amend 0033 §5–6)
  │    ├── 0003 Workbench chrome (A + B affordances + light theme)
  │    │    ├── 0013 Project sources inspector (H + I)
     │    │    └── 0028 Coding folders (L)
@@ -79,6 +80,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0032](0032-circles.md) | Accepted | Circles: invite-only groups that network peer to peer |
 | [0033](0033-inference-chains.md) | Accepted · amends 0016 §4 | Inference chains and a host-side router |
 | [0034](0034-shared-models.md) | Accepted | Sharing a local model with a Circle |
+| [0035](0035-turn-admission-and-model-gate.md) | Proposed · would amend 0033 §5–6 | Turn admission and a model gate in the router |
 
 ## Host bridge research
 

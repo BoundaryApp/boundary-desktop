@@ -36,7 +36,7 @@ export type ChainPlan =
   /** More than one entry: llm-proxy talks to the router, which walks `chain`. */
   | { kind: 'routed'; chain: RouterChain; slowestUrl: string }
   /** A privacy-locked project whose chain has no private entry (ADR 0033 §4). */
-  | { kind: 'refused'; error: string };
+  | { kind: 'refused'; error: string; privacy?: true };
 
 /**
  * Turn the resolved primary and the level's fallbacks into what the router serves. Slots are
@@ -119,7 +119,8 @@ export async function planInferenceChain(
   if (!locked.ok) {
     return {
       kind: 'refused',
-      error: 'This project is private, and its inference chain has no private model to send to.',
+      privacy: true,
+      error: 'This project is private and this chat’s model isn’t, so your message wasn’t sent.',
     };
   }
   const usable = locked.entries.filter((state) => !state.stale);

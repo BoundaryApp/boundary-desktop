@@ -165,6 +165,58 @@ describe('ProjectSourcesRail', () => {
     expect(onProjectsUpdated).toHaveBeenCalled();
   });
 
+  describe('Private (ADR 0033 §4)', () => {
+    const rail = (inference: HermesProjectRecord['inference']) =>
+      render(
+        <ProjectSourcesRail
+          project={{ ...project, inference }}
+          inspect={inspect({})}
+          onChangeFolder={noop}
+          onChooseFolder={noop}
+          onRevealHub={noop}
+          onRevealSource={noop}
+          onRefreshIndex={noop}
+          onAddFolder={noop}
+          onRemoveSource={noop}
+          connecting={false}
+          rpcAvailable
+          role={null}
+        />
+      );
+
+    it('turns on from a switch that keeps the pin', async () => {
+      rail({ mode: 'local', modelId: 'qwen3:14b' });
+      await waitFor(() => expect(screen.getByRole('option', { name: /Local · qwen3:14b.*pinned/ })).toBeTruthy());
+      const toggle = screen.getByRole('switch', { name: /^Private/ });
+      expect(toggle.getAttribute('aria-checked')).toBe('false');
+      fireEvent.click(toggle);
+      await waitFor(() => {
+        expect(patchProject).toHaveBeenCalledWith({
+          projectId: 'p1',
+          inference: { mode: 'local', modelId: 'qwen3:14b', privacyLocalOnly: true },
+        });
+      });
+    });
+
+    it('disables the cloud pin and says when the project is pinned to it', async () => {
+      rail({ mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', privacyLocalOnly: true });
+      const cloud = (await screen.findByRole('option', { name: /OpenRouter.*not private/ })) as HTMLButtonElement;
+      expect(cloud.disabled).toBe(true);
+      expect(screen.getByText(/This pin isn’t private, so chats here can’t send/)).toBeTruthy();
+    });
+
+    it('shows a cloud fallback as not used', async () => {
+      rail({
+        mode: 'local',
+        modelId: 'qwen3:14b',
+        privacyLocalOnly: true,
+        fallbacks: [{ slot: 'openrouter' }],
+      });
+      expect(await screen.findByText('Not used: this project is private.')).toBeTruthy();
+      expect(screen.queryByText(/can’t send/)).toBeNull();
+    });
+  });
+
   it("offers a pinned project its own fallback, and keeps it when the pin moves (ADR 0033 §1)", async () => {
     const pinned = { ...project, inference: { mode: 'local' as const, modelId: 'qwen3:14b' } };
     const props = {

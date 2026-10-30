@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { composerBlockFor, composerGate } from '../composerGate';
 
-const none = { connecting: false, restarting: false, credential: false, approval: false, offline: false };
+const none = { connecting: false, restarting: false, credential: false, approval: false, offline: false, private: false };
 
 describe('composerBlockFor', () => {
   it('names the most pressing reason the composer is held', () => {

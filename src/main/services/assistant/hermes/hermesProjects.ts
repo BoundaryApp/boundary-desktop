@@ -22,7 +22,9 @@ import { recreateHermesForProjectMounts } from '../AssistantStackService';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
 import { isLocalAssistantStackMode } from '../localStackMode';
+import { conversationProjectId } from './hermesChatProjects';
 import { getHermesGatewaySession } from './hermesGatewaySession';
+import { listRunningTurns } from './hermesRunningTurns';
 import {
   getActiveHermesProjectId,
   getStoredHermesProject,
@@ -580,6 +582,12 @@ async function normalizeProjectInference(
   };
 }
 
+function projectTurnRunning(projectId: string): boolean {
+  return listRunningTurns().some((turn) =>
+    turn.sessionIds.some((id) => conversationProjectId(id) === projectId)
+  );
+}
+
 /**
  * Patch project inference pin. Does not remount or restart Hermes.
  */
@@ -590,7 +598,19 @@ export async function patchHermesProject(
   if (!project) {
     return { success: false, error: 'Project not found.' };
   }
-  const normalized = await normalizeProjectInference(payload.inference);
+  const wasPrivate = project.inference?.privacyLocalOnly === true;
+  // A pin change doesn't carry the setting, so leaving it out keeps it.
+  const privacyLocalOnly = payload.inference.privacyLocalOnly ?? project.inference?.privacyLocalOnly;
+  if (privacyLocalOnly === true && !wasPrivate && projectTurnRunning(project.id)) {
+    return {
+      success: false,
+      error: 'A reply in this project is still running. Turn on Private when it finishes.',
+      project,
+      projects: listStoredHermesProjects(),
+      activeId: getActiveHermesProjectId(),
+    };
+  }
+  const normalized = await normalizeProjectInference({ ...payload.inference, privacyLocalOnly });
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.
   if (normalized.ok === false) {
     return {

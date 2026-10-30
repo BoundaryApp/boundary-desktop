@@ -380,6 +380,13 @@ export function sharedModelFacts(): {
   };
 }
 
+/** The names a transcript shows for a shared model, or null once the Circle or member is gone. */
+export function sharedProviderNames(peer: PeerModelRef): { person: string; circle: string } | null {
+  const circle = state.snapshot.circles.find((candidate) => candidate.key === peer.circleId);
+  const member = circle?.members.find((candidate) => candidate.identity === peer.providerId);
+  return circle && member ? { person: member.name, circle: circle.name } : null;
+}
+
 /** At launch: start only for a user who already belongs to a Circle. */
 export function startCirclesIfMember(): void {
   if (!hasCircles()) return;

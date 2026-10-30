@@ -244,6 +244,10 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const localReady = Boolean(localSlot?.configured && localSlot.modelId);
   const openrouterReady = Boolean(openrouterSlot?.configured && openrouterSlot.modelId);
   const pinBusy = connecting || patching;
+  const privateOn = project.inference?.privacyLocalOnly === true;
+  // The first entry decides: a chain that starts on a model that isn't private is refused (ADR 0033 §4).
+  const firstSlot = mode === 'inherit' ? appDefault : mode;
+  const privateBlocked = privateOn && firstSlot !== 'local';
   // A pinned project's fallbacks; inheriting takes the app default's whole chain (ADR 0033 §1).
   const pin = project.inference;
   // Picking another provider keeps the fallbacks; main drops one that became the pin.
@@ -560,16 +564,46 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             role="option"
             aria-selected={mode === 'openrouter'}
             className={`wb-inf-rail-opt${mode === 'openrouter' ? ' is-on' : ''}`}
-            disabled={pinBusy}
+            disabled={pinBusy || privateOn}
             onClick={() => pinTo('openrouter', openrouterSlot!.modelId)}
           >
             {formatInferenceChipTitle('openrouter', openrouterSlot!.modelId!)}
             <small>
-              {mode === 'openrouter' ? 'pinned for this project' : 'pin this project'}
+              {privateOn
+                ? 'not private'
+                : mode === 'openrouter'
+                  ? 'pinned for this project'
+                  : 'pin this project'}
             </small>
           </button>
         ) : null}
       </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={privateOn}
+        className={`wb-inf-fallback-switch wb-inference-check${privateOn ? ' is-on' : ''}`}
+        disabled={pinBusy}
+        onClick={() => void applyPin({ mode, ...pin, privacyLocalOnly: !privateOn })}
+      >
+        <span className="wb-inference-box" aria-hidden="true" />
+        <span>
+          Private
+          <small>
+            {privateOn
+              ? 'Chats here use only your local model and people you marked Private in Circles. Task board and scheduled work aren’t covered.'
+              : 'Keep chats here on your local model and people you marked Private in Circles.'}
+          </small>
+        </span>
+      </button>
+      {privateBlocked ? (
+        <p className="wb-warn">
+          {mode === 'inherit' ? appLabel : 'This pin'} isn’t private, so chats here can’t send.{' '}
+          {localReady
+            ? 'Pin your local model or turn off Private.'
+            : 'Connect a local model in Settings or turn off Private.'}
+        </p>
+      ) : null}
       {mode !== 'inherit' && status ? (
         <div className="wb-inf-rail-fallback">
           <div className="wb-inf-kicker">If it doesn't answer</div>
@@ -578,6 +612,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             fallbacks={pin?.fallbacks ?? []}
             ctx={{ slots: status.slots, circles }}
             disabled={pinBusy}
+            privacyLocked={privateOn}
             emptyNote="Nothing else. Chats in this project stop and ask."
             onChange={(next) => void applyPin({ ...pin!, mode, fallbacks: next })}
           />

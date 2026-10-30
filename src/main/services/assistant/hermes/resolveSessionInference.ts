@@ -60,6 +60,13 @@ async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
   return buildResolved(appDefault, connection, 'app-default', getAppFallbacks());
 }
 
+/** The chat's own project is private; with no session yet, the rail's (ADR 0033 §4). */
+export function sessionPrivacyLocked(sessionId?: string | null): boolean {
+  const projectId = sessionId ? conversationProjectId(sessionId) : getActiveHermesProjectId();
+  const project = projectId ? getStoredHermesProject(projectId) : null;
+  return project?.inference?.privacyLocalOnly === true;
+}
+
 /**
  * Phase 3 resolver: chat override → the chat's project pin → app default. A chat's own
  * project applies, never the rail's (ADR 0024 §2). With no session yet (an empty composer)

@@ -21,3 +21,4 @@ Phase 2 resolves chat override over the app default. Users also need a durable p
 - Changing the app default does not rewrite project pins or chat overrides.
 - Chip “Use project default” clears the chat override and surfaces the pin when one exists.
 - `getLlmConnection()` remains the machine default for Settings/onboarding apply.
+- [0033](0033-inference-chains.md) §4 replaces the disabled privacy row in §4 above: the row is a working **Private** switch, and a patch that omits `privacyLocalOnly` keeps the stored value.

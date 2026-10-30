@@ -81,6 +81,7 @@ export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMess
 interface InferenceSendHandlers {
   onLocalUnreachable: () => void;
   onApplyFailed: (error: string) => void;
+  onPrivateRefused: () => void;
   /** The inference a chat with no session yet sends its first turn with, taken once. */
   takeNewChatInference?: () => SessionInferenceOverride | null;
 }
@@ -98,6 +99,7 @@ export function useInferenceSendHandlers(handlers: InferenceSendHandlers): void 
     return ctx.register({
       onLocalUnreachable: () => handlersRef.current.onLocalUnreachable(),
       onApplyFailed: (error) => handlersRef.current.onApplyFailed(error),
+      onPrivateRefused: () => handlersRef.current.onPrivateRefused(),
       takeNewChatInference: () => handlersRef.current.takeNewChatInference?.() ?? null,
     });
   }, [ctx]);
@@ -260,6 +262,7 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
         },
         onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
         onApplyFailed: (error) => sendHandlersRef.current?.onApplyFailed(error),
+        onPrivateRefused: () => sendHandlersRef.current?.onPrivateRefused(),
         takeNewChatInference: () => sendHandlersRef.current?.takeNewChatInference?.() ?? null,
         getServerPath: () => serverPathRef.current,
       }),

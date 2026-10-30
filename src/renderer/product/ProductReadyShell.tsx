@@ -4,11 +4,17 @@ import { dispatchAppCommand, useAppCommand, useAppShortcuts } from './useAppShor
 import { ProductIconRail, type ProductDestination } from './ProductIconRail';
 import { AssistantServicesScreen } from './AssistantServicesScreen';
 import { ProductSettingsScreen } from './ProductSettingsScreen';
+import { SettingsSheet } from './SettingsSheet';
 import { UpdateNotice } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
 import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
-import { openSettings, useOpenSettingsRequests, type OpenSettingsRequest } from './settingsNavigation';
+import {
+  openSettings,
+  useOpenSettingsRequests,
+  type OpenSettingsRequest,
+  type SettingsPanelTab,
+} from './settingsNavigation';
 import { onReactRender } from '../debug/lagProbe';
 import { experimentDestinations } from '../experiments';
 import { useTaskOpenRequest } from './chat/kanbanActivity';
@@ -32,10 +38,22 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     null
   );
 
+  // A panel opened from another screen: it sits over that screen, which stays mounted.
+  const [sheetRequest, setSheetRequest] = useState<(OpenSettingsRequest & { tab: SettingsPanelTab }) | null>(
+    null
+  );
+
   useOpenSettingsRequests((request) => {
-    setSettingsRequest((prev) => ({ ...request, seq: (prev?.seq ?? 0) + 1 }));
-    onNavigate('settings');
+    const { tab } = request;
+    if (tab === 'general' || view === 'settings') {
+      setSettingsRequest((prev) => ({ ...request, seq: (prev?.seq ?? 0) + 1 }));
+      onNavigate('settings');
+    } else {
+      setSheetRequest({ ...request, tab });
+    }
   });
+
+  useEffect(() => setSheetRequest(null), [view]);
 
   useAppCommand((command) => {
     if (command === 'go-chat') onNavigate('chat');
@@ -83,7 +101,6 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
         key={settingsRequest?.seq ?? 0}
         initialTab={settingsRequest?.tab}
         initialAgentSlug={settingsRequest?.agentSlug}
-        connectCalendarFromChat={settingsRequest?.connectFromChat}
         onBack={() => onNavigate('chat')}
       />
     );
@@ -99,10 +116,10 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
 
   return (
     <div className="workbench flex h-screen w-screen overflow-hidden">
-      <ProductIconRail active={view} onNavigate={onNavigate} />
+      <ProductIconRail active={view} onNavigate={onNavigate} inert={Boolean(sheetRequest)} />
       {/* Keep this a flex column: screens scroll by taking `flex: 1; min-height: 0` here.
           As a plain block they grow to their content and the overflow is clipped. */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" inert={Boolean(sheetRequest)}>
         {/* Chat draws its own band from the rail and thread headers. */}
         {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
         <UpdateNotice />
@@ -110,6 +127,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
           {main}
         </Profiler>
       </div>
+      {sheetRequest ? <SettingsSheet request={sheetRequest} onClose={() => setSheetRequest(null)} /> : null}
     </div>
   );
 };

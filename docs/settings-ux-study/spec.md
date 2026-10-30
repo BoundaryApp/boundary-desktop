@@ -12,7 +12,7 @@
 | Phase | Status | Depends on |
 | --- | --- | --- |
 | 1 Type scale and copy pass | Built; live check pending | — |
-| 2 Sheets over the current screen | Not started | — |
+| 2 Sheets over the current screen | Built; live check pending | — |
 | 3 Models destination | Not started | 2 |
 | 4 Move panels to where they act | Not started | 2 |
 | 5 A stack per request type | Not started | 3, stack change request, ADR |
@@ -29,7 +29,7 @@ A user changes a setting from the place it has an effect and sees the effect wit
 4. **Try a request is a dry run.** It walks the stack with main's chain planning and sends nothing to any model. Each entry reports why it answered or was skipped, in the words the chat's provenance line uses.
 5. **One stack per request type, chosen by source.** Tabs: Chat, Coding, Research, Indexing. A type uses the Chat stack until the user gives it its own. As with chat, project and app levels, stacks aren't merged. Type is decided by which service made the request, never by inspecting each request, because switching models between a turn's tool calls breaks the turn (ADR 0033 §7). Per-entry rules ("only for images") in a single list were rejected: order and filters together are hard to predict, and a user would need the dry run to read their own configuration.
 6. **Capability skips stay automatic.** Context size and image support are checks an entry passes or fails, like being online. They aren't routes.
-7. **Settings panels become sheets.** Every panel renders in a sheet over the current screen, and the screen behind stays where it was. `openSettings()` opens the sheet instead of navigating. The `connectFromChat` special case goes away, since closing a sheet always returns to the chat.
+7. **Settings panels become sheets.** A panel opened from another screen renders in a sheet over that screen, which stays mounted and takes no input until the sheet closes. `openSettings()` keeps its signature. On the Settings screen it still switches tabs, and General, which is several sections, still navigates. `connectFromChat` now only starts Calendars on its connect step; closing that step closes the panel.
 8. **Saves are immediate with Undo.** No **Save model** button. The toast says when a change applies. It names a restart only when one happens (ADR 0033 §9).
 9. **A fix sits on the row with the problem.** **Trust Maya** and **Sign in again** are buttons on the stack entry, with the consequence text beside the switch in the details panel.
 
@@ -41,7 +41,7 @@ A user changes a setting from the place it has an effect and sees the effect wit
 | App default, fallbacks | General | Models: stack order | — |
 | Chat override | Composer chip | Composer chip, now listing the whole stack in order | Models › Exceptions |
 | Project pin | Project inspector | Project inspector, same list | Models › Exceptions |
-| Privacy lock | Disabled row in inspector | Working switch in the inspector | Models › Exceptions |
+| Privacy lock | Working switch in the inspector | Working switch in the inspector | Models › Exceptions |
 | Share my model | Inside the Local card | Local entry details and Circles | Settings search |
 | Trusted, Private per person | Circles | Shared entry details and Circles | — |
 | Calendars | Settings tab | Services card, sheet over chat from the setup offer | Settings search |
@@ -96,14 +96,13 @@ Confirm each against source when its phase starts, as the stack contract require
 - **ADR 0033 needs amending** for type stacks: the resolve order becomes chat → project → request type → Chat stack. Context sizing (§8) has to apply per stack, and Hermes sees only the Chat stack.
 - **Two models from one source.** `ChainEditor` offers each slot's saved model only, though entries can carry a `modelId`. The add sheet needs the slot's model list, plus context lengths for models not yet selected.
 - **Image support isn't known** for most models. Phase 5 needs a source, or the check stays out.
-- **The privacy lock's enforcement needs checking end to end.** `privacyLocalOnly` is stored on the project and the inspector row is disabled.
 - **Untrusted providers.** ADR 0034 §3 describes approvals per tool call; the code skips the entry until change request 0015 lands. The prototype follows the code.
 
 ## Phases
 
 **1 Type scale and copy pass.** Tokens, Settings CSS, the copy audit above. Keeps the current structure, so it can ship alone. Reaches the "no settings row taller than two lines" criterion in the explainer text spec.
 
-**2 Sheets.** A sheet host in the ready shell; each panel renders unchanged inside it. `openSettings()` keeps its signature. Tests: open from a chat, close, and confirm the thread and draft are unchanged.
+**2 Sheets.** A sheet in the ready shell; each panel renders inside it. Mounted tests open one from a chat, close it, and confirm the chat wasn't remounted and its draft and focus are unchanged.
 
 **3 Models destination.** Rail entry, stack view on the existing chain IPC, details panel, dry run, inline trust and sign-in. Replaces the two cards, the default radio and `ChainEditor`'s list. The composer chip and project inspector take the same list.
 

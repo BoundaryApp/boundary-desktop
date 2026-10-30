@@ -57,6 +57,8 @@ export interface RouterServed {
   entryKey: string;
   slot: InferenceChainEntryState['entry']['slot'];
   modelId: string;
+  /** Who shares the model, when a shared model served. */
+  peer?: InferenceChainEntryState['entry']['peer'];
   /** A later entry than the chain's first answered, now or earlier in the turn (ADR 0033 §3). */
   fellBack: boolean;
   at: number;
@@ -133,6 +135,19 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
   const sticky = new StickyEntries();
   let port = 0;
   let nextRequest = 0;
+  /** Requests at each entry now, by entry key, from the attempt until its reply ends. */
+  const inFlight = new Map<string, number>();
+  const holdEntry = (key: string): (() => void) => {
+    inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      const left = (inFlight.get(key) ?? 1) - 1;
+      if (left > 0) inFlight.set(key, left);
+      else inFlight.delete(key);
+    };
+  };
 
   async function completions(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const chain = options.getChain();
@@ -153,6 +168,9 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       return;
     }
     const receivedAt = Date.now();
+    const inFlightAtStart = Object.fromEntries(
+      [...inFlight].map(([key, count]) => [shortKey(key), count])
+    );
     const sessionHeader = req.headers[ROUTER_SESSION_HEADER];
     const sessionKey = typeof sessionHeader === 'string' && sessionHeader ? sessionHeader : null;
     const messages = Array.isArray(body.messages) ? (body.messages as Array<{ role?: unknown }>) : [];
@@ -167,6 +185,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     res.on('close', () => client.abort());
     // Set by each attempt; read after the chain run, so not narrowed here.
     let answer = null as Response | null;
+    let releaseServed: () => void = () => undefined;
 
     const timings: Array<{ key: string; ms: number; outcome: string; status?: number }> = [];
     const timed = async (state: InferenceChainEntryState): Promise<ChainAttemptOutcome> => {
@@ -190,6 +209,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       // The client hanging up also stops a reply that is already streaming.
       const signal = AbortSignal.any([client.signal, headerTimeout.signal]);
       const payload = JSON.stringify({ ...body, model: upstream.modelId });
+      const release = holdEntry(state.key);
       try {
         let response: Response;
         if (upstream.peer) {
@@ -207,9 +227,14 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
           });
         }
         answer = response;
-        if (response.ok) return { kind: 'served' };
+        if (response.ok) {
+          releaseServed = release;
+          return { kind: 'served' };
+        }
+        release();
         return { kind: 'status', status: response.status };
       } catch {
+        release();
         // Nobody is waiting for an answer any more, so trying the next entry would be wasted.
         if (client.signal.aborted) return { kind: 'failed-mid-stream', detail: 'client closed' };
         if (headerTimeout.signal.aborted) return { kind: 'header-timeout' };
@@ -227,6 +252,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
         entryKey: result.served.key,
         slot: result.served.entry.slot,
         modelId: chain.upstreams[result.served.key].modelId,
+        ...(result.served.entry.peer ? { peer: result.served.entry.peer } : {}),
         fellBack: result.served.key !== chain.entries[0]?.key,
         at: Date.now(),
       });
@@ -241,6 +267,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       session: sessionKey ? sessionKey.slice(0, 8) : null,
       newTurn: opensNewTurn(messages),
       messages: messages.length,
+      inFlight: inFlightAtStart,
       estTokens: estimateTokens(raw),
       stream: body.stream === true,
       tools: Array.isArray(body.tools) ? body.tools.length : null,
@@ -275,6 +302,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     if (result.ok) headers[ROUTER_SERVED_HEADER] = result.served.key;
     res.writeHead(response.status, headers);
     if (!response.body) {
+      releaseServed();
       res.end();
       return;
     }
@@ -297,6 +325,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     const finishOnce = (how: string): void => {
       if (finished) return;
       finished = true;
+      releaseServed();
       finish(how);
     };
     Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)

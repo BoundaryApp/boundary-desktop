@@ -71,6 +71,7 @@ export function createHermesChatModelAdapter(
     getAgentSlug?: () => string | null;
     onLocalUnreachable?: () => void;
     onApplyFailed?: (error: string) => void;
+    onPrivateRefused?: () => void;
     /** The inference a new chat's first send carries (Send via OpenRouter), taken once. */
     takeNewChatInference?: () => SessionInferenceOverride | null;
     /**
@@ -217,6 +218,10 @@ export function createHermesChatModelAdapter(
         if (start.errorCode === 'rewind-unsupported') serverPath?.setRewindable(false);
         if (start.errorCode === 'local-unreachable') {
           opts?.onLocalUnreachable?.();
+          return;
+        }
+        if (start.errorCode === 'private-refused') {
+          opts?.onPrivateRefused?.();
           return;
         }
         if (start.errorCode === 'apply-failed') {

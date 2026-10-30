@@ -10,7 +10,7 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 1 Chain model and resolver | Done | |
 | 2 Router and chain UI | In progress: fallbacks shipped for the app default, project pins and chat overrides; live proxy case not started | 1 |
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
-| 4 Shared models | In progress: sharing from Settings with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor and the Private and Trusted settings work; untrusted providers don't serve until change request 0015; metering and quotas not started | 2, 3 |
+| 4 Shared models | In progress: sharing from Settings with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor and the Private and Trusted settings work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas not started | 2, 3 |
 | 5 Circle chats | Not started | 3 |
 
 Phases 0 and 1 can run at the same time, and so can 2 and 3.
@@ -73,12 +73,12 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
 - [x] **1.** Resolve takes the first level that has a chain (chat, then project, then app default) and does not merge levels.
 - [x] **2.** A disconnected slot, a left Circle or a withdrawn offer marks its entry stale, and attempts skip it.
-- [x] **3.** In a privacy-locked project the chain stops at the first entry that is not private. A chain with no private entry refuses the send.
-- [x] **4.** A shared model counts as private only when its provider is marked private.
+- [x] **3.** In a privacy-locked project the chain stops at the first entry that is not private, at every level: chat override, project pin and app default, with or without fallbacks. A chain with no private entry refuses the send. (Chat sends only; 0033's consequences list what the lock doesn't cover.)
+- [x] **4.** A shared model counts as private only when its provider is marked private, and then it serves a private project.
 - [x] **5.** A session that a later entry served starts its next request at that entry. A new turn starts from the top.
 - [x] **6.** An entry whose context is smaller than the request is skipped.
 - [x] **7.** Unreachable, 429, 5xx and a header timeout move to the next entry. A reply that has started streaming never moves.
-- [ ] **8.** The chat's provenance line names the entry that served, with the person and Circle for a shared model. (The provider and model are named; the person and Circle wait for phase 4.)
+- [x] **8.** The chat's provenance line names the entry that served, with the person and Circle for a shared model.
 - [x] **9.** A one-entry chain keeps the Retry-or-OpenRouter stop of 0016 §4.
 - [x] **10.** Changing a chain does not restart Hermes unless the model name or context length Hermes sees changes.
 

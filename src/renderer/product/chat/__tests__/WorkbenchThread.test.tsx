@@ -36,7 +36,7 @@ stubElectronAPI({
 });
 
 // The chip reports Local as unreachable until the thread asks it to re-resolve.
-const chip = vi.hoisted(() => ({ afterRefresh: null as unknown }));
+const chip = vi.hoisted(() => ({ afterRefresh: null as unknown, current: null as unknown }));
 vi.mock('../InferenceChip', async () => {
   const { useEffect } = await import('react');
   return {
@@ -51,7 +51,9 @@ vi.mock('../InferenceChip', async () => {
         onResolvedChange?.(
           refreshKey > 0 && chip.afterRefresh
             ? chip.afterRefresh
-            : chip.afterRefresh
+            : chip.current
+              ? chip.current
+              : chip.afterRefresh
               ? { slot: 'local', modelId: 'qwen3:14b', health: 'unreachable', provenance: 'app-default', configured: true }
               : null
         );
@@ -177,6 +179,81 @@ describe('WorkbenchThread failed send (decision D3)', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
     expect(await screen.findByText('back again')).toBeTruthy();
     expect(runs).toBe(2);
+  });
+});
+
+describe('WorkbenchThread in a private project', () => {
+  afterEach(() => {
+    cleanup();
+    chip.current = null;
+  });
+
+  const status = (localConfigured: boolean) =>
+    takeInferenceStatus({
+      status: {
+        configured: true,
+        encryptionAvailable: true,
+        appDefault: 'openrouter',
+        slots: {
+          local: { configured: localConfigured, modelId: 'qwen3:14b' },
+          openrouter: { configured: true, modelId: 'anthropic/claude-sonnet-4' },
+        },
+      },
+    });
+  const refused = {
+    slot: 'openrouter',
+    modelId: 'anthropic/claude-sonnet-4',
+    provenance: 'chat-override',
+    configured: true,
+    privacyLocked: true,
+    privacyRefused: true,
+  };
+
+  it('holds the send, says why, and offers the local model', async () => {
+    chip.current = refused;
+    const setSessionInference = vi.fn().mockResolvedValue({ success: true });
+    stubElectronAPI({ hermesChat: { setSessionInference } });
+    await status(true);
+    const run = vi.fn(async function* () {
+      yield { content: [{ type: 'text' as const, text: 'ok' }] };
+    });
+    await act(async () => void render(<Harness chatAdapter={{ run }} />));
+    expect(screen.getByRole('alert').textContent).toMatch(/private and this chat’s model isn’t/);
+    const input = screen.getByPlaceholderText(/This project is private/) as HTMLTextAreaElement;
+    await act(async () => {
+      setNativeValue(input, 'secret plans', 12);
+      fireEvent.input(input);
+    });
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(run).not.toHaveBeenCalled();
+
+    chip.afterRefresh = { ...refused, slot: 'local', modelId: 'qwen3:14b', privacyRefused: false };
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send with Local · qwen3:14b' })));
+    expect(setSessionInference).toHaveBeenCalledWith({ sessionId: 's1', provider: 'local', modelId: 'qwen3:14b' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(run).toHaveBeenCalled();
+  });
+
+  it('says what to connect when there is no local model', async () => {
+    chip.current = refused;
+    await status(false);
+    await act(async () => void render(<Harness />));
+    expect(screen.getByRole('alert').textContent).toMatch(/Connect a local model in Settings/);
+    expect(screen.queryByRole('button', { name: /Send with/ })).toBeNull();
+  });
+
+  it('never offers OpenRouter when a private chat finds Local unreachable', async () => {
+    chip.current = { ...refused, slot: 'local', modelId: 'qwen3:14b', health: 'unreachable', privacyRefused: false };
+    await status(true);
+    await act(async () => void render(<Harness />));
+    const input = screen.getByPlaceholderText('Message Hermes…') as HTMLTextAreaElement;
+    await act(async () => {
+      setNativeValue(input, 'hello', 5);
+      fireEvent.input(input);
+    });
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(screen.getByText(/Local model unreachable/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Send via OpenRouter' })).toBeNull();
   });
 });
 

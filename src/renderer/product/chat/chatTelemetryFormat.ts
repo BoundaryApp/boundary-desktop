@@ -1,4 +1,4 @@
-import type { HermesChatUsageSnapshot } from '../../../shared/types/hermesChat';
+import type { HermesChatUsageSnapshot, SessionInferenceMark } from '../../../shared/types/hermesChat';
 import { formatTokenCount } from '../../../shared/utils/format';
 
 /** Format context gauge labels per ADR 0004 — never show 0% when max is unknown. */
@@ -74,6 +74,13 @@ export function splitContextBar(
   return { overhead: width - conversationWidth, conversation: conversationWidth };
 }
 
+/** The transcript line for a turn a Circle's shared model answered (ADR 0033 §3). */
+export function sharedFallbackMarkText(mark: Pick<SessionInferenceMark, 'modelId' | 'sharedBy'>): string {
+  return mark.sharedBy
+    ? `Answered by ${mark.modelId}, shared by ${mark.sharedBy.person} in ${mark.sharedBy.circle}, a fallback`
+    : `Answered by ${mark.modelId}, a shared fallback`;
+}
+
 export function formatPhaseLine(opts: {
   phase: string;
   elapsedSec?: number;
@@ -82,6 +89,7 @@ export function formatPhaseLine(opts: {
   maxTurns?: number;
   visibleTokens?: number;
   avgTps?: number | null;
+  sharedUnavailable?: boolean;
 }): string {
   switch (opts.phase) {
     case 'preparing':
@@ -89,6 +97,9 @@ export function formatPhaseLine(opts: {
         ? `Preparing · ${opts.elapsedSec}s`
         : 'Preparing…';
     case 'restarting':
+      if (opts.sharedUnavailable && opts.toolName) {
+        return `Your shared model isn't available. Restarting assistant to use ${opts.toolName}…`;
+      }
       return opts.toolName
         ? `Restarting assistant to apply ${opts.toolName}…`
         : 'Restarting assistant…';

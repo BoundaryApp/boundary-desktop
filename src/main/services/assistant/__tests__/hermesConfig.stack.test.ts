@@ -88,6 +88,52 @@ print(json.dumps(out))
 
 const TEMP_PREFIX = '/tmp/boundary-stack-contract.';
 
+/** Runs one turn against a server that records the header and streams "ok". Prints one JSON line. */
+const REAL_TURN_PROGRAM = `
+import json, os, sys, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+sys.path.insert(0, "/opt/hermes")
+seen = []
+def chunk(delta, finish):
+    return "data: " + json.dumps({"id": "x", "object": "chat.completion.chunk", "created": 1, "model": "contract-model",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}) + "\\n\\n"
+class Model(BaseHTTPRequestHandler):
+    def log_message(self, *args): pass
+    def do_GET(self):
+        body = json.dumps({"object": "list", "data": [{"id": "contract-model", "object": "model", "context_length": 128000}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        seen.append(self.headers.get("${HERMES_ROUTER_SESSION_HEADER}"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write((chunk({"role": "assistant", "content": "ok"}, None) + chunk({}, "stop") + "data: [DONE]\\n\\n").encode())
+server = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+base = "http://127.0.0.1:%d/v1" % server.server_address[1]
+turn_home = os.path.join(os.environ["HERMES_HOME"], "turn")
+os.makedirs(turn_home)
+os.environ["HERMES_HOME"] = turn_home
+with open(os.path.join(turn_home, "config.yaml"), "w") as config:
+    json.dump({"model": {"default": "contract-model", "base_url": base, "provider": "custom", "context_length": 128000},
+        "providers": {"boundary-chain": {"base_url": base, "session_affinity_header": "${HERMES_ROUTER_SESSION_HEADER}"}}}, config)
+try:
+    from run_agent import AIAgent
+    agent = AIAgent(model="contract-model", base_url=base, api_key="x", provider="custom", session_id="contract-root",
+        quiet_mode=True, enabled_toolsets=[], skip_context_files=True, skip_memory=True)
+    result = agent.run_conversation("hi")
+    print(json.dumps({"seen": seen, "reply": (result or {}).get("final_response")}))
+except (Exception, SystemExit) as error:
+    print(json.dumps({"seen": seen, "error": repr(error)}))
+sys.stdout.flush()
+os._exit(0)
+`;
+
 describe.skipIf(!probe.ok)(`Hermes config.yaml keys and the settings program${skipNote(probe)}`, () => {
   const target = (probe.ok ? probe.target : null) as StackTarget;
   let home = '';
@@ -193,5 +239,18 @@ print(json.dumps({"baseUrl": base, "header": get_custom_provider_session_affinit
       { env: { HERMES_HOME: home } }
     );
     expect(out).toEqual({ baseUrl: 'http://llm-proxy:4000/v1', header: HERMES_ROUTER_SESSION_HEADER });
+  });
+
+  // A real AIAgent turn against a fake model server in the container, in a temporary Hermes home.
+  it('a real turn carries the session id in the router session header (ADR 0033 §7)', async () => {
+    const out = await pythonJsonInHermes<{ seen: Array<string | null>; reply?: string; error?: string }>(
+      target,
+      REAL_TURN_PROGRAM,
+      { env: { HERMES_HOME: home } }
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.reply).toBe('ok');
+    expect(out.seen.length).toBeGreaterThan(0);
+    expect(new Set(out.seen)).toEqual(new Set(['contract-root']));
   });
 });

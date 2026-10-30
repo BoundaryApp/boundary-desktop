@@ -34,7 +34,7 @@ import { type DmTab } from './MentionsPane';
 import { DmContextChip, DmFindBar, DmHorizonContext, DmLogHead } from './DmThreadTools';
 import { horizonLabel, horizonPlacement } from './dmHorizon';
 import { withQuote } from '../../../shared/markdownText';
-import { displayHostPath, formatPhaseLine } from './chatTelemetryFormat';
+import { displayHostPath, formatPhaseLine, sharedFallbackMarkText } from './chatTelemetryFormat';
 import { ContextMeter } from './ContextMeter';
 import { ThreadEmpty } from './ThreadEmpty';
 import { RunButton } from './RunButton';
@@ -400,6 +400,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     maxTurns: phaseEvent?.maxTurns,
     visibleTokens: phaseEvent?.visibleTokens,
     avgTps: usage?.avgTps,
+    sharedUnavailable: phaseEvent?.sharedUnavailable,
   });
 
   // Starters fill the composer for editing; they never send on their own.
@@ -420,6 +421,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       credential: Boolean(credentialRequest),
       approval: Boolean(approval),
       offline: offlinePrompt,
+      private: inference.privateRefused,
     })
   );
 
@@ -608,9 +610,11 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             id: mark.id,
             at: mark.at,
             text:
-              mark.kind === 'fell-back'
-                ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
-                : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
+              mark.provider === 'peer'
+                ? sharedFallbackMarkText(mark)
+                : mark.kind === 'fell-back'
+                  ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
+                  : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
             className: 'wb-switch-mark',
           })),
         ],
@@ -770,6 +774,27 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 </div>
               </div>
             ) : null}
+            {inference.privateRefused ? (
+              <div className="wb-offline-prompt" role="alert">
+                <p>
+                  This project is private and this chat’s model isn’t, so nothing can be sent.{' '}
+                  {inference.localModelId
+                    ? 'Use your local model here, or pin one for the project.'
+                    : 'Connect a local model in Settings, mark a shared model’s provider Private in Circles, or turn off Private for the project.'}
+                </p>
+                {inference.localModelId ? (
+                  <div className="wb-offline-actions">
+                    <button
+                      type="button"
+                      className="wb-btn is-solid"
+                      onClick={() => void inference.sendViaLocal()}
+                    >
+                      Send with {formatInferenceChipTitle('local', inference.localModelId)}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="wb-input-box">
               <ComposerPrimitive.Input
                 ref={inputRef as never}
@@ -836,7 +861,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 applying={phase === 'restarting'}
                 projectInferenceKey={
                   activeProject
-                    ? `${activeProject.id}:${activeProject.inference?.mode ?? 'inherit'}:${activeProject.inference?.modelId ?? ''}`
+                    ? `${activeProject.id}:${activeProject.inference?.mode ?? 'inherit'}:${activeProject.inference?.modelId ?? ''}:${activeProject.inference?.privacyLocalOnly === true}`
                     : null
                 }
                 refreshKey={inference.refreshKey}

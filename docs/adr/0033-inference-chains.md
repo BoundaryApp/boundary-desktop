@@ -4,7 +4,7 @@
 - Status: Accepted
 - Parent: [0017](0017-project-inference-pin.md)
 - Amends: [0016](0016-chat-inference-override.md) §4
-- Related: [0026](0026-model-key-lives-in-proxy-memory.md), [0027](0027-host-bridge.md), [0034](0034-shared-models.md), [circles plan](../circles-plan.md)
+- Related: [0026](0026-model-key-lives-in-proxy-memory.md), [0027](0027-host-bridge.md), [0034](0034-shared-models.md), [0035](0035-turn-admission-and-model-gate.md) (proposed: gates model calls in this router), [circles plan](../circles-plan.md)
 
 ## Context
 
@@ -35,4 +35,6 @@ What the stack offers today, checked in its source:
 - LightRAG, OpenCode and GPT Researcher follow the chain too, because they reach models through `llm-proxy`.
 - Hermes's own `fallback_providers` and `fallback_model` stay unset on Boundary-managed profiles. Two fallback layers would make it unclear which entry served a turn.
 - A chain's first entry stays the default the user sees in Settings and on the chip. Later entries show in the chip's popover.
+- The privacy lock is enforced on chat sends: chats, channels, agent DMs, branches, Retry, Edit and Continue all pass `ensureResolvedInferenceReady`. A project's **Private** switch stores `privacyLocalOnly` on its pin. A chat pinned to a model that isn't private keeps its override and has its sends refused, so turning **Private** off restores it. The chat offers the local model; Boundary never switches it unasked. While a private turn runs, a send that would widen the router's chain or restart Hermes waits, because the router and `llm-proxy` hold one chain for the whole stack.
+- The lock covers chat sends only. Kanban tasks and scheduled jobs run in Hermes with no project and use whatever upstream is applied. A coding task that outlives its turn does the same. Titles and memory reviews that Hermes runs after a turn use the upstream applied at that moment. Hermes memory and session search span projects, and a chat outside the project can read its folder, so a cloud chat elsewhere can still carry a private project's content. Web and research tools reach the network in any turn.
 - The router is the first Boundary service in the inference path. Its failures show as the router's 502 or 503 with a reason, through `llm-proxy`.

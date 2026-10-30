@@ -17,7 +17,7 @@ Update the phase line and the AC list as work lands. Do not mark a phase done un
 | 1 Settings store | Done | Two slots + app default. Onboarding still picks one; the other is added in Settings. GPU deploy is hidden, not deprecated. |
 | 2 Chat chip | Done | Visible Hermes restart on connection change. Spike for same-connection model without restart not run; still restarts. |
 | 3 Project pin | Done | Pin on `HermesProjectRecord`, patch IPC, resolve chat → project → app. Privacy row disabled only. |
-| 4 Privacy, cost, restart reduction | Not started | |
+| 4 Privacy, cost, restart reduction | In progress | Privacy lock enforced on chat sends. Cost and restart reduction not started. |
 
 ## Goal
 
@@ -46,7 +46,7 @@ A user can keep a local runtime (Ollama or LM Studio) and OpenRouter at the same
 1. **Onboarding stays one-provider-first.** First-run still picks Local *or* OpenRouter. The other connection is added later in Settings.
 2. **Phase 2 ships the visible restart.** Do not block the first chat-switch release on proving Hermes honors a per-request `model` / provider without restart.
 3. **Chat switch is the composer chip** (study B, variant A), after the project chip.
-4. **Privacy lock is a hard block** when it ships (Phase 4): cloud is disabled for that project, including chat overrides.
+4. **Privacy lock is a hard block** (Phase 4): cloud is disabled for that project, including chat overrides. [ADR 0033](../adr/0033-inference-chains.md) §4 sets the rule; a chain with no private entry is refused, not moved to Local.
 
 Still open (Phase 4):
 
@@ -165,8 +165,8 @@ Check a box when the behavior is in `main` (or the phase branch is merge-ready a
 
 ### Privacy / honesty (Phase 2 + 4)
 
-- [ ] **14.** Privacy-locked project: OpenRouter is disabled in the popover; confirm-to-cloud is not offered. (Phase 4)
-- [ ] **19.** Privacy lock forces Local, disables cloud in that project, and ignores a cloud app default. (Phase 4)
+- [x] **14.** Privacy-locked project: OpenRouter is disabled in the popover; confirm-to-cloud is not offered. (Phase 4)
+- [x] **19.** Privacy lock disables cloud in that project and refuses a send that would use a cloud app default, offering Local. (Phase 4)
 - [x] **20.** No request is sent to OpenRouter unless the resolved provider is OpenRouter **or** the user confirmed the offline prompt. (Phase 2)
 - [x] **21.** Chat stays home; Settings stays a destination; rail / tabs stay 0014.
 - [x] **22.** Existing single-provider onboarding still reaches a configured default. (Phase 1)

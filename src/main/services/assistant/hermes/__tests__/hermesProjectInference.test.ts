@@ -5,6 +5,8 @@ import {
   saveLlmConnection,
   saveLocalLlmEndpoint,
 } from '../../../onboarding/OpenAiOnboardingStore';
+import { setConversationProjectId } from '../hermesChatProjects';
+import { beginRunningTurn, resetRunningTurnsForTests } from '../hermesRunningTurns';
 import {
   clearProjectInferenceForProvider,
   patchHermesProject,
@@ -37,6 +39,33 @@ describe('patchHermesProject', () => {
     await clearOpenAiConfig();
     resetHermesProjectsStoreForTests();
     seedProject();
+  });
+
+  it('keeps Private when the pin changes, and only an explicit false turns it off', async () => {
+    await saveLocalLlmEndpoint({
+      runtime: 'ollama',
+      endpointUrl: 'http://127.0.0.1:11434/v1/',
+      modelId: 'qwen3:14b',
+    });
+    await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit', privacyLocalOnly: true } });
+    await patchHermesProject({ projectId: 'p1', inference: { mode: 'local' } });
+    expect(getStoredHermesProject('p1')?.inference?.privacyLocalOnly).toBe(true);
+    await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit' } });
+    expect(getStoredHermesProject('p1')?.inference?.privacyLocalOnly).toBe(true);
+    await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit', privacyLocalOnly: false } });
+    expect(getStoredHermesProject('p1')?.inference?.privacyLocalOnly).toBe(false);
+  });
+
+  it('refuses to turn on Private while a reply in the project runs', async () => {
+    setConversationProjectId(['s1'], 'p1');
+    beginRunningTurn('r1', ['s1'], null);
+    const result = await patchHermesProject({
+      projectId: 'p1',
+      inference: { mode: 'inherit', privacyLocalOnly: true },
+    });
+    resetRunningTurnsForTests();
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('still running') });
+    expect(getStoredHermesProject('p1')?.inference?.privacyLocalOnly).toBeUndefined();
   });
 
   it('pins a configured provider and clears back to inherit', async () => {

@@ -23,7 +23,7 @@ import { ComputerAccessPanel } from './ComputerAccessPanel';
 import { ChainEditor } from './chat/ChainEditor';
 import { CircleSharingPanel } from './circles/CircleSharingPanel';
 import { useCirclesState } from './circles/useCircles';
-import type { SettingsTab } from './settingsNavigation';
+import { SETTINGS_TABS, type SettingsTab } from './settingsNavigation';
 import { rendererExperiments } from '../experiments';
 
 interface ProductSettingsScreenProps {
@@ -32,8 +32,6 @@ interface ProductSettingsScreenProps {
   initialTab?: SettingsTab;
   /** Passwords & Logins: start on this agent's logins. */
   initialAgentSlug?: string;
-  /** Calendars: start with the connect sheet open; closing it goes back to the chat. */
-  connectCalendarFromChat?: boolean;
 }
 
 function formatLastSeen(iso?: string): string | null {
@@ -79,21 +77,10 @@ function dotClass(slot: LlmSlotStatus | undefined, kind: 'local' | 'openrouter')
   return 'is-off';
 }
 
-const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
-  { id: 'general', label: 'General' },
-  { id: 'passwords', label: 'Passwords & Logins' },
-  { id: 'calendars', label: 'Calendars' },
-  { id: 'coding', label: 'Coding agent' },
-  { id: 'browser', label: 'Agent browser' },
-  { id: 'access', label: 'Computer access' },
-  { id: 'updates', label: 'Updates' },
-];
-
 export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   onBack,
   initialTab,
   initialAgentSlug,
-  connectCalendarFromChat,
 }) => {
   const [themePreference, setThemePreference] = useThemePreference();
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
@@ -432,7 +419,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const openRouterMeta = openRouterPill(openrouter, Boolean(savedOpenRouterKey));
 
   return (
-    <section className="wb-inference" aria-label="Settings">
+    <section className="wb-inference wb-reading" aria-label="Settings">
       <button type="button" className="wb-inference-btn" onClick={onBack}>
         Back to chat
       </button>
@@ -459,7 +446,6 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         ) : tab === 'calendars' ? (
           <CalendarsPanel
             cloudProvider={status?.appDefault === 'openrouter' ? 'OpenRouter' : null}
-            onConnectFromChatClosed={connectCalendarFromChat ? onBack : undefined}
           />
         ) : tab === 'coding' ? (
           <CodingFoldersPanel />

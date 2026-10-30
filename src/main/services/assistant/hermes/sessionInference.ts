@@ -8,6 +8,7 @@ import { probeSlotHealth } from '../../onboarding/probeSlotHealth';
 import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
 import { applyLlmConnectionToHermes } from '../AssistantStackService';
 import { getLastAppliedLlm, llmFingerprintsMatch } from '../AssistantStackStore';
+import { sharedProviderNames } from '../../circles/circlesService';
 import { planInferenceChain } from '../../inference/inferenceChainService';
 import {
   inferenceRouterPushed,
@@ -22,8 +23,34 @@ import {
   listSessionInferenceMarks,
   setSessionInference,
 } from './hermesAgentStore';
-import { resolveSessionInference } from './resolveSessionInference';
+import { resolveSessionInference, sessionPrivacyLocked } from './resolveSessionInference';
 import { listRunningTurns } from './hermesRunningTurns';
+
+/** The level's whole chain, cut by the lock: the one answer the send and the chip both use. */
+async function planResolved(resolved: ResolvedSessionInference, privacyLocked: boolean) {
+  // The level that supplied the model supplies the whole chain (ADR 0033 §1).
+  const fallbacks = resolved.fallbacks ?? [];
+  return fallbacks.length || privacyLocked
+    ? planInferenceChain({ slot: resolved.slot, modelId: resolved.modelId }, fallbacks, { privacyLocked })
+    : ({ kind: 'direct' } as const);
+}
+
+/** What the chat's UI shows: the resolved inference and whether the privacy lock stops a send. */
+async function resolveForChat(sessionId: string | null): Promise<ResolvedSessionInference | null> {
+  const resolved = await resolveSessionInference(sessionId);
+  if (!resolved || !sessionPrivacyLocked(sessionId)) return resolved;
+  const plan = resolved.configured ? await planResolved(resolved, true) : null;
+  return {
+    ...resolved,
+    privacyLocked: true,
+    privacyRefused: plan?.kind === 'refused' && plan.privacy === true,
+  };
+}
+
+/** A private turn's next request goes to the router's current chain, so it can't take a wider one. */
+function privateTurnRunning(): boolean {
+  return listRunningTurns().some((turn) => turn.sessionIds.some((id) => sessionPrivacyLocked(id)));
+}
 
 export async function getSessionInferenceSnapshot(
   sessionId: string
@@ -32,7 +59,7 @@ export async function getSessionInferenceSnapshot(
     return {
       success: false,
       override: null,
-      resolved: await resolveSessionInference(null),
+      resolved: await resolveForChat(null),
       marks: [],
       error: 'Missing session.',
     };
@@ -40,7 +67,7 @@ export async function getSessionInferenceSnapshot(
   return {
     success: true,
     override: getSessionInference(sessionId),
-    resolved: await resolveSessionInference(sessionId),
+    resolved: await resolveForChat(sessionId),
     marks: listSessionInferenceMarks(sessionId),
   };
 }
@@ -58,12 +85,22 @@ export async function setSessionInferenceOverride(
       error: 'Missing session.',
     };
   }
+  // A chain may keep a cloud fallback, which the lock cuts; a chat can't start on one (ADR 0033 §4).
+  if (payload.provider !== 'local' && sessionPrivacyLocked(sessionId)) {
+    return {
+      success: false,
+      override: getSessionInference(sessionId),
+      resolved: await resolveForChat(sessionId),
+      marks: listSessionInferenceMarks(sessionId),
+      error: 'This project is private, so its chats can’t use a cloud model.',
+    };
+  }
   const connection = await getSlotLlmConnection(payload.provider);
   if (!connection) {
     return {
       success: false,
       override: getSessionInference(sessionId),
-      resolved: await resolveSessionInference(sessionId),
+      resolved: await resolveForChat(sessionId),
       marks: listSessionInferenceMarks(sessionId),
       error: 'That provider is not connected.',
     };
@@ -81,7 +118,7 @@ export async function setSessionInferenceOverride(
     return {
       success: false,
       override: prior,
-      resolved: await resolveSessionInference(sessionId),
+      resolved: await resolveForChat(sessionId),
       marks: listSessionInferenceMarks(sessionId),
       error: kept.error,
     };
@@ -105,7 +142,7 @@ export async function clearSessionInferenceOverride(
     return {
       success: false,
       override: null,
-      resolved: await resolveSessionInference(null),
+      resolved: await resolveForChat(null),
       marks: [],
       error: 'Missing session.',
     };
@@ -116,7 +153,7 @@ export async function clearSessionInferenceOverride(
 
 export async function ensureResolvedInferenceReady(
   sessionId: string | undefined,
-  onRestarting?: (resolved: ResolvedSessionInference) => void
+  onRestarting?: (resolved: ResolvedSessionInference, sharedUnavailable: boolean) => void
 ): Promise<
   | { ok: true; resolved: ResolvedSessionInference }
   | { ok: false; error: string; errorCode?: HermesChatStartErrorCode }
@@ -125,12 +162,12 @@ export async function ensureResolvedInferenceReady(
   if (!resolved?.configured) {
     return { ok: false, error: 'No configured LLM connection.' };
   }
-  // The level that supplied the model supplies the whole chain (ADR 0033 §1).
   const fallbacks = resolved.fallbacks ?? [];
-  const plan = fallbacks.length
-    ? await planInferenceChain({ slot: resolved.slot, modelId: resolved.modelId }, fallbacks)
-    : ({ kind: 'direct' } as const);
-  if (plan.kind === 'refused') return { ok: false, error: plan.error };
+  const privacyLocked = sessionPrivacyLocked(sessionId);
+  const plan = await planResolved(resolved, privacyLocked);
+  if (plan.kind === 'refused') {
+    return { ok: false, error: plan.error, ...(plan.privacy ? { errorCode: 'private-refused' as const } : {}) };
+  }
   if (plan.kind === 'routed') {
     // The router falls back on its own, so an unreachable local model is no reason to stop.
     const llm = await getSlotLlmConnection(resolved.slot);
@@ -145,18 +182,30 @@ export async function ensureResolvedInferenceReady(
       contextLength: plan.chain.contextLength,
     });
     if (current && inferenceRouterPushed()) {
+      if (plan.chain.entries.some((state) => !state.private) && privateTurnRunning()) {
+        return {
+          ok: false,
+          error:
+            'A reply in a private project is still running, and this chat can use a model that ' +
+            'isn’t private. Send again when it finishes.',
+        };
+      }
       // Same model and context for Hermes: only the router's chain changes (ADR 0033 §9).
       setInferenceRouterChain(plan.chain);
       return { ok: true, resolved };
     }
-    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot, plan }, onRestarting);
+    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot, plan }, (next) =>
+      onRestarting?.(next, false)
+    );
   }
   if (resolved.slot === 'local') {
     const probed = await probeSlotHealth('local');
     if (probed.health === 'unreachable') {
       return {
         ok: false,
-        error: 'Local model unreachable. Retry, or send this message via OpenRouter.',
+        error: privacyLocked
+          ? 'Local model unreachable. Retry when it’s back.'
+          : 'Local model unreachable. Retry, or send this message via OpenRouter.',
         errorCode: 'local-unreachable',
       };
     }
@@ -171,7 +220,11 @@ export async function ensureResolvedInferenceReady(
         errorCode: 'apply-failed',
       };
     }
-    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot }, onRestarting);
+    // A chain that still lists a shared model is direct only because that model can't serve.
+    const sharedUnavailable = !privacyLocked && fallbacks.some((entry) => entry.slot === 'peer');
+    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot }, (next) =>
+      onRestarting?.(next, sharedUnavailable)
+    );
   }
   return { ok: true, resolved };
 }
@@ -214,8 +267,16 @@ async function applyResolved(
  */
 export function noteFallbackServed(sessionId: string, turnStartedAt: number): void {
   const served = latestInferenceRouterServed();
-  if (!served?.fellBack || served.at < turnStartedAt || !isVisibleChatProvider(served.slot)) return;
+  if (!served?.fellBack || served.at < turnStartedAt) return;
+  const provider = served.slot === 'peer' ? served.slot : isVisibleChatProvider(served.slot) ? served.slot : null;
+  if (!provider) return;
   const last = listSessionInferenceMarks(sessionId).at(-1);
-  if (last?.kind === 'fell-back' && last.provider === served.slot && last.modelId === served.modelId) return;
-  appendSessionInferenceMark(sessionId, { kind: 'fell-back', provider: served.slot, modelId: served.modelId });
+  if (last?.kind === 'fell-back' && last.provider === provider && last.modelId === served.modelId) return;
+  const sharedBy = served.peer ? sharedProviderNames(served.peer) : null;
+  appendSessionInferenceMark(sessionId, {
+    kind: 'fell-back',
+    provider,
+    modelId: served.modelId,
+    ...(sharedBy ? { sharedBy } : {}),
+  });
 }

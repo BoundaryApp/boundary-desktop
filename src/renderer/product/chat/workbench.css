@@ -3826,24 +3826,104 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 /* Inference Settings — docs/inference-ux-study/01-settings.html */
-.wb-inference {
-  /* Reading scale: everything under Settings that uses the chrome sizes picks these up. */
+.wb-reading {
+  /* Reading scale: everything inside that uses the chrome sizes picks these up. */
   --size-2xs: var(--size-meta);
   --size-xs: var(--size-small);
   --size-ui: var(--size-body);
   --size-title: var(--size-section);
   --size-heading: var(--size-page);
   --leading-ui: var(--leading-body);
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--space-8) var(--space-10) 56px;
   font-size: var(--size-body);
   line-height: var(--leading-body);
 }
 
-.wb-inference .text-xs {
+.wb-reading .text-xs {
   font-size: var(--size-small);
+}
+
+.wb-inference {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-8) var(--space-10) 56px;
+}
+
+/* A Settings panel over the current screen. Above the screen's own sheets; the panel's
+   sheets anchor to .wb-settings-sheet, so they aren't clipped by the scrolling body. */
+.wb-settings-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--surface-0) 56%, transparent);
+  animation: wb-fade-in var(--dur-panel) var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.wb-settings-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--settings-sheet-width), 100%);
+  border-left: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
+  animation: wb-rise-in var(--dur-panel) var(--ease);
+  outline: none;
+}
+
+.wb-settings-sheet-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-3);
+}
+
+.wb-settings-sheet-head button:only-child {
+  margin-left: auto;
+}
+
+.wb-settings-sheet-body .wb-settings-section > h2:first-child {
+  margin-top: 0;
+}
+
+.wb-settings-sheet-head h1 {
+  margin: 0;
+  font-size: var(--size-section);
+  font-weight: var(--weight-strong);
+}
+
+.wb-settings-sheet-head button {
+  display: grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.wb-settings-sheet-head button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wb-settings-sheet-head svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wb-settings-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--space-6) var(--space-8);
 }
 
 .wb-inference h1 {

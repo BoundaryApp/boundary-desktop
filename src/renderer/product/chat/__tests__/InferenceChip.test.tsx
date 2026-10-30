@@ -51,6 +51,29 @@ describe('InferenceChip', () => {
     cleanup();
   });
 
+  it('in a private project, disables the cloud and says why a cloud chat can’t send', async () => {
+    getSessionInference.mockResolvedValue({
+      success: true,
+      override: { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
+      resolved: {
+        slot: 'openrouter',
+        modelId: 'anthropic/claude-sonnet-4',
+        providerDisplayName: 'OpenRouter',
+        provenance: 'chat-override',
+        configured: true,
+        needsRestart: false,
+        privacyLocked: true,
+        privacyRefused: true,
+      },
+      marks: [],
+    });
+    render(<InferenceChip sessionId="s1" />);
+    const trigger = await screen.findByRole('button', { name: /not private, can’t send/ });
+    fireEvent.click(trigger);
+    const cloud = (await screen.findByRole('option', { name: /OpenRouter.*not private/ })) as HTMLButtonElement;
+    expect(cloud.disabled).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     getStatus.mockResolvedValue(bothConfigured);

@@ -316,6 +316,8 @@ export interface HermesChatRewindRequest {
 export type HermesChatStartErrorCode =
   | 'gateway-unreachable'
   | 'local-unreachable'
+  /** The privacy lock left the chat's chain with nothing to send to (ADR 0033 §4). */
+  | 'private-refused'
   | 'apply-failed'
   | 'rewind-stale'
   | 'rewind-unsupported';
@@ -550,7 +552,7 @@ export type ProjectInferenceMode = 'inherit' | ChatInferenceProvider;
 export interface ProjectInferencePin {
   mode: ProjectInferenceMode;
   modelId?: string;
-  /** Phase 4 enforcement; Phase 3 may persist/render disabled only. */
+  /** The project is private: every chat in it obeys the privacy lock (ADR 0033 §4). */
   privacyLocalOnly?: boolean;
   /** Tried in order when the pinned provider doesn't answer (ADR 0033). Ignored while inheriting. */
   fallbacks?: import('./inferenceChain').InferenceChainEntry[];
@@ -568,8 +570,11 @@ export interface SessionInferenceMark {
   at: string;
   /** `fell-back`: a turn was answered by a later entry of the inference chain (ADR 0033 §3). */
   kind: 'switched' | 'fell-back';
-  provider: ChatInferenceProvider;
+  /** `peer`: a model shared in a Circle (ADR 0034). */
+  provider: ChatInferenceProvider | 'peer';
   modelId: string;
+  /** Who shared the model, when `provider` is `peer` and they are still in the Circle. */
+  sharedBy?: { person: string; circle: string };
 }
 
 export interface ResolvedSessionInference {
@@ -582,6 +587,10 @@ export interface ResolvedSessionInference {
   needsRestart: boolean;
   /** The fallbacks of the level that supplied this; levels are not merged (ADR 0033 §1). */
   fallbacks?: import('./inferenceChain').InferenceChainEntry[];
+  /** The chat's project is private. Set on chat snapshots. */
+  privacyLocked?: boolean;
+  /** The chat's project is private and its chain has no private model, so a send is refused. */
+  privacyRefused?: boolean;
 }
 
 export interface HermesSessionInferencePayload {
@@ -624,6 +633,8 @@ export interface HermesChatPhaseEvent {
   elapsedSec?: number;
   visibleTokens?: number;
   usage?: HermesChatUsageSnapshot;
+  /** `restarting`: the chat's shared model can't serve, so it is leaving the router. */
+  sharedUnavailable?: boolean;
 }
 
 export interface HermesChatContextFile {
