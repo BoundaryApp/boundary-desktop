@@ -69,7 +69,6 @@ const noRawRendererSend = {
 
 export default defineConfig([
   globalIgnores([
-    'private/**',
     'out/**',
     'dist/**',
     'node_modules/**',
