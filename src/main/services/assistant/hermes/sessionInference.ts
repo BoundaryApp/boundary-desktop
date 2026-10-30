@@ -8,6 +8,7 @@ import { probeSlotHealth } from '../../onboarding/probeSlotHealth';
 import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
 import { applyLlmConnectionToHermes } from '../AssistantStackService';
 import { getLastAppliedLlm, llmFingerprintsMatch } from '../AssistantStackStore';
+import { sharedProviderNames } from '../../circles/circlesService';
 import { planInferenceChain } from '../../inference/inferenceChainService';
 import {
   inferenceRouterPushed,
@@ -116,7 +117,7 @@ export async function clearSessionInferenceOverride(
 
 export async function ensureResolvedInferenceReady(
   sessionId: string | undefined,
-  onRestarting?: (resolved: ResolvedSessionInference) => void
+  onRestarting?: (resolved: ResolvedSessionInference, sharedUnavailable: boolean) => void
 ): Promise<
   | { ok: true; resolved: ResolvedSessionInference }
   | { ok: false; error: string; errorCode?: HermesChatStartErrorCode }
@@ -149,7 +150,9 @@ export async function ensureResolvedInferenceReady(
       setInferenceRouterChain(plan.chain);
       return { ok: true, resolved };
     }
-    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot, plan }, onRestarting);
+    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot, plan }, (next) =>
+      onRestarting?.(next, false)
+    );
   }
   if (resolved.slot === 'local') {
     const probed = await probeSlotHealth('local');
@@ -171,7 +174,11 @@ export async function ensureResolvedInferenceReady(
         errorCode: 'apply-failed',
       };
     }
-    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot }, onRestarting);
+    // A chain that still lists a shared model is direct only because that model can't serve.
+    const sharedUnavailable = fallbacks.some((entry) => entry.slot === 'peer');
+    return applyResolved(resolved, { ...llm, modelId: resolved.modelId, slot: resolved.slot }, (next) =>
+      onRestarting?.(next, sharedUnavailable)
+    );
   }
   return { ok: true, resolved };
 }
@@ -214,8 +221,16 @@ async function applyResolved(
  */
 export function noteFallbackServed(sessionId: string, turnStartedAt: number): void {
   const served = latestInferenceRouterServed();
-  if (!served?.fellBack || served.at < turnStartedAt || !isVisibleChatProvider(served.slot)) return;
+  if (!served?.fellBack || served.at < turnStartedAt) return;
+  const provider = served.slot === 'peer' ? served.slot : isVisibleChatProvider(served.slot) ? served.slot : null;
+  if (!provider) return;
   const last = listSessionInferenceMarks(sessionId).at(-1);
-  if (last?.kind === 'fell-back' && last.provider === served.slot && last.modelId === served.modelId) return;
-  appendSessionInferenceMark(sessionId, { kind: 'fell-back', provider: served.slot, modelId: served.modelId });
+  if (last?.kind === 'fell-back' && last.provider === provider && last.modelId === served.modelId) return;
+  const sharedBy = served.peer ? sharedProviderNames(served.peer) : null;
+  appendSessionInferenceMark(sessionId, {
+    kind: 'fell-back',
+    provider,
+    modelId: served.modelId,
+    ...(sharedBy ? { sharedBy } : {}),
+  });
 }

@@ -126,6 +126,21 @@ describe('transcript marks', () => {
     expect(await screen.findByText('Answered by OpenRouter · model-a, a fallback')).toBeTruthy();
   });
 
+  it('names who shared the model when a shared model answered', async () => {
+    chip.marks = [
+      {
+        id: 'f1',
+        at: at(11).toISOString(),
+        kind: 'fell-back',
+        provider: 'peer',
+        modelId: 'qwen3:14b',
+        sharedBy: { person: 'Ada', circle: 'Friends' },
+      },
+    ];
+    render(<Harness projectMarks={[]} />);
+    expect(await screen.findByText('Answered by qwen3:14b, shared by Ada in Friends, a fallback')).toBeTruthy();
+  });
+
   it('draws a mark newer than every message after the last one', async () => {
     render(<Harness projectMarks={[move('m1', at(14).toISOString(), 'p2')]} />);
     const lastAnswer = await screen.findByText('second answer');

@@ -364,7 +364,7 @@ export function listSessionInferenceMarks(sessionId: string): SessionInferenceMa
 
 export function appendSessionInferenceMark(
   sessionId: string,
-  input: Pick<SessionInferenceMark, 'kind' | 'provider' | 'modelId'>
+  input: Pick<SessionInferenceMark, 'kind' | 'provider' | 'modelId' | 'sharedBy'>
 ): SessionInferenceMark {
   const mark: SessionInferenceMark = {
     id: randomUUID(),
@@ -372,6 +372,7 @@ export function appendSessionInferenceMark(
     kind: input.kind,
     provider: input.provider,
     modelId: input.modelId,
+    ...(input.sharedBy ? { sharedBy: input.sharedBy } : {}),
   };
   const all = { ...(store().get('sessionInferenceMarks') ?? {}) };
   all[sessionId] = [...(all[sessionId] ?? []), mark];

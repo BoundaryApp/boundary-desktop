@@ -46,11 +46,18 @@ export interface TurnEnd {
   error?: unknown;
   /** `message.complete`'s `error_surface.code`, an enum Hermes sets on a failed turn. */
   errorCode?: string | null;
+  /** The last Hermes event this turn saw: its name, and how long before the end it came. */
+  lastEvent?: string | null;
+  lastEventMsAgo?: number | null;
+  /** Hermes `error` events during the turn. Boundary logs these and doesn't act on them. */
+  hermesErrors?: number;
 }
 
 export interface TurnLog {
   /** Write the end line once; later calls do nothing. */
   end(end: TurnEnd): void;
+  /** A line mid-turn, for a turn that goes quiet. `data` is metadata only. */
+  note(message: string, data: Record<string, unknown>): void;
 }
 
 /** Error name and code, never the message. */
@@ -97,9 +104,26 @@ export function startTurnLog(
         ...(end.toolCalls != null ? { toolCalls: end.toolCalls } : {}),
         ...errorIdentity(end.error),
         ...(end.errorCode ? { errorCode: end.errorCode } : {}),
+        ...(end.lastEvent !== undefined ? { lastEvent: end.lastEvent, lastEventMsAgo: end.lastEventMsAgo ?? null } : {}),
+        ...(end.hermesErrors ? { hermesErrors: end.hermesErrors } : {}),
       });
     },
+    note(message, data) {
+      persistDebugLog(AREA, message, { ...ids, ...data });
+    },
   };
+}
+
+/** The wait before a turn exists, which a restart can stretch to many seconds. */
+export function logTurnGate(data: {
+  requestId: string;
+  sessionId: string | undefined;
+  ms: number;
+  restarted: boolean;
+  sharedUnavailable: boolean;
+  blocked: boolean;
+}): void {
+  persistDebugLog('chat-gate', 'turn gate', data);
 }
 
 /** How a turn ended, from runJsonRpcTurn's finish reason and Hermes's completion. */

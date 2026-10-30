@@ -792,6 +792,58 @@ describe('startHermesChatStream inference gate', () => {
   });
 });
 
+describe('Stop before a reply starts', () => {
+  const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+  const sent = (channel: string) =>
+    sender.send.mock.calls.filter(([name]) => name === channel).map(([, event]) => event);
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    submitPrompt.mockResolvedValue(undefined);
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+  });
+
+  it('sends nothing to Hermes and ends the turn when Stop lands during the restart', async () => {
+    const { handleHermesChatCancel, startHermesChatStream } = await import('../hermesChatSessions');
+    ensureResolvedInferenceReady.mockImplementation(async () => {
+      handleHermesChatCancel({ requestId: 'req-gate', reason: 'stopped' });
+      return { ok: true, resolved: {} };
+    });
+
+    const result = await startHermesChatStream(sender as never, {
+      requestId: 'req-gate',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(submitPrompt).not.toHaveBeenCalled();
+    expect(sent('hermes-chat:phase').map((event) => event.phase)).toEqual(['done']);
+    expect(sent('hermes-chat:end')).toEqual([
+      expect.objectContaining({ requestId: 'req-gate', finishReason: 'cancel' }),
+    ]);
+  });
+
+  it('leaves the preparing phase when Stop lands before the first token', async () => {
+    const { handleHermesChatCancel, startHermesChatStream } = await import('../hermesChatSessions');
+    ensureResolvedInferenceReady.mockResolvedValue({ ok: true, resolved: {} });
+    await startHermesChatStream(sender as never, {
+      requestId: 'req-quiet',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+
+    handleHermesChatCancel({ requestId: 'req-quiet', reason: 'stopped' });
+
+    await vi.waitFor(() => expect(sent('hermes-chat:end')).toHaveLength(1));
+    expect(sent('hermes-chat:phase').at(-1)).toMatchObject({ phase: 'done' });
+  });
+});
+
 describe('startHermesChatStream rewind (Edit / Retry)', () => {
   const history = [
     { role: 'user', content: 'first', rowId: 10 },
@@ -1204,8 +1256,30 @@ describe('turn debug log (ADR 0031 §6)', () => {
       durationMs: 4000,
       ttftMs: 1500,
       visibleTokens: 1,
+      lastEvent: 'message.complete',
+      lastEventMsAgo: 0,
       toolCalls: 0,
     });
+  });
+
+  it('logs the last Hermes event and counts error events, without their text', async () => {
+    await startTurn();
+    vi.setSystemTime(T0.getTime() + 1000);
+    emitGateway('error', { session_id: 'sess-1', payload: { message: 'secret words' } });
+    vi.setSystemTime(T0.getTime() + 3000);
+    emitGateway('error', { session_id: 'other', payload: { message: 'another chat' } });
+    const { handleHermesChatCancel } = await import('../hermesChatSessions');
+    handleHermesChatCancel({ requestId: 'req-1' });
+    await until(() => turnLines().at(-1)?.message === 'turn end');
+    const lines = turnLines();
+    expect(lines.at(-1)).toMatchObject({
+      message: 'turn end',
+      lastEvent: 'error',
+      lastEventMsAgo: 2000,
+      hermesErrors: 1,
+    });
+    expect(lines.map((line) => line.message)).toContain('turn hermes error event');
+    expect(JSON.stringify(lines)).not.toContain('secret words');
   });
 
   it('logs a stopped turn', async () => {
@@ -1271,7 +1345,8 @@ describe('turn debug log (ADR 0031 §6)', () => {
     });
     await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(TURN_QUIET_MS);
-    expect(turnLines()[1]).toMatchObject({ outcome: 'timed-out' });
+    expect(turnLines()[1]).toMatchObject({ message: 'turn quiet check', status: 'idle', keep: false });
+    expect(turnLines()[2]).toMatchObject({ outcome: 'timed-out' });
   });
 
   it('writes no message text, reply text, title or tool details to the log', async () => {

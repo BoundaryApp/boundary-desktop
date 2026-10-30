@@ -17,17 +17,14 @@ vi.mock('../ProductSettingsScreen', () => ({
     onBack,
     initialTab,
     initialAgentSlug,
-    connectCalendarFromChat,
   }: {
     onBack: () => void;
     initialTab?: string;
     initialAgentSlug?: string;
-    connectCalendarFromChat?: boolean;
   }) => (
     <div>
       <span>settings-screen</span>
       <span>{`tab:${initialTab ?? 'none'} agent:${initialAgentSlug ?? 'none'}`}</span>
-      {connectCalendarFromChat ? <span>connect-from-chat</span> : null}
       <button type="button" onClick={onBack}>
         back-to-chat
       </button>
@@ -44,24 +41,19 @@ describe('ProductReadyShell navigation', () => {
     cleanup();
   });
 
-  it('opens Settings on the tab and agent another screen asked for', () => {
+  it('moves to the asked-for tab when Settings is already open', () => {
     const onNavigate = vi.fn();
-    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    render(<ProductReadyShell view="settings" onNavigate={onNavigate} />);
     act(() => openSettings({ tab: 'passwords', agentSlug: 'researcher' }));
-    expect(onNavigate).toHaveBeenCalledWith('settings');
-    rerender(<ProductReadyShell view="settings" onNavigate={onNavigate} />);
     expect(screen.getByText('tab:passwords agent:researcher')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens Calendars with the connect sheet from the chat card, and back goes to the chat', () => {
+  it('opens the Settings screen for General, which is more than one panel', () => {
     const onNavigate = vi.fn();
-    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
-    act(() => openSettings({ tab: 'calendars', connectFromChat: true }));
-    rerender(<ProductReadyShell view="settings" onNavigate={onNavigate} />);
-    expect(screen.getByText('tab:calendars agent:none')).toBeTruthy();
-    expect(screen.getByText('connect-from-chat')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'back-to-chat' }));
-    expect(onNavigate).toHaveBeenLastCalledWith('chat');
+    render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    act(() => openSettings({ tab: 'general' }));
+    expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 
   it('defaults to chat and switches Services / Settings via the rail', () => {

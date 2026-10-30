@@ -291,4 +291,59 @@ describe('chain router', () => {
     expect(JSON.stringify(events)).not.toContain('the answer');
     expect(JSON.stringify(events)).not.toContain('"hi"');
   });
+
+  it('records how many requests each entry had when a request arrived, until each reply ends', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    let finishFirst: () => void = () => undefined;
+    let replied: () => void = () => undefined;
+    let replyLogged = new Promise<void>((resolve) => (replied = resolve));
+    const fake = upstreams({
+      'peer.test': (body) =>
+        (body.messages as unknown[]).length === 2
+          ? new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('data: first\n\n'));
+                  finishFirst = () => controller.close();
+                },
+              }),
+              { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+            )
+          : new Response('{}', { status: 200 }),
+    });
+    await start({
+      fetchImpl: fake.fetchImpl,
+      diag: (event, data) => {
+        if (event === 'router.request') seen.push(data);
+        if (event === 'router.reply') replied();
+      },
+    });
+
+    const long = await post([...userTurn, ...userTurn]);
+    const longBody = long.text();
+    await (await post(userTurn)).text();
+    await replyLogged;
+    finishFirst();
+    await longBody;
+    replyLogged = new Promise<void>((resolve) => (replied = resolve));
+    await (await post(userTurn)).text();
+    await replyLogged;
+
+    expect(seen.map((request) => request.inFlight)).toEqual([{}, { peer: 1 }, {}]);
+  });
+
+  it('frees an entry that refused, so it does not count against later requests', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const fake = upstreams({ 'peer.test': () => new Response('busy', { status: 503 }), 'local.test': ok('fine') });
+    await start({
+      fetchImpl: fake.fetchImpl,
+      diag: (event, data) => {
+        if (event === 'router.request') seen.push(data);
+      },
+    });
+    await (await post(userTurn)).text();
+    await (await post(userTurn, { [ROUTER_SESSION_HEADER]: 'other' })).text();
+    expect(seen).toHaveLength(2);
+    expect(seen[1].inFlight).not.toHaveProperty('peer');
+  });
 });

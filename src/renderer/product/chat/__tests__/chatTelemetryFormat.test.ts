@@ -83,6 +83,9 @@ describe('formatPhaseLine', () => {
         toolName: 'OpenRouter',
       })
     ).toBe('Restarting assistant to apply OpenRouter…');
+    expect(formatPhaseLine({ phase: 'restarting', toolName: 'OpenRouter', sharedUnavailable: true })).toBe(
+      "Your shared model isn't available. Restarting assistant to use OpenRouter…"
+    );
   });
 });
 

@@ -117,6 +117,14 @@ describe('WorkbenchThread live tool cards', () => {
     expect(within(path.closest('li')!).getByText('Reveal')).toBeTruthy();
   });
 
+  it('drops the Preparing line when a stopped turn ends', async () => {
+    render(<Harness />);
+    await emit(ipc.phase, { ...turn, phase: 'preparing' });
+    expect((await screen.findAllByText('Preparing…')).length).toBeGreaterThan(0);
+    await emit(ipc.phase, { ...turn, phase: 'done' });
+    expect(screen.queryAllByText('Preparing…')).toEqual([]);
+  });
+
   it('keeps Reveal on paths when a tool completes without its arguments', async () => {
     render(<Harness />);
     await emit(ipc.phase, { ...turn, phase: 'tool', toolName: 'write_file' });

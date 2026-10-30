@@ -109,7 +109,7 @@ import {
   settleInterruptedTurn,
   withReplyEndings,
 } from './hermesReplyEndings';
-import { logPostWithoutTurn, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
+import { logPostWithoutTurn, logTurnGate, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
 
 /**
  * Running turns by request id, with the chat ids each covers. Not tied to a window: a turn
@@ -171,13 +171,27 @@ async function gateResolvedInference(
   requestId: string,
   sessionId: string | undefined
 ): Promise<HermesChatStartResult | null> {
-  const ready = await ensureResolvedInferenceReady(sessionId, (resolved) => {
+  const gateStartedAt = Date.now();
+  let restarted = false;
+  let sharedWasUnavailable = false;
+  const ready = await ensureResolvedInferenceReady(sessionId, (resolved, sharedUnavailable) => {
+    restarted = true;
+    sharedWasUnavailable = sharedUnavailable;
     sendPhase(sender, {
       requestId,
       sessionId,
       phase: 'restarting',
       toolName: inferenceSlotLabel(resolved.slot),
+      ...(sharedUnavailable ? { sharedUnavailable } : {}),
     });
+  });
+  logTurnGate({
+    requestId,
+    sessionId,
+    ms: Date.now() - gateStartedAt,
+    restarted,
+    sharedUnavailable: sharedWasUnavailable,
+    blocked: !ready.ok,
   });
   if (ready.ok === true) return null;
   return {
@@ -188,6 +202,18 @@ async function gateResolvedInference(
     errorCode: ready.errorCode,
   };
 }
+
+/** Hermes events the turn log tracks. Their payloads are never logged. */
+const TURN_LOGGED_EVENTS = [
+  'message.delta',
+  'message.complete',
+  'session.usage',
+  'status.update',
+  'turn.heartbeat',
+  'tool.start',
+  'tool.complete',
+  'error',
+];
 
 /**
  * How long a turn may go without a Hermes event before Boundary asks whether it is still
@@ -255,6 +281,9 @@ async function runJsonRpcTurn(
   let resolveTurn: (() => void) | null = null;
   let assistantText = '';
   let noReply: HermesNoReply | undefined;
+  let lastEvent: string | null = null;
+  let lastEventAt: number | null = null;
+  let hermesErrors = 0;
   const emitEnd = opts?.emitEnd !== false;
   const profile = opts?.profile ?? null;
   const agentSlug = opts?.agentSlug ?? null;
@@ -290,6 +319,8 @@ async function runJsonRpcTurn(
     if (visibleTokens === 0) {
       noReply = noReplyFor(finishReason, complete, signal);
     }
+    // `message.complete` sends its own; without this a stopped turn stays on its last phase.
+    if (finishReason !== 'stop') sendPhase(sender, { requestId, sessionId, phase: 'done' });
     const ttftSec =
       firstEventAt != null ? (firstEventAt - startedAt) / 1000 : null;
     turnLog.end({
@@ -297,6 +328,9 @@ async function runJsonRpcTurn(
       firstEventAt,
       visibleTokens,
       toolCalls: toolTurn,
+      lastEvent,
+      lastEventMsAgo: lastEventAt != null ? Date.now() - lastEventAt : null,
+      hermesErrors,
     });
     sendTurnStats(sender, {
       requestId,
@@ -353,6 +387,7 @@ async function runJsonRpcTurn(
       },
       true
     );
+    turnLog.note('turn quiet check', { status, failedChecks, keep, lastEvent });
     if (keep) armQuiet();
     else endOnce('timeout');
   };
@@ -360,6 +395,26 @@ async function runJsonRpcTurn(
     if (quietTimer) clearTimeout(quietTimer);
     quietTimer = ended ? null : setTimeout(() => void checkQuiet(), quietMs);
   };
+
+  // Stopped during the set-up above: nothing reached Hermes, and the abort listener below
+  // would never fire for a signal that has already aborted.
+  if (signal.aborted) {
+    endOnce('cancel');
+    return { assistantText, ...(noReply ? { noReply } : {}) };
+  }
+
+  // Which Hermes event a turn saw last, so a stuck turn's log says where it stopped.
+  const unsubSeen = TURN_LOGGED_EVENTS.map((name) =>
+    gateway.on(name, (event) => {
+      if (event.session_id && event.session_id !== sessionId) return;
+      lastEvent = name;
+      lastEventAt = Date.now();
+      if (name === 'error') {
+        hermesErrors += 1;
+        turnLog.note('turn hermes error event', { visibleTokens });
+      }
+    })
+  );
 
   if (agentSlug) {
     send(sender, 'hermes-chat:speaker', {
@@ -591,6 +646,7 @@ async function runJsonRpcTurn(
     if (quietTimer) clearTimeout(quietTimer);
     clearInterval(preparingTicker);
     signal.removeEventListener('abort', onAbort);
+    for (const unsub of unsubSeen) unsub();
     unsubDelta();
     unsubComplete();
     unsubUsage();
@@ -1582,6 +1638,13 @@ export async function startHermesChatStream(
     if (blocked) {
       activeStreams.delete(key);
       return blocked;
+    }
+    // Stop can land during the restart above, which runs before the turn exists.
+    if (controller.signal.aborted) {
+      activeStreams.delete(key);
+      sendPhase(sender, { requestId, sessionId, phase: 'done' });
+      send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'cancel' });
+      return { success: true, requestId, sessionId };
     }
 
     // A turn runs in its own project's folder.

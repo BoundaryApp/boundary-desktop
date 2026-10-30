@@ -21,10 +21,18 @@ vi.mock('../../../onboarding/probeSlotHealth', () => ({
 }));
 
 let routerPushed = false;
+let latestServed: Record<string, unknown> | null = null;
+const sharedProviderNames = vi.fn();
 const setInferenceRouterChain = vi.fn();
 vi.mock('../../../inference/inferenceRouterService', () => ({
   inferenceRouterPushed: () => routerPushed,
   setInferenceRouterChain: (...args: unknown[]) => setInferenceRouterChain(...args),
+  latestInferenceRouterServed: () => latestServed,
+}));
+
+vi.mock('../../../circles/circlesService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../circles/circlesService')>()),
+  sharedProviderNames: (...args: unknown[]) => sharedProviderNames(...args),
 }));
 
 vi.mock('../../hermesProfileLimits', async (importOriginal) => ({
@@ -219,6 +227,41 @@ describe('ensureResolvedInferenceReady', () => {
       const [connection] = applyLlmConnectionToHermes.mock.calls[0];
       expect(connection.plan).toBeUndefined();
     });
+  });
+});
+
+describe('noteFallbackServed', () => {
+  const peer = { circleId: 'c1', providerId: 'p1' };
+
+  beforeEach(() => {
+    resetHermesAgentsStoreForTests();
+    sharedProviderNames.mockReturnValue({ person: 'Ada', circle: 'Friends' });
+    latestServed = { slot: 'peer', peer, modelId: 'qwen3:14b', fellBack: true, at: 2_000 };
+  });
+
+  it('marks a chat that a shared model answered, with who shared it, once per run of turns', async () => {
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { listSessionInferenceMarks } = await import('../hermesAgentStore');
+    noteFallbackServed('s1', 1_000);
+    noteFallbackServed('s1', 1_000);
+    expect(listSessionInferenceMarks('s1')).toEqual([
+      expect.objectContaining({
+        kind: 'fell-back',
+        provider: 'peer',
+        modelId: 'qwen3:14b',
+        sharedBy: { person: 'Ada', circle: 'Friends' },
+      }),
+    ]);
+  });
+
+  it('still marks a shared model once its provider has left the Circle', async () => {
+    sharedProviderNames.mockReturnValue(null);
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { listSessionInferenceMarks } = await import('../hermesAgentStore');
+    noteFallbackServed('s1', 1_000);
+    const [mark] = listSessionInferenceMarks('s1');
+    expect(mark.provider).toBe('peer');
+    expect(mark.sharedBy).toBeUndefined();
   });
 });
 

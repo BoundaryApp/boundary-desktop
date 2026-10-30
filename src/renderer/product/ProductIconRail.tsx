@@ -22,6 +22,8 @@ interface ProductIconRailProps {
   onNavigate?: (view: ProductDestination) => void;
   /** Setup and start-up render the rail dimmed and inert (ADR 0019). */
   disabled?: boolean;
+  /** A sheet is open over the app: the rail stays as it looks but takes no input. */
+  inert?: boolean;
 }
 
 function RailButton({
@@ -63,6 +65,7 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   active,
   onNavigate = () => undefined,
   disabled = false,
+  inert = false,
 }) => {
   const stack = useAssistantStackStatus()?.stack;
   const updateDot = useUpdates()?.showDot ?? false;
@@ -72,7 +75,7 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   const boardRunning = useKanbanSnapshot().tasks.some((t) => t.status === 'running');
   const working = (turns.length > 0 || boardRunning) && active !== 'chat';
   return (
-    <nav aria-label="App" className={`wb-icon-rail${disabled ? ' is-disabled' : ''}`}>
+    <nav aria-label="App" className={`wb-icon-rail${disabled ? ' is-disabled' : ''}`} inert={inert}>
       <div className="wb-mark" aria-hidden="true" />
       {stack?.kind === 'local' ? (
         <div className="wb-stack-badge" title={`Local agent stack: ${stack.root}`}>

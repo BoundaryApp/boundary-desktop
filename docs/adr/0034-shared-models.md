@@ -3,7 +3,7 @@
 - Date: 2026-10-29
 - Status: Accepted
 - Parent: [0032](0032-circles.md)
-- Related: [0006](0006-tool-approval-interrupt.md) (approval interrupt), [0033](0033-inference-chains.md), [circles plan](../circles-plan.md)
+- Related: [0006](0006-tool-approval-interrupt.md) (approval interrupt), [0033](0033-inference-chains.md), [0035](0035-turn-admission-and-model-gate.md) (proposed: a provider's own work goes ahead of members' requests), [circles plan](../circles-plan.md)
 
 ## Context
 

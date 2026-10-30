@@ -34,7 +34,7 @@ import { type DmTab } from './MentionsPane';
 import { DmContextChip, DmFindBar, DmHorizonContext, DmLogHead } from './DmThreadTools';
 import { horizonLabel, horizonPlacement } from './dmHorizon';
 import { withQuote } from '../../../shared/markdownText';
-import { displayHostPath, formatPhaseLine } from './chatTelemetryFormat';
+import { displayHostPath, formatPhaseLine, sharedFallbackMarkText } from './chatTelemetryFormat';
 import { ContextMeter } from './ContextMeter';
 import { ThreadEmpty } from './ThreadEmpty';
 import { RunButton } from './RunButton';
@@ -400,6 +400,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     maxTurns: phaseEvent?.maxTurns,
     visibleTokens: phaseEvent?.visibleTokens,
     avgTps: usage?.avgTps,
+    sharedUnavailable: phaseEvent?.sharedUnavailable,
   });
 
   // Starters fill the composer for editing; they never send on their own.
@@ -608,9 +609,11 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             id: mark.id,
             at: mark.at,
             text:
-              mark.kind === 'fell-back'
-                ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
-                : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
+              mark.provider === 'peer'
+                ? sharedFallbackMarkText(mark)
+                : mark.kind === 'fell-back'
+                  ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
+                  : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
             className: 'wb-switch-mark',
           })),
         ],

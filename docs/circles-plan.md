@@ -78,7 +78,7 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 - [x] **5.** A session that a later entry served starts its next request at that entry. A new turn starts from the top.
 - [x] **6.** An entry whose context is smaller than the request is skipped.
 - [x] **7.** Unreachable, 429, 5xx and a header timeout move to the next entry. A reply that has started streaming never moves.
-- [ ] **8.** The chat's provenance line names the entry that served, with the person and Circle for a shared model. (The provider and model are named; the person and Circle wait for phase 4.)
+- [x] **8.** The chat's provenance line names the entry that served, with the person and Circle for a shared model.
 - [x] **9.** A one-entry chain keeps the Retry-or-OpenRouter stop of 0016 §4.
 - [x] **10.** Changing a chain does not restart Hermes unless the model name or context length Hermes sees changes.
 

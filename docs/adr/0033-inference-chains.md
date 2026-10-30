@@ -4,7 +4,7 @@
 - Status: Accepted
 - Parent: [0017](0017-project-inference-pin.md)
 - Amends: [0016](0016-chat-inference-override.md) §4
-- Related: [0026](0026-model-key-lives-in-proxy-memory.md), [0027](0027-host-bridge.md), [0034](0034-shared-models.md), [circles plan](../circles-plan.md)
+- Related: [0026](0026-model-key-lives-in-proxy-memory.md), [0027](0027-host-bridge.md), [0034](0034-shared-models.md), [0035](0035-turn-admission-and-model-gate.md) (proposed: gates model calls in this router), [circles plan](../circles-plan.md)
 
 ## Context
 

@@ -568,8 +568,11 @@ export interface SessionInferenceMark {
   at: string;
   /** `fell-back`: a turn was answered by a later entry of the inference chain (ADR 0033 §3). */
   kind: 'switched' | 'fell-back';
-  provider: ChatInferenceProvider;
+  /** `peer`: a model shared in a Circle (ADR 0034). */
+  provider: ChatInferenceProvider | 'peer';
   modelId: string;
+  /** Who shared the model, when `provider` is `peer` and they are still in the Circle. */
+  sharedBy?: { person: string; circle: string };
 }
 
 export interface ResolvedSessionInference {
@@ -624,6 +627,8 @@ export interface HermesChatPhaseEvent {
   elapsedSec?: number;
   visibleTokens?: number;
   usage?: HermesChatUsageSnapshot;
+  /** `restarting`: the chat's shared model can't serve, so it is leaving the router. */
+  sharedUnavailable?: boolean;
 }
 
 export interface HermesChatContextFile {
