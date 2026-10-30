@@ -18,6 +18,10 @@ function send(port: number, method: string, body?: unknown, session?: string): P
         port,
         method,
         path: '/mcp',
+        // A new connection per request. The global agent keeps sockets alive, so a request sent
+        // right after stop could reuse a socket the bridge has closed and fail with ECONNRESET
+        // or "socket hang up" instead of reaching the closed listener.
+        agent: false,
         headers: {
           host: `host.docker.internal:${port}`,
           authorization: `Bearer ${MCP_TOKEN}`,

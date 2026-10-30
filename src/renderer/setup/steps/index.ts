@@ -12,7 +12,9 @@ function isCapabilityComplete(ctx: SetupFlowSnapshot): boolean {
 }
 
 function isLlmOnboardingComplete(ctx: SetupFlowSnapshot): boolean {
-  return Boolean(ctx.onboardingStatus?.configured);
+  // Finished setup stays finished: with every provider disconnected, Settings says so. Main sets
+  // setupComplete only after applying a model, so it can't skip this step on a first run.
+  return Boolean(ctx.onboardingStatus?.configured || ctx.assistantStackStatus?.setupComplete);
 }
 
 function isFoldersComplete(ctx: SetupFlowSnapshot): boolean {

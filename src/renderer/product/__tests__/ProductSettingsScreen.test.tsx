@@ -137,7 +137,7 @@ describe('ProductSettingsScreen', () => {
     expect(await screen.findByText('Ollama')).toBeTruthy();
     expect(screen.getByText('Connect OpenRouter')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Local · qwen3:14b/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Cloud is the machine default/i })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'OpenRouter' })).toHaveProperty(
       'disabled',
       true
     );

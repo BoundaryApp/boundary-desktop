@@ -1,4 +1,5 @@
 import { shell } from 'electron';
+import { persistDebugLog } from '../../../persistDebugLog';
 import type { OAuthConnectionProviderId } from '../../../../shared/types/onboarding';
 import { computeS256Challenge, generateCodeVerifier } from './pkce';
 import { startOAuthLoopbackServer } from './OAuthLoopbackServer';
@@ -27,17 +28,19 @@ export async function startOAuthPkceFlow(
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = computeS256Challenge(codeVerifier);
 
-  const { port, waitForCode } = await startOAuthLoopbackServer({
+  const { port, waitForCode, close } = await startOAuthLoopbackServer({
     signal: abort.signal,
   });
   const callbackUrl = `http://127.0.0.1:${port}`;
   const authUrl = provider.buildAuthUrl({ callbackUrl, codeChallenge });
 
-  await shell.openExternal(authUrl);
-
   try {
+    await shell.openExternal(authUrl);
+    persistDebugLog('oauth', 'browser opened', { providerId: provider.id, port });
+
     const { code } = await waitForCode();
     const { apiKey } = await provider.exchangeCode({ code, codeVerifier });
+    persistDebugLog('oauth', 'code exchanged', { providerId: provider.id });
 
     return {
       providerId: provider.id,
@@ -49,6 +52,7 @@ export async function startOAuthPkceFlow(
       extraHeaders: provider.modelListing?.extraHeaders ?? provider.inferenceHeaders,
     };
   } finally {
+    close();
     if (activeAbort === abort) {
       activeAbort = null;
     }

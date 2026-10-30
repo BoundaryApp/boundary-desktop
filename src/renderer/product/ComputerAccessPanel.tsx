@@ -167,7 +167,7 @@ export const ComputerAccessPanel: React.FC = () => {
       {agent.stopped ? null : (
         <div className="wb-settings-row">
           <div>
-            <p className="wb-settings-label">Rotate tokens</p>
+            <p className="wb-settings-label">Replace tokens</p>
             <p className="wb-settings-hint">
               Replaces the tokens Hermes uses to reach this computer and Boundary’s browser. The old ones
               stop working at once. Hermes restarts to pick up the new ones, which ends replies in
@@ -175,7 +175,7 @@ export const ComputerAccessPanel: React.FC = () => {
             </p>
           </div>
           <button type="button" className="wb-inference-btn" disabled={busy} onClick={() => void rotate()}>
-            {rotation?.status === 'running' ? 'Rotating…' : 'Rotate tokens'}
+            {rotation?.status === 'running' ? 'Replacing…' : 'Replace tokens'}
           </button>
         </div>
       )}

@@ -155,7 +155,6 @@ describe('ProjectSourcesRail', () => {
     await waitFor(() => {
       expect(screen.getByRole('option', { name: /Inherit app default/ })).toBeTruthy();
     });
-    expect(screen.getByText('Privacy: local only')).toBeTruthy();
     fireEvent.click(screen.getByRole('option', { name: /Local · qwen3:14b.*pin this project/i }));
     await waitFor(() => {
       expect(patchProject).toHaveBeenCalledWith({

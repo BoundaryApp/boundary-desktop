@@ -19,6 +19,17 @@
   --size-heading: 22px; /* destination headings */
   --size-prose: 16.5px; /* assistant reading face only */
 
+  /* Reading scale: Settings swaps these in for the chrome sizes above. */
+  --size-meta: 12.5px; /* smallest text on a reading screen */
+  --size-small: 13px; /* secondary text, buttons */
+  --size-body: 14px; /* body and row labels */
+  --size-section: 16px; /* section and card titles */
+  --size-page: 24px; /* page heading */
+  --leading-body: 1.5;
+  --reading-column: 680px;
+  --control-height: 34px;
+  --row-min-height: 58px;
+
   --leading-ui: 1.45;
   --leading-prose: 1.68;
 

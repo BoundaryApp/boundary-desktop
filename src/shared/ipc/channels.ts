@@ -11,6 +11,12 @@ import type { AppCommand } from '../appCommands';
 import type { ThemePreference } from '../theme';
 import type { IpcResult } from './result';
 import type {
+  RunningWorkItem,
+  UpdateChannel,
+  UpdateRestartResult,
+  UpdateSnapshot,
+} from '../types/updates';
+import type {
   AssistantStackLifecycleSnapshot,
   AssistantStackStatus,
   EnsureAssistantStackResult,
@@ -221,6 +227,8 @@ export interface IpcInvokeChannels {
 
   'onboarding:get-status': () => InferenceProvidersStatus;
   'onboarding:clear-llm-slot': (input: ClearLlmSlotInput) => ClearOpenAiConfigResult;
+  'onboarding:reconnect-saved-openrouter-key': () => SaveLlmConnectionResult;
+  'onboarding:forget-saved-openrouter-key': () => ClearOpenAiConfigResult;
   'onboarding:set-app-default': (input: SetAppDefaultInput) => SetAppDefaultResult;
   'onboarding:set-app-fallbacks': (input: SetAppFallbacksInput) => SetAppFallbacksResult;
   'onboarding:probe-slot-health': (input: ProbeSlotHealthInput) => ProbeSlotHealthResult;
@@ -253,6 +261,19 @@ export interface IpcInvokeChannels {
   'assistant-stack:ensure-running': () => EnsureAssistantStackResult;
   'assistant-stack:ensure-running-background': () => { started: boolean };
   'assistant-stack:ensure-and-apply-llm': () => EnsureAssistantStackResult;
+
+  'updates:get-state': () => UpdateSnapshot;
+  'updates:check': () => UpdateSnapshot;
+  'updates:download': () => UpdateSnapshot;
+  'updates:restart': (options: { force: boolean }) => UpdateRestartResult;
+  'updates:restart-when-finished': (items: RunningWorkItem[]) => void;
+  'updates:cancel-waiting': () => void;
+  'updates:close-notice': () => void;
+  'updates:skip-version': () => void;
+  'updates:page-seen': () => void;
+  'updates:set-channel': (channel: UpdateChannel) => UpdateSnapshot;
+  'updates:set-checks-enabled': (enabled: boolean) => UpdateSnapshot;
+  'updates:move-to-applications': () => void;
 
   'resources:get-snapshot': () => HostResourceSnapshot;
   'resources:get-compose-inventory': () => ComposeInventorySnapshot;
@@ -431,6 +452,8 @@ export interface IpcEventChannels {
   /** A slot's health changed in main (a probe, or the local model appearing or going). */
   'onboarding:status': InferenceProvidersStatus;
   'resources:compose-inventory': ComposeInventorySnapshot;
+  'updates:state': UpdateSnapshot;
+  'updates:open': void;
   'host-bridge:approval': HostBridgeApprovalEvent;
   'host-bridge:approval-cleared': { id: string };
   'host-bridge:tools-state': HostToolsState;

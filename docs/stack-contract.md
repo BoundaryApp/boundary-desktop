@@ -137,6 +137,7 @@ own plan to find nothing left to write.
 
 | File | Read or written | Used in | Check |
 | --- | --- | --- | --- |
+| `data/db` (Postgres cluster, `DB_DATA_DIR` default), with `data/hermes`, `data/n8n`, `data/rag_storage`, `data/neo4j` | copied with containers stopped | `backupStackDataBeforeUpgrade` (stackDataBackup.ts) | unit: stackDataBackup; manual: step 3 of the updates plan test path |
 | `.env` (`HERMES_DASHBOARD_USER`, `HERMES_DASHBOARD_PASSWORD`, `HERMES_DASHBOARD_HANDOFF_SECRET`, `API_SERVER_KEY`) | read | `resolveDashboardCredentials`, `resolveDashboardHandoffSecret`, `resolveApiServerKey` (hermesEndpoints.ts) | `test:stack` HTTP (credentials) |
 | `data/hermes/profiles/api-server/.env`, `compose/hermes/api-server.env` (`API_SERVER_KEY`) | read | `resolveApiServerKey` | `test:stack` HTTP (credentials) |
 | `data/hermes/config.yaml`, `data/hermes/profiles/<name>/config.yaml` | read | `readHermesProfileConfig` (hermesConfigApply.ts), `hermesConfigExists`, `removeIncompleteHermesProfiles` (assistantPaths.ts) | unit: hermesConfigApply |

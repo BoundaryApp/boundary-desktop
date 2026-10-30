@@ -1,6 +1,6 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, configure, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFakeBridge,
   fakeHermesChat,
@@ -24,6 +24,11 @@ globalThis.ResizeObserver ??= class {
   disconnect = noop;
 } as unknown as typeof ResizeObserver;
 Element.prototype.scrollTo ??= noop;
+
+// getByRole's default visibility check calls jsdom's getComputedStyle up every candidate's
+// ancestors, which was half this file's CPU time and timed it out on a loaded machine. No
+// stylesheet loads here; the one aria-hidden match, autosize's mirror, is `composer`'s to skip.
+configure({ defaultHidden: true });
 
 // Markdown rendering is out of scope; the reply's text is what is checked.
 vi.mock('streamdown', () => ({
@@ -86,13 +91,14 @@ async function renderChat(kind: HermesConversationKind) {
   await settle();
 }
 
-const composer = () => screen.getByRole('textbox') as HTMLTextAreaElement;
+const composer = () => document.querySelector('textarea:not([aria-hidden])') as HTMLTextAreaElement;
 
 /** Types `text` and sends it, then waits for main's answer to the start. */
 async function send(text: string) {
+  const input = composer();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(composer(), text);
-    fireEvent.input(composer());
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
+    fireEvent.input(input);
   });
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send message' })));
   await settle();
@@ -101,6 +107,20 @@ async function send(text: string) {
 const replies = () => [...document.querySelectorAll('.wb-msg.is-assistant')] as HTMLElement[];
 
 describe('chat screen against a fake bridge', () => {
+  // The first mount in a worker costs about three times a later one (JIT, jsdom's default
+  // stylesheet, Intl formatters). Paying that here keeps it out of the first case's budget,
+  // where a starved worker timed out.
+  beforeAll(async () => {
+    vi.useFakeTimers();
+    installBridge();
+    await renderChat('dm');
+    await send('warm up');
+    await chat.finish();
+    cleanup();
+    setRunningTurnsForTests([]);
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     installBridge();

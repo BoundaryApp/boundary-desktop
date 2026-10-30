@@ -2170,6 +2170,8 @@ export async function ensureAssistantStackOnLaunch(): Promise<void> {
     return;
   }
   if (!(await getLlmConnection())) {
+    // Every provider was disconnected. The app still opens, and Settings can connect one.
+    await ensureAssistantStackRunning();
     return;
   }
   // Emit starting immediately so the product UI can gate before compose begins.

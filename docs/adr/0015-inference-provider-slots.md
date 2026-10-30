@@ -20,6 +20,7 @@ Boundary stored one LLM connection in `openai-onboarding.json`. Saving Local or 
 ## Consequences
 
 - Local and OpenRouter can coexist. Disconnecting the default falls back to the other configured visible slot, then infrastructure, then none.
+- Disconnecting OpenRouter keeps its encrypted key and model outside the slots, so nothing sends with them. Settings can put them back without a sign-in or remove them; a new sign-in replaces them. Disconnecting never reopens setup once setup has finished: with no provider left, Settings says so and chats refuse to send.
 - Health (local unreachable, OpenRouter 401) is probed, not persisted as a default flip.
 - Later work can promote `infrastructure` (or named GPU slots) into Settings cards without another graveyard migrate.
 - Chat override and project pin land in later phases; they resolve through this app default. Chat override shipped in [0016](0016-chat-inference-override.md).

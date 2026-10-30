@@ -583,12 +583,6 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           />
         </div>
       ) : null}
-      <div className="wb-inf-lock is-disabled" aria-disabled="true">
-        <b>Privacy: local only</b>
-        <span>
-          Off. Cloud overrides stay available on chats in this project. (Coming later)
-        </span>
-      </div>
       {patchError ? <p className="wb-warn">{patchError}</p> : null}
 
       <div className="wb-src-hed">

@@ -2,12 +2,14 @@ import { handle, handleResult } from '../../ipc';
 import {
   classifyInferenceSlot,
   clearLlmSlot,
+  forgetSavedOpenRouterKey,
   getAppDefaultSlot,
   getLlmConnection,
   getOpenAiOnboardingStatus,
   getSlotApiKey,
   getSlotConnectionMaterial,
   getStoredLlmConnectionMaterial,
+  reconnectSavedOpenRouterKey,
   saveLlmConnection,
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
@@ -255,6 +257,14 @@ async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnec
   return result;
 }
 
+async function reconnectSavedKeyHandler(): Promise<SaveLlmConnectionResult> {
+  const result = await reconnectSavedOpenRouterKey();
+  if (result.success) {
+    await applyHermesIfDefaultSlot('openrouter');
+  }
+  return result;
+}
+
 async function probeSlotHealthHandler(input: ProbeSlotHealthInput): Promise<ProbeSlotHealthResult> {
   return probeSlotHealth(input.slot);
 }
@@ -274,6 +284,10 @@ export function registerOnboardingHandlers(): void {
   handleResult('onboarding:clear-llm-slot', async (_event, input: ClearLlmSlotInput) =>
     clearSlotHandler(input)
   );
+
+  handleResult('onboarding:reconnect-saved-openrouter-key', async () => reconnectSavedKeyHandler());
+
+  handleResult('onboarding:forget-saved-openrouter-key', async () => forgetSavedOpenRouterKey());
 
   handleResult('onboarding:set-app-default', async (_event, input: SetAppDefaultInput) =>
     setAppDefaultHandler(input)

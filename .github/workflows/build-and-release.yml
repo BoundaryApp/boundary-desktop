@@ -106,6 +106,8 @@ jobs:
         run: bun run dist:${{ matrix.platform }}
         env:
           NODE_ENV: production
+          # Unset, as in forks, the build has updates off.
+          BOUNDARY_UPDATE_FEED_URL: ${{ vars.BOUNDARY_UPDATE_FEED_URL }}
           # Enable Forge osxSign on macOS runners (certs imported above). Omit locally for unsigned builds.
           OSX_SIGN: ${{ matrix.os == 'macos-latest' && 'true' || '' }}
           CSC_NAME: ${{ secrets.CSC_NAME }}
@@ -170,7 +172,7 @@ jobs:
 
             **macOS:**
             - `.dmg` - macOS installer
-            - `.zip` - macOS app archive (auto-update companion)
+            - `.zip` - macOS app archive, used by in-app updates
 
             **Windows:**
             - `.exe` - Windows installer (Squirrel)
@@ -190,6 +192,22 @@ jobs:
             - For .rpm: `sudo rpm -i Boundary-*.rpm`
           files: ./release-assets/*
           draft: false
-          prerelease: ${{ contains(needs.version.outputs.version, 'alpha') || contains(needs.version.outputs.version, 'beta') || contains(needs.version.outputs.version, 'rc') }}
+          # Final versions stay prereleases too, until Promote to Stable marks them Latest.
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write the beta update feed
+        if: vars.BOUNDARY_UPDATE_FEED_URL != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          version="${VERSION#v}"
+          node scripts/write-update-feed.mjs --channel beta --version "${version}" \
+            --zip "./release-assets/Boundary-darwin-arm64-${version}.zip" \
+            --repo "${GITHUB_REPOSITORY}" --notes-file .github/update-summary.txt \
+            --out beta-darwin-arm64.json
+          gh release view update-feed >/dev/null 2>&1 ||
+            gh release create update-feed --prerelease --title "Update feeds" --notes "Feeds Boundary reads for updates."
+          gh release upload update-feed beta-darwin-arm64.json --clobber

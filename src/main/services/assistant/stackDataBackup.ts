@@ -4,10 +4,11 @@ import path from 'node:path';
 /**
  * Data under the stack's `data/` that a new release may migrate in place, with no way back:
  * Hermes state (stack v0.3.3 moves Hermes to v0.22), n8n's SQLite store (n8n 2.x migrates it
- * forward on first start), and LightRAG's storage and graph. The stack's CHANGELOG asks for
- * a copy of each, taken with the containers stopped, before the pin moves.
+ * forward on first start), LightRAG's storage and graph, and the shared Postgres cluster, which
+ * the stopped containers leave consistent on disk. The stack's CHANGELOG asks for a copy of
+ * each, taken with the containers stopped, before the pin moves.
  */
-const UPGRADE_BACKUP_DATA_DIRS: readonly string[] = ['hermes', 'n8n', 'rag_storage', 'neo4j'];
+const UPGRADE_BACKUP_DATA_DIRS: readonly string[] = ['hermes', 'n8n', 'rag_storage', 'neo4j', 'db'];
 
 /**
  * Copy the data directories in {@link UPGRADE_BACKUP_DATA_DIRS} to `<backupsRoot>/<name>`,

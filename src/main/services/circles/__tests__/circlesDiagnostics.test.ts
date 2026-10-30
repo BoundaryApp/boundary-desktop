@@ -1,8 +1,16 @@
 import fs from 'node:fs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addressClass } from '../addressClass';
 
+const logDir = vi.hoisted(() => ({ current: '' }));
+
 vi.mock('electron', () => ({ app: { getVersion: () => '9.9.9-rc.1', isPackaged: true } }));
+// Test files that reach `diag` for real append to the shared test log from other workers.
+vi.mock('../../../persistDebugLog', () => ({
+  getDebugLogPath: () => path.join(logDir.current, 'boundary-debug.log'),
+}));
 
 async function load() {
   vi.resetModules();
@@ -18,9 +26,12 @@ function lines(file: string): Array<Record<string, unknown>> {
 }
 
 describe('circlesDiagnostics', () => {
-  beforeEach(async () => {
-    const { circlesDiagnosticsPath } = await load();
-    fs.rmSync(circlesDiagnosticsPath(), { force: true });
+  beforeEach(() => {
+    logDir.current = fs.mkdtempSync(path.join(os.tmpdir(), 'circles-diagnostics-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(logDir.current, { recursive: true, force: true });
   });
 
   it('starts each run with a header, then writes one JSON object per event', async () => {

@@ -19,3 +19,4 @@ export function setAwayBlocker(on: boolean): void {
     diag('main.away-blocker', { on: false });
   }
 }
+

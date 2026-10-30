@@ -39,3 +39,4 @@ The stack developer updates **Status** in the table below and replies inline und
 | [0014](0014-proxy-fallback-upstream.md) | llm-proxy: a fallback upstream per route, the upstream that served, a session id for routing | [circles plan](../circles-plan.md) | R1–R2 done (v0.3.7) · R3 existing config, live checks pending |
 | [0015](0015-untrusted-reply-approvals.md) | Approval for every side-effecting tool call in a reply that asks for it | [circles plan](../circles-plan.md) | Open |
 | [0016](0016-bash-3-2-setup.md) | `setup.sh` fails on macOS's bash 3.2 when `HERMES_BUZZ_PROFILES` is empty | First-run setup and upgrades | R1–R2 done (v0.3.7) |
+| [0017](0017-stack-releases.md) | Stack releases Boundary can install unattended | [updates plan](../updates-plan.md) | Open |

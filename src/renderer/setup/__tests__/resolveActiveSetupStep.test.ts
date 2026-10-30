@@ -5,6 +5,7 @@ import {
   type SetupFlowSnapshot,
   type SetupStepDefinition,
 } from '../types';
+import { setupSteps } from '../steps';
 
 const passAssessment = {
   passed: true,
@@ -115,6 +116,29 @@ describe('resolveActiveSetupStep', () => {
           capabilityStatus: { acknowledged: true, lastAssessment: passAssessment },
           onboardingStatus: { configured: true, encryptionAvailable: true },
         })
+      )
+    ).toBe(true);
+  });
+});
+
+describe('the Model step', () => {
+  const modelStep = () => setupSteps().find((step) => step.id === 'llm-onboarding')!;
+  const noProvider = { configured: false, encryptionAvailable: true };
+  const stack = (setupComplete: boolean) =>
+    ({ setupComplete, ready: setupComplete }) as SetupFlowSnapshot['assistantStackStatus'];
+
+  it('waits for a provider on a first run, even with the stack running in the background', () => {
+    expect(
+      modelStep().isComplete(
+        snapshot({ onboardingStatus: noProvider, assistantStackStatus: stack(false) })
+      )
+    ).toBe(false);
+  });
+
+  it('stays done after finished setup loses its last provider', () => {
+    expect(
+      modelStep().isComplete(
+        snapshot({ onboardingStatus: noProvider, assistantStackStatus: stack(true) })
       )
     ).toBe(true);
   });

@@ -52,6 +52,8 @@ interface OpenAiOnboardingStoreShape {
   /** Slot entries tried after the app default (ADR 0033). Peer entries arrive with Circles. */
   appFallbacks?: InferenceChainEntry[];
   pendingProviderSetup?: PendingProviderSetup;
+  /** OpenRouter's connection while disconnected. Outside `slots`, so nothing sends with it. */
+  savedOpenRouterConnection?: StoredConnection;
   endpointUrl?: string;
   encryptedApiKey?: string;
   modelId?: string;
@@ -315,6 +317,14 @@ export async function getOpenAiOnboardingStatus(): Promise<InferenceProvidersSta
   if (pending && !status.configured) {
     status.pending = pending;
   }
+
+  const saved = store.get('savedOpenRouterConnection');
+  if (saved) {
+    status.savedOpenRouterKey = {
+      preview: secretPreview(await decryptApiKey(saved.encryptedApiKey)).preview,
+      modelId: saved.modelId?.trim() || undefined,
+    };
+  }
   return status;
 }
 
@@ -413,7 +423,8 @@ function persistSlotConnection(
   }
 ): void {
   ensureV2Document();
-  const existing = readSlots()[slot];
+  const saved = slot === 'openrouter' ? store.get('savedOpenRouterConnection') : undefined;
+  const existing = readSlots()[slot] ?? saved;
   const connection: StoredConnection = {
     endpointUrl: input.endpointUrl,
     encryptedApiKey: input.encryptedApiKey,
@@ -437,6 +448,8 @@ function persistSlotConnection(
     connection.lastSeenAt = input.lastSeenAt ?? existing?.lastSeenAt;
   }
   writeSlot(slot, connection);
+  // The new key replaces a key kept by an earlier disconnect.
+  if (saved) deleteStoreKey('savedOpenRouterConnection');
   assignAppDefaultIfEmpty(slot);
   deleteStoreKey('pendingProviderSetup');
   notifyConnectionSaved();
@@ -658,7 +671,12 @@ export async function clearLlmSlot(slot: InferenceSlotId): Promise<ClearOpenAiCo
   ensureV2Document();
   try {
     const wasDefault = getAppDefaultSlot() === slot;
+    const connection = readSlots()[slot];
     removeSlot(slot);
+    // OpenRouter's key cost the user a sign-in, so disconnecting keeps it for a later reconnect.
+    if (slot === 'openrouter' && connection?.encryptedApiKey) {
+      store.set('savedOpenRouterConnection', connection);
+    }
     if (wasDefault) {
       setStoredAppDefault(await nextDefaultAfterClear(slot));
     }
@@ -675,12 +693,38 @@ export async function clearLlmSlot(slot: InferenceSlotId): Promise<ClearOpenAiCo
   }
 }
 
+/** Put a disconnected OpenRouter connection back, key and model included, with no sign-in. */
+export async function reconnectSavedOpenRouterKey(): Promise<SaveLlmConnectionResult> {
+  ensureV2Document();
+  const saved = store.get('savedOpenRouterConnection');
+  if (!saved || !(await decryptApiKey(saved.encryptedApiKey))) {
+    return {
+      success: false,
+      error: 'The saved OpenRouter key can’t be read. Sign in to OpenRouter again.',
+      status: await getOpenAiOnboardingStatus(),
+    };
+  }
+  writeSlot('openrouter', saved);
+  deleteStoreKey('savedOpenRouterConnection');
+  assignAppDefaultIfEmpty('openrouter');
+  deleteStoreKey('pendingProviderSetup');
+  notifyConnectionSaved();
+  return { success: true, status: await getOpenAiOnboardingStatus() };
+}
+
+export async function forgetSavedOpenRouterKey(): Promise<ClearOpenAiConfigResult> {
+  ensureV2Document();
+  deleteStoreKey('savedOpenRouterConnection');
+  return { success: true, status: await getOpenAiOnboardingStatus() };
+}
+
 export async function clearOpenAiConfig(): Promise<ClearOpenAiConfigResult> {
   ensureV2Document();
   try {
     writeSlots({});
     setStoredAppDefault(null);
     deleteStoreKey('pendingProviderSetup');
+    deleteStoreKey('savedOpenRouterConnection');
     ephemeralHealth.clear();
     return {
       success: true,

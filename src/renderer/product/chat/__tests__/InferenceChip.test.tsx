@@ -113,7 +113,7 @@ describe('InferenceChip', () => {
     expect(screen.queryByText('from app default')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
     expect(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Use project default' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use default' })).toBeTruthy();
   });
 
   function resolvedLocal(provenance: string, fallbacks: Array<{ slot: string }>) {
@@ -204,13 +204,13 @@ describe('InferenceChip', () => {
     });
   });
 
-  it('clears the override from Use project default', async () => {
+  it('clears the override from Use default', async () => {
     render(<InferenceChip sessionId="s1" />);
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
     });
     fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Use project default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use default' }));
     await waitFor(() => {
       expect(clearSessionInference).toHaveBeenCalledWith({ sessionId: 's1' });
     });

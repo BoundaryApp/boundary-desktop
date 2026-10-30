@@ -7,7 +7,7 @@
  * Writes ~/Library/Logs/Boundary/lag-probe/lag-probe.jsonl (one JSON object per line) and,
  * around a severe stall, traces/trace-<time>.perfetto-trace (Perfetto protobuf; open in
  * ui.perfetto.dev) and traces/main-<time>.cpuprofile (main-process JS; open in DevTools ›
- * Performance).
+ * Performance). Synchronous file calls go to sync-fs.jsonl beside it (see syncFsProbe.ts).
  */
 import { app, contentTracing, ipcMain, session, type BrowserWindow, type WebContents } from 'electron';
 import fs from 'node:fs';
@@ -23,6 +23,7 @@ import {
   lagTraceDir as traceDir,
 } from './lagLog';
 import { MemoryTrend, type SeriesRule } from './memoryTrend';
+import { installSyncFsProbe } from './syncFsProbe';
 import {
   LAG_PROBE_CHANNELS,
   LAG_THRESHOLDS,
@@ -526,6 +527,14 @@ if (enabled) {
   // performance.memory in the page is otherwise rounded into coarse buckets.
   app.commandLine.appendSwitch('enable-precise-memory-info');
   installIpcTiming();
+  // This runs before app.setName, so asking for userData here could fix it at the wrong path.
+  installSyncFsProbe(path.join(logDir!, 'sync-fs.jsonl'), {
+    app: app.getAppPath(),
+    appData: app.getPath('appData'),
+    logs: path.dirname(logDir!),
+    documents: app.getPath('documents'),
+    home: app.getPath('home'),
+  });
   startStallDetector();
 
   app.on('web-contents-created', (_event, contents) => countSends(contents));

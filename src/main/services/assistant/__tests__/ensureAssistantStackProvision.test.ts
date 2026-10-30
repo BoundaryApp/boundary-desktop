@@ -193,6 +193,22 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     expect(markHostSetupComplete).not.toHaveBeenCalled();
   });
 
+  it('still starts on launch when finished setup has no provider left', async () => {
+    isHostSetupComplete.mockReturnValue(true);
+    vi.doMock('../AssistantStackStore', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../AssistantStackStore')>()),
+      isAssistantStackSetupComplete: () => true,
+    }));
+    const { ensureAssistantStackOnLaunch, getAssistantStackLifecycle, __test } = await import(
+      '../AssistantStackService'
+    );
+    __test.resetLifecycle();
+
+    await ensureAssistantStackOnLaunch();
+    vi.doUnmock('../AssistantStackStore');
+    expect(getAssistantStackLifecycle().phase).toBe('ready');
+  });
+
   it('recreates a running proxy once when its key was still in .env', async () => {
     isHostSetupComplete.mockReturnValue(true);
     clearLlmKeysFromProjectEnv.mockResolvedValue(true);
