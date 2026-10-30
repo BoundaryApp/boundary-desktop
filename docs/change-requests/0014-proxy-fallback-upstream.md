@@ -1,7 +1,7 @@
 # 0014 · llm-proxy: a fallback upstream, the upstream that served, and a session id for routing
 
 **Serves:** [circles plan](../circles-plan.md), [ADR 0033](../adr/0033-inference-chains.md).
-**Status:** R1 and R2 done on the stack's main, in the next 0.3.x tag · R3 needs no patch, two live checks pending
+**Status:** R1 and R2 done in v0.3.7, which Boundary pins · R3 needs no patch, two live checks pending
 
 ## Background
 
