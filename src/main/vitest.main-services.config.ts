@@ -19,7 +19,8 @@ export default defineConfig({
       `${experimentsDir}/*/{main,shared}/**/__tests__/**/*.test.ts`,
     ],
     // The stack contract suite needs a running stack: `bun run test:stack` (vitest.stack.config.ts).
-    exclude: [...configDefaults.exclude, '**/*.stack.test.ts'],
+    // Circles network tests run a local DHT: `bun run test:circles` (vitest.circles.config.ts).
+    exclude: [...configDefaults.exclude, '**/*.stack.test.ts', '**/*.net.test.ts'],
     setupFiles: ['src/main/services/__tests__/electron-mock-setup.ts'],
     server: {
       deps: {

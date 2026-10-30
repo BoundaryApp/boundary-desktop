@@ -29,6 +29,10 @@ import { registerCalendarHandlers } from './services/assistant/calendar/calendar
 import { startCalendarHealthChecks } from './services/assistant/calendar/calendarService';
 import { registerHostBridgeHandlers } from './services/hostBridge/ipcHandlers';
 import { ensureHostBridgeStarted, stopHostBridge } from './services/hostBridge/hostBridgeService';
+import { stopInferenceRouter } from './services/inference/inferenceRouterService';
+import { startCirclesNetworkSpike, stopCirclesNetworkSpike } from './services/circles/networkSpike';
+import { startCirclesIfMember, stopCircles } from './services/circles/circlesService';
+import { registerCirclesHandlers } from './services/circles/ipcHandlers';
 import {
   announceAssistantStackStopping,
   ensureAssistantStackOnLaunch,
@@ -77,6 +81,17 @@ function runQuitTeardown(): Promise<Record<string, number>> {
         await timed('hostBridge', stopHostBridge);
       } catch (error) {
         log('Error stopping host bridge during quit:', error);
+      }
+      await timed('circlesNetwork', stopCirclesNetworkSpike);
+      try {
+        await timed('circles', stopCircles);
+      } catch (error) {
+        log('Error stopping Circles during quit:', error);
+      }
+      try {
+        await timed('inferenceRouter', stopInferenceRouter);
+      } catch (error) {
+        log('Error stopping inference router during quit:', error);
       }
       try {
         await timed('assistantStack', stopAssistantStack);
@@ -287,6 +302,7 @@ registerHermesVaultHandlers();
 registerCalendarHandlers();
 startCalendarHealthChecks();
 registerHostBridgeHandlers();
+registerCirclesHandlers();
 startLocalLlmWatcher();
 
 registerExperiments();
@@ -669,6 +685,7 @@ const createMenu = () => {
         commandItem('go-chat'),
         commandItem('go-services'),
         commandItem('go-resources'),
+        commandItem('go-circles'),
         { type: 'separator' },
         commandItem('prev-thread'),
         commandItem('next-thread'),
@@ -748,6 +765,11 @@ async function onAppReady(): Promise<void> {
     void ensureAssistantStackOnLaunch().catch((error) => {
       console.warn('[assistant-stack] Launch ensure failed:', error);
     });
+
+    // Circles plan phase 0: runs only when BOUNDARY_CIRCLES_SPIKE is set.
+    startCirclesNetworkSpike();
+    // Circles start at launch only for someone who belongs to one (ADR 0032).
+    startCirclesIfMember();
   } catch (error) {
     persistDebugLog('startup', 'ready try/catch quitting app (first-launch candidate)', {
       ...serializeError(error),

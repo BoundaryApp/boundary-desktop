@@ -6,6 +6,7 @@ export type AppCommand =
   | 'go-chat'
   | 'go-services'
   | 'go-resources'
+  | 'go-circles'
   | 'go-settings'
   | 'prev-thread'
   | 'next-thread';
@@ -22,6 +23,7 @@ export const APP_COMMANDS: AppCommandDefinition[] = [
   { id: 'go-chat', label: 'Chat', accelerator: 'CmdOrCtrl+1' },
   { id: 'go-services', label: 'Services', accelerator: 'CmdOrCtrl+2' },
   { id: 'go-resources', label: 'Resources', accelerator: 'CmdOrCtrl+3' },
+  { id: 'go-circles', label: 'Circles', accelerator: 'CmdOrCtrl+4' },
   { id: 'go-settings', label: 'Settings', accelerator: 'CmdOrCtrl+,' },
   { id: 'prev-thread', label: 'Previous Conversation', accelerator: 'CmdOrCtrl+[' },
   { id: 'next-thread', label: 'Next Conversation', accelerator: 'CmdOrCtrl+]' },

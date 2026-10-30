@@ -21,7 +21,7 @@ import {
   useAssistantStackStatus,
   useAssistantStackStatusLoaded,
 } from '../product/assistantStack';
-import { SETUP_STEPS } from './steps';
+import { setupSteps } from './steps';
 import {
   areAllSetupStepsComplete,
   resolveActiveSetupStep,
@@ -247,12 +247,12 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const allComplete = useMemo(() => {
     if (loading || !capabilityStatus) return false;
-    return areAllSetupStepsComplete(SETUP_STEPS, snapshot);
+    return areAllSetupStepsComplete(setupSteps(), snapshot);
   }, [loading, capabilityStatus, snapshot]);
 
   const activeStep = useMemo(() => {
     if (loading || !capabilityStatus) return null;
-    return resolveActiveSetupStep(SETUP_STEPS, snapshot);
+    return resolveActiveSetupStep(setupSteps(), snapshot);
   }, [loading, capabilityStatus, snapshot]);
 
   const value = useMemo(

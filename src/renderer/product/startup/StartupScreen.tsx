@@ -36,6 +36,7 @@ import {
   type StartupToolState,
   type StartupVariant,
 } from './startupModel';
+import { rendererExperiments } from '../../experiments';
 import './startup.css';
 
 const TOOL_ICONS: Record<StartupToolId, LucideIcon> = {
@@ -422,7 +423,7 @@ export const ToolRing: React.FC<{
       <svg className="su-boundary" viewBox="0 0 300 300" aria-hidden="true">
         <circle cx="150" cy="150" r="140" />
       </svg>
-      <Face mood={mood} angle={lookAt >= 0 ? lookAt * step : null} />
+      <Figure mood={mood} angle={lookAt >= 0 ? lookAt * step : null} />
       <ul className="su-tiles" aria-label="Your tools">
         {STARTUP_TOOLS.map((tool, index) => {
           const Icon = TOOL_ICONS[tool.id];
@@ -464,6 +465,12 @@ export const ToolRing: React.FC<{
       </ul>
     </div>
   );
+};
+
+/** An experiment's figure when one draws the ring's centre, otherwise the face. */
+const Figure: React.FC<{ mood: Mood; angle: number | null }> = (props) => {
+  const RingFigure = rendererExperiments.find((e) => e.RingFigure)?.RingFigure ?? Face;
+  return <RingFigure {...props} />;
 };
 
 /** The assistant: glances at whatever is being worked on, smiles when ready. */

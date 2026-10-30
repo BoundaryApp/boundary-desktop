@@ -17,7 +17,7 @@ import type {
   ProjectInferencePin,
 } from '../../../../shared/types/hermesChat';
 import type { FirstRunFolder } from '../../../../shared/types/setupProgress';
-import { getSlotLlmConnection } from '../../onboarding/OpenAiOnboardingStore';
+import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
 import { recreateHermesForProjectMounts } from '../AssistantStackService';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
@@ -565,6 +565,8 @@ async function normalizeProjectInference(
   if (!modelId) {
     return { ok: false, error: 'Model is required when pinning a provider.' };
   }
+  const kept = await keepChainFallbacks({ slot: pin.mode, modelId }, pin.fallbacks ?? []);
+  if (kept.ok === false) return { ok: false, error: kept.error };
   return {
     ok: true,
     inference: {
@@ -573,6 +575,7 @@ async function normalizeProjectInference(
       ...(pin.privacyLocalOnly !== undefined
         ? { privacyLocalOnly: pin.privacyLocalOnly }
         : {}),
+      ...(kept.fallbacks.length ? { fallbacks: kept.fallbacks } : {}),
     },
   };
 }

@@ -116,6 +116,78 @@ describe('InferenceChip', () => {
     expect(screen.getByRole('button', { name: 'Use project default' })).toBeTruthy();
   });
 
+  function resolvedLocal(provenance: string, fallbacks: Array<{ slot: string }>) {
+    return {
+      success: true,
+      override: provenance === 'chat-override' ? { provider: 'local', modelId: 'qwen3:14b', fallbacks } : null,
+      resolved: {
+        slot: 'local',
+        modelId: 'qwen3:14b',
+        providerDisplayName: 'Local',
+        provenance,
+        configured: true,
+        health: 'reachable',
+        needsRestart: false,
+        fallbacks,
+      },
+      marks: [],
+    };
+  }
+
+  it("shows the supplying level's fallback as on, and says where it comes from", async () => {
+    getSessionInference.mockResolvedValue(resolvedLocal('project-default', [{ slot: 'openrouter' }]));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    const toggle = await screen.findByRole('switch', { name: /OpenRouter · claude-sonnet-4/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.textContent).toContain('tried next · from project default');
+  });
+
+  it("turning the fallback on writes this chat's own override with the current model (ADR 0033 §1)", async () => {
+    getSessionInference.mockResolvedValue(resolvedLocal('app-default', []));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    const toggle = await screen.findByRole('switch', { name: /OpenRouter · claude-sonnet-4/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(toggle.textContent).toContain('off · the chat stops and asks');
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(setSessionInference).toHaveBeenCalledWith({
+        sessionId: 's1',
+        provider: 'local',
+        modelId: 'qwen3:14b',
+        fallbacks: [{ slot: 'openrouter' }],
+      });
+    });
+  });
+
+  it('turning it off keeps the menu open and says a fallback that is no longer connected is skipped', async () => {
+    getStatus.mockResolvedValue({
+      ...bothConfigured,
+      slots: { ...bothConfigured.slots, openrouter: { configured: false } },
+    });
+    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', [{ slot: 'openrouter' }]));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    const toggle = await screen.findByRole('switch', { name: /OpenRouter/ });
+    expect(toggle.textContent).toContain('not connected, skipped');
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(setSessionInference).toHaveBeenCalledWith(expect.objectContaining({ fallbacks: [] }));
+    });
+    expect(screen.getByRole('switch', { name: /OpenRouter/ })).toBeTruthy();
+  });
+
+  it('offers no fallback while the other provider is not connected', async () => {
+    getStatus.mockResolvedValue({
+      ...bothConfigured,
+      slots: { ...bothConfigured.slots, openrouter: { configured: false } },
+    });
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    expect(screen.queryByText("If it doesn't answer")).toBeNull();
+  });
+
   it('writes an override when the other provider is chosen', async () => {
     render(<InferenceChip sessionId="s1" />);
     await waitFor(() => {

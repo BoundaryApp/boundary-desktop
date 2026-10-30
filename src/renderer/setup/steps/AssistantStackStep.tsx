@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { SetupShell } from '../SetupShell';
-import { SETUP_STEPS } from './index';
+import { setupSteps } from './index';
 import { Button } from '../../components/ui/button';
 import { StartupScreen } from '../../product/startup/StartupScreen';
 import { startupServices } from '../../product/startup/startupModel';
@@ -31,8 +31,8 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
   };
   const services = startupServices(lifecycle);
 
-  const setupSteps = {
-    steps: SETUP_STEPS.map((step) => ({ id: step.id, label: step.label })),
+  const stepper = {
+    steps: setupSteps().map((step) => ({ id: step.id, label: step.label })),
     currentId: 'assistant-stack',
   };
   if (!error && (ready || running || lifecycle.phase === 'starting')) {
@@ -44,7 +44,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
         message={lifecycle.message}
         services={services}
         download={lifecycle.download}
-        setupSteps={setupSteps}
+        setupSteps={stepper}
       />
     );
   }
@@ -59,7 +59,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
         error={error}
         onRetry={handleRetry}
         retrying={running}
-        setupSteps={setupSteps}
+        setupSteps={stepper}
       />
     );
   }

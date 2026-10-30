@@ -314,6 +314,7 @@ export function setSessionInference(
     inference: {
       provider: inference.provider,
       modelId: inference.modelId.trim(),
+      ...(inference.fallbacks?.length ? { fallbacks: inference.fallbacks } : {}),
     },
   });
 }

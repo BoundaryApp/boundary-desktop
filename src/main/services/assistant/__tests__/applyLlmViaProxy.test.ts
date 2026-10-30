@@ -58,6 +58,12 @@ import {
   LLM_PROXY_PUSH_RETRY,
 } from '../AssistantStackService';
 import { __resetLlmProxyKeeperForTests } from '../llmProxyKeyKeeper';
+import { getLastAppliedLlm } from '../AssistantStackStore';
+import {
+  inferenceRouterPushed,
+  stopInferenceRouter,
+} from '../../inference/inferenceRouterService';
+import type { ChainPlan } from '../../inference/inferenceChainService';
 
 const REAL_KEY = 'sk-or-v1-real-secret';
 const connection = {
@@ -158,7 +164,8 @@ afterAll(() => {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await stopInferenceRouter();
   delete process.env.BOUNDARY_LOCAL_STACK;
   delete process.env.BOUNDARY_ASSISTANT_ROOT;
   __resetLlmProxyKeeperForTests();
@@ -318,5 +325,82 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     expect(lifecycle.stage).toBe('error');
     expect(lifecycle.error).toBe(result.error);
     expect(lifecycle.message).toBe(result.error);
+  });
+
+  describe('with an inference chain (ADR 0033)', () => {
+    const routedPlan: ChainPlan = {
+      kind: 'routed',
+      chain: {
+        entries: [
+          { entry: { slot: 'openrouter' }, key: 'openrouter:', stale: null, private: false },
+          { entry: { slot: 'local' }, key: 'local:', stale: null, private: true },
+        ],
+        upstreams: {
+          'openrouter:': { baseUrl: 'https://openrouter.ai/api/v1', apiKey: REAL_KEY, modelId: 'anthropic/claude-sonnet-4' },
+          'local:': { baseUrl: 'http://127.0.0.1:1234/v1', modelId: 'qwen3:14b' },
+        },
+        modelId: 'anthropic/claude-sonnet-4',
+        contextLength: 32_768,
+      },
+      slowestUrl: 'http://127.0.0.1:1234/v1',
+    };
+
+    function routerEntries(): Array<[string, unknown]> {
+      return plans()
+        .flat()
+        .flatMap((p) => p.entries.filter(([key]) => key === 'providers.boundary-chain').map(([, value]) => [p.profile, value] as [string, unknown]));
+    }
+
+    it('points the proxy at the router with its token, never the real key', async () => {
+      expect(await applyLlmConnectionToHermes({ ...connection, plan: routedPlan })).toEqual({ success: true });
+
+      const push = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/admin/upstreams'));
+      const body = JSON.parse(String((push![1] as RequestInit).body));
+      expect(body.chat.url).toMatch(/^http:\/\/host\.docker\.internal:\d+\/v1$/);
+      expect(body.chat.api_key).not.toBe(REAL_KEY);
+      expect(body.chat.api_key.length).toBeGreaterThanOrEqual(32);
+      expect(body.lightrag).toEqual(body.chat);
+      expect(composeText()).not.toContain(REAL_KEY);
+      expect(inferenceRouterPushed()).toBe(true);
+      expect(getLastAppliedLlm()).toMatchObject({ routed: true, contextLength: 32_768 });
+    });
+
+    it('sizes Hermes for the chain and asks it for the session header', async () => {
+      await applyLlmConnectionToHermes({ ...connection, plan: routedPlan });
+      expect(configSets('')).toEqual(
+        expect.arrayContaining([
+          ['model.default', 'anthropic/claude-sonnet-4'],
+          ['model.context_length', '32768'],
+          // The local entry is the slowest, though the chain starts in the cloud.
+          ['agent.local_stream_stale_timeout', '300'],
+        ])
+      );
+      const header = {
+        base_url: 'http://llm-proxy:4000/v1',
+        api_key: 'local-llm',
+        session_affinity_header: 'X-Boundary-Session',
+      };
+      expect(routerEntries()).toEqual(
+        expect.arrayContaining([
+          ['', header],
+          ['api-server', header],
+        ])
+      );
+    });
+
+    it('turns the header off where an earlier chain left it, and touches nothing else', async () => {
+      writeProfileConfig(
+        'browser',
+        'providers:\n  boundary-chain:\n    base_url: http://llm-proxy:4000/v1\n    session_affinity_header: X-Boundary-Session\n'
+      );
+      expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+
+      expect(routerEntries()).toEqual([
+        ['browser', { base_url: 'http://llm-proxy:4000/v1', api_key: 'local-llm', session_affinity_header: '' }],
+      ]);
+      const push = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/admin/upstreams'));
+      expect(JSON.parse(String((push![1] as RequestInit).body)).chat.api_key).toBe(REAL_KEY);
+      expect(getLastAppliedLlm()?.routed).toBeUndefined();
+    });
   });
 });

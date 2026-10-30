@@ -55,6 +55,8 @@ export interface InferenceProvidersStatus {
   configured: boolean;
   encryptionAvailable: boolean;
   appDefault: InferenceSlotId | null;
+  /** Tried in order after the app default when it can't answer (ADR 0033). */
+  appFallbacks?: import('./inferenceChain').InferenceChainEntry[];
   slots: Partial<Record<InferenceSlotId, LlmSlotStatus>>;
   pending?: PendingProviderSetup;
 }
@@ -113,6 +115,12 @@ export interface SetAppDefaultInput {
 }
 
 export type SetAppDefaultResult = InferenceStatusResult;
+
+export interface SetAppFallbacksInput {
+  fallbacks: import('./inferenceChain').InferenceChainEntry[];
+}
+
+export type SetAppFallbacksResult = InferenceStatusResult;
 
 export interface ProbeSlotHealthInput {
   slot: InferenceSlotId;

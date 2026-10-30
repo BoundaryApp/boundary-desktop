@@ -552,17 +552,22 @@ export interface ProjectInferencePin {
   modelId?: string;
   /** Phase 4 enforcement; Phase 3 may persist/render disabled only. */
   privacyLocalOnly?: boolean;
+  /** Tried in order when the pinned provider doesn't answer (ADR 0033). Ignored while inheriting. */
+  fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
 
 export interface SessionInferenceOverride {
   provider: ChatInferenceProvider;
   modelId: string;
+  /** Tried in order when the override doesn't answer (ADR 0033). */
+  fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
 
 export interface SessionInferenceMark {
   id: string;
   at: string;
-  kind: 'switched';
+  /** `fell-back`: a turn was answered by a later entry of the inference chain (ADR 0033 §3). */
+  kind: 'switched' | 'fell-back';
   provider: ChatInferenceProvider;
   modelId: string;
 }
@@ -575,6 +580,8 @@ export interface ResolvedSessionInference {
   configured: boolean;
   health?: import('./onboarding').LlmSlotHealth;
   needsRestart: boolean;
+  /** The fallbacks of the level that supplied this; levels are not merged (ADR 0033 §1). */
+  fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
 
 export interface HermesSessionInferencePayload {
@@ -585,6 +592,8 @@ export interface HermesSessionInferenceSetPayload {
   sessionId: string;
   provider: ChatInferenceProvider;
   modelId: string;
+  /** Omitted keeps the chat's current fallbacks. */
+  fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
 
 export interface HermesSessionInferenceResult {

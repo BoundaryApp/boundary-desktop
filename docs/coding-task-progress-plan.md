@@ -84,7 +84,7 @@ A `test:stack` case can check the read-only parts: `/global/event` sends `server
 
 ## Dependencies
 
-- **OpenCode pin.** The stack pins OpenCode at 1.17.6 from v0.3.5. Boundary requires v0.3.4, whose image pulls `latest`, so the API can move under a rebuild. Either require v0.3.5 before Phase 1 ships, or treat any shape that doesn't parse as "no panel".
+- **OpenCode pin.** The stack pins OpenCode at 1.17.6 from v0.3.5, and Boundary pins v0.3.6, so a rebuild no longer moves the API. A local stack can still run a newer OpenCode, so treat any shape that doesn't parse as "no panel".
 - **Change request 0013 R1** replaces the title search. Phase 1 doesn't wait for it.
 
 ## Open questions

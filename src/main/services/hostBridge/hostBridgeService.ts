@@ -31,6 +31,7 @@ import {
 } from './hostBridgeStore';
 import { executeHostTool, notificationFailureMessage, type HostToolDeps } from './hostTools';
 import { dialogStartFolder, rememberDialogPick } from '../dialogFolders';
+import { stopUtilityProcess } from '../stopUtilityProcess';
 import {
   HERMES_SESSION_IDLE_MS,
   HOST_TOOLS_SETTLE_MS,
@@ -396,17 +397,7 @@ async function shutDown(reason?: string): Promise<void> {
   endBridgeRun();
   setHostToolsState(idleHostToolsState());
   if (!proc) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      proc.kill();
-      resolve();
-    }, STOP_TIMEOUT_MS);
-    proc.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    post(proc, { type: 'stop', reason });
-  });
+  await stopUtilityProcess(proc, () => post(proc, { type: 'stop', reason }), STOP_TIMEOUT_MS);
 }
 
 export interface HostBridgeAgentState {

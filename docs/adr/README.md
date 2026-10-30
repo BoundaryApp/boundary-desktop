@@ -12,6 +12,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    ├── 0015 Two stored inference connections, Settings is the destination
  │    │    └── 0016 Chat inference override and honest apply
  │    │         └── 0017 Project inference pin and resolve order
+ │    │              └── 0033 Inference chains and a host-side router (amends 0016 §4)
  │    ├── 0003 Workbench chrome (A + B affordances + light theme)
  │    │    ├── 0013 Project sources inspector (H + I)
     │    │    └── 0028 Coding folders (L)
@@ -37,7 +38,9 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │         └── 0012 Host Compose inventory lives on Resources
  ├── 0026 The model key lives in the proxy's memory, not on disk
  ├── 0027 A host bridge gives Hermes the host's browser and capabilities
- └── 0031 Checks on the stack contract and on drift
+ ├── 0031 Checks on the stack contract and on drift
+ └── 0032 Circles: invite-only groups that network peer to peer
+      └── 0034 Sharing a local model with a Circle
 ```
 
 | ADR | Status | Title |
@@ -57,7 +60,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0013](0013-project-sources-inspector.md) | Accepted | Project sources are a right-rail inspector |
 | [0014](0014-tabbed-inspector.md) | Accepted | Right rail is a tabbed inspector |
 | [0015](0015-inference-provider-slots.md) | Accepted | Two stored inference connections, Settings is the destination |
-| [0016](0016-chat-inference-override.md) | Accepted | Chat inference override and honest apply |
+| [0016](0016-chat-inference-override.md) | Accepted · §4 amended by 0033 | Chat inference override and honest apply |
 | [0017](0017-project-inference-pin.md) | Accepted | Project inference pin and resolve order |
 | [0018](0018-design-tokens-and-primitives.md) | Accepted | Design tokens and primitives |
 | [0019](0019-onboarding-in-workbench-frame.md) | Accepted · §6 and part of §1 superseded by 0029 | Onboarding in the workbench frame |
@@ -73,6 +76,9 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0029](0029-full-window-startup-screen.md) | Proposed | A full-window start-up screen |
 | [0030](0030-board-is-a-view-of-tasks.md) | Proposed | Hermes's board is a view of Tasks |
 | [0031](0031-checks-on-the-stack-contract-and-drift.md) | Proposed | Checks on the stack contract and on drift |
+| [0032](0032-circles.md) | Accepted | Circles: invite-only groups that network peer to peer |
+| [0033](0033-inference-chains.md) | Accepted · amends 0016 §4 | Inference chains and a host-side router |
+| [0034](0034-shared-models.md) | Accepted | Sharing a local model with a Circle |
 
 ## Host bridge research
 

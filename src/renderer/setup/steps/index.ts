@@ -4,6 +4,7 @@ import { CapabilityStep } from './CapabilityStep';
 import { LlmOnboardingStep } from './LlmOnboardingStep';
 import { FoldersStep } from './FoldersStep';
 import { AssistantStackStep } from './AssistantStackStep';
+import { rendererExperiments } from '../../experiments';
 
 function isCapabilityComplete(ctx: SetupFlowSnapshot): boolean {
   // Acknowledgement alone advances — resource/runtime warnings are advisory.
@@ -30,9 +31,10 @@ function isAssistantStackComplete(ctx: SetupFlowSnapshot): boolean {
 
 /**
  * Ordered startup gates. Reorder / insert / remove by editing this list. At most five steps,
- * two of them optional; other optional setup belongs in the Get started list.
+ * two of them optional, counting the steps experiments add; other optional setup belongs in the
+ * Get started list.
  */
-export const SETUP_STEPS: SetupStepDefinition[] = [
+const APP_SETUP_STEPS: SetupStepDefinition[] = [
   {
     id: 'capability',
     label: 'Machine',
@@ -71,3 +73,18 @@ export const SETUP_STEPS: SetupStepDefinition[] = [
     Component: AssistantStackStep,
   },
 ];
+
+let steps: SetupStepDefinition[] | null = null;
+
+/**
+ * The app's steps with the ones experiments add placed before Assistant. Built on first call,
+ * not at load: an experiment's step imports setup modules that import this one.
+ */
+export function setupSteps(): SetupStepDefinition[] {
+  steps ??= [
+    ...APP_SETUP_STEPS.filter((step) => step.id !== 'assistant-stack'),
+    ...rendererExperiments.flatMap((experiment) => experiment.setupSteps ?? []),
+    ...APP_SETUP_STEPS.filter((step) => step.id === 'assistant-stack'),
+  ];
+  return steps;
+}

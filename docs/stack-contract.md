@@ -57,6 +57,7 @@ Default ports; Boundary's own stack adds 10000 in `offset-ports` mode (`portsFor
 | `GET /auth/handoff?code=` (dashboard) | browser sign-in | `browserUrlFor` (hermesBoardLinks.ts) | none |
 | `GET /api/sessions`, `GET /api/session` (WebUI) | session rows | hermesWebuiSessions.ts | none (returns chat content) |
 | `GET/POST /admin/upstreams` (llm-proxy) | upstream status | `pushLlmProxyUpstream`, `readLlmProxyStatus` (llmProxyAdmin.ts) | none |
+| llm-proxy's `chat` and `lightrag` routes, with Boundary's inference router as the upstream | forwards every request header but hop-by-hop ones (`X-Boundary-Session` reaches the router); the pushed key arrives as `Authorization: Bearer` | `applyLlmConnectionOnce` (AssistantStackService.ts), chainRouter.ts | unit: chainRouter, applyLlmViaProxy; no live case |
 | `GET /session/status`, `GET /session` (OpenCode) | busy session ids, titles | codingAgentBusy.ts | none |
 
 ## Gateway (`/api/ws` on the dashboard)
@@ -126,6 +127,7 @@ without editing the test.
 | `browser.cdp_url` | `planHermesProfileWrites` from `hermesBrowserCdpUrl` | `test:stack` keys, settings program |
 | `mcp_servers.opencode`, `mcp_servers.searxng`, `mcp_servers.todos` (whole entries) | `defaultMcpServerEntries` (hermesAgentMcpServers.ts) | `test:stack` keys, settings program |
 | `mcp_servers.<calendar server>` (whole entry, through `hermes config set`) | `grant` (calendar/calendarService.ts) | `test:stack` keys |
+| `providers.boundary-chain` (whole entry: `base_url`, `api_key`, `session_affinity_header`); Hermes sends that header on the route whose `base_url` matches `model.base_url` | `desiredHermesConfig` with `routed` (ADR 0033) | `test:stack` keys, settings program, session header |
 
 The settings-program case also runs a refused key and expects the program to report it as a result
 line (`SystemExit` at that key) and exit 0, then reads the stored files back and expects Boundary's

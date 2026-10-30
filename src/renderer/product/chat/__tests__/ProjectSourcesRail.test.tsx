@@ -166,6 +166,53 @@ describe('ProjectSourcesRail', () => {
     expect(onProjectsUpdated).toHaveBeenCalled();
   });
 
+  it("offers a pinned project its own fallback, and keeps it when the pin moves (ADR 0033 §1)", async () => {
+    const pinned = { ...project, inference: { mode: 'local' as const, modelId: 'qwen3:14b' } };
+    const props = {
+      inspect: inspect({}),
+      onChangeFolder: noop,
+      onChooseFolder: noop,
+      onRevealHub: noop,
+      onRevealSource: noop,
+      onRefreshIndex: noop,
+      onAddFolder: noop,
+      onRemoveSource: noop,
+      connecting: false,
+      rpcAvailable: true,
+      role: null,
+    };
+    const { rerender } = render(<ProjectSourcesRail project={{ ...project }} {...props} />);
+    await screen.findByRole('option', { name: /Inherit app default/ });
+    // Inheriting takes the app default's chain, so there is nothing to set here.
+    expect(screen.queryByRole('list', { name: 'Add a fallback' })).toBeNull();
+
+    rerender(<ProjectSourcesRail project={pinned} {...props} />);
+    expect(await screen.findByText('Nothing else. Chats in this project stop and ask.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add OpenRouter · claude-sonnet-4' }));
+    await waitFor(() => {
+      expect(patchProject).toHaveBeenCalledWith({
+        projectId: 'p1',
+        inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] },
+      });
+    });
+
+    patchProject.mockClear();
+    rerender(
+      <ProjectSourcesRail
+        project={{ ...pinned, inference: { ...pinned.inference, fallbacks: [{ slot: 'openrouter' }] } }}
+        {...props}
+      />
+    );
+    expect(screen.getByRole('list', { name: 'Fallbacks' }).textContent).toContain('OpenRouter · claude-sonnet-4');
+    fireEvent.click(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4.*pin this project/i }));
+    await waitFor(() => {
+      expect(patchProject).toHaveBeenCalledWith({
+        projectId: 'p1',
+        inference: { mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', fallbacks: [{ slot: 'openrouter' }] },
+      });
+    });
+  });
+
   it('follows an app default changed elsewhere without a project change', async () => {
     render(
       <ProjectSourcesRail

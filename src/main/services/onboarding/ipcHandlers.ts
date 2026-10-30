@@ -12,6 +12,7 @@ import {
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
   setAppDefault,
+  setAppFallbacks,
   updateLlmModel,
 } from './OpenAiOnboardingStore';
 import { probeSlotHealth } from './probeSlotHealth';
@@ -46,6 +47,7 @@ import type {
   SaveLlmConnectionInput,
   SaveLlmConnectionResult,
   SetAppDefaultInput,
+  SetAppFallbacksInput,
   SetAppDefaultResult,
   StartOAuthPkceInput,
   StartOAuthPkceResult,
@@ -275,6 +277,11 @@ export function registerOnboardingHandlers(): void {
 
   handleResult('onboarding:set-app-default', async (_event, input: SetAppDefaultInput) =>
     setAppDefaultHandler(input)
+  );
+
+  // Saving fallbacks applies nothing: the next send plans the chain (ADR 0033 §9).
+  handleResult('onboarding:set-app-fallbacks', async (_event, input: SetAppFallbacksInput) =>
+    setAppFallbacks(input.fallbacks)
   );
 
   handleResult('onboarding:probe-slot-health', async (_event, input: ProbeSlotHealthInput) =>

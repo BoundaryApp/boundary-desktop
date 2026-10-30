@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
-import { checkBridgeRequest, type GuardFailure } from './requestGuard';
+import { checkBridgeRequest, readLimitedBody, type GuardFailure } from './requestGuard';
 import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools } from './mcpProtocol';
 
 /**
@@ -78,22 +78,8 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string) {
   );
 }
 
-function readBody(req: http.IncomingMessage): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        resolve(null);
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
+async function readBody(req: http.IncomingMessage): Promise<string | null> {
+  return (await readLimitedBody(req, MAX_BODY_BYTES))?.toString('utf8') ?? null;
 }
 
 function portOf(server: http.Server): number {

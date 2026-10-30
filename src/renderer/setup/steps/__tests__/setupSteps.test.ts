@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SETUP_STEPS } from '../index';
+import { setupSteps } from '../index';
 import type { SetupFlowSnapshot } from '../../types';
 import { resolveActiveSetupStep, areAllSetupStepsComplete } from '../../types';
 
@@ -21,9 +21,9 @@ function snapshot(partial: Partial<SetupFlowSnapshot> = {}): SetupFlowSnapshot {
   };
 }
 
-describe('SETUP_STEPS assistant-stack gate', () => {
+describe('setupSteps() assistant-stack gate', () => {
   it('selects assistant-stack after capability and LLM are complete', () => {
-    const active = resolveActiveSetupStep(SETUP_STEPS, snapshot());
+    const active = resolveActiveSetupStep(setupSteps(), snapshot());
     expect(active?.id).toBe('assistant-stack');
   });
 
@@ -48,7 +48,7 @@ describe('SETUP_STEPS assistant-stack gate', () => {
         ready: true,
       },
     });
-    expect(resolveActiveSetupStep(SETUP_STEPS, ctx)).toBeNull();
-    expect(areAllSetupStepsComplete(SETUP_STEPS, ctx)).toBe(true);
+    expect(resolveActiveSetupStep(setupSteps(), ctx)).toBeNull();
+    expect(areAllSetupStepsComplete(setupSteps(), ctx)).toBe(true);
   });
 });

@@ -24,6 +24,7 @@ import {
   type DesiredHermesProfile,
 } from '../hermesConfigApply';
 import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from '../hermesPlatformHint';
+import { HERMES_ROUTER_SESSION_HEADER } from '../../inference/inferenceRouterService';
 import { execInHermes, probeStack, pythonJsonInHermes, skipNote, type StackTarget } from './stackHarness';
 
 const probe = await probeStack();
@@ -48,6 +49,8 @@ function desiredWithEverything(): DesiredHermesProfile[] {
       ),
     },
     bridge: { mcpPort: 47001, browserPort: 47002, mcpToken: 'contract-mcp', browserToken: 'contract-browser' },
+    // An inference chain, so the router's provider entry is part of the plan (ADR 0033).
+    routed: true,
   });
 }
 
@@ -172,5 +175,23 @@ describe.skipIf(!probe.ok)(`Hermes config.yaml keys and the settings program${sk
     expect(refusedStored.agent?.max_turns).toBe(12);
     expect(refusedStored.agent).not.toHaveProperty('platform_hints');
     expect(refusedStored.platform_hints).toEqual({ boundary: 'contract hint' });
+  });
+
+  // Uses the default profile the settings program wrote in the case above.
+  it('Hermes sends the router session header on the llm-proxy route (ADR 0033 §7)', async () => {
+    const out = await pythonJsonInHermes<{ baseUrl: string; header: string }>(
+      target,
+      `
+import json, sys
+sys.path.insert(0, "/opt/hermes")
+from hermes_cli.config import load_config
+from hermes_cli.config_providers import get_custom_provider_session_affinity_header
+cfg = load_config()
+base = cfg["model"]["base_url"]
+print(json.dumps({"baseUrl": base, "header": get_custom_provider_session_affinity_header(base, config=cfg)}))
+`,
+      { env: { HERMES_HOME: home } }
+    );
+    expect(out).toEqual({ baseUrl: 'http://llm-proxy:4000/v1', header: HERMES_ROUTER_SESSION_HEADER });
   });
 });

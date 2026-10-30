@@ -6,6 +6,7 @@ import type {
   LlmSlotHealth,
   LlmSlotStatus,
 } from '../../shared/types/onboarding';
+import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { ModelPicker } from '../onboarding/ModelPicker';
 import { Segmented } from '../components/ui/segmented';
@@ -18,7 +19,11 @@ import { CalendarsPanel } from './CalendarsPanel';
 import { CodingFoldersPanel } from './CodingFoldersPanel';
 import { AgentBrowserPanel } from './AgentBrowserPanel';
 import { ComputerAccessPanel } from './ComputerAccessPanel';
+import { ChainEditor } from './chat/ChainEditor';
+import { CircleSharingPanel } from './circles/CircleSharingPanel';
+import { useCirclesState } from './circles/useCircles';
 import type { SettingsTab } from './settingsNavigation';
+import { rendererExperiments } from '../experiments';
 
 interface ProductSettingsScreenProps {
   onBack: () => void;
@@ -93,6 +98,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const [selectedLocalModel, setSelectedLocalModel] = useState('');
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState('');
   const [busy, setBusy] = useState(false);
+  const circles = useCirclesState();
   // True while main waits for the browser to return from OpenRouter sign-in.
   const [openRouterSigningIn, setOpenRouterSigningIn] = useState(false);
   const openRouterSignInCancelled = useRef(false);
@@ -360,6 +366,22 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     }
   };
 
+  const handleSetFallbacks = async (fallbacks: InferenceChainEntry[]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.onboarding.setAppFallbacks({ fallbacks });
+      if (!result.success) {
+        setError(result.error ?? 'Unable to save the fallbacks.');
+        return;
+      }
+      await takeInferenceStatus(result);
+      setNotice('Fallbacks saved. They take effect on your next message.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const local = status?.slots?.local;
   const openrouter = status?.slots?.openrouter;
   const infrastructure = status?.slots?.infrastructure;
@@ -425,6 +447,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
               />
             </div>
           </section>
+
+          {rendererExperiments.map(({ SettingsSection }, index) =>
+            SettingsSection ? <SettingsSection key={index} /> : null
+          )}
 
           <h2 className="wb-settings-heading">
             Inference
@@ -600,6 +626,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                         </button>
                       </div>
                       {testBySlot.local && <p className="wb-inference-note">{testBySlot.local}</p>}
+                      <CircleSharingPanel
+                        circles={circles}
+                        models={localModels.length > 0 ? localModels : local.modelId ? [{ id: local.modelId }] : []}
+                      />
                     </>
                   )}
                 </article>
@@ -789,6 +819,26 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                         <span>Cloud is the machine default. Local stays available as an override.</span>
                       </span>
                     </button>
+                  </>
+                )}
+                {status?.appDefault && status.appDefault !== 'infrastructure' && (
+                  <>
+                    <h3 className="wb-inference-fallback-head">
+                      Fallbacks
+                      <InfoTip label="fallbacks">
+                        Tried in order when the app default doesn&apos;t answer, before the reply starts. The reply
+                        is marked with the one that answered. A chat or project that picks its own provider uses
+                        its own fallbacks, set in its menu.
+                      </InfoTip>
+                    </h3>
+                    <ChainEditor
+                      primary={{ slot: status.appDefault }}
+                      fallbacks={status.appFallbacks ?? []}
+                      ctx={{ slots: status.slots, circles }}
+                      disabled={busy}
+                      emptyNote="None. When the app default doesn’t answer, the chat stops and asks."
+                      onChange={(next) => void handleSetFallbacks(next)}
+                    />
                   </>
                 )}
                 {status?.appDefault === 'infrastructure' && infrastructure && (

@@ -4,7 +4,8 @@ import { JsonRpcGatewayError } from './vendor/json-rpc-channel';
 /**
  * `gateway.capabilities` flags that stack v0.3.3 added (turn heartbeat, session.live_status,
  * client_context). A gateway without them predates the pinned stack. v0.3.4 left the wire
- * contract unchanged, so the gateway can't tell v0.3.3 from the pin; v0.3.3 runs fine.
+ * contract unchanged, and v0.3.5 added only `turn_speaker`, which Boundary doesn't send, so
+ * the gateway can't tell v0.3.3 from the pin; v0.3.3 runs fine.
  */
 const PIN_CAPABILITIES = [
   { key: 'turn_heartbeat', name: 'turn.heartbeat' },

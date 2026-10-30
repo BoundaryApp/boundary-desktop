@@ -85,6 +85,9 @@ vi.mock('../../../main/services/assistant/applyLlmToProjectEnv', () => ({
 }));
 
 // The ready workbench is out of scope here; the gate in front of it is under test.
+// The app as the public repository has it; each experiment tests what it adds beside its code.
+vi.mock('../../experiments', () => ({ rendererExperiments: [] }));
+
 vi.mock('../ProductReadyShell', () => ({
   ProductReadyShell: () => <main aria-label="Workbench">Workbench</main>,
 }));

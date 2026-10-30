@@ -18,6 +18,7 @@ const onboardingApi = {
   sendLlmTestMessage: vi.fn(),
   clearLlmSlot: vi.fn(),
   setAppDefault: vi.fn(),
+  setAppFallbacks: vi.fn(),
 };
 
 const localOnlyStatus = {
@@ -156,6 +157,37 @@ describe('ProductSettingsScreen', () => {
     await waitFor(() => {
       expect(onboardingApi.setAppDefault).toHaveBeenCalledWith({ slot: 'openrouter' });
     });
+  });
+
+  it('adds the other provider as a fallback, and removes it again (ADR 0033)', async () => {
+    onboardingApi.getStatus.mockResolvedValue(bothStatus);
+    onboardingApi.setAppFallbacks.mockResolvedValue({
+      success: true,
+      status: { ...bothStatus, appFallbacks: [{ slot: 'openrouter' }] },
+    });
+
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+
+    expect(await screen.findByText(/None\. When the app default doesn’t answer, the chat stops and asks/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add OpenRouter · claude-sonnet-4' }));
+    await waitFor(() => {
+      expect(onboardingApi.setAppFallbacks).toHaveBeenCalledWith({ fallbacks: [{ slot: 'openrouter' }] });
+    });
+    const list = await screen.findByRole('list', { name: 'Fallbacks' });
+    expect(list.textContent).toContain('OpenRouter · claude-sonnet-4');
+
+    onboardingApi.setAppFallbacks.mockResolvedValue({ success: true, status: { ...bothStatus, appFallbacks: [] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove OpenRouter · claude-sonnet-4' }));
+    await waitFor(() => {
+      expect(onboardingApi.setAppFallbacks).toHaveBeenLastCalledWith({ fallbacks: [] });
+    });
+  });
+
+  it('offers no fallback to add with only one provider connected', async () => {
+    onboardingApi.getStatus.mockResolvedValue(localOnlyStatus);
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+    expect(await screen.findByText(/None\. When the app default doesn’t answer/)).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Add a fallback' })).toBeNull();
   });
 
   it('disconnects local and falls back to the remaining provider', async () => {

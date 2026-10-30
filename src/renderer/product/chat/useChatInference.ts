@@ -89,8 +89,11 @@ export function useChatInference({
     send();
   }, [send, openRouterSlot, sessionId]);
 
+  const refreshAfterTurn = useCallback(() => setRefreshKey((n) => n + 1), []);
+
   return {
     inferenceMarks,
+    refreshAfterTurn,
     setInferenceMarks,
     setResolvedInference,
     offlinePrompt,

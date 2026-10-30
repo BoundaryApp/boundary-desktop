@@ -3,7 +3,7 @@ import { Stepper } from '../components/ui/stepper';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { useOptionalSetup } from './SetupContext';
-import { SETUP_STEPS } from './steps';
+import { setupSteps } from './steps';
 import { SetupBackgroundStatus } from './SetupBackgroundStatus';
 import type { SetupStepId } from './types';
 import '../product/chat/workbench.css';
@@ -42,10 +42,10 @@ export const SetupShell: React.FC<SetupShellProps> = ({
 }) => {
   const setup = useOptionalSetup();
   const activeStep = setup?.activeStep ?? null;
-  // Read inside render: steps/ imports this module, so SETUP_STEPS is not
+  // Read inside render: steps/ imports this module, so the step list is not
   // initialised yet while this file evaluates.
   // Optional steps carry the same weight in the stepper as required ones.
-  const stepperSteps = SETUP_STEPS.map((item) => ({ id: item.id, label: item.label }));
+  const stepperSteps = setupSteps().map((item) => ({ id: item.id, label: item.label }));
   const currentStep = step === undefined ? (activeStep?.id ?? null) : step;
   const column = width === 'wide' ? 'max-w-[720px]' : 'max-w-[560px]';
   const skippable = Boolean(activeStep?.optional) && currentStep === activeStep?.id;

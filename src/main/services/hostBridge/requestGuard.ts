@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { IncomingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders, IncomingMessage } from 'node:http';
 
 /**
  * The checks every host-bridge request passes before anything else runs (ADR 0027 §2).
@@ -68,4 +68,23 @@ export function checkBridgeRequest(
     return { status: 401, reason: 'Missing or invalid bearer token.' };
   }
   return null;
+}
+
+/** A request body up to `maxBytes`; null (and the request dropped) when it is larger. */
+export function readLimitedBody(req: IncomingMessage, maxBytes: number): Promise<Buffer | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        resolve(null);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
 }

@@ -1,5 +1,6 @@
 import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
 import type { ResolvedSessionInference } from '../../../../shared/types/hermesChat';
+import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
 import type { InferenceSlotId } from '../../../../shared/types/onboarding';
 import {
   getLastAppliedLlm,
@@ -7,6 +8,7 @@ import {
 } from '../AssistantStackStore';
 import {
   getAppDefaultSlot,
+  getAppFallbacks,
   getSlotHealth,
   getSlotLlmConnection,
   type LlmConnection,
@@ -18,7 +20,8 @@ import { conversationProjectId } from './hermesChatProjects';
 function buildResolved(
   slot: InferenceSlotId,
   connection: LlmConnection,
-  provenance: ResolvedSessionInference['provenance']
+  provenance: ResolvedSessionInference['provenance'],
+  fallbacks: InferenceChainEntry[]
 ): ResolvedSessionInference {
   const lastApplied = getLastAppliedLlm();
   return {
@@ -34,6 +37,7 @@ function buildResolved(
       endpointUrl: connection.endpointUrl,
       modelId: connection.modelId,
     }),
+    fallbacks,
   };
 }
 
@@ -50,9 +54,10 @@ async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
       configured: false,
       health: getSlotHealth(appDefault),
       needsRestart: false,
+      fallbacks: getAppFallbacks(),
     };
   }
-  return buildResolved(appDefault, connection, 'app-default');
+  return buildResolved(appDefault, connection, 'app-default', getAppFallbacks());
 }
 
 /**
@@ -72,7 +77,8 @@ export async function resolveSessionInference(
       return buildResolved(
         override.provider,
         { ...connection, modelId },
-        'chat-override'
+        'chat-override',
+        override.fallbacks ?? []
       );
     }
   }
@@ -87,7 +93,8 @@ export async function resolveSessionInference(
       return buildResolved(
         pin.mode,
         { ...connection, modelId },
-        'project-default'
+        'project-default',
+        pin.fallbacks ?? []
       );
     }
   }
