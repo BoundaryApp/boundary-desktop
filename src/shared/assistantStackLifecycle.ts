@@ -1,4 +1,7 @@
-import { BOUNDARY_ASSISTANT_CONTAINER_NAMES } from './assistantStackConstants';
+import {
+  BOUNDARY_ASSISTANT_CONTAINER_NAMES,
+  containerIdFromRuntimeName,
+} from './assistantStackConstants';
 import { ASSISTANT_UI_SERVICES } from './assistantUiServices';
 import type {
   AssistantStackLifecyclePhase,
@@ -429,7 +432,9 @@ export function resolveContainerFromProgressId(
 ): BoundaryAssistantContainerName | null {
   if (!rawId) return null;
   const trimmed = rawId.trim();
-  const withoutPrefix = trimmed.replace(/^(Container|Image|Network|Volume)\s+/i, '');
+  const withoutPrefix = containerIdFromRuntimeName(
+    trimmed.replace(/^(Container|Image|Network|Volume)\s+/i, '')
+  );
 
   // Prefer longer names first so `boundary-hermes-webui` does not match `boundary-hermes`.
   const namesByLength = [...BOUNDARY_ASSISTANT_CONTAINER_NAMES].sort(

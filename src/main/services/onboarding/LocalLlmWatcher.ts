@@ -6,7 +6,7 @@ import type {
 import { discoverLocalLlms } from './LocalLlmDiscovery';
 import { recordLocalSlotHealth } from './probeSlotHealth';
 
-const LOCAL_LLM_WATCH_INTERVAL_MS = 15_000;
+const LOCAL_LLM_WATCH_INTERVAL_MS = 3_000;
 
 function snapshotsEqual(a: DiscoveredLocalLlm[], b: DiscoveredLocalLlm[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b);

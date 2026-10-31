@@ -16,6 +16,7 @@ import type {
   HermesChatStartPayload,
   HermesChatStartResult,
   HermesChatThreadSummary,
+  HermesChatStartErrorCode,
   HermesChatToolEvent,
   HermesChatTurnStats,
   HermesConversationKind,
@@ -65,6 +66,7 @@ import {
   getStoredAgent,
   listStoredAgents,
   migrateSessionInference,
+  getSessionProjectId,
   copySessionInference,
   getSessionBranch,
   setSessionBranch,
@@ -77,6 +79,12 @@ import {
   getRoomSoulSent,
   setRoomSoulSent,
   upsertStoredChannel,
+  addFailedTurn,
+  deleteFailedChat,
+  getFailedChat,
+  listFailedChats,
+  replaceFailedTurn,
+  setNoReply,
 } from './hermesAgentStore';
 import {
   buildChannelHeader,
@@ -107,6 +115,7 @@ import {
   recordNoReply,
   sessionSettled,
   settleInterruptedTurn,
+  withFailedTurns,
   withReplyEndings,
 } from './hermesReplyEndings';
 import { getLastAppliedLlm } from '../AssistantStackStore';
@@ -146,6 +155,34 @@ function withUnlistedNewChats(
   return [...extra, ...sessions];
 }
 
+/**
+ * Chats that exist only as Boundary's record of a failed send. A chat Hermes also lists keeps
+ * its row, with the record's title if Hermes hasn't given it one.
+ */
+function withFailedChats(
+  sessions: HermesChatThreadSummary[],
+  storedIdOf: (id: string) => string
+): HermesChatThreadSummary[] {
+  const failed = listFailedChats();
+  const listed = new Set(sessions.map((s) => storedIdOf(s.id)));
+  const extra = Object.entries(failed)
+    .filter(([id]) => !listed.has(storedIdOf(id)))
+    .map(([id, chat]): HermesChatThreadSummary => ({
+      id,
+      title: chat.title,
+      createdAt: chat.turns[0]?.at,
+      updatedAt: chat.turns.at(-1)?.at,
+      source: 'boundary',
+      agentSlug: chat.agentSlug,
+      failed: true,
+    }));
+  const titled = sessions.map((s) => {
+    const title = s.title === 'New chat' ? failed[storedIdOf(s.id)]?.title : undefined;
+    return title ? { ...s, title } : s;
+  });
+  return [...extra, ...titled];
+}
+
 function titleFromMessages(messages: HermesChatMessage[]): string {
   const firstUser = messages.find((m) => m.role === 'user')?.content?.trim();
   if (!firstUser) return 'New chat';
@@ -172,7 +209,7 @@ async function gateResolvedInference(
   sender: WebContents,
   requestId: string,
   sessionId: string | undefined
-): Promise<HermesChatStartResult | null> {
+): Promise<{ blocked: HermesChatStartResult | null; restarted: boolean }> {
   const gateStartedAt = Date.now();
   let restarted = false;
   let sharedWasUnavailable = false;
@@ -197,14 +234,17 @@ async function gateResolvedInference(
     sharedUnavailable: sharedWasUnavailable,
     blocked: !ready.ok,
   });
-  if (ready.ok === true) return null;
+  if (ready.ok === true) return { blocked: null, restarted };
   return {
-    success: false,
-    requestId,
-    sessionId,
-    error: ready.error,
-    errorCode: ready.errorCode,
-    ...(ready.sharedUnavailable ? { sharedUnavailable: true } : {}),
+    restarted,
+    blocked: {
+      success: false,
+      requestId,
+      sessionId,
+      error: ready.error,
+      errorCode: ready.errorCode,
+      ...(ready.sharedUnavailable ? { sharedUnavailable: true } : {}),
+    },
   };
 }
 
@@ -985,9 +1025,10 @@ async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult>
 
     // When gateway.listSessions succeeds (even empty), merge with WebUI.
     const merged = performance.now();
-    const sessions = withUnlistedNewChats(
-      mergeHermesThreadLists(gatewaySessions, webuiSessions),
-      (id) => gateway.storedSessionId(id)
+    const storedIdOf = (id: string) => gateway.storedSessionId(id);
+    const sessions = withFailedChats(
+      withUnlistedNewChats(mergeHermesThreadLists(gatewaySessions, webuiSessions), storedIdOf),
+      storedIdOf
     );
     const onlyWebui = webuiOnlySessionIds(gatewaySessions, webuiSessions);
     webuiOnlyThreadIds.clear();
@@ -1272,6 +1313,50 @@ function isSessionNotFound(err: unknown): boolean {
   return /not found/i.test(err instanceof Error ? err.message : String(err));
 }
 
+/** Carries what Boundary keeps about a session over to the runtime id it resumed as. */
+function moveToResumedSession(fromId: string, toId: string, agentSlug: string): void {
+  const prev = localThreads.get(fromId);
+  if (prev) {
+    localThreads.delete(fromId);
+    rememberThread({ ...prev, id: toId, agentSlug });
+  }
+  setSessionAgentSlug(toId, getSessionAgentSlug(fromId) ?? agentSlug);
+  migrateSessionInference(fromId, toId);
+  // A room keeps its stored id; the runtime id is linked so it still resolves.
+  const room = resolveChannel(fromId);
+  if (room) {
+    setSessionChannelId(toId, room.id);
+    const storedId = getHermesGatewaySession().storedSessionId(toId);
+    if (storedId !== room.sessionId) moveChannelSession(room, storedId);
+  }
+  webuiOnlyThreadIds.delete(fromId);
+}
+
+/**
+ * The live session after a restart, which ends every session Hermes holds. Hermes stores a session
+ * on its first prompt, so one that has had no turn can't be resumed and starts again.
+ */
+async function reviveSession(sessionId: string, agentSlug: string, profile: string | null): Promise<string> {
+  const gateway = getHermesGatewaySession();
+  await gateway.ensureConnected();
+  let revived: string;
+  try {
+    const resumed = await gateway.resumeSession(gateway.storedSessionId(sessionId), {
+      ...resumeOptsFor(sessionId)[0],
+      omitMessages: true,
+    });
+    revived = resumed.sessionId;
+  } catch (err) {
+    if (resolveChannel(sessionId) || !isSessionNotFound(err)) throw err;
+    revived = await gateway.createSessionWithSeed(newSessionOpts(agentSlug, profile, sessionId));
+    const projectId = getSessionProjectId(sessionId);
+    if (projectId !== undefined) setConversationProjectId([revived], projectId);
+    claimNewSession(agentSlug, revived, sessionId);
+  }
+  if (revived !== sessionId) moveToResumedSession(sessionId, revived, agentSlug);
+  return revived;
+}
+
 /**
  * The agent's most recent conversation other than `except`: the newest Boundary session in
  * its own profile's db (other sources there, such as board workers, aren't conversations).
@@ -1338,9 +1423,10 @@ export async function getHermesChatHistory(
     return { success: true, messages: [] };
   }
   const read = await readHermesChatHistory(sessionId);
+  const ids = [sessionId, read.sessionId];
   const result = {
     ...read,
-    messages: withReplyEndings(read.messages, [sessionId, read.sessionId]),
+    messages: withFailedTurns(withReplyEndings(read.messages, ids), ids),
   };
   const branch = getSessionBranch(result.sessionId ?? sessionId) ?? getSessionBranch(sessionId);
   return branch ? { ...result, branch } : result;
@@ -1361,8 +1447,10 @@ function resumeOptsFor(
 }
 
 async function readHermesChatHistory(sessionId: string): Promise<HermesChatHistoryResult> {
-  // A placeholder has no Hermes session until its first send.
-  if (dmPlaceholderIds.has(sessionId)) return { success: true, messages: [], sessionId };
+  // A placeholder, or a chat whose only send failed, has no Hermes session until a send works.
+  if (dmPlaceholderIds.has(sessionId) || getFailedChat(sessionId)?.local) {
+    return { success: true, messages: [], sessionId };
+  }
   try {
     const gateway = getHermesGatewaySession();
     // A room is read from its record's session, even if the renderer holds an older id.
@@ -1436,11 +1524,92 @@ export async function getHermesChatContextBreakdown(
   }
 }
 
+function lastUserText(payload: HermesChatStartPayload): string {
+  return [...payload.messages].reverse().find((m) => m.role === 'user')?.content?.trim() ?? '';
+}
+
+/**
+ * A send failed and Hermes holds nothing for it: keep the message and error in the app's local
+ * store, so the chat stays listed and reopens as it looked. Returns the chat's id, a new local
+ * one when no session was ever made. Rooms keep their own posts, and a Continue has no message.
+ */
+async function keepFailedSend(
+  payload: HermesChatStartPayload,
+  sessionId: string | undefined,
+  noReply: HermesNoReply,
+  errorCode?: HermesChatStartErrorCode
+): Promise<string | undefined> {
+  const text = lastUserText(payload);
+  if (!text || payload.continue || resolveChannel(sessionId ?? payload.sessionId)) return sessionId;
+  try {
+    const failure = { noReply, ...(errorCode ? { errorCode } : {}) };
+    const retrying = Boolean(payload.retry || payload.rewind);
+    if (retrying && sessionId && replaceFailedTurn(sessionId, text, failure)) {
+      broadcastSessionsChanged();
+      return sessionId;
+    }
+    if (payload.rewind) {
+      // Retry or Edit of a turn Hermes holds: the row stays, and carries the error.
+      if (sessionId && payload.rewind.rowId != null) {
+        setNoReply(sessionId, payload.rewind.rowId, noReply);
+      }
+      return sessionId;
+    }
+    const id = sessionId ?? randomUUID();
+    const agentSlug =
+      payload.agentSlug?.trim() ||
+      (sessionId ? getSessionAgentSlug(sessionId) : null) ||
+      BUILTIN_ASSISTANT_SLUG;
+    if (!sessionId) {
+      setSessionAgentSlug(id, agentSlug);
+      setConversationProjectId(
+        [id],
+        payload.projectId === undefined ? getActiveHermesProjectId() : payload.projectId
+      );
+      if (payload.inference) await setSessionInferenceOverride({ sessionId: id, ...payload.inference });
+    }
+    const known = localThreads.get(id)?.title;
+    addFailedTurn(
+      id,
+      {
+        title: known && known !== 'New chat' ? known : titleFromMessages(payload.messages),
+        agentSlug,
+        ...(!sessionId || dmPlaceholderIds.has(id) ? { local: true as const } : {}),
+      },
+      { text, ...failure, at: new Date().toISOString() }
+    );
+    broadcastSessionsChanged();
+    return id;
+  } catch {
+    // A store write failed: the send's own error still reaches the screen.
+    return sessionId;
+  }
+}
+
+/** Removes a chat that exists only as Boundary's record of a failed send. */
+export function deleteHermesFailedChat(sessionId: string): { success: boolean } {
+  deleteFailedChat(sessionId);
+  localThreads.delete(sessionId);
+  broadcastSessionsChanged();
+  return { success: true };
+}
+
+/** Starts a turn; a send that fails before it starts is kept (`keepFailedSend`). */
+export async function startHermesChatStream(
+  sender: WebContents,
+  payload: HermesChatStartPayload
+): Promise<HermesChatStartResult> {
+  const result = await startChatTurn(sender, payload);
+  if (result.success || result.errorCode?.startsWith('rewind-')) return result;
+  const noReply: HermesNoReply = { reason: 'unreachable', ...(result.error ? { error: result.error } : {}) };
+  return { ...result, sessionId: await keepFailedSend(payload, result.sessionId, noReply, result.errorCode) };
+}
+
 /**
  * Resolves the session, returns immediately with it, then
  * streams in the background.
  */
-export async function startHermesChatStream(
+async function startChatTurn(
   sender: WebContents,
   payload: HermesChatStartPayload
 ): Promise<HermesChatStartResult> {
@@ -1460,9 +1629,7 @@ export async function startHermesChatStream(
 
   // Continue sends Boundary's hidden instruction rather than the user's last turn.
   const continuing = payload.continue === true;
-  const userText = continuing
-    ? CONTINUE_PROMPT
-    : ([...payload.messages].reverse().find((m) => m.role === 'user')?.content?.trim() ?? '');
+  const userText = continuing ? CONTINUE_PROMPT : lastUserText(payload);
   if (!userText) {
     activeStreams.delete(key);
     return { success: false, requestId, error: 'Empty message' };
@@ -1554,23 +1721,8 @@ export async function startHermesChatStream(
           omitMessages: true,
         });
         resumedOk = true;
-          if (resumed.sessionId !== sessionId) {
-          const prev = localThreads.get(sessionId);
-          if (prev) {
-            localThreads.delete(sessionId);
-            rememberThread({ ...prev, id: resumed.sessionId, agentSlug });
-          }
-          const priorSlug = getSessionAgentSlug(sessionId) ?? agentSlug;
-          setSessionAgentSlug(resumed.sessionId, priorSlug);
-          migrateSessionInference(sessionId, resumed.sessionId);
-          // A room keeps its stored id; the runtime id is linked so it still resolves.
-          const room = resolveChannel(sessionId);
-          if (room) {
-            setSessionChannelId(resumed.sessionId, room.id);
-            const storedId = gateway.storedSessionId(resumed.sessionId);
-            if (storedId !== room.sessionId) moveChannelSession(room, storedId);
-          }
-          webuiOnlyThreadIds.delete(sessionId);
+        if (resumed.sessionId !== sessionId) {
+          moveToResumedSession(sessionId, resumed.sessionId, agentSlug);
           sessionId = resumed.sessionId;
         }
       } catch (err) {
@@ -1631,12 +1783,12 @@ export async function startHermesChatStream(
             kind: conversationKindFor(sessionId, agentSlug),
           });
         } else if (
-          agentSlug !== BUILTIN_ASSISTANT_SLUG &&
+          (agentSlug !== BUILTIN_ASSISTANT_SLUG || getFailedChat(sessionId)) &&
           !resolveChannel(sessionId) &&
           isSessionNotFound(resumeError)
         ) {
-          // Hermes has no such session (an empty DM it never stored): start a new one in the
-          // agent's profile instead of sending into nothing, and let it take over as the DM.
+          // Hermes has no such session (an empty DM or failed chat it never stored): start a new
+          // one in the agent's profile instead of sending into nothing. It takes over as the DM.
           const prev = localThreads.get(sessionId);
           const previousId = sessionId;
           localThreads.delete(previousId);
@@ -1686,7 +1838,7 @@ export async function startHermesChatStream(
       }
     }
 
-    const blocked = await gateResolvedInference(sender, requestId, sessionId);
+    const { blocked, restarted } = await gateResolvedInference(sender, requestId, sessionId);
     if (blocked) {
       activeStreams.delete(key);
       return blocked;
@@ -1698,6 +1850,7 @@ export async function startHermesChatStream(
       send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'cancel' });
       return { success: true, requestId, sessionId };
     }
+    if (restarted && sessionId) sessionId = await reviveSession(sessionId, agentSlug, profile);
 
     // A turn runs in its own project's folder.
     await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
@@ -1763,7 +1916,8 @@ export async function startHermesChatStream(
         replied = !turn.noReply;
         // Stop and Send now are noted once Hermes confirms the stop (settleInterruptedTurn).
         if (turn.noReply && !controller.signal.aborted) {
-          await recordNoReply(sessionId!, turn.noReply).catch((): void => undefined);
+          const held = await recordNoReply(sessionId!, turn.noReply, turnStartedAt).catch(() => false);
+          if (!held) await keepFailedSend(payload, sessionId, turn.noReply);
         }
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -1775,6 +1929,7 @@ export async function startHermesChatStream(
               ? err.message
               : String(err)
             : unreachableError(agentSlug, err);
+        await keepFailedSend(payload, sessionId, { reason: 'unreachable', error });
         send(sender, 'hermes-chat:error', { requestId, error });
       } finally {
         activeStreams.delete(key);

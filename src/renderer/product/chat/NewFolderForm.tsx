@@ -7,6 +7,7 @@ import { displayHostPath } from './chatTelemetryFormat';
 import type { CodingChangeMode } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * New folder… in the add sheet (ADR 0028 §8, mock flow 1 "New folder" and "Name taken"):
@@ -202,7 +203,7 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
           <b>Start a git repo</b>
           <span>
             {defaults && !defaults.gitAvailable
-              ? 'Git isn’t installed on this Mac, so Boundary can’t start a repo. Installing the Xcode command line tools adds it.'
+              ? `Git isn’t installed on this Mac, so ${APP_NAME} can’t start a repo. Installing the Xcode command line tools adds it.`
               : 'Adds an empty first commit, so every change the coding agent makes can be undone.'}
           </span>
         </span>

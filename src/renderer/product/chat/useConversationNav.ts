@@ -187,6 +187,25 @@ export function useConversationNav({
     }
   }, [activeProjectId, setThreadError, setThreads, setActiveThreadId, showConversation]);
 
+  /** Removes a failed chat; if it was open, lands on the newest chat left. */
+  const deleteFailedChat = useCallback(
+    async (threadId: string) => {
+      try {
+        await window.electronAPI.hermesChat.deleteFailedChat({ sessionId: threadId });
+      } catch (err) {
+        setThreadError(errorText(err));
+        return;
+      }
+      setThreads((prev) => prev.filter((t) => !sameChat(t.id, threadId)));
+      if (!sameChat(threadId, activeThreadId)) return;
+      const next = threads
+        .filter((t) => t.kind === 'hermes' && !sameChat(t.id, threadId))
+        .sort(newestFirst)[0];
+      setActiveThreadId(next?.id ?? null);
+    },
+    [threads, activeThreadId, sameChat, setThreadError, setThreads, setActiveThreadId]
+  );
+
   /** The project page's composer: a chat that lives here, sent at once when there is text. */
   const startChatHere = useCallback(
     async (text?: string) => {
@@ -320,6 +339,7 @@ export function useConversationNav({
     openChannel,
     openDm,
     newHermesChat,
+    deleteFailedChat,
     startChatHere,
     openMentionInRoom,
     continueMention,

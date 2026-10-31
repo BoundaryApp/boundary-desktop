@@ -37,7 +37,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | `circle.state` | A Circle's members, offers, invites, writability or indexer status changed. |
 | `circle.created`, `invite.created` | Created here. |
 | `invite.admit` | An admin's device answered an invitee: `added`, `re-confirmed`, `revoked`, `used`, `expired`, `bad-intro`, `unknown-invite`. |
-| `join.request`, `join.paired`, `join.writable`, `join.refused` | The invitee's side, with time since the request. |
+| `join.request`, `join.paired`, `join.writable`, `join.not-writable`, `join.refused` | The invitee's side, with time since the request. |
 | `peer.connect`, `peer.close`, `peer.error` | A connection. `peer.close` has its length, rtt, bytes and packets each way, and retransmits. |
 | `peer.replicate`, `peer.drop-removed` | Replication started with a device, or a removed device was dropped. |
 | `removal.notice-sent`, `removal.notice-ignored`, `circle.removed-here` | An admin told a device it was removed, a device ignored a notice from someone who isn't an admin, or this device closed a Circle it was removed from. |

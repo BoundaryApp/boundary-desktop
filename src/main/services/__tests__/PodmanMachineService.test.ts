@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PodmanMachineService,
+  activeMachineFromError,
   findMachineHelperPids,
   resetApplehvFallbackGate,
 } from '../containerRuntime/PodmanMachineService';
@@ -380,6 +381,80 @@ describe('PodmanMachineService', () => {
     // force missing then init fail
     vi.spyOn(svc, 'status').mockResolvedValue('missing');
     await expect(svc.ensureRunning()).rejects.toBeInstanceOf(ContainerRuntimeUnavailableError);
+  });
+});
+
+describe('PodmanMachineService with another machine active', () => {
+  const refusal = (name: string) => {
+    const err = new Error('exit status 125') as Error & { stderr?: string };
+    err.stderr = `Error: ${name} already starting or running on the libkrun provider: only one VM can be active at a time\n`;
+    return err;
+  };
+
+  function setup(active: string, containers: string) {
+    let refused = false;
+    const execFile = vi.fn(async (_bin: string, args: string[]) => {
+      const [first, second] = args;
+      if (first === 'machine' && second === 'list') {
+        return { stdout: `boundary\t${refused ? 'true' : 'false'}\n`, stderr: '' };
+      }
+      if (first === 'machine' && second === 'start') {
+        if (!refused) {
+          refused = true;
+          throw refusal(active);
+        }
+        return { stdout: '', stderr: '' };
+      }
+      if (first === 'machine' && second === 'ssh') return { stdout: containers, stderr: '' };
+      if (first === 'machine' && second === 'stop') return { stdout: '', stderr: '' };
+      if (first === 'machine' && second === 'inspect') {
+        return {
+          stdout: JSON.stringify([
+            { ConnectionInfo: { PodmanSocket: { Path: '/tmp/p.sock' } }, Rootful: true },
+          ]),
+          stderr: '',
+        };
+      }
+      if (first === 'info') return { stdout: '/tmp/p.sock\n', stderr: '' };
+      throw new Error(`unexpected ${args.join(' ')}`);
+    });
+    const svc = new PodmanMachineService({
+      execFile: execFile as never,
+      env: {},
+      podmanPath: '/podman',
+    });
+    const stopped = () =>
+      execFile.mock.calls
+        .map((c) => c[1] as string[])
+        .filter((a) => a[1] === 'stop')
+        .map((a) => a[2]);
+    return { svc, stopped };
+  }
+
+  it('stops an idle copy of Boundary’s machine and starts its own', async () => {
+    const { svc, stopped } = setup('boundary-beta', '');
+    await expect(svc.ensureRunning()).resolves.toMatchObject({ status: 'running' });
+    expect(stopped()).toEqual(['boundary-beta']);
+  });
+
+  it('leaves a machine with running containers alone', async () => {
+    const { svc, stopped } = setup('boundary-beta', 'abc123\n');
+    await expect(svc.ensureRunning()).rejects.toThrow(/only one VM can be active/);
+    expect(stopped()).toEqual([]);
+  });
+
+  it('leaves a machine that isn’t Boundary’s alone', async () => {
+    const { svc, stopped } = setup('podman-machine-default', '');
+    await expect(svc.ensureRunning()).rejects.toThrow(/only one VM can be active/);
+    expect(stopped()).toEqual([]);
+  });
+
+  it('reads the machine name from the refusal, with or without a provider', () => {
+    expect(activeMachineFromError(refusal('boundary-beta').stderr ?? '')).toBe('boundary-beta');
+    expect(
+      activeMachineFromError('boundary already starting or running: only one VM can be active at a time')
+    ).toBe('boundary');
+    expect(activeMachineFromError('krunkit exited unexpectedly')).toBeNull();
   });
 });
 

@@ -174,6 +174,7 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
       });
     },
     onSignal: (signal) => post({ type: 'signal-received', signal }),
+    onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
     onRemoved: (key) => post({ type: 'circle-removed', key }),
     log,
     diag,

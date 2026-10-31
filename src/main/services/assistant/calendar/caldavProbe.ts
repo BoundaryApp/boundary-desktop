@@ -1,6 +1,7 @@
 import type { CalendarInfo, CalendarTestResult } from '../../../../shared/types/calendars';
 import { redactSecrets } from '../../secrets/redact';
 import { CALDAV_MCP_SERVICE } from './calendarModel';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * The sign-in test (spec decision 4). It runs inside the caldav-mcp container, with the same
@@ -118,7 +119,7 @@ export function parseCaldavProbeOutput(stdout: string, password: string): Calend
   try {
     parsed = JSON.parse(line.slice('CALDAV_PROBE '.length)) as Record<string, unknown>;
   } catch {
-    return { status: 'error', error: 'The calendar service gave an answer Boundary couldn’t read.' };
+    return { status: 'error', error: `The calendar service gave an answer ${APP_NAME} couldn’t read.` };
   }
   if (parsed.status === 'ok' && typeof parsed.url === 'string') {
     return { status: 'ok', url: parsed.url, calendars: calendarsFrom(parsed.calendars) };
@@ -127,5 +128,5 @@ export function parseCaldavProbeOutput(stdout: string, password: string): Calend
   if (parsed.status === 'unreachable') {
     return { status: 'unreachable', error: redactSecrets(String(parsed.error ?? 'No answer'), [password]) };
   }
-  return { status: 'error', error: 'The calendar service gave an answer Boundary couldn’t read.' };
+  return { status: 'error', error: `The calendar service gave an answer ${APP_NAME} couldn’t read.` };
 }

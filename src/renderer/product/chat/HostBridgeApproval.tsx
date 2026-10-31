@@ -4,6 +4,7 @@ import type {
   HostBridgeApprovalChoice,
   HostBridgeApprovalEvent,
 } from '../../../shared/types/hostBridge';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 interface HostBridgeApprovalProps {
   approval: HostBridgeApprovalEvent;
@@ -64,7 +65,7 @@ export const HostBridgeApproval: React.FC<HostBridgeApprovalProps> = ({
         ) : null
       }
     >
-      <p className="why">Hermes is asking Boundary to do this on your computer.</p>
+      <p className="why">Hermes is asking {APP_NAME} to do this on your computer.</p>
       <pre className="cmd mono">{approval.detail}</pre>
       <div className="wb-approve-actions">
         <button

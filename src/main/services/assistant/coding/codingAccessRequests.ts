@@ -6,6 +6,7 @@ import { codingGrantRefuseMessage, folderFacts, refuseCodingGrantReason } from '
 import { currentCodingRoots } from './codingMounts';
 import { isPathUnder, samePath } from '../../hostPaths';
 import { listStoredHermesProjects } from '../hermes/hermesProjectStore';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * Turn an `opencode-mcp` "needs access" result into a coding-access card (ADR 0028 §9). The
@@ -114,7 +115,7 @@ export function buildCodingAccessRequest(input: {
     projectFolderName: projectFolder?.name ?? null,
     refuseMessage: refused
       ? refused === 'missing'
-        ? `${path.dirname(hostPath)} doesn’t exist, so Boundary can’t create the folder there.`
+        ? `${path.dirname(hostPath)} doesn’t exist, so ${APP_NAME} can’t create the folder there.`
         : codingGrantRefuseMessage(refused)
       : null,
   };

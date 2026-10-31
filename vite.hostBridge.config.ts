@@ -5,6 +5,10 @@ import { defineConfig } from 'vite';
 // main bundle. It needs only Node built-ins and Electron, so everything else is bundled in.
 export default defineConfig({
   plugins: [],
+  define: {
+    __BOUNDARY_APP_NAME__: JSON.stringify(process.env.BOUNDARY_APP_NAME ?? ''),
+    __BOUNDARY_INSTANCE__: JSON.stringify(process.env.BOUNDARY_INSTANCE ?? ''),
+  },
   // Node entries, never `browser` ones: ws ships a browser stub that only throws. Forge's main
   // defaults say the same; this keeps a standalone build of this file honest too.
   resolve: {

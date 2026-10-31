@@ -1,4 +1,5 @@
 import { isHostToolName, listedHostTools, type HostToolDefinition } from './toolCatalog';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * The slice of MCP the host bridge speaks: Streamable HTTP, POST only, one JSON-RPC message per
@@ -88,8 +89,8 @@ export async function handleMcpMessage(
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Tools that act on the user's own computer through Boundary. Each one may ask the user " +
-          'to approve it in Boundary first.',
+          `Tools that act on the user's own computer through ${APP_NAME}. Each one may ask the user ` +
+          `to approve it in ${APP_NAME} first.`,
       });
     }
     case 'ping':

@@ -9,7 +9,7 @@ import type {
 } from '../../../../shared/types/hermesChat';
 import { probeSlotHealth } from '../../onboarding/probeSlotHealth';
 import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
-import { applyLlmConnectionToHermes } from '../AssistantStackService';
+import { applyLlmConnectionToHermes, settleHermesApply } from '../AssistantStackService';
 import { getLastAppliedLlm, llmFingerprintsMatch } from '../AssistantStackStore';
 import { sharedModelFacts, sharedProviderNames } from '../../circles/circlesService';
 import { planInferenceChain, sharedModelConnection } from '../../inference/inferenceChainService';
@@ -217,6 +217,12 @@ export async function ensureResolvedInferenceReady(
   sessionId: string | undefined,
   onApply?: InferenceApplyListener
 ): Promise<InferenceReady> {
+  // An apply may be restarting Hermes or moving it to a model that's about to be cancelled, so
+  // this waits and then decides from what is true by then.
+  const before = await resolveSessionInference(sessionId);
+  await settleHermesApply(() => {
+    if (before) onApply?.(before, false, true);
+  });
   const resolved = await resolveSessionInference(sessionId);
   if (!resolved?.configured) {
     return { ok: false, error: 'No configured LLM connection.' };
@@ -351,8 +357,8 @@ async function applyResolved(
 
 /**
  * After a turn: when a fallback answered its last request, mark the chat so the transcript says
- * which provider answered (ADR 0033 §3), and mark it again when the primary next answers, so the
- * chip knows the fallback is over. The router can't tell chats apart (change request 0014 R3), so
+ * which provider answers from that reply on (ADR 0033 §3), and mark it again when the primary next
+ * answers, so the chip knows the fallback is over. The router can't tell chats apart (change request 0014 R3), so
  * this reads its latest answer and only trusts one given since the turn began. A run of turns on
  * the same fallback is marked once. A turn past the router, on a chain cut to one entry, went to
  * the primary if it replied at all.
@@ -374,10 +380,15 @@ export function noteFallbackServed(sessionId: string, turnStartedAt: number, rep
     return;
   }
   const sharedBy = served.peer ? sharedProviderNames(served.peer) : null;
-  appendSessionInferenceMark(sessionId, {
-    kind: served.fellBack ? 'fell-back' : 'recovered',
-    provider,
-    modelId: served.modelId,
-    ...(sharedBy ? { sharedBy } : {}),
-  });
+  // Dated from the turn's start, so the mark sits above the reply it begins with.
+  appendSessionInferenceMark(
+    sessionId,
+    {
+      kind: served.fellBack ? 'fell-back' : 'recovered',
+      provider,
+      modelId: served.modelId,
+      ...(sharedBy ? { sharedBy } : {}),
+    },
+    new Date(turnStartedAt)
+  );
 }

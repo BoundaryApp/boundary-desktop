@@ -37,6 +37,7 @@ import type {
   NetworkToMain,
   SharedModelCall,
 } from './networkMessages';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Main's side of Circles (ADR 0032 §1): it owns the user's keys and choices and runs the network
@@ -115,7 +116,7 @@ async function start(): Promise<void> {
     throw error;
   }
 
-  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: 'Boundary Circles' });
+  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: `${APP_NAME} Circles` });
   child = proc;
   persistDebugLog('circles', 'network process forked', { pid: proc.pid ?? null, circles: circles.length });
   const forkedAt = Date.now();
@@ -156,6 +157,11 @@ async function start(): Promise<void> {
         case 'shared-chunk':
         case 'shared-end':
           onSharedMessage(message);
+          return;
+        case 'circle-paired':
+          saveCircleSecrets(message.secrets).catch((error: unknown) => {
+            persistDebugLog('circles', 'saving a joined Circle failed', { error: error instanceof Error ? error.name : 'unknown' });
+          });
           return;
         case 'circle-removed':
           forgetCircle(message.key);

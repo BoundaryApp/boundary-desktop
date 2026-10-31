@@ -17,6 +17,7 @@ import { useCalendarAccountList } from './useCalendarAccounts';
 import { Sheet } from '../components/ui/sheet';
 import { useSheetAction } from '../components/ui/use-sheet-action';
 import { InfoTip } from '../components/ui/info-tip';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /** Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). */
 
@@ -179,7 +180,7 @@ export const CalendarsPanel: React.FC<{
         <p className="wb-inference-lead">
           Calendars your agents can read or change.
           <InfoTip label="calendars">
-            Boundary connects over CalDAV, which iCloud, Fastmail and Nextcloud all support. Each agent
+            {APP_NAME} connects over CalDAV, which iCloud, Fastmail and Nextcloud all support. Each agent
             gets only the calendars you give it.
           </InfoTip>
         </p>
@@ -539,7 +540,7 @@ function ConnectSheet({
       ? `You already have a calendar called ${name.trim()}.`
       : null;
   const passwordProblem = password && UNSAFE_PASSWORD.test(password)
-    ? 'Boundary can’t pass on a password with spaces, quotes, backslashes, # or $. Create an app password for Boundary instead.'
+    ? `${APP_NAME} can’t pass on a password with spaces, quotes, backslashes, # or $. Create an app password for ${APP_NAME} instead.`
     : null;
   const ready = Boolean(username.trim() && password && !passwordProblem && !nameProblem && (!option.needsServer || server.trim()));
 
@@ -668,7 +669,7 @@ function ConnectSheet({
           <h3 className="wb-vault-label">Not supported yet</h3>
           <ul className="wb-cal-unsupported">
             <li>
-              <b>Google Calendar.</b> Google’s CalDAV needs a Google sign-in, which Boundary can’t do yet.
+              <b>Google Calendar.</b> Google’s CalDAV needs a Google sign-in, which {APP_NAME} can’t do yet.
             </li>
             <li>
               <b>Outlook and Microsoft 365.</b> Microsoft doesn’t offer CalDAV.
@@ -902,7 +903,7 @@ function SignInHelp({ provider }: { provider: CalendarProvider }) {
             Sign in at <span className="mono">account.apple.com</span>.
           </li>
           <li>Open Sign-In and Security, then App-Specific Passwords.</li>
-          <li>Create one called “Boundary” and paste it below.</li>
+          <li>Create one called “{APP_NAME}” and paste it below.</li>
         </ol>
         <p>Your Apple ID needs two-factor authentication turned on first.</p>
       </details>
@@ -926,7 +927,7 @@ function SignInHelp({ provider }: { provider: CalendarProvider }) {
         <summary>How do I get an app password?</summary>
         <ol>
           <li>In Nextcloud, open Personal settings, then Security.</li>
-          <li>Under Devices &amp; sessions, create an app password called “Boundary”.</li>
+          <li>Under Devices &amp; sessions, create an app password called “{APP_NAME}”.</li>
           <li>Paste it below with your server address.</li>
         </ol>
       </details>
@@ -935,7 +936,7 @@ function SignInHelp({ provider }: { provider: CalendarProvider }) {
   return (
     <details className="wb-cal-help">
       <summary>Which server address?</summary>
-      <p>Use the CalDAV address your server shows, or its host name. Boundary looks for the calendar address from there.</p>
+      <p>Use the CalDAV address your server shows, or its host name. {APP_NAME} looks for the calendar address from there.</p>
     </details>
   );
 }

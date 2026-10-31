@@ -26,6 +26,7 @@ import {
 } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const CHECKLIST = ['Saved', 'Restarting the coding agent', 'Checking it can open the folder'];
 
@@ -463,7 +464,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <div className="wb-insp-banner bad is-stacked">
           <p>
             The coding agent can’t open {notVisibleRows.map((item) => item.row.id).join(', ')}.
-            Boundary’s container engine only shares your home folder.
+            {APP_NAME}’s container engine only shares your home folder.
           </p>
           <div className="wb-insp-banner-actions">
             <button

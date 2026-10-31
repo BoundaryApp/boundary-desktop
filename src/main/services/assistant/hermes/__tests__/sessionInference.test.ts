@@ -64,6 +64,7 @@ vi.mock('../../hermesProfileLimits', async (importOriginal) => ({
 
 vi.mock('../../AssistantStackService', () => ({
   applyLlmConnectionToHermes: (...args: unknown[]) => applyLlmConnectionToHermes(...args),
+  settleHermesApply: async () => undefined,
   applyLlmSlotToHermes: vi.fn(),
 }));
 
@@ -524,6 +525,14 @@ describe('noteFallbackServed', () => {
     expect(listSessionInferenceMarks('s1').at(-1)).toEqual(
       expect.objectContaining({ kind: 'recovered', provider: 'peer', sharedBy: { person: 'Ada', circle: 'Friends' } })
     );
+  });
+
+  it('dates a mark from the turn, so it sits above the reply it begins with', async () => {
+    latestServed = { slot: 'peer', peer, modelId: 'qwen3:14b', fellBack: true, at: 2_000 };
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { listSessionInferenceMarks } = await import('../hermesAgentStore');
+    noteFallbackServed('s1', 1_000);
+    expect(listSessionInferenceMarks('s1').at(-1)?.at).toBe(new Date(1_000).toISOString());
   });
 
   it('marks nothing when the primary answers a chat that never fell back', async () => {

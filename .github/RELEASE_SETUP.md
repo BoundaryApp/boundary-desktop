@@ -75,6 +75,8 @@ The `version` in `package.json` is the release version. Forge stamps it into the
 `CFBundleShortVersionString` and `CFBundleVersion`, so the app reports the version it was
 released as only when the two match.
 
+Every release runs **Test Build** on the commit it builds first, and a failure stops the release.
+
 ### On merge to main
 
 Bump `version` in `package.json` in the PR. When it merges, **Build and Release** sees that

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Circles</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="--s0:#0d0d0f;--rail:#111113;--s1:#161618;--s2:#1c1c22;--line:#2a2a30;--tx:#f5f5f7;--mut:#c4c4cc;--fnt:#9e9ea8;--brand:#8b87f8;--brandd:#26244a;--ok:#86c089;--okd:#17231a;--warn:#e8c27a;--warnd:#2a2415;--warnl:#5a4a2a;--dng:#e8a0a0;position:relative;width:1280px;height:800px;overflow:hidden;display:flex;background:var(--s0);color:var(--tx);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:13px;line-height:1.45">
+
+  <div style="width:56px;flex-shrink:0;background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:44px;box-sizing:border-box">
+    <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--fnt)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
+    </div>
+    <div style="position:relative;width:36px;height:36px;border-radius:8px;background:var(--brandd);display:flex;align-items:center;justify-content:center;color:var(--brand)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none"/></svg>
+      <sc-if value="{{ needsAttention }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--warn)"></span></sc-if>
+    </div>
+  </div>
+
+  <nav aria-label="Circles" style="width:256px;flex-shrink:0;background:var(--s1);border-right:1px solid var(--line);display:flex;flex-direction:column;box-sizing:border-box;padding:40px 8px 8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 8px 10px">
+      <span style="font-size:15px;font-weight:500">Circles</span>
+      <button type="button" aria-label="New or join a Circle" onClick="{{ openNew }}" style="width:28px;height:28px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--mut);font-size:16px;line-height:1;cursor:pointer">+</button>
+    </div>
+    <button type="button" onClick="{{ goModels }}" style="display:flex;align-items:center;gap:10px;padding:8px;border:0;border-radius:8px;background:{{ modelsBg }};color:var(--tx);text-align:left;cursor:pointer;font:inherit">
+      <span style="width:30px;height:30px;flex-shrink:0;border-radius:8px;background:var(--s2);display:flex;align-items:center;justify-content:center;color:var(--mut)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5v2.5M9.5 1.5v2.5M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/></svg>
+      </span>
+      <span style="min-width:0;display:flex;flex-direction:column">
+        <span>Sharing</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fnt)"><span style="width:7px;height:7px;border-radius:50%;background:{{ shareDot }}"></span>{{ shareStatus }}</span>
+      </span>
+    </button>
+    <div style="height:1px;background:var(--line);margin:8px"></div>
+    <sc-for list="{{ railCircles }}" as="c" hint-placeholder-count="2">
+      <button type="button" onClick="{{ c.pick }}" style="display:flex;align-items:center;gap:10px;margin-bottom:2px;padding:8px;border:0;border-radius:8px;background:{{ c.bg }};color:var(--tx);text-align:left;cursor:pointer;font:inherit">
+        <span style="width:30px;height:30px;flex-shrink:0;border-radius:50%;border:1.5px solid {{ c.ring }};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--mut);box-sizing:border-box">{{ c.letter }}</span>
+        <span style="min-width:0;display:flex;flex-direction:column">
+          <span>{{ c.name }}</span>
+          <span style="font-size:12px;color:var(--fnt)">{{ c.sub }}</span>
+        </span>
+      </button>
+    </sc-for>
+    <sc-if value="{{ noCircles }}" hint-placeholder-val="{{ false }}"><p style="margin:4px 8px;font-size:12px;color:var(--fnt)">No Circles yet.</p></sc-if>
+    <div style="margin-top:auto;padding:10px 8px 4px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fnt)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>
+      <span style="flex:1;min-width:0">{{ youLine }}</span>
+      <button type="button" style="border:0;background:none;padding:0;color:var(--fnt);font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer">Profile</button>
+    </div>
+  </nav>
+
+  <main style="flex:1;min-width:0;overflow:auto;box-sizing:border-box;padding:44px 40px 32px">
+
+    <sc-if value="{{ showCircle }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:20px;max-width:760px">
+        <header style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <h1 style="margin:0;font-size:22px;font-weight:500;line-height:1.2">{{ circle.name }}</h1>
+            <p style="margin:6px 0 0;font-size:12px;color:var(--fnt)">{{ circle.sub }}</p>
+          </div>
+          <sc-if value="{{ circle.admin }}" hint-placeholder-val="{{ true }}">
+            <button type="button" onClick="{{ openInvite }}" style="height:34px;padding:0 14px;border:0;border-radius:8px;background:var(--tx);color:#111;font:inherit;font-weight:500;cursor:pointer">Invite someone</button>
+          </sc-if>
+          <button type="button" style="height:34px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--mut);font:inherit;cursor:pointer">Leave</button>
+        </header>
+
+        <section aria-label="People">
+          <sc-for list="{{ circle.rows }}" as="r" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:12px;min-height:58px;padding:0 10px;border-top:1px solid var(--line);background:{{ r.bg }};border-radius:{{ r.radius }}">
+              <span style="position:relative;width:32px;height:32px;flex-shrink:0;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:var(--mut)">{{ r.initials }}<span style="position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;background:{{ r.dot }};border:2px solid var(--s0)"></span></span>
+              <button type="button" onClick="{{ r.open }}" style="flex:1;min-width:0;display:flex;flex-direction:column;border:0;background:none;padding:0;color:var(--tx);font:inherit;text-align:left;cursor:pointer">
+                <span style="display:flex;align-items:center;gap:8px">{{ r.name }}<sc-if value="{{ r.isAdmin }}" hint-placeholder-val="{{ false }}"><span style="padding:0 6px;border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--fnt)">Admin</span></sc-if></span>
+                <span style="font-size:12px;color:var(--fnt)">{{ r.detail }}</span>
+              </button>
+              <sc-if value="{{ r.pill }}" hint-placeholder-val="{{ false }}"><span style="padding:1px 8px;border-radius:6px;background:{{ r.pillBg }};color:{{ r.pillFg }};font-size:11px">{{ r.pill }}</span></sc-if>
+              <sc-if value="{{ r.canShare }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:12px;color:var(--mut)">Share here</span>
+                <button type="button" role="switch" aria-checked="{{ r.on }}" aria-label="Share your models with this Circle" onClick="{{ r.toggle }}" style="width:34px;height:20px;padding:2px;border:0;border-radius:999px;background:{{ r.track }};display:flex;justify-content:{{ r.align }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+
+        <sc-if value="{{ circle.invites }}" hint-placeholder-val="{{ false }}">
+          <section aria-label="Open invites" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--mut)">
+            <span style="flex:1">Invite for Sam, waiting to be used. Expires in 2 days.</span>
+            <button type="button" onClick="{{ openInvite }}" style="border:0;background:none;padding:0;color:var(--mut);font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer">Manage</button>
+          </section>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showJoining }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:460px;margin:120px auto 0;text-align:center">
+        <h1 style="margin:0;font-size:22px;font-weight:500">Waiting for an admin</h1>
+        <p style="margin:10px 0 0;color:var(--mut)">An admin of this Circle has to be online to let you in. Keep Boundary open and you'll join as soon as one is.</p>
+        <button type="button" style="margin-top:18px;height:34px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--mut);font:inherit;cursor:pointer">Cancel</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:680px;margin:64px auto 0">
+        <h1 style="margin:0;font-size:22px;font-weight:500">Share a model with people you know</h1>
+        <p style="margin:8px 0 24px;color:var(--mut)">A Circle is a small invite-only group. Members' Macs connect to each other directly, with no server in between, while Boundary is open.</p>
+        <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px;color:var(--mut)">Your name in Circles<input value="Jordan" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s1);color:var(--tx);font:inherit"></label>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px">
+          <form style="display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--s1)">
+            <span style="font-size:15px;font-weight:500">Start a Circle</span>
+            <span style="font-size:12px;color:var(--fnt)">You'll be its admin and can invite people.</span>
+            <input aria-label="Circle name" placeholder="Circle name" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s0);color:var(--tx);font:inherit">
+            <button type="button" style="height:34px;border:0;border-radius:8px;background:var(--tx);color:#111;font:inherit;font-weight:500;cursor:pointer">Create</button>
+          </form>
+          <form style="display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--s1)">
+            <span style="font-size:15px;font-weight:500">Join with an invite</span>
+            <span style="font-size:12px;color:var(--fnt)">Paste the code someone sent you.</span>
+            <input aria-label="Invite code" placeholder="Invite code" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s0);color:var(--tx);font:inherit">
+            <button type="button" onClick="{{ startJoin }}" style="height:34px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--tx);font:inherit;cursor:pointer">Join</button>
+          </form>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showModels }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:24px;max-width:760px">
+        <h1 style="margin:0;font-size:22px;font-weight:500;line-height:1.2">Sharing</h1>
+
+        <sc-if value="{{ hasLocal }}" hint-placeholder-val="{{ true }}">
+          <section aria-label="Shared from this Mac" style="display:flex;flex-direction:column;gap:12px">
+            <h2 style="margin:0;font-size:15px;font-weight:500">Shared from this Mac</h2>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid {{ banner.line }};border-radius:8px;background:{{ banner.bg }}">
+              <span style="flex:1;min-width:0;color:{{ banner.fg }}">{{ banner.text }}</span>
+              <sc-if value="{{ blocked }}" hint-placeholder-val="{{ false }}"><button type="button" style="height:28px;padding:0 10px;border:1px solid var(--warnl);border-radius:6px;background:none;color:var(--warn);font:inherit;cursor:pointer">Open Settings</button></sc-if>
+              <sc-if value="{{ blockedOff }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ togglePause }}" style="height:28px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--tx);font:inherit;cursor:pointer">{{ pauseLabel }}</button></sc-if>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px">
+              <fieldset style="margin:0;padding:12px;border:1px solid var(--line);border-radius:8px;min-width:0">
+                <legend style="padding:0 4px;font-size:11px;color:var(--fnt)">Models on your server</legend>
+                <sc-for list="{{ localModels }}" as="m" hint-placeholder-count="3">
+                  <label style="display:flex;align-items:center;gap:8px;padding:3px 0"><input type="checkbox" checked="{{ m.on }}" onChange="{{ m.toggle }}"><span style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:12px">{{ m.id }}</span><span style="font-size:12px;color:var(--fnt)">{{ m.ctx }}</span></label>
+                </sc-for>
+              </fieldset>
+              <fieldset style="margin:0;padding:12px;border:1px solid var(--line);border-radius:8px;min-width:0">
+                <legend style="padding:0 4px;font-size:11px;color:var(--fnt)">Shared with</legend>
+                <sc-for list="{{ shareRows }}" as="s" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:8px;padding:3px 0"><span style="flex:1">{{ s.name }}</span><button type="button" role="switch" aria-checked="{{ s.on }}" aria-label="Share with {{ s.name }}" onClick="{{ s.toggle }}" style="width:34px;height:20px;padding:2px;border:0;border-radius:999px;background:{{ s.track }};display:flex;justify-content:{{ s.align }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button></div>
+                </sc-for>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:8px;border-top:1px solid var(--line)"><span style="flex:1;min-width:0;display:flex;flex-direction:column">Away mode<small style="font-size:12px;color:var(--fnt)">Keeps this Mac awake while Boundary is open</small></span><button type="button" role="switch" aria-checked="{{ away.on }}" aria-label="Away mode" onClick="{{ away.toggle }}" style="width:34px;height:20px;padding:2px;border:0;border-radius:999px;background:{{ away.track }};display:flex;justify-content:{{ away.align }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button></div>
+              </fieldset>
+            </div>
+            <sc-if value="{{ showUsage }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px">
+                <div style="display:flex;font-size:11px;color:var(--fnt);padding-bottom:6px"><span style="flex:1">Today</span><span style="width:90px">Status</span><span style="width:80px;text-align:right">Requests</span><span style="width:90px;text-align:right">Tokens</span><span style="width:90px;text-align:right">Daily limit</span></div>
+                <sc-for list="{{ usage }}" as="u" hint-placeholder-count="2">
+                  <div style="display:flex;padding:4px 0;border-top:1px solid var(--line)"><span style="flex:1">{{ u.name }}</span><span style="width:90px;color:{{ u.color }}">{{ u.state }}</span><span style="width:80px;text-align:right">{{ u.req }}</span><span style="width:90px;text-align:right">{{ u.tok }}</span><span style="width:90px;text-align:right;color:var(--fnt)">{{ u.limit }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </section>
+        </sc-if>
+
+        <section aria-label="From your Circles">
+          <h2 style="margin:0 0 8px;font-size:15px;font-weight:500">From your Circles</h2>
+          <sc-for list="{{ offers }}" as="o" hint-placeholder-count="2">
+            <button type="button" onClick="{{ o.open }}" style="width:100%;display:flex;align-items:center;gap:12px;min-height:58px;padding:0 10px;border:0;border-top:1px solid var(--line);background:{{ o.bg }};color:var(--tx);font:inherit;text-align:left;cursor:pointer">
+              <span style="position:relative;width:32px;height:32px;flex-shrink:0;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:var(--mut)">{{ o.initials }}<span style="position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;background:{{ o.dot }};border:2px solid var(--s0)"></span></span>
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-family:'IBM Plex Mono',monospace;font-size:12px">{{ o.model }}</span><span style="font-size:12px;color:var(--fnt)">{{ o.detail }}</span></span>
+              <span style="padding:1px 8px;border-radius:6px;background:{{ o.pillBg }};color:{{ o.pillFg }};font-size:11px">{{ o.pill }}</span>
+            </button>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+  </main>
+
+  <sc-if value="{{ panel }}" hint-placeholder-val="{{ false }}">
+    <aside aria-label="{{ panel.name }}" style="width:320px;flex-shrink:0;box-sizing:border-box;padding:44px 20px 20px;background:var(--s1);border-left:1px solid var(--line);display:flex;flex-direction:column;gap:18px;overflow:auto">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:40px;height:40px;flex-shrink:0;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;color:var(--mut)">{{ panel.initials }}</span>
+        <span style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:15px;font-weight:500">{{ panel.name }}</span><span style="font-size:12px;color:var(--fnt)">{{ panel.sub }}</span></span>
+        <button type="button" aria-label="Close" onClick="{{ closePanel }}" style="width:28px;height:28px;border:0;background:none;color:var(--fnt);font-size:16px;cursor:pointer">×</button>
+      </div>
+
+      <sc-if value="{{ panel.hasModels }}" hint-placeholder-val="{{ true }}">
+        <section style="display:flex;flex-direction:column;gap:10px">
+          <h3 style="margin:0;font-size:11px;font-weight:500;color:var(--fnt)">What you accept from {{ panel.first }}</h3>
+          <div style="display:flex;gap:10px;align-items:flex-start"><button type="button" role="switch" aria-checked="{{ panel.trust.on }}" aria-label="Trusted" onClick="{{ panel.trust.toggle }}" style="width:34px;height:20px;flex-shrink:0;padding:2px;border:0;border-radius:999px;background:{{ panel.trust.track }};display:flex;justify-content:{{ panel.trust.align }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button><span style="display:flex;flex-direction:column">Trusted<small style="font-size:12px;color:var(--fnt)">Their model can run your agent's tools. Needed before it can answer your chats.</small></span></div>
+          <div style="display:flex;gap:10px;align-items:flex-start"><button type="button" role="switch" aria-checked="{{ panel.priv.on }}" aria-label="Allow in private projects" onClick="{{ panel.priv.toggle }}" style="width:34px;height:20px;flex-shrink:0;padding:2px;border:0;border-radius:999px;background:{{ panel.priv.track }};display:flex;justify-content:{{ panel.priv.align }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button><span style="display:flex;flex-direction:column">Allow in private projects<small style="font-size:12px;color:var(--fnt)">Their Mac can read your prompts.</small></span></div>
+          <p style="margin:0;font-size:12px;color:var(--fnt)">Boundary can't check either. Both apply to {{ panel.first }} in every Circle you share.</p>
+        </section>
+        <section style="display:flex;flex-direction:column;gap:8px">
+          <h3 style="margin:0;font-size:11px;font-weight:500;color:var(--fnt)">Models</h3>
+          <sc-for list="{{ panel.models }}" as="m" hint-placeholder-count="1">
+            <div style="display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line);border-radius:8px">
+              <span style="display:flex;align-items:baseline;gap:8px"><span style="font-family:'IBM Plex Mono',monospace;font-size:12px">{{ m.id }}</span><span style="font-size:12px;color:var(--fnt)">{{ m.ctx }}</span></span>
+              <sc-if value="{{ m.isDefault }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--ok)">Your default model</span></sc-if>
+              <sc-if value="{{ m.notDefault }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:6px">
+                <button type="button" disabled="{{ m.locked }}" onClick="{{ m.use }}" style="flex:1;height:30px;border:0;border-radius:6px;background:{{ m.btnBg }};color:{{ m.btnFg }};font:inherit;font-size:12px;font-weight:500;cursor:pointer">Use as default</button>
+                <button type="button" disabled="{{ m.locked }}" style="flex:1;height:30px;border:1px solid var(--line);border-radius:6px;background:none;color:{{ m.btn2 }};font:inherit;font-size:12px;cursor:pointer">Add as fallback</button>
+              </div></sc-if>
+              <sc-if value="{{ m.locked }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--fnt)">Trust {{ panel.first }} to use this model.</span></sc-if>
+            </div>
+          </sc-for>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{ panel.manage }}" hint-placeholder-val="{{ true }}">
+        <section style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px">
+          <h3 style="margin:0;font-size:11px;font-weight:500;color:var(--fnt)">In {{ circle.name }}</h3>
+          <div style="display:flex;gap:6px">
+            <button type="button" style="flex:1;height:30px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--mut);font:inherit;font-size:12px;cursor:pointer">{{ panel.roleAction }}</button>
+            <button type="button" style="flex:1;height:30px;border:1px solid #5a3030;border-radius:6px;background:none;color:var(--dng);font:inherit;font-size:12px;cursor:pointer">Remove</button>
+          </div>
+        </section>
+      </sc-if>
+    </aside>
+  </sc-if>
+
+  <sc-if value="{{ sheetInvite }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:rgb(0 0 0 / 0.55);display:flex;align-items:center;justify-content:center">
+      <div role="dialog" aria-label="Invite to {{ circle.name }}" style="width:480px;box-sizing:border-box;padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--s2);display:flex;flex-direction:column;gap:14px">
+        <h2 style="margin:0;font-size:15px;font-weight:500">Invite to {{ circle.name }}</h2>
+        <label style="display:flex;flex-direction:column;gap:6px;color:var(--mut)">Who is it for?<input value="Lena" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s1);color:var(--tx);font:inherit"><small style="font-size:12px;color:var(--fnt)">Only you see this.</small></label>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--s0)"><code style="flex:1;min-width:0;font-family:'IBM Plex Mono',monospace;font-size:12px;word-break:break-all">yry4k1ofq8znh3tb6xmd9wpc5ega7sj2ru</code><button type="button" style="height:28px;padding:0 10px;border:0;border-radius:6px;background:var(--tx);color:#111;font:inherit;font-weight:500;cursor:pointer">Copy</button></div>
+        <p style="margin:0;font-size:12px;color:var(--fnt)">Lets one person in, once. An admin has to be online when they use it: you or Maya.</p>
+        <div style="border-top:1px solid var(--line);padding-top:10px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--mut)"><span style="flex:1">Priya's invite was used</span></div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--mut)"><span style="flex:1">Sam, expires in 2 days</span><button type="button" style="border:0;background:none;padding:0;color:var(--mut);font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer">Revoke</button></div>
+        <button type="button" onClick="{{ closeSheet }}" style="align-self:flex-end;height:34px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--tx);font:inherit;cursor:pointer">Done</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ sheetNew }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:rgb(0 0 0 / 0.55);display:flex;align-items:center;justify-content:center">
+      <div role="dialog" aria-label="Add a Circle" style="width:420px;box-sizing:border-box;padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--s2);display:flex;flex-direction:column;gap:12px">
+        <h2 style="margin:0;font-size:15px;font-weight:500">Add a Circle</h2>
+        <label style="display:flex;flex-direction:column;gap:6px;color:var(--mut)">Start a new one<input placeholder="Circle name" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s1);color:var(--tx);font:inherit"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;color:var(--mut)">Or join with an invite<input placeholder="Invite code" style="height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--s1);color:var(--tx);font:inherit"></label>
+        <button type="button" onClick="{{ closeSheet }}" style="align-self:flex-end;height:34px;padding:0 14px;border:0;border-radius:8px;background:var(--tx);color:#111;font:inherit;font-weight:500;cursor:pointer">Continue</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"start":{"editor":"enum","options":["circle","person","invite","models","blocked","usage","empty","joining","consumer"],"default":"circle"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const s = props.start ?? 'circle';
+    const onModels = s === 'models' || s === 'blocked' || s === 'usage' || s === 'consumer';
+    const trustedMaya = s === 'models' || s === 'blocked' || s === 'usage' || s === 'consumer';
+    this.state = {
+      screen: s === 'empty' ? 'empty' : s === 'joining' ? 'joining' : onModels ? 'models' : 'circle',
+      circleId: 'workshop',
+      person: s === 'person' ? 'maya' : null,
+      sheet: s === 'invite' ? 'invite' : null,
+      trust: { maya: trustedMaya, tom: true },
+      priv: { maya: false, tom: false },
+      def: s === 'consumer' ? 'qwen3-30b' : null,
+      paused: false,
+      away: true,
+      blocked: s === 'blocked',
+      usage: s === 'usage',
+      hasLocal: s !== 'consumer',
+      share: { workshop: true, family: false },
+      models: { 'gemma-3-27b': true, 'phi-5-mini': false },
+      noCircles: s === 'empty',
+      joining: s === 'joining',
+    };
+  }
+  sw(on, toggle) {
+    return { on, toggle, track: on ? '#8b87f8' : '#3a3a44', align: on ? 'flex-end' : 'flex-start' };
+  }
+  renderVals() {
+    const st = this.state;
+    const set = (patch) => this.setState(patch);
+    const PEOPLE = {
+      maya: { name: 'Maya Chen', first: 'Maya', initials: 'MC', online: true, circles: 'Workshop and Family', models: [{ id: 'qwen3-30b', ctx: '128K context' }] },
+      tom: { name: 'Tom Reyes', first: 'Tom', initials: 'TR', online: false, circles: 'Workshop', models: [{ id: 'llama-4-scout', ctx: '64K context' }] },
+      priya: { name: 'Priya Nair', first: 'Priya', initials: 'PN', online: true, circles: 'Workshop', models: [] },
+      sam: { name: 'Sam Okafor', first: 'Sam', initials: 'SO', online: true, circles: 'Family', models: [] },
+    };
+    const CIRCLES = {
+      workshop: { name: 'Workshop', admin: true, members: [['maya', true], ['tom', false], ['priya', false]] },
+      family: { name: 'Family', admin: false, members: [['maya', true], ['sam', false]] },
+    };
+    const sharedIds = Object.keys(st.models).filter((k) => st.models[k]);
+    const sharingOn = Object.values(st.share).some(Boolean) && sharedIds.length > 0;
+    const problem = st.blocked ? "Your local model server isn't responding: members can't use your models." : st.paused ? "Paused: members can't use your models. Your choices are kept." : null;
+    const shareNames = Object.keys(st.share).filter((k) => st.share[k]).map((k) => CIRCLES[k].name).join(' and ');
+    const shareStatus = st.noCircles || st.joining ? 'Not sharing' : !st.hasLocal ? '2 available' : st.blocked ? 'Server not responding' : st.paused ? 'Paused' : sharingOn ? `Sharing ${sharedIds.length} · 2 available` : '2 available';
+    const shareDot = st.blocked || st.paused ? '#e8c27a' : sharingOn && st.hasLocal ? '#86c089' : '#3a3a44';
+    const railCircles = st.noCircles ? [] : st.joining
+      ? [{ name: 'Joining…', sub: 'Waiting for an admin', letter: '…', ring: '#3a3a44', bg: '#26244a', pick: () => {} }]
+      : Object.keys(CIRCLES).map((id) => {
+          const c = CIRCLES[id];
+          const on = st.screen === 'circle' && st.circleId === id;
+          const online = 1 + c.members.filter(([p]) => PEOPLE[p].online).length;
+          return { name: c.name, sub: `${online} of ${c.members.length + 1} online`, letter: c.name[0], ring: online > 1 ? '#86c089' : '#3a3a44', bg: on ? '#26244a' : 'transparent', pick: () => set({ screen: 'circle', circleId: id, person: null }) };
+        });
+    const c = CIRCLES[st.circleId];
+    const meRow = {
+      name: 'You', initials: 'JL', dot: problem && st.share[st.circleId] ? '#e8c27a' : '#86c089', isAdmin: c.admin, canShare: st.hasLocal,
+      detail: !st.hasLocal ? 'Online' : st.share[st.circleId] ? (problem ? 'Members can’t use your models now' : sharedIds.join(', ')) : 'Not shared here',
+      bg: 'transparent', radius: '0', pill: null, open: () => { if (st.hasLocal) set({ screen: 'models', person: null }); },
+      ...this.sw(st.share[st.circleId], () => set({ share: { ...st.share, [st.circleId]: !st.share[st.circleId] } })),
+    };
+    const rows = [meRow, ...c.members.map(([id, admin]) => {
+      const p = PEOPLE[id];
+      const has = p.models.length > 0;
+      const trusted = st.trust[id];
+      return {
+        name: p.name, initials: p.initials, dot: p.online ? '#86c089' : '#3a3a44', isAdmin: admin, canShare: false,
+        detail: has ? p.models.map((m) => m.id).join(', ') + (p.online ? '' : ' · offline') : (p.online ? 'Online' : 'Offline'),
+        pill: !has ? null : trusted ? 'Trusted' : 'Not trusted', pillBg: trusted ? '#17231a' : '#2a2415', pillFg: trusted ? '#86c089' : '#e8c27a',
+        bg: st.person === id ? '#1c1c22' : 'transparent', radius: '8px', open: () => set({ person: id }),
+      };
+    })];
+    const circle = {
+      name: c.name, admin: c.admin, rows, invites: st.circleId === 'workshop',
+      sub: `${c.members.length + 1} members · ${1 + c.members.filter(([p]) => PEOPLE[p].online).length} online · invites work while an admin is online`,
+    };
+    const ep = st.person && PEOPLE[st.person];
+    const panel = ep ? (() => {
+      const t = st.trust[st.person];
+      return {
+        name: ep.name, first: ep.first, initials: ep.initials, sub: `${ep.online ? 'Online' : 'Offline'} · In ${ep.circles}`,
+        hasModels: ep.models.length > 0,
+        trust: this.sw(Boolean(t), () => set({ trust: { ...st.trust, [st.person]: !t } })),
+        priv: this.sw(Boolean(st.priv[st.person]), () => set({ priv: { ...st.priv, [st.person]: !st.priv[st.person] } })),
+        models: ep.models.map((m) => ({ ...m, isDefault: st.def === m.id, notDefault: st.def !== m.id, locked: !t, btnBg: t ? '#f5f5f7' : '#2a2a30', btnFg: t ? '#111' : '#9e9ea8', btn2: t ? '#c4c4cc' : '#9e9ea8', use: () => set({ def: m.id }) })),
+        manage: st.screen === 'circle' && c.admin,
+        roleAction: st.person === 'maya' ? 'Make member' : 'Make admin',
+      };
+    })() : null;
+    const offers = ['maya', 'tom'].flatMap((id) => PEOPLE[id].models.map((m) => {
+      const p = PEOPLE[id];
+      const t = st.trust[id];
+      const inUse = st.def === m.id;
+      return {
+        model: m.id, initials: p.initials, dot: p.online ? '#86c089' : '#3a3a44', detail: `${p.name} · ${m.ctx} · ${p.circles}`,
+        pill: inUse ? 'Your default' : !t ? 'Not trusted' : p.online ? 'Ready' : 'Offline',
+        pillBg: inUse ? '#26244a' : !t ? '#2a2415' : p.online ? '#17231a' : '#1c1c22', pillFg: inUse ? '#8b87f8' : !t ? '#e8c27a' : p.online ? '#86c089' : '#9e9ea8',
+        bg: st.person === id ? '#1c1c22' : 'transparent', open: () => set({ person: id }),
+      };
+    }));
+    const LOCAL = [['gemma-3-27b', '96K context'], ['phi-5-mini', '32K context']];
+    const banner = problem
+      ? { text: problem, bg: '#2a2415', line: '#5a4a2a', fg: '#e8c27a' }
+      : sharingOn ? { text: `Members of ${shareNames} can use ${sharedIds.length === 1 ? 'this model' : `these ${sharedIds.length} models`} while Boundary is open.`, bg: '#17231a', line: '#2c4230', fg: '#86c089' }
+      : { text: 'Not sharing. Choose a model and a Circle.', bg: 'transparent', line: '#2a2a30', fg: '#c4c4cc' };
+    return {
+      needsAttention: Boolean(problem),
+      modelsBg: st.screen === 'models' ? '#26244a' : 'transparent',
+      shareDot, shareStatus, railCircles,
+      noCircles: st.noCircles,
+      youLine: st.noCircles ? 'Not connected yet' : 'Jordan · Connected',
+      goModels: () => { if (!st.noCircles && !st.joining) set({ screen: 'models', person: null }); },
+      openNew: () => set({ sheet: 'new' }), openInvite: () => set({ sheet: 'invite' }), closeSheet: () => set({ sheet: null }), closePanel: () => set({ person: null }),
+      startJoin: () => set({ screen: 'joining', joining: true, noCircles: false }),
+      showCircle: st.screen === 'circle', showModels: st.screen === 'models', showEmpty: st.screen === 'empty', showJoining: st.screen === 'joining',
+      circle, panel, offers, banner,
+      blocked: st.blocked, blockedOff: !st.blocked,
+      hasLocal: st.hasLocal, showUsage: st.usage,
+      pauseLabel: st.paused ? 'Resume sharing' : 'Pause sharing', togglePause: () => set({ paused: !st.paused }),
+      localModels: LOCAL.map(([id, ctx]) => ({ id, ctx, on: Boolean(st.models[id]), toggle: () => set({ models: { ...st.models, [id]: !st.models[id] } }) })),
+      shareRows: Object.keys(CIRCLES).map((id) => ({ name: CIRCLES[id].name, ...this.sw(st.share[id], () => set({ share: { ...st.share, [id]: !st.share[id] } })) })),
+      away: this.sw(st.away, () => set({ away: !st.away })),
+      usage: [
+        { name: 'Maya Chen', state: 'Running', color: '#86c089', req: '42', tok: '186K', limit: 'None' },
+        { name: 'Priya Nair', state: 'Queued', color: '#e8c27a', req: '9', tok: '31K', limit: '100K tokens' },
+      ],
+      sheetInvite: st.sheet === 'invite', sheetNew: st.sheet === 'new',
+    };
+  }
+}
+</script>
+</body>
+</html>

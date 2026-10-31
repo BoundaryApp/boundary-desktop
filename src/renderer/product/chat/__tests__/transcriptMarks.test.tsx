@@ -123,7 +123,7 @@ describe('transcript marks', () => {
       { id: 'f1', at: at(11).toISOString(), kind: 'fell-back', provider: 'openrouter', modelId: 'x/model-a' },
     ];
     render(<Harness projectMarks={[]} />);
-    expect(await screen.findByText('Answered by OpenRouter · model-a, a fallback')).toBeTruthy();
+    expect(await screen.findByText('Using OpenRouter · model-a from here, a fallback')).toBeTruthy();
   });
 
   it('names who shared the model when a shared model answered', async () => {
@@ -138,7 +138,7 @@ describe('transcript marks', () => {
       },
     ];
     render(<Harness projectMarks={[]} />);
-    expect(await screen.findByText('Answered by qwen3:14b, shared by Ada in Friends, a fallback')).toBeTruthy();
+    expect(await screen.findByText('Using qwen3:14b from here, shared by Ada in Friends, a fallback')).toBeTruthy();
   });
 
   it('says when the primary answers again, naming who shares it', async () => {

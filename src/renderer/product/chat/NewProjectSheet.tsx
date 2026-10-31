@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { CodingFolderInspect } from '../../../shared/types/codingFolders';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { displayHostPath } from './chatTelemetryFormat';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Confirm a project made from a folder (0005), with the coding switch from ADR 0028 §12:
@@ -95,7 +96,7 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
           <b>Let the coding agent work here</b>
           <span>
             {!managed
-              ? 'This Boundary uses your own stack checkout, which manages coding folders itself.'
+              ? `This ${APP_NAME} uses your own stack checkout, which manages coding folders itself.`
               : folder.refuseMessage
                 ? folder.refuseMessage
                 : folder.isGit

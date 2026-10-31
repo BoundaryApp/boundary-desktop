@@ -104,6 +104,7 @@ vi.mock('../hermesAgentStore', () => ({
   listChannelPosts: vi.fn().mockReturnValue([]),
   migrateChannelPosts: vi.fn(),
   migrateSessionInference: vi.fn(),
+  getSessionProjectId: vi.fn(() => 'proj-1'),
   copySessionInference: vi.fn(),
   getSessionBranch: vi.fn().mockReturnValue(null),
   setSessionBranch: vi.fn(),
@@ -113,6 +114,11 @@ vi.mock('../hermesAgentStore', () => ({
   setReplyEnding: vi.fn(),
   getNoReplies: vi.fn().mockReturnValue({}),
   setNoReply: vi.fn(),
+  addFailedTurn: vi.fn(),
+  deleteFailedChat: vi.fn(),
+  getFailedChat: vi.fn().mockReturnValue(null),
+  listFailedChats: vi.fn().mockReturnValue({}),
+  replaceFailedTurn: vi.fn().mockReturnValue(false),
 }));
 
 // ADR 0024 filing has its own tests (hermesChatProjects.test.ts).
@@ -767,6 +773,50 @@ describe('startHermesChatStream inference gate', () => {
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('local-unreachable');
     expect(submitPrompt).not.toHaveBeenCalled();
+  });
+
+  describe('a send whose gate restarts Hermes', () => {
+    const restartInGate = async (_id: string, onApply: (r: unknown, s: boolean, restarting: boolean) => void) => {
+      onApply({ slot: 'openrouter', providerDisplayName: 'OpenRouter' }, false, true);
+      return { ok: true, resolved: { slot: 'openrouter' } };
+    };
+    const send = async (sessionId?: string) => {
+      const store = await import('../hermesAgentStore');
+      vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+      const { startHermesChatStream } = await import('../hermesChatSessions');
+      const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+      ensureResolvedInferenceReady.mockImplementationOnce(restartInGate);
+      return startHermesChatStream(sender as never, {
+        requestId: `req-${sessionId ?? 'new'}`,
+        ...(sessionId ? { sessionId } : {}),
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+    };
+
+    it('resumes the session the restart ended and submits to it', async () => {
+      resumeSession.mockResolvedValueOnce({ sessionId: 'sess-1', messages: [] });
+      resumeSession.mockResolvedValueOnce({ sessionId: 'sess-after', messages: [] });
+      const result = await send('sess-1');
+      expect(result).toEqual(expect.objectContaining({ success: true, sessionId: 'sess-after' }));
+      await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalledWith('sess-after', 'hello', expect.anything()));
+    });
+
+    it('starts a new chat again, since Hermes never stored it', async () => {
+      createSessionWithSeed.mockResolvedValueOnce('sess-new').mockResolvedValueOnce('sess-again');
+      resumeSession.mockRejectedValueOnce(new Error('session not found'));
+      const store = await import('../hermesAgentStore');
+      const result = await send();
+      expect(result).toEqual(expect.objectContaining({ success: true, sessionId: 'sess-again' }));
+      expect(store.migrateSessionInference).toHaveBeenCalledWith('sess-new', 'sess-again');
+      await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalledWith('sess-again', 'hello', expect.anything()));
+    });
+
+    it('fails the send when Hermes refuses the resume for another reason', async () => {
+      resumeSession.mockResolvedValueOnce({ sessionId: 'sess-1', messages: [] });
+      resumeSession.mockRejectedValueOnce(new Error('database locked'));
+      expect(await send('sess-1')).toEqual(expect.objectContaining({ success: false }));
+      expect(submitPrompt).not.toHaveBeenCalled();
+    });
   });
 
   it('says Restarting only when Hermes restarts, and keeps the shared model line', async () => {

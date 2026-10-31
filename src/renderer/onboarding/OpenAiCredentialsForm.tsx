@@ -9,6 +9,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { takeInferenceStatus, useInferenceStatus } from './inferenceStatus';
 import { ModelPicker } from './ModelPicker';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 function validateEndpointUrl(value: string): string | null {
   try {
@@ -173,7 +174,7 @@ export const OpenAiCredentialsForm: React.FC<OpenAiCredentialsFormProps> = ({
 
       {status && !status.encryptionAvailable && (
         <Callout variant="warn">
-          System encryption is unavailable, so Boundary cannot store API keys securely on this
+          System encryption is unavailable, so {APP_NAME} cannot store API keys securely on this
           machine.
         </Callout>
       )}

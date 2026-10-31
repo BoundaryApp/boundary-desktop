@@ -5,7 +5,13 @@ import type {
 } from '../../../../shared/types/hermesChat';
 import { persistDebugLog } from '../../../persistDebugLog';
 import { getHermesGatewaySession } from './hermesGatewaySession';
-import { getNoReplies, getReplyEndings, setNoReply, setReplyEnding } from './hermesAgentStore';
+import {
+  getFailedChat,
+  getNoReplies,
+  getReplyEndings,
+  setNoReply,
+  setReplyEnding,
+} from './hermesAgentStore';
 
 // Stopped and interrupted replies (run-control spec, Phase 1). Hermes saves a stopped
 // turn's streamed text but not why it ended, and it may still be winding the turn down
@@ -83,16 +89,27 @@ async function recordReplyEnding(sessionId: string, ending: HermesReplyEnding): 
   }
 }
 
+/** Allowance for a user row stamped just before Boundary noted the turn's start. */
+const TURN_ROW_SLACK_S = 2;
+
 /**
  * Note why a turn ended without a reply, keyed by the unanswered user row. Only when the
  * transcript ends on that user row: if Hermes saved any reply, there is nothing to note.
+ * Returns whether Hermes holds the turn; `startedAt` (ms) tells its row from older ones.
  */
-export async function recordNoReply(sessionId: string, noReply: HermesNoReply): Promise<void> {
+export async function recordNoReply(
+  sessionId: string,
+  noReply: HermesNoReply,
+  startedAt = 0
+): Promise<boolean> {
   const history = await getHermesGatewaySession().getSessionHistory(sessionId);
   const last = history[history.length - 1];
   if (last?.role === 'user' && last.rowId != null) {
     setNoReply(sessionId, last.rowId, noReply);
+    return true;
   }
+  const since = startedAt / 1000 - TURN_ROW_SLACK_S;
+  return history.some((m) => m.role === 'user' && (m.timestamp == null || m.timestamp >= since));
 }
 
 /** Hydrated history with each noted reply's ending, and each unanswered turn's reason. */
@@ -121,6 +138,32 @@ export function withReplyEndings(
     const answered = messages[i + 1]?.role === 'assistant';
     return noReply && !answered ? { ...m, noReply } : m;
   });
+}
+
+/**
+ * Hydrated history with the chat's failed sends back where they happened, by time: Hermes has
+ * no row for them, and rows are never rewritten to hold them.
+ */
+export function withFailedTurns(
+  messages: HermesChatMessage[],
+  sessionIds: Array<string | null | undefined>
+): HermesChatMessage[] {
+  const id = sessionIds.find((s) => s && getFailedChat(s));
+  const chat = id ? getFailedChat(id) : null;
+  if (!chat) return messages;
+  const merged = [...messages];
+  for (const turn of chat.turns) {
+    const timestamp = Date.parse(turn.at) / 1000;
+    const next = merged.findIndex((m) => m.timestamp != null && m.timestamp > timestamp);
+    merged.splice(next < 0 ? merged.length : next, 0, {
+      role: 'user',
+      content: turn.text,
+      timestamp,
+      noReply: turn.noReply,
+      localOnly: true,
+    });
+  }
+  return merged;
 }
 
 export function resetReplyEndingsForTests(): void {

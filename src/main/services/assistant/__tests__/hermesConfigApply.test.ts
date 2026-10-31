@@ -102,6 +102,8 @@ describe('hermesWritesNeedRestart', () => {
     expect(hermesWritesNeedRestart(write([['model.default', 'm']]))).toBe(true);
     expect(hermesWritesNeedRestart(write([], [['mcp_servers.todos', { url: 'u' }]]))).toBe(true);
     expect(hermesWritesNeedRestart([])).toBe(false);
+    // Read on each request, so a first fallback restarts nothing (ADR 0033 §9).
+    expect(hermesWritesNeedRestart(write([], [['providers.boundary-chain', { base_url: 'u' }]]))).toBe(false);
   });
 });
 

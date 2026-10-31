@@ -1,3 +1,4 @@
+import type { InferenceChainEntry } from './inferenceChain';
 import type { SecretPreview } from './secrets';
 import type { IpcResult } from '../ipc/result';
 
@@ -119,7 +120,36 @@ export interface SetAppDefaultInput {
   slot: InferenceSlotId;
 }
 
-export type SetAppDefaultResult = InferenceStatusResult;
+export interface AppSwitchResult extends InferenceStatusResult {
+  /** The user cancelled; the previous default is stored again. */
+  cancelled?: boolean;
+  /** Saved, but a reply is running, so Hermes moves on the next message. */
+  deferred?: boolean;
+  /** Saved, but Hermes couldn't move; the next message tries again. */
+  applyError?: string;
+}
+
+/** Each stage of changing the app default, in order. Most switches stop at `applying`. */
+export type AppSwitchStage = 'preparing' | 'applying' | 'restarting' | 'starting';
+
+export interface AppSwitchState {
+  /** The default being moved to, and the one it replaces (null when there was none). */
+  target: InferenceChainEntry;
+  previous: InferenceChainEntry | null;
+  /** `reverting`: cancelled, and the stack is going back to `previous`. */
+  phase: 'switching' | 'reverting';
+  stage: AppSwitchStage;
+  /** Cancelled too late to stop the restart, so Hermes restarts again to go back. */
+  restartAgain?: boolean;
+}
+
+export interface AppSwitchEvent {
+  appSwitch: AppSwitchState | null;
+  /** Going back failed; what the user needs to know. */
+  error?: string;
+}
+
+export type SetAppDefaultResult = AppSwitchResult;
 
 export interface SetAppFallbacksInput {
   fallbacks: import('./inferenceChain').InferenceChainEntry[];
@@ -131,7 +161,7 @@ export interface SetAppSharedModelInput {
   entry: import('./inferenceChain').InferenceChainEntry;
 }
 
-export type SetAppSharedModelResult = InferenceStatusResult;
+export type SetAppSharedModelResult = AppSwitchResult;
 
 export interface ProbeSlotHealthInput {
   slot: InferenceSlotId;

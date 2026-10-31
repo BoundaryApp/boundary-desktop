@@ -7,6 +7,7 @@ import { HostBridgeApproval } from './HostBridgeApproval';
 import { InfoTip } from '../../components/ui/info-tip';
 import { openSettings } from '../settingsNavigation';
 import type { ChatInterrupts } from './useChatInterrupts';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * The one thing above the composer that waits on the user, most urgent first: a credential
@@ -124,9 +125,9 @@ export const ThreadInterrupts: React.FC<{
     return (
       <div className="wb-host-tools-note" role="status">
         {hostTools === 'waiting'
-          ? "Connecting Hermes to Boundary's tools…"
-          : "Boundary's tools aren't running. Restart Boundary to try again."}
-        <InfoTip label="Boundary's tools">
+          ? `Connecting Hermes to ${APP_NAME}'s tools…`
+          : `${APP_NAME}'s tools aren't running. Restart ${APP_NAME} to try again.`}
+        <InfoTip label={`${APP_NAME}'s tools`}>
           {hostTools === 'waiting'
             ? "Until then Hermes can't send notifications, open links or use your files and clipboard. This usually takes a few seconds, but can take a few minutes on an older stack."
             : "Until they are, Hermes can't send notifications, open links or use your files and clipboard."}

@@ -27,7 +27,6 @@ export function useChatInference({
   const [offlinePrompt, setOfflinePrompt] = useState(false);
   // Bumped after the offline prompt changes main's state, so the chip re-resolves.
   const [refreshKey, setRefreshKey] = useState(0);
-  const [applyError, setApplyError] = useState<string | null>(null);
   // Main refused a send the last answer allowed, or a chat with no chip to answer.
   const [refusedSend, setRefusedSend] = useState(false);
   const slots = useInferenceStatus().status?.slots;
@@ -44,11 +43,6 @@ export function useChatInference({
   useInferenceSendHandlers({
     onLocalUnreachable: () => {
       setOfflinePrompt(true);
-      setApplyError(null);
-    },
-    onApplyFailed: (error) => {
-      setApplyError(error);
-      setOfflinePrompt(false);
     },
     onPrivateRefused: () => {
       setRefusedSend(true);
@@ -131,7 +125,6 @@ export function useChatInference({
     setInferenceMarks,
     setResolvedInference,
     offlinePrompt,
-    applyError,
     refreshKey,
     openRouterConfigured,
     privateRefused: refusedSend || resolvedInference?.privacyRefused === true,

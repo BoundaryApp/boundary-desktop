@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../../shared/buildIdentity';
 /**
  * What the browser relay lets through (ADR 0027 §5–6). Pure functions so they can be tested
  * without a browser.
@@ -58,7 +59,7 @@ export function blockedMethodReason(method: string, params?: Record<string, unkn
   if (method === 'Fetch.enable' && isDialogBridgeFetchEnable(params)) return null;
   if (FETCH_ANSWERS.has(method)) return null;
   if (BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((prefix) => method.startsWith(prefix))) {
-    return `Boundary's browser doesn't allow ${method}: it reads or changes stored logins and site data.`;
+    return `${APP_NAME}'s browser doesn't allow ${method}: it reads or changes stored logins and site data.`;
   }
   return null;
 }
@@ -131,13 +132,13 @@ export function blockedUrlReason(url: string, policy: SitePolicy): string | null
   }
   if (NEUTRAL_SCHEMES.has(parsed.protocol)) return null;
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return `Boundary's browser doesn't open ${parsed.protocol} pages.`;
+    return `${APP_NAME}'s browser doesn't open ${parsed.protocol} pages.`;
   }
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
   const blocked = policy.blocked.find((site) => hostMatches(host, site));
-  if (blocked) return `${blocked} is on Boundary's blocked-sites list.`;
+  if (blocked) return `${blocked} is on ${APP_NAME}'s blocked-sites list.`;
   if (policy.allowed.length && !policy.allowed.some((site) => hostMatches(host, site))) {
-    return `${host} isn't on Boundary's allowed-sites list.`;
+    return `${host} isn't on ${APP_NAME}'s allowed-sites list.`;
   }
   return null;
 }

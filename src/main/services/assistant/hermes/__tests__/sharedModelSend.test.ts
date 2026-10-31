@@ -14,6 +14,7 @@ import { resetRunningTurnsForTests } from '../hermesRunningTurns';
 const applyLlmConnectionToHermes = vi.fn();
 vi.mock('../../AssistantStackService', () => ({
   applyLlmConnectionToHermes: (...args: unknown[]) => applyLlmConnectionToHermes(...args),
+  settleHermesApply: async () => undefined,
 }));
 
 let routerPushed = false;

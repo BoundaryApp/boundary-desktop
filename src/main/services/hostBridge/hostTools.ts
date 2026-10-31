@@ -17,6 +17,7 @@ import {
   WRITE_FILE_MAX_CHARS,
   type HostToolName,
 } from './toolCatalog';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Runs one host-tool call in main: read the arguments, check for a standing grant, ask the user
@@ -96,8 +97,8 @@ async function approve(
     return {
       result: text(
         outcome === 'deny'
-          ? 'The user declined this in Boundary. Do not retry it.'
-          : 'Nobody answered the approval in Boundary within 2 minutes, so nothing was done.',
+          ? `The user declined this in ${APP_NAME}. Do not retry it.`
+          : `Nobody answered the approval in ${APP_NAME} within 2 minutes, so nothing was done.`,
         true
       ),
     };
@@ -124,7 +125,7 @@ async function attempt(
 
 // ---------------------------------------------------------------------------- desktop_notification
 
-const NOTIFY_DEFAULT_TITLE = 'Boundary';
+const NOTIFY_DEFAULT_TITLE = `${APP_NAME}`;
 
 /**
  * The error a failed notification hands back. macOS reports a missing notification permission
@@ -171,14 +172,14 @@ async function desktopNotification(args: Record<string, unknown>, deps: HostTool
   });
   if ('result' in gate) return gate.result;
 
-  return attempt(deps, tool, read, 'Boundary could not show the notification', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not show the notification`, async () => {
     const shown = await deps.showNotification(title, body);
     deps.audit({ tool, decision: gate.decision, args: read, outcome: shown });
     return text(
       shown === 'shown'
         ? 'Notification shown.'
-        : "Boundary handed the notification to the system, but the system didn't confirm it appeared. " +
-            'Focus or the notification settings for Boundary may be hiding it; it may be in Notification Center.'
+        : `${APP_NAME} handed the notification to the system, but the system didn't confirm it appeared. ` +
+            `Focus or the notification settings for ${APP_NAME} may be hiding it; it may be in Notification Center.`
     );
   });
 }
@@ -214,7 +215,7 @@ async function openUrl(args: Record<string, unknown>, deps: HostToolDeps): Promi
   });
   if ('result' in gate) return gate.result;
 
-  return attempt(deps, tool, read, 'Boundary could not open the page', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not open the page`, async () => {
     await deps.openExternal(href);
     deps.audit({ tool, decision: gate.decision, args: read, outcome: 'opened' });
     return text(`Opened ${href} in the user's browser.`);
@@ -246,7 +247,7 @@ async function clipboardWrite(args: Record<string, unknown>, deps: HostToolDeps)
   });
   if ('result' in gate) return gate.result;
 
-  return attempt(deps, tool, read, 'Boundary could not set the clipboard', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not set the clipboard`, async () => {
     await deps.writeClipboard(value);
     deps.audit({ tool, decision: gate.decision, args: read, outcome: 'copied' });
     return text('Copied to the clipboard.');
@@ -269,7 +270,7 @@ async function clipboardRead(args: Record<string, unknown>, deps: HostToolDeps):
   });
   if ('result' in gate) return gate.result;
 
-  return attempt(deps, tool, read, 'Boundary could not read the clipboard', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not read the clipboard`, async () => {
     const value = await deps.readClipboard();
     deps.audit({ tool, decision: gate.decision, args: read, outcome: `${value.length} chars` });
     if (!value) return text('The clipboard has no text.');
@@ -297,7 +298,7 @@ function parsePickArgs(args: Record<string, unknown>): Parsed<{ purpose: string;
 
 const PICKED_FILES_NOTE =
   "These paths are on the user's computer, not in your filesystem, so your own file and shell " +
-  "tools can't open them. Read each one with Boundary's read_file tool, passing its path exactly.";
+  `tools can't open them. Read each one with ${APP_NAME}'s read_file tool, passing its path exactly.`;
 
 async function pickFiles(args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {
   const tool = 'pick_files';
@@ -307,7 +308,7 @@ async function pickFiles(args: Record<string, unknown>, deps: HostToolDeps): Pro
   const read = { purpose, multiple, extensions };
 
   // The picker is the consent: Hermes only ever gets the files the user chooses in it.
-  return attempt(deps, tool, read, 'Boundary could not show the file picker', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not show the file picker`, async () => {
     const chosen = (await deps.pickFiles({ message: `Hermes asks: ${purpose}`, multiple, extensions })).slice(0, PICK_MAX_FILES);
     if (!chosen.length) {
       deps.audit({ tool, decision: 'denied', args: read, outcome: 'cancelled' });
@@ -339,11 +340,11 @@ async function readFile(args: Record<string, unknown>, deps: HostToolDeps): Prom
   if (!deps.hasGrant('read_file', filePath)) {
     deps.audit({ tool, decision: 'denied', args: read, outcome: 'not picked' });
     return text(
-      'Boundary only reads files the user chose with pick_files in the last 24 hours. Ask the user to pick this file.',
+      `${APP_NAME} only reads files the user chose with pick_files in the last 24 hours. Ask the user to pick this file.`,
       true
     );
   }
-  return attempt(deps, tool, read, 'Boundary could not read the file', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not read the file`, async () => {
     const size = await deps.fileSize(filePath);
     if (size === null) {
       deps.audit({ tool, decision: 'error', args: read, outcome: 'not a file' });
@@ -378,7 +379,7 @@ async function writeFile(args: Record<string, unknown>, deps: HostToolDeps): Pro
   const read = { suggested_name: suggested, chars: content.length };
 
   // The Save dialog is the consent, every time: the user picks the place and can cancel.
-  return attempt(deps, tool, read, 'Boundary could not save the file', async () => {
+  return attempt(deps, tool, read, `${APP_NAME} could not save the file`, async () => {
     const target = await deps.chooseSavePath({ defaultName: suggested });
     if (!target) {
       deps.audit({ tool, decision: 'denied', args: read, outcome: 'cancelled' });
@@ -409,7 +410,7 @@ async function offerSetup(args: Record<string, unknown>, deps: HostToolDeps): Pr
   if (deps.calendarConnected()) {
     deps.audit({ tool, decision: 'invalid', args: read, outcome: 'already connected' });
     return text(
-      'A calendar is already connected in Boundary, so no card was shown. If you have no calendar ' +
+      `A calendar is already connected in ${APP_NAME}, so no card was shown. If you have no calendar ` +
         'tools, the user has not given you access to it: tell them they can change that in ' +
         'Settings → Calendars.',
       true
@@ -417,7 +418,7 @@ async function offerSetup(args: Record<string, unknown>, deps: HostToolDeps): Pr
   }
   deps.audit({ tool, decision: 'allowed', args: read, outcome: 'offered' });
   return text(
-    'Boundary is showing the user a Connect a calendar card under your reply. Say in one sentence ' +
+    `${APP_NAME} is showing the user a Connect a calendar card under your reply. Say in one sentence ` +
       "that you can't see a calendar yet; don't explain how to connect one."
   );
 }
@@ -435,7 +436,7 @@ export async function executeHostTool(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     deps.audit({ tool: name, decision: 'error', args: {}, outcome: message });
-    return text(`Boundary couldn't run ${name}: ${message}`, true);
+    return text(`${APP_NAME} couldn't run ${name}: ${message}`, true);
   }
 }
 

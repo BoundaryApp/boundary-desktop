@@ -52,6 +52,7 @@ import {
   toCalendarAccountView,
   type StoredCalendarAccount,
 } from './calendarStore';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). Boundary writes each calendar
@@ -330,7 +331,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
     let saved: StoredCalendarAccount | null = null;
     try {
       if (!(await isOsEncryptionAvailable())) {
-        throw new CalendarInputError('Boundary can’t store passwords on this Mac because the keychain isn’t available.');
+        throw new CalendarInputError(`${APP_NAME} can’t store passwords on this Mac because the keychain isn’t available.`);
       }
       if (!isCalendarProvider(payload?.provider)) throw new CalendarInputError('Choose a provider.');
       const name = text(payload.name, 'a name');
@@ -396,7 +397,7 @@ export function setCalendarAccess(payload: CalendarAccessPayload): Promise<Calen
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
       const pw = await decryptCalendarPassword(account);
-      if (!pw) throw new CalendarInputError('Boundary can’t read this calendar’s password any more. Remove it and connect it again.');
+      if (!pw) throw new CalendarInputError(`${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.`);
       const previous = account.access;
       const next: StoredCalendarAccount = { ...account, access: cleanAccess(payload.access) };
       saveCalendarAccount(next);
@@ -438,7 +439,7 @@ type CheckOutcome = { account: StoredCalendarAccount } | { error: string };
 /** Run the sign-in test with the stored password and record the result on the account. */
 async function checkAccount(account: StoredCalendarAccount): Promise<CheckOutcome> {
   const pw = await decryptCalendarPassword(account);
-  if (!pw) return { error: 'Boundary can’t read this calendar’s password any more. Remove it and connect it again.' };
+  if (!pw) return { error: `${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.` };
   const probe = await runProbe({ url: account.url, username: account.username, password: pw });
   // The stack being down says nothing about the sign-in, so it isn't recorded.
   if (probe.status === 'error') return { error: probe.error };

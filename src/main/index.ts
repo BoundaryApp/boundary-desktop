@@ -1,5 +1,6 @@
 // First: the lag probe times IPC handlers, so it must patch ipcMain before any register.
 import { startLagProbe } from './perf/lagProbe';
+import { APP_NAME } from '../shared/buildIdentity';
 import { APP_COMMANDS, APP_MENU_COMMAND_CHANNEL, type AppCommand } from '../shared/appCommands';
 import { persistDebugLog, serializeError, getDebugLogPath, fileStatForLog } from './persistDebugLog';
 import { app, BrowserWindow, Menu } from 'electron';
@@ -40,6 +41,7 @@ import {
 } from './services/assistant/AssistantStackService';
 import { startLocalLlmWatcher } from './services/onboarding/LocalLlmWatcher';
 import { registerExperiments, startExperimentsBeforeWindow } from './experiments';
+import { findRunningSibling, refuseToStart } from './siblingBuild';
 import { claimSingleInstance } from './singleInstance';
 import { runStartupMigrations } from './migrations';
 import {
@@ -217,7 +219,6 @@ app.on('render-process-gone', (_event, _webContents, details) => {
 });
 
 // Set by vite.main.config.ts.
-declare const __BOUNDARY_APP_NAME__: string | undefined;
 
 // Type declarations for global variables
 declare global {
@@ -235,9 +236,7 @@ if (started) {
   app.quit();
 }
 
-app.setName(
-  (typeof __BOUNDARY_APP_NAME__ === 'string' && __BOUNDARY_APP_NAME__) || 'Boundary'
-);
+app.setName(APP_NAME);
 
 // Windows groups taskbar entries and notifications by this id.
 if (process.platform === 'win32') {
@@ -250,12 +249,17 @@ if (process.platform === 'darwin') {
   app.setAsDefaultProtocolClient('boundary');
 }
 
+// Packaged only, so a dev build can run beside an installed app.
+const runningSibling = app.isPackaged ? findRunningSibling() : null;
+
 // After setName: the lock lives in userData, which the app name decides.
-const isPrimaryInstance = claimSingleInstance(app, () => {
-  void showMainWindow().catch((error: unknown) => {
-    persistDebugLog('startup', 'second instance could not show the window', serializeError(error));
+const isPrimaryInstance =
+  !runningSibling &&
+  claimSingleInstance(app, () => {
+    void showMainWindow().catch((error: unknown) => {
+      persistDebugLog('startup', 'second instance could not show the window', serializeError(error));
+    });
   });
-});
 
 // Check if we're in development mode
 const isDevelopment = process.env.NODE_ENV === 'development' || 
@@ -402,7 +406,7 @@ const createWindow = async () => {
     // Ensure proper macOS app behavior
     autoHideMenuBar: false,
     // Set proper window title
-    title: 'Boundary',
+    title: `${APP_NAME}`,
     // Matches --surface-0 for the active theme so the first paint does not flash.
     backgroundColor: themeWindowBackground(),
     webPreferences: {
@@ -657,7 +661,7 @@ const createMenu = () => {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: 'Boundary',
+      label: `${APP_NAME}`,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -740,6 +744,7 @@ app.on('ready', () => {
 });
 
 async function onAppReady(): Promise<void> {
+  if (runningSibling) return refuseToStart(app, runningSibling);
   if (!isPrimaryInstance) return;
   startLagProbe();
   persistDebugLog('startup', 'app ready entered', {
@@ -852,6 +857,8 @@ async function showMainWindow(): Promise<void> {
 }
 
 app.on('activate', () => {
+  // Launching fires this too, and a refused start must not open a window.
+  if (!isPrimaryInstance) return;
   persistDebugLog('startup', 'activate', {
     windowCount: BrowserWindow.getAllWindows().length,
   });

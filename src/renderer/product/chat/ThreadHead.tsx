@@ -31,6 +31,8 @@ export interface ThreadHeadProps {
   onMakeChannel?: () => void;
   onRenameChannel?: () => void;
   onDeleteChannel?: () => void;
+  /** Set on a chat Hermes holds nothing for: it can be removed from the list. */
+  onDeleteChat?: () => void;
   onNewChat?: () => void;
   onOpenAgentDm?: () => void;
   onAddAgentToChannel?: (agent: AgentProfile) => void;
@@ -54,6 +56,7 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
   onMakeChannel,
   onRenameChannel,
   onDeleteChannel,
+  onDeleteChat,
   onNewChat,
   onOpenAgentDm,
   onAddAgentToChannel,
@@ -148,6 +151,7 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
                     {isChannel && onDeleteChannel
                       ? menuItem('Delete channel…', onDeleteChannel)
                       : null}
+                    {onDeleteChat ? menuItem('Delete chat…', onDeleteChat) : null}
                   </PopoverContent>
                 </Popover>
               </span>

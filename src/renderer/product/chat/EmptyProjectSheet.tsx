@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 interface EmptyProjectSheetProps {
   open: boolean;
@@ -48,7 +49,7 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
       }
     >
       <p className="wb-sheet-lede">
-        Boundary keeps its files in its own data folder. You can attach folders from this Mac
+        {APP_NAME} keeps its files in its own data folder. You can attach folders from this Mac
         later in the Project tab.
       </p>
       <label className="wb-field">

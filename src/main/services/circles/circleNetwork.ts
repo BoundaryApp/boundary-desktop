@@ -56,6 +56,8 @@ export interface CircleNetworkOptions {
   onChange?: () => void;
   /** A peer signal on a topic passed to `setSignalTopics`, from a current member of its Circle. */
   onSignal?: (signal: CircleSignal) => void;
+  /** An admin admitted this device. Main keeps the secrets now: the Circle opens from here on. */
+  onPaired?: (secrets: CircleSecrets) => void;
   /** This device was removed from a Circle and has closed it. Main forgets its secrets. */
   onRemoved?: (key: string) => void;
   log?: (message: string, data?: Record<string, unknown>) => void;
@@ -83,6 +85,8 @@ interface OpenCircle {
 
 /** How long a removed device stays connected, for its notice to go out first. */
 const REMOVAL_NOTICE_MS = 2_000;
+/** How long a join waits to become a writer. A member can read and be served without it. */
+const JOIN_WRITABLE_MS = 60_000;
 
 const STATUS_REJECTED = 1;
 const STATUS_USED = 2;
@@ -791,17 +795,42 @@ export class CircleNetwork {
       encryptionKey: paired.encryptionKey.toString('hex'),
     };
     this.diag('join.paired', { circle: short(secrets.key), ms: Date.now() - started });
+    this.options.onPaired?.(secrets);
+    await this.releaseLocalWriter(paired.key);
     await this.openCircle(secrets);
     const circle = this.circle(secrets.key!);
-    await this.untilWritable(circle);
-    this.diag('join.writable', { circle: short(secrets.key), ms: Date.now() - started, members: circle.state.members.length });
+    const writable = await this.untilWritable(circle);
+    this.diag(writable ? 'join.writable' : 'join.not-writable', {
+      circle: short(secrets.key),
+      ms: Date.now() - started,
+      members: circle.state.members.length,
+    });
     return { ...secrets, name: circle.state.name };
   }
 
-  private async untilWritable(circle: OpenCircle): Promise<void> {
-    if (circle.base.writable) return;
-    await new Promise<void>((resolve) => circle.base.once('writable', () => resolve()));
+  /**
+   * Autobase keeps the writer it last used under the Circle's first core, whichever namespace
+   * opened it. After leaving, that writer is removed, so a join would open it and never write.
+   */
+  private async releaseLocalWriter(key: Buffer): Promise<void> {
+    const bootstrap = this.store.get({ key, active: false });
+    await bootstrap.ready();
+    await bootstrap.setUserData('autobase/local', null);
+    await bootstrap.close();
+  }
+
+  /** False when the wait ran out; the Circle stays open and can still become writable later. */
+  private async untilWritable(circle: OpenCircle): Promise<boolean> {
+    if (circle.base.writable) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const writable = await new Promise<boolean>((resolve) => {
+      circle.base.once('writable', () => resolve(true));
+      timer = setTimeout(() => resolve(false), JOIN_WRITABLE_MS);
+      timer.unref();
+    });
+    clearTimeout(timer);
     await this.refreshCircle(circle);
+    return writable;
   }
 
   // ---- Shared models (ADR 0034) --------------------------------------------------------------

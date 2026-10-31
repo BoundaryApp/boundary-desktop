@@ -42,8 +42,8 @@ A user changes a setting from the place it has an effect and sees the effect wit
 | Chat override | Composer chip | Composer chip, now listing the whole stack in order | Models › Exceptions |
 | Project pin | Project inspector | Project inspector, same list | Models › Exceptions |
 | Privacy lock | Working switch in the inspector | Working switch in the inspector | Models › Exceptions |
-| Share my model | Inside the Local card | Local entry details and Circles | Settings search |
-| Trusted, Private per person | Circles | Shared entry details and Circles | — |
+| Share my model | Circles | Circles, with a status line on the Local entry | Settings search |
+| Trusted, Private per person | Circles | Circles' person panel, opened from the shared entry | — |
 | Calendars | Settings tab | Services card, sheet over chat from the setup offer | Settings search |
 | Logins | Settings tab | Sheet from a chat's saved-login note; Settings row | Settings row |
 | Always-allowed grants | Settings tab | Undo on the approval; Settings row | Settings row |
@@ -106,7 +106,7 @@ Confirm each against source when its phase starts, as the stack contract require
 
 **3 Models destination.** Rail entry, stack view on the existing chain IPC, details panel, dry run, inline trust and sign-in. Replaces the two cards, the default radio and `ChainEditor`'s list. The composer chip and project inspector take the same list.
 
-**4 Move panels.** Calendars to Services, sharing to the Local entry and Circles, folders to the project inspector, the slimmed Settings page with search.
+**4 Move panels.** Calendars to Services, a sharing status line on the Local entry ([Circles spec](../circles-ux-study/spec.md) decision 8), folders to the project inspector, the slimmed Settings page with search.
 
 **5 A stack per request type.** Behind the change request and ADR amendment above.
 

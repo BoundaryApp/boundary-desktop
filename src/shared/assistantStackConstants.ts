@@ -1,7 +1,8 @@
+import { APP_NAME, INSTANCE_NAME } from './buildIdentity';
 import type { AssistantStackPorts } from './types/assistantStack';
 
 /** Compose project name Boundary always manages (never the developer's default project). */
-export const BOUNDARY_ASSISTANT_PROJECT_NAME = 'boundary-assistant';
+export const BOUNDARY_ASSISTANT_PROJECT_NAME = `${INSTANCE_NAME}-assistant`;
 
 /**
  * Profiles Boundary brings up on every ensure/stop (not ollama/calendar/signal/searxng-prod).
@@ -46,8 +47,8 @@ export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
  * Second-copy settings from the stack's docs/extending.md, passed in the compose
  * environment: every container_name gets the prefix, built images get their own tags.
  */
-export const BOUNDARY_ASSISTANT_CONTAINER_PREFIX = 'boundary-';
-export const BOUNDARY_ASSISTANT_IMAGE_PREFIX = 'boundary-assistant';
+export const BOUNDARY_ASSISTANT_CONTAINER_PREFIX = `${INSTANCE_NAME}-`;
+export const BOUNDARY_ASSISTANT_IMAGE_PREFIX = `${INSTANCE_NAME}-assistant`;
 
 /**
  * Where Hermes runs shell, file and execute_code tools in Boundary's stack. `ssh` (upstream's
@@ -66,7 +67,7 @@ export function sovereignAgentStackArchiveUrl(
 
 /** Non-interactive setup.sh workspace defaults for Boundary-managed installs. */
 export const BOUNDARY_SETUP_WORKSPACE = 'boundary-kb';
-export const BOUNDARY_SETUP_WEBUI_TITLE = 'Boundary Knowledge Base';
+export const BOUNDARY_SETUP_WEBUI_TITLE = `${APP_NAME} Knowledge Base`;
 
 /** Added to default ports when those are already bound (dual-stack with a developer stack). */
 export const BOUNDARY_ASSISTANT_PORT_OFFSET = 10_000;
@@ -96,7 +97,10 @@ export function portsForIsolationMode(
   ) as AssistantStackPorts;
 }
 
-/** Container names assigned by Boundary's compose overlay (not the assistant base file). */
+/**
+ * Boundary's ids for its containers. The names on the runtime carry this build's prefix: convert
+ * with {@link runtimeContainerName} and {@link containerIdFromRuntimeName}.
+ */
 export const BOUNDARY_ASSISTANT_CONTAINER_NAMES = [
   'boundary-hermes',
   'boundary-hermes-webui',
@@ -113,6 +117,18 @@ export const BOUNDARY_ASSISTANT_CONTAINER_NAMES = [
   'boundary-sql-mcp-ro',
   'boundary-sql-mcp-rw',
 ] as const;
+
+const CONTAINER_ID_PREFIX = 'boundary-';
+
+export function runtimeContainerName(id: string): string {
+  return `${BOUNDARY_ASSISTANT_CONTAINER_PREFIX}${id.slice(CONTAINER_ID_PREFIX.length)}`;
+}
+
+export function containerIdFromRuntimeName(name: string): string {
+  return name.startsWith(BOUNDARY_ASSISTANT_CONTAINER_PREFIX)
+    ? `${CONTAINER_ID_PREFIX}${name.slice(BOUNDARY_ASSISTANT_CONTAINER_PREFIX.length)}`
+    : name;
+}
 
 export const HERMES_CONFIG_PROFILES = ['', 'api-server', 'browser'] as const;
 

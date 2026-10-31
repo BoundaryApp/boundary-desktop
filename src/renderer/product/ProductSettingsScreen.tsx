@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  AppSwitchResult,
   DiscoveredLocalLlm,
   InferenceSlotId,
   ListedModel,
@@ -13,7 +14,7 @@ import { Segmented } from '../components/ui/segmented';
 import { UpdatesPanel } from './UpdatesPanel';
 import { InfoTip } from '../components/ui/info-tip';
 import { useThemePreference } from '../theme';
-import { chooseSharedModel, takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
+import { takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
 import { CIRCLE_MEMBER_PROVIDER, cloudInferenceNotice, cloudKeyLimitTip } from './cloudInferenceCopy';
 import { PasswordsLoginsPanel } from './PasswordsLoginsPanel';
 import { CalendarsPanel } from './CalendarsPanel';
@@ -25,6 +26,8 @@ import { CircleSharingLine } from './circles/CircleSharingPanel';
 import { useCirclesState } from './circles/useCircles';
 import { SETTINGS_TABS, type SettingsTab } from './settingsNavigation';
 import { rendererExperiments } from '../experiments';
+import { AppSwitchProgress } from './AppSwitchProgress';
+import { beginAppSwitch, endAppSwitch, useAppSwitch } from '../onboarding/appSwitch';
 
 interface ProductSettingsScreenProps {
   onBack: () => void;
@@ -89,7 +92,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const [discovered, setDiscovered] = useState<DiscoveredLocalLlm[]>([]);
   const [selectedLocalModel, setSelectedLocalModel] = useState('');
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [working, setBusy] = useState(false);
+  const { appSwitch, error: appSwitchError } = useAppSwitch();
+  // A switch runs in main and outlives this screen, so it holds the buttons from its own state.
+  const busy = working || appSwitch !== null;
   const circles = useCirclesState();
   // True while main waits for the browser to return from OpenRouter sign-in.
   const [openRouterSigningIn, setOpenRouterSigningIn] = useState(false);
@@ -377,33 +383,44 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     }
   };
 
-  const handleSetDefault = async (slot: InferenceSlotId) => {
-    setBusy(true);
+  const handleAppSwitch = async (
+    target: InferenceChainEntry,
+    change: () => Promise<AppSwitchResult>,
+    fallbackError: string
+  ) => {
     setError(null);
+    setNotice(null);
+    beginAppSwitch(target, status?.appSharedModel ?? (status?.appDefault ? { slot: status.appDefault } : null));
     try {
-      const result = await window.electronAPI.onboarding.setAppDefault({ slot });
-      if (!result.success) {
-        setError(result.error ?? 'Unable to set the app default.');
-        return;
-      }
+      const result = await change();
       await takeInferenceStatus(result);
-      setNotice('App default updated. The assistant restarts to use this connection.');
-    } finally {
-      setBusy(false);
+      if (result.cancelled) return;
+      endAppSwitch();
+      if (!result.success) setError(result.error ?? fallbackError);
+      else if (result.applyError) {
+        setError(`Saved, but the assistant didn’t switch: ${result.applyError} Your next message tries again.`);
+      } else if (result.deferred) {
+        setNotice('App default saved. A reply is still running, so the assistant moves on your next message.');
+      } else setNotice('App default updated.');
+    } catch (err) {
+      endAppSwitch();
+      setError(err instanceof Error ? err.message : fallbackError);
     }
   };
 
-  const handleSetSharedDefault = async (entry: InferenceChainEntry) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const refused = await chooseSharedModel(entry);
-      setError(refused);
-      if (!refused) setNotice('App default updated. The assistant restarts to use this model.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const handleSetDefault = (slot: InferenceSlotId) =>
+    handleAppSwitch(
+      { slot },
+      () => window.electronAPI.onboarding.setAppDefault({ slot }),
+      'Unable to set the app default.'
+    );
+
+  const handleSetSharedDefault = (entry: InferenceChainEntry) =>
+    handleAppSwitch(
+      entry,
+      () => window.electronAPI.onboarding.setAppSharedModel({ entry }),
+      'Unable to use that shared model.'
+    );
 
   const handleSetFallbacks = async (fallbacks: InferenceChainEntry[]) => {
     setBusy(true);
@@ -432,6 +449,21 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const appShared = status?.appSharedModel ?? null;
   const chainContext = { slots: status?.slots ?? {}, circles };
   const hasSharedChoice = sharedModelChoices(appShared, chainContext).length > 0;
+  // Cancel puts the previous choice back here at once, ahead of the stack.
+  const shownChoice = !appSwitch
+    ? (appShared ?? (status?.appDefault ? { slot: status.appDefault } : null))
+    : appSwitch.phase === 'reverting'
+      ? appSwitch.previous
+      : appSwitch.target;
+  const shownSlot = shownChoice?.slot === 'peer' ? null : (shownChoice?.slot ?? null);
+  const shownShared = shownChoice?.slot === 'peer' ? shownChoice : null;
+  const switchProgressFor = (choice: InferenceChainEntry) => {
+    if (!appSwitch) return null;
+    const at = (appSwitch.phase === 'reverting' && appSwitch.previous) || appSwitch.target;
+    const same =
+      at.slot === choice.slot && (at.slot !== 'peer' || (at.modelId === choice.modelId && at.peer?.providerId === choice.peer?.providerId));
+    return same ? <AppSwitchProgress appSwitch={appSwitch} /> : null;
+  };
   const chainPrimary =
     appShared ?? (status?.appDefault && status.appDefault !== 'infrastructure' ? { slot: status.appDefault } : null);
 
@@ -863,7 +895,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                   <>
                     <button
                       type="button"
-                      className={`wb-inference-choice ${status?.appDefault === 'local' ? 'is-on' : ''}`}
+                      className={`wb-inference-choice ${shownSlot === 'local' ? 'is-on' : ''}`}
                       disabled={!local?.configured || busy}
                       onClick={() => void handleSetDefault('local')}
                     >
@@ -872,9 +904,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                         <b>Local{local?.modelId ? ` · ${local.modelId}` : ''}</b>
                       </span>
                     </button>
+                    {switchProgressFor({ slot: 'local' })}
                     <button
                       type="button"
-                      className={`wb-inference-choice ${status?.appDefault === 'openrouter' ? 'is-on' : ''}`}
+                      className={`wb-inference-choice ${shownSlot === 'openrouter' ? 'is-on' : ''}`}
                       disabled={!openrouter?.configured || busy}
                       onClick={() => void handleSetDefault('openrouter')}
                     >
@@ -886,14 +919,21 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                         </b>
                       </span>
                     </button>
+                    {switchProgressFor({ slot: 'openrouter' })}
                   </>
                 )}
                 <SharedModelChoices
-                  current={appShared}
+                  current={shownShared}
                   ctx={chainContext}
                   disabled={busy}
                   onPick={(entry) => void handleSetSharedDefault(entry)}
+                  below={switchProgressFor}
                 />
+                {appSwitchError && (
+                  <p role="alert" className="wb-inference-note is-bad">
+                    {appSwitchError}
+                  </p>
+                )}
                 {status && chainPrimary && (
                   <>
                     <h3 className="wb-inference-fallback-head">

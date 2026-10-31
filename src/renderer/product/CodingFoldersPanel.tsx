@@ -14,6 +14,7 @@ import {
 } from './chat/codingFoldersStore';
 import { folderKey } from './chat/codingFolderView';
 import { InfoTip } from '../components/ui/info-tip';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /**
  * Settings › Coding agent (ADR 0028 §2, mock flow 4): every folder the coding agent can reach,
@@ -190,7 +191,7 @@ export const CodingFoldersPanel: React.FC = () => {
           Folders the coding agent can reach
         </h2>
         <p className="wb-inference-lead">
-          This Boundary uses your own stack checkout, which manages coding folders itself. Add one
+          This {APP_NAME} uses your own stack checkout, which manages coding folders itself. Add one
           there with <span className="mono">{coding.command ?? 'make coding-root-add'}</span>.
         </p>
       </section>
@@ -336,7 +337,7 @@ export const CodingFoldersPanel: React.FC = () => {
           <span className="mono">/</span>, system folders and ~/Library are refused.
         </div>
         <div>
-          <b>Boundary’s own data</b>
+          <b>{APP_NAME}’s own data</b>
           Keys, chats and app state stay out of reach.
         </div>
       </div>

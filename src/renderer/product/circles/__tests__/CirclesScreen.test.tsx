@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { useAppCommand } from '../../useAppShortcuts';
-import { CirclesScreen } from '../CirclesScreen';
+import { CirclesScreen, NO_SETTINGS, OfferRow } from '../CirclesScreen';
 
 const getState = vi.fn();
 const setDisplayName = vi.fn();
@@ -135,6 +135,28 @@ describe('CirclesScreen', () => {
     expect(removeMember).toHaveBeenCalledWith({ key: 'c'.repeat(64), identity: 'b'.repeat(64) });
   });
 
+  it('takes an invite code away once it has been used', async () => {
+    const state = withCircle('admin');
+    const id = 'f'.repeat(64);
+    getState.mockResolvedValue(state);
+    createInvite.mockResolvedValue({ success: true, state, invite: { id, code: 'yry-code', expires: Date.now() + 86_400_000 } });
+    render(<CirclesScreen />);
+    const circle = await screen.findByRole('region', { name: 'Garden club' });
+    fireEvent.click(within(circle).getByRole('button', { name: 'Invite someone' }));
+    await within(circle).findByLabelText('Invite code');
+
+    const [card] = state.snapshot.circles;
+    const invite = { id, expires: Date.now() + 86_400_000, revoked: false, used: false };
+    const withInvite = (used: boolean): CirclesState => ({
+      ...state,
+      snapshot: { ...state.snapshot, circles: [{ ...card, invites: [{ ...invite, used }] }] },
+    });
+    act(() => push.current?.(withInvite(false)));
+    expect(within(circle).getByLabelText('Invite code')).toBeTruthy();
+    act(() => push.current?.(withInvite(true)));
+    expect(within(circle).queryByLabelText('Invite code')).toBeNull();
+  });
+
   it('gives a member no admin controls', async () => {
     getState.mockResolvedValue(withCircle('member'));
     render(<CirclesScreen />);
@@ -143,6 +165,17 @@ describe('CirclesScreen', () => {
     expect(within(circle).queryByRole('button', { name: 'Remove' })).toBeNull();
     expect(within(circle).getByRole('button', { name: 'Leave' })).toBeTruthy();
     expect(within(circle).getByRole('img', { name: 'Offline' })).toBeTruthy();
+  });
+
+  it.each([
+    [true, true, 'Online', 'bg-ok'],
+    [true, false, 'Paused', 'bg-warn'],
+    [false, false, 'Offline', 'bg-line'],
+    [false, true, 'Offline', 'bg-line'],
+  ])('shows an offer online %s and available %s as %s', (online, available, label, colour) => {
+    const offer = { identity: 'b'.repeat(64), name: 'Bo', isMine: false, models: [{ id: 'qwen3-8b', tools: true }], available, away: false, online };
+    render(<OfferRow offer={offer} settings={NO_SETTINGS} />);
+    expect(screen.getByRole('img', { name: label }).className).toContain(colour);
   });
 
   it('lists members’ shared models and saves what the user accepts from each provider', async () => {
@@ -291,7 +324,28 @@ describe('CirclesScreen', () => {
       expect((await within(panel).findByRole('alert')).textContent).toMatch(/Circles aren't connected: members can't use your models/);
     });
 
-    it('sends someone with no local server to Settings', async () => {
+    it.each([
+      ['no local server', { configured: false, slots: {} }],
+      ['a local server that is not responding', { ...localConnected, slots: { local: { ...localConnected.slots.local, health: 'unreachable' } } }],
+    ])('offers no sharing with %s', async (_name, status) => {
+      getStatus.mockResolvedValue(status);
+      getState.mockResolvedValue({ ...withCircle('member'), sharing: NOT_SHARING });
+      render(<CirclesScreen />);
+      const circle = await screen.findByRole('region', { name: 'Garden club' });
+      await act(async () => undefined);
+      expect(screen.queryByRole('group', { name: 'Share your models' })).toBeNull();
+      expect(within(circle).queryByRole('switch', { name: 'Share with Garden club' })).toBeNull();
+      expect(within(circle).queryByRole('heading', { name: 'Shared models' })).toBeNull();
+    });
+
+    it('keeps a Circle switch that is on after the local server goes', async () => {
+      getStatus.mockResolvedValue({ configured: false, slots: {} });
+      const { circle } = await mount({ ...NOT_SHARING, circles: [KEY] });
+      await act(async () => fireEvent.click(within(circle).getByRole('switch', { name: 'Share with Garden club' })));
+      expect(setSharing).toHaveBeenLastCalledWith(NOT_SHARING);
+    });
+
+    it('sends someone with models chosen but no local server to Settings', async () => {
       getStatus.mockResolvedValue({ configured: false, slots: {} });
       const commands: string[] = [];
       const Listener = () => {
@@ -299,7 +353,7 @@ describe('CirclesScreen', () => {
         return null;
       };
       render(<Listener />);
-      const { panel } = await mount(NOT_SHARING);
+      const { panel } = await mount({ ...NOT_SHARING, models: SHARING.models });
       expect(await within(panel).findByText(/Connect a local model server in Settings/)).toBeTruthy();
       fireEvent.click(within(panel).getByRole('button', { name: 'Open Settings' }));
       expect(commands).toEqual(['go-settings']);

@@ -160,6 +160,8 @@ const shouldSign = Boolean(
     canNotarize
 );
 
+const appIcon = process.env.BOUNDARY_APP_ICON || 'src/assets/icon.icns';
+
 const config: ForgeConfig = {
   hooks: {
     packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
@@ -211,7 +213,7 @@ const config: ForgeConfig = {
     appCopyright: '© 2025-2026 Keith Axline',
     // appVersion and buildVersion default to package.json's version, which releases are cut from.
     // Icon configuration for macOS
-    icon: 'src/assets/icon.icns',
+    icon: appIcon,
     // Podman/compose helpers must live outside the asar (executable + notarization).
     // Populate via ./scripts/fetch-container-runtime.sh before packaging.
     // Assistant compose overlay ships beside container-runtime for stack ownership.
@@ -264,7 +266,7 @@ const config: ForgeConfig = {
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
     // The mounted disk image shows the app icon instead of a generic drive.
-    new MakerDMG({ icon: 'src/assets/icon.icns' }, ['darwin']),
+    new MakerDMG({ icon: appIcon }, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

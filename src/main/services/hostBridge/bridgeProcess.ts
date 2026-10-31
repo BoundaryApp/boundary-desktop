@@ -9,6 +9,7 @@ import { BrowserRelay } from './browserRelay';
 import { LiveHermesSessions } from './hermesSessions';
 import type { ToolCallResult } from './mcpProtocol';
 import { listedHostTools } from './toolCatalog';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const port = process.parentPort;
 let servers: BridgeServers | null = null;
@@ -38,7 +39,7 @@ function callTool(name: string, args: Record<string, unknown>): Promise<ToolCall
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingCalls.delete(id);
-      resolve({ content: [{ type: 'text', text: 'Boundary did not answer this call in time.' }], isError: true });
+      resolve({ content: [{ type: 'text', text: `${APP_NAME} did not answer this call in time.` }], isError: true });
     }, TOOL_CALL_TIMEOUT_MS);
     pendingCalls.set(id, (result) => {
       clearTimeout(timer);
@@ -52,7 +53,7 @@ function postHermesClients(changed: boolean | undefined): void {
   if (changed && hermesSessions) post({ type: 'hermes-clients', count: hermesSessions.count });
 }
 
-async function stop(reason = 'Boundary is shutting down.'): Promise<void> {
+async function stop(reason = `${APP_NAME} is shutting down.`): Promise<void> {
   if (sweepTimer) clearInterval(sweepTimer);
   for (const resolve of pendingCalls.values()) {
     resolve({ content: [{ type: 'text', text: reason }], isError: true });

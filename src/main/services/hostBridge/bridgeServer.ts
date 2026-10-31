@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { checkBridgeRequest, readLimitedBody, type GuardFailure } from './requestGuard';
 import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools } from './mcpProtocol';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * The bridge's two loopback listeners (ADR 0027 §1–2). Plain Node, so tests drive it with real
@@ -205,9 +206,9 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       return;
     }
     const relay = options.browserRelay;
-    const unavailable = relay ? relay.unavailableReason() : "Boundary's browser is not set up.";
+    const unavailable = relay ? relay.unavailableReason() : `${APP_NAME}'s browser is not set up.`;
     if (!relay || unavailable) {
-      rejectUpgrade(socket, 503, unavailable ?? "Boundary's browser is not set up.");
+      rejectUpgrade(socket, 503, unavailable ?? `${APP_NAME}'s browser is not set up.`);
       return;
     }
     relay.handleUpgrade(req, socket, head).catch((err: unknown) => {

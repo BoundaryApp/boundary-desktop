@@ -65,6 +65,28 @@ export interface HermesChatThreadSummary {
   projectId?: string | null;
   /** The session's working folder as Hermes last reported it (session.list); main only. */
   cwd?: string;
+  /** Hermes holds nothing for this chat: only Boundary's record of its failed sends. */
+  failed?: boolean;
+}
+
+/** A send that left nothing in Hermes, kept so the message and its error aren't lost. */
+export interface HermesFailedTurn {
+  id: string;
+  /** The user's message. Lives only in the app's local store. */
+  text: string;
+  noReply: HermesNoReply;
+  errorCode?: HermesChatStartErrorCode;
+  /** ISO time of the send; places the turn among Hermes's rows. */
+  at: string;
+}
+
+/** Boundary's record of a chat's failed sends, by stored session id or a local id. */
+export interface HermesFailedChat {
+  title: string;
+  agentSlug: string;
+  /** The id is Boundary's own: no Hermes session has ever had it. */
+  local?: true;
+  turns: HermesFailedTurn[];
 }
 
 /** ADR 0024: a project move, or a DM's folder change, shown in the transcript only. */
@@ -196,6 +218,8 @@ export interface HermesChatMessage {
   ending?: HermesReplyEnding;
   /** User turns whose reply never came: why (Boundary's note; Hermes saves nothing). */
   noReply?: HermesNoReply;
+  /** A failed send from Boundary's own record: Hermes has no row for it. */
+  localOnly?: boolean;
 }
 
 /**
@@ -288,6 +312,8 @@ export interface HermesChatStartPayload {
   agentSlug?: string;
   /** Edit / Retry: replace history from this user turn onward instead of appending. */
   rewind?: HermesChatRewindRequest;
+  /** Retry of a failed send Hermes never held: a plain send, and a later failure replaces it. */
+  retry?: boolean;
   /**
    * Continue a stopped reply: submit a hidden continue instruction instead of a user turn.
    * Hermes kept the partial, so the new reply picks up from it. Gateway DMs only.

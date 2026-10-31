@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../../shared/buildIdentity';
 /**
  * The host tools Boundary offers Hermes. Boundary defines this list; it is never taken from the
  * container, and it doesn't change while a session is connected (ADR 0027 §7). The one exception
@@ -33,7 +34,7 @@ const OFFER_SETUP_TOOL = 'offer_setup';
 /** What `offer_setup` can offer. Only calendars so far. */
 export const SETUP_KINDS = ['calendar'] as const;
 
-const ASKS = 'The user approves it in Boundary; if they decline, do not retry.';
+const ASKS = `The user approves it in ${APP_NAME}; if they decline, do not retry.`;
 
 /** Keeps each tool's name as a literal, so `HostToolName` lists exactly the catalog. */
 function defineHostTools<const Name extends string>(tools: readonly HostToolDefinition<Name>[]) {
@@ -47,17 +48,17 @@ export const HOST_TOOLS = defineHostTools([
     name: 'desktop_notification',
     title: 'Show a desktop notification',
     description:
-      'Show a pop-up notification on the screen of the computer running Boundary. This does ' +
+      `Show a pop-up notification on the screen of the computer running ${APP_NAME}. This does ` +
       'not send a message to Signal, Telegram, email or any chat platform; use it only when the ' +
       'user asks for an alert or notification on this computer. The user approves it in ' +
-      'Boundary; if they decline, do not retry.',
+      `${APP_NAME}; if they decline, do not retry.`,
     inputSchema: {
       type: 'object',
       properties: {
         title: {
           type: 'string',
           maxLength: NOTIFY_TITLE_MAX,
-          description: 'Short headline. Defaults to "Boundary".',
+          description: `Short headline. Defaults to "${APP_NAME}".`,
         },
         body: { type: 'string', maxLength: NOTIFY_BODY_MAX, description: 'Detail line.' },
       },

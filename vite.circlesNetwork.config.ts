@@ -6,6 +6,10 @@ import { defineConfig } from 'vite';
 // addon's prebuild beside its package, so forge.config.ts copies their package trees into the app.
 export default defineConfig({
   plugins: [],
+  define: {
+    __BOUNDARY_APP_NAME__: JSON.stringify(process.env.BOUNDARY_APP_NAME ?? ''),
+    __BOUNDARY_INSTANCE__: JSON.stringify(process.env.BOUNDARY_INSTANCE ?? ''),
+  },
   resolve: {
     conditions: ['node'],
     mainFields: ['module', 'jsnext:main', 'jsnext'],

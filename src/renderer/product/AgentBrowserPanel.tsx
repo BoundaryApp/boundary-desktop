@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { BoundaryBrowserState, HostBridgeBrowserSettings } from '../../shared/types/hostBridge';
 import { InfoTip } from '../components/ui/info-tip';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
 
@@ -94,10 +95,10 @@ export const AgentBrowserPanel: React.FC = () => {
   return (
     <section className="wb-settings-section wb-agent-browser" aria-labelledby="settings-agent-browser">
       <h2 id="settings-agent-browser">
-        Boundary’s browser
-        <InfoTip label="Boundary’s browser">
+        {APP_NAME}’s browser
+        <InfoTip label={`${APP_NAME}’s browser`}>
           <p>
-            A Chrome window Boundary runs on this computer, with its own profile. Sign in there to the
+            A Chrome window {APP_NAME} runs on this computer, with its own profile. Sign in there to the
             sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
           </p>
           <p>
@@ -112,7 +113,7 @@ export const AgentBrowserPanel: React.FC = () => {
       <div className="wb-settings-row">
         <div>
           <p className="wb-settings-label">
-            Let Hermes use Boundary’s browser
+            Let Hermes use {APP_NAME}’s browser
             <InfoTip label="this setting">
               When off, Hermes browses in its own browser inside Docker, with no logins.
             </InfoTip>
@@ -122,12 +123,12 @@ export const AgentBrowserPanel: React.FC = () => {
           type="button"
           role="switch"
           aria-checked={settings.enabled}
-          aria-label="Let Hermes use Boundary’s browser"
+          aria-label={`Let Hermes use ${APP_NAME}’s browser`}
           disabled={busy || !state.chromeInstalled}
           onClick={() =>
             void save(
               { ...settings, enabled: !settings.enabled },
-              settings.enabled ? 'Hermes is back on its own browser.' : 'Hermes now browses in Boundary’s browser.'
+              settings.enabled ? 'Hermes is back on its own browser.' : `Hermes now browses in ${APP_NAME}’s browser.`
             )
           }
           className={`wb-switch${settings.enabled ? ' is-on' : ''}`}
@@ -160,7 +161,7 @@ export const AgentBrowserPanel: React.FC = () => {
       <h3 className="wb-agent-browser-h3">
         Blocked sites
         <InfoTip label="blocked sites">
-          Hermes can’t open these sites or their subdomains. Boundary’s default list covers email,
+          Hermes can’t open these sites or their subdomains. {APP_NAME}’s default list covers email,
           password managers, payments and banks. Keep sensitive sites here: Hermes can act on any page it
           opens.
         </InfoTip>
@@ -175,7 +176,7 @@ export const AgentBrowserPanel: React.FC = () => {
         placeholder="One site per line"
       />
       <p className="wb-settings-hint">
-        {usingDefaults ? 'Boundary’s default list' : 'You’ve changed the default list'}
+        {usingDefaults ? `${APP_NAME}’s default list` : 'You’ve changed the default list'}
       </p>
       <div className="wb-agent-browser-actions">
         <button

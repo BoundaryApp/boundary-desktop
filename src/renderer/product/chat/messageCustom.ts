@@ -28,6 +28,8 @@ export interface HermesMessageCustom {
   ending?: HermesReplyEnding;
   /** Why a turn ended with no reply. */
   noReply?: HermesNoReply;
+  /** A failed send from Boundary's record: Hermes has no row for it. */
+  localOnly?: true;
   /** Who spoke this reply in a room. */
   agentSlug?: string;
   /** Each agent's part of a live room wake. */
@@ -94,6 +96,7 @@ function readCustom(raw: unknown): HermesMessageCustom {
   if (raw.ending === 'stopped' || raw.ending === 'interrupted') out.ending = raw.ending;
   const noReply = noReplyOf(raw.noReply);
   if (noReply) out.noReply = noReply;
+  if (raw.localOnly === true) out.localOnly = true;
   if (typeof raw.agentSlug === 'string') out.agentSlug = raw.agentSlug;
   const segments = segmentsOf(raw.segments);
   if (segments) out.segments = segments;

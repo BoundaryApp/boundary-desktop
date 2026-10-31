@@ -6,6 +6,7 @@ import { app } from 'electron';
 import { BOUNDARY_ASSISTANT_OVERLAY_FILENAME } from '../../../shared/assistantStackConstants';
 import { persistDebugLog } from '../../persistDebugLog';
 import { readEnvFile } from './stackEnv';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,7 +47,7 @@ export function resolveBoundaryOverlayPath(): string {
   }
 
   throw new Error(
-    `Boundary assistant compose overlay not found (${BOUNDARY_ASSISTANT_OVERLAY_FILENAME}).`
+    `${APP_NAME} assistant compose overlay not found (${BOUNDARY_ASSISTANT_OVERLAY_FILENAME}).`
   );
 }
 

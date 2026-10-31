@@ -36,6 +36,7 @@ function toServerEntries(messages: HermesChatMessage[]): ServerEntry[] {
     role: m.role,
     text: m.content,
     rowId: m.rowId ?? null,
+    ...(m.localOnly ? { localOnly: true } : {}),
   }));
 }
 
@@ -71,6 +72,7 @@ export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMess
         ...(m.toolCount != null ? { toolCount: m.toolCount } : {}),
         ...(m.ending ? { ending: m.ending } : {}),
         ...(m.noReply ? { noReply: m.noReply } : {}),
+        ...(m.localOnly ? { localOnly: true } : {}),
         // Who spoke this turn in a room; the reply's speaker line reads it (ADR 0023).
         ...(m.agentSlug ? { agentSlug: m.agentSlug } : {}),
       } satisfies HermesMessageCustom,
@@ -80,7 +82,6 @@ export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMess
 
 interface InferenceSendHandlers {
   onLocalUnreachable: () => void;
-  onApplyFailed: (error: string) => void;
   onPrivateRefused: () => void;
   /** The inference a chat with no session yet sends its first turn with, taken once. */
   takeNewChatInference?: () => SessionInferenceOverride | null;
@@ -98,7 +99,6 @@ export function useInferenceSendHandlers(handlers: InferenceSendHandlers): void 
     if (!ctx) return undefined;
     return ctx.register({
       onLocalUnreachable: () => handlersRef.current.onLocalUnreachable(),
-      onApplyFailed: (error) => handlersRef.current.onApplyFailed(error),
       onPrivateRefused: () => handlersRef.current.onPrivateRefused(),
       takeNewChatInference: () => handlersRef.current.takeNewChatInference?.() ?? null,
     });
@@ -261,7 +261,6 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
           onSessionResolvedRef.current?.(id);
         },
         onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
-        onApplyFailed: (error) => sendHandlersRef.current?.onApplyFailed(error),
         onPrivateRefused: () => sendHandlersRef.current?.onPrivateRefused(),
         takeNewChatInference: () => sendHandlersRef.current?.takeNewChatInference?.() ?? null,
         getServerPath: () => serverPathRef.current,

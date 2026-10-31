@@ -6,6 +6,7 @@ import { NewFolderForm, type FolderAccess, type NewFolderInput } from './NewFold
 import type { CodingChangeMode } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Add a folder to a project (ADR 0028, mock flow 1): pick it, choose Code in it or Use as
@@ -66,7 +67,7 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
 
   const codeBlocked = !managed || Boolean(folder?.refuseMessage);
   const codeReason = !managed
-    ? `This Boundary uses your own stack checkout. Run ${command ?? 'make coding-root-add'} there instead.`
+    ? `This ${APP_NAME} uses your own stack checkout. Run ${command ?? 'make coding-root-add'} there instead.`
     : (folder?.refuseMessage ?? null);
 
   const choose = (picked: CodingFolderInspect): boolean => {

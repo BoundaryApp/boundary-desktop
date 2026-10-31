@@ -57,6 +57,7 @@ import {
 } from './codingGrantStore';
 import { codingGrantPaths, currentCodingRoots, persistCodingStackEnv } from './codingMounts';
 import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * Coding grants (ADR 0028): record a grant, mount it on the coding agent, restart only the
@@ -177,7 +178,7 @@ function unmanaged(): CodingFoldersResult {
     grants: [],
     command: LOCAL_STACK_COMMAND,
     error:
-      'This Boundary is using your own stack checkout. Add coding folders there with make coding-root-add.',
+      `This ${APP_NAME} is using your own stack checkout. Add coding folders there with make coding-root-add.`,
   };
 }
 
@@ -283,7 +284,7 @@ function notVisibleMessage(hostPath: string): string {
   const home = deps.ruleOptions().home;
   return isPathUnder(hostPath, home)
     ? `The coding agent can’t open ${hostPath} yet. Check the folder still exists, then try again.`
-    : `The coding agent can’t open ${hostPath}. Boundary’s container engine only shares your home folder. Move the folder under your home folder, or share its drive in the container engine’s settings, then try again.`;
+    : `The coding agent can’t open ${hostPath}. ${APP_NAME}’s container engine only shares your home folder. Move the folder under your home folder, or share its drive in the container engine’s settings, then try again.`;
 }
 
 // --- Operations ---------------------------------------------------------------

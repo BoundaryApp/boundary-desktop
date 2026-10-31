@@ -43,6 +43,7 @@ function toServerEntry(message: {
     role: message.role,
     text: messageText(message.content),
     rowId: typeof rowId === 'number' ? rowId : null,
+    ...(message.metadata?.custom?.localOnly === true ? { localOnly: true } : {}),
   };
 }
 
@@ -70,7 +71,6 @@ export function createHermesChatModelAdapter(
     getToolsEnabled?: () => boolean;
     getAgentSlug?: () => string | null;
     onLocalUnreachable?: () => void;
-    onApplyFailed?: (error: string) => void;
     onPrivateRefused?: () => void;
     /** The inference a new chat's first send carries (Send via OpenRouter), taken once. */
     takeNewChatInference?: () => SessionInferenceOverride | null;
@@ -204,6 +204,7 @@ export function createHermesChatModelAdapter(
           agentSlug: opts?.getAgentSlug?.() ?? undefined,
           ...(plan.kind === 'rewind' ? { rewind: plan.request } : {}),
           ...(plan.kind === 'continue' ? { continue: true } : {}),
+          ...(plan.kind === 'append' && plan.retry ? { retry: true } : {}),
           ...(inference ? { inference } : {}),
         });
       } catch (err) {
@@ -215,6 +216,8 @@ export function createHermesChatModelAdapter(
       if (!start.success) {
         stopListening();
         settle('');
+        // Main keeps a failed send as a chat, so a first send has an id here too.
+        if (start.sessionId) opts?.onSessionResolved?.(start.sessionId);
         if (start.errorCode === 'rewind-unsupported') serverPath?.setRewindable(false);
         // The transcript says what happened; its Retry sends this message again.
         const unreachableNote = {
@@ -228,16 +231,12 @@ export function createHermesChatModelAdapter(
           if (start.sharedUnavailable) yield unreachableNote;
           return;
         }
-        if (start.errorCode === 'provider-unreachable') {
+        if (start.errorCode === 'provider-unreachable' || start.errorCode === 'apply-failed') {
           yield unreachableNote;
           return;
         }
         if (start.errorCode === 'private-refused') {
           opts?.onPrivateRefused?.();
-          return;
-        }
-        if (start.errorCode === 'apply-failed') {
-          opts?.onApplyFailed?.(start.error ?? 'Could not apply the inference connection.');
           return;
         }
         throw new Error(start.error ?? 'Failed to start chat');

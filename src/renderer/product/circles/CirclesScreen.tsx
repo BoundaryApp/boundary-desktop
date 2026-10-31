@@ -12,8 +12,9 @@ import { Pill } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { CircleSharingPanel, MyShareRow } from './CircleSharingPanel';
+import { CircleSharingPanel, MyShareRow, useCanShare } from './CircleSharingPanel';
 import { useAction, useCirclesState } from './useCircles';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Circles (ADR 0032): invite-only groups whose members' Macs connect directly. Create one, invite
@@ -78,7 +79,7 @@ export function JoinForm() {
         {join.busy ? 'Waiting for an admin…' : 'Join'}
       </Button>
       {join.busy ? (
-        <p className="text-xs text-fg-faint">An admin of the Circle has to be online to let you in. Keep Boundary open.</p>
+        <p className="text-xs text-fg-faint">An admin of the Circle has to be online to let you in. Keep {APP_NAME} open.</p>
       ) : null}
       {join.error ? <p className="text-xs text-danger">{join.error}</p> : null}
     </form>
@@ -167,6 +168,9 @@ function InvitePanel({ circle }: { circle: CircleSnapshot }) {
   const action = useAction();
   const now = Date.now();
   const open = circle.invites.filter((invite) => !invite.used && !invite.revoked && invite.expires > now);
+  // A new code can be missing from the snapshot for a moment, so only a known-spent one hides.
+  const spent = circle.invites.some((invite) => invite.id === code?.id && (invite.used || invite.revoked));
+  const shownCode = code && !spent && code.expires > now ? code : null;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -187,16 +191,16 @@ function InvitePanel({ circle }: { circle: CircleSnapshot }) {
         </Button>
         <span className="text-xs text-fg-faint">Each code lets one person in, while an admin is online.</span>
       </div>
-      {code ? (
+      {shownCode ? (
         <div className="flex items-center gap-2 rounded-md border border-line bg-surface-0 p-2">
           <code className="min-w-0 flex-1 break-all text-xs text-fg" aria-label="Invite code">
-            {code.code}
+            {shownCode.code}
           </code>
           <Button
             size="sm"
             variant="ghost"
             aria-label="Copy invite code"
-            onClick={() => void navigator.clipboard.writeText(code.code).then(() => setCopied(true))}
+            onClick={() => void navigator.clipboard.writeText(shownCode.code).then(() => setCopied(true))}
           >
             <Copy className="size-4" aria-hidden />
             {copied ? 'Copied' : 'Copy'}
@@ -273,14 +277,13 @@ export function OfferRow({ offer, settings }: { offer: CircleOfferView; settings
     void action.run(() => api().setProviderSettings({ identity: offer.identity, ...next }));
   };
   const models = offer.models.map((model) => model.id).join(', ');
+  // Green means the model can be used now.
+  const dot = !offer.online ? 'bg-line' : offer.available ? 'bg-ok' : 'bg-warn';
+  const dotLabel = !offer.online ? 'Offline' : offer.available ? 'Online' : 'Paused';
   return (
     <li className="flex flex-col gap-2 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`size-2 rounded-full ${offer.online ? 'bg-ok' : 'bg-line'}`}
-          role="img"
-          aria-label={offer.online ? 'Online' : 'Offline'}
-        />
+        <span className={`size-2 rounded-full ${dot}`} role="img" aria-label={dotLabel} />
         <span className="text-ui text-fg">{offer.isMine ? 'You' : offer.name}</span>
         <span className="min-w-0 text-xs break-words text-fg-muted">{models}</span>
         {!offer.available ? <Pill variant="outline">Paused</Pill> : null}
@@ -311,7 +314,7 @@ export function OfferRow({ offer, settings }: { offer: CircleOfferView; settings
             onToggle={() => save({ ...settings, private: !settings.private })}
           />
           <p className="text-xs text-fg-faint">
-            Boundary can't check either. Both apply to {offer.name} in every Circle you share.
+            {APP_NAME} can't check either. Both apply to {offer.name} in every Circle you share.
           </p>
         </div>
       )}
@@ -323,11 +326,13 @@ export function OfferRow({ offer, settings }: { offer: CircleOfferView; settings
 function SharedModels({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
   // Your own row reads your sharing settings, so it's right before an offer has gone out.
   const others = circle.offers.filter((offer) => !offer.isMine);
+  const canShare = useCanShare(circles);
+  if (!canShare && !others.length) return null;
   return (
     <div className="flex flex-col gap-1">
       <h3 className="text-ui font-medium text-fg">Shared models</h3>
       <ul aria-label="Shared models" className="flex flex-col divide-y divide-line">
-        <MyShareRow circle={circle} circles={circles} />
+        {canShare ? <MyShareRow circle={circle} circles={circles} /> : null}
         {others.map((offer) => (
           <OfferRow key={offer.identity} offer={offer} settings={circles.providers[offer.identity] ?? NO_SETTINGS} />
         ))}
@@ -413,7 +418,7 @@ export const CirclesScreen: React.FC = () => {
           <h1 className="text-heading font-medium text-fg">Circles</h1>
           <p className="mt-1.5 text-xs text-fg-faint">
             Small invite-only groups whose Macs connect to each other directly, with no server in between. A Circle is
-            reachable while one of its members has Boundary open.
+            reachable while one of its members has {APP_NAME} open.
           </p>
         </header>
 

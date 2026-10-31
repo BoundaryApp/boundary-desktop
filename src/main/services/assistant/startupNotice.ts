@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { showWindowNotification } from '../notifications';
 import { describeStartupError } from '../../../shared/startupErrors';
 import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Tells the user when a long start-up finishes while Boundary is in the
@@ -23,7 +24,7 @@ function startupNoticeFor(
 ): StartupNotice | null {
   if (prev !== 'starting' || elapsedMs < STARTUP_NOTICE_MIN_MS) return null;
   if (next.phase === 'ready') {
-    return { title: 'Your assistant is ready', body: 'Your tools are running. Open Boundary to start chatting.' };
+    return { title: 'Your assistant is ready', body: `Your tools are running. Open ${APP_NAME} to start chatting.` };
   }
   if (next.phase === 'error') {
     const failure = describeStartupError(next.error ?? next.message);

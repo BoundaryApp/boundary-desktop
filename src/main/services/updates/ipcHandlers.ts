@@ -18,6 +18,7 @@ import {
   type UpdateStore,
   type UpdateStoreShape,
 } from './UpdateService';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 declare const __BOUNDARY_UPDATE_FEED_URL__: string | undefined;
 declare const __BOUNDARY_UPDATE_KEY_REQUIRED__: boolean | undefined;
@@ -166,8 +167,8 @@ async function offerMoveToApplications(): Promise<void> {
   settings?.set('moveToApplicationsOffered', true);
   const { response } = await dialog.showMessageBox({
     type: 'question',
-    message: 'Move Boundary to Applications?',
-    detail: 'Boundary can update itself only from the Applications folder.',
+    message: `Move ${APP_NAME} to Applications?`,
+    detail: `${APP_NAME} can update itself only from the Applications folder.`,
     buttons: ['Move to Applications', 'Not now'],
     defaultId: 0,
     cancelId: 1,

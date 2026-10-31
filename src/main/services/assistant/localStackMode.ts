@@ -1,6 +1,7 @@
 import { getAssistantRootOverride } from './AssistantStackStore';
 import { resolveAssistantProjectRoot } from './assistantPaths';
 import { canonicalPath } from '../hostPaths';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /** Which setting named the stack root. `managed` means neither did. */
 export type StackRootSource = 'BOUNDARY_ASSISTANT_ROOT' | 'stored-override' | 'managed';
@@ -63,6 +64,6 @@ export function resetStackModeCacheForTests(): void {
 export function localStackStopSkippedMessage(): string {
   return (
     'Local assistant stack mode: leaving the live stack running ' +
-    '(Boundary will not compose down or prune volumes).'
+    `(${APP_NAME} will not compose down or prune volumes).`
   );
 }

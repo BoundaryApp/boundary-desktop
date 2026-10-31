@@ -8,6 +8,7 @@ describe('describeStartupError', () => {
     ['Compose exited with code 1: Bind for 0.0.0.0:8642 failed: port is already allocated', 'port'],
     ['listen tcp 127.0.0.1:7474: bind: address already in use', 'port'],
     ['Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?', 'runtime'],
+    ['Error: boundary already starting or running: only one VM can be active at a time', 'runtime'],
     ['Error response from daemon: toomanyrequests: You have reached your pull rate limit.', 'rate-limit'],
     ['Failed to download agent stack archive (404 Not Found): https://example.com/a.zip', 'download'],
     ['fetch failed', 'network'],

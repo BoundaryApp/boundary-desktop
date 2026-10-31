@@ -6,11 +6,12 @@ import type {
 } from '../../shared/types/composeInventory';
 import type { HostResourceSnapshot, ResourceBucketId } from '../../shared/types/hostResources';
 import './resources.css';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 const POLL_MS = 1_000;
 
 const BUCKET_LABELS: Record<ResourceBucketId, string> = {
-  app: 'Boundary app',
+  app: `${APP_NAME} app`,
   stack: 'Assistant stack',
   llm: 'Local LLM',
   rest: 'Rest of computer',
@@ -68,7 +69,7 @@ export const ComposeInventoryView: React.FC<{
     <div className="wb-resources-inventory" aria-label="Compose on this machine">
       <h2>Compose on this machine</h2>
       <p className="wb-resources-inventory-sub">
-        Observe only. Services still starts Boundary’s stack.
+        Observe only. Services still starts {APP_NAME}’s stack.
       </p>
       {!inventory ? (
         <p className="wb-resources-inventory-honesty">Reading Compose projects…</p>
@@ -227,7 +228,7 @@ export const ResourcesView: React.FC<{
       <div className="wb-resources-legend">
         <span>
           <i className="app" />
-          Boundary app
+          {APP_NAME} app
         </span>
         <span>
           <i className="stack" />

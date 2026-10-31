@@ -78,11 +78,11 @@ export function splitContextBar(
   return { overhead: width - conversationWidth, conversation: conversationWidth };
 }
 
-/** The transcript line for a turn a Circle's shared model answered (ADR 0033 §3). */
+/** The transcript marker for a chat moving to a Circle's shared model (ADR 0033 §3). */
 export function sharedFallbackMarkText(mark: Pick<SessionInferenceMark, 'modelId' | 'sharedBy'>): string {
   return mark.sharedBy
-    ? `Answered by ${mark.modelId}, shared by ${mark.sharedBy.person} in ${mark.sharedBy.circle}, a fallback`
-    : `Answered by ${mark.modelId}, a shared fallback`;
+    ? `Using ${mark.modelId} from here, shared by ${mark.sharedBy.person} in ${mark.sharedBy.circle}, a fallback`
+    : `Using ${mark.modelId} from here, a shared fallback`;
 }
 
 function formatRecoveryLine({ provider, retryInSec, cycle, total }: HermesRecoveryWait): string {

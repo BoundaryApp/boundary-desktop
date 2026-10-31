@@ -3,6 +3,7 @@ import path from 'node:path';
 import { BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE, SOVEREIGN_AGENT_STACK_GITHUB_URL } from '../../../shared/assistantStackConstants';
 import { getAssistantRootOverride } from './AssistantStackStore';
 import { resolveAssistantDataRoot, resolveAssistantProjectRoot } from './assistantPaths';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 export class AssistantRootError extends Error {
   constructor(message: string) {
@@ -49,7 +50,7 @@ export function resolveAssistantRoot(): string {
   }
 
   throw new AssistantRootError(
-    `Could not find the Boundary-managed agent stack at ${projectRoot} ` +
+    `Could not find the ${APP_NAME}-managed agent stack at ${projectRoot} ` +
       `(expected ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE} from ${SOVEREIGN_AGENT_STACK_GITHUB_URL}). ` +
       'Start the assistant stack from Setup to download it, or set BOUNDARY_ASSISTANT_ROOT for a local override.'
   );

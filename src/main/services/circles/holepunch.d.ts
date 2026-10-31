@@ -16,6 +16,8 @@ declare module 'corestore' {
     readonly signedLength: number;
     readonly writable: boolean;
     ready(): Promise<void>;
+    setUserData(key: string, value: Buffer | null): Promise<void>;
+    close(): Promise<void>;
     append(block: Buffer | string): Promise<{ length: number }>;
     get(index: number): Promise<Buffer | null>;
     update(opts?: { wait?: boolean }): Promise<boolean>;
@@ -26,7 +28,7 @@ declare module 'corestore' {
   export default class Corestore {
     constructor(storage: string, opts?: Record<string, unknown>);
     ready(): Promise<void>;
-    get(opts: { name: string } | { key: Buffer }): Hypercore;
+    get(opts: { name: string } | { key: Buffer; active?: boolean }): Hypercore;
     namespace(name: string): Corestore;
     replicate(stream: SecretStream): unknown;
     close(): Promise<void>;
