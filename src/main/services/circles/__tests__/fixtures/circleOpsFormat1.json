@@ -1,0 +1,116 @@
+{
+  "view": {
+    "circle": {
+      "name": "Garden club",
+      "format": 1
+    },
+    "invites/7777777777777777777777777777777777777777777777777777777777777777": {
+      "id": "7777777777777777777777777777777777777777777777777777777777777777",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "invites/8888888888888888888888888888888888888888888888888888888888888888": {
+      "id": "8888888888888888888888888888888888888888888888888888888888888888",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "invites/9999999999999999999999999999999999999999999999999999999999999999": {
+      "id": "9999999999999999999999999999999999999999999999999999999999999999",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revoked": true
+    },
+    "members/1111111111111111111111111111111111111111111111111111111111111111": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "Bo",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "device": "3333333333333333333333333333333333333333333333333333333333333333",
+      "signature": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "role": "admin"
+    },
+    "members/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "device": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "signature": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "member"
+    },
+    "offers/1111111111111111111111111111111111111111111111111111111111111111": {
+      "models": [
+        {
+          "id": "small",
+          "tools": true,
+          "contextLength": 4096
+        }
+      ],
+      "available": true,
+      "away": false,
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "records/circle/settings/topic": {
+      "app": "settings",
+      "scope": "circle",
+      "identity": null,
+      "key": "topic",
+      "value": null
+    },
+    "records/member/1111111111111111111111111111111111111111111111111111111111111111/profile/bio": {
+      "app": "profile",
+      "scope": "member",
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "key": "bio",
+      "value": {
+        "text": "Beans"
+      }
+    },
+    "writers/2222222222222222222222222222222222222222222222222222222222222222": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "writers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "writers": [
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      false
+    ],
+    [
+      "add",
+      "5555555555555555555555555555555555555555555555555555555555555555",
+      false
+    ],
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      true
+    ],
+    [
+      "add",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      false
+    ],
+    [
+      "remove",
+      "5555555555555555555555555555555555555555555555555555555555555555"
+    ]
+  ],
+  "skipped": [
+    "bad creator intro",
+    "invite not usable",
+    "only admins invite",
+    "bad offer",
+    "only admins write Circle records",
+    "only admins change the format",
+    "bad format",
+    "not a member",
+    "unknown operation"
+  ]
+}

@@ -4,12 +4,18 @@
  * deterministic: no clock, no randomness, nothing outside the view. An operation its author may
  * not perform is skipped, never thrown on, so one bad entry can't stop the Circle.
  *
+ * What an operation does at a format never changes, because anyone joining replays the whole log.
+ * A later build adds or changes one behind a new format (ADR 0038).
+ *
  * Kept free of native modules so it can be tested on its own; the signature check is passed in.
  */
 
 import type { SharedModelOffer } from '../../../shared/types/circles';
 
 export type CircleRole = 'admin' | 'member';
+
+/** The highest format this build can apply. New Circles start at it. */
+export const CIRCLE_FORMAT = 1;
 
 /** How a device introduces its owner to a Circle. Hex strings throughout. */
 export interface CircleMemberIntro {
@@ -54,15 +60,38 @@ export interface CircleOfferRecord extends CircleOffer {
   identity: string;
 }
 
+export type CircleRecordScope = 'circle' | 'member';
+
+/** What a Circle keeps for a feature. Peers replicate it whether or not they know the `app`. */
+export interface CircleRecord {
+  app: string;
+  scope: CircleRecordScope;
+  /** The member it belongs to; null for a `circle` record. */
+  identity: string | null;
+  key: string;
+  /** JSON. `apply` checks its size and never reads it, so readers must not trust it. */
+  value: unknown;
+}
+
 export type CircleOp =
-  | { type: 'create'; name: string; member: CircleMemberIntro }
+  | { type: 'create'; name: string; format: number; member: CircleMemberIntro }
+  | { type: 'set-format'; format: number }
   | { type: 'add-member'; member: CircleMemberIntro; invite: string }
   | { type: 'set-role'; identity: string; role: CircleRole }
   | { type: 'remove-member'; identity: string }
   | { type: 'invite'; invite: Pick<CircleInviteRecord, 'id' | 'publicKey' | 'expires'> }
   | { type: 'revoke-invite'; id: string }
   | { type: 'offer'; offer: CircleOffer }
-  | { type: 'withdraw-offer' };
+  | { type: 'withdraw-offer' }
+  | { type: 'record-set'; app: string; scope: CircleRecordScope; key: string; value: unknown }
+  | { type: 'record-del'; app: string; scope: CircleRecordScope; key: string };
+
+/** The view's `CIRCLE_KEY` entry. */
+export interface CircleHeader {
+  name: string;
+  /** Which rules apply to this Circle. Only rises (ADR 0038). */
+  format: number;
+}
 
 /** View keys. */
 export const CIRCLE_KEY = 'circle';
@@ -73,6 +102,24 @@ export const offerKey = (identity: string): string => `offers/${identity}`;
 export const MEMBERS_PREFIX = 'members/';
 export const INVITES_PREFIX = 'invites/';
 export const OFFERS_PREFIX = 'offers/';
+export const RECORDS_PREFIX = 'records/';
+const memberRecordsPrefix = (identity: string): string => `${RECORDS_PREFIX}member/${identity}/`;
+export const circleRecordKey = (app: string, key: string): string => `${RECORDS_PREFIX}circle/${app}/${key}`;
+export const memberRecordKey = (identity: string, app: string, key: string): string =>
+  `${memberRecordsPrefix(identity)}${app}/${key}`;
+
+/**
+ * Whether a view update took away this device's own membership. A member who left and joined
+ * again has a new writer, and catching up replays their old record and its removal, so a record
+ * only counts as theirs when it holds their current writer.
+ */
+export function lostMembership(
+  before: CircleMemberRecord[],
+  after: CircleMemberRecord[],
+  self: { identity: string; writer: string }
+): boolean {
+  return !after.some((member) => member.identity === self.identity) && before.some((member) => member.writer === self.writer);
+}
 
 /** The parts of Hyperbee that apply uses. */
 export interface CircleViewStore {
@@ -86,6 +133,8 @@ export interface CircleHost {
   addWriter(key: Buffer, opts: { indexer: boolean }): Promise<void>;
   removeWriter(key: Buffer): Promise<void>;
   removeable(key: Buffer): boolean;
+  /** Stops applying here until a build that can continue reopens the Circle. Throws. */
+  interrupt(reason: string): void;
 }
 
 export interface CircleNode {
@@ -96,6 +145,8 @@ export interface CircleNode {
 export interface CircleApplyDeps {
   /** ed25519 verify over raw bytes. */
   verify(message: Buffer, signature: Buffer, publicKey: Buffer): boolean;
+  /** The highest format to apply; `CIRCLE_FORMAT` unless a test stands in for another build. */
+  supportedFormat?: number;
   /** Called with each skipped operation and why, for the debug log. */
   onSkip?(reason: string, op: unknown): void;
 }
@@ -106,6 +157,20 @@ const MAX_NAME = 80;
 const MAX_OFFERED_MODELS = 32;
 const MAX_MODEL_ID = 200;
 const MAX_CONTEXT = 100_000_000;
+/** The longest record value, as JSON text. */
+export const MAX_RECORD_VALUE_BYTES = 16 * 1024;
+const RECORD_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/** An `app` or record `key`. Neither can hold a `/`, so view keys stay unambiguous. */
+export const isRecordName = (name: unknown): name is string => typeof name === 'string' && RECORD_NAME.test(name);
+
+export const isRecordScope = (scope: unknown): scope is CircleRecordScope => scope === 'circle' || scope === 'member';
+
+/** Whether `value` can be stored: JSON text within the limit. */
+export function isRecordValue(value: unknown): boolean {
+  const json = JSON.stringify(value);
+  return json !== undefined && Buffer.byteLength(json) <= MAX_RECORD_VALUE_BYTES;
+}
 
 /** The bytes an identity signs to vouch for a device's writer in one Circle. */
 export function deviceProofMessage(device: string, writer: string): Buffer {
@@ -170,6 +235,8 @@ function introOnly(intro: CircleMemberIntro): CircleMemberIntro {
   return { identity, name: name.trim(), writer, device, signature };
 }
 
+const isFormat = (format: unknown): format is number => Number.isInteger(format) && (format as number) >= 1;
+
 async function read<T>(view: CircleViewStore, key: string): Promise<T | null> {
   const node = await view.get(key);
   return node ? (node.value as T) : null;
@@ -210,14 +277,17 @@ async function applyOne(
 ): Promise<string | null> {
   const op = node.value as CircleOp;
   const from = node.from.key.toString('hex');
-  const circle = await read<{ name: string }>(view, CIRCLE_KEY);
+  const circle = await read<CircleHeader>(view, CIRCLE_KEY);
+  const supported = deps.supportedFormat ?? CIRCLE_FORMAT;
 
   if (op.type === 'create') {
     if (circle) return 'the Circle already exists';
     if (typeof op.name !== 'string' || !op.name.trim() || op.name.length > MAX_NAME) return 'bad name';
+    if (!isFormat(op.format)) return 'bad format';
     // The creator's device is the bootstrap writer and already an indexer.
     if (!introIsValid(op.member, deps) || op.member.writer !== from) return 'bad creator intro';
-    await view.put(CIRCLE_KEY, { name: op.name.trim() });
+    if (op.format > supported) host.interrupt(`Circle format ${op.format}`);
+    await view.put(CIRCLE_KEY, { name: op.name.trim(), format: op.format });
     await view.put(memberKey(op.member.identity), { ...introOnly(op.member), role: 'admin' });
     await view.put(writerKey(from), { identity: op.member.identity });
     return null;
@@ -230,6 +300,14 @@ async function applyOne(
   const authorRole = authorMember && authorMember.writer === from ? authorMember.role : null;
 
   switch (op.type) {
+    case 'set-format': {
+      // Admin-only because it halts older builds: anything a member appends must only be skipped.
+      if (authorRole !== 'admin') return 'only admins change the format';
+      if (!isFormat(op.format) || op.format <= circle.format) return 'bad format';
+      if (op.format > supported) host.interrupt(`Circle format ${op.format}`);
+      await view.put(CIRCLE_KEY, { ...circle, format: op.format });
+      return null;
+    }
     case 'invite': {
       if (authorRole !== 'admin') return 'only admins invite';
       const { id, publicKey, expires } = op.invite ?? ({} as CircleInviteRecord);
@@ -291,6 +369,8 @@ async function applyOne(
       await view.del(writerKey(target.writer));
       // A member who leaves stops sharing too (ADR 0033 §10: their entries go stale).
       await view.del(offerKey(target.identity));
+      const records = (await view.list(memberRecordsPrefix(target.identity))) as CircleRecord[];
+      for (const record of records) await view.del(memberRecordKey(target.identity, record.app, record.key));
       return null;
     }
     case 'offer': {
@@ -304,6 +384,21 @@ async function applyOne(
     case 'withdraw-offer': {
       if (authorRole === null) return 'not a member';
       await view.del(offerKey(author!.identity));
+      return null;
+    }
+    case 'record-set':
+    case 'record-del': {
+      if (authorRole === null) return 'not a member';
+      if (!isRecordName(op.app) || !isRecordName(op.key) || !isRecordScope(op.scope)) return 'bad record';
+      if (op.scope === 'circle' && authorRole !== 'admin') return 'only admins write Circle records';
+      const identity = op.scope === 'member' ? author!.identity : null;
+      const viewKey = identity ? memberRecordKey(identity, op.app, op.key) : circleRecordKey(op.app, op.key);
+      if (op.type === 'record-del') {
+        await view.del(viewKey);
+        return null;
+      }
+      if (!isRecordValue(op.value)) return 'bad record value';
+      await view.put(viewKey, { app: op.app, scope: op.scope, identity, key: op.key, value: op.value });
       return null;
     }
     default:

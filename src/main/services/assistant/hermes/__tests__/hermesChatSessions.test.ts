@@ -66,6 +66,13 @@ const turnLines = () =>
     .filter(([area]) => area === 'chat-turn')
     .map(([, message, data]) => ({ message: message as string, ...(data as Record<string, unknown>) }));
 
+/**
+ * Stopping a turn starts the settle wait's INTERRUPT_SETTLE_MS timer, which outlives the test.
+ * On a real clock it would fire into a later test and add a 'turn stop settled' line there;
+ * a fake one is discarded by vi.useRealTimers. Any test that stops a turn needs this.
+ */
+const FAKE_SETTLE_TIMER = ['setTimeout', 'clearTimeout'] as const;
+
 vi.mock('../hermesWebuiSync', () => ({
   ensureHermesWebuiSyncToInsights: vi.fn(),
 }));
@@ -919,7 +926,10 @@ describe('Stop before a reply starts', () => {
     submitPrompt.mockResolvedValue(undefined);
     const store = await import('../hermesAgentStore');
     vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    vi.useFakeTimers({ toFake: [...FAKE_SETTLE_TIMER] });
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('sends nothing to Hermes and ends the turn when Stop lands during the restart', async () => {
     const { handleHermesChatCancel, startHermesChatStream } = await import('../hermesChatSessions');
@@ -1332,9 +1342,13 @@ describe('Stop from any window (decision D4)', () => {
     getTurnLiveness.mockResolvedValue({ heartbeatS: null });
     const store = await import('../hermesAgentStore');
     vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    vi.useFakeTimers({ toFake: [...FAKE_SETTLE_TIMER] });
   });
 
-  afterEach(() => storedSessionId.mockImplementation((id: string) => id));
+  afterEach(() => {
+    vi.useRealTimers();
+    storedSessionId.mockImplementation((id: string) => id);
+  });
 
   async function startTurn() {
     const sessions = await import('../hermesChatSessions');
@@ -1394,7 +1408,7 @@ describe('turn debug log (ADR 0031 §6)', () => {
     vi.resetModules();
     vi.clearAllMocks();
     gatewayHandlers.clear();
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', ...FAKE_SETTLE_TIMER] });
     vi.setSystemTime(T0);
     ensureResolvedInferenceReady.mockResolvedValue({ ok: true, resolved: {} });
     resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
@@ -2116,32 +2130,37 @@ describe('channel wake with Hermes as a member (ADR 0023 §9)', () => {
   });
 
   it('logs a stopped member turn and a failed one', async () => {
-    submitPrompt.mockImplementationOnce(async () => {
-      throw Object.assign(new Error('boom'), { code: 4090 });
-    });
-    await wakeRoom(['assistant'], '@Hermes plan', 'hermes-chat:error');
-    expect(turnLines().at(-1)).toMatchObject({
-      message: 'turn end',
-      trigger: 'woken',
-      speaker: 'assistant',
-      outcome: 'failed',
-      errorName: 'Error',
-      errorCode: 4090,
-    });
+    vi.useFakeTimers({ toFake: [...FAKE_SETTLE_TIMER] });
+    try {
+      submitPrompt.mockImplementationOnce(async () => {
+        throw Object.assign(new Error('boom'), { code: 4090 });
+      });
+      await wakeRoom(['assistant'], '@Hermes plan', 'hermes-chat:error');
+      expect(turnLines().at(-1)).toMatchObject({
+        message: 'turn end',
+        trigger: 'woken',
+        speaker: 'assistant',
+        outcome: 'failed',
+        errorName: 'Error',
+        errorCode: 4090,
+      });
 
-    persistDebugLog.mockClear();
-    submitPrompt.mockReset();
-    submitPrompt.mockResolvedValue(undefined);
-    const { handleHermesChatCancel } = await import('../hermesChatSessions');
-    const waking = wakeRoom(['assistant'], '@Hermes plan');
-    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
-    handleHermesChatCancel({ requestId: 'req-room' });
-    await waking;
-    expect(turnLines().at(-1)).toMatchObject({
-      message: 'turn end',
-      speaker: 'assistant',
-      outcome: 'stopped',
-    });
+      persistDebugLog.mockClear();
+      submitPrompt.mockReset();
+      submitPrompt.mockResolvedValue(undefined);
+      const { handleHermesChatCancel } = await import('../hermesChatSessions');
+      const waking = wakeRoom(['assistant'], '@Hermes plan');
+      await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+      handleHermesChatCancel({ requestId: 'req-room' });
+      await waking;
+      expect(turnLines().at(-1)).toMatchObject({
+        message: 'turn end',
+        speaker: 'assistant',
+        outcome: 'stopped',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

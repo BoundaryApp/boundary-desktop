@@ -59,7 +59,11 @@ function noReplyOf(value: unknown): HermesNoReply | undefined {
   if (!isRecord(value) || typeof value.reason !== 'string') return undefined;
   if (!NO_REPLY_REASONS.has(value.reason)) return undefined;
   const reason = value.reason as HermesNoReplyReason;
-  return typeof value.error === 'string' ? { reason, error: value.error } : { reason };
+  return {
+    reason,
+    ...(typeof value.error === 'string' ? { error: value.error } : {}),
+    ...(typeof value.provider === 'string' ? { provider: value.provider } : {}),
+  };
 }
 
 function segmentsOf(value: unknown): SpeakerSegment[] | undefined {

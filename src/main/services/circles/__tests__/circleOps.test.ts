@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyCircleNodes,
+  CIRCLE_FORMAT,
+  CIRCLE_KEY,
+  circleRecordKey,
+  MAX_RECORD_VALUE_BYTES,
+  lostMembership,
   memberKey,
+  memberRecordKey,
   offerKey,
   type CircleHost,
   type CircleMemberIntro,
@@ -33,6 +39,9 @@ function fakeHost(): CircleHost & { writers: Map<string, boolean> } {
     addWriter: vi.fn(async (key: Buffer, { indexer }: { indexer: boolean }) => void writers.set(key.toString('hex'), indexer)),
     removeWriter: vi.fn(async (key: Buffer) => void writers.delete(key.toString('hex'))),
     removeable: () => true,
+    interrupt: (reason: string) => {
+      throw new Error(`interrupted: ${reason}`);
+    },
   };
 }
 
@@ -71,7 +80,7 @@ async function circleWithBo() {
   const view = fakeView();
   const host = fakeHost();
   await run(view, host, [
-    [ada, { type: 'create', name: 'Garden club', member: ada }],
+    [ada, { type: 'create', name: 'Garden club', format: 1, member: ada }],
     [ada, invite('1')],
     [ada, { type: 'add-member', member: bo, invite: hex('1') }],
   ]);
@@ -95,7 +104,7 @@ describe('applyCircleNodes', () => {
     const view = fakeView();
     const host = fakeHost();
     await run(view, host, [
-      [ada, { type: 'create', name: 'Garden club', member: ada }],
+      [ada, { type: 'create', name: 'Garden club', format: 1, member: ada }],
       [ada, invite('1')],
     ]);
     const skipped = await run(view, host, [[ada, { type: 'add-member', member: { ...bo, signature: hex('0', 128) }, invite: hex('1') }]]);
@@ -149,12 +158,127 @@ describe('applyCircleNodes', () => {
     const view = fakeView();
     const host = fakeHost();
     const skipped = await run(view, host, [
-      [bo, { type: 'create', name: 'Garden club', member: ada }],
-      [ada, { type: 'create', name: 'Garden club', member: ada }],
-      [ada, { type: 'create', name: 'Again', member: ada }],
+      [bo, { type: 'create', name: 'Garden club', format: 1, member: ada }],
+      [ada, { type: 'create', name: 'Garden club', format: 1, member: ada }],
+      [ada, { type: 'create', name: 'Again', format: 1, member: ada }],
     ]);
     expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad creator intro', 'the Circle already exists']);
     expect(roleOf(view, ada)).toBe('admin');
+  });
+
+  it('needs a format to create a Circle', async () => {
+    const view = fakeView();
+    const skipped = await run(view, fakeHost(), [
+      [ada, { type: 'create', name: 'Garden club', member: ada } as unknown as CircleOp],
+      [ada, { type: 'create', name: 'Garden club', format: 0, member: ada }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad format', 'bad format']);
+    expect(view.data.has(CIRCLE_KEY)).toBe(false);
+  });
+
+  it('stops on a Circle created at a format this build can’t apply', async () => {
+    await expect(
+      run(fakeView(), fakeHost(), [[ada, { type: 'create', name: 'Garden club', format: CIRCLE_FORMAT + 1, member: ada }]])
+    ).rejects.toThrow('interrupted');
+  });
+
+  it('raises the format for a build that supports it, and only an admin can', async () => {
+    const { view, host } = await circleWithBo();
+    const onSkip = vi.fn();
+    const apply = (author: CircleMemberIntro, format: unknown) =>
+      applyCircleNodes(
+        [{ value: { type: 'set-format', format }, from: { key: Buffer.from(author.writer, 'hex') } }],
+        view,
+        host,
+        { verify, onSkip, supportedFormat: 2 }
+      );
+    await apply(bo, 2);
+    await apply(ada, 1);
+    await apply(ada, 1.5);
+    await apply(ada, 2);
+    expect(onSkip.mock.calls.map(([reason]) => reason)).toEqual(['only admins change the format', 'bad format', 'bad format']);
+    expect(view.data.get(CIRCLE_KEY)).toEqual({ name: 'Garden club', format: 2 });
+  });
+
+  it('stops on a later format from an admin, and leaves the view alone', async () => {
+    const { view, host } = await circleWithBo();
+    await expect(run(view, host, [[ada, { type: 'set-format', format: CIRCLE_FORMAT + 1 }]])).rejects.toThrow('interrupted');
+    expect(view.data.get(CIRCLE_KEY)).toEqual({ name: 'Garden club', format: 1 });
+  });
+
+  it('never stops for what a member appends', async () => {
+    const { view, host } = await circleWithBo();
+    const skipped = await run(view, host, [
+      [bo, { type: 'set-format', format: CIRCLE_FORMAT + 1 }],
+      [bo, { type: 'paint-it-red', format: CIRCLE_FORMAT + 1 } as unknown as CircleOp],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['only admins change the format', 'unknown operation']);
+  });
+
+  it('lets only admins write Circle records, and nobody write another member’s', async () => {
+    const { view, host } = await circleWithBo();
+    const skipped = await run(view, host, [
+      [bo, { type: 'record-set', app: 'settings', scope: 'circle', key: 'topic', value: 'peas' }],
+      [ada, { type: 'record-set', app: 'settings', scope: 'circle', key: 'topic', value: 'beans' }],
+      [ada, { type: 'record-set', app: 'profile', scope: 'member', key: 'bio', value: 'Ada’s' }],
+      [bo, { type: 'record-set', app: 'profile', scope: 'member', key: 'bio', value: 'Bo’s' }],
+      [bo, { type: 'record-del', app: 'settings', scope: 'circle', key: 'topic' }],
+      [bo, { type: 'record-del', app: 'profile', scope: 'member', key: 'bio' }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['only admins write Circle records', 'only admins write Circle records']);
+    expect(view.data.get(circleRecordKey('settings', 'topic'))).toEqual({
+      app: 'settings',
+      scope: 'circle',
+      identity: null,
+      key: 'topic',
+      value: 'beans',
+    });
+    expect((view.data.get(memberRecordKey(ada.identity, 'profile', 'bio')) as { value: string }).value).toBe('Ada’s');
+    expect(view.data.has(memberRecordKey(bo.identity, 'profile', 'bio'))).toBe(false);
+  });
+
+  it('skips records with a bad shape or an oversized value', async () => {
+    const { view, host } = await circleWithBo();
+    const ops: CircleOp[] = [
+      { type: 'record-set', app: 'a/b', scope: 'circle', key: 'k', value: 1 },
+      { type: 'record-set', app: 'app', scope: 'circle', key: '../k', value: 1 },
+      { type: 'record-set', app: 'app', scope: 'everyone' as 'circle', key: 'k', value: 1 },
+      { type: 'record-set', app: 'app', scope: 'circle', key: 'k' } as CircleOp,
+      { type: 'record-set', app: 'app', scope: 'circle', key: 'k', value: 'x'.repeat(MAX_RECORD_VALUE_BYTES) },
+    ];
+    const skipped = await run(view, host, ops.map((op) => [ada, op]));
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual([
+      'bad record',
+      'bad record',
+      'bad record',
+      'bad record value',
+      'bad record value',
+    ]);
+    const fits = 'x'.repeat(MAX_RECORD_VALUE_BYTES - 2);
+    await run(view, host, [[ada, { type: 'record-set', app: 'app', scope: 'circle', key: 'k', value: fits }]]);
+    expect(view.data.has(circleRecordKey('app', 'k'))).toBe(true);
+  });
+
+  it('keeps records of apps it knows nothing about, and never reads the value', async () => {
+    const { view, host } = await circleWithBo();
+    const value = { nested: [1, { type: 'remove-member' }] };
+    await run(view, host, [[bo, { type: 'record-set', app: 'unheard.of', scope: 'member', key: 'k', value }]]);
+    expect((view.data.get(memberRecordKey(bo.identity, 'unheard.of', 'k')) as { value: unknown }).value).toEqual(value);
+  });
+
+  it('clears a removed member’s records, and leaves others’ and the Circle’s', async () => {
+    const { view, host } = await circleWithBo();
+    await run(view, host, [
+      [ada, { type: 'record-set', app: 'settings', scope: 'circle', key: 'topic', value: 1 }],
+      [ada, { type: 'record-set', app: 'profile', scope: 'member', key: 'bio', value: 1 }],
+      [bo, { type: 'record-set', app: 'profile', scope: 'member', key: 'bio', value: 2 }],
+      [bo, { type: 'record-set', app: 'other', scope: 'member', key: 'x', value: 3 }],
+      [ada, { type: 'remove-member', identity: bo.identity }],
+    ]);
+    expect([...view.data.keys()].filter((key) => key.startsWith('records/')).sort()).toEqual([
+      circleRecordKey('settings', 'topic'),
+      memberRecordKey(ada.identity, 'profile', 'bio'),
+    ]);
   });
 
   it('stores a member’s own offer, cleaned, and drops it when they withdraw or leave', async () => {
@@ -191,5 +315,27 @@ describe('applyCircleNodes', () => {
     expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad offer', 'bad offer', 'bad offer', 'bad offer', 'not a member']);
     expect(view.data.has(offerKey(bo.identity))).toBe(false);
     expect(view.data.has(offerKey(cy.identity))).toBe(false);
+  });
+});
+
+describe('lostMembership', () => {
+  const record = (identity: string, writer: string) => ({ identity, writer }) as CircleMemberRecord;
+  const self = { identity: 'bo', writer: 'new' };
+  const ada = record('ada', 'a');
+
+  it('is true when the record holding this writer goes', () => {
+    expect(lostMembership([ada, record('bo', 'new')], [ada], self)).toBe(true);
+  });
+
+  it('ignores a rejoiner catching up through their old record and its removal', () => {
+    expect(lostMembership([ada, record('bo', 'old')], [ada], self)).toBe(false);
+  });
+
+  it('is false while this identity is still a member, on any writer', () => {
+    expect(lostMembership([ada, record('bo', 'new')], [ada, record('bo', 'other')], self)).toBe(false);
+  });
+
+  it('is false before this device has appeared in the view', () => {
+    expect(lostMembership([], [ada], self)).toBe(false);
   });
 });

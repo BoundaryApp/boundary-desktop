@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
-import { Copy } from 'lucide-react';
 import type {
   CircleMemberView,
   CircleOfferView,
-  CircleProviderSettings,
   CircleSnapshot,
   CirclesState,
 } from '../../../shared/types/circles';
@@ -13,6 +11,10 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { CircleSharingPanel, MyShareRow, useCanShare } from './CircleSharingPanel';
+import { CircleOffers } from './CircleOffers';
+import { CirclesNav, resolveSelection, type CirclesSelection } from './CirclesNav';
+import { InviteSheet, inviteName, openInvites } from './InviteSheet';
+import { PersonPanel } from './PersonPanel';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
@@ -23,13 +25,6 @@ import { APP_NAME } from '../../../shared/buildIdentity';
  */
 
 const api = () => window.electronAPI.circles;
-
-function formatExpiry(expires: number, now = Date.now()): string {
-  const days = Math.round((expires - now) / (24 * 60 * 60_000));
-  if (days >= 2) return `Expires in ${days} days`;
-  const hours = Math.max(1, Math.round((expires - now) / (60 * 60_000)));
-  return hours >= 24 ? 'Expires tomorrow' : `Expires in ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
-}
 
 export function NameForm({ current, onSaved }: { current: string; onSaved?: () => void }) {
   const [name, setName] = useState(current);
@@ -59,7 +54,8 @@ export function NameForm({ current, onSaved }: { current: string; onSaved?: () =
   );
 }
 
-export function JoinForm() {
+/** `onJoin` hands the code to the Circles screen, which shows the wait on its own page. */
+export function JoinForm({ onJoin }: { onJoin?: (code: string) => void }) {
   const [code, setCode] = useState('');
   const join = useAction();
   return (
@@ -68,6 +64,10 @@ export function JoinForm() {
       className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
       onSubmit={(event) => {
         event.preventDefault();
+        if (onJoin) {
+          onJoin(code);
+          return;
+        }
         void join.run(() => api().join({ code })).then((result) => {
           if (result?.success) setCode('');
         });
@@ -86,385 +86,406 @@ export function JoinForm() {
   );
 }
 
-function StartForms() {
+function StartForms({
+  stacked = false,
+  onCreated,
+  onJoin,
+}: {
+  stacked?: boolean;
+  onCreated: (key: string) => void;
+  onJoin: (code: string) => void;
+}) {
   const [name, setName] = useState('');
   const create = useAction();
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className={`grid gap-4${stacked ? '' : ' md:grid-cols-2'}`}>
       <form
-        aria-label="New Circle"
+        aria-label="Start a Circle"
         className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void create.run(() => api().create({ name })).then((result) => {
-            if (result?.success) setName('');
+            if (result?.success) {
+              setName('');
+              onCreated(result.key);
+            }
           });
         }}
       >
-        <span className="font-medium text-fg">New Circle</span>
+        <span className="font-medium text-fg">Start a Circle</span>
         <Input aria-label="Circle name" placeholder="Name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
         <Button type="submit" variant="outline" disabled={create.busy || !name.trim()}>
           {create.busy ? 'Creating…' : 'Create'}
         </Button>
         {create.error ? <p className="text-xs text-danger">{create.error}</p> : null}
       </form>
-      <JoinForm />
+      <JoinForm onJoin={onJoin} />
     </div>
+  );
+}
+
+function Welcome({
+  circles,
+  onCreated,
+  onJoin,
+}: {
+  circles: CirclesState;
+  onCreated: (key: string) => void;
+  onJoin: (code: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      <header>
+        <h1 className="text-heading font-medium text-fg">Share a model with people you know</h1>
+        <p className="mt-1.5 text-ui text-fg-muted">
+          A Circle is a small invite-only group. Members&apos; Macs connect to each other directly, with no server in
+          between, while {APP_NAME} is open.
+        </p>
+      </header>
+      {circles.displayName ? <StartForms onCreated={onCreated} onJoin={onJoin} /> : <NameForm current="" />}
+    </div>
+  );
+}
+
+function JoinPage({ error }: { error?: string }) {
+  const cancel = useAction();
+  return (
+    <div className="flex flex-col gap-3">
+      <h1 className="text-heading font-medium text-fg">{error ? 'Couldn’t join' : 'Waiting for an admin'}</h1>
+      {error ? (
+        <Callout variant="destructive">{error}</Callout>
+      ) : (
+        <p className="text-ui text-fg-muted">
+          An admin of this Circle has to be online to let you in. Keep {APP_NAME} open and you&apos;ll join as soon as
+          one is.
+        </p>
+      )}
+      <Button variant="outline" className="self-start" disabled={cancel.busy} onClick={() => void cancel.run(() => api().cancelJoin())}>
+        {error ? 'Dismiss' : 'Cancel'}
+      </Button>
+      {cancel.error ? <p className="text-xs text-danger">{cancel.error}</p> : null}
+    </div>
+  );
+}
+
+function ProfileSheet({ circles, open, onClose }: { circles: CirclesState; open: boolean; onClose: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      titleId="circles-profile"
+      title="Profile"
+      error={error}
+      actions={
+        <Button variant="outline" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <NameForm current={circles.displayName} />
+        <Button
+          size="sm"
+          variant="ghost"
+          className="self-start"
+          onClick={() =>
+            void api().revealDiagnostics().then((result) => {
+              setError(result.success ? null : (result.error ?? 'Couldn’t show the file.'));
+            })
+          }
+        >
+          Show diagnostics file
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 
 type Pending =
   | { kind: 'remove'; member: CircleMemberView }
-  | { kind: 'leave' };
+  | { kind: 'leave' }
+  | { kind: 'delete' };
 
-function MemberRow({
+function confirmCopy(pending: Pending | null, circle: CircleSnapshot, busy: boolean) {
+  if (pending?.kind === 'delete') {
+    return {
+      title: `Delete ${circle.name}?`,
+      label: busy ? 'Deleting…' : 'Delete Circle',
+      help: 'You’re its only member, so this ends the Circle and you can’t get it back. Anyone removed earlier keeps what they already received.',
+    };
+  }
+  if (pending?.kind === 'leave') {
+    return {
+      title: `Leave ${circle.name}?`,
+      label: busy ? 'Leaving…' : 'Leave',
+      help: 'You stop receiving anything new from this Circle. What you’ve already received stays on this Mac.',
+    };
+  }
+  return {
+    title: `Remove ${pending?.member.name ?? ''}?`,
+    label: busy ? 'Removing…' : 'Remove',
+    help: 'They stop receiving anything new from this Circle. What they’ve already received stays with them.',
+  };
+}
+
+/** Green means the person's model can be used now; without a model, that they're online. */
+function presence(member: CircleMemberView, offer: CircleOfferView | undefined): { dot: string; label: string } {
+  if (!member.online) return { dot: 'bg-line', label: 'Offline' };
+  if (offer && !offer.available) return { dot: 'bg-warn', label: 'Paused' };
+  return { dot: 'bg-ok', label: 'Online' };
+}
+
+function PersonRow({
   circle,
   member,
-  onRemove,
+  circles,
+  open,
+  onOpen,
 }: {
   circle: CircleSnapshot;
   member: CircleMemberView;
-  onRemove: (member: CircleMemberView) => void;
+  circles: CirclesState;
+  open: boolean;
+  onOpen: () => void;
 }) {
-  const action = useAction();
-  const admin = circle.myRole === 'admin';
-  return (
-    <li className="flex flex-wrap items-center gap-2 py-1.5">
-      <span
-        className={`size-2 rounded-full ${member.online ? 'bg-ok' : 'bg-line'}`}
-        role="img"
-        aria-label={member.online ? 'Online' : 'Offline'}
-      />
-      <span className="text-ui text-fg">{member.name}</span>
-      {member.isMe ? <span className="text-xs text-fg-faint">you</span> : null}
-      {member.role === 'admin' ? <Pill variant="outline">Admin</Pill> : null}
-      {admin && !member.isMe ? (
-        <span className="ml-auto flex gap-1.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={action.busy}
-            onClick={() =>
-              void action.run(() =>
-                api().setRole({ key: circle.key, identity: member.identity, role: member.role === 'admin' ? 'member' : 'admin' })
-              )
-            }
-          >
-            {member.role === 'admin' ? 'Make member' : 'Make admin'}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => onRemove(member)}>
-            Remove
-          </Button>
+  const offer = member.isMe ? undefined : circle.offers.find((item) => item.identity === member.identity);
+  const { dot, label } = presence(member, offer);
+  const trusted = circles.providers[member.identity]?.trusted === true;
+  const models = offer?.models.map((model) => model.id).join(', ');
+  const body = (
+    <>
+      <span className={`size-2 shrink-0 rounded-full ${dot}`} role="img" aria-label={label} />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-ui text-fg">{member.name}</span>
+          {member.isMe ? <span className="text-xs text-fg-faint">you</span> : null}
+          {member.role === 'admin' ? <Pill variant="outline">Admin</Pill> : null}
+          {offer?.away ? <Pill variant="outline">Away mode</Pill> : null}
         </span>
-      ) : null}
-      {action.error ? <p className="w-full text-xs text-danger">{action.error}</p> : null}
-    </li>
-  );
-}
-
-function InvitePanel({ circle }: { circle: CircleSnapshot }) {
-  const [code, setCode] = useState<{ id: string; code: string; expires: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const action = useAction();
-  const now = Date.now();
-  const open = circle.invites.filter((invite) => !invite.used && !invite.revoked && invite.expires > now);
-  // A new code can be missing from the snapshot for a moment, so only a known-spent one hides.
-  const spent = circle.invites.some((invite) => invite.id === code?.id && (invite.used || invite.revoked));
-  const shownCode = code && !spent && code.expires > now ? code : null;
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={action.busy}
-          onClick={() =>
-            void action.run(() => api().createInvite({ key: circle.key })).then((result) => {
-              if (result?.success) {
-                setCode(result.invite);
-                setCopied(false);
-              }
-            })
-          }
-        >
-          Invite someone
-        </Button>
-        <span className="text-xs text-fg-faint">Each code lets one person in, while an admin is online.</span>
-      </div>
-      {shownCode ? (
-        <div className="flex items-center gap-2 rounded-md border border-line bg-surface-0 p-2">
-          <code className="min-w-0 flex-1 break-all text-xs text-fg" aria-label="Invite code">
-            {shownCode.code}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label="Copy invite code"
-            onClick={() => void navigator.clipboard.writeText(shownCode.code).then(() => setCopied(true))}
-          >
-            <Copy className="size-4" aria-hidden />
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
-      ) : null}
-      {open.length ? (
-        <ul aria-label="Open invites" className="flex flex-col gap-1">
-          {open.map((invite) => (
-            <li key={invite.id} className="flex items-center gap-2 text-xs text-fg-muted">
-              <span>Invite {invite.id.slice(0, 6)}</span>
-              <span className="text-fg-faint">{formatExpiry(invite.expires, now)}</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto"
-                disabled={action.busy}
-                onClick={() => {
-                  if (code?.id === invite.id) setCode(null);
-                  void action.run(() => api().revokeInvite({ key: circle.key, inviteId: invite.id }));
-                }}
-              >
-                Revoke
-              </Button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
-    </div>
-  );
-}
-
-export const NO_SETTINGS: CircleProviderSettings = { private: false, trusted: false };
-
-/** One of the two claims a user makes about a provider (ADR 0034 §3). */
-function ProviderSwitch({
-  label,
-  detail,
-  on,
-  disabled,
-  onToggle,
-}: {
-  label: string;
-  detail: string;
-  on: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={disabled}
-        onClick={onToggle}
-        className={`wb-switch shrink-0${on ? ' is-on' : ''}`}
-      >
-        <i />
-      </button>
-      <span className="flex flex-col">
-        <span className="text-ui text-fg">{label}</span>
-        <span className="text-xs text-fg-faint">{detail}</span>
+        {models ? <span className="text-xs break-words text-fg-muted">{models}</span> : null}
       </span>
-    </div>
+      {offer ? <Pill variant={trusted ? 'ok' : 'warn'}>{trusted ? 'Trusted' : 'Not trusted'}</Pill> : null}
+    </>
   );
-}
-
-export function OfferRow({ offer, settings }: { offer: CircleOfferView; settings: CircleProviderSettings }) {
-  const action = useAction();
-  const save = (next: CircleProviderSettings): void => {
-    void action.run(() => api().setProviderSettings({ identity: offer.identity, ...next }));
-  };
-  const models = offer.models.map((model) => model.id).join(', ');
-  // Green means the model can be used now.
-  const dot = !offer.online ? 'bg-line' : offer.available ? 'bg-ok' : 'bg-warn';
-  const dotLabel = !offer.online ? 'Offline' : offer.available ? 'Online' : 'Paused';
   return (
-    <li className="flex flex-col gap-2 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`size-2 rounded-full ${dot}`} role="img" aria-label={dotLabel} />
-        <span className="text-ui text-fg">{offer.isMine ? 'You' : offer.name}</span>
-        <span className="min-w-0 text-xs break-words text-fg-muted">{models}</span>
-        {!offer.available ? <Pill variant="outline">Paused</Pill> : null}
-        {offer.away ? <Pill variant="outline">Away mode</Pill> : null}
-      </div>
-      {offer.isMine ? null : (
-        <div className="flex flex-col gap-2 pl-4">
-          <ProviderSwitch
-            label="Trusted"
-            detail={
-              settings.trusted
-                ? `You accept that ${offer.name}'s model can run your agent's tools. Their models can serve your chats.`
-                : `Until you trust ${offer.name}, their models are skipped in your chains, because a reply can make your agent run tools.`
-            }
-            on={settings.trusted}
-            disabled={action.busy}
-            onToggle={() => save({ ...settings, trusted: !settings.trusted })}
-          />
-          <ProviderSwitch
-            label="Private"
-            detail={
-              settings.private
-                ? `You accept that ${offer.name} can read your prompts, so their models can serve private projects.`
-                : `${offer.name}'s Mac sees every prompt it serves. Off: private projects never send to them.`
-            }
-            on={settings.private}
-            disabled={action.busy}
-            onToggle={() => save({ ...settings, private: !settings.private })}
-          />
-          <p className="text-xs text-fg-faint">
-            {APP_NAME} can't check either. Both apply to {offer.name} in every Circle you share.
-          </p>
-        </div>
+    <li>
+      {member.isMe ? (
+        <div className="flex min-h-[58px] items-center gap-3 px-2">{body}</div>
+      ) : (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onOpen}
+          className={`flex min-h-[58px] w-full items-center gap-3 rounded-md px-2 text-left hover:bg-surface-hover${open ? ' bg-surface-hover' : ''}`}
+        >
+          {body}
+        </button>
       )}
-      {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
     </li>
   );
 }
 
-function SharedModels({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
-  // Your own row reads your sharing settings, so it's right before an offer has gone out.
-  const others = circle.offers.filter((offer) => !offer.isMine);
+function CirclePage({
+  circle,
+  circles,
+  person,
+  onPerson,
+  onLeave,
+  onInvite,
+}: {
+  circle: CircleSnapshot;
+  circles: CirclesState;
+  person: string | null;
+  onPerson: (identity: string) => void;
+  /** Leaving, or deleting when the user is the last member. */
+  onLeave: (alone: boolean) => void;
+  onInvite: () => void;
+}) {
   const canShare = useCanShare(circles);
-  if (!canShare && !others.length) return null;
+  const online = circle.members.filter((member) => member.online).length;
+  const others = circle.members.filter((member) => !member.isMe);
+  const me = circle.members.find((member) => member.isMe);
+  const alone = circle.members.length === 1 && Boolean(me);
+  const invites = circle.myRole === 'admin' ? openInvites(circle) : [];
   return (
-    <div className="flex flex-col gap-1">
-      <h3 className="text-ui font-medium text-fg">Shared models</h3>
-      <ul aria-label="Shared models" className="flex flex-col divide-y divide-line">
-        {canShare ? <MyShareRow circle={circle} circles={circles} /> : null}
-        {others.map((offer) => (
-          <OfferRow key={offer.identity} offer={offer} settings={circles.providers[offer.identity] ?? NO_SETTINGS} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function CircleCard({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
-  const [pending, setPending] = useState<Pending | null>(null);
-  const confirm = useAction();
-  const online = circle.members.filter((member) => member.online && !member.isMe).length;
-
-  const runPending = async () => {
-    if (!pending) return;
-    const result = await confirm.run(() =>
-      pending.kind === 'leave'
-        ? api().leave({ key: circle.key })
-        : api().removeMember({ key: circle.key, identity: pending.member.identity })
-    );
-    if (result?.success) setPending(null);
-  };
-
-  return (
-    <section aria-label={circle.name || 'Circle'} className="flex flex-col gap-3 rounded-lg border border-line bg-surface-1 p-4">
+    <section aria-label={circle.name || 'Circle'} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-medium text-fg">{circle.name || 'Joining…'}</h2>
+        <h1 className="text-heading font-medium text-fg">{circle.name || 'Joining…'}</h1>
         {circle.myRole === 'admin' ? <Pill variant="brand">Admin</Pill> : null}
         <span className="text-xs text-fg-faint">
           {circle.members.length} {circle.members.length === 1 ? 'member' : 'members'} · {online} online
         </span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setPending({ kind: 'leave' })}>
-          Leave
-        </Button>
+        <span className="ml-auto flex gap-1.5">
+          {circle.myRole === 'admin' ? (
+            <Button size="sm" variant="outline" onClick={onInvite}>
+              Invite someone
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={() => onLeave(alone)}>
+            {alone ? 'Delete Circle' : 'Leave'}
+          </Button>
+        </span>
       </div>
-      <ul aria-label="Members" className="flex flex-col divide-y divide-line">
-        {circle.members.map((member) => (
-          <MemberRow key={member.identity} circle={circle} member={member} onRemove={(m) => setPending({ kind: 'remove', member: m })} />
+      <ul aria-label="People" className="flex flex-col divide-y divide-line">
+        {canShare ? (
+          <MyShareRow circle={circle} circles={circles} />
+        ) : me ? (
+          <PersonRow circle={circle} member={me} circles={circles} open={false} onOpen={() => undefined} />
+        ) : null}
+        {others.map((member) => (
+          <PersonRow
+            key={member.identity}
+            circle={circle}
+            member={member}
+            circles={circles}
+            open={person === member.identity}
+            onOpen={() => onPerson(member.identity)}
+          />
         ))}
       </ul>
-      <SharedModels circle={circle} circles={circles} />
-      {circle.myRole === 'admin' ? <InvitePanel circle={circle} /> : null}
-
-      <Sheet
-        open={pending !== null}
-        onClose={() => {
-          confirm.setError(null);
-          setPending(null);
-        }}
-        busy={confirm.busy}
-        titleId={`circle-confirm-${circle.key}`}
-        title={pending?.kind === 'leave' ? `Leave ${circle.name}?` : `Remove ${pending?.kind === 'remove' ? pending.member.name : ''}?`}
-        error={confirm.error}
-        actions={
-          <SheetConfirmActions
-            busy={confirm.busy}
-            onCancel={() => setPending(null)}
-            tone="danger"
-            confirmLabel={pending?.kind === 'leave' ? (confirm.busy ? 'Leaving…' : 'Leave') : confirm.busy ? 'Removing…' : 'Remove'}
-            onConfirm={() => void runPending()}
-          />
-        }
-      >
-        <p className="wb-sheet-help">
-          {pending?.kind === 'leave'
-            ? 'You stop receiving anything new from this Circle. What you’ve already received stays on this Mac.'
-            : 'They stop receiving anything new from this Circle. What they’ve already received stays with them.'}
+      {circle.needsUpdate ? (
+        <Callout variant="warn">This Circle moved to a newer format. Update the app to see its changes and write to it.</Callout>
+      ) : null}
+      {invites.length ? (
+        <p className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-xs text-fg-muted">
+          <span className="min-w-0 flex-1">
+            {inviteName(circles, invites[0].id)}
+            {invites.length > 1 ? ` and ${invites.length - 1} more waiting to be used` : ', waiting to be used'}
+          </span>
+          <Button size="sm" variant="ghost" onClick={onInvite}>
+            Manage
+          </Button>
         </p>
-      </Sheet>
+      ) : null}
     </section>
   );
 }
 
-export const CirclesScreen: React.FC = () => {
-  const state = useCirclesState();
-  const [renaming, setRenaming] = useState(false);
-  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
-  const named = Boolean(state.displayName);
+function ConfirmSheet({ circle, pending, onClose }: { circle: CircleSnapshot; pending: Pending | null; onClose: () => void }) {
+  const confirm = useAction();
+  const copy = confirmCopy(pending, circle, confirm.busy);
+  const run = async () => {
+    if (!pending) return;
+    const result = await confirm.run(() => {
+      if (pending.kind === 'delete') return api().delete({ key: circle.key });
+      if (pending.kind === 'leave') return api().leave({ key: circle.key });
+      return api().removeMember({ key: circle.key, identity: pending.member.identity });
+    });
+    if (result?.success) onClose();
+  };
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
-      <div className="flex max-w-[960px] flex-col gap-5">
-        <header>
-          <h1 className="text-heading font-medium text-fg">Circles</h1>
-          <p className="mt-1.5 text-xs text-fg-faint">
-            Small invite-only groups whose Macs connect to each other directly, with no server in between. A Circle is
-            reachable while one of its members has {APP_NAME} open.
-          </p>
-        </header>
+    <Sheet
+      open={pending !== null}
+      onClose={() => {
+        confirm.setError(null);
+        onClose();
+      }}
+      busy={confirm.busy}
+      titleId={`circle-confirm-${circle.key}`}
+      title={copy.title}
+      error={confirm.error}
+      actions={
+        <SheetConfirmActions
+          busy={confirm.busy}
+          onCancel={onClose}
+          tone="danger"
+          confirmLabel={copy.label}
+          onConfirm={() => void run()}
+        />
+      }
+    >
+      <p className="wb-sheet-help">{copy.help}</p>
+    </Sheet>
+  );
+}
 
-        {state.status === 'failed' && state.error ? <Callout variant="destructive">{state.error}</Callout> : null}
-
-        {!named || renaming ? (
-          <NameForm current={state.displayName} onSaved={() => setRenaming(false)} />
-        ) : (
-          <div className="flex flex-wrap items-center gap-3 text-ui text-fg-muted">
-            <span>
-              You appear as <b className="font-medium text-fg">{state.displayName}</b>
-            </span>
-            <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>
-              Change
-            </Button>
-            {state.status === 'starting' ? <Pill dot>Connecting</Pill> : null}
-            {state.status === 'running' ? (
-              <Pill variant="ok" dot>
-                Connected
-              </Pill>
-            ) : null}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto"
-              onClick={() =>
-                void window.electronAPI.circles.revealDiagnostics().then((result) => {
-                  setDiagnosticsError(result.success ? null : (result.error ?? 'Couldn’t show the file.'));
-                })
-              }
-            >
-              Show diagnostics file
-            </Button>
-          </div>
-        )}
-
-        {diagnosticsError ? <p className="text-xs text-danger">{diagnosticsError}</p> : null}
-
-        <CircleSharingPanel circles={state} />
-
-        {named ? <StartForms /> : null}
-
-        {state.snapshot.circles.map((circle) => (
-          <CircleCard key={circle.key} circle={circle} circles={state} />
-        ))}
+export const CirclesScreen: React.FC<{
+  selection: CirclesSelection;
+  onSelect: (selection: CirclesSelection) => void;
+}> = ({ selection, onSelect }) => {
+  const state = useCirclesState();
+  const [sheet, setSheet] = useState<'add' | 'profile' | 'invite' | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const selected = resolveSelection(selection, state);
+  const circle = selected?.kind === 'circle' ? state.snapshot.circles.find((item) => item.key === selected.key) : null;
+  // A person who has left the Circle closes their panel.
+  const inView = circle ? [circle] : state.snapshot.circles;
+  const person = selected?.kind === 'joining' ? undefined : selected?.person;
+  const member = inView.flatMap((item) => item.members).find((item) => item.identity === person && !item.isMe) ?? null;
+  const setPerson = (identity?: string): void => {
+    if (selected && selected.kind !== 'joining') onSelect({ ...selected, person: identity });
+  };
+  const ready = (key: string): void => {
+    setSheet(null);
+    onSelect({ kind: 'circle', key });
+  };
+  const startJoin = (code: string): void => {
+    setSheet(null);
+    onSelect({ kind: 'joining' });
+    void api().join({ code }).then((result) => {
+      if (result.success) onSelect({ kind: 'circle', key: result.key });
+    });
+  };
+  return (
+    <div className="flex min-h-0 flex-1">
+      <CirclesNav
+        circles={state}
+        selected={selected}
+        onSelect={onSelect}
+        onAdd={() => setSheet('add')}
+        onProfile={() => setSheet('profile')}
+      />
+      <div className="min-w-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
+        <div className="flex max-w-[760px] flex-col gap-5">
+          {state.status === 'failed' && state.error ? <Callout variant="destructive">{state.error}</Callout> : null}
+          {selected === null ? <Welcome circles={state} onCreated={ready} onJoin={startJoin} /> : null}
+          {selected?.kind === 'joining' ? <JoinPage error={state.join?.error} /> : null}
+          {selected?.kind === 'sharing' ? (
+            <>
+              <h1 className="text-heading font-medium text-fg">Sharing</h1>
+              <CircleSharingPanel circles={state} />
+              <CircleOffers circles={state} person={member?.identity ?? null} onPerson={setPerson} />
+            </>
+          ) : null}
+          {circle ? (
+            <CirclePage
+              key={circle.key}
+              circle={circle}
+              circles={state}
+              person={member?.identity ?? null}
+              onPerson={setPerson}
+              onLeave={(alone) => setPending({ kind: alone ? 'delete' : 'leave' })}
+              onInvite={() => setSheet('invite')}
+            />
+          ) : null}
+        </div>
       </div>
+      {member ? (
+        <PersonPanel
+          circles={state}
+          circle={circle}
+          member={member}
+          onClose={() => setPerson()}
+          onRemove={(target) => setPending({ kind: 'remove', member: target })}
+        />
+      ) : null}
+      {circle ? <ConfirmSheet key={circle.key} circle={circle} pending={pending} onClose={() => setPending(null)} /> : null}
+      <Sheet
+        open={sheet === 'add'}
+        onClose={() => setSheet(null)}
+        titleId="circles-add"
+        title="Add a Circle"
+        actions={
+          <Button variant="outline" onClick={() => setSheet(null)}>
+            Close
+          </Button>
+        }
+      >
+        <StartForms stacked onCreated={ready} onJoin={startJoin} />
+      </Sheet>
+      {circle ? <InviteSheet key={`invite-${circle.key}`} circle={circle} circles={state} open={sheet === 'invite'} onClose={() => setSheet(null)} /> : null}
+      <ProfileSheet circles={state} open={sheet === 'profile'} onClose={() => setSheet(null)} />
     </div>
   );
 };

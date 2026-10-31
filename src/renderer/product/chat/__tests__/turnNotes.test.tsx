@@ -202,6 +202,29 @@ describe('a send refused because nothing answered', () => {
     await waitFor(() => expect(ipc.startChat).toHaveBeenCalledTimes(2));
     expect(ipc.startChat.mock.calls[1][0].messages.at(-1)).toMatchObject({ role: 'user', content: 'hello?' });
   });
+
+  it('links a send stopped on a shared model to its provider', async () => {
+    const error = 'Bo isn’t sharing qwen3-8b right now.';
+    ipc.startChat.mockImplementation(async (payload: HermesChatStartPayload) => ({
+      success: false,
+      requestId: payload.requestId,
+      error,
+      errorCode: 'apply-failed',
+      provider: 'b'.repeat(64),
+    }));
+    const opened: unknown[] = [];
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener('boundary:open-circles', listener);
+    render(<Chat />);
+    await screen.findByRole('button', { name: 'Send message' });
+    await act(async () => setValue(input(), 'hello?'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send message' })));
+
+    const note = (await screen.findByText(error)).closest('p')!;
+    fireEvent.click(within(note).getByRole('button', { name: 'Open in Circles' }));
+    window.removeEventListener('boundary:open-circles', listener);
+    expect(opened).toEqual([{ person: 'b'.repeat(64) }]);
+  });
 });
 
 describe('turn note copy', () => {

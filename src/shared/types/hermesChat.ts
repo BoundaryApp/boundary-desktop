@@ -249,6 +249,8 @@ export interface HermesNoReply {
   reason: HermesNoReplyReason;
   /** Provider or Hermes error text, when there was one. */
   error?: string;
+  /** The identity of the Circle member whose shared model couldn't serve. */
+  provider?: string;
 }
 
 /** A turn Boundary is running on Hermes (any window, including detached chats). */
@@ -360,6 +362,8 @@ export interface HermesChatStartResult {
   errorCode?: HermesChatStartErrorCode;
   /** The chat's shared model can't serve either; `error` says so. */
   sharedUnavailable?: boolean;
+  /** The identity of the Circle member whose shared model stopped the send. */
+  provider?: string;
   /** Channel send with no member @ — persisted as a post, no model turn. */
   posted?: boolean;
 }

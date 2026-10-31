@@ -6140,6 +6140,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   position: relative;
 }
 
+.wb-icon-btn > .wb-attention-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--warn);
+}
+
 .wb-icon-btn > .wb-working-dot {
   position: absolute;
   top: 5px;

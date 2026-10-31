@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { rmSync } from 'node:fs';
 import Store from 'electron-store';
 import { persistDebugLog } from '../../persistDebugLog';
 import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
@@ -20,6 +21,10 @@ interface CirclesStoreShape {
   providers?: Record<string, CircleProviderSettings>;
   /** What this user shares (ADR 0034 §1). */
   sharing?: CircleSharing;
+  /** What the user called each invite, by invite id. Stays on this device. */
+  inviteLabels?: Record<string, string>;
+  /** The `CIRCLES_DATA_VERSION` this device's Circles were last kept at. */
+  dataVersion?: number;
 }
 
 const store = new Store<CirclesStoreShape>({ name: 'circles', defaults: { circles: {} } });
@@ -67,6 +72,14 @@ export function setProviderSettings(identity: string, settings: CircleProviderSe
   store.set('providers', providers);
 }
 
+export function getInviteLabels(): Record<string, string> {
+  return store.get('inviteLabels') ?? {};
+}
+
+export function setInviteLabels(labels: Record<string, string>): void {
+  store.set('inviteLabels', labels);
+}
+
 const NOT_SHARING: CircleSharing = { models: [], circles: [], paused: false, away: false };
 
 export function getCircleSharing(): CircleSharing {
@@ -75,6 +88,22 @@ export function getCircleSharing(): CircleSharing {
 
 export function setCircleSharing(sharing: CircleSharing): void {
   store.set('sharing', sharing);
+}
+
+/** Raised when Circles made by earlier builds can't carry on (ADR 0038). */
+const CIRCLES_DATA_VERSION = 1;
+
+/**
+ * Remove Circles made before this data version, along with their blocks. Keeps the identity,
+ * display name, provider settings and what the user shares, which aren't tied to a Circle. A
+ * failed delete throws and leaves the version unset, so the next start tries again.
+ */
+export function wipeOutdatedCircles(storageDir: string): void {
+  if ((store.get('dataVersion') ?? 0) >= CIRCLES_DATA_VERSION) return;
+  rmSync(storageDir, { recursive: true, force: true });
+  store.set('circles', {});
+  store.set('sharing', { ...getCircleSharing(), circles: [] });
+  store.set('dataVersion', CIRCLES_DATA_VERSION);
 }
 
 export function hasCircles(): boolean {

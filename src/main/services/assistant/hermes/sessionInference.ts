@@ -168,7 +168,7 @@ type InferenceApplyListener = (
 
 type InferenceReady =
   | { ok: true; resolved: ResolvedSessionInference }
-  | { ok: false; error: string; errorCode?: HermesChatStartErrorCode; sharedUnavailable?: boolean };
+  | { ok: false; error: string; errorCode?: HermesChatStartErrorCode; sharedUnavailable?: boolean; provider?: string };
 
 function slotAnswerName(slot: InferenceSlotId): string {
   return slot === 'local' ? 'your local model' : inferenceSlotLabel(slot);
@@ -241,10 +241,16 @@ export async function ensureResolvedInferenceReady(
   const plan = await planResolved(resolved, privacyLocked);
   if (plan.kind === 'refused') {
     if (plan.privacy) return { ok: false, error: plan.error, errorCode: 'private-refused' };
-    return { ok: false, error: plan.error, ...(shared ? { errorCode: 'apply-failed' as const } : {}) };
+    return {
+      ok: false,
+      error: plan.error,
+      ...(shared ? { errorCode: 'apply-failed' as const, provider: resolved.peer?.providerId } : {}),
+    };
   }
   if (plan.kind === 'routed') {
-    if (plan.offline) return { ok: false, error: plan.offline, errorCode: 'apply-failed' };
+    if (plan.offline) {
+      return { ok: false, error: plan.offline, errorCode: 'apply-failed', provider: resolved.peer?.providerId };
+    }
     const llm =
       resolved.slot === 'peer' ? sharedModelConnection(resolved.modelId) : await getSlotLlmConnection(resolved.slot);
     if (!llm) {

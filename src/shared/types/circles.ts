@@ -50,6 +50,8 @@ export interface CircleSnapshot {
   invites: CircleInviteView[];
   /** Members' shared models, one offer per member who shares. */
   offers: CircleOfferView[];
+  /** The Circle moved to a format this build can't apply; it stays stopped until the app updates. */
+  needsUpdate: boolean;
 }
 
 export interface CirclesSnapshot {
@@ -81,6 +83,13 @@ export interface CircleSharing {
   away: boolean;
 }
 
+/** A join in progress, or the failure of the last one until the user clears it. */
+export interface CircleJoinState {
+  /** Waiting for an admin to let this device in. */
+  waiting: boolean;
+  error?: string;
+}
+
 export interface CirclesState {
   /** `stopped` until Circles are first used; `failed` carries `error`. */
   status: 'stopped' | 'starting' | 'running' | 'failed';
@@ -91,6 +100,9 @@ export interface CirclesState {
   /** By provider identity; a provider with no entry is neither private nor trusted. */
   providers: Record<string, CircleProviderSettings>;
   sharing: CircleSharing;
+  /** What the user called each invite, by invite id. Stays on this device. */
+  inviteLabels?: Record<string, string>;
+  join?: CircleJoinState | null;
 }
 
 export type CirclesResult<T extends object = object> =

@@ -84,6 +84,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0035](0035-turn-admission-and-model-gate.md) | Proposed · would amend 0033 §5–6 | Turn admission and a model gate in the router |
 | [0036](0036-shared-model-app-default.md) | Accepted · amends 0033 §5 | A shared model as the app default |
 | [0037](0037-update-rail-button.md) | Accepted | Updates live in a rail button and card |
+| [0038](0038-changing-circle-operations.md) | Accepted | Changing Circle operations after release |
 
 ## Host bridge research
 

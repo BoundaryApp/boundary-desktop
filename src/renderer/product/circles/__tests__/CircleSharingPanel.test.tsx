@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import { useAppCommand } from '../../useAppShortcuts';
+import { useOpenCirclesRequests } from '../circlesNavigation';
 import { CircleSharingLine } from '../CircleSharingPanel';
 
 // The controls are tested mounted, in CirclesScreen.test.tsx.
@@ -47,9 +47,9 @@ describe('CircleSharingLine', () => {
   });
 
   it('opens the Circles screen', () => {
-    const commands: string[] = [];
+    const opened: unknown[] = [];
     const Listener = () => {
-      useAppCommand((command) => commands.push(command));
+      useOpenCirclesRequests((request) => opened.push(request));
       return null;
     };
     render(
@@ -59,6 +59,6 @@ describe('CircleSharingLine', () => {
       </>
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open Circles' }));
-    expect(commands).toEqual(['go-circles']);
+    expect(opened).toEqual([{}]);
   });
 });

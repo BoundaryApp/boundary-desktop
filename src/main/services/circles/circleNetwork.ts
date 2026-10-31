@@ -18,19 +18,28 @@ import Hyperswarm, { type SecretStream } from 'hyperswarm';
 import z32 from 'z32';
 import {
   applyCircleNodes,
+  CIRCLE_FORMAT,
   CIRCLE_KEY,
   deviceProofMessage,
   INVITES_PREFIX,
   introIsValid,
   inviteKey,
+  isRecordName,
+  isRecordScope,
+  isRecordValue,
+  lostMembership,
   MEMBERS_PREFIX,
   OFFERS_PREFIX,
+  RECORDS_PREFIX,
+  type CircleHeader,
   type CircleInviteRecord,
   type CircleMemberIntro,
   type CircleMemberRecord,
   type CircleOffer,
   type CircleOfferRecord,
   type CircleOp,
+  type CircleRecord,
+  type CircleRecordScope,
   type CircleRole,
   type CircleView,
 } from './circleOps';
@@ -38,7 +47,14 @@ import { addressClass } from './addressClass';
 import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
 import { InferenceLink, onInferenceOpen, type SharedModelResponse } from './inferenceChannel';
 import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
-import type { CircleSecrets, CircleSnapshot, CirclesSnapshot, SharedModelCall } from './networkMessages';
+import type {
+  CircleRecordChange,
+  CircleRecordEntry,
+  CircleSecrets,
+  CircleSnapshot,
+  CirclesSnapshot,
+  SharedModelCall,
+} from './networkMessages';
 import { RemovalLink } from './removalNotice';
 import { onSignalOpen, SignalLink } from './signalChannel';
 
@@ -52,10 +68,14 @@ export interface CircleNetworkOptions {
   bootstrap?: string[];
   /** How often an admin's device acks, in ms. Autobase debounces it, so confirmation takes longer. */
   ackInterval?: number;
+  /** Stands in for a build with a different `CIRCLE_FORMAT`, in tests. */
+  supportedFormat?: number;
   /** Called whenever what `snapshot()` returns may have changed. */
   onChange?: () => void;
   /** A peer signal on a topic passed to `setSignalTopics`, from a current member of its Circle. */
   onSignal?: (signal: CircleSignal) => void;
+  /** A record of an app passed to `setRecordApps` changed. */
+  onRecord?: (change: CircleRecordChange) => void;
   /** An admin admitted this device. Main keeps the secrets now: the Circle opens from here on. */
   onPaired?: (secrets: CircleSecrets) => void;
   /** This device was removed from a Circle and has closed it. Main forgets its secrets. */
@@ -76,7 +96,19 @@ interface OpenCircle {
   view: Hyperbee;
   member: BlindMember | null;
   /** Read from the view after each update. */
-  state: { name: string; members: CircleMemberRecord[]; invites: CircleInviteRecord[]; offers: CircleOfferRecord[] };
+  state: {
+    name: string;
+    format: number;
+    members: CircleMemberRecord[];
+    invites: CircleInviteRecord[];
+    offers: CircleOfferRecord[];
+  };
+  /** Autobase stopped applying at a format this build can't apply. */
+  needsUpdate: boolean;
+  /** Each record seen by the last scan, by view key, to tell what changed. */
+  records: Map<string, CircleRecordEntry>;
+  /** The scan in progress; scans run one at a time. */
+  scan: Promise<void>;
   /** The last state written to diagnostics, to log changes only. */
   lastDiag: string;
   /** Leaving or being removed: this device's own removal closes the Circle only once. */
@@ -142,8 +174,10 @@ export class CircleNetwork {
   private readonly gateway: InferenceGateway;
   /** This user's model server, when they share; main sets it. */
   private shareUpstream: GatewayUpstream | null = null;
+  private stopJoin: (() => void) | null = null;
   /** The signal topics main listens to; others are dropped here and never cross to main. */
   private signalTopics = new Set<string>();
+  private recordApps = new Set<string>();
   private readonly signalStats = new SignalStats();
   private name: string;
   private closed = false;
@@ -405,6 +439,14 @@ export class CircleNetwork {
     for (const member of after) changed = removed.delete(member.device) || changed;
     if (!changed && removed.size === size) return;
     this.removedDevices.set(key, removed);
+    this.saveRemovedDevices();
+  }
+
+  private dropRemovedDevices(key: string): void {
+    if (this.removedDevices.delete(key)) this.saveRemovedDevices();
+  }
+
+  private saveRemovedDevices(): void {
     const stored = Object.fromEntries([...this.removedDevices].map(([circle, devices]) => [circle, [...devices]]));
     writeFileSync(this.removedDevicesFile(), JSON.stringify(stored));
   }
@@ -461,6 +503,11 @@ export class CircleNetwork {
   }
 
   /** The topics to deliver through `onSignal`; replaces the previous list. */
+  /** The apps `onRecord` reports. Records of other apps still replicate and stay in the view. */
+  setRecordApps(apps: string[]): void {
+    this.recordApps = new Set(apps);
+  }
+
   setSignalTopics(topics: string[]): void {
     this.signalTopics = new Set(topics);
   }
@@ -506,6 +553,7 @@ export class CircleNetwork {
       apply: (nodes, view, host) =>
         applyCircleNodes(nodes, asView(view), host, {
           verify: (message, signature, publicKey) => crypto.verify(message, signature, publicKey),
+          supportedFormat: this.supportedFormat,
           onSkip: (reason) => this.log('circle op skipped', { reason }),
         }),
       valueEncoding: 'json',
@@ -520,11 +568,19 @@ export class CircleNetwork {
       base,
       view: base.view,
       member: null,
-      state: { name: '', members: [], invites: [], offers: [] },
+      state: { name: '', format: this.supportedFormat, members: [], invites: [], offers: [] },
+      needsUpdate: false,
+      records: new Map(),
+      scan: Promise.resolve(),
       lastDiag: '',
       closing: false,
     };
     base.on('update', () => void this.refreshCircle(circle));
+    base.on('interrupt', () => {
+      circle.needsUpdate = true;
+      this.diag('circle.needs-update', { circle: short(circle.secrets.key), supported: this.supportedFormat });
+      this.changed();
+    });
     base.on('error', (err: unknown) => {
       this.log('circle error', { error: String(err) });
       this.diag('circle.error', { circle: short(circle.secrets.key), error: err instanceof Error ? err.name : typeof err });
@@ -544,19 +600,22 @@ export class CircleNetwork {
   private async refreshCircle(circle: OpenCircle): Promise<void> {
     if (this.closed) return;
     const view = circle.view;
-    const header = (await view.get(CIRCLE_KEY))?.value as { name: string } | undefined;
+    const header = (await view.get(CIRCLE_KEY))?.value as CircleHeader | undefined;
     const before = circle.state.members;
     circle.state = {
       name: header?.name ?? circle.secrets.name ?? '',
+      format: header?.format ?? circle.state.format,
       members: (await listPrefix(view, MEMBERS_PREFIX)) as CircleMemberRecord[],
       invites: (await listPrefix(view, INVITES_PREFIX)) as CircleInviteRecord[],
       offers: (await listPrefix(view, OFFERS_PREFIX)) as CircleOfferRecord[],
     };
     this.trackRemovedDevices(circle.secrets.key!, before, circle.state.members);
+    circle.scan = circle.scan.then(() => this.scanRecords(circle));
+    await circle.scan;
     const me = circle.state.members.find((member) => member.identity === this.identityHex);
     this.diagCircleState(circle, me?.role ?? null);
     // With a third member, the removal entry can reach this device by replication instead.
-    if (!me && before.some((member) => member.identity === this.identityHex)) {
+    if (lostMembership(before, circle.state.members, { identity: this.identityHex, writer: this.writerHex(circle) })) {
       this.closeRemovedCircle(circle);
       return;
     }
@@ -573,6 +632,49 @@ export class CircleNetwork {
     }
     this.refreshPeers();
     this.changed();
+  }
+
+  /** The records in a Circle's view now, with whether each is confirmed. */
+  private async readRecords(circle: OpenCircle): Promise<Map<string, CircleRecordEntry>> {
+    const records = new Map<string, CircleRecordEntry>();
+    const range = { gte: RECORDS_PREFIX, lt: `${RECORDS_PREFIX}\xff` };
+    for await (const { key, seq, value } of circle.view.createReadStream(range)) {
+      records.set(key, {
+        ...(value as CircleRecord),
+        circleKey: circle.secrets.key!,
+        confirmed: seq < circle.view.core.signedLength,
+      });
+    }
+    return records;
+  }
+
+  /**
+   * Report what differs from the last scan. Comparing whole states, not following appends, also
+   * covers Autobase undoing and reordering unconfirmed entries.
+   */
+  private async scanRecords(circle: OpenCircle): Promise<void> {
+    let records: Map<string, CircleRecordEntry>;
+    try {
+      records = await this.readRecords(circle);
+    } catch (err) {
+      // The view closes under a scan when the Circle does.
+      if (!circle.closing && !this.closed) this.log('record scan failed', { error: err instanceof Error ? err.name : typeof err });
+      return;
+    }
+    const previous = circle.records;
+    circle.records = records;
+    for (const [key, record] of records) {
+      const before = previous.get(key);
+      if (before && JSON.stringify(before) === JSON.stringify(record)) continue;
+      this.reportRecord({ ...record, deleted: false });
+    }
+    for (const [key, record] of previous) {
+      if (!records.has(key)) this.reportRecord({ ...record, value: null, deleted: true });
+    }
+  }
+
+  private reportRecord(change: CircleRecordChange): void {
+    if (this.recordApps.has(change.app)) this.options.onRecord?.(change);
   }
 
   /** Log a Circle's shape when it changes: membership, offers, invites and confirmation. */
@@ -599,6 +701,10 @@ export class CircleNetwork {
     });
   }
 
+  private get supportedFormat(): number {
+    return this.options.supportedFormat ?? CIRCLE_FORMAT;
+  }
+
   private get identityHex(): string {
     return this.identity.publicKey.toString('hex');
   }
@@ -623,6 +729,7 @@ export class CircleNetwork {
   }
 
   private async append(circle: OpenCircle, op: CircleOp): Promise<void> {
+    if (circle.needsUpdate) throw new Error('This Circle needs a newer version of the app.');
     await circle.base.append(op);
     await circle.base.update();
     await this.refreshCircle(circle);
@@ -639,7 +746,12 @@ export class CircleNetwork {
     if (!trimmed) throw new Error('A Circle needs a name.');
     const circle = await this.bootCircle({ namespace: crypto.randomBytes(16).toString('hex'), name: trimmed });
     this.circles.set(circle.secrets.key!, circle);
-    await this.append(circle, { type: 'create', name: trimmed, member: this.intro(circle.base.local!.key) });
+    await this.append(circle, {
+      type: 'create',
+      name: trimmed,
+      format: this.supportedFormat,
+      member: this.intro(circle.base.local!.key),
+    });
     this.diag('circle.created', { circle: short(circle.secrets.key) });
     await this.joinTopic(circle);
     return { ...circle.secrets, name: trimmed };
@@ -653,6 +765,37 @@ export class CircleNetwork {
     await this.append(circle, { type: 'invite', invite: record });
     this.diag('invite.created', { circle: short(key), invite: short(record.id), expiresInH: Math.round((expires - Date.now()) / 3_600_000) });
     return { id: record.id, code: z32.encode(invite), expires };
+  }
+
+  /** `apply` skips what this device may not write without saying so, so check first. */
+  private recordCircle(key: string, app: string, scope: CircleRecordScope, record: string): OpenCircle {
+    if (!isRecordName(app) || !isRecordName(record) || !isRecordScope(scope)) throw new Error('That isn’t a record name.');
+    const circle = this.circle(key);
+    const me = circle.state.members.find((member) => member.identity === this.identityHex);
+    if (!me) throw new Error('Not a member of that Circle.');
+    if (scope === 'circle' && me.role !== 'admin') throw new Error('Only admins can change this Circle’s records.');
+    return circle;
+  }
+
+  async setRecord(key: string, app: string, scope: CircleRecordScope, record: string, value: unknown): Promise<void> {
+    const circle = this.recordCircle(key, app, scope, record);
+    if (!isRecordValue(value)) throw new Error('That record is too long, or isn’t JSON.');
+    await this.append(circle, { type: 'record-set', app, scope, key: record, value });
+  }
+
+  async deleteRecord(key: string, app: string, scope: CircleRecordScope, record: string): Promise<void> {
+    await this.append(this.recordCircle(key, app, scope, record), { type: 'record-del', app, scope, key: record });
+  }
+
+  /** One app's records in a Circle: its `circle` records and every member's. */
+  async listRecords(key: string, app: string): Promise<CircleRecordEntry[]> {
+    const records = await this.readRecords(this.circle(key));
+    return [...records.values()].filter((record) => record.app === app);
+  }
+
+  /** Move a Circle to a later format. Builds that can't apply it stop until they update (ADR 0038). */
+  async setFormat(key: string, format: number): Promise<void> {
+    await this.append(this.circle(key), { type: 'set-format', format });
   }
 
   async revokeInvite(key: string, id: string): Promise<void> {
@@ -700,6 +843,47 @@ export class CircleNetwork {
     await this.closeCircle(circle);
   }
 
+  /**
+   * Delete a Circle whose only member is this user: close it, then purge its cores here. Nothing
+   * goes in the log, because no other peer is a member. Main forgets its secrets.
+   */
+  async deleteCircle(key: string): Promise<void> {
+    const circle = this.circle(key);
+    const { members } = circle.state;
+    if (members.length !== 1 || members[0].identity !== this.identityHex) {
+      throw new Error('Only a Circle’s last member can delete it.');
+    }
+    circle.closing = true;
+    let cores: Buffer[];
+    try {
+      cores = await this.circleCores(circle);
+    } catch (err) {
+      circle.closing = false;
+      throw err;
+    }
+    await this.closeCircle(circle);
+    this.dropRemovedDevices(key);
+    // A failed purge only leaves encrypted blocks on disk, and main still forgets the key.
+    const purged = await this.store.purge(cores, { force: true }).catch((err: unknown): null => {
+      this.log('purging a deleted Circle failed', { error: String(err) });
+      return null;
+    });
+    this.diag('circle.deleted', { circle: short(key), cores: cores.length, purged: purged?.length ?? 0 });
+  }
+
+  /**
+   * The cores Autobase can name: first core, writers past and present, and current views. Views
+   * from an earlier indexer set aren't listed anywhere, so those stay on disk, still encrypted.
+   */
+  private async circleCores(circle: OpenCircle): Promise<Buffer[]> {
+    const { base } = circle;
+    const keys = [base.key, base.core.key];
+    if (base.local) keys.push(base.local.key);
+    if (base.system) for await (const writer of base.system.list()) keys.push(writer.key);
+    for (const view of base._viewStore.getViews()) if (view.core) keys.push(view.core.key);
+    return [...new Map(keys.map((coreKey) => [coreKey.toString('hex'), coreKey])).values()];
+  }
+
   private async closeCircle(circle: OpenCircle): Promise<void> {
     this.circles.delete(circle.secrets.key!);
     if (circle.member) await circle.member.close();
@@ -726,6 +910,12 @@ export class CircleNetwork {
     }
     if (!introIsValid(intro, { verify: crypto.verify })) {
       outcome('bad-intro');
+      return candidate.deny({ status: STATUS_REJECTED });
+    }
+    const { format } = intro as { format?: unknown };
+    if (!Number.isInteger(format) || (format as number) < circle.state.format) {
+      // Without this, a build that can't apply this Circle's operations would skip them and diverge.
+      outcome('old-build');
       return candidate.deny({ status: STATUS_REJECTED });
     }
     const admitted = () => circle.state.members.some((member) => member.writer === (intro as CircleMemberIntro).writer);
@@ -756,9 +946,15 @@ export class CircleNetwork {
     this.log('admitted a member', { circle: circle.secrets.key!.slice(0, 12) });
   }
 
+  /** Stop waiting for an admin. Nothing is kept: a device isn't in a Circle until it's admitted. */
+  cancelJoin(): void {
+    this.stopJoin?.();
+  }
+
   /**
    * Join with an invite code. Resolves once an admin has confirmed this device and the Circle
-   * opened here, with the secrets main must keep. Rejects when the invite is refused.
+   * opened here, with the secrets main must keep. Rejects when the invite is refused or the
+   * join is cancelled. Once an admin has admitted this device, cancelling does nothing.
    */
   async joinCircle(code: string): Promise<CircleSecrets> {
     let invite: Buffer;
@@ -767,27 +963,43 @@ export class CircleNetwork {
     } catch {
       throw new Error('That isn’t a Circle invite.');
     }
+    const started = Date.now();
+    let candidate: BlindCandidate | null = null;
+    let stopped = false;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      this.stopJoin = () => {
+        stopped = true;
+        void candidate?.close();
+        this.diag('join.cancelled', { ms: Date.now() - started });
+        reject(new Error('Join cancelled.'));
+      };
+    });
+    cancelled.catch((): undefined => undefined);
+
     const namespace = crypto.randomBytes(16).toString('hex');
     const local = Autobase.getLocalCore(this.store.namespace(namespace));
     await local.ready();
     const writer = local.key;
     await local.close();
+    if (stopped) throw new Error('Join cancelled.');
 
-    const started = Date.now();
     this.diag('join.request', {});
-    const candidate: BlindCandidate = this.pairing.addCandidate({
+    const asking: BlindCandidate = this.pairing.addCandidate({
       invite,
-      userData: Buffer.from(JSON.stringify(this.intro(writer))),
+      userData: Buffer.from(JSON.stringify({ ...this.intro(writer), format: this.supportedFormat })),
       onadd: async () => undefined,
     });
+    candidate = asking;
     const refused = new Promise<never>((_resolve, reject) => {
-      candidate.request.once('rejected', (err: Error) => {
-        void candidate.close();
+      asking.request.once('rejected', (err: Error) => {
+        void asking.close();
         this.diag('join.refused', { code: (err as Error & { code?: string }).code ?? null, ms: Date.now() - started });
         reject(new Error(refusalMessage(err)));
       });
     });
-    const paired = await Promise.race([candidate.pairing, refused]);
+    const paired = await Promise.race([asking.pairing, refused, cancelled]).finally(() => {
+      this.stopJoin = null;
+    });
     if (!paired) throw new Error('The invite was not answered.');
     const secrets: CircleSecrets = {
       namespace,
@@ -920,6 +1132,7 @@ export class CircleNetwork {
         key: circle.secrets.key!,
         name: circle.state.name,
         myRole: mine?.role ?? null,
+        needsUpdate: circle.needsUpdate,
         members: circle.state.members.map((member) => ({
           identity: member.identity,
           name: member.name,

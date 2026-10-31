@@ -223,7 +223,9 @@ export function createHermesChatModelAdapter(
         const unreachableNote = {
           content: [{ type: 'text' as const, text: '' }],
           metadata: {
-            custom: { noReply: { reason: 'unreachable', error: start.error } } satisfies HermesMessageCustom,
+            custom: {
+              noReply: { reason: 'unreachable', error: start.error, ...(start.provider ? { provider: start.provider } : {}) },
+            } satisfies HermesMessageCustom,
           },
         };
         if (start.errorCode === 'local-unreachable') {

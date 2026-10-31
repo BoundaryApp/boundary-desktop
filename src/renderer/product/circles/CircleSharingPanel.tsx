@@ -7,13 +7,14 @@ import { Button } from '../../components/ui/button';
 import { InfoTip } from '../../components/ui/info-tip';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { dispatchAppCommand } from '../useAppShortcuts';
-import { useAction } from './useCircles';
+import { openCircles } from './circlesNavigation';
+import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Sharing the local model server with Circles (ADR 0034 §1, §4), on the Circles screen. Models,
- * pause and away mode apply to every Circle, so they sit in one panel; each Circle's card has the
- * switch for that Circle. Each change saves at once; main publishes the offers and points the
+ * pause and away mode apply to every Circle, so they sit in one panel on Sharing, with a switch
+ * per Circle; each Circle's page has the same switch as a shortcut. Each change saves at once; main publishes the offers and points the
  * gateway at the local server. Settings shows a status line that links here.
  */
 
@@ -66,6 +67,21 @@ export function useCanShare(circles: CirclesState): boolean {
   return canShare(circles, useInferenceStatus().status);
 }
 
+/** Sharing's state for the list beside a Circle's page. */
+export function useSharingSummary(circles: CirclesState, offered: number): { label: string; dot: string } {
+  const view = sharingView(circles, useInferenceStatus().status);
+  const count = circles.sharing.models.length;
+  if (!view.sharingAny) return { label: offered ? `${offered} available` : 'Not sharing', dot: 'bg-line' };
+  if (view.blocked) return { label: circles.sharing.paused ? 'Paused' : 'Members can’t use it', dot: 'bg-warn' };
+  return { label: `Sharing ${count} ${count === 1 ? 'model' : 'models'}`, dot: 'bg-ok' };
+}
+
+/** Members can't use the user's models now, whatever screen the user is on. */
+export function useSharingAttention(): boolean {
+  const view = sharingView(useCirclesState(), useInferenceStatus().status);
+  return view.blocked !== null;
+}
+
 const openInferenceSettings = (): void => dispatchAppCommand('go-settings');
 
 function SwitchRow({
@@ -102,7 +118,7 @@ function SwitchRow({
   );
 }
 
-function formatContext(tokens: number | undefined): string {
+export function formatContext(tokens: number | undefined): string {
   if (!tokens) return '';
   return tokens >= 1024 ? `${Math.round(tokens / 1024)}K context` : `${tokens} tokens`;
 }
@@ -114,9 +130,9 @@ function circleNames(circles: CircleSnapshot[]): string {
 /** The next step for someone not sharing yet. */
 function startHint(sharing: CircleSharing, hasLocal: boolean, circles: CircleSnapshot[]): string {
   if (!hasLocal) return 'Connect a local model server in Settings to share it with your Circles.';
-  if (sharing.models.length > 0) return 'Turn on sharing in a Circle below so its members can use your models.';
+  if (sharing.models.length > 0) return 'Turn on a Circle below so its members can use your models.';
   if (circles.length > 0) return `Choose a model so members of ${circleNames(circles)} can use it.`;
-  return "You aren't sharing a model. Choose one here, then turn on sharing in a Circle below.";
+  return "You aren't sharing a model. Choose one here, then turn on a Circle below.";
 }
 
 export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circles }) => {
@@ -178,9 +194,9 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
       : `This Mac stays awake so members can use your models while you're away. Only while ${APP_NAME} is open.`;
 
   return (
-    <div className="wb-share" aria-label="Share your models" role="group">
+    <div className="wb-share" aria-label="Shared from this Mac" role="group">
       <h2 className="wb-share-head">
-        Share your models
+        Shared from this Mac
         <InfoTip label="sharing with Circles">
           Members can put your models in their chats. Their prompts reach your model server, and your
           model&apos;s replies drive their agent. {APP_NAME} keeps only who asked, which model, and timings.
@@ -246,6 +262,29 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
         </fieldset>
       ) : null}
 
+      <fieldset className="wb-share-set" disabled={action.busy}>
+        <legend>Shared with</legend>
+        {circles.snapshot.circles.map((circle) => {
+          const on = sharing.circles.includes(circle.key);
+          const name = circle.name || 'this Circle';
+          return (
+            <SwitchRow
+              key={circle.key}
+              label={`Share with ${name}`}
+              detail={on ? `Members of ${name} get the models ticked above.` : `Members of ${name} can't use your models.`}
+              on={on}
+              disabled={action.busy}
+              onToggle={() =>
+                save({
+                  ...sharing,
+                  circles: on ? sharing.circles.filter((key) => key !== circle.key) : [...sharing.circles, circle.key],
+                })
+              }
+            />
+          );
+        })}
+      </fieldset>
+
       {sharingAny ? (
         <SwitchRow
           label="Away mode"
@@ -272,7 +311,7 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
   const detail = !on
     ? `Members of ${name} can't use your models.`
     : !shared
-      ? 'Choose a model above to share it here.'
+      ? 'Choose a model in Sharing to share it here.'
       : available
         ? `Members of ${name} can use your models while ${APP_NAME} is open.`
         : 'Your choices for this Circle are kept.';
@@ -283,6 +322,7 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
       <div className="flex flex-wrap items-center gap-2">
         <span className={`size-2 rounded-full ${dot}`} role="img" aria-label={dotLabel} />
         <span className="text-ui text-fg">You</span>
+        {circle.myRole === 'admin' ? <Pill variant="outline">Admin</Pill> : null}
         {shared ? (
           <span className="min-w-0 text-xs break-words text-fg-muted">{sharing.models.map((model) => model.id).join(', ')}</span>
         ) : null}
@@ -291,7 +331,7 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
       </div>
       <div className="pl-4">
         <SwitchRow
-          label={`Share with ${name}`}
+          label="Share here"
           detail={detail}
           on={on}
           disabled={action.busy}
@@ -323,7 +363,7 @@ export function CircleSharingLine({ circles }: { circles: CirclesState }) {
   return (
     <div className="wb-share-line">
       <p className="wb-share-status">{text}</p>
-      <button type="button" className="wb-inference-btn" onClick={() => dispatchAppCommand('go-circles')}>
+      <button type="button" className="wb-inference-btn" onClick={() => openCircles()}>
         Open Circles
       </button>
     </div>

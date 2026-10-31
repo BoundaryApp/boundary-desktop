@@ -16,7 +16,7 @@
         "@radix-ui/react-select": "^2.4.1",
         "@radix-ui/react-slot": "^1.5.0",
         "@tailwindcss/vite": "^4.3.3",
-        "autobase": "^7.28.2",
+        "autobase": "7.28.2",
         "better-sqlite3": "^13.0.3",
         "blind-pairing": "2.3.1",
         "class-variance-authority": "^0.7.1",

@@ -14,6 +14,7 @@ import Corestore, { type Hypercore } from 'corestore';
 import Hyperswarm from 'hyperswarm';
 import { CircleNetwork } from './circleNetwork';
 import type {
+  CircleRecordEntry,
   CircleSecrets,
   CirclesRequest,
   MainToNetwork,
@@ -174,6 +175,7 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
       });
     },
     onSignal: (signal) => post({ type: 'signal-received', signal }),
+    onRecord: (change) => post({ type: 'record-changed', change }),
     onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
     onRemoved: (key) => post({ type: 'circle-removed', key }),
     log,
@@ -196,7 +198,7 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
 /** Runs one request; a created or joined Circle returns its secrets, an invite its code. */
 async function handleCircles(
   request: CirclesRequest
-): Promise<CircleSecrets | { id: string; code: string; expires: number } | void> {
+): Promise<CircleSecrets | { id: string; code: string; expires: number } | CircleRecordEntry[] | void> {
   const net = circles;
   if (!net) throw new Error('Circles are not running.');
   switch (request.op) {
@@ -204,6 +206,8 @@ async function handleCircles(
       return net.createCircle(request.name);
     case 'join':
       return net.joinCircle(request.code);
+    case 'join-cancel':
+      return net.cancelJoin();
     case 'invite':
       return net.createInvite(request.key, request.expiresAt);
     case 'revoke-invite':
@@ -214,6 +218,8 @@ async function handleCircles(
       return net.removeMember(request.key, request.identity);
     case 'leave':
       return net.leaveCircle(request.key);
+    case 'delete':
+      return net.deleteCircle(request.key);
     case 'set-name':
       return net.setName(request.name);
     case 'publish-offer':
@@ -222,6 +228,12 @@ async function handleCircles(
       return net.withdrawOffer(request.key);
     case 'share-upstream':
       return net.setShareUpstream(request.upstream);
+    case 'record-set':
+      return net.setRecord(request.key, request.app, request.scope, request.record, request.value);
+    case 'record-del':
+      return net.deleteRecord(request.key, request.app, request.scope, request.record);
+    case 'records-list':
+      return net.listRecords(request.key, request.app);
   }
 }
 
@@ -289,7 +301,13 @@ port.on('message', (event: { data: MainToNetwork }) => {
       const { id, request } = message;
       handleCircles(request).then(
         (result) => {
-          const extra = !result ? {} : 'code' in result ? { invite: result } : { secrets: result };
+          const extra = !result
+            ? {}
+            : Array.isArray(result)
+              ? { records: result }
+              : 'code' in result
+                ? { invite: result }
+                : { secrets: result };
           post({ type: 'circles-reply', id, ok: true, ...extra });
         },
         (err: unknown) => post({ type: 'circles-reply', id, ok: false, error: errorMessage(err) })
@@ -312,6 +330,9 @@ port.on('message', (event: { data: MainToNetwork }) => {
       return;
     case 'signal-topics':
       circles?.setSignalTopics(message.topics);
+      return;
+    case 'record-apps':
+      circles?.setRecordApps(message.apps);
       return;
     case 'stop':
       void stop();

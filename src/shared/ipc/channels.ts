@@ -211,14 +211,19 @@ export interface IpcInvokeChannels {
   'circles:create': (input: { name: string }) => CirclesResult<{ key: string }>;
   /** Resolves once an online admin has admitted this device, or with the refusal. */
   'circles:join': (input: { code: string }) => CirclesResult<{ key: string }>;
+  /** Stops a waiting join, or clears a failed one. */
+  'circles:cancel-join': () => CirclesResult;
   'circles:create-invite': (input: {
     key: string;
     expiresInMs?: number;
+    /** Kept on this device only. */
+    label?: string;
   }) => CirclesResult<{ invite: { id: string; code: string; expires: number } }>;
   'circles:revoke-invite': (input: { key: string; inviteId: string }) => CirclesResult;
   'circles:set-role': (input: { key: string; identity: string; role: CircleRole }) => CirclesResult;
   'circles:remove-member': (input: { key: string; identity: string }) => CirclesResult;
   'circles:leave': (input: { key: string }) => CirclesResult;
+  'circles:delete': (input: { key: string }) => CirclesResult;
   /** What this user shares from their local model server, and with which Circles (ADR 0034). */
   'circles:set-sharing': (input: CircleSharing) => CirclesResult;
   /** Shows the Circles diagnostics file in Finder, for pulling it off a test machine. */

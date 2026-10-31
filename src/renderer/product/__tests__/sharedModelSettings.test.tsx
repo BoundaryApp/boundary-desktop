@@ -124,11 +124,12 @@ describe('choosing a shared model in setup (ADR 0036)', () => {
     const { setAppSharedModel } = stub(circles({ providers: {} }));
     render(<SharedModelSetupView />);
     expect(await screen.findByRole('switch', { name: 'Trusted' })).toBeTruthy();
-    expect(((await screen.findByRole('button', { name: /Bo's qwen3-8b/ })) as HTMLButtonElement).disabled).toBe(true);
+    expect(((await screen.findByRole('button', { name: 'Use as default' })) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Add as fallback' })).toBeNull();
     cleanup();
     stub(circles());
     render(<SharedModelSetupView />);
-    fireEvent.click(await screen.findByRole('button', { name: /Bo's qwen3-8b/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use as default' }));
     await waitFor(() => expect(window.electronAPI.onboarding.setAppSharedModel).toHaveBeenCalledWith({ entry }));
     expect(setAppSharedModel).not.toHaveBeenCalled();
   });
