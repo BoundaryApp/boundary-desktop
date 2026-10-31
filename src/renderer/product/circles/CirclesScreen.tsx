@@ -5,14 +5,15 @@ import type {
   CircleOfferView,
   CircleProviderSettings,
   CircleSnapshot,
-  CirclesResult,
+  CirclesState,
 } from '../../../shared/types/circles';
 import { Callout } from '../../components/ui/alert';
 import { Pill } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { resultError, useCirclesState } from './useCircles';
+import { CircleSharingPanel, MyShareRow } from './CircleSharingPanel';
+import { useAction, useCirclesState } from './useCircles';
 
 /**
  * Circles (ADR 0032): invite-only groups whose members' Macs connect directly. Create one, invite
@@ -22,27 +23,6 @@ import { resultError, useCirclesState } from './useCircles';
 
 const api = () => window.electronAPI.circles;
 
-/** Runs a Circles call with a busy flag and the error it returns. */
-function useAction() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = async <T extends object>(call: () => Promise<CirclesResult<T>>): Promise<CirclesResult<T> | null> => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await call();
-      setError(resultError(result));
-      return result;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-  return { busy, error, run, setError };
-}
-
 function formatExpiry(expires: number, now = Date.now()): string {
   const days = Math.round((expires - now) / (24 * 60 * 60_000));
   if (days >= 2) return `Expires in ${days} days`;
@@ -50,7 +30,7 @@ function formatExpiry(expires: number, now = Date.now()): string {
   return hours >= 24 ? 'Expires tomorrow' : `Expires in ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
 }
 
-function NameForm({ current, onSaved }: { current: string; onSaved?: () => void }) {
+export function NameForm({ current, onSaved }: { current: string; onSaved?: () => void }) {
   const [name, setName] = useState(current);
   const action = useAction();
   return (
@@ -78,11 +58,36 @@ function NameForm({ current, onSaved }: { current: string; onSaved?: () => void 
   );
 }
 
+export function JoinForm() {
+  const [code, setCode] = useState('');
+  const join = useAction();
+  return (
+    <form
+      aria-label="Join a Circle"
+      className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void join.run(() => api().join({ code })).then((result) => {
+          if (result?.success) setCode('');
+        });
+      }}
+    >
+      <span className="font-medium text-fg">Join with an invite</span>
+      <Input aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
+      <Button type="submit" variant="outline" disabled={join.busy || !code.trim()}>
+        {join.busy ? 'Waiting for an admin…' : 'Join'}
+      </Button>
+      {join.busy ? (
+        <p className="text-xs text-fg-faint">An admin of the Circle has to be online to let you in. Keep Boundary open.</p>
+      ) : null}
+      {join.error ? <p className="text-xs text-danger">{join.error}</p> : null}
+    </form>
+  );
+}
+
 function StartForms() {
   const [name, setName] = useState('');
-  const [code, setCode] = useState('');
   const create = useAction();
-  const join = useAction();
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <form
@@ -102,26 +107,7 @@ function StartForms() {
         </Button>
         {create.error ? <p className="text-xs text-danger">{create.error}</p> : null}
       </form>
-      <form
-        aria-label="Join a Circle"
-        className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void join.run(() => api().join({ code })).then((result) => {
-            if (result?.success) setCode('');
-          });
-        }}
-      >
-        <span className="font-medium text-fg">Join with an invite</span>
-        <Input aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
-        <Button type="submit" variant="outline" disabled={join.busy || !code.trim()}>
-          {join.busy ? 'Waiting for an admin…' : 'Join'}
-        </Button>
-        {join.busy ? (
-          <p className="text-xs text-fg-faint">An admin of the Circle has to be online to let you in. Keep Boundary open.</p>
-        ) : null}
-        {join.error ? <p className="text-xs text-danger">{join.error}</p> : null}
-      </form>
+      <JoinForm />
     </div>
   );
 }
@@ -244,7 +230,7 @@ function InvitePanel({ circle }: { circle: CircleSnapshot }) {
   );
 }
 
-const NO_SETTINGS: CircleProviderSettings = { private: false, trusted: false };
+export const NO_SETTINGS: CircleProviderSettings = { private: false, trusted: false };
 
 /** One of the two claims a user makes about a provider (ADR 0034 §3). */
 function ProviderSwitch({
@@ -281,7 +267,7 @@ function ProviderSwitch({
   );
 }
 
-function OfferRow({ offer, settings }: { offer: CircleOfferView; settings: CircleProviderSettings }) {
+export function OfferRow({ offer, settings }: { offer: CircleOfferView; settings: CircleProviderSettings }) {
   const action = useAction();
   const save = (next: CircleProviderSettings): void => {
     void action.run(() => api().setProviderSettings({ identity: offer.identity, ...next }));
@@ -334,21 +320,23 @@ function OfferRow({ offer, settings }: { offer: CircleOfferView; settings: Circl
   );
 }
 
-function SharedModels({ circle, providers }: { circle: CircleSnapshot; providers: Record<string, CircleProviderSettings> }) {
-  if (!circle.offers.length) return null;
+function SharedModels({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
+  // Your own row reads your sharing settings, so it's right before an offer has gone out.
+  const others = circle.offers.filter((offer) => !offer.isMine);
   return (
     <div className="flex flex-col gap-1">
       <h3 className="text-ui font-medium text-fg">Shared models</h3>
       <ul aria-label="Shared models" className="flex flex-col divide-y divide-line">
-        {circle.offers.map((offer) => (
-          <OfferRow key={offer.identity} offer={offer} settings={providers[offer.identity] ?? NO_SETTINGS} />
+        <MyShareRow circle={circle} circles={circles} />
+        {others.map((offer) => (
+          <OfferRow key={offer.identity} offer={offer} settings={circles.providers[offer.identity] ?? NO_SETTINGS} />
         ))}
       </ul>
     </div>
   );
 }
 
-function CircleCard({ circle, providers }: { circle: CircleSnapshot; providers: Record<string, CircleProviderSettings> }) {
+function CircleCard({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const confirm = useAction();
   const online = circle.members.filter((member) => member.online && !member.isMe).length;
@@ -380,7 +368,7 @@ function CircleCard({ circle, providers }: { circle: CircleSnapshot; providers: 
           <MemberRow key={member.identity} circle={circle} member={member} onRemove={(m) => setPending({ kind: 'remove', member: m })} />
         ))}
       </ul>
-      <SharedModels circle={circle} providers={providers} />
+      <SharedModels circle={circle} circles={circles} />
       {circle.myRole === 'admin' ? <InvitePanel circle={circle} /> : null}
 
       <Sheet
@@ -464,10 +452,12 @@ export const CirclesScreen: React.FC = () => {
 
         {diagnosticsError ? <p className="text-xs text-danger">{diagnosticsError}</p> : null}
 
+        <CircleSharingPanel circles={state} />
+
         {named ? <StartForms /> : null}
 
         {state.snapshot.circles.map((circle) => (
-          <CircleCard key={circle.key} circle={circle} providers={state.providers} />
+          <CircleCard key={circle.key} circle={circle} circles={state} />
         ))}
       </div>
     </div>

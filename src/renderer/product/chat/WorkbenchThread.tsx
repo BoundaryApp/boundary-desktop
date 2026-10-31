@@ -41,7 +41,7 @@ import { RunButton } from './RunButton';
 import { projectMarkText } from './projectMove';
 import { ProjectGlyph } from './ProjectGlyph';
 import { onReactRender } from '../../debug/lagProbe';
-import { formatInferenceChipTitle } from '../../../shared/inferenceDisplay';
+import { formatInferenceChipTitle, inferenceMarkLabel } from '../../../shared/inferenceDisplay';
 import { AssistantMessageContext, type AssistantMessageContextValue, MESSAGE_COMPONENTS } from './ThreadMessages';
 import { LiveTurnView } from './LiveTurnView';
 import {
@@ -401,6 +401,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     visibleTokens: phaseEvent?.visibleTokens,
     avgTps: usage?.avgTps,
     sharedUnavailable: phaseEvent?.sharedUnavailable,
+    recovery: phaseEvent?.recovery,
   });
 
   // Starters fill the composer for editing; they never send on their own.
@@ -610,11 +611,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             id: mark.id,
             at: mark.at,
             text:
-              mark.provider === 'peer'
-                ? sharedFallbackMarkText(mark)
-                : mark.kind === 'fell-back'
-                  ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
-                  : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
+              mark.kind === 'recovered'
+                ? `Back on ${inferenceMarkLabel(mark)}`
+                : mark.provider === 'peer'
+                  ? sharedFallbackMarkText(mark)
+                  : mark.kind === 'fell-back'
+                    ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
+                    : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
             className: 'wb-switch-mark',
           })),
         ],

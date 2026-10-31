@@ -3,8 +3,22 @@ export type UpdateChannel = 'stable' | 'beta';
 /** `available` waits for the user's Download; nothing downloads before that. */
 export type UpdatePhase = 'idle' | 'available' | 'downloading' | 'ready';
 
-/** Why this build can't update itself. `no-feed` covers dev builds and forks. */
-export type UpdateBlock = 'none' | 'no-feed' | 'not-in-applications';
+/**
+ * Why this build can't update itself. `no-feed` covers dev builds and forks; `no-key` is a build
+ * whose feed needs a personal key that hasn't been entered.
+ */
+export type UpdateBlock = 'none' | 'no-feed' | 'not-in-applications' | 'no-key';
+
+export interface RunningWorkItem {
+  id: string;
+  kind: 'chat' | 'task' | 'coding';
+  title: string;
+  detail: string;
+}
+
+export interface UpdateWaitItem extends RunningWorkItem {
+  finished: boolean;
+}
 
 export interface UpdateSnapshot {
   currentVersion: string;
@@ -14,23 +28,29 @@ export interface UpdateSnapshot {
   phase: UpdatePhase;
   /** The version on offer; null in `idle`. */
   version: string | null;
-  /** Plain-language line from the feed. */
-  summary: string;
+  /** Plain-language lines from the feed. */
+  summary: string[];
+  /** Download size in bytes, when the feed gives one. */
+  size: number | null;
+  /** This update moves the stack, so the first start after it takes minutes. */
+  stackChanges: boolean;
   checking: boolean;
   lastCheckedAt: string | null;
-  error: 'check' | 'download' | null;
-  /** The workbench notice for this version and phase hasn't been closed. */
-  showNotice: boolean;
-  /** The dot on Settings: an update is on offer and the Updates tab hasn't been opened for it. */
-  showDot: boolean;
-  /** Items the restart is waiting for; 0 when no restart is waiting. */
-  waitingFor: number;
-}
-
-export interface RunningWorkItem {
-  id: string;
-  title: string;
-  detail: string;
+  error: 'check' | 'download' | 'key' | null;
+  /** This build's feed needs a personal key, so a check identifies the person. */
+  keyRequired: boolean;
+  /** The update card opens by itself: this version and stage haven't been closed. */
+  showCard: boolean;
+  /** The work a waiting restart is watching; empty when no restart is waiting. */
+  waiting: UpdateWaitItem[];
+  /** Seconds left before a waited-for restart goes ahead; null outside the last call. */
+  restartIn: number | null;
+  /** Boundary is stopping to install, so the quit screen says it reopens. */
+  restarting: boolean;
+  /** The update that brought this version, for What's new. */
+  updated: { version: string; summary: string[] } | null;
+  /** The card saying the update finished hasn't been closed. */
+  showUpdated: boolean;
 }
 
 export type UpdateRestartResult =

@@ -54,7 +54,10 @@ export interface LlmSlotStatus {
 export interface InferenceProvidersStatus {
   configured: boolean;
   encryptionAvailable: boolean;
+  /** Null while a shared model is the app default: at most one of the two is set (ADR 0036). */
   appDefault: InferenceSlotId | null;
+  /** A model a Circle member shares, chosen as the app default. */
+  appSharedModel?: import('./inferenceChain').InferenceChainEntry;
   /** Tried in order after the app default when it can't answer (ADR 0033). */
   appFallbacks?: import('./inferenceChain').InferenceChainEntry[];
   slots: Partial<Record<InferenceSlotId, LlmSlotStatus>>;
@@ -123,6 +126,12 @@ export interface SetAppFallbacksInput {
 }
 
 export type SetAppFallbacksResult = InferenceStatusResult;
+
+export interface SetAppSharedModelInput {
+  entry: import('./inferenceChain').InferenceChainEntry;
+}
+
+export type SetAppSharedModelResult = InferenceStatusResult;
 
 export interface ProbeSlotHealthInput {
   slot: InferenceSlotId;

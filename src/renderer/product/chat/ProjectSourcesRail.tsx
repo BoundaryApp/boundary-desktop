@@ -8,7 +8,7 @@ import type {
 } from '../../../shared/types/hermesChat';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { useCirclesState } from '../circles/useCircles';
-import { ChainEditor } from './ChainEditor';
+import { ChainEditor, describeChainEntry } from './ChainEditor';
 import { displayHostPath } from './chatTelemetryFormat';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { useDismiss } from '../../components/ui/use-dismiss';
@@ -235,8 +235,9 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const mode = pinMode(project);
   const appDefault = status?.appDefault ?? null;
   const appSlot = appDefault ? status?.slots[appDefault] : undefined;
-  const appLabel =
-    appDefault && appSlot?.configured && appSlot.modelId
+  const appLabel = status?.appSharedModel
+    ? describeChainEntry(status.appSharedModel, { slots: status.slots, circles }, true).label
+    : appDefault && appSlot?.configured && appSlot.modelId
       ? formatInferenceChipTitle(appDefault, appSlot.modelId)
       : 'No app default';
   const localSlot = status?.slots.local;

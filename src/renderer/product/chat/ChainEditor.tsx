@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
-import { formatInferenceChipTitle, isVisibleChatProvider } from '../../../shared/inferenceDisplay';
+import { formatInferenceChipTitle, isVisibleChatProvider, sharedModelLabel } from '../../../shared/inferenceDisplay';
 import type { CirclesState } from '../../../shared/types/circles';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboarding';
@@ -22,6 +22,8 @@ export interface ChainEntryView {
   detail: string;
   /** The router skips it now. */
   skipped: boolean;
+  /** Skipped only because the provider is offline, so it can still be picked for when they're back. */
+  offline?: boolean;
 }
 
 function entryKey(entry: InferenceChainEntry): string {
@@ -31,7 +33,11 @@ function entryKey(entry: InferenceChainEntry): string {
     : `${entry.slot}:${model}`;
 }
 
-export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext): ChainEntryView {
+/**
+ * `first`: the entry starts the chain, so nothing comes after it and "skipped" means chats stop
+ * (ADR 0036).
+ */
+export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext, first = false): ChainEntryView {
   if (entry.slot !== 'peer') {
     const slot = ctx.slots[entry.slot];
     const modelId = entry.modelId?.trim() || slot?.modelId || '';
@@ -49,21 +55,28 @@ export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext
   const member = circle?.members.find((candidate) => candidate.identity === entry.peer?.providerId);
   const name = offer?.name ?? member?.name ?? 'A member';
   const settings = ctx.circles.providers[entry.peer?.providerId ?? ''];
-  const label = `${name}'s ${modelId}`;
+  const label = sharedModelLabel(name, modelId);
   const where = circle ? `Shared in ${circle.name}` : 'Shared model';
   const skip = (why: string): ChainEntryView => ({ entry, label, detail: `${where}. ${why}`, skipped: true });
+  const skipped = first ? 'Chats can’t send until that changes.' : 'Skipped.';
 
-  if (ctx.circles.status !== 'running') return skip('Circles aren’t connected. Skipped.');
-  if (!circle) return { entry, label, detail: 'You’re no longer in that Circle. Skipped.', skipped: true };
-  if (!offer || !offer.available) return skip(`${name} isn’t sharing it now. Skipped.`);
-  if (!offer.models.some((model) => model.id === modelId)) return skip('No longer shared. Skipped.');
-  if (!settings?.trusted) return skip(`Skipped until you trust ${name} in Circles.`);
+  if (ctx.circles.status !== 'running') return skip(`Circles aren’t connected. ${skipped}`);
+  if (!circle) return { entry, label, detail: `You’re no longer in that Circle. ${skipped}`, skipped: true };
+  if (!offer || !offer.available) return skip(`${name} isn’t sharing it now. ${skipped}`);
+  const offered = offer.models.find((model) => model.id === modelId);
+  if (!offered) return skip(`No longer shared. ${skipped}`);
+  if (!settings?.trusted) {
+    return skip(first ? `Trust ${name} in Circles to use it.` : `Skipped until you trust ${name} in Circles.`);
+  }
   const privacy = settings.private ? 'Can serve private projects' : 'Not for private projects';
+  const offline = first ? 'Offline now, so chats can’t send.' : 'Offline now. Skipped.';
+  const tools = first && !offered.tools ? ' Doesn’t support tool calls.' : '';
   return {
     entry,
     label,
-    detail: `${where}. ${offer.online ? privacy : `Offline now, so the next entry answers. ${privacy}`}.`,
-    skipped: false,
+    detail: `${where}. ${offer.online ? privacy : `${offline} ${privacy}`}.${tools}`,
+    skipped: !offer.online,
+    ...(offer.online ? {} : { offline: true }),
   };
 }
 
@@ -95,7 +108,7 @@ export function chainCandidates(
   ctx: ChainContext
 ): ChainEntryView[] {
   const taken = new Set([...(primary ? [primary] : []), ...fallbacks].map((entry) => entryKey({ ...entry, modelId: '' })));
-  const takenExact = new Set(fallbacks.map(entryKey));
+  const takenExact = new Set([...(primary ? [primary] : []), ...fallbacks].map(entryKey));
   const candidates: ChainEntryView[] = [];
   for (const slot of ['local', 'openrouter'] as const) {
     const status = ctx.slots[slot];
@@ -118,6 +131,57 @@ export function chainCandidates(
   }
   return candidates;
 }
+
+/**
+ * Models members share, as app-default choices, with the chosen one kept in the list after its
+ * offer has gone so the user sees why it stopped.
+ */
+export function sharedModelChoices(current: InferenceChainEntry | null, ctx: ChainContext): ChainEntryView[] {
+  const entries: InferenceChainEntry[] = ctx.circles.snapshot.circles.flatMap((circle) =>
+    circle.offers
+      .filter((offer) => !offer.isMine)
+      .flatMap((offer) =>
+        offer.models.map((model) => ({
+          slot: 'peer' as const,
+          modelId: model.id,
+          peer: { circleId: circle.key, providerId: offer.identity },
+        }))
+      )
+  );
+  const listed = current && !entries.some((entry) => entryKey(entry) === entryKey(current));
+  return [...(listed ? [current] : []), ...entries].map((entry) => describeChainEntry(entry, ctx, true));
+}
+
+export interface SharedModelChoicesProps {
+  current: InferenceChainEntry | null;
+  ctx: ChainContext;
+  disabled?: boolean;
+  onPick: (entry: InferenceChainEntry) => void;
+}
+
+/** Shared models as radio choices: for the app default in Settings, and for setup (ADR 0036). */
+export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({ current, ctx, disabled = false, onPick }) => (
+  <>
+    {sharedModelChoices(current, ctx).map((view) => {
+      const on = Boolean(current && entryKey(current) === entryKey(view.entry));
+      return (
+        <button
+          key={entryKey(view.entry)}
+          type="button"
+          className={`wb-inference-choice ${on ? 'is-on' : ''}`}
+          disabled={disabled || (view.skipped && !view.offline)}
+          onClick={() => onPick(view.entry)}
+        >
+          <span className="wb-inference-radio" aria-hidden="true" />
+          <span>
+            <b>{view.label}</b>
+            <span>{view.detail}</span>
+          </span>
+        </button>
+      );
+    })}
+  </>
+);
 
 function moved(list: InferenceChainEntry[], from: number, to: number): InferenceChainEntry[] {
   const next = [...list];

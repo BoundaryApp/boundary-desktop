@@ -3,7 +3,14 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../../shared/types/circles';
 import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
-import { ChainEditor, chainCandidates, describeChainEntry, type ChainContext } from '../ChainEditor';
+import {
+  ChainEditor,
+  SharedModelChoices,
+  chainCandidates,
+  describeChainEntry,
+  sharedModelChoices,
+  type ChainContext,
+} from '../ChainEditor';
 
 const CIRCLE = 'c'.repeat(64);
 const BO = 'b'.repeat(64);
@@ -52,6 +59,46 @@ const shared = (modelId = 'qwen3-8b'): InferenceChainEntry => ({ slot: 'peer', m
 
 afterEach(() => cleanup());
 
+describe('shared models as the app default (ADR 0036)', () => {
+  it('lists members’ models, not the user’s own, and keeps a chosen one whose offer went', () => {
+    const labels = (current: InferenceChainEntry | null, state = circles()) =>
+      sharedModelChoices(current, { slots, circles: state }).map((view) => view.label);
+    expect(labels(null)).toEqual(["Bo's qwen3-8b", "Bo's gemma"]);
+    expect(labels(shared())).toEqual(["Bo's qwen3-8b", "Bo's gemma"]);
+    expect(labels(shared(), circles({ snapshot: { identity: ME, circles: [] } }))).toEqual(["A member's qwen3-8b"]);
+  });
+
+  it('says what stops chats, since no entry comes after it', () => {
+    const detail = (state: CirclesState, entry = shared()) => describeChainEntry(entry, { slots, circles: state }, true).detail;
+    expect(detail(circles({ providers: {} }))).toMatch(/Trust Bo in Circles to use it/);
+    expect(detail(circles({}, { available: false }))).toMatch(/Chats can’t send until that changes/);
+    expect(detail(circles({}, { online: false }))).toMatch(/Offline now, so chats can’t send/);
+    expect(detail(circles(), shared('gemma'))).toMatch(/Doesn’t support tool calls/);
+  });
+
+  it('only lets the user pick a model that can serve', () => {
+    const onPick = vi.fn();
+    render(<SharedModelChoices current={null} ctx={{ slots, circles: circles({ providers: {} }) }} onPick={onPick} />);
+    const choice = screen.getByRole('button', { name: /Bo's qwen3-8b/ }) as HTMLButtonElement;
+    expect(choice.disabled).toBe(true);
+    cleanup();
+    render(<SharedModelChoices current={null} ctx={{ slots, circles: circles() }} onPick={onPick} />);
+    fireEvent.click(screen.getByRole('button', { name: /Bo's qwen3-8b/ }));
+    expect(onPick).toHaveBeenCalledWith(shared());
+  });
+
+  it('still lets the user pick an offline provider’s model, for when they’re back', () => {
+    render(<SharedModelChoices current={null} ctx={{ slots, circles: circles({}, { online: false }) }} onPick={vi.fn()} />);
+    expect((screen.getByRole('button', { name: /Bo's qwen3-8b/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('doesn’t offer the first entry again as a fallback', () => {
+    const labels = chainCandidates(shared(), [], { slots, circles: circles() }).map((view) => view.label);
+    expect(labels).not.toContain("Bo's qwen3-8b");
+    expect(labels).toContain("Bo's gemma");
+  });
+});
+
 describe('describeChainEntry', () => {
   it('says why a shared model is skipped, in the order main checks', () => {
     const cases: Array<[CirclesState, InferenceChainEntry, RegExp]> = [
@@ -77,7 +124,11 @@ describe('describeChainEntry', () => {
       slots,
       circles: circles({ providers: { [BO]: { private: true, trusted: true } } }, { online: false }),
     });
-    expect(offline).toMatchObject({ skipped: false, detail: expect.stringMatching(/Offline now.*Can serve private projects/) });
+    expect(offline).toMatchObject({
+      skipped: true,
+      offline: true,
+      detail: expect.stringMatching(/Offline now\. Skipped\..*Can serve private projects/),
+    });
   });
 
   it('marks a disconnected provider skipped', () => {

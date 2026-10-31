@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
@@ -172,6 +172,35 @@ describe('turn notes', () => {
 
     expect(await screen.findByText(/stopped without replying/)).toBeTruthy();
     expect(ipc.getHistory).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a send refused because nothing answered', () => {
+  afterEach(() => {
+    ipc.startChat.mockReset();
+    ipc.startChat.mockImplementation(async (payload: { requestId: string }) => {
+      ipc.active = payload.requestId;
+      return { success: true, requestId: ipc.active, sessionId: 's1' };
+    });
+  });
+
+  it('says so under the turn, and Retry sends the message again', async () => {
+    const error = 'OpenRouter didn’t answer, so your message wasn’t sent.';
+    ipc.startChat.mockImplementationOnce(async (payload: { requestId: string }) => ({
+      success: false,
+      requestId: payload.requestId,
+      error,
+      errorCode: 'provider-unreachable',
+    }));
+    render(<Chat />);
+    await screen.findByRole('button', { name: 'Send message' });
+    await act(async () => setValue(input(), 'hello?'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send message' })));
+
+    const note = (await screen.findByText(error)).closest('p')!;
+    await act(async () => fireEvent.click(within(note).getByRole('button', { name: 'Retry' })));
+    await waitFor(() => expect(ipc.startChat).toHaveBeenCalledTimes(2));
+    expect(ipc.startChat.mock.calls[1][0].messages.at(-1)).toMatchObject({ role: 'user', content: 'hello?' });
   });
 });
 

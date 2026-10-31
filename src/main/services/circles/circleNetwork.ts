@@ -7,6 +7,7 @@
  * member of one of this user's Circles, or while a Circle is still joining and knows no one yet.
  * A device removed from every Circle shared with this user is disconnected.
  */
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Autobase from 'autobase';
 import BlindPairing, { type BlindMember, type BlindCandidate } from 'blind-pairing';
@@ -34,9 +35,12 @@ import {
   type CircleView,
 } from './circleOps';
 import { addressClass } from './addressClass';
+import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
 import { InferenceLink, onInferenceOpen, type SharedModelResponse } from './inferenceChannel';
 import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
 import type { CircleSecrets, CircleSnapshot, CirclesSnapshot, SharedModelCall } from './networkMessages';
+import { RemovalLink } from './removalNotice';
+import { onSignalOpen, SignalLink } from './signalChannel';
 
 export interface CircleNetworkOptions {
   storageDir: string;
@@ -50,6 +54,10 @@ export interface CircleNetworkOptions {
   ackInterval?: number;
   /** Called whenever what `snapshot()` returns may have changed. */
   onChange?: () => void;
+  /** A peer signal on a topic passed to `setSignalTopics`, from a current member of its Circle. */
+  onSignal?: (signal: CircleSignal) => void;
+  /** This device was removed from a Circle and has closed it. Main forgets its secrets. */
+  onRemoved?: (key: string) => void;
   log?: (message: string, data?: Record<string, unknown>) => void;
   /**
    * Diagnostics events for a test run (metadata only: key prefixes, counts, timings, address
@@ -69,7 +77,12 @@ interface OpenCircle {
   state: { name: string; members: CircleMemberRecord[]; invites: CircleInviteRecord[]; offers: CircleOfferRecord[] };
   /** The last state written to diagnostics, to log changes only. */
   lastDiag: string;
+  /** Leaving or being removed: this device's own removal closes the Circle only once. */
+  closing: boolean;
 }
+
+/** How long a removed device stays connected, for its notice to go out first. */
+const REMOVAL_NOTICE_MS = 2_000;
 
 const STATUS_REJECTED = 1;
 const STATUS_USED = 2;
@@ -104,15 +117,30 @@ export class CircleNetwork {
   private readonly circles = new Map<string, OpenCircle>();
   /**
    * Connected devices, by device key: whether this side is replicating with each, and the
-   * inference channel, which opens alongside replication.
+   * inference and signal channels, which open alongside replication.
    */
   private readonly peers = new Map<
     string,
-    { connection: SecretStream; replicating: boolean; link: InferenceLink | null; connectedAt: number }
+    {
+      connection: SecretStream;
+      replicating: boolean;
+      link: InferenceLink | null;
+      signals: SignalLink | null;
+      removal: RemovalLink | null;
+      /** Circles this connection has been told it was removed from. */
+      noticed: Set<string>;
+      dropTimer: NodeJS.Timeout | null;
+      connectedAt: number;
+    }
   >();
+  /** Devices removed from each Circle, by Circle key, kept so one offline then hears on return. */
+  private readonly removedDevices: Map<string, Set<string>>;
   private readonly gateway: InferenceGateway;
   /** This user's model server, when they share; main sets it. */
   private shareUpstream: GatewayUpstream | null = null;
+  /** The signal topics main listens to; others are dropped here and never cross to main. */
+  private signalTopics = new Set<string>();
+  private readonly signalStats = new SignalStats();
   private name: string;
   private closed = false;
 
@@ -121,6 +149,7 @@ export class CircleNetwork {
     this.device = crypto.keyPair(options.deviceSeed);
     this.name = options.name;
     this.store = new Corestore(path.join(options.storageDir, 'corestore'));
+    this.removedDevices = this.loadRemovedDevices();
     this.swarm = new Hyperswarm({
       keyPair: this.device,
       ...(options.bootstrap ? { bootstrap: options.bootstrap } : {}),
@@ -204,6 +233,7 @@ export class CircleNetwork {
       })),
       gateway: this.gateway.stats(),
       sharing: Boolean(this.shareUpstream),
+      signals: this.signalStats.summary(),
     };
   }
 
@@ -221,7 +251,17 @@ export class CircleNetwork {
     const device = remoteKey.toString('hex');
     const connectedAt = Date.now();
     const replaced = this.peers.has(device);
-    this.peers.set(device, { connection, replicating: false, link: null, connectedAt });
+    const removal = RemovalLink.attach(connection, (circleKey) => this.onRemovalNotice(device, circleKey));
+    this.peers.set(device, {
+      connection,
+      replicating: false,
+      link: null,
+      signals: null,
+      removal,
+      noticed: new Set(),
+      dropTimer: null,
+      connectedAt,
+    });
     this.diag('peer.connect', {
       device: short(device),
       initiator: connection.isInitiator,
@@ -231,6 +271,7 @@ export class CircleNetwork {
       peers: this.peers.size,
     });
     onInferenceOpen(connection, () => this.attachInference(device, 'remote'));
+    onSignalOpen(connection, () => this.attachSignals(device));
     connection.on('error', (err: unknown) => {
       this.log('peer connection error', { error: String(err) });
       const code = (err as { code?: string } | null)?.code;
@@ -249,7 +290,11 @@ export class CircleNetwork {
         retransmits: raw?.retransmits ?? null,
         current: this.peers.get(device)?.connection === connection,
       });
-      if (this.peers.get(device)?.connection === connection) this.peers.delete(device);
+      const current = this.peers.get(device);
+      if (current?.connection === connection) {
+        if (current.dropTimer) clearTimeout(current.dropTimer);
+        this.peers.delete(device);
+      }
       this.changed();
     });
     this.refreshPeers();
@@ -270,6 +315,7 @@ export class CircleNetwork {
     const known = this.knownDevices();
     const joining = [...this.circles.values()].some((circle) => circle.state.members.length === 0);
     for (const [device, peer] of this.peers) {
+      const notified = this.sendRemovalNotices(device, peer);
       if (known.has(device) || joining) {
         if (!peer.replicating) {
           peer.replicating = true;
@@ -277,13 +323,86 @@ export class CircleNetwork {
           this.diag('peer.replicate', { device: short(device), known: known.has(device), joining });
         }
         this.attachInference(device, 'local');
+        this.attachSignals(device);
       } else if (peer.replicating) {
         // It was replicating, so it was known: it has since been removed everywhere we meet.
         this.log('dropping a removed device', { device: device.slice(0, 12) });
-        this.diag('peer.drop-removed', { device: short(device) });
-        peer.connection.destroy();
+        this.diag('peer.drop-removed', { device: short(device), notified });
+        if (!notified) peer.connection.destroy();
+        else if (!peer.dropTimer) {
+          peer.dropTimer = setTimeout(() => peer.connection.destroy(), REMOVAL_NOTICE_MS);
+          peer.dropTimer.unref();
+        }
       }
     }
+  }
+
+  /** As an admin, tell a connected device about each Circle it was removed from. */
+  private sendRemovalNotices(device: string, peer: { removal: RemovalLink | null; noticed: Set<string> }): boolean {
+    for (const [key, devices] of this.removedDevices) {
+      if (!devices.has(device) || peer.noticed.has(key)) continue;
+      const circle = this.circles.get(key);
+      const me = circle?.state.members.find((member) => member.identity === this.identityHex);
+      if (me?.role !== 'admin' || !peer.removal) continue;
+      peer.noticed.add(key);
+      peer.removal.send(Buffer.from(key, 'hex'));
+      this.diag('removal.notice-sent', { circle: short(key), device: short(device) });
+    }
+    return peer.noticed.size > 0;
+  }
+
+  /** An admin says this device was removed. The connection names the sender; a frame can't. */
+  private onRemovalNotice(device: string, circleKey: Buffer): void {
+    const circle = this.circles.get(circleKey.toString('hex'));
+    if (!circle) return;
+    const sender = circle.state.members.find((member) => member.device === device);
+    if (sender?.role !== 'admin') {
+      this.diag('removal.notice-ignored', { circle: short(circle.secrets.key), device: short(device) });
+      return;
+    }
+    this.closeRemovedCircle(circle);
+  }
+
+  private closeRemovedCircle(circle: OpenCircle): void {
+    if (circle.closing) return;
+    circle.closing = true;
+    const key = circle.secrets.key!;
+    this.diag('circle.removed-here', { circle: short(key) });
+    // Called from inside Autobase's update, so the close waits for that turn to finish.
+    setImmediate(() => {
+      this.closeCircle(circle)
+        .then(() => this.options.onRemoved?.(key))
+        .catch((err: unknown) => this.log('closing a removed Circle failed', { error: String(err) }));
+    });
+  }
+
+  private removedDevicesFile(): string {
+    return path.join(this.options.storageDir, 'removed-devices.json');
+  }
+
+  private loadRemovedDevices(): Map<string, Set<string>> {
+    try {
+      const stored = JSON.parse(readFileSync(this.removedDevicesFile(), 'utf8')) as Record<string, string[]>;
+      return new Map(Object.entries(stored).map(([key, devices]) => [key, new Set(devices)]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  /** Note who left the member list. A device that joins again comes off it. */
+  private trackRemovedDevices(key: string, before: CircleMemberRecord[], after: CircleMemberRecord[]): void {
+    const removed = this.removedDevices.get(key) ?? new Set<string>();
+    const identities = new Set(after.map((member) => member.identity));
+    const size = removed.size;
+    let changed = false;
+    for (const member of before) {
+      if (!identities.has(member.identity)) removed.add(member.device);
+    }
+    for (const member of after) changed = removed.delete(member.device) || changed;
+    if (!changed && removed.size === size) return;
+    this.removedDevices.set(key, removed);
+    const stored = Object.fromEntries([...this.removedDevices].map(([circle, devices]) => [circle, [...devices]]));
+    writeFileSync(this.removedDevicesFile(), JSON.stringify(stored));
   }
 
   /** Open the inference channel with a known device, unless it is already open. */
@@ -306,6 +425,58 @@ export class CircleNetwork {
     );
     if (link) this.diag('link.attach', { device: short(device), opener });
     peer.link = link;
+  }
+
+  /** Open the signal channel with a known device, unless it is already open. */
+  private attachSignals(device: string): void {
+    const peer = this.peers.get(device);
+    if (!peer?.replicating || (peer.signals && !peer.signals.closed)) return;
+    const link = SignalLink.attach(
+      peer.connection,
+      (raw) => this.onSignalFrame(device, raw),
+      () => this.signalStats.onDropped('rate'),
+      () => {
+        if (peer.signals === link) peer.signals = null;
+      }
+    );
+    peer.signals = link;
+  }
+
+  /**
+   * A frame from a device. The sender is whoever that device is in the Circle the frame names,
+   * so a member of one shared Circle can't reach, or speak in, another.
+   */
+  private onSignalFrame(device: string, raw: Buffer): void {
+    const frame = decodeSignal(raw);
+    if (!frame) return this.signalStats.onDropped('malformed');
+    const sender = this.circles.get(frame.circle)?.state.members.find((member) => member.device === device);
+    if (!sender) return this.signalStats.onDropped('not-member');
+    if (!this.signalTopics.has(frame.topic)) return this.signalStats.onDropped('unknown-topic');
+    this.signalStats.onReceived(frame.topic, raw.length);
+    this.options.onSignal?.({ ...frame, from: sender.identity });
+  }
+
+  /** The topics to deliver through `onSignal`; replaces the previous list. */
+  setSignalTopics(topics: string[]): void {
+    this.signalTopics = new Set(topics);
+  }
+
+  /**
+   * Send a signal to the Circle's connected members, or to one of them. Nothing is kept, so a
+   * member who is offline misses it. Returns how many peers it went to.
+   */
+  sendSignal(key: string, topic: string, payload: unknown, toIdentity?: string): number {
+    const circle = this.circle(key);
+    const frame = encodeSignal({ circle: key, topic, payload });
+    let sent = 0;
+    for (const member of circle.state.members) {
+      if (member.identity === this.identityHex || (toIdentity && member.identity !== toIdentity)) continue;
+      if (this.peers.get(member.device)?.signals?.send(frame)) {
+        sent += 1;
+        this.signalStats.onSent(topic, frame.length);
+      }
+    }
+    return sent;
   }
 
   // ---- Circles -------------------------------------------------------------------------------
@@ -347,6 +518,7 @@ export class CircleNetwork {
       member: null,
       state: { name: '', members: [], invites: [], offers: [] },
       lastDiag: '',
+      closing: false,
     };
     base.on('update', () => void this.refreshCircle(circle));
     base.on('error', (err: unknown) => {
@@ -369,14 +541,21 @@ export class CircleNetwork {
     if (this.closed) return;
     const view = circle.view;
     const header = (await view.get(CIRCLE_KEY))?.value as { name: string } | undefined;
+    const before = circle.state.members;
     circle.state = {
       name: header?.name ?? circle.secrets.name ?? '',
       members: (await listPrefix(view, MEMBERS_PREFIX)) as CircleMemberRecord[],
       invites: (await listPrefix(view, INVITES_PREFIX)) as CircleInviteRecord[],
       offers: (await listPrefix(view, OFFERS_PREFIX)) as CircleOfferRecord[],
     };
+    this.trackRemovedDevices(circle.secrets.key!, before, circle.state.members);
     const me = circle.state.members.find((member) => member.identity === this.identityHex);
     this.diagCircleState(circle, me?.role ?? null);
+    // With a third member, the removal entry can reach this device by replication instead.
+    if (!me && before.some((member) => member.identity === this.identityHex)) {
+      this.closeRemovedCircle(circle);
+      return;
+    }
     // Only an admin's device admits invitees (ADR 0032 §5).
     if (me?.role === 'admin' && me.writer === this.writerHex(circle) && !circle.member) {
       circle.member = this.pairing.addMember({
@@ -477,18 +656,41 @@ export class CircleNetwork {
   }
 
   async setRole(key: string, identity: string, role: CircleRole): Promise<void> {
-    await this.append(this.circle(key), { type: 'set-role', identity, role });
+    const circle = this.circle(key);
+    if (role === 'member') await this.revokeInvitesFrom(circle, identity);
+    await this.append(circle, { type: 'set-role', identity, role });
   }
 
   async removeMember(key: string, identity: string): Promise<void> {
-    await this.append(this.circle(key), { type: 'remove-member', identity });
+    const circle = this.circle(key);
+    await this.revokeInvitesFrom(circle, identity);
+    await this.append(circle, { type: 'remove-member', identity });
+  }
+
+  /**
+   * An invite stops working when its creator stops being an admin. Uses the `revoke-invite`
+   * operation, so `apply` is unchanged, and goes first because a demoted author can't revoke.
+   */
+  private async revokeInvitesFrom(circle: OpenCircle, identity: string): Promise<void> {
+    const { members, invites } = circle.state;
+    const lastAdmin = !members.some((member) => member.role === 'admin' && member.identity !== identity);
+    if (lastAdmin) return;
+    const now = Date.now();
+    for (const invite of invites) {
+      if (invite.createdBy !== identity || invite.revoked || invite.usedBy) continue;
+      if (invite.expires && invite.expires < now) continue;
+      await this.append(circle, { type: 'revoke-invite', id: invite.id });
+    }
   }
 
   /** Leave a Circle: remove this member, then close it here. Main forgets its secrets. */
   async leaveCircle(key: string): Promise<void> {
     const circle = this.circle(key);
+    circle.closing = true;
+    await this.revokeInvitesFrom(circle, this.identityHex);
     await this.append(circle, { type: 'remove-member', identity: this.identityHex });
     if (circle.state.members.some((member) => member.identity === this.identityHex)) {
+      circle.closing = false;
       throw new Error('The last admin can’t leave. Make someone else an admin first.');
     }
     await this.closeCircle(circle);

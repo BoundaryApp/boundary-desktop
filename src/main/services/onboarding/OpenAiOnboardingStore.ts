@@ -14,6 +14,7 @@ import type {
   ClearOpenAiConfigResult,
   SetAppDefaultResult,
   SetAppFallbacksResult,
+  SetAppSharedModelResult,
   UpdateLlmModelResult,
 } from '../../../shared/types/onboarding';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
@@ -49,6 +50,8 @@ interface OpenAiOnboardingStoreShape {
   schemaVersion?: number;
   slots?: InferenceSlots;
   appDefault?: InferenceSlotId | null;
+  /** A shared model as the app default; `appDefault` is null while it is set (ADR 0036). */
+  appSharedModel?: InferenceChainEntry;
   /** Slot entries tried after the app default (ADR 0033). Peer entries arrive with Circles. */
   appFallbacks?: InferenceChainEntry[];
   pendingProviderSetup?: PendingProviderSetup;
@@ -191,6 +194,11 @@ function setStoredAppDefault(slot: InferenceSlotId | null): void {
   store.set('appDefault', slot);
 }
 
+export function getAppSharedModel(): InferenceChainEntry | null {
+  ensureV2Document();
+  return store.get('appSharedModel') ?? null;
+}
+
 async function decryptApiKey(encrypted: string | undefined): Promise<string | null> {
   if (!encrypted) return null;
   return tryDecryptFromBase64(encrypted, (reEncrypted) => {
@@ -298,10 +306,13 @@ export async function getOpenAiOnboardingStatus(): Promise<InferenceProvidersSta
   const appDefault = store.get('appDefault') ?? null;
   const encryptionAvailable = await isOsEncryptionAvailable();
   const defaultConnection = appDefault ? slots[appDefault] : undefined;
+  const appSharedModel = getAppSharedModel();
   const status: InferenceProvidersStatus = {
-    configured: await slotIsConfigured(defaultConnection),
+    // A shared model counts even while it can't serve: a send says why, and Settings offers others.
+    configured: Boolean(appSharedModel) || (await slotIsConfigured(defaultConnection)),
     encryptionAvailable,
     appDefault,
+    ...(appSharedModel ? { appSharedModel } : {}),
     appFallbacks: getAppFallbacks(),
     slots: {},
   };
@@ -403,7 +414,7 @@ export async function getLlmConnection(): Promise<LlmConnection | null> {
 }
 
 function assignAppDefaultIfEmpty(slot: InferenceSlotId): void {
-  if (!getAppDefaultSlot()) {
+  if (!getAppDefaultSlot() && !getAppSharedModel()) {
     setStoredAppDefault(slot);
   }
 }
@@ -723,6 +734,7 @@ export async function clearOpenAiConfig(): Promise<ClearOpenAiConfigResult> {
   try {
     writeSlots({});
     setStoredAppDefault(null);
+    deleteStoreKey('appSharedModel');
     deleteStoreKey('pendingProviderSetup');
     deleteStoreKey('savedOpenRouterConnection');
     ephemeralHealth.clear();
@@ -750,10 +762,34 @@ export async function setAppDefault(slot: InferenceSlotId): Promise<SetAppDefaul
     };
   }
   setStoredAppDefault(slot);
+  deleteStoreKey('appSharedModel');
   return {
     success: true,
     status: await getOpenAiOnboardingStatus(),
   };
+}
+
+/**
+ * Make a shared model the app default, in place of any slot (ADR 0036). The caller has checked
+ * that it can serve now. Fallbacks stay; one naming this model goes, as it is now the first entry.
+ */
+export async function setAppSharedModel(entry: InferenceChainEntry): Promise<SetAppSharedModelResult> {
+  ensureV2Document();
+  const shared = wellFormedSharedEntry(entry);
+  if (!shared) {
+    return {
+      success: false,
+      error: 'That shared model isn’t one Boundary knows.',
+      status: await getOpenAiOnboardingStatus(),
+    };
+  }
+  store.set('appSharedModel', shared);
+  setStoredAppDefault(null);
+  store.set(
+    'appFallbacks',
+    getAppFallbacks().filter((fallback) => chainPeerKey(fallback) !== chainPeerKey(shared))
+  );
+  return { success: true, status: await getOpenAiOnboardingStatus() };
 }
 
 export function getAppFallbacks(): InferenceChainEntry[] {
@@ -763,6 +799,18 @@ export function getAppFallbacks(): InferenceChainEntry[] {
 
 const HEX_KEY = /^[0-9a-f]{64}$/;
 
+function wellFormedSharedEntry(entry: InferenceChainEntry): InferenceChainEntry | null {
+  const modelId = entry.modelId?.trim() ?? '';
+  const { circleId, providerId } = entry.peer ?? { circleId: '', providerId: '' };
+  if (entry.slot !== 'peer' || !HEX_KEY.test(circleId) || !HEX_KEY.test(providerId)) return null;
+  if (!modelId || modelId.length > 200) return null;
+  return { slot: 'peer', modelId, peer: { circleId, providerId } };
+}
+
+function chainPeerKey(entry: InferenceChainEntry): string | null {
+  return entry.slot === 'peer' ? `peer:${entry.peer?.circleId}:${entry.peer?.providerId}:${entry.modelId?.trim()}` : null;
+}
+
 /**
  * Check a chain's fallbacks against its first entry. Only connected chat providers and
  * well-formed shared models are accepted, each slot and model once, and never the first
@@ -770,26 +818,23 @@ const HEX_KEY = /^[0-9a-f]{64}$/;
  * sees it (ADR 0033 §10).
  */
 export async function keepChainFallbacks(
-  primary: { slot: InferenceSlotId; modelId?: string } | null,
+  primary: InferenceChainEntry | null,
   entries: InferenceChainEntry[]
 ): Promise<{ ok: true; fallbacks: InferenceChainEntry[] } | { ok: false; error: string }> {
   ensureV2Document();
   const slots = readSlots();
   const modelFor = (entry: InferenceChainEntry) =>
     entry.modelId?.trim() || (entry.slot === 'peer' ? '' : slots[entry.slot]?.modelId?.trim()) || '';
-  const seen = new Set<string>(primary ? [`${primary.slot}:${modelFor(primary)}`] : []);
+  const seen = new Set<string>(primary ? [chainPeerKey(primary) ?? `${primary.slot}:${modelFor(primary)}`] : []);
   const fallbacks: InferenceChainEntry[] = [];
   for (const entry of entries) {
     if (entry.slot === 'peer') {
-      const modelId = entry.modelId?.trim() ?? '';
-      const { circleId, providerId } = entry.peer ?? { circleId: '', providerId: '' };
-      if (!HEX_KEY.test(circleId) || !HEX_KEY.test(providerId) || !modelId || modelId.length > 200) {
-        return { ok: false, error: 'That shared model isn’t one Boundary knows.' };
-      }
-      const key = `peer:${circleId}:${providerId}:${modelId}`;
+      const shared = wellFormedSharedEntry(entry);
+      const key = shared && chainPeerKey(shared);
+      if (!shared || !key) return { ok: false, error: 'That shared model isn’t one Boundary knows.' };
       if (seen.has(key)) continue;
       seen.add(key);
-      fallbacks.push({ slot: 'peer', modelId, peer: { circleId, providerId } });
+      fallbacks.push(shared);
       continue;
     }
     // Fallbacks are the providers a chat can switch to; infrastructure stays hidden (ADR 0015 §3).
@@ -813,7 +858,7 @@ export async function keepChainFallbacks(
 export async function setAppFallbacks(entries: InferenceChainEntry[]): Promise<SetAppFallbacksResult> {
   ensureV2Document();
   const appDefault = store.get('appDefault') ?? null;
-  const kept = await keepChainFallbacks(appDefault ? { slot: appDefault } : null, entries);
+  const kept = await keepChainFallbacks(getAppSharedModel() ?? (appDefault ? { slot: appDefault } : null), entries);
   if (kept.ok === false) {
     return { success: false, error: kept.error, status: await getOpenAiOnboardingStatus() };
   }

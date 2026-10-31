@@ -46,6 +46,7 @@ const NO_REPLY_REASONS: ReadonlySet<string> = new Set<HermesNoReplyReason>([
   'halted',
   'timeout',
   'empty',
+  'unreachable',
   'unknown',
 ]);
 

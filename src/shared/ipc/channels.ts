@@ -180,6 +180,8 @@ import type {
   SetAppDefaultInput,
   SetAppDefaultResult,
   SetAppFallbacksInput,
+  SetAppSharedModelInput,
+  SetAppSharedModelResult,
   SetAppFallbacksResult,
   StartOAuthPkceInput,
   StartOAuthPkceResult,
@@ -231,6 +233,7 @@ export interface IpcInvokeChannels {
   'onboarding:forget-saved-openrouter-key': () => ClearOpenAiConfigResult;
   'onboarding:set-app-default': (input: SetAppDefaultInput) => SetAppDefaultResult;
   'onboarding:set-app-fallbacks': (input: SetAppFallbacksInput) => SetAppFallbacksResult;
+  'onboarding:set-app-shared-model': (input: SetAppSharedModelInput) => SetAppSharedModelResult;
   'onboarding:probe-slot-health': (input: ProbeSlotHealthInput) => ProbeSlotHealthResult;
   'onboarding:discover-local-llms': () => DiscoverLocalLlmsResult;
   'onboarding:adopt-local-llm': (input: AdoptLocalLlmInput) => AdoptLocalLlmResult;
@@ -268,11 +271,12 @@ export interface IpcInvokeChannels {
   'updates:restart': (options: { force: boolean }) => UpdateRestartResult;
   'updates:restart-when-finished': (items: RunningWorkItem[]) => void;
   'updates:cancel-waiting': () => void;
-  'updates:close-notice': () => void;
+  'updates:close-card': () => void;
+  'updates:close-updated': () => void;
   'updates:skip-version': () => void;
-  'updates:page-seen': () => void;
   'updates:set-channel': (channel: UpdateChannel) => UpdateSnapshot;
   'updates:set-checks-enabled': (enabled: boolean) => UpdateSnapshot;
+  'updates:set-feed-key': (key: string) => UpdateSnapshot;
   'updates:move-to-applications': () => void;
 
   'resources:get-snapshot': () => HostResourceSnapshot;
@@ -454,6 +458,7 @@ export interface IpcEventChannels {
   'resources:compose-inventory': ComposeInventorySnapshot;
   'updates:state': UpdateSnapshot;
   'updates:open': void;
+  'updates:restart-requested': void;
   'host-bridge:approval': HostBridgeApprovalEvent;
   'host-bridge:approval-cleared': { id: string };
   'host-bridge:tools-state': HostToolsState;

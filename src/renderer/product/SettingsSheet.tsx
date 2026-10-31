@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useInferenceStatus } from '../onboarding/inferenceStatus';
+import { CIRCLE_MEMBER_PROVIDER } from './cloudInferenceCopy';
 import { AgentBrowserPanel } from './AgentBrowserPanel';
 import { CalendarsPanel } from './CalendarsPanel';
 import { CodingFoldersPanel } from './CodingFoldersPanel';
@@ -68,7 +69,9 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ request, onClose }
             <PasswordsLoginsPanel initialAgentSlug={agentSlug} />
           ) : tab === 'calendars' ? (
             <CalendarsPanel
-              cloudProvider={status?.appDefault === 'openrouter' ? 'OpenRouter' : null}
+              cloudProvider={
+                status?.appDefault === 'openrouter' ? 'OpenRouter' : status?.appSharedModel ? CIRCLE_MEMBER_PROVIDER : null
+              }
               onConnectFromChatClosed={connectFromChat ? onClose : undefined}
             />
           ) : tab === 'coding' ? (

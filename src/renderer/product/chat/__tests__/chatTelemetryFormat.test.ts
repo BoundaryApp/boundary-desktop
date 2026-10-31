@@ -5,6 +5,22 @@ import {
   splitContextBar,
 } from '../chatTelemetryFormat';
 
+describe('formatPhaseLine on a shared model or recovery wait', () => {
+  it('says what is true before any restart', () => {
+    expect(formatPhaseLine({ phase: 'preparing', toolName: 'OpenRouter', sharedUnavailable: true })).toBe(
+      "Your shared model isn't available. Switching to OpenRouter…"
+    );
+    expect(formatPhaseLine({ phase: 'restarting', toolName: 'OpenRouter', sharedUnavailable: true })).toBe(
+      "Your shared model isn't available. Restarting assistant to use OpenRouter…"
+    );
+  });
+
+  it('names no provider on a chain', () => {
+    const recovery = { cycle: 1, total: 5, retryInSec: 15 };
+    expect(formatPhaseLine({ phase: 'preparing', recovery })).toBe('No model is responding. Retrying in 15s (1 of 5)');
+  });
+});
+
 describe('formatContextGauge', () => {
   it('marks the empty placeholder so chrome can hide the meter', () => {
     const gauge = formatContextGauge(null);

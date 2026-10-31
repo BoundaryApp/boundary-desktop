@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { OnboardingHomeScreen } from '../../onboarding/OnboardingHomeScreen';
 import { OpenAiCredentialsForm } from '../../onboarding/OpenAiCredentialsForm';
 import { OAuthModelPickView } from '../../onboarding/OAuthModelPickView';
+import { SharedModelSetupView } from '../../onboarding/SharedModelSetupView';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import type {
   DiscoveredLocalLlm,
@@ -23,7 +24,7 @@ const providerSetupView = () =>
   rendererExperiments.find((e) => e.ProviderSetupView)?.ProviderSetupView;
 const homeRows = () => rendererExperiments.flatMap((e) => (e.HomeRow ? [e.HomeRow] : []));
 
-type OnboardingView = 'home' | 'oauth-model' | 'existing' | 'provider-setup';
+type OnboardingView = 'home' | 'oauth-model' | 'existing' | 'provider-setup' | 'shared-model';
 
 type ExistingVariant = 'custom' | 'local';
 
@@ -224,6 +225,19 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     );
   }
 
+  if (view === 'shared-model') {
+    return (
+      <SetupShell
+        title="Use a model from your Circle"
+        description="A member’s Mac runs the model. It sees your prompts, and its replies can drive your agent’s tools."
+        onBack={goHome}
+        width="wide"
+      >
+        <SharedModelSetupView />
+      </SetupShell>
+    );
+  }
+
   const ProviderSetupView = providerSetupView();
   if (view === 'provider-setup' && ProviderSetupView) {
     return <ProviderSetupView pending={pendingSetup} onHome={goHome} />;
@@ -256,6 +270,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
           setExistingVariant('local');
           setView('existing');
         }}
+        onUseSharedModel={() => setView('shared-model')}
         extraRows={homeRows().map((HomeRow, index) => (
           <HomeRow
             key={index}

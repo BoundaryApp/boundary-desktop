@@ -1,6 +1,6 @@
 # Circles and inference chains plan
 
-Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chains.md) (inference chains and the router) and [0034](adr/0034-shared-models.md) (shared models).
+Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chains.md) (inference chains and the router), [0034](adr/0034-shared-models.md) (shared models) and [0036](adr/0036-shared-model-app-default.md) (a shared model as the app default).
 
 ## Progress
 
@@ -10,8 +10,9 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 1 Chain model and resolver | Done | |
 | 2 Router and chain UI | In progress: fallbacks shipped for the app default, project pins and chat overrides; live proxy case not started | 1 |
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
-| 4 Shared models | In progress: sharing from Settings with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor and the Private and Trusted settings work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas not started | 2, 3 |
+| 4 Shared models | In progress: sharing from the Circles screen with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas not started | 2, 3 |
 | 5 Circle chats | Not started | 3 |
+| Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
 
 Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
@@ -61,11 +62,17 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
 **In.**
 - Provider side: publishing an offer, the gateway's narrow API and queue, availability and away mode with a power-save blocker, metering, and quotas.
-- Consumer side: the `peer` entry type in the router, tunnelled over Protomux. An ordered chain editor, which replaces the fallback switches once a chain can hold more than two entries. Private and trusted settings for each provider. Approval for every side-effecting tool call in turns served by an untrusted provider. Remaining quota in offers.
+- Consumer side: the `peer` entry type in the router, tunnelled over Protomux. An ordered chain editor, which replaces the fallback switches once a chain can hold more than two entries. A shared model as the app default, chosen in Settings or in setup's Model step (0036). Private and trusted settings for each provider. Approval for every side-effecting tool call in turns served by an untrusted provider. Remaining quota in offers.
 
 ## Phase 5 · Circle chats
 
 **In.** Chat channels stored in the Circle's Autobase, unconfirmed marks until an admin indexes, and an explicit share action from a Hermes chat.
+
+## Peer signals
+
+Short messages between the members of a Circle that nothing keeps, for typing indicators and read marks in Circle chats. A Protomux `signal` channel runs alongside `inference` on each connection, so signals are ordered and need no Autobase operation. Main sends with `sendCircleSignal(circleKey, topic, payload, toIdentity?)` and listens with `onCircleSignal(topic, handler)`.
+
+A connection belongs to a device, not a Circle, so each frame names its Circle. The receiver takes the sender's identity from the connection's device key and drops the frame unless that device is a current member of the Circle. Topics no listener has registered are dropped in the network process. Payloads are limited to 4 KB of JSON. Each peer may send 30 signals a second with bursts of 60, and receivers drop what goes past twice that. A member who is offline misses the signal.
 
 ## Acceptance criteria
 
@@ -94,6 +101,15 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 - [ ] **15.** A turn served by an untrusted provider asks for approval on every side-effecting tool call.
 - [ ] **16.** Over quota, the gateway answers 429 before any reply bytes, and the consumer's router falls back.
 - [ ] **17.** Usage counts never appear in the Circle's log.
+
+### A shared model as the app default (0036)
+
+- [x] **18.** With no provider connected, a member can pick a shared model in Settings, or in setup's Model step, and setup finishes.
+- [x] **19.** A chain that starts with a shared model routes, with one entry or more, and Hermes takes `model.context_length` from the offer.
+- [x] **20.** With nothing else to answer, a provider who is offline, paused, untrusted or no longer offering the model stops the send, and the chat says which.
+- [x] **21.** The model can't be picked until its provider is Trusted. In a privacy-locked project, it serves only if the provider is marked Private.
+- [x] **22.** The chip, Settings and the project rail name the shared model.
+- [ ] **23.** A two-Mac test: [shared model as the app default](testing/shared-model-default.md).
 
 ## Change requests to the stack
 

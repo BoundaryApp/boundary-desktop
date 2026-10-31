@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildFeed, feedLabel } from '../../../../../scripts/write-update-feed.mjs';
+import { readFileSync } from 'node:fs';
+import { SOVEREIGN_AGENT_STACK_VERSION } from '../../../../shared/assistantStackConstants';
+import { buildFeed, feedLabel, pinnedStackVersion } from '../../../../../scripts/write-update-feed.mjs';
 
 const release = {
   version: '0.0.1',
@@ -11,6 +13,11 @@ const release = {
 };
 
 describe('write-update-feed', () => {
+  it('finds the pinned stack version in the constants file', () => {
+    const source = readFileSync('src/shared/assistantStackConstants.ts', 'utf8');
+    expect(pinnedStackVersion(source)).toBe(SOVEREIGN_AGENT_STACK_VERSION);
+  });
+
   it('labels a final release above its RCs on the beta feed only', () => {
     expect(feedLabel('beta', '0.0.1')).toBe('0.0.1-rc.999999');
     expect(feedLabel('stable', '0.0.1')).toBe('0.0.1');

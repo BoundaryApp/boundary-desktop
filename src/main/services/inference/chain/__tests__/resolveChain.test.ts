@@ -16,6 +16,7 @@ function facts(overrides: Partial<InferenceChainFacts> = {}): InferenceChainFact
     slotContextLength: (slot) => (slot === 'local' ? 32_768 : 200_000),
     circleJoined: () => true,
     peerOffer: () => ({ 'qwen3-32b': { contextLength: 65_536 } }),
+    providerOnline: () => true,
     providerPrivate: () => false,
     providerTrusted: () => true,
     ...overrides,
@@ -84,6 +85,26 @@ describe('describeInferenceChain', () => {
       'provider-untrusted',
     ]);
     expect(states.every((s) => s.contextLength === undefined)).toBe(true);
+  });
+});
+
+describe('an offline provider', () => {
+  const offline = facts({ providerOnline: () => false });
+
+  it('is stale, and keeps its context so that coming and going doesn’t resize Hermes', () => {
+    const [peer] = describeInferenceChain(chain, offline);
+    expect(peer).toMatchObject({ stale: 'provider-offline', contextLength: 65_536 });
+    expect(chainContextLength([peer])).toBe(65_536);
+  });
+
+  it('says untrusted first: that one needs the user, this one passes', () => {
+    const [peer] = describeInferenceChain(chain, { ...offline, providerTrusted: () => false });
+    expect(peer.stale).toBe('provider-untrusted');
+  });
+
+  it('still counts as a private entry, so the send isn’t blamed on privacy', () => {
+    const entries = describeInferenceChain(chain.slice(0, 1), { ...offline, providerPrivate: () => true });
+    expect(applyPrivacyLock(entries, true)).toEqual({ ok: true, entries });
   });
 });
 

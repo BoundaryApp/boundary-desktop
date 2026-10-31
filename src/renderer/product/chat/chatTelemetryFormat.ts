@@ -1,4 +1,8 @@
-import type { HermesChatUsageSnapshot, SessionInferenceMark } from '../../../shared/types/hermesChat';
+import type {
+  HermesChatUsageSnapshot,
+  HermesRecoveryWait,
+  SessionInferenceMark,
+} from '../../../shared/types/hermesChat';
 import { formatTokenCount } from '../../../shared/utils/format';
 
 /** Format context gauge labels per ADR 0004 — never show 0% when max is unknown. */
@@ -81,6 +85,12 @@ export function sharedFallbackMarkText(mark: Pick<SessionInferenceMark, 'modelId
     : `Answered by ${mark.modelId}, a shared fallback`;
 }
 
+function formatRecoveryLine({ provider, retryInSec, cycle, total }: HermesRecoveryWait): string {
+  const who = provider ? `${provider} isn't responding.` : 'No model is responding.';
+  const when = retryInSec > 0 ? `Retrying in ${retryInSec}s` : 'Retrying now';
+  return `${who} ${when} (${cycle} of ${total})`;
+}
+
 export function formatPhaseLine(opts: {
   phase: string;
   elapsedSec?: number;
@@ -90,9 +100,14 @@ export function formatPhaseLine(opts: {
   visibleTokens?: number;
   avgTps?: number | null;
   sharedUnavailable?: boolean;
+  recovery?: HermesRecoveryWait;
 }): string {
   switch (opts.phase) {
     case 'preparing':
+      if (opts.recovery) return formatRecoveryLine(opts.recovery);
+      if (opts.sharedUnavailable && opts.toolName) {
+        return `Your shared model isn't available. Switching to ${opts.toolName}…`;
+      }
       return opts.elapsedSec != null && opts.elapsedSec > 0
         ? `Preparing · ${opts.elapsedSec}s`
         : 'Preparing…';

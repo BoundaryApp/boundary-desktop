@@ -34,6 +34,8 @@ export function noReplyText(reason: HermesNoReplyReason, speakerName: string): s
       return `Your next message came before ${speakerName} replied`;
     case 'failed':
       return `${speakerName} couldn’t reply`;
+    case 'unreachable':
+      return 'Your message wasn’t sent';
     case 'halted':
       return `${speakerName} stopped without replying`;
     case 'timeout':
@@ -56,8 +58,12 @@ const NoReplyLine: React.FC<{
 }> = ({ noReply, speakerName, onRetry }) => (
   <p className="wb-turn-note" role="status">
     <i className="wb-ending-mark" aria-hidden="true" />
-    <span>{noReplyText(noReply.reason, speakerName)}</span>
-    {noReply.error ? (
+    {noReply.reason === 'unreachable' && noReply.error ? (
+      <span>{noReply.error}</span>
+    ) : (
+      <span>{noReplyText(noReply.reason, speakerName)}</span>
+    )}
+    {noReply.error && noReply.reason !== 'unreachable' ? (
       <span className="wb-turn-note-detail" title={noReply.error}>
         · {noReply.error}
       </span>
@@ -133,6 +139,8 @@ const BackgroundTurnLine: React.FC<{ speakerName: string; startedAt: string }> =
  * stopped it): why. Retry is in the reply's own action row.
  */
 export const LiveNoReplyNote: React.FC<{ speakerName: string }> = ({ speakerName }) => {
+  const aui = useAui();
+  const parentId = useAuiState((s) => s.message.parentId);
   const saved = useMessageCustom().noReply;
   const stoppedEmpty = useReplyEnding() === 'stopped-empty';
   const noReply = saved ?? (stoppedEmpty ? STOPPED : null);
@@ -140,5 +148,8 @@ export const LiveNoReplyNote: React.FC<{ speakerName: string }> = ({ speakerName
     s.message.content.some((part) => part.type === 'text' && part.text.trim().length > 0)
   );
   if (!noReply || hasText) return null;
-  return <NoReplyLine noReply={noReply} speakerName={speakerName} />;
+  // Nothing reached Hermes, so this is the turn's one way back; the action row is for replies.
+  const retry =
+    noReply.reason === 'unreachable' && parentId ? () => aui.thread.startRun({ parentId }) : undefined;
+  return <NoReplyLine noReply={noReply} speakerName={speakerName} onRetry={retry} />;
 };

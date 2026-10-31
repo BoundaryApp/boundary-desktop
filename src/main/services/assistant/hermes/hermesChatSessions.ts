@@ -109,6 +109,8 @@ import {
   settleInterruptedTurn,
   withReplyEndings,
 } from './hermesReplyEndings';
+import { getLastAppliedLlm } from '../AssistantStackStore';
+import { parseRecoveryNotice } from './hermesRecoveryNotice';
 import { logPostWithoutTurn, logTurnGate, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
 
 /**
@@ -174,14 +176,16 @@ async function gateResolvedInference(
   const gateStartedAt = Date.now();
   let restarted = false;
   let sharedWasUnavailable = false;
-  const ready = await ensureResolvedInferenceReady(sessionId, (resolved, sharedUnavailable) => {
-    restarted = true;
+  const ready = await ensureResolvedInferenceReady(sessionId, (resolved, sharedUnavailable, restarting) => {
+    restarted ||= restarting;
     sharedWasUnavailable = sharedUnavailable;
+    // Most applies don't restart Hermes and take moments, so they say nothing of their own.
+    if (!restarting && !sharedUnavailable) return;
     sendPhase(sender, {
       requestId,
       sessionId,
-      phase: 'restarting',
-      toolName: inferenceSlotLabel(resolved.slot),
+      phase: restarting ? 'restarting' : 'preparing',
+      toolName: resolved.slot === 'peer' ? resolved.providerDisplayName : inferenceSlotLabel(resolved.slot),
       ...(sharedUnavailable ? { sharedUnavailable } : {}),
     });
   });
@@ -200,6 +204,7 @@ async function gateResolvedInference(
     sessionId,
     error: ready.error,
     errorCode: ready.errorCode,
+    ...(ready.sharedUnavailable ? { sharedUnavailable: true } : {}),
   };
 }
 
@@ -284,6 +289,8 @@ async function runJsonRpcTurn(
   let lastEvent: string | null = null;
   let lastEventAt: number | null = null;
   let hermesErrors = 0;
+  // Hermes's recovery ladder: which rung, and when it tries the provider again.
+  let recovery: { cycle: number; total: number; until: number; provider?: string } | null = null;
   const emitEnd = opts?.emitEnd !== false;
   const profile = opts?.profile ?? null;
   const agentSlug = opts?.agentSlug ?? null;
@@ -308,6 +315,12 @@ async function runJsonRpcTurn(
   } catch {
     /* optional */
   }
+
+  const recoveryField = () => {
+    if (!recovery) return {};
+    const { until, ...rung } = recovery;
+    return { recovery: { ...rung, retryInSec: Math.max(0, Math.ceil((until - Date.now()) / 1000)) } };
+  };
 
   const markFirstEvent = () => {
     if (firstEventAt == null) firstEventAt = Date.now();
@@ -439,6 +452,7 @@ async function runJsonRpcTurn(
     const payload = event.payload as { text?: string } | undefined;
     const delta = payload?.text ?? '';
     if (!delta) return;
+    recovery = null;
     markFirstEvent();
     assistantText += delta;
     visibleTokens += delta.length > 0 ? Math.max(1, Math.ceil(delta.length / 4)) : 0;
@@ -480,12 +494,46 @@ async function runJsonRpcTurn(
     sendPhase(sender, {
       requestId,
       sessionId,
-      phase: visibleTokens > 0 ? 'generating' : 'preparing',
+      phase: visibleTokens > 0 && !recovery ? 'generating' : 'preparing',
       visibleTokens,
       elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
       maxTurns: maxTurns ?? undefined,
       usage,
+      ...recoveryField(),
     });
+  });
+
+  const unsubStatus = gateway.on('status.update', (event) => {
+    if (signal.aborted || ended) return;
+    if (event.session_id && event.session_id !== sessionId) return;
+    armQuiet();
+    const notice = parseRecoveryNotice(event.payload);
+    if (!notice) return;
+    const applied = getLastAppliedLlm();
+    recovery = {
+      cycle: notice.cycle,
+      total: notice.total,
+      until: Date.now() + notice.retryInSec * 1000,
+      ...(applied && !applied.routed
+        ? { provider: applied.slot === 'local' ? 'Your local model' : inferenceSlotLabel(applied.slot) }
+        : {}),
+    };
+    turnLog.note('turn recovery wait', { cycle: notice.cycle, total: notice.total, waitS: notice.retryInSec });
+    sendPhase(sender, {
+      requestId,
+      sessionId,
+      phase: 'preparing',
+      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
+      maxTurns: maxTurns ?? undefined,
+      usage: latestUsage,
+      ...recoveryField(),
+    });
+  });
+
+  // The model is answering after a wait; its thinking comes before any text.
+  const unsubReasoning = gateway.on('reasoning.delta', (event) => {
+    if (event.session_id && event.session_id !== sessionId) return;
+    recovery = null;
   });
 
   // Hermes ends a turn idle for too long itself, so a heartbeat only says the stream is alive.
@@ -499,6 +547,7 @@ async function runJsonRpcTurn(
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
+    recovery = null;
     markFirstEvent();
     toolTurn += 1;
     const payload = event.payload as {
@@ -606,7 +655,7 @@ async function runJsonRpcTurn(
   signal.addEventListener('abort', onAbort);
 
   const preparingTicker = setInterval(() => {
-    if (ended || signal.aborted || visibleTokens > 0) return;
+    if (ended || signal.aborted || (visibleTokens > 0 && !recovery)) return;
     sendPhase(sender, {
       requestId,
       sessionId,
@@ -614,6 +663,7 @@ async function runJsonRpcTurn(
       elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
       maxTurns: maxTurns ?? undefined,
       usage: latestUsage,
+      ...recoveryField(),
     });
   }, 1000);
 
@@ -651,6 +701,8 @@ async function runJsonRpcTurn(
     unsubComplete();
     unsubUsage();
     unsubHeartbeat();
+    unsubStatus();
+    unsubReasoning();
     unsubToolStart();
     unsubToolGenerating();
     unsubToolComplete();
@@ -1652,6 +1704,7 @@ export async function startHermesChatStream(
     const turnSessionIds = [payload.sessionId, sessionId, sessionId ? durableSessionId(sessionId) : null];
     stream.sessionIds = turnSessionIds.filter((id): id is string => Boolean(id));
     const turnStartedAt = Date.now();
+    let replied = false;
     beginRunningTurn(requestId, turnSessionIds, isChannel ? null : agentSlug);
 
     void (async () => {
@@ -1707,6 +1760,7 @@ export async function startHermesChatStream(
             },
           }
         );
+        replied = !turn.noReply;
         // Stop and Send now are noted once Hermes confirms the stop (settleInterruptedTurn).
         if (turn.noReply && !controller.signal.aborted) {
           await recordNoReply(sessionId!, turn.noReply).catch((): void => undefined);
@@ -1725,7 +1779,7 @@ export async function startHermesChatStream(
       } finally {
         activeStreams.delete(key);
         endRunningTurn(requestId);
-        if (sessionId) noteFallbackServed(sessionId, turnStartedAt);
+        if (sessionId) noteFallbackServed(sessionId, turnStartedAt, replied);
       }
     })();
 

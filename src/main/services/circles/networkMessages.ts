@@ -5,6 +5,7 @@
  */
 import type { CircleRole, CirclesSnapshot } from '../../../shared/types/circles';
 import type { CircleOffer } from './circleOps';
+import type { CircleSignal } from './circleSignals';
 import type { GatewayUpstream } from './inferenceGateway';
 
 /**
@@ -66,6 +67,10 @@ export type MainToNetwork =
   /** A request for a member's shared model, for the router (ADR 0033 §5). */
   | { type: 'shared-request'; id: number; key: string; provider: string; request: SharedModelCall }
   | { type: 'shared-cancel'; id: number }
+  /** A peer signal to send; `to` limits it to one member's identity. */
+  | { type: 'signal-send'; key: string; topic: string; payload: unknown; to?: string }
+  /** The signal topics main listens to; replaces the previous list. */
+  | { type: 'signal-topics'; topics: string[] }
   | { type: 'stop' };
 
 /** One call to a shared model's narrow API (ADR 0034 §2). `body` is JSON text. */
@@ -92,4 +97,8 @@ export type NetworkToMain =
   /** A shared-model reply: one head, chunks, then one end. An end with no head means it never reached the provider. */
   | { type: 'shared-head'; id: number; status: number; contentType: string }
   | { type: 'shared-chunk'; id: number; data: Uint8Array }
-  | { type: 'shared-end'; id: number; error?: string };
+  | { type: 'shared-end'; id: number; error?: string }
+  /** A peer signal on a topic main listens to, checked against the Circle's members. */
+  | { type: 'signal-received'; signal: CircleSignal }
+  /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
+  | { type: 'circle-removed'; key: string };

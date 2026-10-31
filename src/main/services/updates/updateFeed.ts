@@ -2,7 +2,11 @@ import type { UpdateChannel } from '../../../shared/types/updates';
 
 export interface UpdateOffer {
   version: string;
-  summary: string;
+  /** One line per line of the feed's `notes`. */
+  summary: string[];
+  size: number | null;
+  /** The stack version the offered build pins, when the feed names one. */
+  stackVersion: string | null;
 }
 
 interface ParsedVersion {
@@ -61,11 +65,24 @@ export function parseFeed(text: string): UpdateOffer | null {
   if (typeof currentRelease !== 'string' || !Array.isArray(releases)) return null;
   const entry = releases.find(
     (release: { version?: unknown }) => release?.version === currentRelease
-  ) as { updateTo?: { version?: unknown; notes?: unknown } } | undefined;
+  ) as
+    | { updateTo?: { version?: unknown; notes?: unknown; size?: unknown; stackVersion?: unknown } }
+    | undefined;
   const version = entry?.updateTo?.version;
   if (typeof version !== 'string' || !parseVersion(version)) return null;
-  const notes = entry?.updateTo?.notes;
-  return { version, summary: typeof notes === 'string' ? notes : '' };
+  const { notes, size, stackVersion } = entry?.updateTo ?? {};
+  return {
+    version,
+    summary:
+      typeof notes === 'string'
+        ? notes
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [],
+    size: typeof size === 'number' && size > 0 ? size : null,
+    stackVersion: typeof stackVersion === 'string' ? stackVersion : null,
+  };
 }
 
 export function feedUrl(base: string, channel: UpdateChannel, arch: string): string {

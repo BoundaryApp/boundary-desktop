@@ -381,6 +381,29 @@ describe('createHermesChatModelAdapter', () => {
     expect(onPrivateRefused).toHaveBeenCalled();
   });
 
+  it('adds a transcript note when a shared model is unavailable too', async () => {
+    const onLocalUnreachable = vi.fn();
+    useRequestId('req-both');
+    const error = 'Your shared model isn’t available and your local model didn’t answer, so your message wasn’t sent.';
+    startChat.mockResolvedValue({
+      success: false,
+      requestId: 'req-both',
+      errorCode: 'local-unreachable',
+      sharedUnavailable: true,
+      error,
+    });
+
+    const adapter = createHermesChatModelAdapter(() => 's1', { onLocalUnreachable });
+    const gen = adapter.run({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
+      abortSignal: new AbortController().signal,
+      context: {} as never,
+    } as never) as AsyncGenerator<{ metadata?: { custom?: unknown } }>;
+    expect((await gen.next()).value?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
+    expect((await gen.next()).done).toBe(true);
+    expect(onLocalUnreachable).toHaveBeenCalledOnce();
+  });
+
   it('does not throw a generic error when start reports local-unreachable', async () => {
     const onLocalUnreachable = vi.fn();
     useRequestId('req-offline');

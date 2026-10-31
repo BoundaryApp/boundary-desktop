@@ -36,7 +36,7 @@ import {
   seedServiceProgress,
   startElapsedHeartbeat,
 } from '../../../shared/assistantStackLifecycle';
-import type { InferenceSlotId } from '../../../shared/types/onboarding';
+import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import type {
   ApplyAssistantLlmResult,
   AssistantStackIsolationMode,
@@ -54,7 +54,12 @@ import {
   runCompose,
   runComposeStreaming,
 } from '../containerRuntime';
-import { classifyInferenceSlot, getAppDefaultSlot, getLlmConnection } from '../onboarding/OpenAiOnboardingStore';
+import {
+  classifyInferenceSlot,
+  getAppDefaultSlot,
+  getAppSharedModel,
+  getLlmConnection,
+} from '../onboarding/OpenAiOnboardingStore';
 import {
   applyLlmConnectionToProjectFiles,
   clearLlmKeysFromProjectEnv,
@@ -138,7 +143,7 @@ import {
 import { hasCalendarAccounts } from './calendar/calendarStore';
 import { CALENDAR_COMPOSE_PROFILE } from './calendar/calendarModel';
 import { rewriteLlmUrlForContainer } from './rewriteLlmUrlForContainer';
-import { planAppInferenceChain, type ChainPlan } from '../inference/inferenceChainService';
+import { planAppInferenceChain, sharedModelConnection, type ChainPlan } from '../inference/inferenceChainService';
 import {
   ensureInferenceRouter,
   HERMES_ROUTER_PROVIDER_KEY,
@@ -1758,7 +1763,7 @@ type LlmConnectionRequest =
       endpointUrl: string;
       apiKey: string;
       modelId: string;
-      slot?: InferenceSlotId;
+      slot?: InferenceChainSlot;
       /** The chain to serve; absent means this connection alone (ADR 0033). */
       plan?: ChainPlan;
     }
@@ -1775,6 +1780,7 @@ let applyRunning: Promise<ApplyAssistantLlmResult> | null = null;
 let applyNext: {
   connection: LlmConnectionRequest;
   showProgress: boolean;
+  onRestart: Array<() => void>;
   result: Promise<ApplyAssistantLlmResult>;
   start: (result: Promise<ApplyAssistantLlmResult>) => void;
 } | null = null;
@@ -1788,27 +1794,35 @@ let applyNext: {
  * screen up, and ends in `ready` or `error`. Without it the apply leaves the lifecycle alone,
  * so a re-apply on a running stack (new bridge tokens, a provider switch) doesn't replace the
  * app with the start-up screen; the caller shows any error.
+ *
+ * `onRestart` fires when the run this call waits on decides Hermes must restart. Most applies don't.
  */
 export function applyLlmConnectionToHermes(
   connection?: LlmConnectionRequest,
-  { showProgress = false }: { showProgress?: boolean } = {}
+  { showProgress = false, onRestart }: { showProgress?: boolean; onRestart?: () => void } = {}
 ): Promise<ApplyAssistantLlmResult> {
-  if (!applyRunning) return startApply(connection, showProgress);
+  const listeners = onRestart ? [onRestart] : [];
+  if (!applyRunning) return startApply(connection, showProgress, listeners);
   if (applyNext) {
     applyNext.connection = connection;
     applyNext.showProgress ||= showProgress;
+    applyNext.onRestart.push(...listeners);
     return applyNext.result;
   }
   let start!: (result: Promise<ApplyAssistantLlmResult>) => void;
   const result = new Promise<ApplyAssistantLlmResult>((resolve) => {
     start = resolve;
   });
-  applyNext = { connection, showProgress, result, start };
+  applyNext = { connection, showProgress, onRestart: listeners, result, start };
   return result;
 }
 
-function startApply(connection: LlmConnectionRequest, showProgress: boolean): Promise<ApplyAssistantLlmResult> {
-  const run = applyLlmConnectionOnce(connection, showProgress).catch((error: unknown) => ({
+function startApply(
+  connection: LlmConnectionRequest,
+  showProgress: boolean,
+  onRestart: Array<() => void>
+): Promise<ApplyAssistantLlmResult> {
+  const run = applyLlmConnectionOnce(connection, showProgress, onRestart).catch((error: unknown) => ({
     success: false as const,
     error: error instanceof Error ? error.message : String(error),
   }));
@@ -1816,7 +1830,7 @@ function startApply(connection: LlmConnectionRequest, showProgress: boolean): Pr
   void run.then(() => {
     const next = applyNext;
     applyNext = null;
-    if (next) next.start(startApply(next.connection, next.showProgress));
+    if (next) next.start(startApply(next.connection, next.showProgress, next.onRestart));
     else applyRunning = null;
   });
   return run;
@@ -1824,7 +1838,8 @@ function startApply(connection: LlmConnectionRequest, showProgress: boolean): Pr
 
 async function applyLlmConnectionOnce(
   connection: LlmConnectionRequest,
-  showProgress: boolean
+  showProgress: boolean,
+  onRestart: Array<() => void>
 ): Promise<ApplyAssistantLlmResult> {
   const stage = (message: string) => {
     if (showProgress) emitStage('configureLlm', message);
@@ -1835,16 +1850,28 @@ async function applyLlmConnectionOnce(
   const report = (snapshot: AssistantStackLifecycleSnapshot) => {
     if (showProgress) setLifecycle(snapshot);
   };
+  const reportReady = (local: boolean) =>
+    report(
+      createLifecycleSnapshot('ready', {
+        message: local ? 'Local stack ready (LLM env files updated when present).' : 'Assistant stack is ready.',
+        stage: 'ready',
+        services: markStackReadyAfterEnsure(
+          lifecycleSnapshot.services.length ? lifecycleSnapshot.services : seedServiceProgress()
+        ),
+      })
+    );
   let apiKey: string | undefined;
   try {
-    const llm = connection ?? (await getLlmConnection());
+    // A shared model has no connection of its own; the store keeps it apart from the slots.
+    const appShared = connection ? null : getAppSharedModel();
+    const llm = connection ?? (appShared ? sharedModelConnection(appShared.modelId ?? '') : await getLlmConnection());
     apiKey = llm?.apiKey;
     if (!llm?.endpointUrl || !llm.apiKey || !llm.modelId) {
       return { success: false, error: 'No configured LLM connection to apply.' };
     }
     const slot =
       connection?.slot ??
-      getAppDefaultSlot() ??
+      (appShared ? 'peer' : getAppDefaultSlot()) ??
       classifyInferenceSlot({ endpointUrl: llm.endpointUrl });
 
     if (!(await isAssistantStackReady())) {
@@ -1852,6 +1879,14 @@ async function applyLlmConnectionOnce(
     }
 
     const local = isLocalAssistantStackMode();
+    // A chat send passes its plan; start-up and Settings serve the app default's chain.
+    const plan = connection ? (connection.plan ?? { kind: 'direct' as const }) : await planAppInferenceChain();
+    if (slot === 'peer' && (local || plan.kind !== 'routed')) {
+      // Nothing can serve yet. The stack is still up, and a send plans again and says why.
+      persistDebugLog('assistant-stack', 'Shared model not applied', { local, plan: plan.kind });
+      reportReady(local);
+      return { success: true };
+    }
     const { root } = tryResolveAssistantRoot();
     if (root) {
       stage('Updating project .env and OpenCode for Boundary LLM…');
@@ -1862,10 +1897,10 @@ async function applyLlmConnectionOnce(
       );
     }
 
-    // A chat send passes its plan; start-up and Settings serve the app default's chain.
-    const plan = connection ? (connection.plan ?? { kind: 'direct' as const }) : await planAppInferenceChain();
     const routed = !local && plan.kind === 'routed' ? plan : null;
-    const contextLength = routed?.chain.contextLength ?? (await lookupModelContextLength(llm));
+    // An offer that doesn't say leaves nothing to ask: a shared model has no address of its own.
+    const contextLength =
+      routed?.chain.contextLength ?? (slot === 'peer' ? undefined : await lookupModelContextLength(llm));
     const upstreamUrl = rewriteLlmUrlForContainer(llm.endpointUrl);
     setInferenceRouterChain(routed?.chain ?? null);
 
@@ -1932,6 +1967,7 @@ async function applyLlmConnectionOnce(
     const restart = written.restart || envChanged || hermesRestartPending;
     if (restart) {
       hermesRestartPending = true;
+      for (const listener of onRestart) listener();
       progress('Restarting Hermes to apply Boundary’s settings…');
       try {
         if (local) await runLiveLocalStackCompose(['restart', 'hermes'], { timeout: 120_000 });
@@ -1966,16 +2002,7 @@ async function applyLlmConnectionOnce(
     }
     void wakeHermesForHostBridge();
 
-    const baseServices = lifecycleSnapshot.services.length
-      ? lifecycleSnapshot.services
-      : seedServiceProgress();
-    report(
-      createLifecycleSnapshot('ready', {
-        message: local ? 'Local stack ready (LLM env files updated when present).' : 'Assistant stack is ready.',
-        stage: 'ready',
-        services: markStackReadyAfterEnsure(baseServices),
-      })
-    );
+    reportReady(local);
 
     rememberLastApplied(slot, llm.endpointUrl, llm.modelId, contextLength, Boolean(routed));
     return { success: true };
@@ -2025,7 +2052,7 @@ async function pushLlmConnectionToProxy(
 }
 
 function rememberLastApplied(
-  slot: InferenceSlotId,
+  slot: InferenceChainSlot,
   endpointUrl: string,
   modelId: string,
   contextLength: number | undefined,
@@ -2169,7 +2196,7 @@ export async function ensureAssistantStackOnLaunch(): Promise<void> {
   if (!isAssistantStackSetupComplete()) {
     return;
   }
-  if (!(await getLlmConnection())) {
+  if (!getAppSharedModel() && !(await getLlmConnection())) {
     // Every provider was disconnected. The app still opens, and Settings can connect one.
     await ensureAssistantStackRunning();
     return;

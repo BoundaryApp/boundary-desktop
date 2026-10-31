@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatInferenceChipTitle,
   formatInferenceProvenance,
+  inferenceMarkLabel,
   isVisibleChatProvider,
+  servingFallback,
 } from '../../../shared/inferenceDisplay';
 import type {
   ChatInferenceProvider,
@@ -41,6 +43,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   const [open, setOpen] = useState(false);
   const { status } = useInferenceStatus();
   const [resolved, setResolved] = useState<ResolvedSessionInference | null>(null);
+  const [marks, setMarks] = useState<SessionInferenceMark[]>([]);
 
   const onResolvedChangeRef = useRef(onResolvedChange);
   onResolvedChangeRef.current = onResolvedChange;
@@ -55,7 +58,10 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
       if (mine !== latest.current) return;
       setResolved(next);
       onResolvedChangeRef.current?.(next);
-      if (marks) onMarksChangeRef.current?.(marks);
+      if (marks) {
+        setMarks(marks);
+        onMarksChangeRef.current?.(marks);
+      }
     };
     try {
       // With no session yet main answers for a new chat: the rail project's pin, else the app
@@ -162,22 +168,35 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
     await refresh();
   };
 
-  const title = resolved?.configured
-    ? formatInferenceChipTitle(resolved.slot, resolved.modelId)
-    : 'No provider';
+  const primaryTitle = !resolved?.configured
+    ? 'No provider'
+    : resolved.slot === 'peer'
+      ? resolved.providerDisplayName
+      : formatInferenceChipTitle(resolved.slot, resolved.modelId);
+  // Local's health is probed for this chat; a cloud slot's comes with the status main pushes.
+  const primaryHealth =
+    resolved?.slot === 'openrouter'
+      ? status?.slots.openrouter?.health
+      : resolved?.slot === 'local'
+        ? resolved.health
+        : undefined;
+  const unreachable = primaryHealth === 'unreachable';
+  // A restart or a refused send says more about the next turn than the last one's fallback does.
+  const fallback = applying || privacyRefused ? null : servingFallback(resolved, marks);
+  const title = fallback ? inferenceMarkLabel(fallback) : primaryTitle;
   const provenance = privacyRefused
     ? 'not private, can’t send'
-    : resolved
-    ? formatInferenceProvenance(resolved.provenance, {
-        applying,
-        unreachable: resolved.slot === 'local' && resolved.health === 'unreachable',
-      })
-    : 'from app default';
+    : fallback
+      ? `fallback for ${primaryTitle}`
+      : resolved
+        ? formatInferenceProvenance(resolved.provenance, { applying, unreachable })
+        : 'from app default';
   // The app default is the expected state, so the chip names only a chat or project
   // override, a restart, or a local server that stopped answering.
-  const note =
-    resolved &&
-    (applying || privacyRefused || resolved.provenance !== 'app-default' || provenance === 'unreachable')
+  const note = fallback
+    ? 'fallback'
+    : resolved &&
+        (applying || privacyRefused || resolved.provenance !== 'app-default' || provenance === 'unreachable')
       ? provenance
       : null;
 
@@ -196,7 +215,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
         <PopoverTrigger>
           <button
             type="button"
-            className={`wb-chip wb-chip--inference${open ? ' is-on' : ''}`}
+            className={`wb-chip wb-chip--inference${open ? ' is-on' : ''}${fallback ? ' is-fallback' : ''}`}
             aria-haspopup="listbox"
             aria-expanded={open}
             aria-label={`Inference · ${title} · ${provenance}`}
@@ -214,21 +233,38 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
           side="top"
           align="start"
         >
+          {fallback ? (
+            <>
+              <div className="wb-inf-kicker">Answering now</div>
+              <button type="button" role="option" aria-selected={false} className="wb-inf-opt" disabled>
+                {title}
+                <small>{`fallback for ${primaryTitle} · the next send tries it first`}</small>
+              </button>
+            </>
+          ) : null}
           <div className="wb-inf-kicker">This chat</div>
+          {resolved?.slot === 'peer' ? (
+            <button type="button" role="option" aria-selected className="wb-inf-opt is-on" disabled>
+              {resolved.providerDisplayName}
+              <small>from app default · shared in your Circle</small>
+            </button>
+          ) : null}
           {options.map((option) => {
             const selected = resolved?.slot === option.slot;
             const blocked = privacyLocked && option.slot !== 'local';
             const detail = blocked
               ? 'not private'
-              : selected && resolved.provenance === 'chat-override'
-                ? 'overridden for this chat'
-                : selected && resolved.provenance === 'project-default'
-                  ? 'from project default'
-                  : option.slot === status?.appDefault
-                    ? 'from app default'
-                    : option.slot === 'local'
-                      ? 'on this machine'
-                      : CLOUD_INFERENCE_SHORT;
+              : selected && unreachable
+                ? 'unreachable'
+                : selected && resolved.provenance === 'chat-override'
+                  ? 'overridden for this chat'
+                  : selected && resolved.provenance === 'project-default'
+                    ? 'from project default'
+                    : option.slot === status?.appDefault
+                      ? 'from app default'
+                      : option.slot === 'local'
+                        ? 'on this machine'
+                        : CLOUD_INFERENCE_SHORT;
             return (
               <button
                 key={option.slot}

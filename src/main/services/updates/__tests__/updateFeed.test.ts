@@ -23,7 +23,12 @@ describe('parseFeed', () => {
       currentRelease: '0.0.1-rc.999999',
       releases: [{ version: '0.0.1-rc.999999', updateTo: { version: '0.0.1', notes: 'Line' } }],
     });
-    expect(parseFeed(feed)).toEqual({ version: '0.0.1', summary: 'Line' });
+    expect(parseFeed(feed)).toEqual({
+      version: '0.0.1',
+      summary: ['Line'],
+      size: null,
+      stackVersion: null,
+    });
   });
 
   it.each(['not json', 'null', '{}', '{"currentRelease":"1.0.0","releases":[]}'])(

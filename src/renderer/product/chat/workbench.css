@@ -1894,6 +1894,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-2xs);
 }
 
+.wb-chip--inference.is-fallback span {
+  color: var(--warn);
+}
+
 .wb-inf-picker {
   position: relative;
   display: inline-flex;
@@ -5447,6 +5451,537 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Working dot: an agent is processing a turn for this chat (any list or row that names
    it). The core stays put; a halo breathes out from it. Static under reduced motion. */
+/* The rail's update button (ADR 0037). Ready uses an outline, because a filled button means
+   the active destination. */
+.wb-update-btn {
+  position: relative;
+}
+
+.wb-update-btn.is-ready {
+  color: var(--brand);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 45%, var(--line));
+}
+
+.wb-update-btn.is-waiting {
+  color: var(--brand);
+}
+
+.wb-update-btn.is-failed {
+  color: var(--warn);
+}
+
+.wb-update-ring {
+  position: absolute;
+  inset: 3px;
+  width: 26px;
+  height: 26px;
+  transform: rotate(-90deg);
+}
+
+.wb-update-ring circle {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.6;
+}
+
+.wb-update-ring .is-arc {
+  stroke: var(--brand);
+  stroke-linecap: round;
+}
+
+.wb-update-ring.is-sweeping {
+  animation: wb-update-sweep 2.4s linear infinite;
+}
+
+@keyframes wb-update-sweep {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+.wb-update-count {
+  font-family: var(--font-mono);
+  font-size: var(--size-2xs);
+}
+
+.wb-update-card {
+  position: fixed;
+  left: 56px;
+  bottom: 48px;
+  z-index: 20;
+  width: min(328px, calc(100vw - 72px));
+  padding: var(--space-3) 14px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--size-ui);
+  transform-origin: 0 100%;
+  animation: wb-rise-in var(--dur-panel) var(--ease);
+}
+
+.wb-update-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.wb-update-card h3 {
+  margin: 0;
+  font-size: var(--size-body);
+  font-weight: var(--weight-medium);
+}
+
+.wb-update-size {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-update-card p {
+  margin: 6px 0 0;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-update-lines,
+.wb-update-tasks {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-update-lines li {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.wb-update-lines li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 4px;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.wb-update-tasks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+}
+
+.wb-update-tasks li.is-finished {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.wb-update-tasks svg {
+  flex-shrink: 0;
+  color: var(--ok);
+}
+
+.wb-update-bar {
+  position: relative;
+  height: 3px;
+  margin-top: var(--space-3);
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.wb-update-bar > i {
+  position: absolute;
+  inset: 0 auto 0 -34%;
+  width: 34%;
+  border-radius: 2px;
+  background: var(--brand);
+  animation: wb-update-slide 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.wb-update-bar > i.is-drain {
+  inset: 0 auto 0 0;
+  animation: none;
+  transition: width 1s linear;
+}
+
+@keyframes wb-update-slide {
+  to {
+    left: 100%;
+  }
+}
+
+.wb-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.wb-update-actions .wb-btn-solid,
+.wb-update-actions .wb-btn-ghost,
+.wb-update-hero .wb-btn-solid,
+.wb-update-hero .wb-btn-ghost,
+.wb-update-row-actions .wb-btn-ghost {
+  width: auto;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+
+.wb-update-link {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-update-link:hover {
+  color: var(--text);
+}
+
+.wb-update-hero {
+  gap: 14px;
+}
+
+.wb-update-hero.is-warn {
+  border-color: var(--warn-line);
+  background: var(--warn-dim);
+}
+
+.wb-update-hero h2 {
+  margin: 0;
+  font-size: var(--size-section);
+  font-weight: var(--weight-medium);
+}
+
+.wb-update-tile {
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+.wb-update-tile.is-ok {
+  background: var(--ok-dim);
+  color: var(--ok);
+}
+
+.wb-update-tile.is-warn {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--warn-line);
+  color: var(--warn);
+}
+
+.wb-update-hero .wb-update-tasks {
+  flex-basis: 100%;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
+.wb-update-hero.has-tasks {
+  flex-wrap: wrap;
+}
+
+.wb-update-hero.has-tasks > .wb-update-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-update-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.wb-update-version {
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-update-work {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.wb-update-work li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+}
+
+.wb-update-work b {
+  display: block;
+  font-weight: var(--weight-medium);
+}
+
+.wb-update-work small {
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-update-work .wb-working-dot {
+  margin-left: auto;
+}
+
+.wb-update-work-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-update-ring.is-sweeping {
+    animation: none;
+  }
+
+  .wb-update-bar > i:not(.is-drain) {
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+}
+
+.wb-working-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.wb-mention-you {
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+  line-height: 1.5;
+}
+
+.wb-mention-at {
+  color: var(--brand);
+  font-weight: var(--weight-medium);
+}
+
+.wb-mention-reply {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.wb-mention-reply .wb-kind-mark {
+  margin-top: 3px;
+}
+
+.wb-mention-reply p {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-prose);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wb-mention-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.wb-rail-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--solid-fg);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-strong);
+  text-align: center;
+}
+
+/* DM header tabs: Messages | In channels. */
+.wb-dm-tabs {
+  display: flex;
+  align-self: stretch;
+  gap: 2px;
+  margin-left: 16px;
+}
+
+.wb-dm-tab {
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-dm-tab.is-on {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.wb-dm-tab .n {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+/* Open in #room: the message you came for, briefly marked. */
+.wb-msg.is-user.is-focused .wb-bubble {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 70%, transparent);
+  transition: box-shadow var(--dur-panel) var(--ease);
+}
+
+.wb-thread-head .wb-grow {
+  flex: 1;
+}
+
+/* DM long-thread tools (chat types Phase 7a): Ongoing since · Jump to date · Search. */
+.wb-dm-earlier {
+  position: relative;
+  align-self: center;
+  margin: var(--space-3) 0 var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  text-align: center;
+}
+
+.wb-dm-earlier .wb-link {
+  font-size: inherit;
+}
+
+/* Placed by Radix Popover (components/ui/popover). */
+.wb-dm-days {
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.wb-dm-day {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-dm-day:hover,
+.wb-dm-day:focus-visible {
+  background: var(--surface-hover);
+}
+
+.wb-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-find-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.wb-find-count {
+  min-width: 64px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  text-align: right;
+}
+
+::highlight(wb-find) {
+  background-color: color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+::highlight(wb-find-current) {
+  background-color: color-mix(in srgb, var(--brand) 55%, transparent);
+}
+
+/* DM context horizon (chat types Phase 7b): the stack's cut, drawn where it reports it. */
+.wb-horizon {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+.wb-horizon::before,
+.wb-horizon::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--line);
+}
+
+.wb-horizon-pill {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  text-align: center;
+}
+
+/* Above the line: dimmed, still selectable and copyable. */
+.wb-msg.is-beyond-horizon > :not(.wb-horizon):not(.wb-day) {
+  opacity: 0.55;
+}
+
+.wb-context-chip {
+  cursor: default;
+}
+
+/* Working dot: an agent is processing a turn for this chat (any list or row that names
+   it). The core stays put; a halo breathes out from it. Static under reduced motion. */
 /* Static on purpose: the pulsing working dot means an agent is running. */
 .wb-update-dot {
   position: absolute;
@@ -7947,14 +8482,31 @@ button.wb-task-card:hover {
   font-size: var(--size-2xs);
 }
 
-/* Sharing the local model with Circles (ADR 0034), inside Settings' Local card. */
+/* Sharing the local model with Circles (ADR 0034), on the Circles screen. */
 .wb-share {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+/* The status line in Settings' Local card. */
+.wb-share-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.wb-share-line .wb-share-status {
+  flex: 1;
+  min-width: 0;
 }
 
 .wb-share-head {

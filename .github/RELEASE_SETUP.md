@@ -12,7 +12,6 @@ The GitHub Actions workflow builds Boundary for macOS, Windows, and Linux when `
 - Package formats: DMG + ZIP (macOS), Squirrel EXE (Windows), DEB + RPM (Linux)
 - Optional macOS code signing and notarization
 - Automatic release creation and manual `workflow_dispatch` triggers
-- Local smoke testing with [nektos/act](https://github.com/nektos/act)
 
 ## Packaging stack
 
@@ -127,28 +126,6 @@ bun run dist:mac
 ls out/make/**/*.dmg
 ```
 
-### Emulate GitHub Actions with act (Linux smoke only)
-
-`act` runs Linux containers. It can validate install/type-check/package flows, **not** a signed macOS DMG.
-
-```bash
-# Package smoke (Linux)
-act workflow_dispatch -W .github/workflows/build-local.yml
-
-# Secret + cert decode checks (needs a secrets file)
-act workflow_dispatch -W .github/workflows/test-local.yml --secret-file .secrets
-```
-
-Example `.secrets` (do not commit):
-
-```
-MAC_CERTS=...
-MAC_CERTS_PASSWORD=...
-APPLE_ID=...
-APPLE_APP_SPECIFIC_PASSWORD=...
-APPLE_TEAM_ID=...
-```
-
 ## Troubleshooting
 
 ### Build failures
@@ -159,11 +136,6 @@ APPLE_TEAM_ID=...
 
 ### Code signing / notarization
 
-1. Verify `MAC_CERTS` decodes to a valid P12 (`test-local.yml` does this).
+1. Verify `MAC_CERTS` decodes to a valid P12.
 2. Prefer setting `CSC_NAME` to the Developer ID Application identity.
 3. Notarization requires `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` (Forge `osxNotarize` is skipped when any are missing).
-
-### act limitations
-
-- Cannot produce signed macOS DMGs.
-- Use `build-local.yml` for Linux package smoke; use a Mac or GitHub `macos-latest` for DMG.

@@ -5,7 +5,10 @@ import { app } from 'electron';
 
 export type DarwinRuntimeArch = 'arm64' | 'x64';
 
-export const BOUNDARY_MACHINE_NAME = 'boundary';
+declare const __BOUNDARY_PODMAN_MACHINE__: string | undefined;
+
+export const BOUNDARY_MACHINE_NAME =
+  (typeof __BOUNDARY_PODMAN_MACHINE__ === 'string' && __BOUNDARY_PODMAN_MACHINE__) || 'boundary';
 
 /**
  * Memory for the bundled `boundary` Podman machine (MiB).

@@ -26,6 +26,8 @@ interface OnboardingHomeScreenProps {
   /** Rows experiments add, shown after the custom endpoint row. */
   extraRows?: React.ReactNode;
   onConnectLocalManual: () => void;
+  /** A member of the user's Circle runs the model (ADR 0036). */
+  onUseSharedModel: () => void;
 }
 
 /** Connect-a-model choice list (ADR 0019): one row per path, recommended first. */
@@ -43,6 +45,7 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
   onUseExisting,
   extraRows,
   onConnectLocalManual,
+  onUseSharedModel,
 }) => {
   const hasLocal = localEndpoints.length > 0;
   const showOauthRow = !oauthLoading && (oauthPendingContinue || oauthProvider);
@@ -107,6 +110,11 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
         title="I already have a URL / API key"
         description="Any OpenAI-compatible endpoint"
         onSelect={onUseExisting}
+      />
+      <ChoiceRow
+        title="Use a model from my Circle"
+        description="Join with an invite and use a model a member shares"
+        onSelect={onUseSharedModel}
       />
       {extraRows}
       {!hasLocal && (

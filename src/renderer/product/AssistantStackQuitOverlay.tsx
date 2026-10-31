@@ -4,6 +4,7 @@ import { createLifecycleSnapshot } from '../../shared/assistantStackLifecycle';
 import { ServiceProgressCards } from './ServiceProgressCards';
 import { StartupDetails, ToolRing } from './startup/StartupScreen';
 import { STARTUP_TOOLS, toolState, type StartupToolState } from './startup/startupModel';
+import { useUpdates } from './updates';
 
 export interface AssistantStackQuitOverlayProps {
   lifecycle: AssistantStackLifecycleSnapshot;
@@ -32,6 +33,7 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
   lifecycle,
 }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const update = useUpdates();
   const highWater = useRef(0);
   if (lifecycle.phase !== 'stopping' && lifecycle.phase !== 'stopped') {
     highWater.current = 0;
@@ -63,7 +65,11 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
         <ToolRing states={states} highlighted={-1} lookAt={-1} mood="sleeping" words={STOP_WORDS} />
         <div className="su-heading">
           <h1 id="quit-overlay-title">Shutting down your assistant</h1>
-          <p role="status">Stopping your tools. Boundary closes when this finishes.</p>
+          <p role="status">
+            {update?.phase === 'ready'
+              ? `Stopping your tools. Boundary installs ${update.version} and ${update.restarting ? 'reopens' : 'closes'}.`
+              : 'Stopping your tools. Boundary closes when this finishes.'}
+          </p>
         </div>
         <div
           className="su-bar"

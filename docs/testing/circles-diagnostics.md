@@ -30,7 +30,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | --- | --- |
 | `net.ready` | The process is up: this identity and device. |
 | `net.circles-open` | Stored Circles opened, with a first health record. |
-| `net.heartbeat` | Every minute: event-loop lag, memory, each peer (replicating, channel, age, rtt, address class), each Circle (members online, offers, view and signed length, indexers), the gateway queue, the DHT's view (firewalled, randomized NAT). |
+| `net.heartbeat` | Every minute: event-loop lag, memory, each peer (replicating, channel, age, rtt, address class), each Circle (members online, offers, view and signed length, indexers), the gateway queue, the DHT's view (firewalled, randomized NAT), and peer signals since the run began: messages and bytes per topic this device sent or listens to, and drops by reason (`malformed`, `not-member`, `unknown-topic`, `rate`). Signals get no event of their own, because they can arrive several times a second. |
 | `net.stopping` | A last health record before quitting. |
 | `dht.nat-update`, `dht.network-change`, `dht.persistent` | The DHT learned its public address, the network changed, or this node became reachable. |
 | `circle.topic-flushed` | A Circle's topic was announced; `ms` is how long that took. |
@@ -40,6 +40,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | `join.request`, `join.paired`, `join.writable`, `join.refused` | The invitee's side, with time since the request. |
 | `peer.connect`, `peer.close`, `peer.error` | A connection. `peer.close` has its length, rtt, bytes and packets each way, and retransmits. |
 | `peer.replicate`, `peer.drop-removed` | Replication started with a device, or a removed device was dropped. |
+| `removal.notice-sent`, `removal.notice-ignored`, `circle.removed-here` | An admin told a device it was removed, a device ignored a notice from someone who isn't an admin, or this device closed a Circle it was removed from. |
 | `link.attach`, `link.open`, `link.close`, `link.refused-unknown` | The inference channel to a device: who opened it, how long until both sides had it, requests made and served. |
 | `offer.published`, `offer.withdrawn`, `share.upstream` | This user's sharing. |
 | `shared.request`, `shared.head`, `shared.end`, `shared.cancel`, `shared.no-link` | The consumer's side of a shared-model call: time to head, time to first chunk, bytes, chunks, outcome. |

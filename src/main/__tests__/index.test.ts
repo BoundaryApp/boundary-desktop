@@ -162,7 +162,7 @@ vi.mock('../persistDebugLog', () => ({
 vi.mock('../services/dockerService', () => ({ dockerService: { destroy: h.services.dockerDestroy } }));
 vi.mock('../services/onboarding/ipcHandlers', () => ({ registerOnboardingHandlers: vi.fn() }));
 vi.mock('../services/updates/ipcHandlers', () => ({
-  checkForUpdatesFromMenu: vi.fn(),
+  updateMenuItem: vi.fn(() => ({ label: 'Check for Updates…', click: vi.fn() })),
   quitAndInstallUpdate: vi.fn(),
   recordDataVersion: vi.fn(),
   registerUpdateHandlers: vi.fn(),
@@ -297,6 +297,62 @@ describe('urls:open-url (G13-19)', () => {
       expect(result.success).toBe(false);
     }
     expect(h.electron.shell.openExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe('restart to install', () => {
+  const closeEvent = (win: any) => {
+    const event = { preventDefault: vi.fn() };
+    win.emit('close', event);
+    return event;
+  };
+
+  async function restart() {
+    vi.useFakeTimers();
+    await loadMain();
+    const win = await readyWithFakeTimers();
+    const updates = await import('../services/updates/ipcHandlers');
+    const installAndRestart = vi.mocked(updates.registerUpdateHandlers).mock.calls[0][0];
+    installAndRestart();
+    return { win, quitAndInstall: vi.mocked(updates.quitAndInstallUpdate) };
+  }
+
+  async function readyWithFakeTimers() {
+    const windowUp = ready();
+    await vi.advanceTimersByTimeAsync(0);
+    return windowUp;
+  }
+
+  it('keeps the window open while the stack stops, then lets it close for Squirrel', async () => {
+    const { win, quitAndInstall } = await restart();
+    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
+    expect(quitAndInstall).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(h.services.stopAssistantStack).toHaveBeenCalledTimes(1);
+    expect(quitAndInstall).toHaveBeenCalledOnce();
+    expect(closeEvent(win).preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('leaves the quit to Squirrel once the windows have closed', async () => {
+    await restart();
+    await vi.advanceTimersByTimeAsync(150);
+    h.state.appHandlers['window-all-closed']();
+    expect(h.electron.app.quit).not.toHaveBeenCalled();
+  });
+
+  it('exits if Squirrel never takes over', async () => {
+    await restart();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(h.electron.app.exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(h.electron.app.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('still keeps the window for a plain quit', async () => {
+    await loadMain();
+    const win = await ready();
+    h.state.appHandlers['before-quit']({ preventDefault: vi.fn() });
+    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
   });
 });
 

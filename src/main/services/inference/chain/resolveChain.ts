@@ -25,6 +25,8 @@ export interface InferenceChainFacts {
   circleJoined(circleId: string): boolean;
   /** The provider's offered models by id; null when the offer was withdrawn. */
   peerOffer(peer: PeerModelRef): Record<string, PeerOfferedModel> | null;
+  /** Connected to this device now. */
+  providerOnline(peer: PeerModelRef): boolean;
   /** The user marked this provider private (ADR 0034 §3). */
   providerPrivate(providerId: string): boolean;
   /** The user marked this provider trusted to drive their agent's tools (ADR 0034 §3). */
@@ -62,7 +64,13 @@ function staleReason(
   if (!offer) return 'offer-withdrawn';
   const model = entry.modelId?.trim() ?? '';
   if (!model || !offer[model]) return 'model-not-offered';
-  return facts.providerTrusted(entry.peer.providerId) ? null : 'provider-untrusted';
+  if (!facts.providerTrusted(entry.peer.providerId)) return 'provider-untrusted';
+  return facts.providerOnline(entry.peer) ? null : 'provider-offline';
+}
+
+/** Offline is a passing state: the entry still counts for what the chain is and how it's sized. */
+function stillInChain(state: InferenceChainEntryState): boolean {
+  return !state.stale || state.stale === 'provider-offline';
 }
 
 /** Local is private; cloud slots never are; a shared model is when its provider is marked private. */
@@ -86,7 +94,7 @@ export function describeInferenceChain(
 ): InferenceChainEntryState[] {
   return chain.map((entry) => {
     const stale = staleReason(entry, facts);
-    const length = stale ? undefined : contextLength(entry, facts);
+    const length = !stale || stale === 'provider-offline' ? contextLength(entry, facts) : undefined;
     return {
       entry,
       key: chainEntryKey(entry),
@@ -112,14 +120,14 @@ export function applyPrivacyLock(
   if (!locked) return { ok: true, entries };
   const cut = entries.findIndex((state) => !state.private);
   const kept = cut < 0 ? entries : entries.slice(0, cut);
-  if (!kept.some((state) => !state.stale)) return { ok: false, reason: 'no-private-entry' };
+  if (!kept.some(stillInChain)) return { ok: false, reason: 'no-private-entry' };
   return { ok: true, entries: kept };
 }
 
 /** The smallest known context in the chain; Hermes is sized for it (ADR 0033 §8). */
 export function chainContextLength(entries: InferenceChainEntryState[]): number | undefined {
   const lengths = entries
-    .filter((state) => !state.stale && state.contextLength)
+    .filter((state) => stillInChain(state) && state.contextLength)
     .map((state) => state.contextLength as number);
   return lengths.length ? Math.min(...lengths) : undefined;
 }

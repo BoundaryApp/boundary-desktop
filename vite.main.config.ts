@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [],
   define: {
     __BOUNDARY_UPDATE_FEED_URL__: JSON.stringify(process.env.BOUNDARY_UPDATE_FEED_URL ?? ''),
+    __BOUNDARY_UPDATE_KEY_REQUIRED__: JSON.stringify(process.env.BOUNDARY_UPDATE_KEY_REQUIRED === '1'),
+    __BOUNDARY_APP_NAME__: JSON.stringify(process.env.BOUNDARY_APP_NAME ?? ''),
+    __BOUNDARY_PODMAN_MACHINE__: JSON.stringify(process.env.BOUNDARY_PODMAN_MACHINE ?? ''),
   },
   build: {
     lib: {

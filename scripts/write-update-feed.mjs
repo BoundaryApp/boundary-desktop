@@ -20,7 +20,15 @@ export function feedLabel(channel, version) {
   return channel === 'beta' && !version.includes('-') ? `${version}-rc.999999` : version;
 }
 
-export function buildFeed({ channel, version, url, sha256, size, notes, pubDate }) {
+/**
+ * The stack version this checkout pins. Boundary compares it with its own to tell whether an
+ * update moves the stack, which makes the first start after it take minutes.
+ */
+export function pinnedStackVersion(constantsSource) {
+  return /SOVEREIGN_AGENT_STACK_VERSION = '([^']+)'/.exec(constantsSource)?.[1];
+}
+
+export function buildFeed({ channel, version, url, sha256, size, notes, stackVersion, pubDate }) {
   const label = feedLabel(channel, version);
   return {
     currentRelease: label,
@@ -35,6 +43,7 @@ export function buildFeed({ channel, version, url, sha256, size, notes, pubDate 
           sha256,
           size,
           notes,
+          stackVersion,
         },
       },
     ],
@@ -84,6 +93,7 @@ async function main() {
     sha256: await sha256File(zip),
     size: statSync(zip).size,
     notes: notesFile && existsSync(notesFile) ? readFileSync(notesFile, 'utf8').trim() : '',
+    stackVersion: pinnedStackVersion(readFileSync('src/shared/assistantStackConstants.ts', 'utf8')),
     pubDate: new Date().toISOString(),
   });
   writeFileSync(out, `${JSON.stringify(feed, null, 2)}\n`);

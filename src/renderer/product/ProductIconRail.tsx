@@ -4,7 +4,7 @@ import { useAssistantStackStatus } from './assistantStack';
 import { useKanbanSnapshot } from './chat/kanbanActivity';
 import { useRunningTurns } from './chat/runningTurns';
 import { WorkingDot } from './chat/WorkingDot';
-import { useUpdates } from './updates';
+import { UpdateRailButton, useUpdates } from './updates';
 import { isMacPlatform } from './useAppShortcuts';
 import { experimentDestinations } from '../experiments';
 
@@ -68,7 +68,8 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   inert = false,
 }) => {
   const stack = useAssistantStackStatus()?.stack;
-  const updateDot = useUpdates()?.showDot ?? false;
+  const updates = useUpdates();
+  const updateButton = !disabled && Boolean(updates?.version);
   // Off the chat screen, nothing else says an agent is still working: a chat turn, or a
   // kanban worker the dispatcher started.
   const turns = useRunningTurns();
@@ -146,19 +147,19 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
           <Icon />
         </RailButton>
       ))}
+      {updateButton ? <UpdateRailButton className="end" /> : null}
       <RailButton
         label="Settings"
         command="go-settings"
         active={active === 'settings'}
         onClick={() => onNavigate('settings')}
         disabled={disabled}
-        className="end"
+        className={updateButton ? '' : 'end'}
       >
         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="8" cy="8" r="2.2" />
           <path d="M8 2.8v1.4M8 11.8v1.4M2.8 8h1.4M11.8 8h1.4M4.1 4.1l1 1M10.9 10.9l1 1M11.9 4.1l-1 1M5.1 10.9l-1 1" />
         </svg>
-        {updateDot ? <span className="wb-update-dot" role="img" aria-label="Update available" /> : null}
       </RailButton>
     </nav>
   );

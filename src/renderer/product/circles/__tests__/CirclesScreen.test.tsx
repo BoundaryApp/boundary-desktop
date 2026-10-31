@@ -1,8 +1,9 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CirclesState } from '../../../../shared/types/circles';
+import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { useAppCommand } from '../../useAppShortcuts';
 import { CirclesScreen } from '../CirclesScreen';
 
 const getState = vi.fn();
@@ -13,6 +14,9 @@ const createInvite = vi.fn();
 const removeMember = vi.fn();
 const setRole = vi.fn();
 const setProviderSettings = vi.fn();
+const setSharing = vi.fn();
+const getStatus = vi.fn();
+const listConfiguredEndpointModels = vi.fn();
 const push = vi.hoisted(() => ({ current: null as ((state: unknown) => void) | null }));
 
 stubElectronAPI({
@@ -25,14 +29,27 @@ stubElectronAPI({
     removeMember: (...args: unknown[]) => removeMember(...args),
     setRole: (...args: unknown[]) => setRole(...args),
     setProviderSettings: (...args: unknown[]) => setProviderSettings(...args),
+    setSharing: (...args: unknown[]) => setSharing(...args),
     onState: (cb: (state: unknown) => void) => {
       push.current = cb;
       return () => undefined;
     },
   },
+  onboarding: {
+    getStatus: (...args: unknown[]) => getStatus(...args),
+    listConfiguredEndpointModels: (...args: unknown[]) => listConfiguredEndpointModels(...args),
+  },
 });
 
-const unnamed: CirclesState = { status: 'stopped', displayName: '', snapshot: { identity: '', circles: [] }, providers: {} };
+const NOT_SHARING: CircleSharing = { models: [], circles: [], paused: false, away: false };
+
+const unnamed: CirclesState = {
+  status: 'stopped',
+  displayName: '',
+  snapshot: { identity: '', circles: [] },
+  providers: {},
+  sharing: NOT_SHARING,
+};
 
 const withCircle = (myRole: 'admin' | 'member'): CirclesState => ({
   status: 'running',
@@ -54,11 +71,19 @@ const withCircle = (myRole: 'admin' | 'member'): CirclesState => ({
     ],
   },
   providers: {},
+  sharing: NOT_SHARING,
 });
+
+const localConnected = {
+  configured: true,
+  slots: { local: { configured: true, endpointUrl: 'http://127.0.0.1:11434/v1', modelId: 'qwen3-8b', health: 'reachable' } },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   getState.mockResolvedValue(unnamed);
+  getStatus.mockResolvedValue(localConnected);
+  listConfiguredEndpointModels.mockResolvedValue({ success: true, models: [{ id: 'qwen3-8b', contextLength: 32768 }, { id: 'gemma' }] });
 });
 
 afterEach(() => cleanup());
@@ -140,25 +165,151 @@ describe('CirclesScreen', () => {
                 away: false,
                 online: true,
               },
-              { identity: 'a'.repeat(64), name: 'Ada', isMine: true, models: [{ id: 'mine', tools: false }], available: false, away: false, online: true },
+              { identity: 'a'.repeat(64), name: 'Ada', isMine: true, models: [{ id: 'mine', tools: true }], available: false, away: false, online: true },
             ],
           },
         ],
       },
       providers: { [bo]: { private: false, trusted: true } },
+      sharing: { models: [{ id: 'mine', tools: true }], circles: ['c'.repeat(64)], paused: true, away: false },
     };
     getState.mockResolvedValue(state);
     setProviderSettings.mockResolvedValue({ success: true, state });
     render(<CirclesScreen />);
     const shared = await screen.findByRole('list', { name: 'Shared models' });
     expect(within(shared).getByText('qwen3-8b')).toBeTruthy();
-    expect(within(shared).getByText('Paused')).toBeTruthy();
-    // Your own offer has no switches; Bo's has both.
-    expect(within(shared).getAllByRole('switch')).toHaveLength(2);
+    expect(within(shared).getByText("Paused: members can't use your models")).toBeTruthy();
+    // Your own row has one switch, for this Circle; Bo's has both claims.
+    expect(within(shared).getAllByRole('switch')).toHaveLength(3);
     expect(within(shared).getByRole('switch', { name: 'Trusted' }).getAttribute('aria-checked')).toBe('true');
     expect(within(shared).getByText(/sees every prompt it serves/)).toBeTruthy();
 
     fireEvent.click(within(shared).getByRole('switch', { name: 'Private' }));
     expect(setProviderSettings).toHaveBeenCalledWith({ identity: bo, private: true, trusted: true });
+  });
+
+  describe('sharing your models', () => {
+    const KEY = 'c'.repeat(64);
+    const SHARING: CircleSharing = { models: [{ id: 'qwen3-8b', tools: true, contextLength: 32768 }], circles: [KEY], paused: false, away: false };
+
+    /** Mount with this sharing; `setSharing` answers as main does, by pushing the new state. */
+    async function mount(sharing: CircleSharing, overrides: Partial<CirclesState> = {}) {
+      const state: CirclesState = { ...withCircle('member'), sharing, ...overrides };
+      getState.mockResolvedValue(state);
+      setSharing.mockImplementation(async (next: CircleSharing) => {
+        const pushed = { ...state, sharing: next };
+        push.current?.(pushed);
+        return { success: true, state: pushed };
+      });
+      render(<CirclesScreen />);
+      const panel = await screen.findByRole('group', { name: 'Share your models' });
+      return { panel, circle: await screen.findByRole('region', { name: 'Garden club' }) };
+    }
+
+    it('shows nothing to set up for someone in no Circle', async () => {
+      getState.mockResolvedValue({ ...unnamed, displayName: 'Ada' });
+      render(<CirclesScreen />);
+      await screen.findByRole('form', { name: 'New Circle' });
+      expect(screen.queryByRole('group', { name: 'Share your models' })).toBeNull();
+    });
+
+    it('takes someone sharing nothing through a model and a Circle', async () => {
+      const { panel, circle } = await mount(NOT_SHARING);
+      expect(within(panel).getByText(/You aren't sharing a model/)).toBeTruthy();
+      expect(await within(panel).findByText('32K context')).toBeTruthy();
+      expect(within(panel).queryByRole('button', { name: 'Pause sharing' })).toBeNull();
+      expect(within(circle).getByText("Members of Garden club can't use your models.")).toBeTruthy();
+
+      await act(async () => fireEvent.click(within(panel).getByRole('checkbox', { name: /qwen3-8b/ })));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...NOT_SHARING, models: SHARING.models });
+      expect(within(panel).getByText(/Turn on sharing in a Circle below/)).toBeTruthy();
+
+      await act(async () => fireEvent.click(within(circle).getByRole('switch', { name: 'Share with Garden club' })));
+      expect(setSharing).toHaveBeenLastCalledWith(SHARING);
+      expect(within(panel).getByText('Members of Garden club can use this model while Boundary is open.')).toBeTruthy();
+      expect(within(circle).getByRole('img', { name: 'Sharing' })).toBeTruthy();
+    });
+
+    it('pauses and resumes, saying so in the panel and the Circle', async () => {
+      const { panel, circle } = await mount(SHARING);
+      await act(async () => fireEvent.click(within(panel).getByRole('button', { name: 'Pause sharing' })));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...SHARING, paused: true });
+      expect(within(panel).getByRole('alert').textContent).toMatch(/Paused: members can't use your models\./);
+      expect(within(circle).getByText("Paused: members can't use your models")).toBeTruthy();
+      expect(within(circle).getByRole('img', { name: 'Unavailable to members' })).toBeTruthy();
+
+      await act(async () => fireEvent.click(within(panel).getByRole('button', { name: 'Resume sharing' })));
+      expect(setSharing).toHaveBeenLastCalledWith(SHARING);
+      expect(within(panel).queryByRole('alert')).toBeNull();
+      expect(within(circle).queryByText(/Paused/)).toBeNull();
+      expect(within(panel).getByRole('button', { name: 'Pause sharing' })).toBeTruthy();
+    });
+
+    it('turns away mode on and says what each state means', async () => {
+      const { panel, circle } = await mount(SHARING);
+      const away = () => within(panel).getByRole('switch', { name: 'Away mode' });
+      expect(within(panel).getByText(/Off: members can't use your models while this Mac sleeps/)).toBeTruthy();
+
+      await act(async () => fireEvent.click(away()));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...SHARING, away: true });
+      expect(away().getAttribute('aria-checked')).toBe('true');
+      expect(within(panel).getByText(/This Mac stays awake/)).toBeTruthy();
+      expect(within(circle).getByText('Away mode')).toBeTruthy();
+
+      // Main releases the power-save blocker while paused.
+      await act(async () => fireEvent.click(within(panel).getByRole('button', { name: 'Pause sharing' })));
+      expect(within(panel).getByText(/On, but this Mac can sleep while sharing is paused/)).toBeTruthy();
+      expect(within(circle).queryByText('Away mode')).toBeNull();
+
+      await act(async () => fireEvent.click(away()));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...SHARING, paused: true, away: false });
+    });
+
+    it('stops sharing with one Circle and keeps the models', async () => {
+      const { circle } = await mount(SHARING);
+      await act(async () => fireEvent.click(within(circle).getByRole('switch', { name: 'Share with Garden club' })));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...SHARING, circles: [] });
+    });
+
+    it('keeps a shared model the server no longer lists, so it can be turned off', async () => {
+      const old = { ...SHARING, models: [{ id: 'old-model', tools: true }] };
+      const { panel } = await mount(old);
+      await act(async () => fireEvent.click(within(panel).getByRole('checkbox', { name: 'old-model' })));
+      expect(setSharing).toHaveBeenLastCalledWith({ ...old, models: [] });
+    });
+
+    it('says when the local server stops members using a shared model, with pause taking priority', async () => {
+      getStatus.mockResolvedValue({ ...localConnected, slots: { local: { ...localConnected.slots.local, health: 'unreachable' } } });
+      const { panel } = await mount(SHARING);
+      expect((await within(panel).findByRole('alert')).textContent).toMatch(/local model server isn't responding/);
+      await act(async () => fireEvent.click(within(panel).getByRole('button', { name: 'Pause sharing' })));
+      expect(within(panel).getByRole('alert').textContent).toMatch(/^Paused/);
+    });
+
+    it('says when Circles are not connected', async () => {
+      const { panel } = await mount(SHARING, { status: 'starting' });
+      expect((await within(panel).findByRole('alert')).textContent).toMatch(/Circles aren't connected: members can't use your models/);
+    });
+
+    it('sends someone with no local server to Settings', async () => {
+      getStatus.mockResolvedValue({ configured: false, slots: {} });
+      const commands: string[] = [];
+      const Listener = () => {
+        useAppCommand((command) => commands.push(command));
+        return null;
+      };
+      render(<Listener />);
+      const { panel } = await mount(NOT_SHARING);
+      expect(await within(panel).findByText(/Connect a local model server in Settings/)).toBeTruthy();
+      fireEvent.click(within(panel).getByRole('button', { name: 'Open Settings' }));
+      expect(commands).toEqual(['go-settings']);
+    });
+
+    it('shows a refusal from main', async () => {
+      const { panel } = await mount(NOT_SHARING);
+      setSharing.mockResolvedValue({ success: false, error: 'Share at most 32 models.', state: withCircle('member') });
+      fireEvent.click(await within(panel).findByRole('checkbox', { name: /gemma/ }));
+      expect(await within(panel).findByText('Share at most 32 models.')).toBeTruthy();
+    });
   });
 });

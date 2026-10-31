@@ -8,7 +8,7 @@ import type {
   AssistantStackPorts,
   LastAppliedLlm,
 } from '../../../shared/types/assistantStack';
-import type { InferenceSlotId } from '../../../shared/types/onboarding';
+import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import { readStoreFromMemory } from '../storeMemoryCache';
 import { sameEndpoint } from '../../../shared/utils/endpointUrl';
 
@@ -106,7 +106,7 @@ export function clearLastAppliedLlm(): void {
 export function llmFingerprintsMatch(
   applied: LastAppliedLlm | null,
   next: {
-    slot: InferenceSlotId;
+    slot: InferenceChainSlot;
     endpointUrl: string;
     modelId: string;
     routed?: boolean;

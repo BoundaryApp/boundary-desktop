@@ -3,6 +3,7 @@ import type {
   HermesNoReply,
   HermesReplyEnding,
 } from '../../../../shared/types/hermesChat';
+import { persistDebugLog } from '../../../persistDebugLog';
 import { getHermesGatewaySession } from './hermesGatewaySession';
 import { getNoReplies, getReplyEndings, setNoReply, setReplyEnding } from './hermesAgentStore';
 
@@ -37,13 +38,15 @@ export function settleInterruptedTurn(
   hasPartial: boolean
 ): void {
   const gateway = getHermesGatewaySession();
+  const stoppedAt = Date.now();
   const confirmed = new Promise<void>((resolve) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unsubscribe: () => void = () => undefined;
     const finish = () => {
       if (timer) clearTimeout(timer);
-      timer = null;
       unsubscribe();
+      persistDebugLog('chat-turn', 'turn stop settled', { ms: Date.now() - stoppedAt, confirmed: timer !== null });
+      timer = null;
       resolve();
     };
     // Only this session's completion counts, and only as `interrupted` when it says how it
@@ -54,7 +57,10 @@ export function settleInterruptedTurn(
       if (status != null && status !== 'interrupted') return;
       finish();
     });
-    timer = setTimeout(finish, INTERRUPT_SETTLE_MS);
+    timer = setTimeout(() => {
+      timer = null;
+      finish();
+    }, INTERRUPT_SETTLE_MS);
   });
   const settled: Promise<void> = confirmed
     .then(async (): Promise<void> => {

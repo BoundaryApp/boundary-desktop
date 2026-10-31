@@ -63,7 +63,8 @@ import {
   inferenceRouterPushed,
   stopInferenceRouter,
 } from '../../inference/inferenceRouterService';
-import type { ChainPlan } from '../../inference/inferenceChainService';
+import { sharedModelConnection, type ChainPlan } from '../../inference/inferenceChainService';
+import { clearOpenAiConfig, setAppSharedModel } from '../../onboarding/OpenAiOnboardingStore';
 
 const REAL_KEY = 'sk-or-v1-real-secret';
 const connection = {
@@ -325,6 +326,60 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     expect(lifecycle.stage).toBe('error');
     expect(lifecycle.error).toBe(result.error);
     expect(lifecycle.message).toBe(result.error);
+  });
+
+  describe('with a shared model as the app default (ADR 0036)', () => {
+    const peer = { circleId: 'c'.repeat(64), providerId: 'b'.repeat(64) };
+    const key = `peer:${peer.circleId}:${peer.providerId}:qwen3`;
+    const plan = (contextLength?: number): ChainPlan => ({
+      kind: 'routed',
+      chain: {
+        entries: [{ entry: { slot: 'peer', modelId: 'qwen3', peer }, key, stale: null, private: false }],
+        upstreams: { [key]: { baseUrl: '', modelId: 'qwen3', peer } },
+        modelId: 'qwen3',
+        ...(contextLength ? { contextLength } : {}),
+      },
+      slowestUrl: 'http://circle-peer',
+    });
+    const shared = (contextLength?: number) => ({ ...sharedModelConnection('qwen3'), slot: 'peer' as const, plan: plan(contextLength) });
+
+    afterEach(async () => {
+      await clearOpenAiConfig();
+    });
+
+    it('routes one entry and sizes Hermes from the offer', async () => {
+      expect(await applyLlmConnectionToHermes(shared(16_384))).toEqual({ success: true });
+      expect(inferenceRouterPushed()).toBe(true);
+      expect(configSets('')).toEqual(
+        expect.arrayContaining([
+          ['model.default', 'qwen3'],
+          ['model.context_length', '16384'],
+        ])
+      );
+      expect(getLastAppliedLlm()).toMatchObject({ slot: 'peer', routed: true, contextLength: 16_384 });
+    });
+
+    it('asks nobody for a context length the offer doesn’t give', async () => {
+      await applyLlmConnectionToHermes(shared());
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('circle-peer'))).toEqual([]);
+      expect(configSets('').some(([name]) => name === 'model.context_length')).toBe(false);
+    });
+
+    it('finishes start-up with nothing applied when the model can’t serve, so setup isn’t stuck', async () => {
+      await setAppSharedModel({ slot: 'peer', modelId: 'qwen3', peer });
+      // Circles aren't running here, so the entry is stale.
+      expect(await applyLlmConnectionToHermes(undefined, { showProgress: true })).toEqual({ success: true });
+      expect(getAssistantStackLifecycle().phase).toBe('ready');
+      expect(plans()).toEqual([]);
+      expect(applyLlmConnectionToProjectFiles).not.toHaveBeenCalled();
+    });
+
+    it('leaves a local stack alone: it never routes', async () => {
+      process.env.BOUNDARY_LOCAL_STACK = '1';
+      await setAppSharedModel({ slot: 'peer', modelId: 'qwen3', peer });
+      expect(await applyLlmConnectionToHermes(undefined, { showProgress: true })).toEqual({ success: true });
+      expect(inferenceRouterPushed()).toBe(false);
+    });
   });
 
   describe('with an inference chain (ADR 0033)', () => {

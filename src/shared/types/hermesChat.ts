@@ -217,6 +217,8 @@ export type HermesNoReplyReason =
   | 'halted'
   | 'timeout'
   | 'empty'
+  /** Boundary refused the send because nothing answered its health check. Live only. */
+  | 'unreachable'
   | 'unknown';
 
 export interface HermesNoReply {
@@ -316,6 +318,8 @@ export interface HermesChatRewindRequest {
 export type HermesChatStartErrorCode =
   | 'gateway-unreachable'
   | 'local-unreachable'
+  /** Nothing the chat would use answered a health check, so nothing was restarted or sent. */
+  | 'provider-unreachable'
   /** The privacy lock left the chat's chain with nothing to send to (ADR 0033 §4). */
   | 'private-refused'
   | 'apply-failed'
@@ -328,6 +332,8 @@ export interface HermesChatStartResult {
   sessionId?: string;
   error?: string;
   errorCode?: HermesChatStartErrorCode;
+  /** The chat's shared model can't serve either; `error` says so. */
+  sharedUnavailable?: boolean;
   /** Channel send with no member @ — persisted as a post, no model turn. */
   posted?: boolean;
 }
@@ -568,8 +574,11 @@ export interface SessionInferenceOverride {
 export interface SessionInferenceMark {
   id: string;
   at: string;
-  /** `fell-back`: a turn was answered by a later entry of the inference chain (ADR 0033 §3). */
-  kind: 'switched' | 'fell-back';
+  /**
+   * `fell-back`: a turn was answered by a later entry of the inference chain (ADR 0033 §3).
+   * `recovered`: the chain's first entry answered again after a `fell-back`.
+   */
+  kind: 'switched' | 'fell-back' | 'recovered';
   /** `peer`: a model shared in a Circle (ADR 0034). */
   provider: ChatInferenceProvider | 'peer';
   modelId: string;
@@ -578,9 +587,12 @@ export interface SessionInferenceMark {
 }
 
 export interface ResolvedSessionInference {
-  slot: import('./onboarding').InferenceSlotId;
+  slot: import('./inferenceChain').InferenceChainSlot;
   modelId: string;
+  /** For `peer`, the shared model's own label (ADR 0036). */
   providerDisplayName: string;
+  /** Which shared model, when `slot` is `peer`. */
+  peer?: import('./inferenceChain').PeerModelRef;
   provenance: InferenceProvenance;
   configured: boolean;
   health?: import('./onboarding').LlmSlotHealth;
@@ -633,8 +645,20 @@ export interface HermesChatPhaseEvent {
   elapsedSec?: number;
   visibleTokens?: number;
   usage?: HermesChatUsageSnapshot;
-  /** `restarting`: the chat's shared model can't serve, so it is leaving the router. */
+  /** The chat's shared model can't serve, so it is leaving the router. */
   sharedUnavailable?: boolean;
+  /** `preparing`: Hermes is parked on its recovery ladder, waiting to try the provider again. */
+  recovery?: HermesRecoveryWait;
+}
+
+/** One rung of Hermes's auto-recovery ladder (`agent/turn_recovery_autorecover.py`). */
+export interface HermesRecoveryWait {
+  cycle: number;
+  total: number;
+  /** Seconds until the next try; 0 once Hermes is trying again. */
+  retryInSec: number;
+  /** Who it's waiting for; absent on a chain, where the router tried them all. */
+  provider?: string;
 }
 
 export interface HermesChatContextFile {

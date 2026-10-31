@@ -42,6 +42,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  ├── 0031 Checks on the stack contract and on drift
  └── 0032 Circles: invite-only groups that network peer to peer
       └── 0034 Sharing a local model with a Circle
+            └── 0036 A shared model as the app default (amends 0033 §5)
 ```
 
 | ADR | Status | Title |
@@ -78,9 +79,11 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0030](0030-board-is-a-view-of-tasks.md) | Proposed | Hermes's board is a view of Tasks |
 | [0031](0031-checks-on-the-stack-contract-and-drift.md) | Proposed | Checks on the stack contract and on drift |
 | [0032](0032-circles.md) | Accepted | Circles: invite-only groups that network peer to peer |
-| [0033](0033-inference-chains.md) | Accepted · amends 0016 §4 | Inference chains and a host-side router |
+| [0033](0033-inference-chains.md) | Accepted · amends 0016 §4 · §5 amended by 0036 | Inference chains and a host-side router |
 | [0034](0034-shared-models.md) | Accepted | Sharing a local model with a Circle |
 | [0035](0035-turn-admission-and-model-gate.md) | Proposed · would amend 0033 §5–6 | Turn admission and a model gate in the router |
+| [0036](0036-shared-model-app-default.md) | Accepted · amends 0033 §5 | A shared model as the app default |
+| [0037](0037-update-rail-button.md) | Accepted | Updates live in a rail button and card |
 
 ## Host bridge research
 
