@@ -1,11 +1,10 @@
 import React from 'react';
 import { formatInferenceChipTitle, inferenceSlotLabel } from '../../../shared/inferenceDisplay';
 import type { ChatInferenceProvider } from '../../../shared/types/hermesChat';
-import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
-import type { InferenceSlotId } from '../../../shared/types/onboarding';
+import type { InferenceChainEntry, InferenceChainSlot } from '../../../shared/types/inferenceChain';
 
 /** With two chat providers, a chain is its first entry plus at most the other one (ADR 0033). */
-export function fallbackSlotFor(primary: InferenceSlotId | null | undefined): ChatInferenceProvider | null {
+export function fallbackSlotFor(primary: InferenceChainSlot | null | undefined): ChatInferenceProvider | null {
   return primary === 'local' ? 'openrouter' : primary === 'openrouter' ? 'local' : null;
 }
 

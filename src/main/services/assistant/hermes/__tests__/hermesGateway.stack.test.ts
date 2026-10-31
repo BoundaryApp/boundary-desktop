@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HermesGatewaySession } from '../hermesGatewaySession';
 import { DM_HISTORY_BUDGET } from '../hermesAgents';
 import { CREDENTIAL_REQUEST_KINDS } from '../hermesCredentialRequests';
+import { parseRecoveryNotice } from '../hermesRecoveryNotice';
 import { refuseLocalStackOlderThanPin } from '../stackPinCheck';
 import type { JsonRpcGatewayClient } from '../vendor';
 import {
@@ -132,6 +133,8 @@ const EVENTS_HANDLED: Array<{ name: string; fields: string[] }> = [
   { name: 'message.complete', fields: ['status', 'error', 'failure_reason'] },
   { name: 'session.usage', fields: ['usage'] },
   { name: 'turn.heartbeat', fields: [] },
+  { name: 'status.update', fields: ['kind', 'text'] },
+  { name: 'reasoning.delta', fields: [] },
   { name: 'tool.start', fields: ['tool_id', 'name', 'args'] },
   { name: 'tool.generating', fields: ['name'] },
   { name: 'tool.complete', fields: ['tool_id', 'name', 'args', 'duration_s', 'summary', 'result_text'] },
@@ -258,6 +261,23 @@ describe.skipIf(!probe.ok)(`Hermes gateway catalog${skipNote(probe)}`, () => {
       REGISTRY_PROGRAM(claimsForRegistry(sessionCalls))
     );
     expect(problems.sort()).toEqual([...KNOWN_MISMATCHES].sort());
+  });
+
+  it('builds a recovery notice Boundary can read, and sends it as a lifecycle status', async () => {
+    const out = await pythonJsonInHermes<{ text: string; emitsDiagnosticStatus: boolean }>(
+      target,
+      `
+import inspect, json, types
+from agent import turn_recovery_autorecover as ladder
+agent = types.SimpleNamespace(platform="tui")
+print(json.dumps({
+    "text": ladder.ladder_notice(agent, wait_s=31.4, cycle=2, total=5),
+    "emitsDiagnosticStatus": "agent._emit_diagnostic_status(notice)" in inspect.getsource(ladder),
+}))
+`
+    );
+    expect(out.emitsDiagnosticStatus).toBe(true);
+    expect(parseRecoveryNotice({ kind: 'lifecycle', text: out.text })).toEqual({ retryInSec: 31, cycle: 2, total: 5 });
   });
 });
 

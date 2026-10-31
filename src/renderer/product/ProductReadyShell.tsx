@@ -5,7 +5,7 @@ import { ProductIconRail, type ProductDestination } from './ProductIconRail';
 import { AssistantServicesScreen } from './AssistantServicesScreen';
 import { ProductSettingsScreen } from './ProductSettingsScreen';
 import { SettingsSheet } from './SettingsSheet';
-import { UpdateNotice } from './updates';
+import { UpdateCard } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
 import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
@@ -122,10 +122,12 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" inert={Boolean(sheetRequest)}>
         {/* Chat draws its own band from the rail and thread headers. */}
         {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
-        <UpdateNotice />
         <Profiler id={`screen:${view}`} onRender={onReactRender}>
           {main}
         </Profiler>
+      </div>
+      <div inert={Boolean(sheetRequest)}>
+        <UpdateCard onOpenUpdates={() => openSettings({ tab: 'updates' })} />
       </div>
       {sheetRequest ? <SettingsSheet request={sheetRequest} onClose={() => setSheetRequest(null)} /> : null}
     </div>

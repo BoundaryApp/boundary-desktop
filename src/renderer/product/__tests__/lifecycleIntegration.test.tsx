@@ -137,6 +137,12 @@ function installBridge() {
         onProgress: bridge.listen('capability:progress'),
       },
       onboarding: { onLocalLlmChanged: bridge.listen('local-llm:changed') },
+      updates: {
+        getState: async () => null,
+        onState: bridge.listen('updates:state'),
+        onOpen: bridge.listen('updates:open'),
+        onRestartRequested: bridge.listen('updates:restart-requested'),
+      },
     })
   );
   registerAssistantStackHandlers();

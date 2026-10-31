@@ -5,7 +5,8 @@ import type {
   SessionInferenceOverride,
   SessionProjectMark,
 } from '../../../shared/types/hermesChat';
-import type { InferenceProvidersStatus, InferenceSlotId } from '../../../shared/types/onboarding';
+import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
+import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
 import { displayHostPath } from './chatTelemetryFormat';
 
 // ADR 0024: conversations live in a project, and Move is the one way to change it.
@@ -36,7 +37,7 @@ export function projectCounts(
 }
 
 export interface EffectiveInference {
-  slot: InferenceSlotId;
+  slot: InferenceChainSlot;
   modelId: string;
   /** Where it comes from, in the inspector's words. */
   source: 'chat' | 'project' | 'app';
@@ -55,6 +56,8 @@ export function effectiveInference(
     const modelId = pin.modelId?.trim() || slot?.modelId || '';
     return { slot: pin.mode, modelId, source: 'project' };
   }
+  const shared = status?.appSharedModel;
+  if (shared) return { slot: 'peer', modelId: shared.modelId ?? '', source: 'app' };
   const appDefault = status?.appDefault ?? null;
   if (!appDefault) return null;
   return { slot: appDefault, modelId: status?.slots[appDefault]?.modelId ?? '', source: 'app' };

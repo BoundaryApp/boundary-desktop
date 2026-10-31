@@ -2,6 +2,7 @@ import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
 import type { ResolvedSessionInference } from '../../../../shared/types/hermesChat';
 import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
 import type { InferenceSlotId } from '../../../../shared/types/onboarding';
+import { sharedEntryLabel, sharedModelConnection } from '../../inference/inferenceChainService';
 import {
   getLastAppliedLlm,
   llmFingerprintsMatch,
@@ -9,6 +10,7 @@ import {
 import {
   getAppDefaultSlot,
   getAppFallbacks,
+  getAppSharedModel,
   getSlotHealth,
   getSlotLlmConnection,
   type LlmConnection,
@@ -41,7 +43,25 @@ function buildResolved(
   };
 }
 
+/** A shared model as the app default: it resolves as configured, and planning says if it can serve. */
+function resolveSharedDefault(entry: InferenceChainEntry): ResolvedSessionInference {
+  const modelId = entry.modelId ?? '';
+  const { endpointUrl } = sharedModelConnection(modelId);
+  return {
+    slot: 'peer',
+    modelId,
+    peer: entry.peer,
+    providerDisplayName: sharedEntryLabel(entry),
+    provenance: 'app-default',
+    configured: true,
+    needsRestart: !llmFingerprintsMatch(getLastAppliedLlm(), { slot: 'peer', endpointUrl, modelId }),
+    fallbacks: getAppFallbacks(),
+  };
+}
+
 async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
+  const shared = getAppSharedModel();
+  if (shared) return resolveSharedDefault(shared);
   const appDefault = getAppDefaultSlot();
   if (!appDefault) return null;
   const connection = await getSlotLlmConnection(appDefault);

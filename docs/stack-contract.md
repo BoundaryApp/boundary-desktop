@@ -8,7 +8,7 @@ table has no check. Moving the stack pin means reading the stack's changelog aga
 
 - `hermesConfig.stack.test.ts` (keys, settings program) under `src/main/services/assistant/__tests__/`
 - `stackHttp.stack.test.ts` (HTTP) in the same folder
-- `hermesGateway.stack.test.ts` (catalog, live calls) under `src/main/services/assistant/hermes/__tests__/`
+- `hermesGateway.stack.test.ts` (catalog, live calls, the recovery notice) under `src/main/services/assistant/hermes/__tests__/`
 
 The catalog case checks each gateway method, param, event and server request against Hermes's
 contract registry (`tui_gateway.contracts`) in the running image. Names the stack's overlays add
@@ -103,6 +103,8 @@ Events and server requests, with the payload fields Boundary reads:
 | `message.complete` (`status`, `error`, `failure_reason`) | `runJsonRpcTurn`, hermesReplyEndings.ts | catalog |
 | `tool.start`, `tool.generating`, `tool.complete` | `runJsonRpcTurn`, hermesRunningTurns.ts | catalog |
 | `turn.heartbeat` (stack overlay) | `runJsonRpcTurn` | `turn_heartbeat` capability |
+| `status.update` kind `lifecycle` with `ladder_notice`'s text (`agent/turn_recovery_autorecover.py`: "retrying automatically in Ns (cycle c/t)") | `parseRecoveryNotice` (hermesRecoveryNotice.ts), `runJsonRpcTurn` | catalog, live: recovery notice |
+| `reasoning.delta` | `runJsonRpcTurn` (ends a recovery wait) | catalog |
 | server request `approval` (`mcp` from the stack's overlay) | `parkApprovalRequest` (hermesApprovals.ts) | catalog |
 | server requests `secret`, `vault.unlock_prompt`, `vault.save_login`, `vault.code` | `parkCredentialRequest` (hermesCredentialRequests.ts) | catalog |
 
@@ -121,7 +123,7 @@ without editing the test.
 | --- | --- | --- |
 | `model.provider`, `model.base_url`, `model.default`, `model.model`, `model.api_key` | `desiredHermesConfig` | `test:stack` keys, settings program |
 | `agent.tool_use_enforcement`, `agent.execution_guidance` | `desiredHermesConfig` | `test:stack` keys, settings program |
-| `agent.local_stream_stale_timeout`, `model.context_length`, `model.max_tokens` | `hermesProfileLimitSets` (hermesProfileLimits.ts) | `test:stack` keys, settings program |
+| `agent.local_stream_stale_timeout`, `model.context_length`, `model.max_tokens` | `hermesProfileLimitSets` (hermesProfileLimits.ts); for a shared model as the app default, `model.context_length` is the offer's (ADR 0036) | `test:stack` keys, settings program |
 | `platform_hints.boundary` (top level; Hermes refuses `agent.platform_hints.*`) | `BOUNDARY_PLATFORM_HINT_KEY` (hermesPlatformHint.ts) | `test:stack` keys, settings program |
 | `mcp_servers.boundary.*` (`url`, `headers.*`, `timeout`, `connect_timeout`, `keepalive_interval`, `parked_retry_interval`) | `hostBridgeHermesConfigSets` (hostBridge/hermesProvision.ts) | `test:stack` keys, settings program |
 | `browser.cdp_url` | `planHermesProfileWrites` from `hermesBrowserCdpUrl` | `test:stack` keys, settings program |

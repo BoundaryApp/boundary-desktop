@@ -274,6 +274,28 @@ describe('applyLlmConnectionToHermes, counted', () => {
     expect(counts()).toEqual({ execs: 0, restarts: 0 });
   });
 
+  it('tells the caller of a restart only when Hermes restarts', async () => {
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    const unchanged = vi.fn();
+    await applyLlmConnectionToHermes(connection, { onRestart: unchanged });
+    expect(unchanged).not.toHaveBeenCalled();
+
+    resetCounts();
+    const changed = vi.fn(() => expect(counts().restarts).toBe(0));
+    await applyLlmConnectionToHermes({ ...connection, modelId: 'qwen/qwen3-coder' }, { onRestart: changed });
+    expect(changed).toHaveBeenCalledOnce();
+    expect(counts().restarts).toBe(1);
+  });
+
+  it('tells a caller queued behind a running apply, when that run restarts', async () => {
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    const queued = vi.fn();
+    const running = applyLlmConnectionToHermes(connection);
+    const next = applyLlmConnectionToHermes({ ...connection, modelId: 'qwen/qwen3-coder' }, { onRestart: queued });
+    await Promise.all([running, next]);
+    expect(queued).toHaveBeenCalledOnce();
+  });
+
   it('one model change with three agents is one exec and one restart', async () => {
     expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
     resetCounts();

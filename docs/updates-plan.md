@@ -25,9 +25,9 @@
 The first Boundary with an updater never downloads anything without the user's say-so:
 
 1. At launch and every 24 hours, Boundary fetches the feed for its channel. The fetch sends no ID.
-2. If the feed names a newer version that the user hasn't skipped, a notice appears once in the workbench with **Download** and **Later**. A dot on Settings stays until the **Updates** page is opened.
-3. **Download** starts Squirrel. The notice shows that it is downloading, with no percentage and no cancel, because `autoUpdater` offers neither.
-4. When the download finishes, the notice offers **Restart to install**. Boundary runs the running-work check (decision 6), stops the stack, and installs.
+2. If the feed names a newer version that the user hasn't skipped, a button appears above Settings on the icon rail and a card opens from it once, with **Download** and **Later** ([ADR 0037](adr/0037-update-rail-button.md)). The button stays until the update installs or the version is skipped.
+3. **Download** starts Squirrel. The card shows the size and that it is downloading, with no percentage and no cancel, because `autoUpdater` offers neither.
+4. When the download finishes, the card says the update installs on quit and offers **Restart to update**. Boundary runs the running-work check (decision 6), stops the stack, and installs.
 
 The stack needs no updater of its own in this release. Its ref is compiled into each build, so the first launch of a new app runs the existing provisioning path. That means stack changes reach users only with an app release, and that launch is slow. It also moves one-way data with no automatic rollback, so `db` joins the backup now rather than in phase 6.
 
@@ -165,7 +165,8 @@ Electron's built-in `autoUpdater` on macOS uses Squirrel.Mac with `serverType: '
         "url": "https://github.com/BoundaryApp/boundary-desktop/releases/download/v0.0.1-rc.10/Boundary-darwin-arm64-0.0.1-rc.10.zip",
         "sha256": "<hex>",
         "size": 324000000,
-        "notes": "Plain-language lines shown in the notice."
+        "notes": "Plain-language lines shown in the card, one per line.",
+        "stackVersion": "v0.3.7"
       }
     }
   ]
@@ -177,6 +178,8 @@ Squirrel discards a download that doesn't match `sha256`.
 **Hosting.** Feeds are assets on one fixed prerelease, `update-feed`, in the public repository: `beta-darwin-arm64.json` and `stable-darwin-arm64.json`. Zips stay on their tagged releases. `/releases/latest/download` won't work, because GitHub leaves prereleases out of it. Forge's `macUpdateManifestBaseUrl` won't work either, because it fetches the manifest during `make` and writes the zip's URL under the manifest's base. A step in the release workflow writes the feed instead. Replacing an asset can leave a short gap where the feed returns 404, which Boundary treats as an unreachable feed.
 
 The feed's base URL is the build setting `BOUNDARY_UPDATE_FEED_URL`. Builds without it have updates off. Only `darwin-arm64` is built today, so other architectures get no updates.
+
+A build of Boundary for a private group can set `BOUNDARY_UPDATE_KEY_REQUIRED=1`. **Updates** then asks for a personal key, stored with `safeStorage` and sent as a bearer token on feed requests, so its checks identify the person. Squirrel sends no custom headers with the zip request, so such a feed must give each client a URL that needs no credentials. Public builds send no key. `BOUNDARY_APP_ID`, `BOUNDARY_APP_NAME` and `BOUNDARY_PODMAN_MACHINE` give a build its own identity, so it installs beside Boundary with separate data.
 
 **Release candidates to their final version.** In JSON mode Squirrel doesn't use semver. It compares the running version with `currentRelease` using `NSNumericSearch`, and skips the update when the running version sorts later. That ordering puts `0.0.1-rc.9` after `0.0.1`, so an RC refuses its own final release. RC to RC works, and so does a final release to the next RC. The beta feed carries a final release under a label that sorts higher, while `updateTo` names the real version:
 
@@ -194,7 +197,7 @@ The feed's base URL is the build setting `BOUNDARY_UPDATE_FEED_URL`. Builds with
 
 After that update Squirrel alone would offer the same release again. Boundary's check reads `updateTo.version`, sees nothing newer, and never calls `checkForUpdates()`. The stable feed needs no label, because no one on stable runs an RC. Step 0 of [Testing before 0.0.1](#testing-before-001) proves this, and if it fails, RC testers install the final release from the DMG.
 
-**Restart.** `quitAndInstall()` closes windows before `before-quit` fires, so the quit screen and `runQuitTeardown()` in `src/main/index.ts` would not run first. **Restart to install** shows the quit screen, runs the teardown, sets the flag that lets `before-quit` pass, and then calls `quitAndInstall()`. Choosing **Quit** with a downloaded update keeps the normal path, which ends in `app.exit(0)`. Step 0 checks that the update still installs that way.
+**Restart.** `quitAndInstall()` closes windows before `before-quit` fires, so the quit screen and `runQuitTeardown()` in `src/main/index.ts` would not run first. **Restart to update** shows the quit screen, runs the teardown, sets the flag that lets `before-quit` pass, and then calls `quitAndInstall()`. That call waits for every window to close, so the window stops holding itself open for the quit screen at that point. If Squirrel hasn't taken over after 30 seconds, Boundary exits, and the update installs then. Choosing **Quit** with a downloaded update keeps the normal path, which ends in `app.exit(0)`. Step 0 checks that the update still installs that way.
 
 Squirrel.Mac cannot update an app that runs from the DMG or from a translocated path. On first run Boundary checks `app.isInApplicationsFolder()` and offers `app.moveToApplicationsFolder()`.
 
@@ -230,7 +233,7 @@ The user can also choose **Update now** from the Updates page. That runs the run
 
 ### 6. Check for running work before a restart
 
-Before **Restart to install**, **Update now** or a `minimumSupported` prompt restarts anything, Boundary looks for active Hermes sessions (`session.active_list`, or heartbeats where the stack has 0004), kanban tasks in a running state, and coding agent jobs. If any are running, the prompt names them and offers to wait until they finish or to restart anyway. A normal quit doesn't change: it stops the stack as it does today. n8n executions are not visible to Boundary yet (see open questions).
+Before **Restart to update**, **Update now** or a `minimumSupported` prompt restarts anything, Boundary looks for active Hermes sessions (`session.active_list`, or heartbeats where the stack has 0004), kanban tasks in a running state, and coding agent jobs. If any are running, the prompt names them and offers to wait until they finish or to restart anyway. A restart that waited counts down 30 seconds after the last task, with **Restart now** and **Not now**. A normal quit doesn't change: it stops the stack as it does today. n8n executions are not visible to Boundary yet (see open questions).
 
 ### 7. Back up before every stack update, and roll back the pair
 
@@ -286,7 +289,7 @@ Each step must pass before the next. Step 0 uses no public release. Version numb
 | --- | --- | --- |
 | 0 Local rehearsal | Three local builds signed with the Developer ID certificate, not notarized: `0.0.1-rc.900`, `0.0.1-rc.901` and `0.0.1`. `BOUNDARY_UPDATE_FEED_URL` points at a static server on `127.0.0.1` | Squirrel accepts the feed. Both restart paths work. The label moves `rc.901` to `0.0.1`, and `0.0.1` isn't offered it again. The failure cases below |
 | 1 rc.9 | First public build with the updater and the feed setting. Installed from the DMG, because rc.8 and earlier can't update themselves | The release workflow's feed step, and a real install from a notarized DMG |
-| 2 rc.10 | A small visible change | The whole flow from the notice to the restart, over GitHub, on a Mac with a running stack and real work in progress |
+| 2 rc.10 | A small visible change | The whole flow from the card to the restart, over GitHub, on a Mac with a running stack and real work in progress |
 | 3 rc.11 | Moves `SOVEREIGN_AGENT_STACK_REF` to the next stack tag | An app update moves the stack on first launch, and the backup includes `db` |
 | 4 0.0.1 candidate | Final version, published as a prerelease and on the beta feed only. It isn't Latest, and nobody on Stable sees it | The labelled feed over GitHub, and that the signed, notarized 0.0.1 bundle runs |
 | 5 0.0.2-rc.1 | Version bump only, on the beta feed | The 0.0.1 bundle can update itself. A Mac on 0.0.1 still has Beta stored, so it gets this build. Without this step, the first proof would be a real release |
@@ -296,14 +299,14 @@ Steps 0 and 2 also cover these cases. In each, Boundary keeps running the versio
 
 | Case | Expected |
 | --- | --- |
-| Offline, or the feed returns 404 | No notice; the **Updates** page says when it last checked |
-| Zip doesn't match `sha256` | Squirrel discards it; **Try again** on the **Updates** page |
+| Offline, or the feed returns 404 | No card; the **Updates** page says it couldn't check |
+| Zip doesn't match `sha256` | Squirrel discards it; the card reopens with **Try again** |
 | Update signed with an Apple Development certificate | Squirrel refuses it; the running app is unaffected |
 | Running from the DMG | No download offered; the page offers **Move to Applications** |
-| Work running at **Restart to install** | The running-work prompt names it |
-| **Later**, then quit | Nothing installs, and the notice doesn't return for that version |
+| Work running at **Restart to update** | The running-work prompt names it |
+| **Later**, then quit | Nothing installs, the card doesn't reopen for that version, and the rail button stays |
 | Downloaded, then **Quit** | The update installs, and the next launch runs the new version |
-| Skipped version | No notice for it; a newer version gets one |
+| Skipped version | No button or card for it; a newer version gets them |
 
 ## Failure handling
 

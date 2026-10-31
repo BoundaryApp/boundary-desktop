@@ -117,6 +117,19 @@ describe('WorkbenchThread live tool cards', () => {
     expect(within(path.closest('li')!).getByText('Reveal')).toBeTruthy();
   });
 
+  it('shows Hermes’s recovery wait in place of Preparing, and drops it when the turn ends', async () => {
+    render(<Harness />);
+    const wait = { provider: 'OpenRouter', cycle: 2, total: 5, retryInSec: 30 };
+    await emit(ipc.phase, { ...turn, phase: 'preparing', elapsedSec: 40, recovery: wait });
+    const line = "OpenRouter isn't responding. Retrying in 30s (2 of 5)";
+    expect((await screen.findAllByText(line)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Preparing/)).toBeNull();
+    await emit(ipc.phase, { ...turn, phase: 'preparing', elapsedSec: 71, recovery: { ...wait, retryInSec: 0 } });
+    expect((await screen.findAllByText("OpenRouter isn't responding. Retrying now (2 of 5)")).length).toBeGreaterThan(0);
+    await emit(ipc.phase, { ...turn, phase: 'done' });
+    expect(screen.queryByText(/isn't responding/)).toBeNull();
+  });
+
   it('drops the Preparing line when a stopped turn ends', async () => {
     render(<Harness />);
     await emit(ipc.phase, { ...turn, phase: 'preparing' });

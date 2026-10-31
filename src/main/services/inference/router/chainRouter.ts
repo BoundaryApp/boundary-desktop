@@ -37,6 +37,8 @@ export interface RouterUpstream {
   modelId: string;
   /** A member's shared model, reached through the Circles network instead of `baseUrl`. */
   peer?: PeerModelRef;
+  /** What error text calls this entry; shared models' keys aren't for reading. */
+  label?: string;
 }
 
 /** Calls a shared model's `/v1/chat/completions` with a JSON body; resolves at the reply's head. */
@@ -103,11 +105,12 @@ function estimateTokens(body: Buffer): number {
   return Math.ceil(body.length / 4);
 }
 
-function describeOutcome(record: ChainAttemptRecord): string {
+function describeOutcome(record: ChainAttemptRecord, chain: RouterChain): string {
   const { outcome } = record;
-  if (outcome.kind === 'status') return `${record.key}: HTTP ${outcome.status}`;
-  if (outcome.kind === 'header-timeout') return `${record.key}: no answer in time`;
-  return `${record.key}: unreachable`;
+  const name = chain.upstreams[record.key]?.label ?? record.key;
+  if (outcome.kind === 'status') return `${name}: HTTP ${outcome.status}`;
+  if (outcome.kind === 'header-timeout') return `${name}: no answer in time`;
+  return `${name}: unreachable`;
 }
 
 /** Sessions remember the entry that served them, oldest dropped first. */
@@ -178,7 +181,8 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       entries: chain.entries.filter((state) => chain.upstreams[state.key]),
       stickyKey: sticky.get(sessionKey),
       newTurn: opensNewTurn(messages),
-      requestTokens: estimateTokens(raw),
+      // An estimate decides which entry to skip; with one entry the server decides.
+      requestTokens: chain.entries.length > 1 ? estimateTokens(raw) : undefined,
     });
 
     const client = new AbortController();
@@ -205,7 +209,9 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       void answer?.body?.cancel().catch((): undefined => undefined);
       answer = null;
       const headerTimeout = new AbortController();
-      const timer = setTimeout(() => headerTimeout.abort(), headerTimeoutMs);
+      // The last entry has nowhere to fall back to, so it may take as long as Hermes will wait:
+      // a member's server can queue, or load a model, before its first byte.
+      const timer = state.key === plan.at(-1)?.key ? undefined : setTimeout(() => headerTimeout.abort(), headerTimeoutMs);
       // The client hanging up also stops a reply that is already streaming.
       const signal = AbortSignal.any([client.signal, headerTimeout.signal]);
       const payload = JSON.stringify({ ...body, model: upstream.modelId });
@@ -291,7 +297,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     const response: Response | null = result.ok ? answer : passThrough;
     if (!response) {
       const detail = result.tried.length
-        ? result.tried.map(describeOutcome).join('; ')
+        ? result.tried.map((record) => describeOutcome(record, chain)).join('; ')
         : 'no usable entry';
       sendError(res, 503, `No model in the inference chain answered (${detail}).`);
       return;

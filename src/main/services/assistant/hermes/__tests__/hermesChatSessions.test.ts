@@ -6,6 +6,12 @@ const resumeSession = vi.fn();
 const historyBudgetFor = vi.fn((_id: string): number | undefined => undefined);
 const resolveProfileForAgent = vi.fn((_slug: string | null | undefined): string | null => null);
 const getSessionHistory = vi.fn();
+const cancelPrompt = vi.fn().mockResolvedValue(undefined);
+let lastApplied: { slot: string; routed?: boolean } | null = null;
+vi.mock('../../AssistantStackStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../AssistantStackStore')>()),
+  getLastAppliedLlm: () => lastApplied,
+}));
 const ensureConnected = vi.fn().mockResolvedValue({});
 const listWebuiSessions = vi.fn();
 const getWebuiSessionHistory = vi.fn();
@@ -41,7 +47,7 @@ vi.mock('../hermesGatewaySession', () => ({
     },
     submitPrompt: (...args: unknown[]) => submitPrompt(...args),
     storedSessionId: (id: string) => storedSessionId(id),
-    cancelPrompt: vi.fn().mockResolvedValue(undefined),
+    cancelPrompt: (...args: unknown[]) => cancelPrompt(...args),
     getLiveStatus: (...args: unknown[]) => getLiveStatus(...args),
     getTurnLiveness: () => getTurnLiveness(),
     setApprovalNotifier: vi.fn(),
@@ -763,6 +769,35 @@ describe('startHermesChatStream inference gate', () => {
     expect(submitPrompt).not.toHaveBeenCalled();
   });
 
+  it('says Restarting only when Hermes restarts, and keeps the shared model line', async () => {
+    resumeSession.mockResolvedValue({ sessionId: 'sess-1', messages: [] });
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    const { startHermesChatStream } = await import('../hermesChatSessions');
+    const resolved = { slot: 'openrouter', providerDisplayName: 'OpenRouter' };
+    const phasesFor = async (steps: Array<[boolean, boolean]>) => {
+      const sender = { id: 1, isDestroyed: () => false, send: vi.fn() };
+      ensureResolvedInferenceReady.mockImplementationOnce(async (_id, onApply) => {
+        for (const [shared, restarting] of steps) onApply(resolved, shared, restarting);
+        return { ok: false, error: 'stop here' };
+      });
+      await startHermesChatStream(sender as never, {
+        requestId: 'req-gate',
+        sessionId: 'sess-1',
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      return sender.send.mock.calls.filter(([channel]) => channel === 'hermes-chat:phase').map(([, event]) => event);
+    };
+
+    expect(await phasesFor([[false, false]])).toEqual([]);
+    expect(await phasesFor([[false, false], [false, true]])).toEqual([
+      expect.objectContaining({ phase: 'restarting', toolName: 'OpenRouter' }),
+    ]);
+    expect(await phasesFor([[true, false]])).toEqual([
+      expect.objectContaining({ phase: 'preparing', toolName: 'OpenRouter', sharedUnavailable: true }),
+    ]);
+  });
+
   it('returns a privacy refusal for every kind of send without submitting a prompt', async () => {
     const refusal = {
       ok: false,
@@ -1068,6 +1103,90 @@ describe('a quiet turn (slow local model)', () => {
     await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
     return { TURN_QUIET_MS, listRunningTurns };
   }
+
+  describe('on Hermes’s recovery ladder', () => {
+    const notice = (wait: number, cycle: number) => ({
+      session_id: 'sess-1',
+      payload: {
+        kind: 'lifecycle',
+        // The text `ladder_notice` builds in the pinned image, checked by the stack contract.
+        text: `⏳ Provider temporarily unavailable — retrying automatically in ${wait}s (cycle ${cycle}/5); press Esc to stop`,
+      },
+    });
+    const lastPhase = () =>
+      sender.send.mock.calls.filter(([channel]) => channel === 'hermes-chat:phase').at(-1)?.[1] as {
+        phase: string;
+        recovery?: { retryInSec: number };
+      };
+
+    beforeEach(() => {
+      lastApplied = { slot: 'openrouter' };
+    });
+    afterEach(() => {
+      lastApplied = null;
+    });
+
+    it('shows the rung and counts it down over the Preparing ticker', async () => {
+      await startTurn();
+      emitGateway('status.update', notice(30, 2));
+      expect(lastPhase()).toMatchObject({
+        phase: 'preparing',
+        recovery: { provider: 'OpenRouter', cycle: 2, total: 5, retryInSec: 30 },
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      // The ticker runs on the second from when the turn started, not from the notice.
+      expect(lastPhase().recovery?.retryInSec).toBeGreaterThanOrEqual(20);
+      expect(lastPhase().recovery?.retryInSec).toBeLessThanOrEqual(21);
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(lastPhase()).toMatchObject({ recovery: { cycle: 2, retryInSec: 0 } });
+    });
+
+    it('names no provider on a chain, where the router tried them all', async () => {
+      lastApplied = { slot: 'openrouter', routed: true };
+      await startTurn();
+      emitGateway('status.update', notice(15, 1));
+      expect(lastPhase().recovery).toEqual({ cycle: 1, total: 5, retryInSec: 15 });
+    });
+
+    it('goes back to the reply once text arrives', async () => {
+      await startTurn();
+      emitGateway('status.update', notice(15, 1));
+      emitGateway('message.delta', { session_id: 'sess-1', payload: { text: 'hi' } });
+      expect(lastPhase()).toMatchObject({ phase: 'generating' });
+      expect(lastPhase().recovery).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(lastPhase().recovery).toBeUndefined();
+    });
+
+    it('stays on the wait through usage ticks, even after earlier text', async () => {
+      await startTurn();
+      emitGateway('message.delta', { session_id: 'sess-1', payload: { text: 'hi' } });
+      emitGateway('status.update', notice(15, 1));
+      emitGateway('session.usage', { session_id: 'sess-1', payload: {} });
+      expect(lastPhase()).toMatchObject({ phase: 'preparing', recovery: { cycle: 1 } });
+    });
+
+    it('ignores other statuses and other chats', async () => {
+      await startTurn();
+      emitGateway('status.update', { session_id: 'sess-1', payload: { kind: 'lifecycle', text: 'Compressing…' } });
+      emitGateway('status.update', { ...notice(15, 1), session_id: 'other' });
+      expect(lastPhase().recovery).toBeUndefined();
+    });
+
+    it('ends the turn at once on Stop, without waiting for the ladder', async () => {
+      await startTurn();
+      emitGateway('status.update', notice(60, 3));
+      const { handleHermesChatCancel } = await import('../hermesChatSessions');
+      handleHermesChatCancel({ requestId: 'req-slow', reason: 'stopped' });
+      expect(cancelPrompt).toHaveBeenCalledWith('sess-1');
+      expect(lastPhase()).toMatchObject({ phase: 'done' });
+      expect(lastPhase().recovery).toBeUndefined();
+      expect(sender.send).toHaveBeenCalledWith(
+        'hermes-chat:end',
+        expect.objectContaining({ requestId: 'req-slow', finishReason: 'cancel' })
+      );
+    });
+  });
 
   it('keeps waiting past ten minutes while Hermes keeps sending events', async () => {
     const { TURN_QUIET_MS } = await startTurn();

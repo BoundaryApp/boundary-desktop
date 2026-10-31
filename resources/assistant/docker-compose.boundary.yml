@@ -19,6 +19,13 @@
 # - llm-proxy waits for Boundary's admin push (ADR 0026): no key is on disk, so until the
 #   push its chat and LightRAG routes answer 503 with the reason instead of reaching the
 #   provider without a key (stack v0.3.0+).
+# - Healthcheck cadence. `compose up -d` waits on `service_healthy` along the dependency chain,
+#   and a service reports healthy only at a probe, so upstream's 15s and 30s intervals add up
+#   to about 135s before `up` returns however fast the services start (searxng > gptr-mcp >
+#   opencode > opencode-mcp > hermes > hermes-webui). `start_interval` would limit the faster
+#   probes to start-up, but Podman's compat API drops it, so `interval` is the setting that
+#   works on both engines. `retries` is raised with it, so a service gets the same seconds
+#   to recover. Neo4j stays slower because its probe starts a JVM (cypher-shell).
 
 services:
   hermes-api-bootstrap:
@@ -30,6 +37,9 @@ services:
       - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
 
   hermes:
+    healthcheck:
+      interval: 5s
+      retries: 36
     ports: !override
       - "127.0.0.1:${BOUNDARY_HERMES_GATEWAY_HOST_PORT:-8642}:8642"
       - "127.0.0.1:${BOUNDARY_HERMES_API_HOST_PORT:-8643}:8643"
@@ -39,14 +49,23 @@ services:
       - ${BOUNDARY_ASSISTANT_DATA}/hermes/memories:/opt/data/profiles/api-server/memories
       - ${BOUNDARY_ASSISTANT_DATA}/hermes/memories:/opt/data/profiles/browser/memories
   llm-proxy:
+    healthcheck:
+      interval: 5s
+      retries: 12
     environment:
       - LLM_PROXY_AWAIT_PUSH=chat,lightrag
 
   hermes-webui:
+    healthcheck:
+      interval: 5s
+      retries: 36
     volumes:
       - ${BOUNDARY_ASSISTANT_DATA}/hermes:/opt/data
 
   lightrag:
+    healthcheck:
+      interval: 5s
+      retries: 18
     ports: !override
       - "127.0.0.1:${BOUNDARY_LIGHTRAG_HOST_PORT:-9621}:9621"
     volumes:
@@ -54,11 +73,17 @@ services:
       - ${BOUNDARY_ASSISTANT_DATA}/inputs:/app/data/inputs
 
   neo4j:
+    healthcheck:
+      interval: 10s
+      retries: 18
     volumes:
       - ${BOUNDARY_ASSISTANT_DATA}/neo4j/data:/data
       - ${BOUNDARY_ASSISTANT_DATA}/neo4j/logs:/logs
 
   gpt-researcher:
+    healthcheck:
+      interval: 5s
+      retries: 36
     volumes:
       - ${BOUNDARY_ASSISTANT_DATA}/gptr/outputs:/usr/src/app/outputs
       - ${BOUNDARY_ASSISTANT_DATA}/inputs:/usr/src/app/my-docs:ro
@@ -94,9 +119,38 @@ services:
       - ${BOUNDARY_ASSISTANT_DATA}/inputs:/data/shared:ro
 
   opencode:
+    healthcheck:
+      interval: 5s
+      retries: 18
     working_dir: ${BOUNDARY_OPENCODE_WORKSPACE}
     volumes:
       - ${BOUNDARY_ASSISTANT_DATA}/opencode/config:/root/.config/opencode
       - ${BOUNDARY_ASSISTANT_DATA}/opencode/data:/root/.local/share/opencode
       - ${BOUNDARY_OPENCODE_WORKSPACE}:${BOUNDARY_OPENCODE_WORKSPACE}
       - ${BOUNDARY_OPENCODE_CONFIG_FILE}:/etc/opencode/opencode.json:ro
+
+  # Probe cadence only; see the header.
+  searxng:
+    healthcheck:
+      interval: 5s
+      retries: 18
+
+  mcp-searxng:
+    healthcheck:
+      interval: 5s
+      retries: 18
+
+  lightrag-mcp:
+    healthcheck:
+      interval: 5s
+      retries: 18
+
+  gptr-mcp:
+    healthcheck:
+      interval: 5s
+      retries: 36
+
+  opencode-mcp:
+    healthcheck:
+      interval: 5s
+      retries: 18

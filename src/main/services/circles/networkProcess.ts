@@ -173,6 +173,8 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
         if (circles) post({ type: 'circles-snapshot', snapshot: circles.snapshot() });
       });
     },
+    onSignal: (signal) => post({ type: 'signal-received', signal }),
+    onRemoved: (key) => post({ type: 'circle-removed', key }),
     log,
     diag,
   });
@@ -298,6 +300,17 @@ port.on('message', (event: { data: MainToNetwork }) => {
       return;
     case 'shared-cancel':
       sharedCalls.get(message.id)?.abort();
+      return;
+    case 'signal-send':
+      try {
+        circles?.sendSignal(message.key, message.topic, message.payload, message.to);
+      } catch (err) {
+        // Sent just as this Circle closed, or bad input main didn't catch.
+        log('signal not sent', { error: errorMessage(err) });
+      }
+      return;
+    case 'signal-topics':
+      circles?.setSignalTopics(message.topics);
       return;
     case 'stop':
       void stop();

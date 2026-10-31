@@ -175,6 +175,16 @@ describe('circlesService', () => {
     expect(lastChild!.postMessage).toHaveBeenLastCalledWith({ type: 'stop' });
   });
 
+  it('forgets a Circle the network process says this device was removed from', async () => {
+    stored.name = 'Bo';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1' });
+    const service = await load();
+    await service.ensureCirclesStarted();
+    lastChild!.emit('message', { type: 'circle-removed', key: 'c1' });
+    expect(stored.circles.has('c1')).toBe(false);
+    await service.stopCircles();
+  });
+
   describe('shared models', () => {
     const PEER = { circleId: 'c1', providerId: 'a'.repeat(64) };
 
@@ -284,6 +294,63 @@ describe('circlesService', () => {
       expect([facts.providerTrusted(PEER.providerId), facts.providerPrivate(PEER.providerId)]).toEqual([true, false]);
       expect(service.setProviderSettings('not-a-key', { private: true, trusted: true }).success).toBe(false);
       expect(service.setProviderSettings(SNAPSHOT.identity, { private: true, trusted: true }).success).toBe(false);
+    });
+  });
+
+  describe('peer signals', () => {
+    const CIRCLE = 'cd'.repeat(32);
+    const FROM = 'ef'.repeat(32);
+    const received = (topic: string, payload: unknown) =>
+      lastChild!.emit('message', { type: 'signal-received', signal: { circle: CIRCLE, from: FROM, topic, payload } });
+    const topicsPosted = () =>
+      lastChild!.postMessage.mock.calls.map(([message]) => message).filter((message) => message.type === 'signal-topics');
+
+    async function running() {
+      const service = await load();
+      stored.name = 'Ada';
+      await service.setDisplayName('Ada');
+      await service.ensureCirclesStarted();
+      await flush();
+      return service;
+    }
+
+    it('tells the process which topics it listens to, from start and as they change', async () => {
+      const service = await load();
+      stored.name = 'Ada';
+      await service.setDisplayName('Ada');
+      const stop = service.onCircleSignal('typing', () => undefined);
+      await service.ensureCirclesStarted();
+      await flush();
+      expect(topicsPosted()).toEqual([{ type: 'signal-topics', topics: ['typing'] }]);
+      stop();
+      expect(topicsPosted().at(-1)).toEqual({ type: 'signal-topics', topics: [] });
+    });
+
+    it('hands a signal to its topic’s listeners, and one listener throwing doesn’t stop the next', async () => {
+      const service = await running();
+      const seen: unknown[] = [];
+      service.onCircleSignal('typing', () => {
+        throw new Error('bad listener');
+      });
+      service.onCircleSignal('typing', (signal) => seen.push(signal));
+      received('typing', { on: true });
+      received('read', { on: true });
+      expect(seen).toEqual([{ circleKey: CIRCLE, fromIdentity: FROM, payload: { on: true } }]);
+    });
+
+    it('sends through the process, and says when Circles aren’t running', async () => {
+      const before = await load();
+      expect(before.sendCircleSignal(CIRCLE, 'typing', {})).toBe(false);
+      const service = await running();
+      expect(service.sendCircleSignal(CIRCLE, 'typing', { on: true }, FROM)).toBe(true);
+      expect(lastChild!.postMessage).toHaveBeenCalledWith({ type: 'signal-send', key: CIRCLE, topic: 'typing', payload: { on: true }, to: FROM });
+    });
+
+    it('throws on a bad topic or an oversized payload', async () => {
+      const service = await running();
+      expect(() => service.sendCircleSignal(CIRCLE, 'Not A Topic', {})).toThrow(/topic/);
+      expect(() => service.sendCircleSignal(CIRCLE, 'typing', 'x'.repeat(5000))).toThrow(/too long/);
+      expect(() => service.onCircleSignal('Not A Topic', () => undefined)).toThrow(/topic/);
     });
   });
 

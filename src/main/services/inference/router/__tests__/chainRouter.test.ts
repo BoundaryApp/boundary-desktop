@@ -178,6 +178,56 @@ describe('chain router', () => {
     expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('local');
   });
 
+  describe('with one shared model (ADR 0036)', () => {
+    const peer = { circleId: 'c'.repeat(64), providerId: 'b'.repeat(64) };
+    const key = `peer:${peer.circleId}:${peer.providerId}:qwen3`;
+    const solo: RouterChain = {
+      entries: [state(key, { entry: { slot: 'peer', modelId: 'qwen3', peer }, contextLength: 4, private: false })],
+      upstreams: { [key]: { baseUrl: '', modelId: 'qwen3', peer, label: "Bo's qwen3" } },
+      modelId: 'qwen3',
+      contextLength: 4,
+    };
+
+    it('waits for the last entry past the header timeout, as it has nowhere to go', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let answer: (response: Response) => void = () => undefined;
+      let reached: () => void = () => undefined;
+      const peerReached = new Promise<void>((resolve) => (reached = resolve));
+      await start({
+        getChain: () => solo,
+        headerTimeoutMs: 10_000,
+        peerFetch: () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+            reached();
+          }),
+      });
+      const pending = post(userTurn);
+      await peerReached;
+      await vi.advanceTimersByTimeAsync(60_000);
+      answer(new Response('{}', { status: 200 }));
+      const res = await pending;
+      expect(res.status).toBe(200);
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe(key);
+    });
+
+    it('leaves a size judgement to the server, with no other entry to prefer', async () => {
+      const peerFetch = vi.fn(async () => new Response('{}', { status: 200 }));
+      await start({ getChain: () => solo, peerFetch });
+      expect((await post(userTurn)).status).toBe(200);
+      expect(peerFetch).toHaveBeenCalledOnce();
+    });
+
+    it('names the shared model, not its keys, when it can’t be reached', async () => {
+      await start({ getChain: () => solo, peerFetch: async () => Promise.reject(new Error('gone')) });
+      const res = await post(userTurn);
+      expect(res.status).toBe(503);
+      const { error } = (await res.json()) as { error: { message: string } };
+      expect(error.message).toContain("Bo's qwen3: unreachable");
+      expect(error.message).not.toContain(peer.circleId);
+    });
+  });
+
   it('skips entries without an upstream and answers 503 with no chain', async () => {
     const fake = upstreams({ 'cloud.test': ok('cloud') });
     const partial: RouterChain = { ...chain, upstreams: { cloud: chain.upstreams.cloud } };

@@ -100,6 +100,29 @@ describe('ProductSettingsScreen', () => {
     expect(screen.getByRole('button', { name: /No default yet/i })).toHaveProperty('disabled', true);
   });
 
+  it('shows sharing as a status line beside the local model, with the controls on the Circles screen', async () => {
+    onboardingApi.getStatus.mockResolvedValue(localOnlyStatus);
+    const state = {
+      status: 'running',
+      displayName: 'Ada',
+      providers: {},
+      snapshot: {
+        identity: 'a'.repeat(64),
+        circles: [{ key: 'c'.repeat(64), name: 'Workshop', myRole: 'member', members: [], invites: [], offers: [] }],
+      },
+      sharing: { models: [{ id: 'qwen3:14b', tools: true }], circles: ['c'.repeat(64)], paused: true, away: false },
+    };
+    stubElectronAPI({ onboarding: onboardingApi, circles: { getState: vi.fn().mockResolvedValue(state) } });
+
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+
+    expect(await screen.findByText("Paused: members can't use your models.")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Circles' })).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Share your models' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resume sharing' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Away mode' })).toBeNull();
+  });
+
   it('cancels a pending OpenRouter sign-in without showing an error', async () => {
     onboardingApi.getStatus.mockResolvedValue(localOnlyStatus);
     let finishSignIn: (result: { success: boolean; error?: string }) => void = () => undefined;

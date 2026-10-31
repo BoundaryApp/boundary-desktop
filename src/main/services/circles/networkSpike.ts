@@ -63,6 +63,8 @@ export function startCirclesNetworkSpike(): void {
       case 'shared-head':
       case 'shared-chunk':
       case 'shared-end':
+      case 'circle-removed':
+      case 'signal-received':
       case 'diag':
         return;
     }

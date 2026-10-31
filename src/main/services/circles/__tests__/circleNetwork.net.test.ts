@@ -21,16 +21,23 @@ interface Person {
 let testnet: Awaited<ReturnType<typeof createTestnet>>;
 let dir: string;
 const people: Person[] = [];
+const removed = new Map<Person, string[]>();
 
-async function person(name: string): Promise<Person> {
+async function person(
+  name: string,
+  seeds = { identitySeed: crypto.randomBytes(32), deviceSeed: crypto.randomBytes(32) }
+): Promise<Person> {
   const waiters = new Set<() => void>();
   const net = new CircleNetwork({
     storageDir: path.join(dir, name),
-    identitySeed: crypto.randomBytes(32),
-    deviceSeed: crypto.randomBytes(32),
+    ...seeds,
     name,
     bootstrap: testnet.bootstrap.map((node: { host: string; port: number }) => `${node.host}:${node.port}`),
     onChange: () => waiters.forEach((wake) => wake()),
+    onRemoved: (key) => {
+      removed.set(made, [...(removed.get(made) ?? []), key]);
+      waiters.forEach((wake) => wake());
+    },
   });
   await net.ready();
   const until = (test: (snapshot: CirclesSnapshot) => boolean) =>
@@ -131,9 +138,40 @@ describe('Circles over a local DHT', () => {
     await ada.net.removeMember(key, cy.net.snapshot().identity);
     await ada.until((s) => circleOf(s, key)?.members.length === 2);
     await bo.until((s) => circleOf(s, key)?.members.length === 2);
-    // Cy is no longer a known device to either admin, so their connections close.
     await ada.until((s) => !memberNamed(s, key, 'Cy'));
-    await cy.until((s) => !memberNamed(s, key, 'Ada')?.online);
+    // An admin tells Cy, so the Circle closes on Cy's device and main can forget it.
+    await cy.until((s) => !circleOf(s, key) && removed.has(cy));
+    expect(removed.get(cy)).toEqual([key]);
+  });
+
+  it('revokes the open invites of an admin who is demoted', async () => {
+    await ada.net.setRole(key, bo.net.snapshot().identity, 'admin');
+    await bo.until((s) => circleOf(s, key)?.myRole === 'admin');
+    const invite = await bo.net.createInvite(key, Date.now() + 60 * 60_000);
+    await ada.until((s) => circleOf(s, key)?.invites.some((open) => open.id === invite.id) === true);
+    await ada.net.setRole(key, bo.net.snapshot().identity, 'member');
+    await bo.until((s) => circleOf(s, key)?.myRole === 'member');
+    const dee = await person('Dee');
+    await expect(dee.net.joinCircle(invite.code)).rejects.toThrow();
+    await ada.net.setRole(key, bo.net.snapshot().identity, 'admin');
+    await bo.until((s) => circleOf(s, key)?.myRole === 'admin');
+  });
+
+  it('tells a member removed while offline when they come back', async () => {
+    const seeds = { identitySeed: crypto.randomBytes(32), deviceSeed: crypto.randomBytes(32) };
+    const eve = await person('Eve', seeds);
+    const invite = await ada.net.createInvite(key, Date.now() + 60 * 60_000);
+    const secrets = await eve.net.joinCircle(invite.code);
+    await ada.until((s) => Boolean(memberNamed(s, key, 'Eve')?.online));
+    const identity = eve.net.snapshot().identity;
+    await eve.net.close();
+    await ada.net.removeMember(key, identity);
+    await ada.until((s) => !memberNamed(s, key, 'Eve'));
+
+    const back = await person('Eve', seeds);
+    await back.net.openCircle(secrets);
+    await back.until((s) => !circleOf(s, key) && removed.has(back));
+    expect(removed.get(back)).toEqual([key]);
   });
 
   it('keeps the last admin from leaving, and lets a member leave', async () => {

@@ -141,6 +141,23 @@ describe('transcript marks', () => {
     expect(await screen.findByText('Answered by qwen3:14b, shared by Ada in Friends, a fallback')).toBeTruthy();
   });
 
+  it('says when the primary answers again, naming who shares it', async () => {
+    chip.marks = [
+      { id: 'r1', at: at(11).toISOString(), kind: 'recovered', provider: 'openrouter', modelId: 'x/model-a' },
+      {
+        id: 'r2',
+        at: at(14).toISOString(),
+        kind: 'recovered',
+        provider: 'peer',
+        modelId: 'qwen3:14b',
+        sharedBy: { person: 'Ada', circle: 'Friends' },
+      },
+    ];
+    render(<Harness projectMarks={[]} />);
+    expect(await screen.findByText('Back on OpenRouter · model-a')).toBeTruthy();
+    expect(screen.getByText("Back on Ada's qwen3:14b")).toBeTruthy();
+  });
+
   it('draws a mark newer than every message after the last one', async () => {
     render(<Harness projectMarks={[move('m1', at(14).toISOString(), 'p2')]} />);
     const lastAnswer = await screen.findByText('second answer');

@@ -203,7 +203,9 @@ const config: ForgeConfig = {
       unpack: '**/*.{node,dylib,dll,so}',
     },
     // macOS app metadata
-    appBundleId: 'com.boundary.desktop',
+    appBundleId: process.env.BOUNDARY_APP_ID || 'com.boundary.desktop',
+    // A build with its own id and name installs beside this one, with its own data.
+    ...(process.env.BOUNDARY_APP_NAME ? { name: process.env.BOUNDARY_APP_NAME } : {}),
     appCategoryType: 'public.app-category.developer-tools',
     // Ensure proper app name and metadata
     appCopyright: '© 2025-2026 Keith Axline',

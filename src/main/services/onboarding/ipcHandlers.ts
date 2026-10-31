@@ -15,6 +15,7 @@ import {
   saveOAuthCredentials,
   setAppDefault,
   setAppFallbacks,
+  setAppSharedModel,
   updateLlmModel,
 } from './OpenAiOnboardingStore';
 import { probeSlotHealth } from './probeSlotHealth';
@@ -50,6 +51,8 @@ import type {
   SaveLlmConnectionResult,
   SetAppDefaultInput,
   SetAppFallbacksInput,
+  SetAppSharedModelInput,
+  SetAppSharedModelResult,
   SetAppDefaultResult,
   StartOAuthPkceInput,
   StartOAuthPkceResult,
@@ -119,7 +122,10 @@ async function applyHermesIfDefaultSlot(writtenSlot?: InferenceSlotId): Promise<
   if (!appDefault) return;
   if (writtenSlot && writtenSlot !== appDefault) return;
   if (!(await getLlmConnection())) return;
+  await applyAppInferenceToHermes();
+}
 
+async function applyAppInferenceToHermes(): Promise<void> {
   try {
     const { applyLlmConnectionToHermes, isAssistantStackReady } = await import(
       '../assistant/AssistantStackService'
@@ -240,6 +246,15 @@ async function setAppDefaultHandler(input: SetAppDefaultInput): Promise<SetAppDe
   return result;
 }
 
+async function setAppSharedModelHandler(input: SetAppSharedModelInput): Promise<SetAppSharedModelResult> {
+  const { sharedModelCantServe } = await import('../inference/inferenceChainService');
+  const refusal = await sharedModelCantServe(input.entry);
+  if (refusal) return { success: false, error: refusal, status: await getOpenAiOnboardingStatus() };
+  const result = await setAppSharedModel(input.entry);
+  if (result.success) await applyAppInferenceToHermes();
+  return result;
+}
+
 async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnectionResult> {
   // Hermes only needs the new connection when the cleared slot was the app default.
   const wasDefault = getAppDefaultSlot() === input.slot;
@@ -291,6 +306,10 @@ export function registerOnboardingHandlers(): void {
 
   handleResult('onboarding:set-app-default', async (_event, input: SetAppDefaultInput) =>
     setAppDefaultHandler(input)
+  );
+
+  handleResult('onboarding:set-app-shared-model', async (_event, input: SetAppSharedModelInput) =>
+    setAppSharedModelHandler(input)
   );
 
   // Saving fallbacks applies nothing: the next send plans the chain (ADR 0033 §9).

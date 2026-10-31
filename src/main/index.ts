@@ -43,11 +43,11 @@ import { registerExperiments, startExperimentsBeforeWindow } from './experiments
 import { claimSingleInstance } from './singleInstance';
 import { runStartupMigrations } from './migrations';
 import {
-  checkForUpdatesFromMenu,
   quitAndInstallUpdate,
   recordDataVersion,
   registerUpdateHandlers,
   startUpdates,
+  updateMenuItem,
 } from './services/updates/ipcHandlers';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -60,6 +60,12 @@ const mainProcessDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** After first `before-quit` pass we defer quit until the stack stops; second pass must not preventDefault. */
 let isElectronQuitAfterShutdown = false;
+
+/** Set once the stack has stopped for an update, so the window may close. */
+let isInstallingUpdate = false;
+
+/** How long Squirrel gets to take over before Boundary exits; the update then installs on exit. */
+const UPDATE_INSTALL_DEADLINE_MS = 30_000;
 
 /** How long an uncaught exception waits for the quit teardown before exiting anyway. */
 const FATAL_TEARDOWN_DEADLINE_MS = 5_000;
@@ -210,6 +216,9 @@ app.on('render-process-gone', (_event, _webContents, details) => {
   });
 });
 
+// Set by vite.main.config.ts.
+declare const __BOUNDARY_APP_NAME__: string | undefined;
+
 // Type declarations for global variables
 declare global {
   var mainWindow: Electron.BrowserWindow | undefined;
@@ -226,7 +235,9 @@ if (started) {
   app.quit();
 }
 
-app.setName('Boundary');
+app.setName(
+  (typeof __BOUNDARY_APP_NAME__ === 'string' && __BOUNDARY_APP_NAME__) || 'Boundary'
+);
 
 // Windows groups taskbar entries and notifications by this id.
 if (process.platform === 'win32') {
@@ -313,7 +324,7 @@ registerCalendarHandlers();
 startCalendarHealthChecks();
 registerHostBridgeHandlers();
 registerCirclesHandlers();
-registerUpdateHandlers(() => stopStackThen(quitAndInstallUpdate));
+registerUpdateHandlers(() => stopStackThen(installUpdate), () => createMenu());
 startLocalLlmWatcher();
 
 registerExperiments();
@@ -470,7 +481,8 @@ const createWindow = async () => {
     });
     // Keep the window alive while containers shut down so the quit overlay can render.
     // `app.exit(0)` ends the process after cleanup without needing this close to complete.
-    if (isElectronQuitAfterShutdown) {
+    // An update is different: quitAndInstall waits for every window to close.
+    if (isElectronQuitAfterShutdown && !isInstallingUpdate) {
       e.preventDefault();
     }
   });
@@ -649,7 +661,7 @@ const createMenu = () => {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { label: 'Check for Updates…', click: checkForUpdatesFromMenu },
+        updateMenuItem(),
         { type: 'separator' },
         { ...commandItem('go-settings'), label: 'Settings…' },
         { type: 'separator' },
@@ -807,6 +819,8 @@ app.on('window-all-closed', () => {
   // In dev, quit on macOS too so electron-forge child exit releases the terminal.
   // Also finish an in-progress Cmd+Q: preventDefault + app.quit() otherwise closes
   // windows and leaves a Dock zombie that the next `open` activates.
+  // quitAndInstall quits by itself once the windows have closed.
+  if (isInstallingUpdate) return;
   if (process.platform !== 'darwin' || isDevelopment || isElectronQuitAfterShutdown) {
     app.quit();
   }
@@ -857,6 +871,15 @@ app.on('before-quit', (e) => {
   e.preventDefault();
   stopStackThen(() => app.exit(0));
 });
+
+function installUpdate(): void {
+  isInstallingUpdate = true;
+  setTimeout(() => {
+    persistDebugLog('updates', 'quitAndInstall did not finish, exiting', {});
+    app.exit(0);
+  }, UPDATE_INSTALL_DEADLINE_MS);
+  quitAndInstallUpdate();
+}
 
 /**
  * Show the quit screen, stop the stack, then finish. `autoUpdater.quitAndInstall()` closes the

@@ -19,6 +19,8 @@ permissions:
 
 jobs:
   version:
+    # Copies of this repository carry this file but have their own way of releasing, if any.
+    if: github.repository == 'BoundaryApp/boundary-desktop'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

@@ -43,7 +43,9 @@ export type InferenceChainStaleReason =
    * The user hasn't marked the provider Trusted. Until Hermes can ask before every tool call in a
    * turn (change request 0015), an untrusted provider's model doesn't serve (ADR 0034 §3).
    */
-  | 'provider-untrusted';
+  | 'provider-untrusted'
+  /** The provider isn't connected to this device now. The router skips them until they're back. */
+  | 'provider-offline';
 
 export interface InferenceChainEntryState {
   entry: InferenceChainEntry;

@@ -13,15 +13,15 @@ import { Segmented } from '../components/ui/segmented';
 import { UpdatesPanel } from './UpdatesPanel';
 import { InfoTip } from '../components/ui/info-tip';
 import { useThemePreference } from '../theme';
-import { takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
-import { cloudInferenceNotice, cloudKeyLimitTip } from './cloudInferenceCopy';
+import { chooseSharedModel, takeInferenceStatus, useInferenceStatus } from '../onboarding/inferenceStatus';
+import { CIRCLE_MEMBER_PROVIDER, cloudInferenceNotice, cloudKeyLimitTip } from './cloudInferenceCopy';
 import { PasswordsLoginsPanel } from './PasswordsLoginsPanel';
 import { CalendarsPanel } from './CalendarsPanel';
 import { CodingFoldersPanel } from './CodingFoldersPanel';
 import { AgentBrowserPanel } from './AgentBrowserPanel';
 import { ComputerAccessPanel } from './ComputerAccessPanel';
-import { ChainEditor } from './chat/ChainEditor';
-import { CircleSharingPanel } from './circles/CircleSharingPanel';
+import { ChainEditor, SharedModelChoices, sharedModelChoices } from './chat/ChainEditor';
+import { CircleSharingLine } from './circles/CircleSharingPanel';
 import { useCirclesState } from './circles/useCircles';
 import { SETTINGS_TABS, type SettingsTab } from './settingsNavigation';
 import { rendererExperiments } from '../experiments';
@@ -393,6 +393,18 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
     }
   };
 
+  const handleSetSharedDefault = async (entry: InferenceChainEntry) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const refused = await chooseSharedModel(entry);
+      setError(refused);
+      if (!refused) setNotice('App default updated. The assistant restarts to use this model.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSetFallbacks = async (fallbacks: InferenceChainEntry[]) => {
     setBusy(true);
     setError(null);
@@ -417,6 +429,11 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const localMeta = localPill(local);
   const savedOpenRouterKey = openrouter ? undefined : status?.savedOpenRouterKey;
   const openRouterMeta = openRouterPill(openrouter, Boolean(savedOpenRouterKey));
+  const appShared = status?.appSharedModel ?? null;
+  const chainContext = { slots: status?.slots ?? {}, circles };
+  const hasSharedChoice = sharedModelChoices(appShared, chainContext).length > 0;
+  const chainPrimary =
+    appShared ?? (status?.appDefault && status.appDefault !== 'infrastructure' ? { slot: status.appDefault } : null);
 
   return (
     <section className="wb-inference wb-reading" aria-label="Settings">
@@ -445,7 +462,9 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
           <PasswordsLoginsPanel initialAgentSlug={initialAgentSlug} />
         ) : tab === 'calendars' ? (
           <CalendarsPanel
-            cloudProvider={status?.appDefault === 'openrouter' ? 'OpenRouter' : null}
+            cloudProvider={
+              status?.appDefault === 'openrouter' ? 'OpenRouter' : status?.appSharedModel ? CIRCLE_MEMBER_PROVIDER : null
+            }
           />
         ) : tab === 'coding' ? (
           <CodingFoldersPanel />
@@ -489,7 +508,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
             </InfoTip>
           </h2>
 
-          {status && !local && !openrouter && !infrastructure && (
+          {status && !local && !openrouter && !infrastructure && !appShared && (
             <div className="wb-inference-banner is-warn" role="status">
               <p>No model provider is connected. Chats can’t send until you connect one below.</p>
             </div>
@@ -652,10 +671,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                         </button>
                       </div>
                       {testBySlot.local && <p className="wb-inference-note">{testBySlot.local}</p>}
-                      <CircleSharingPanel
-                        circles={circles}
-                        models={localModels.length > 0 ? localModels : local.modelId ? [{ id: local.modelId }] : []}
-                      />
+                      <CircleSharingLine circles={circles} />
                     </>
                   )}
                 </article>
@@ -828,14 +844,14 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                 </article>
               </div>
 
-              <div className={`wb-inference-default ${!local && !openrouter ? 'opacity-50' : ''}`}>
+              <div className={`wb-inference-default ${!local && !openrouter && !hasSharedChoice ? 'opacity-50' : ''}`}>
                 <h3>
                   App default
                   <InfoTip label="the app default">
                     Used when a project does not pin a provider and a chat has not overridden it.
                   </InfoTip>
                 </h3>
-                {!local && !openrouter ? (
+                {!local && !openrouter && !hasSharedChoice ? (
                   <button type="button" className="wb-inference-choice" disabled>
                     <span className="wb-inference-radio" aria-hidden="true" />
                     <span>
@@ -843,7 +859,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                       <span>Connect a provider above. Nothing sends until one is ready.</span>
                     </span>
                   </button>
-                ) : (
+                ) : !local && !openrouter ? null : (
                   <>
                     <button
                       type="button"
@@ -872,7 +888,13 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                     </button>
                   </>
                 )}
-                {status?.appDefault && status.appDefault !== 'infrastructure' && (
+                <SharedModelChoices
+                  current={appShared}
+                  ctx={chainContext}
+                  disabled={busy}
+                  onPick={(entry) => void handleSetSharedDefault(entry)}
+                />
+                {status && chainPrimary && (
                   <>
                     <h3 className="wb-inference-fallback-head">
                       Fallbacks
@@ -883,9 +905,9 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                       </InfoTip>
                     </h3>
                     <ChainEditor
-                      primary={{ slot: status.appDefault }}
+                      primary={chainPrimary}
                       fallbacks={status.appFallbacks ?? []}
-                      ctx={{ slots: status.slots, circles }}
+                      ctx={chainContext}
                       disabled={busy}
                       emptyNote="None. When the app default doesn’t answer, the chat stops and asks."
                       onChange={(next) => void handleSetFallbacks(next)}

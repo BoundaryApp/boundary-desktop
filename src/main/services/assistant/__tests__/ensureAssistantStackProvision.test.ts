@@ -94,6 +94,7 @@ vi.mock('../AssistantStackStore', async () => {
 
 vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
   getLlmConnection: () => null,
+  getAppSharedModel: () => null,
 }));
 
 describe('ensureAssistantStackRunning host setup gating', () => {

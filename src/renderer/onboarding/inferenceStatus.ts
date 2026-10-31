@@ -1,3 +1,4 @@
+import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import type { InferenceProvidersStatus } from '../../shared/types/onboarding';
 import { emptyInferenceProvidersStatus } from '../../shared/types/onboarding';
 import { createIpcStore, useIpcStore } from '../lib/ipcStore';
@@ -62,4 +63,11 @@ export async function takeInferenceStatus(result: {
   }
   generation += 1;
   store.set({ status: result.status, loading: false, error: null });
+}
+
+/** Make a shared model the app default (ADR 0036); resolves with main's refusal, or null. */
+export async function chooseSharedModel(entry: InferenceChainEntry): Promise<string | null> {
+  const result = await window.electronAPI.onboarding.setAppSharedModel({ entry });
+  await takeInferenceStatus(result);
+  return result.success ? null : (result.error ?? 'Unable to use that shared model.');
 }

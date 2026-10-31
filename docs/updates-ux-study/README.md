@@ -2,6 +2,8 @@
 
 How a Boundary user meets updates to the app and to their tools: where each update shows up, what it says, and what the user can do about it. The backend design is the [updates plan](../updates-plan.md). This study is the user-facing half, and it flags the parts of the plan that would make a poor experience.
 
+[ADR 0037](../adr/0037-update-rail-button.md) overrides this study's notice, dot and **Restart to install** wording for app updates: a rail button and card replace them. The rest stands for the later phases.
+
 - `index.html` is a click-through of the main scenarios: the update-available notice, the quiet indicator, the **Updates** page in its main states, the restart prompt with running work, the start-up screen while it updates, an automatic rollback, going back by hand, **Update Boundary first**, a required update, an older app on newer data, and quitting with an update waiting. It loads the live tokens (`src/renderer/styles/tokens.css`), the start-up screen's stylesheet and the workbench stylesheet, so it uses the shipped classes wherever they exist.
 
 Serve the repo root over HTTP to view, e.g. `python3 -m http.server` then open `/docs/updates-ux-study/`.

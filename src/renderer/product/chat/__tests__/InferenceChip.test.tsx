@@ -128,6 +128,167 @@ describe('InferenceChip', () => {
     });
   });
 
+  it('names a shared model rather than a provider, and marks it in the menu (ADR 0036)', async () => {
+    getStatus.mockResolvedValue({ configured: true, encryptionAvailable: true, appDefault: null, slots: {} });
+    getSessionInference.mockResolvedValue({
+      success: true,
+      override: null,
+      resolved: {
+        slot: 'peer',
+        modelId: 'qwen3-8b',
+        providerDisplayName: "Bo's qwen3-8b",
+        provenance: 'app-default',
+        configured: true,
+        needsRestart: false,
+      },
+      marks: [],
+    });
+    render(<InferenceChip sessionId="s1" />);
+    const chip = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
+    expect(probeSlotHealth).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    expect(await screen.findByRole('option', { name: /shared in your Circle/ })).toBeTruthy();
+  });
+
+  describe('when a fallback answered', () => {
+    const peer = { circleId: 'c1', providerId: 'p1' };
+    const sharedMark = {
+      id: 'f1',
+      at: '2026-10-31T10:00:00.000Z',
+      kind: 'fell-back',
+      provider: 'peer',
+      modelId: 'qwen3-8b',
+      sharedBy: { person: 'Bo', circle: 'Friends' },
+    };
+    const onOpenRouter = (marks: unknown[], extra: Record<string, unknown> = {}) => ({
+      success: true,
+      override: null,
+      resolved: {
+        slot: 'openrouter',
+        modelId: 'anthropic/claude-sonnet-4',
+        providerDisplayName: 'OpenRouter',
+        provenance: 'app-default',
+        configured: true,
+        needsRestart: false,
+        fallbacks: [{ slot: 'peer', modelId: 'qwen3-8b', peer }],
+        ...extra,
+      },
+      marks,
+    });
+
+    it('names the shared model with a marker and keeps the primary in the menu', async () => {
+      getSessionInference.mockResolvedValue(onOpenRouter([sharedMark]));
+      render(<InferenceChip sessionId="s1" />);
+      const chip = await screen.findByRole('button', {
+        name: "Inference · Bo's qwen3-8b · fallback for OpenRouter · claude-sonnet-4",
+      });
+      expect(chip.textContent).toBe("Bo's qwen3-8bfallback");
+      fireEvent.click(chip);
+      expect(await screen.findByText('Answering now')).toBeTruthy();
+      expect(screen.getByRole('option', { name: /^OpenRouter · claude-sonnet-4/ }).getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('returns to the primary when a refresh finds it answered again', async () => {
+      getSessionInference.mockResolvedValue(onOpenRouter([sharedMark]));
+      const { rerender } = render(<InferenceChip sessionId="s1" refreshKey={0} />);
+      await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
+      getSessionInference.mockResolvedValue(
+        onOpenRouter([
+          sharedMark,
+          { ...sharedMark, id: 'r1', kind: 'recovered', provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
+        ])
+      );
+      rerender(<InferenceChip sessionId="s1" refreshKey={1} />);
+      const chip = await screen.findByRole('button', { name: /Inference · OpenRouter · claude-sonnet-4/ });
+      expect(chip.textContent).toBe('OpenRouter · claude-sonnet-4');
+    });
+
+    it('shows a provider fallback under a shared model that is the app default', async () => {
+      getSessionInference.mockResolvedValue({
+        success: true,
+        override: null,
+        resolved: {
+          slot: 'peer',
+          peer,
+          modelId: 'qwen3-8b',
+          providerDisplayName: "Bo's qwen3-8b",
+          provenance: 'app-default',
+          configured: true,
+          needsRestart: false,
+          fallbacks: [{ slot: 'openrouter' }],
+        },
+        marks: [{ ...sharedMark, provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4', sharedBy: undefined }],
+      });
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /OpenRouter · claude-sonnet-4 · fallback for Bo's qwen3-8b/ }));
+      expect(await screen.findByRole('option', { name: /Bo's qwen3-8b.*shared in your Circle/ })).toBeTruthy();
+    });
+
+    it('keeps a private fallback in a private project, and never names a cloud one there', async () => {
+      const locked = { privacyLocked: true, slot: 'local', modelId: 'qwen3:14b', providerDisplayName: 'Local', health: 'reachable' };
+      getSessionInference.mockResolvedValue(onOpenRouter([sharedMark], locked));
+      const { unmount } = render(<InferenceChip sessionId="s1" />);
+      await screen.findByRole('button', { name: /Bo's qwen3-8b · fallback for Local/ });
+      unmount();
+      getSessionInference.mockResolvedValue(
+        onOpenRouter([{ ...sharedMark, provider: 'openrouter', modelId: 'x/y', sharedBy: undefined }], {
+          ...locked,
+          fallbacks: [{ slot: 'openrouter' }],
+        })
+      );
+      render(<InferenceChip sessionId="s1" />);
+      expect(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
+    });
+
+    it('ignores a mark for a model the chain no longer lists, or that is now the primary', async () => {
+      getSessionInference.mockResolvedValue(onOpenRouter([sharedMark], { fallbacks: [] }));
+      const { unmount } = render(<InferenceChip sessionId="s1" />);
+      await screen.findByRole('button', { name: /Inference · OpenRouter · claude-sonnet-4/ });
+      unmount();
+      getSessionInference.mockResolvedValue(
+        onOpenRouter([sharedMark], { slot: 'peer', peer, modelId: 'qwen3-8b', providerDisplayName: "Bo's qwen3-8b" })
+      );
+      render(<InferenceChip sessionId="s1" />);
+      const chip = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
+      expect(chip.textContent).toBe("Bo's qwen3-8b");
+    });
+
+    it('lets a restart say so instead of the last fallback', async () => {
+      getSessionInference.mockResolvedValue(onOpenRouter([sharedMark]));
+      render(<InferenceChip sessionId="s1" applying />);
+      expect(await screen.findByRole('button', { name: /OpenRouter · claude-sonnet-4 · applying…/ })).toBeTruthy();
+    });
+  });
+
+  it('says OpenRouter is unreachable before a send, from the slot health main pushes', async () => {
+    getSessionInference.mockResolvedValue({
+      success: true,
+      override: null,
+      resolved: {
+        slot: 'openrouter',
+        modelId: 'anthropic/claude-sonnet-4',
+        providerDisplayName: 'OpenRouter',
+        provenance: 'app-default',
+        configured: true,
+        needsRestart: false,
+      },
+      marks: [],
+    });
+    render(<InferenceChip sessionId="s1" />);
+    const chip = await screen.findByRole('button', { name: /OpenRouter · claude-sonnet-4/ });
+    expect(chip.textContent).not.toContain('unreachable');
+    await act(async () =>
+      pushStatus.current?.({
+        ...bothConfigured,
+        slots: { ...bothConfigured.slots, openrouter: { ...bothConfigured.slots.openrouter, health: 'unreachable' } },
+      })
+    );
+    expect(chip.textContent).toContain('unreachable');
+    fireEvent.click(chip);
+    expect(await screen.findByRole('option', { name: /OpenRouter · claude-sonnet-4.*unreachable/ })).toBeTruthy();
+    await act(async () => pushStatus.current?.(bothConfigured));
+  });
+
   it('leaves the app default unlabelled and lists both providers', async () => {
     render(<InferenceChip sessionId="s1" />);
     await waitFor(() => {

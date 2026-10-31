@@ -61,7 +61,7 @@ export interface EnsureAssistantStackResult {
 }
 
 export interface LastAppliedLlm {
-  slot: import('./onboarding').InferenceSlotId;
+  slot: import('./inferenceChain').InferenceChainSlot;
   endpointUrl: string;
   modelId: string;
   /** Context window the model server reported for it, when it said. */

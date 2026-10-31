@@ -43,7 +43,12 @@ vi.mock('../../../inference/inferenceRouterService', () => ({
 vi.mock('../../../circles/circlesService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../circles/circlesService')>()),
   sharedProviderNames: (...args: unknown[]) => sharedProviderNames(...args),
+  ensureCirclesStarted: async () => undefined,
   sharedModelFacts: () => ({
+    running: true,
+    identity: 'a'.repeat(64),
+    providerName: () => 'Bo',
+    providerOnline: () => true,
     providerPrivate: () => providerPrivate,
     providerTrusted: () => true,
     circleJoined: () => true,
@@ -65,6 +70,7 @@ vi.mock('../../AssistantStackService', () => ({
 describe('ensureResolvedInferenceReady', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    probeSlotHealth.mockResolvedValue({ success: true, health: 'reachable' });
     clearOpenAiConfig();
     resetHermesAgentsStoreForTests();
     clearLastAppliedLlm();
@@ -86,6 +92,64 @@ describe('ensureResolvedInferenceReady', () => {
       expect(result.errorCode).toBe('local-unreachable');
     }
     expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+  });
+
+  describe('before switching provider', () => {
+    it('refuses without applying when OpenRouter doesn’t answer, and says no more than that', async () => {
+      needRestartToOpenRouter();
+      probeSlotHealth.mockResolvedValue({ success: true, health: 'unreachable', error: 'fetch failed' });
+      const onApply = vi.fn();
+      const { ensureResolvedInferenceReady } = await import('../sessionInference');
+      expect(await ensureResolvedInferenceReady('s1', onApply)).toEqual({
+        ok: false,
+        error: 'OpenRouter didn’t answer, so your message wasn’t sent.',
+        errorCode: 'provider-unreachable',
+      });
+      expect(probeSlotHealth).toHaveBeenCalledWith('openrouter');
+      expect(onApply).not.toHaveBeenCalled();
+      expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+    });
+
+    it('lets a bad key through: the provider answered, and Hermes reports it', async () => {
+      needRestartToOpenRouter();
+      probeSlotHealth.mockResolvedValue({ success: true, health: 'unauthorized' });
+      const { ensureResolvedInferenceReady } = await import('../sessionInference');
+      expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+      expect(applyLlmConnectionToHermes).toHaveBeenCalled();
+    });
+
+    it('adds no probe to an ordinary send on OpenRouter', async () => {
+      needRestartToOpenRouter();
+      setLastAppliedLlm({
+        slot: 'openrouter',
+        endpointUrl: 'https://openrouter.ai/api/v1',
+        modelId: 'anthropic/claude-sonnet-4',
+        appliedAt: '2026-09-28T00:00:00.000Z',
+      });
+      const { ensureResolvedInferenceReady } = await import('../sessionInference');
+      expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+      expect(probeSlotHealth).not.toHaveBeenCalled();
+      expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+    });
+
+    it('tells the listener before applying, and of a restart only when Hermes restarts', async () => {
+      needRestartToOpenRouter();
+      probeSlotHealth.mockResolvedValue({ success: true, health: 'reachable' });
+      const onApply = vi.fn();
+      applyLlmConnectionToHermes.mockImplementation(async (_llm, { onRestart }) => {
+        expect(onApply.mock.calls.map((call) => call[2])).toEqual([false]);
+        onRestart();
+        return { success: true };
+      });
+      const { ensureResolvedInferenceReady } = await import('../sessionInference');
+      await ensureResolvedInferenceReady('s1', onApply);
+      expect(onApply.mock.calls.map((call) => call[2])).toEqual([false, true]);
+
+      onApply.mockClear();
+      applyLlmConnectionToHermes.mockResolvedValue({ success: true });
+      await ensureResolvedInferenceReady('s1', onApply);
+      expect(onApply.mock.calls.map((call) => call[2])).toEqual([false]);
+    });
   });
 
   function needRestartToOpenRouter() {
@@ -145,7 +209,8 @@ describe('ensureResolvedInferenceReady', () => {
       expect.objectContaining({
         modelId: 'anthropic/claude-sonnet-4',
         slot: 'openrouter',
-      })
+      }),
+      expect.anything()
     );
     expect(result.ok).toBe(true);
   });
@@ -165,11 +230,13 @@ describe('ensureResolvedInferenceReady', () => {
 
     it('does not stop for an unreachable local model, and applies the routed chain', async () => {
       await localThenOpenRouter();
-      probeSlotHealth.mockResolvedValue({ success: true, health: 'unreachable' });
+      probeSlotHealth.mockImplementation(async (slot: string) => ({
+        success: true,
+        health: slot === 'local' ? 'unreachable' : 'reachable',
+      }));
       const { ensureResolvedInferenceReady } = await import('../sessionInference');
       const result = await ensureResolvedInferenceReady('s1');
       expect(result.ok).toBe(true);
-      expect(probeSlotHealth).not.toHaveBeenCalled();
       const [connection] = applyLlmConnectionToHermes.mock.calls[0];
       expect(connection).toMatchObject({ slot: 'local', modelId: 'qwen3:14b', plan: { kind: 'routed' } });
       expect(connection.plan.chain.contextLength).toBe(32_768);
@@ -191,6 +258,18 @@ describe('ensureResolvedInferenceReady', () => {
       expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
       expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
       expect(setInferenceRouterChain).toHaveBeenCalledWith(expect.objectContaining({ modelId: 'qwen3:14b' }));
+    });
+
+    it('refuses before an apply when nothing in the chain answers', async () => {
+      await localThenOpenRouter();
+      probeSlotHealth.mockResolvedValue({ success: true, health: 'unreachable' });
+      const { ensureResolvedInferenceReady } = await import('../sessionInference');
+      expect(await ensureResolvedInferenceReady('s1')).toEqual({
+        ok: false,
+        error: 'Your local model and OpenRouter didn’t answer, so your message wasn’t sent.',
+        errorCode: 'provider-unreachable',
+      });
+      expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
     });
 
     it('applies again when this run never pointed the proxy at the router', async () => {
@@ -418,6 +497,71 @@ describe('noteFallbackServed', () => {
         sharedBy: { person: 'Ada', circle: 'Friends' },
       }),
     ]);
+  });
+
+  it('marks the primary answering again, once, and a later fall back as a new run', async () => {
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { listSessionInferenceMarks } = await import('../hermesAgentStore');
+    noteFallbackServed('s1', 1_000);
+    latestServed = { slot: 'openrouter', modelId: 'x/primary', fellBack: false, at: 3_000 };
+    noteFallbackServed('s1', 2_500);
+    noteFallbackServed('s1', 2_500);
+    latestServed = { slot: 'peer', peer, modelId: 'qwen3:14b', fellBack: true, at: 5_000 };
+    noteFallbackServed('s1', 4_000);
+    expect(listSessionInferenceMarks('s1').map((mark) => [mark.kind, mark.provider])).toEqual([
+      ['fell-back', 'peer'],
+      ['recovered', 'openrouter'],
+      ['fell-back', 'peer'],
+    ]);
+  });
+
+  it('names who shares a shared primary when it answers again', async () => {
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { appendSessionInferenceMark, listSessionInferenceMarks } = await import('../hermesAgentStore');
+    appendSessionInferenceMark('s1', { kind: 'fell-back', provider: 'openrouter', modelId: 'x/backup' });
+    latestServed = { slot: 'peer', peer, modelId: 'qwen3:14b', fellBack: false, at: 2_000 };
+    noteFallbackServed('s1', 1_000);
+    expect(listSessionInferenceMarks('s1').at(-1)).toEqual(
+      expect.objectContaining({ kind: 'recovered', provider: 'peer', sharedBy: { person: 'Ada', circle: 'Friends' } })
+    );
+  });
+
+  it('marks nothing when the primary answers a chat that never fell back', async () => {
+    latestServed = { slot: 'openrouter', modelId: 'x/primary', fellBack: false, at: 2_000 };
+    const { noteFallbackServed } = await import('../sessionInference');
+    const { listSessionInferenceMarks } = await import('../hermesAgentStore');
+    noteFallbackServed('s1', 1_000);
+    expect(listSessionInferenceMarks('s1')).toEqual([]);
+  });
+
+  describe('a turn the router did not serve', () => {
+    const direct = { slot: 'openrouter' as const, endpointUrl: 'https://x.test/v1', modelId: 'x/primary', appliedAt: 't' };
+
+    async function afterFallback() {
+      const { appendSessionInferenceMark, listSessionInferenceMarks } = await import('../hermesAgentStore');
+      appendSessionInferenceMark('s1', { kind: 'fell-back', provider: 'peer', modelId: 'qwen3:14b' });
+      return listSessionInferenceMarks;
+    }
+
+    it('counts as the primary when it replied past a chain cut to one entry', async () => {
+      const list = await afterFallback();
+      setLastAppliedLlm(direct);
+      const { noteFallbackServed } = await import('../sessionInference');
+      noteFallbackServed('s1', 9_000, true);
+      expect(list('s1').at(-1)).toEqual(
+        expect.objectContaining({ kind: 'recovered', provider: 'openrouter', modelId: 'x/primary' })
+      );
+    });
+
+    it('says nothing when it failed, or when the chain is still routed', async () => {
+      const list = await afterFallback();
+      const { noteFallbackServed } = await import('../sessionInference');
+      setLastAppliedLlm(direct);
+      noteFallbackServed('s1', 9_000, false);
+      setLastAppliedLlm({ ...direct, routed: true });
+      noteFallbackServed('s1', 9_000, true);
+      expect(list('s1').map((mark) => mark.kind)).toEqual(['fell-back']);
+    });
   });
 
   it('still marks a shared model once its provider has left the Circle', async () => {

@@ -27,7 +27,28 @@ export function useCirclesState(): CirclesState {
 }
 
 /** A result's error, or null when it succeeded. */
-export function resultError(result: CirclesResult<object>): string | null {
+function resultError(result: CirclesResult<object>): string | null {
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.
   return result.success === false ? result.error : null;
+}
+
+/** Runs a Circles call with a busy flag and the error it returns. */
+export function useAction() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async <T extends object>(call: () => Promise<CirclesResult<T>>): Promise<CirclesResult<T> | null> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await call();
+      setError(resultError(result));
+      return result;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run, setError };
 }

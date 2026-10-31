@@ -3,6 +3,7 @@ import { app, utilityProcess, type UtilityProcess } from 'electron';
 import { persistDebugLog } from '../../persistDebugLog';
 import { getSlotLlmConnection } from '../onboarding/OpenAiOnboardingStore';
 import { setAwayBlocker } from './awayMode';
+import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals';
 import { diag, short } from './circlesDiagnostics';
 import { broadcast } from '../windows';
 import type {
@@ -66,6 +67,9 @@ interface SharedCall {
   provider: string;
 }
 const sharedCalls = new Map<number, SharedCall>();
+
+type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; payload: unknown }) => void;
+const signalHandlers = new Map<string, Set<CircleSignalHandler>>();
 const emptySnapshot: CirclesSnapshot = { identity: '', circles: [] };
 let state: CirclesState = {
   status: 'stopped',
@@ -123,6 +127,7 @@ async function start(): Promise<void> {
         case 'circles-ready':
           diag('main.net-ready', { ms: Date.now() - forkedAt, identity: short(message.snapshot.identity) });
           setState({ status: 'running', snapshot: message.snapshot });
+          postSignalTopics();
           resolve();
           syncSharing().catch((error: unknown) => {
             persistDebugLog('circles', 'sharing sync failed', { error: error instanceof Error ? error.message : String(error) });
@@ -151,6 +156,12 @@ async function start(): Promise<void> {
         case 'shared-chunk':
         case 'shared-end':
           onSharedMessage(message);
+          return;
+        case 'circle-removed':
+          forgetCircle(message.key);
+          break;
+        case 'signal-received':
+          onSignalReceived(message.signal);
           return;
         case 'addons':
         case 'stopped':
@@ -270,6 +281,53 @@ export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, sign
   });
 }
 
+function postSignalTopics(): void {
+  if (child && state.status === 'running') post(child, { type: 'signal-topics', topics: [...signalHandlers.keys()] });
+}
+
+function onSignalReceived(signal: CircleSignal): void {
+  for (const handler of signalHandlers.get(signal.topic) ?? []) {
+    try {
+      handler({ circleKey: signal.circle, fromIdentity: signal.from, payload: signal.payload });
+    } catch (error) {
+      // The topic only: an error from a handler can quote the payload.
+      persistDebugLog('circles', 'signal handler failed', { topic: signal.topic });
+      diag('main.signal-handler-failed', { topic: signal.topic, error: error instanceof Error ? error.name : typeof error });
+    }
+  }
+}
+
+/**
+ * Listen to peer signals on a topic, in any Circle. The network process has already checked that
+ * the sender is a current member of `circleKey`; the payload is otherwise untrusted. Returns a
+ * function that stops listening.
+ */
+export function onCircleSignal(topic: string, handler: CircleSignalHandler): () => void {
+  if (!isSignalTopic(topic)) throw new Error('That isn’t a signal topic.');
+  const handlers = signalHandlers.get(topic) ?? new Set<CircleSignalHandler>();
+  signalHandlers.set(topic, handlers);
+  handlers.add(handler);
+  postSignalTopics();
+  return () => {
+    handlers.delete(handler);
+    if (handlers.size > 0 || signalHandlers.get(topic) !== handlers) return;
+    signalHandlers.delete(topic);
+    postSignalTopics();
+  };
+}
+
+/**
+ * Send a short message to the members of a Circle who are connected, or to one of them. Nothing
+ * keeps it, and a peer over its rate limit misses it. Returns false when Circles aren't running;
+ * throws on a bad topic or a payload over the limit.
+ */
+export function sendCircleSignal(circleKey: string, topic: string, payload: unknown, toIdentity?: string): boolean {
+  encodeSignal({ circle: circleKey, topic, payload });
+  if (!child || state.status !== 'running') return false;
+  post(child, { type: 'signal-send', key: circleKey, topic, payload, ...(toIdentity ? { to: toIdentity } : {}) });
+  return true;
+}
+
 const MAX_SHARED_MODELS = 32;
 
 async function requestOrThrow(body: CirclesRequest): Promise<void> {
@@ -356,6 +414,14 @@ export function setProviderSettings(identity: string, settings: CircleProviderSe
 
 /** What the chain resolver needs to know about Circles now (ADR 0033 §10, ADR 0034 §3). */
 export function sharedModelFacts(): {
+  /** Circles' answers are current; otherwise a Circle may only look left. */
+  running: boolean;
+  /** This user's own identity key. */
+  identity: string;
+  /** What the provider goes by in this Circle. */
+  providerName(peer: PeerModelRef): string;
+  /** Connected to this device now. */
+  providerOnline(peer: PeerModelRef): boolean;
   circleJoined(circleId: string): boolean;
   peerOffer(peer: PeerModelRef): Record<string, { contextLength?: number }> | null;
   providerPrivate(providerId: string): boolean;
@@ -363,14 +429,21 @@ export function sharedModelFacts(): {
 } {
   const circles = state.snapshot.circles;
   const providers = state.providers;
+  const circleOf = (peer: PeerModelRef) => circles.find((circle) => circle.key === peer.circleId);
+  const offerOf = (peer: PeerModelRef) => circleOf(peer)?.offers.find((offer) => offer.identity === peer.providerId);
   return {
+    running: state.status === 'running',
+    identity: state.snapshot.identity,
+    providerName: (peer) =>
+      offerOf(peer)?.name ??
+      circleOf(peer)?.members.find((member) => member.identity === peer.providerId)?.name ??
+      'A member',
+    providerOnline: (peer) => offerOf(peer)?.online === true,
     providerPrivate: (providerId) => providers[providerId]?.private === true,
     providerTrusted: (providerId) => providers[providerId]?.trusted === true,
     circleJoined: (circleId) => circles.some((circle) => circle.key === circleId),
     peerOffer: (peer) => {
-      const offer = circles
-        .find((circle) => circle.key === peer.circleId)
-        ?.offers.find((candidate) => candidate.identity === peer.providerId);
+      const offer = offerOf(peer);
       // A paused offer can't serve, so it counts as withdrawn until the provider resumes.
       if (!offer || !offer.available) return null;
       return Object.fromEntries(

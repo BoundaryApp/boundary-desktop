@@ -216,8 +216,20 @@ export function createHermesChatModelAdapter(
         stopListening();
         settle('');
         if (start.errorCode === 'rewind-unsupported') serverPath?.setRewindable(false);
+        // The transcript says what happened; its Retry sends this message again.
+        const unreachableNote = {
+          content: [{ type: 'text' as const, text: '' }],
+          metadata: {
+            custom: { noReply: { reason: 'unreachable', error: start.error } } satisfies HermesMessageCustom,
+          },
+        };
         if (start.errorCode === 'local-unreachable') {
           opts?.onLocalUnreachable?.();
+          if (start.sharedUnavailable) yield unreachableNote;
+          return;
+        }
+        if (start.errorCode === 'provider-unreachable') {
+          yield unreachableNote;
           return;
         }
         if (start.errorCode === 'private-refused') {
