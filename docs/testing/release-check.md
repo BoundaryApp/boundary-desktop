@@ -19,6 +19,18 @@ When a step fails, note the flow, the step, what you saw and the time. The time 
 
 Fails if: the turn never leaves "Preparing…", or ends with "No reply after 3 minutes" while the agent is visibly working.
 
+## Failed chats
+
+Hermes stores a chat on its first accepted message, so Boundary keeps a chat whose send failed in its own store (`failedChats` in the agent records file).
+
+1. Stop the stack with `docker compose stop hermes` in the stack checkout. Start a new chat and send "Failed chat one". The message and the error show, and the chat is in the rail titled with the message.
+2. Start another chat and send "Failed chat two". Both chats are in the rail, and each opens on its own message and error.
+3. Quit Boundary and open it again. Both chats are still listed and open the same way, with Retry on the error line.
+4. Start the stack again. In "Failed chat one", click **Retry**. The reply comes in the same chat, the rail shows no extra chat, and the error stays above the reply after reopening the chat.
+5. In "Failed chat two", open the title menu and click **Delete chat…**, then confirm. It leaves the rail and doesn't return after a relaunch.
+
+Fails if: a failed chat leaves the rail, a Retry starts a separate chat, or the error is gone after a reopen.
+
 ## 2. A channel hand-off
 
 1. In the rail, under **Channels**, click **+** (**New channel**). Enter `test-room` as the **Name**. Under **Initial members**, leave exactly two agents selected (the built-in agent starts selected), then click **Create channel**.

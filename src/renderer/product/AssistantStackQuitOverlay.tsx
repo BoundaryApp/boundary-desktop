@@ -5,6 +5,7 @@ import { ServiceProgressCards } from './ServiceProgressCards';
 import { StartupDetails, ToolRing } from './startup/StartupScreen';
 import { STARTUP_TOOLS, toolState, type StartupToolState } from './startup/startupModel';
 import { useUpdates } from './updates';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 export interface AssistantStackQuitOverlayProps {
   lifecycle: AssistantStackLifecycleSnapshot;
@@ -67,8 +68,8 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
           <h1 id="quit-overlay-title">Shutting down your assistant</h1>
           <p role="status">
             {update?.phase === 'ready'
-              ? `Stopping your tools. Boundary installs ${update.version} and ${update.restarting ? 'reopens' : 'closes'}.`
-              : 'Stopping your tools. Boundary closes when this finishes.'}
+              ? `Stopping your tools. ${APP_NAME} installs ${update.version} and ${update.restarting ? 'reopens' : 'closes'}.`
+              : `Stopping your tools. ${APP_NAME} closes when this finishes.`}
           </p>
         </div>
         <div

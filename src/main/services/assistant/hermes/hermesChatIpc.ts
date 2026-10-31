@@ -5,6 +5,7 @@ import {
   openAgentDm,
   getHermesChatContextBreakdown,
   branchHermesChat,
+  deleteHermesFailedChat,
   getHermesChatHistory,
   handleHermesChatCancel,
   listHermesChatThreads,
@@ -94,6 +95,10 @@ export function registerHermesChatHandlers(): void {
   handleResult(
     'hermes-chat:branch',
     async (_event, payload: HermesChatBranchPayload) => branchHermesChat(payload)
+  );
+
+  handle('hermes-chat:delete-failed-chat', async (_event, payload: HermesChatHistoryPayload) =>
+    deleteHermesFailedChat(payload.sessionId)
   );
 
   handleResult(

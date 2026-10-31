@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { CodingGrantRefuseReason } from '../../../../shared/types/codingFolders';
 import { canonicalPath, isPathUnder, samePath } from '../../hostPaths';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * Pure rules for coding grants (ADR 0028 §4–§6): which folders may be granted, how grants
@@ -111,9 +112,9 @@ export function codingGrantRefuseMessage(reason: CodingGrantRefuseReason): strin
     case 'system':
       return 'System and Library folders can’t be shared with the coding agent.';
     case 'boundary-data':
-      return 'That folder holds Boundary’s own data, which stays out of the agents’ reach.';
+      return `That folder holds ${APP_NAME}’s own data, which stays out of the agents’ reach.`;
     case 'contains-boundary-data':
-      return 'That folder contains Boundary’s own data. Choose a folder that doesn’t.';
+      return `That folder contains ${APP_NAME}’s own data. Choose a folder that doesn’t.`;
     case 'missing':
       return 'That folder doesn’t exist.';
   }

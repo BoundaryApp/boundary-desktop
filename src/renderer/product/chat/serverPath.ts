@@ -14,10 +14,13 @@ export interface ServerEntry {
   role: string;
   text: string;
   rowId: number | null;
+  /** A failed send from Boundary's record: shown in the chain, but Hermes has no row for it. */
+  localOnly?: boolean;
 }
 
 export type RunPlan =
-  | { kind: 'append' }
+  /** `retry`: the turn is a failed send being sent again. */
+  | { kind: 'append'; retry?: boolean }
   | { kind: 'rewind'; request: HermesChatRewindRequest }
   /** The path is exactly what Hermes holds and ends on a reply: Continue that reply. */
   | { kind: 'continue' }
@@ -26,24 +29,33 @@ export type RunPlan =
 export class ServerPath {
   private entries: ServerEntry[] = [];
   private ids = new Set<string>();
+  private localIds = new Set<string>();
   private listeners = new Set<() => void>();
   private version = 0;
   private rewindable = true;
 
   constructor(entries: ServerEntry[] = []) {
+    this.set(entries);
+  }
+
+  private set(entries: ServerEntry[]): void {
     this.entries = [...entries];
     this.ids = new Set(entries.map((e) => e.id));
+    this.localIds = new Set(entries.filter((e) => e.localOnly).map((e) => e.id));
   }
 
   reset(entries: ServerEntry[]): void {
-    this.entries = [...entries];
-    this.ids = new Set(entries.map((e) => e.id));
+    this.set(entries);
     this.notify();
   }
 
-  /** Whether a runtime message is part of what Hermes holds. */
+  /**
+   * Whether a runtime message can be edited or retried: it is part of what Hermes holds, or
+   * it is a failed send at the end of the chat, which sends again.
+   */
   has(id: string): boolean {
-    return this.ids.has(id);
+    if (!this.ids.has(id)) return false;
+    return !this.localIds.has(id) || this.entries.at(-1)?.id === id;
   }
 
   messageIds(): readonly string[] {
@@ -84,7 +96,12 @@ export class ServerPath {
     // Retry: the whole path matches and ends on a user turn Hermes already has.
     const target = this.entries[last];
     if (last >= 0 && common >= last && target?.role === 'user') {
-      const userOrdinal = this.entries.slice(0, last).filter((e) => e.role === 'user').length;
+      if (target.localOnly) {
+        return last === this.entries.length - 1 ? { kind: 'append', retry: true } : { kind: 'diverged' };
+      }
+      const userOrdinal = this.entries
+        .slice(0, last)
+        .filter((e) => e.role === 'user' && !e.localOnly).length;
       return {
         kind: 'rewind',
         request: {

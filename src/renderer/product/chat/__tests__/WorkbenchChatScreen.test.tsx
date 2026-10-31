@@ -29,6 +29,7 @@ const createChannel = vi.fn();
 const addChannelMember = vi.fn();
 const renameChannel = vi.fn();
 const deleteChannel = vi.fn();
+const deleteFailedChat = vi.fn();
 const makeChannelFromHermesChat = vi.fn();
 const setLastOpened = vi.fn();
 const createEmptyProject = vi.fn();
@@ -48,6 +49,7 @@ stubElectronAPI({
   hermesChat: {
     listThreads: ipcCalls.track((...args: unknown[]) => listThreads(...args)),
     createHermesChat: ipcCalls.track((...args: unknown[]) => createHermesChat(...args)),
+    deleteFailedChat: ipcCalls.track((...args: unknown[]) => deleteFailedChat(...args)),
     openAgentDm: ipcCalls.track((...args: unknown[]) => openAgentDm(...args)),
     onSessionsChanged: (cb: () => void) => {
       sessionsChanged.add(cb);
@@ -125,6 +127,7 @@ vi.mock('../WorkbenchThread', () => ({
     onCreateAgentFromDraft,
     onRenameChannel,
     onDeleteChannel,
+    onDeleteChat,
     toolsEnabled,
     onToolsEnabledChange,
   }: {
@@ -139,6 +142,7 @@ vi.mock('../WorkbenchThread', () => ({
     onCreateAgentFromDraft?: (payload: { displayName: string; handle: string; role: string }) => void;
     onRenameChannel?: () => void;
     onDeleteChannel?: () => void;
+    onDeleteChat?: () => void;
   }) => (
     <div>
       thread:{threadTitle}
@@ -162,6 +166,11 @@ vi.mock('../WorkbenchThread', () => ({
       {onDeleteChannel ? (
         <button type="button" onClick={onDeleteChannel}>
           Delete channel…
+        </button>
+      ) : null}
+      {onDeleteChat ? (
+        <button type="button" onClick={onDeleteChat}>
+          Delete chat…
         </button>
       ) : null}
       {onCreateAgentFromDraft ? (
@@ -912,6 +921,42 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.getByRole('menuitem', { name: 'Refresh index' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'notes-vault' })).toBeNull();
     expect(createHostProject).not.toHaveBeenCalled();
+  });
+
+  it('deletes a failed chat and lands on the newest one left', async () => {
+    deleteFailedChat.mockResolvedValue({ success: true });
+    listThreads.mockResolvedValue({
+      success: true,
+      threads: [
+        {
+          id: 'failed-1',
+          title: 'Plan my week',
+          kind: 'hermes',
+          agentSlug: 'assistant',
+          failed: true,
+          updatedAt: '2026-10-31T10:00:00.000Z',
+        },
+        {
+          id: 'stored-1',
+          title: 'Stored chat',
+          kind: 'hermes',
+          agentSlug: 'assistant',
+          updatedAt: '2026-10-30T10:00:00.000Z',
+        },
+      ],
+    });
+    await renderScreen();
+    expect(screen.getByText('thread:Plan my week')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete chat…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' }));
+    await ipcCalls.settle();
+
+    expect(deleteFailedChat).toHaveBeenCalledWith({ sessionId: 'failed-1' });
+    expect(screen.getByText('thread:Stored chat')).toBeTruthy();
+    expect(screen.queryByText('Plan my week')).toBeNull();
+    // A chat Hermes holds has no delete.
+    expect(screen.queryByRole('button', { name: 'Delete chat…' })).toBeNull();
   });
 
   it('starts a new chat from the New Chat command', async () => {

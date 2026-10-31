@@ -5,6 +5,7 @@ import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { displayHostPath } from './chatTelemetryFormat';
 import { runCodingChange } from './codingFoldersStore';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Review before Boundary moves a coding folder to the Trash (ADR 0028 §11, mock flow 5).
@@ -45,7 +46,7 @@ function addedLine(facts: CodingDeleteInspect, projectName?: string | null): str
   const where = projectName ? ` in ${projectName}` : '';
   switch (facts.origin) {
     case 'new-folder':
-      return `Created by Boundary${where}${date ? `, ${date}` : ''}`;
+      return `Created by ${APP_NAME}${where}${date ? `, ${date}` : ''}`;
     case 'chat':
       return `Granted from a chat${where}${date ? `, ${date}` : ''}`;
     case 'add':
@@ -197,13 +198,13 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             {facts.createdByBoundary ? (
               <li className="is-ok">
                 <span aria-hidden="true">✓</span>
-                <span>Boundary created this folder.</span>
+                <span>{APP_NAME} created this folder.</span>
               </li>
             ) : (
               <li className="is-warn">
                 <span aria-hidden="true">i</span>
                 <span>
-                  Boundary didn’t create this folder. It existed before you gave the coding agent
+                  {APP_NAME} didn’t create this folder. It existed before you gave the coding agent
                   access.
                 </span>
               </li>
@@ -235,8 +236,8 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             </div>
           ) : null}
           <p className="wb-sheet-help">
-            Boundary removes coding access first, then moves the folder to the Trash. You can put
-            it back from the Trash in Finder until you empty it. Boundary never empties the Trash.
+            {APP_NAME} removes coding access first, then moves the folder to the Trash. You can put
+            it back from the Trash in Finder until you empty it. {APP_NAME} never empties the Trash.
           </p>
           {facts.requiresTypedName ? (
             <label className="wb-field">

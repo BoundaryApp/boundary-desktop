@@ -53,8 +53,13 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "release=${release}" >> "$GITHUB_OUTPUT"
 
-  build:
+  test:
     needs: version
+    if: needs.version.outputs.release == 'true'
+    uses: ./.github/workflows/test-build.yml
+
+  build:
+    needs: [version, test]
     if: needs.version.outputs.release == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90

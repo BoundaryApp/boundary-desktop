@@ -1,4 +1,5 @@
 import type { CalendarAccess, CalendarProvider } from '../../../../shared/types/calendars';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * What Boundary writes into Hermes for a connected calendar (docs/calendar-ux-study/spec.md,
@@ -127,7 +128,7 @@ const UNSAFE_ENV_CHARS = /[\s'"\\#$]/;
 export function calendarPasswordProblem(password: string): string | null {
   if (!password) return 'Enter the password.';
   if (UNSAFE_ENV_CHARS.test(password)) {
-    return 'Boundary can’t pass on a password with spaces, quotes, backslashes, # or $. Create an app password for Boundary instead.';
+    return `${APP_NAME} can’t pass on a password with spaces, quotes, backslashes, # or $. Create an app password for ${APP_NAME} instead.`;
   }
   return null;
 }

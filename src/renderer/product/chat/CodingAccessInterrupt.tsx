@@ -13,6 +13,7 @@ import {
 } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Coding-access card (ADR 0028 §9, mock flow 3). A coding task asked for a folder outside the
@@ -170,7 +171,7 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
 
       {request.refuseMessage ? (
         <>
-          <h3 id="wb-coding-access-title">Hermes asked for a folder Boundary won’t share</h3>
+          <h3 id="wb-coding-access-title">Hermes asked for a folder {APP_NAME} won’t share</h3>
           <pre className="cmd mono">{displayHostPath(request.hostPath)}</pre>
           <p className="why">{request.refuseMessage}</p>
           <div className="wb-approve-actions">
@@ -219,13 +220,13 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
               />
               {gitAvailable
                 ? 'Start a git repo, so every change can be undone'
-                : 'Git isn’t installed on this Mac, so Boundary can’t start a repo'}
+                : `Git isn’t installed on this Mac, so ${APP_NAME} can’t start a repo`}
             </label>
           ) : null}
           <ul className="wb-coding-access-list">
             {create ? (
               <li>
-                Boundary creates the folder{projectName ? ` and adds it to ${projectName}` : ''}.
+                {APP_NAME} creates the folder{projectName ? ` and adds it to ${projectName}` : ''}.
               </li>
             ) : null}
             <li>

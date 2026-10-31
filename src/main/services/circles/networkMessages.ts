@@ -101,4 +101,5 @@ export type NetworkToMain =
   /** A peer signal on a topic main listens to, checked against the Circle's members. */
   | { type: 'signal-received'; signal: CircleSignal }
   /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
+  | { type: 'circle-paired'; secrets: CircleSecrets }
   | { type: 'circle-removed'; key: string };

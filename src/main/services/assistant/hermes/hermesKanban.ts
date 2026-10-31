@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 import { broadcast } from '../../windows';
 import { showWindowNotification } from '../../notifications';
 import { sendEvent } from '../../../ipc';
@@ -354,7 +355,7 @@ async function stopOverlongRuns(nowS: number): Promise<void> {
       stoppedRuns.add(run.runId);
       const hours = Math.round((run.elapsedS / 3600) * 10) / 10;
       const reason =
-        `Boundary stopped this run after ${hours} h because the task has no ` +
+        `${APP_NAME} stopped this run after ${hours} h because the task has no ` +
         'max_runtime_seconds. Unblock it to try again.';
       await api(`/runs/${run.runId}/terminate`, { method: 'POST', body: { reason } });
       await api(`/tasks/${encodeURIComponent(run.taskId)}`, {

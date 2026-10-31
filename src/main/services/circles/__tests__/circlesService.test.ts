@@ -185,6 +185,16 @@ describe('circlesService', () => {
     await service.stopCircles();
   });
 
+  it('keeps a joined Circle from the moment it is admitted, before the join finishes', async () => {
+    stored.name = 'Bo';
+    const service = await load();
+    await service.ensureCirclesStarted();
+    lastChild!.emit('message', { type: 'circle-paired', secrets: { namespace: 'n1', key: 'c1', encryptionKey: 'e1' } });
+    await flush();
+    expect(stored.circles.has('c1')).toBe(true);
+    await service.stopCircles();
+  });
+
   describe('shared models', () => {
     const PEER = { circleId: 'c1', providerId: 'a'.repeat(64) };
 

@@ -39,6 +39,7 @@ import {
   hostToolsStateFor,
   nextExpectedClients,
 } from './hostToolsState';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Runs the host bridge (ADR 0027): forks the utilityProcess that owns the loopback listeners,
@@ -252,10 +253,10 @@ async function launch(): Promise<HostBridgeEndpoints> {
   const mcpToken = await ensureHostBridgeToken('mcp');
   const browserToken = await ensureHostBridgeToken('browser');
   // Reading the tokens waits on the keychain; Boundary may have started quitting meanwhile.
-  if (quitting) throw new Error('Boundary is quitting.');
+  if (quitting) throw new Error(`${APP_NAME} is quitting.`);
   const preferred = getHostBridgePorts();
 
-  const proc = utilityProcess.fork(BRIDGE_ENTRY, [], { serviceName: 'Boundary Host Bridge' });
+  const proc = utilityProcess.fork(BRIDGE_ENTRY, [], { serviceName: `${APP_NAME} Host Bridge` });
   child = proc;
 
   return new Promise<HostBridgeEndpoints>((resolve, reject) => {
@@ -367,7 +368,7 @@ export function syncHostToolListing(): void {
 
 /** Start the bridge once; later calls share the same startup. */
 export function ensureHostBridgeStarted(): Promise<HostBridgeEndpoints> {
-  if (quitting) return Promise.reject(new Error('Boundary is quitting.'));
+  if (quitting) return Promise.reject(new Error(`${APP_NAME} is quitting.`));
   if (isHostBridgeAgentStopped()) return Promise.reject(new Error(AGENT_STOPPED_MESSAGE));
   if (!ready) {
     stopping = false;
@@ -416,7 +417,7 @@ export interface HostBridgeAgentState {
  */
 export type ProvisionHermes = () => Promise<IpcResult>;
 
-const ROTATING_MESSAGE = 'Boundary is restarting its tools with new tokens. Try again in a moment.';
+const ROTATING_MESSAGE = `${APP_NAME} is restarting its tools with new tokens. Try again in a moment.`;
 
 export function getHostBridgeAgentState(): HostBridgeAgentState {
   return { stopped: isHostBridgeAgentStopped() };
@@ -474,7 +475,7 @@ export async function rotateHostBridgeAgentTokens(provisionHermes: ProvisionHerm
       await ensureHostBridgeStarted();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { success: false, error: `The new tokens are saved, but Boundary’s tools didn’t start: ${message}` };
+      return { success: false, error: `The new tokens are saved, but ${APP_NAME}’s tools didn’t start: ${message}` };
     }
   }
   const hermes = await provisionHermes();

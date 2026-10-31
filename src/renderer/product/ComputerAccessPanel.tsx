@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { HostBridgeGrant } from '../../shared/types/hostBridge';
 import { InfoTip } from '../components/ui/info-tip';
 import { errorText } from '../components/ui/use-sheet-action';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /**
  * Settings → Computer access: Stop agent, Rotate tokens (ADR 0027 §3), and the host-bridge
@@ -106,13 +107,13 @@ export const ComputerAccessPanel: React.FC = () => {
         Computer access
         <InfoTip label="computer access">
           <p>
-            Hermes can ask Boundary to show notifications, open pages in your browser, use the clipboard,
+            Hermes can ask {APP_NAME} to show notifications, open pages in your browser, use the clipboard,
             and read or save files you choose. Each one asks you first. Reading the clipboard and saving
             files always ask.
           </p>
           <p>
             Every request, allowed or not, is recorded in <span className="mono">host-bridge/audit.jsonl</span>{' '}
-            in Boundary’s app data folder. The log keeps sizes and file paths, never clipboard text or file
+            in {APP_NAME}’s app data folder. The log keeps sizes and file paths, never clipboard text or file
             contents.
           </p>
         </InfoTip>
@@ -121,7 +122,7 @@ export const ComputerAccessPanel: React.FC = () => {
         <div className="wb-inference-banner is-warn" role="status">
           <p>
             Agent stopped. Hermes can’t show notifications, open links, use your files or clipboard, or
-            drive Boundary’s browser. This stays off after you restart Boundary, until you turn access
+            drive {APP_NAME}’s browser. This stays off after you restart {APP_NAME}, until you turn access
             back on here.
           </p>
           <div className="wb-agent-browser-actions">
@@ -140,7 +141,7 @@ export const ComputerAccessPanel: React.FC = () => {
           <div>
             <p className="wb-settings-label">Stop agent</p>
             <p className="wb-settings-hint">
-              Cuts Hermes off from this computer and Boundary’s browser now, and keeps it off until you
+              Cuts Hermes off from this computer and {APP_NAME}’s browser now, and keeps it off until you
               turn access back on. Its tokens are replaced, so Hermes restarts.
             </p>
           </div>
@@ -156,7 +157,7 @@ export const ComputerAccessPanel: React.FC = () => {
       ) : null}
       {agent.error ? (
         <div className="wb-inference-banner is-bad" role="alert">
-          <p>Access is back on, but Boundary’s tools didn’t start: {agent.error}</p>
+          <p>Access is back on, but {APP_NAME}’s tools didn’t start: {agent.error}</p>
         </div>
       ) : null}
       {agent.hermesError ? (
@@ -169,9 +170,9 @@ export const ComputerAccessPanel: React.FC = () => {
           <div>
             <p className="wb-settings-label">Replace tokens</p>
             <p className="wb-settings-hint">
-              Replaces the tokens Hermes uses to reach this computer and Boundary’s browser. The old ones
+              Replaces the tokens Hermes uses to reach this computer and {APP_NAME}’s browser. The old ones
               stop working at once. Hermes restarts to pick up the new ones, which ends replies in
-              progress, and Boundary’s browser closes.
+              progress, and {APP_NAME}’s browser closes.
             </p>
           </div>
           <button type="button" className="wb-inference-btn" disabled={busy} onClick={() => void rotate()}>

@@ -15,6 +15,7 @@ import {
   ChannelCreateSheet,
   ChannelDeleteSheet,
   ChannelRenameSheet,
+  FailedChatDeleteSheet,
   MakeChannelSheet,
 } from './ChannelSheets';
 import { AllChatsPane } from './AllChatsPane';
@@ -134,6 +135,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   const sources = useProjectSources(activeProject, projects);
   const codingFolders = useCodingFolders();
 
+  const [deletingChat, setDeletingChat] = useState<{ id: string; title: string } | null>(null);
   const [dmTab, setDmTab] = useState<DmTab>('messages');
   // The DM's tab is not remembered: a different conversation opens on Messages.
   useEffect(() => {
@@ -552,6 +554,11 @@ export const WorkbenchChatScreen: React.FC = () => {
               onMakeChannel={rooms.make.show}
               onRenameChannel={activeChannel ? () => rooms.rename.show(activeChannel) : undefined}
               onDeleteChannel={activeChannel ? () => rooms.remove.show(activeChannel) : undefined}
+              onDeleteChat={
+                activeThread?.failed && !activeRunning
+                  ? () => setDeletingChat({ id: activeThread.id, title: activeThread.title })
+                  : undefined
+              }
               startedAt={activeThread?.createdAt ?? null}
               onNewChat={() => void newHermesChat()}
               onOpenAgentDm={() => void openDm(activeAgentSlug)}
@@ -687,6 +694,14 @@ export const WorkbenchChatScreen: React.FC = () => {
         error={rooms.remove.error}
         onCancel={rooms.remove.cancel}
         onDelete={rooms.remove.submit}
+      />
+      <FailedChatDeleteSheet
+        title={deletingChat?.title ?? null}
+        onCancel={() => setDeletingChat(null)}
+        onDelete={() => {
+          if (deletingChat) void nav.deleteFailedChat(deletingChat.id);
+          setDeletingChat(null);
+        }}
       />
       <AddToChannelSheet
         open={rooms.addTo.open}

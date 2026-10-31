@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../../shared/buildIdentity';
 /**
  * Hermes has no built-in platform hint for Boundary's session source, so Boundary writes its
  * own into each profile that serves it. Hermes reads `platform_hints` at the top of
@@ -13,7 +14,7 @@ export const BOUNDARY_PLATFORM_HINT_KEY = 'platform_hints.boundary';
  * with `[` or `{` would be parsed as YAML by `hermes config set`.
  */
 export const BOUNDARY_PLATFORM_HINT =
-  'You are running inside Boundary, a desktop app. A conversation is either a direct chat ' +
+  `You are running inside ${APP_NAME}, a desktop app. A conversation is either a direct chat ` +
   'with the user or a channel, where the user and several agents share one transcript. In a ' +
   'channel, a bracketed line starting "Boundary channel" names the channel, its members, the ' +
   'member you are answering as and, on a hand-off, who replied last. Trust it over what you ' +

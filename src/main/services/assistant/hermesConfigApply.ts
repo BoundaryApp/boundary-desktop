@@ -44,6 +44,14 @@ export interface HermesProfileWrites {
 const HERMES_LIVE_KEYS = new Set(['browser.cdp_url']);
 
 /**
+ * Mapping entries Hermes reads on every request. `providers.boundary-chain` only names the session
+ * header: `build_api_kwargs` looks it up through `get_custom_provider_session_affinity_header`,
+ * which loads config.yaml by file signature, so adding or dropping a fallback needs no restart
+ * (ADR 0033 §9).
+ */
+const HERMES_LIVE_ENTRIES = new Set(['providers.boundary-chain']);
+
+/**
  * A profile's parsed `config.yaml`: `{}` when the folder exists without one, `null` when it
  * can't be read or parsed, `undefined` when the profile's folder doesn't exist.
  */
@@ -121,7 +129,8 @@ export function hasHermesWrites(writes: HermesProfileWrites): boolean {
 /** True when a write changes something Hermes reads only at start-up. */
 export function hermesWritesNeedRestart(writes: readonly HermesProfileWrites[]): boolean {
   return writes.some(
-    (w) => w.entries.length > 0 || w.set.some(([key]) => !HERMES_LIVE_KEYS.has(key))
+    (w) =>
+      w.entries.some(([key]) => !HERMES_LIVE_ENTRIES.has(key)) || w.set.some(([key]) => !HERMES_LIVE_KEYS.has(key))
   );
 }
 

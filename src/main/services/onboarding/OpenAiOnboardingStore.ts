@@ -25,6 +25,7 @@ import { secretPreview } from '../secrets/secretPreview';
 import { dummyApiKeyForLocalLlm } from './LocalLlmDiscovery';
 import { notifyConnectionSaved } from './onboardingExtensions';
 import { isOpenRouterUrl, sameEndpoint } from '../../../shared/utils/endpointUrl';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const INFERENCE_SCHEMA_VERSION = 2;
 
@@ -779,7 +780,7 @@ export async function setAppSharedModel(entry: InferenceChainEntry): Promise<Set
   if (!shared) {
     return {
       success: false,
-      error: 'That shared model isn’t one Boundary knows.',
+      error: `That shared model isn’t one ${APP_NAME} knows.`,
       status: await getOpenAiOnboardingStatus(),
     };
   }
@@ -790,6 +791,25 @@ export async function setAppSharedModel(entry: InferenceChainEntry): Promise<Set
     getAppFallbacks().filter((fallback) => chainPeerKey(fallback) !== chainPeerKey(shared))
   );
   return { success: true, status: await getOpenAiOnboardingStatus() };
+}
+
+/** Everything choosing a default can change, so a cancelled switch can put it back. */
+export interface AppInferenceChoice {
+  appDefault: InferenceSlotId | null;
+  shared: InferenceChainEntry | null;
+  fallbacks: InferenceChainEntry[];
+}
+
+export function readAppInferenceChoice(): AppInferenceChoice {
+  return { appDefault: getAppDefaultSlot(), shared: getAppSharedModel(), fallbacks: getAppFallbacks() };
+}
+
+export function restoreAppInferenceChoice({ appDefault, shared, fallbacks }: AppInferenceChoice): void {
+  ensureV2Document();
+  setStoredAppDefault(appDefault);
+  if (shared) store.set('appSharedModel', shared);
+  else deleteStoreKey('appSharedModel');
+  store.set('appFallbacks', fallbacks);
 }
 
 export function getAppFallbacks(): InferenceChainEntry[] {
@@ -831,7 +851,7 @@ export async function keepChainFallbacks(
     if (entry.slot === 'peer') {
       const shared = wellFormedSharedEntry(entry);
       const key = shared && chainPeerKey(shared);
-      if (!shared || !key) return { ok: false, error: 'That shared model isn’t one Boundary knows.' };
+      if (!shared || !key) return { ok: false, error: `That shared model isn’t one ${APP_NAME} knows.` };
       if (seen.has(key)) continue;
       seen.add(key);
       fallbacks.push(shared);

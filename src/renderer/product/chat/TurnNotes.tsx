@@ -80,7 +80,8 @@ const NoReplyLine: React.FC<{
 /**
  * Under your latest message when no reply follows it: Boundary's note of why, or "No reply
  * to this message" when there is none. Nothing while a turn runs (the transcript shows it)
- * or in rooms, where a post without an @ wakes nobody on purpose.
+ * or in rooms, where a post without an @ wakes nobody on purpose. An earlier turn that failed
+ * keeps its note, without Retry, once the chat moves on.
  */
 export const UnansweredNote: React.FC<{ speakerName: string; inRoom: boolean }> = ({
   speakerName,
@@ -90,11 +91,18 @@ export const UnansweredNote: React.FC<{ speakerName: string; inRoom: boolean }> 
   const id = useAuiState((s) => s.message.id);
   const isLast = useAuiState((s) => s.message.isLast);
   const threadRunning = useAuiState((s) => s.thread.isRunning);
-  const saved = useMessageCustom().noReply;
+  const { noReply: saved, localOnly } = useMessageCustom();
+  const followedByUser = useAuiState((s) => s.thread.messages[s.message.index + 1]?.role === 'user');
   const canRewind = useCanRewind();
   const background = useChatRunningTurn();
   const refreshing = useHistoryRefreshing();
-  if (inRoom || !isLast || threadRunning || background || refreshing) return null;
+  if (inRoom) return null;
+  if (!isLast) {
+    if (!saved || saved.reason === 'stopped' || saved.reason === 'interrupted') return null;
+    if (!localOnly && !followedByUser) return null;
+    return <NoReplyLine noReply={saved} speakerName={speakerName} />;
+  }
+  if (threadRunning || background || refreshing) return null;
   const noReply: HermesNoReply = saved ?? { reason: 'unknown' };
   // After Send now the conversation has moved on; rerunning this turn would rewind it.
   const retry =

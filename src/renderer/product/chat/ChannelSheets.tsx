@@ -378,6 +378,37 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
   );
 };
 
+/** Delete a chat Hermes holds nothing for: Boundary's record is all there is. */
+export const FailedChatDeleteSheet: React.FC<{
+  title: string | null;
+  onCancel: () => void;
+  onDelete: () => void;
+}> = ({ title, onCancel, onDelete }) => {
+  if (title === null) return null;
+
+  return (
+    <Sheet
+      open
+      onClose={onCancel}
+      titleId="wb-delete-chat-title"
+      title="Delete this chat"
+      actions={
+        <SheetConfirmActions
+          onCancel={onCancel}
+          confirmLabel="Delete chat"
+          tone="danger"
+          onConfirm={onDelete}
+        />
+      }
+    >
+      <p className="wb-sheet-lede">
+        “{title}” never reached Hermes, so this copy of your message and its error is all there
+        is. Deleting it can’t be undone.
+      </p>
+    </Sheet>
+  );
+};
+
 interface ChannelDeleteSheetProps {
   open: boolean;
   channel: ChannelRecord | null;

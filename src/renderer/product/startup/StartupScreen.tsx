@@ -38,6 +38,7 @@ import {
 } from './startupModel';
 import { rendererExperiments } from '../../experiments';
 import './startup.css';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const TOOL_ICONS: Record<StartupToolId, LucideIcon> = {
   assistant: MessageCircle,
@@ -381,7 +382,7 @@ const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
         <div id={popoverId} className="su-why-popover" role="note">
           {firstRun ? (
             <p>
-              Boundary is installing open-source AI tools that usually take a software developer to
+              {APP_NAME} is installing open-source AI tools that usually take a software developer to
               set up: web search, deep research, long-term memory, automations and a coding agent.
               It downloads them once, connects them to each other and runs each one in its own
               container on this Mac. You don’t need to do anything. Later launches skip the
@@ -389,7 +390,7 @@ const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
             </p>
           ) : (
             <p>
-              Each tool runs in its own container on this Mac. Boundary starts them and checks that
+              Each tool runs in its own container on this Mac. {APP_NAME} starts them and checks that
               they can reach each other and your model before you start chatting.
             </p>
           )}

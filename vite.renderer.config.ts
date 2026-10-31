@@ -8,8 +8,15 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    {
+      name: 'boundary-app-name',
+      transformIndexHtml: (html) =>
+        html.replace('<title>Boundary</title>', `<title>${process.env.BOUNDARY_APP_NAME || 'Boundary'}</title>`),
+    },
   ],
   define: {
+    __BOUNDARY_APP_NAME__: JSON.stringify(process.env.BOUNDARY_APP_NAME ?? ''),
+    __BOUNDARY_INSTANCE__: JSON.stringify(process.env.BOUNDARY_INSTANCE ?? ''),
     __dirname: 'undefined',
     __filename: 'undefined',
     global: 'globalThis'

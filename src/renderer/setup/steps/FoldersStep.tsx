@@ -8,6 +8,7 @@ import { Callout } from '../../components/ui/alert';
 import { EmptyProjectSheet } from '../../product/chat/EmptyProjectSheet';
 import { ProjectGlyph } from '../../product/chat/ProjectGlyph';
 import type { FirstRunFolder, FirstRunFolderPick } from '../../../shared/types/setupProgress';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 type FolderRow =
   | ({ kind: 'host-folder'; key: string } & FirstRunFolderPick)
@@ -142,7 +143,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
       )}
 
       <p className="text-xs text-fg-faint">
-        Folders start read-only. Boundary asks before the coding agent edits anything.
+        Folders start read-only. {APP_NAME} asks before the coding agent edits anything.
       </p>
 
       {error && <Callout variant="destructive">{error}</Callout>}

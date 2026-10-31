@@ -404,6 +404,20 @@ describe('createHermesChatModelAdapter', () => {
     expect(onLocalUnreachable).toHaveBeenCalledOnce();
   });
 
+  it('puts a refused shared model in the transcript, not an empty reply', async () => {
+    useRequestId('req-refused');
+    const error = 'Ada’s qwen3:14b is offline. Your message wasn’t sent.';
+    startChat.mockResolvedValue({ success: false, requestId: 'req-refused', errorCode: 'apply-failed', error });
+
+    const gen = createHermesChatModelAdapter(() => 's1').run({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
+      abortSignal: new AbortController().signal,
+      context: {} as never,
+    } as never) as AsyncGenerator<{ metadata?: { custom?: unknown } }>;
+    expect((await gen.next()).value?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
+    expect((await gen.next()).done).toBe(true);
+  });
+
   it('does not throw a generic error when start reports local-unreachable', async () => {
     const onLocalUnreachable = vi.fn();
     useRequestId('req-offline');

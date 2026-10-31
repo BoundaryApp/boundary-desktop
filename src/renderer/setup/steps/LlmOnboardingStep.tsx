@@ -18,6 +18,7 @@ import { Callout } from '../../components/ui/alert';
 import type { SetupStepProps } from '../types';
 import { useAssistantStackLifecycle } from '../../product/assistantStack';
 import { rendererExperiments } from '../../experiments';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 // Read when called, not at load: an experiment can import setup modules that import this one.
 const providerSetupView = () =>
@@ -199,7 +200,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
     return (
       <SetupShell
         title={`Choose a ${oauthCredentials.providerDisplayName} model`}
-        description="Pick the model Boundary uses by default. You can change it per chat or project later."
+        description={`Pick the model ${APP_NAME} uses by default. You can change it per chat or project later.`}
         onBack={goHome}
         width="wide"
       >
@@ -215,7 +216,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
         description={
           existingVariant === 'local'
             ? 'Enter the OpenAI-compatible URL for Ollama, LM Studio, or another server on this machine.'
-            : 'Enter an OpenAI-compatible URL and API key. Boundary lists its models next.'
+            : `Enter an OpenAI-compatible URL and API key. ${APP_NAME} lists its models next.`
         }
         onBack={goHome}
         width="wide"

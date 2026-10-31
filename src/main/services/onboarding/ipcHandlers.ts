@@ -18,6 +18,7 @@ import {
   setAppSharedModel,
   updateLlmModel,
 } from './OpenAiOnboardingStore';
+import { cancelAppSwitch, currentAppSwitch, switchAppInference } from './appInferenceSwitch';
 import { probeSlotHealth } from './probeSlotHealth';
 import {
   clearSessionInferenceForProvider,
@@ -239,20 +240,16 @@ async function listConfiguredEndpointModels(
 }
 
 async function setAppDefaultHandler(input: SetAppDefaultInput): Promise<SetAppDefaultResult> {
-  const result = await setAppDefault(input.slot);
-  if (result.success) {
-    await applyHermesIfDefaultSlot(input.slot);
-  }
-  return result;
+  return switchAppInference({ slot: input.slot }, () => setAppDefault(input.slot));
 }
 
 async function setAppSharedModelHandler(input: SetAppSharedModelInput): Promise<SetAppSharedModelResult> {
-  const { sharedModelCantServe } = await import('../inference/inferenceChainService');
-  const refusal = await sharedModelCantServe(input.entry);
-  if (refusal) return { success: false, error: refusal, status: await getOpenAiOnboardingStatus() };
-  const result = await setAppSharedModel(input.entry);
-  if (result.success) await applyAppInferenceToHermes();
-  return result;
+  return switchAppInference(input.entry, async () => {
+    const { sharedModelCantServe } = await import('../inference/inferenceChainService');
+    const refusal = await sharedModelCantServe(input.entry);
+    if (refusal) return { success: false, error: refusal, status: await getOpenAiOnboardingStatus() };
+    return setAppSharedModel(input.entry);
+  });
 }
 
 async function clearSlotHandler(input: ClearLlmSlotInput): Promise<SaveLlmConnectionResult> {
@@ -289,6 +286,8 @@ export function registerOnboardingHandlers(): void {
   registered = true;
 
   handle('onboarding:get-status', async () => getOpenAiOnboardingStatus());
+  handle('onboarding:get-app-switch', async () => currentAppSwitch());
+  handleResult('onboarding:cancel-app-switch', async () => cancelAppSwitch());
 
   handleResult('onboarding:discover-local-llms', async () => discoverLocalLlms());
 

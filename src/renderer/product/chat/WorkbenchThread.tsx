@@ -111,6 +111,7 @@ interface WorkbenchThreadProps {
   onRenameChannel?: () => void;
   /** Channels: delete the room from the title menu (ADR 0010 §3). */
   onDeleteChannel?: () => void;
+  onDeleteChat?: () => void;
   /** When the conversation started, for the header's "started …" / "since …". */
   startedAt?: string | null;
   /** Hermes chats: New chat (⌘N) in the header. */
@@ -174,6 +175,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   onMakeChannel,
   onRenameChannel,
   onDeleteChannel,
+  onDeleteChat,
   startedAt = null,
   onNewChat,
   onOpenAgentDm,
@@ -390,7 +392,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   });
 
   const inference = useChatInference({ sessionId, send: sendNow });
-  const { offlinePrompt, applyError } = inference;
+  const { offlinePrompt } = inference;
 
   const phaseLine = formatPhaseLine({
     phase,
@@ -564,9 +566,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   const composerPhase =
     connecting
       ? 'Connecting folder…'
-      : applyError
-        ? applyError
-        : !rpcAvailable && activeProject
+      : !rpcAvailable && activeProject
         ? 'Folder connected · project RPC unavailable'
         : waitingForCredential
           ? 'Waiting for your answer'
@@ -616,9 +616,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 : mark.provider === 'peer'
                   ? sharedFallbackMarkText(mark)
                   : mark.kind === 'fell-back'
-                    ? `Answered by ${formatInferenceChipTitle(mark.provider, mark.modelId)}, a fallback`
+                    ? `Using ${formatInferenceChipTitle(mark.provider, mark.modelId)} from here, a fallback`
                     : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
-            className: 'wb-switch-mark',
+            className: `wb-switch-mark wb-model-mark${mark.kind === 'fell-back' ? ' is-fallback' : ''}`,
           })),
         ],
         messageTimes
@@ -647,6 +647,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         onMakeChannel={onMakeChannel}
         onRenameChannel={onRenameChannel}
         onDeleteChannel={onDeleteChannel}
+        onDeleteChat={onDeleteChat}
         onNewChat={onNewChat}
         onOpenAgentDm={onOpenAgentDm}
         onAddAgentToChannel={onAddAgentToChannel}

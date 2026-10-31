@@ -11,6 +11,7 @@ import {
   useStackStart,
 } from '../../product/assistantStack';
 import type { SetupStepProps } from '../types';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, description }) => {
   const assistantStackStatus = useAssistantStackStatus();
@@ -75,7 +76,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
       }
     >
       <StackDetails>
-        Boundary runs a dedicated Compose project (
+        {APP_NAME} runs a dedicated Compose project (
         <code className="font-mono">boundary-assistant</code>) with its own data directory, so a
         local assistant checkout can keep running separately.
       </StackDetails>

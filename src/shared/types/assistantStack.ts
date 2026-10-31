@@ -71,7 +71,13 @@ export interface LastAppliedLlm {
   appliedAt: string;
 }
 
-export type ApplyAssistantLlmResult = IpcResult;
+export interface ApplyAssistantLlmResult extends IpcResult {
+  /** Stopped by the caller's signal before the restart; the stack may need putting back. */
+  cancelled?: boolean;
+}
+
+/** What an apply is doing, for a caller that shows progress. */
+export type HermesApplyStage = 'applying' | 'restarting' | 'starting';
 
 export type StopAssistantStackResult = IpcResult;
 

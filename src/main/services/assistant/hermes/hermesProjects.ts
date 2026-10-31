@@ -51,6 +51,7 @@ import { samePath } from '../../hostPaths';
 import { scheduleCodingRemount } from '../coding/codingGrants';
 import { persistCodingStackEnv } from '../coding/codingMounts';
 import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 let connecting = false;
 
@@ -73,9 +74,9 @@ function formatMountError(hostPath: string, raw: string): string {
 function localStackHostFolderError(): string | null {
   if (!isLocalAssistantStackMode()) return null;
   return (
-    'Boundary is running against a local agent stack, which doesn’t read Boundary’s project ' +
+    `${APP_NAME} is running against a local agent stack, which doesn’t read ${APP_NAME}’s project ` +
     'folder mounts, so a folder from this Mac can’t be added as a project. Create an empty ' +
-    'project instead, or switch back to Boundary’s own agent stack.'
+    `project instead, or switch back to ${APP_NAME}’s own agent stack.`
   );
 }
 

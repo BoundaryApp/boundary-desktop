@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore }
 import type { RunningWorkItem, UpdateSnapshot } from '../../shared/types/updates';
 import { Sheet } from '../components/ui/sheet';
 import { WorkingDot } from './chat/WorkingDot';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 const UPDATED_CARD_MS = 10_000;
 
@@ -154,7 +155,7 @@ export function useRestartToInstall(): { restart: () => void; sheet: React.React
       }
     >
       <p className="wb-sheet-lede">
-        Restarting stops it where it is. Boundary can wait and restart when it finishes.
+        Restarting stops it where it is. {APP_NAME} can wait and restart when it finishes.
       </p>
       <ul className="wb-update-work">
         {running.map((item) => (
@@ -169,7 +170,7 @@ export function useRestartToInstall(): { restart: () => void; sheet: React.React
         ))}
       </ul>
       <p className="wb-sheet-note">
-        Boundary can’t see whether an automation is running. A restart stops any that are.
+        {APP_NAME} can’t see whether an automation is running. A restart stops any that are.
       </p>
     </Sheet>
   ) : null;
@@ -191,13 +192,13 @@ function railLabel(state: UpdateSnapshot, stage: RailStage): string {
     case 'waiting':
       return state.restartIn === null ? 'Restarting when work finishes' : 'Restarting soon';
     case 'ready':
-      return `Boundary ${state.version} is ready`;
+      return `${APP_NAME} ${state.version} is ready`;
     case 'downloading':
-      return `Downloading Boundary ${state.version}`;
+      return `Downloading ${APP_NAME} ${state.version}`;
     case 'failed':
-      return `Boundary ${state.version} didn’t download`;
+      return `${APP_NAME} ${state.version} didn’t download`;
     case 'available':
-      return `Boundary ${state.version} is available`;
+      return `${APP_NAME} ${state.version} is available`;
   }
 }
 
@@ -321,7 +322,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
       return (
         <>
           <h3>Restarting in {state.restartIn} seconds</h3>
-          <p>Everything has finished. Restarting installs Boundary {state.version}.</p>
+          <p>Everything has finished. Restarting installs {APP_NAME} {state.version}.</p>
           <div className="wb-update-bar" aria-hidden="true">
             <i className="is-drain" style={{ width: `${(state.restartIn / 30) * 100}%` }} />
           </div>
@@ -355,7 +356,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
     if (updated) {
       return (
         <>
-          <h3>Boundary is now {updated.version}</h3>
+          <h3>{APP_NAME} is now {updated.version}</h3>
           <Lines lines={updated.summary} />
           <div className="wb-update-actions">
             <button
@@ -378,7 +379,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
     if (state.phase === 'ready') {
       return (
         <>
-          <h3>Boundary {state.version} is ready</h3>
+          <h3>{APP_NAME} {state.version} is ready</h3>
           <p>It installs when you quit. Restart now to get it sooner.</p>
           {state.stackChanges ? <p>The next start takes a few minutes while your tools update.</p> : null}
           <div className="wb-update-actions">
@@ -397,10 +398,10 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
       return (
         <>
           <div className="wb-update-card-head">
-            <h3>Downloading Boundary {state.version}</h3>
+            <h3>Downloading {APP_NAME} {state.version}</h3>
             {size}
           </div>
-          <p>Keep working. Boundary tells you when it’s ready.</p>
+          <p>Keep working. {APP_NAME} tells you when it’s ready.</p>
           <div className="wb-update-bar" aria-hidden="true">
             <i />
           </div>
@@ -415,7 +416,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
     if (state.error === 'download') {
       return (
         <>
-          <h3>Boundary {state.version} didn’t download</h3>
+          <h3>{APP_NAME} {state.version} didn’t download</h3>
           <p>Nothing changed. You’re still on {state.currentVersion}.</p>
           <div className="wb-update-actions">
             <button type="button" className="wb-btn-solid" onClick={() => void api.download()}>
@@ -431,7 +432,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
     return (
       <>
         <div className="wb-update-card-head">
-          <h3>Boundary {state.version} is available</h3>
+          <h3>{APP_NAME} {state.version} is available</h3>
           {size}
         </div>
         <Lines lines={state.summary} />
@@ -457,7 +458,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
           ref={ref}
           className="wb-update-card"
           role="status"
-          aria-label="Boundary update"
+          aria-label={`${APP_NAME} update`}
           onKeyDown={(event) => {
             if (event.key === 'Escape' && !lastCall) collapse();
           }}

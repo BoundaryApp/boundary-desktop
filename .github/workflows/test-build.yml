@@ -1,10 +1,12 @@
 name: Test Build
 
+# Release workflows call this as a job, so a release can't start from a commit that fails it.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  workflow_call:
 
 jobs:
   test-build:

@@ -36,6 +36,7 @@ import {
   serializeError,
   truncateForLog,
 } from '../../persistDebugLog';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const execFileAsync = promisify(execFile);
 
@@ -310,7 +311,7 @@ async function ensureBundledPodman(
     );
   }
 
-  setRuntimeProvisionProgress('Configuring Boundary container engine…');
+  setRuntimeProvisionProgress(`Configuring ${APP_NAME} container engine…`);
   await ensureContainersConf(paths, arch);
   persistDebugLog('runtime', 'containers.conf written', {
     path: paths.containersConfPath,
@@ -343,7 +344,7 @@ async function ensureBundledPodman(
       field: 'composeVersion',
     }).catch((): null => null)) || null;
 
-  setRuntimeProvisionProgress('Provisioned Boundary container engine.');
+  setRuntimeProvisionProgress(`Provisioned ${APP_NAME} container engine.`);
 
   return {
     kind: 'podman',

@@ -3,6 +3,7 @@ import { SOVEREIGN_AGENT_STACK_VERSION } from '../../shared/assistantStackConsta
 import type { UpdateChannel, UpdateSnapshot } from '../../shared/types/updates';
 import { Segmented } from '../components/ui/segmented';
 import { UpdateTasks, formatSize, useRestartToInstall, useUpdates, waitingTitle } from './updates';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 type HeroTone = 'ok' | 'brand' | 'warn';
 
@@ -13,7 +14,7 @@ const HERO_ICON: Record<HeroTone, React.ReactNode> = {
 };
 
 function checkedAt(state: UpdateSnapshot): string {
-  if (!state.lastCheckedAt) return 'Boundary hasn’t checked yet.';
+  if (!state.lastCheckedAt) return `${APP_NAME} hasn’t checked yet.`;
   const checked = new Date(state.lastCheckedAt).toLocaleString([], {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -107,7 +108,7 @@ export const UpdatesPanel: React.FC = () => {
     if (state.blocked === 'not-in-applications') {
       return hero(
         'warn',
-        'Boundary can’t update from this folder',
+        `${APP_NAME} can’t update from this folder`,
         'Move it to Applications to get updates.',
         <button type="button" className="wb-btn-solid" onClick={() => void api.moveToApplications()}>
           Move to Applications
@@ -121,7 +122,7 @@ export const UpdatesPanel: React.FC = () => {
       return hero(
         'brand',
         `Restarting in ${state.restartIn} seconds`,
-        `Everything has finished. Restarting installs Boundary ${state.version}.`,
+        `Everything has finished. Restarting installs ${APP_NAME} ${state.version}.`,
         <>
           <button type="button" className="wb-btn-solid" onClick={() => void api.restart({ force: true })}>
             Restart now
@@ -152,7 +153,7 @@ export const UpdatesPanel: React.FC = () => {
       const body = 'It installs when you quit. Restart now to get it sooner.';
       return hero(
         'brand',
-        `Boundary ${state.version} is ready`,
+        `${APP_NAME} ${state.version} is ready`,
         state.stackChanges ? `${body} The next start takes a few minutes while your tools update.` : body,
         <button type="button" className="wb-btn-solid" onClick={restart}>
           Restart to update
@@ -162,7 +163,7 @@ export const UpdatesPanel: React.FC = () => {
     if (state.phase === 'downloading') {
       return hero(
         'brand',
-        `Downloading Boundary ${state.version}`,
+        `Downloading ${APP_NAME} ${state.version}`,
         state.size ? `${formatSize(state.size)}. Keep working.` : 'Keep working.'
       );
     }
@@ -170,7 +171,7 @@ export const UpdatesPanel: React.FC = () => {
       const failed = state.error === 'download';
       return hero(
         failed ? 'warn' : 'brand',
-        failed ? `Boundary ${state.version} didn’t download` : `Boundary ${state.version} is available`,
+        failed ? `${APP_NAME} ${state.version} didn’t download` : `${APP_NAME} ${state.version} is available`,
         failed
           ? `Nothing changed. You’re still on ${state.currentVersion}.`
           : state.size
@@ -187,9 +188,9 @@ export const UpdatesPanel: React.FC = () => {
       );
     }
     if (state.error === 'check') {
-      return hero('warn', 'Couldn’t check for updates', 'Boundary couldn’t reach the update server. Check your connection, then try again.', checkNow);
+      return hero('warn', 'Couldn’t check for updates', `${APP_NAME} couldn’t reach the update server. Check your connection, then try again.`, checkNow);
     }
-    return hero('ok', state.checking ? 'Checking…' : 'Boundary is up to date', checkedAt(state), checkNow);
+    return hero('ok', state.checking ? 'Checking…' : `${APP_NAME} is up to date`, checkedAt(state), checkNow);
   };
 
   return (
@@ -213,14 +214,14 @@ export const UpdatesPanel: React.FC = () => {
         <h2 id="settings-updates-versions">Versions</h2>
         <div className="wb-settings-row">
           <div>
-            <p className="wb-settings-label">Boundary</p>
+            <p className="wb-settings-label">{APP_NAME}</p>
           </div>
           <span className="wb-update-version">{state.currentVersion}</span>
         </div>
         <div className="wb-settings-row">
           <div>
             <p className="wb-settings-label">Your tools</p>
-            <p className="wb-settings-hint">Update with Boundary</p>
+            <p className="wb-settings-hint">Update with {APP_NAME}</p>
           </div>
           <span className="wb-update-version">{SOVEREIGN_AGENT_STACK_VERSION.replace(/^v/, '')}</span>
         </div>
@@ -252,9 +253,9 @@ export const UpdatesPanel: React.FC = () => {
             <p className="wb-settings-hint">
               {state.checksEnabled
                 ? state.keyRequired
-                  ? 'Boundary downloads one small file once a day. Your update key identifies you when it does.'
-                  : 'Boundary downloads one small file from GitHub once a day. It sends no ID and nothing about how you use it.'
-                : 'Boundary doesn’t check for updates, so it can’t tell you about security fixes. Check now still checks once.'}
+                  ? `${APP_NAME} downloads one small file once a day. Your update key identifies you when it does.`
+                  : `${APP_NAME} downloads one small file from GitHub once a day. It sends no ID and nothing about how you use it.`
+                : `${APP_NAME} doesn’t check for updates, so it can’t tell you about security fixes. Check now still checks once.`}
             </p>
           </div>
           <button

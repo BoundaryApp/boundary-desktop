@@ -11,6 +11,7 @@ import {
   type ChainAttemptOutcome,
   type ChainAttemptRecord,
 } from '../chain/chainAttempts';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * The inference router (ADR 0033 §5–8). llm-proxy's chat and LightRAG routes point here when a
@@ -155,7 +156,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
   async function completions(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const chain = options.getChain();
     if (!chain) {
-      sendError(res, 503, 'Boundary has no inference chain to serve.');
+      sendError(res, 503, `${APP_NAME} has no inference chain to serve.`);
       return;
     }
     const raw = await readLimitedBody(req, MAX_BODY_BYTES);

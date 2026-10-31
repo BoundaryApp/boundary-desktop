@@ -122,7 +122,7 @@ describe('the chip across a run of turns', () => {
     getSessionInference.mockResolvedValue(snapshot([fellBack]));
     await sendTurn('first');
     await screen.findByRole('button', { name: /Inference · Ada's qwen3:14b · fallback for OpenRouter · primary/ });
-    expect(await screen.findByText('Answered by qwen3:14b, shared by Ada in Friends, a fallback')).toBeTruthy();
+    expect(await screen.findByText('Using qwen3:14b from here, shared by Ada in Friends, a fallback')).toBeTruthy();
 
     // A run on the same fallback adds no mark; the chip stays on it.
     await sendTurn('second');

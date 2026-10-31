@@ -79,6 +79,7 @@ import {
   applyHostBridgeBrowserToHermes,
   applyLlmConnectionToHermes,
   setAssistantStackLifecycleCallback,
+  settleHermesApply,
   setUpNewHermesProfile,
 } from '../AssistantStackService';
 import { createLifecycleSnapshot } from '../../../../shared/assistantStackLifecycle';
@@ -515,6 +516,134 @@ describe('single-flight (G04-26)', () => {
   it('two identical concurrent applies restart Hermes once', async () => {
     await Promise.all([applyLlmConnectionToHermes(connection), applyLlmConnectionToHermes(connection)]);
     expect(counts().restarts).toBe(1);
+  });
+});
+
+describe('cancelling an apply', () => {
+  const other = { ...connection, modelId: 'qwen/qwen3-coder' };
+
+  /** Call `act` when the next settings write has finished, before the apply carries on. */
+  function afterNextWrite(act: () => void): void {
+    const write = runComposeStreaming.getMockImplementation()!;
+    runComposeStreaming.mockImplementationOnce(async (...args: unknown[]) => {
+      const out = await write(...args);
+      act();
+      return out;
+    });
+  }
+
+  beforeEach(async () => {
+    await applyLlmConnectionToHermes(connection);
+    resetCounts();
+  });
+
+  it('before anything changed, leaves the stack alone', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    expect(await applyLlmConnectionToHermes(other, { signal: controller.signal })).toEqual({
+      success: false,
+      cancelled: true,
+    });
+    expect(applyLlmConnectionToProjectFiles).not.toHaveBeenCalled();
+    expect(counts()).toEqual({ execs: 0, restarts: 0 });
+  });
+
+  it('after the settings write, skips the restart, and undoing the write needs none', async () => {
+    const controller = new AbortController();
+    afterNextWrite(() => controller.abort());
+    const stages: string[] = [];
+    const result = await applyLlmConnectionToHermes(other, {
+      signal: controller.signal,
+      onStage: (stage) => stages.push(stage),
+    });
+    expect(result).toEqual({ success: false, cancelled: true });
+    expect(stages).toEqual(['applying']);
+    expect(getPath(readConfig('researcher'), 'model.default')).toBe(other.modelId);
+
+    expect(await applyLlmConnectionToHermes(connection, { restoresRunningHermes: true })).toEqual({ success: true });
+    expect(getPath(readConfig('researcher'), 'model.default')).toBe(connection.modelId);
+    expect(counts()).toEqual({ execs: 2, restarts: 0 });
+  });
+
+  it('still restarts when the next apply keeps the settings Hermes never read', async () => {
+    const controller = new AbortController();
+    afterNextWrite(() => controller.abort());
+    await applyLlmConnectionToHermes(other, { signal: controller.signal });
+
+    await applyLlmConnectionToHermes(other);
+    expect(counts()).toEqual({ execs: 1, restarts: 1 });
+  });
+
+  it('still restarts for a token the cancelled run wrote', async () => {
+    const controller = new AbortController();
+    afterNextWrite(() => controller.abort());
+    fs.writeFileSync(envPath(''), 'stale');
+    await applyLlmConnectionToHermes(other, { signal: controller.signal });
+    expect(counts().restarts).toBe(0);
+
+    await applyLlmConnectionToHermes(connection, { restoresRunningHermes: true });
+    expect(counts().restarts).toBe(1);
+  });
+
+  it('during a restart, lets it end, then restarts again on the previous model, one run at a time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      let booting = false;
+      let restarted = false;
+      fetchMock.mockImplementation(async (url: string) =>
+        booting && url.endsWith('/health') ? new Response('', { status: 503 }) : defaultFetch(url)
+      );
+      const compose = runCompose.getMockImplementation()!;
+      runCompose.mockImplementation(async (...args: unknown[]) => {
+        if ((args[1] as string[]).includes('restart') && !restarted) {
+          booting = true;
+          restarted = true;
+        }
+        return compose(...args);
+      });
+      const controller = new AbortController();
+      const stages: string[] = [];
+      const running = applyLlmConnectionToHermes(other, {
+        signal: controller.signal,
+        onStage: (stage) => stages.push(stage),
+      });
+      await vi.waitFor(() => expect(stages).toContain('starting'));
+
+      controller.abort();
+      const back = applyLlmConnectionToHermes(connection, { restoresRunningHermes: true });
+      expect(counts().restarts).toBe(1);
+      booting = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // The restart can't be stopped, so its run ends as usual.
+      expect(await running).toEqual({ success: true });
+      expect(await back).toEqual({ success: true });
+      expect(counts().restarts).toBe(2);
+      expect(getPath(readConfig('researcher'), 'model.default')).toBe(connection.modelId);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('holds a waiting caller until the queued run back has ended', async () => {
+    const running = applyLlmConnectionToHermes(other);
+    const back = applyLlmConnectionToHermes(connection);
+    const restarting = vi.fn();
+    await settleHermesApply(restarting);
+    expect(restarting).toHaveBeenCalledOnce();
+    expect(await Promise.all([running, back])).toEqual([{ success: true }, { success: true }]);
+    expect(getPath(readConfig('researcher'), 'model.default')).toBe(connection.modelId);
+  });
+
+  it('drops a cancelled request from the queue when a later one replaces it', async () => {
+    const controller = new AbortController();
+    const running = applyLlmConnectionToHermes(connection);
+    const queued = applyLlmConnectionToHermes(other, { signal: controller.signal });
+    controller.abort();
+    const back = applyLlmConnectionToHermes(connection, { restoresRunningHermes: true });
+    await Promise.all([running, queued, back]);
+    expect(getPath(readConfig('researcher'), 'model.default')).toBe(connection.modelId);
+    expect(counts().restarts).toBe(0);
   });
 });
 

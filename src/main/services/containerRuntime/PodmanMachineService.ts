@@ -12,6 +12,7 @@ import {
 import { writeMachineProviderConf } from './containersConf';
 import { ContainerRuntimeUnavailableError } from './types';
 import { persistDebugLog, serializeError, truncateForLog } from '../../persistDebugLog';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -65,6 +66,15 @@ function machineHelperFileNames(machineName: string): Set<string> {
       '-aarch64.raw',
       '-x86_64.raw',
     ].map((suffix) => `${machineName}${suffix}`)
+  );
+}
+
+/** The machine named by Podman's refusal to start a second VM, from `ErrMultipleActiveVM`. */
+export function activeMachineFromError(detail: string): string | null {
+  return (
+    /([\w.-]+) already starting or running(?: on the \S+ provider)?: only one VM can be active/.exec(
+      detail
+    )?.[1] ?? null
   );
 }
 
@@ -241,7 +251,7 @@ export class PodmanMachineService {
     }
 
     if (current === 'missing') {
-      report('Creating Boundary container engine (first run may take a few minutes)…');
+      report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`);
       try {
         await this.initMachine(report);
       } catch (error) {
@@ -250,6 +260,8 @@ export class PodmanMachineService {
           persistDebugLog('podman', 'init reported already exists; starting instead', {
             machineName: this.machineName,
           });
+          current = 'stopped';
+        } else if (await this.freeActiveSlot(detail, report)) {
           current = 'stopped';
         } else if (/krunkit/i.test(detail)) {
           persistDebugLog('podman', 'init --now failed with krunkit; falling back to applehv', {
@@ -267,7 +279,7 @@ export class PodmanMachineService {
       current = await this.ensureRootful(report, true);
       current = await this.ensureAdequateMemory(report, current === 'running');
       if (current === 'running') {
-        report('Boundary container engine is already running');
+        report(`${APP_NAME} container engine is already running`);
       }
     }
 
@@ -275,25 +287,53 @@ export class PodmanMachineService {
       this.reapLeftoverHelpers();
       await this.ensureRootful(report, false);
       await this.ensureAdequateMemory(report, false);
-      report('Starting Boundary container engine…');
+      report(`Starting ${APP_NAME} container engine…`);
       try {
         await this.run(['machine', 'start', this.machineName], { timeout: 300_000 });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        if (!/krunkit/i.test(detail)) {
+        if (await this.freeActiveSlot(detail, report)) {
+          await this.run(['machine', 'start', this.machineName], { timeout: 300_000 });
+        } else if (/krunkit/i.test(detail)) {
+          persistDebugLog('podman', 'start failed with krunkit; falling back to applehv', {
+            machineName: this.machineName,
+            detail: truncateForLog(detail, 1500),
+          });
+          await this.fallBackToApplehv(report);
+        } else {
           throw error;
         }
-        persistDebugLog('podman', 'start failed with krunkit; falling back to applehv', {
-          machineName: this.machineName,
-          detail: truncateForLog(detail, 1500),
-        });
-        await this.fallBackToApplehv(report);
       }
     }
 
     report('Waiting for container API socket…');
     const { apiEndpoint, dockerHost } = await this.waitForSocket();
     return { status: 'running', apiEndpoint, dockerHost };
+  }
+
+  /**
+   * Podman runs one VM at a time, and machines stay up after their app quits. When a start was
+   * refused for another copy's machine, stop it if nothing runs in it. Returns whether it did;
+   * a machine with running containers, or one that isn't Boundary's, is left alone.
+   */
+  private async freeActiveSlot(detail: string, report: (message: string) => void): Promise<boolean> {
+    const other = activeMachineFromError(detail);
+    if (!other || other === this.machineName || !/^boundary(-|$)/.test(other)) return false;
+    try {
+      const { stdout } = await this.run(['machine', 'ssh', other, 'sudo', 'podman', 'ps', '-q'], {
+        timeout: 30_000,
+      });
+      if (stdout.trim()) return false;
+      report('Stopping an idle container engine…');
+      await this.run(['machine', 'stop', other], { timeout: 120_000 });
+      return true;
+    } catch (error) {
+      persistDebugLog('podman', 'could not free the active machine', {
+        other,
+        ...serializeError(error),
+      });
+      return false;
+    }
   }
 
   private initArgs(): string[] {
@@ -550,7 +590,7 @@ export class PodmanMachineService {
       persistDebugLog('podman', 'machine rm before applehv fallback', serializeError(error));
     }
     this.switchToApplehv();
-    report('Creating Boundary container engine (first run may take a few minutes)…');
+    report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`);
     await this.initMachine(report);
   }
 

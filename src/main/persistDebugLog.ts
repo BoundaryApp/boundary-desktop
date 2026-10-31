@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { APP_NAME } from '../shared/buildIdentity';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const KEEP_BYTES = 1024 * 1024;
@@ -15,7 +16,7 @@ let sessionHeaderWritten = false;
 
 /**
  * Finder-reachable log for packaged-app debugging on another Mac.
- * macOS: ~/Library/Logs/Boundary/boundary-debug.log
+ * macOS: ~/Library/Logs/<app name>/boundary-debug.log
  */
 export function getDebugLogPath(): string {
   if (cachedPath) return cachedPath;
@@ -24,7 +25,7 @@ export function getDebugLogPath(): string {
     return cachedPath;
   }
   if (process.platform === 'darwin') {
-    cachedPath = path.join(os.homedir(), 'Library', 'Logs', 'Boundary', DEBUG_LOG_FILENAME);
+    cachedPath = path.join(os.homedir(), 'Library', 'Logs', APP_NAME, DEBUG_LOG_FILENAME);
     return cachedPath;
   }
   if (process.platform === 'win32') {
@@ -32,13 +33,13 @@ export function getDebugLogPath(): string {
       os.homedir(),
       'AppData',
       'Roaming',
-      'Boundary',
+      APP_NAME,
       'logs',
       DEBUG_LOG_FILENAME
     );
     return cachedPath;
   }
-  cachedPath = path.join(os.homedir(), '.config', 'Boundary', 'logs', DEBUG_LOG_FILENAME);
+  cachedPath = path.join(os.homedir(), '.config', APP_NAME, 'logs', DEBUG_LOG_FILENAME);
   return cachedPath;
 }
 

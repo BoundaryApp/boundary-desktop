@@ -8,6 +8,7 @@ import { InfoTip } from '../../components/ui/info-tip';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { dispatchAppCommand } from '../useAppShortcuts';
 import { useAction } from './useCircles';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Sharing the local model server with Circles (ADR 0034 §1, §4), on the Circles screen. Models,
@@ -51,6 +52,18 @@ function sharingView(circles: CirclesState, status: InferenceProvidersStatus | n
 
 function useSharingView(circles: CirclesState): SharingView {
   return sharingView(circles, useInferenceStatus().status);
+}
+
+/** A local server is answering, or there are choices to change or a warning to show without one. */
+function canShare(circles: CirclesState, status: InferenceProvidersStatus | null): boolean {
+  const local = status?.slots?.local;
+  if (local && local.health !== 'unreachable') return true;
+  const { sharing, snapshot } = circles;
+  return sharing.models.length > 0 || snapshot.circles.some((circle) => sharing.circles.includes(circle.key));
+}
+
+export function useCanShare(circles: CirclesState): boolean {
+  return canShare(circles, useInferenceStatus().status);
 }
 
 const openInferenceSettings = (): void => dispatchAppCommand('go-settings');
@@ -132,7 +145,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
     };
   }, [endpoint]);
 
-  if (!circles.snapshot.circles.length) return null;
+  if (!circles.snapshot.circles.length || !canShare(circles, status)) return null;
 
   const { sharing } = circles;
   const { sharedCircles, sharingAny, blocked, fixInSettings } = view;
@@ -159,10 +172,10 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
     });
 
   const awayDetail = !sharing.away
-    ? "Off: members can't use your models while this Mac sleeps. Turn on to keep it awake while Boundary is open."
+    ? `Off: members can't use your models while this Mac sleeps. Turn on to keep it awake while ${APP_NAME} is open.`
     : sharing.paused
-      ? 'On, but this Mac can sleep while sharing is paused. Only works while Boundary is open.'
-      : "This Mac stays awake so members can use your models while you're away. Only while Boundary is open.";
+      ? `On, but this Mac can sleep while sharing is paused. Only works while ${APP_NAME} is open.`
+      : `This Mac stays awake so members can use your models while you're away. Only while ${APP_NAME} is open.`;
 
   return (
     <div className="wb-share" aria-label="Share your models" role="group">
@@ -170,7 +183,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
         Share your models
         <InfoTip label="sharing with Circles">
           Members can put your models in their chats. Their prompts reach your model server, and your
-          model&apos;s replies drive their agent. Boundary keeps only who asked, which model, and timings.
+          model&apos;s replies drive their agent. {APP_NAME} keeps only who asked, which model, and timings.
           Requests run one at a time.
         </InfoTip>
       </h2>
@@ -183,7 +196,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
                 ? `${blocked}.`
                 : `Members of ${circleNames(sharedCircles)} can use ${
                     sharing.models.length === 1 ? 'this model' : `these ${sharing.models.length} models`
-                  } while Boundary is open.`}
+                  } while ${APP_NAME} is open.`}
             </span>
             {fixInSettings ? (
               <Button size="sm" variant="outline" onClick={openInferenceSettings}>
@@ -261,7 +274,7 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
     : !shared
       ? 'Choose a model above to share it here.'
       : available
-        ? `Members of ${name} can use your models while Boundary is open.`
+        ? `Members of ${name} can use your models while ${APP_NAME} is open.`
         : 'Your choices for this Circle are kept.';
   const dot = !shared ? 'bg-line' : available ? 'bg-ok' : 'bg-warn';
   const dotLabel = !shared ? 'Not sharing' : available ? 'Sharing' : 'Unavailable to members';

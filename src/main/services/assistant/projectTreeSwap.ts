@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Paths inside the agent-stack tree that hold the user's data or secrets generated on
@@ -150,7 +151,7 @@ export async function swapProjectTreePreservingData(paths: ProjectSwapPaths): Pr
       const message = error instanceof Error ? error.message : String(error);
       const undoMessage = undoError instanceof Error ? undoError.message : String(undoError);
       throw new Error(
-        `${message} (Boundary couldn’t undo the partial upgrade: ${undoMessage}. ` +
+        `${message} (${APP_NAME} couldn’t undo the partial upgrade: ${undoMessage}. ` +
           'It will finish the upgrade on the next launch; your data is still on disk.)',
         { cause: undoError }
       );
@@ -168,12 +169,12 @@ export async function recoverInterruptedProjectSwap(journalPath: string): Promis
   } catch {
     // Unreadable journal: leave every tree where it is for a person to look at.
     throw new Error(
-      `Boundary couldn’t read its agent stack upgrade record (${journalPath}). ` +
+      `${APP_NAME} couldn’t read its agent stack upgrade record (${journalPath}). ` +
         'Your data is still on disk. Remove that file after checking the assistant-stack folder.'
     );
   }
   if (!paths?.projectRoot || !paths.nextRoot || !paths.previousRoot) {
-    throw new Error(`Boundary’s agent stack upgrade record is incomplete (${journalPath}).`);
+    throw new Error(`${APP_NAME}’s agent stack upgrade record is incomplete (${journalPath}).`);
   }
   await completeProjectSwap({ ...paths, journalPath });
   return true;

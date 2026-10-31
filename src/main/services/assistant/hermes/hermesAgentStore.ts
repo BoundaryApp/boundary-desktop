@@ -7,6 +7,8 @@ import type {
   ChatInferenceProvider,
   HermesChatBranchInfo,
   HermesChatDelivery,
+  HermesFailedChat,
+  HermesFailedTurn,
   HermesLastOpened,
   HermesNoReply,
   HermesReplyEnding,
@@ -68,6 +70,8 @@ interface HermesAgentsStoreShape {
   replyEndings: Record<string, Record<string, HermesReplyEnding>>;
   /** Why a reply never came, by session and the unanswered user row id. */
   noReplies: Record<string, Record<string, HermesNoReply>>;
+  /** Failed sends Hermes holds nothing for, by stored session id or Boundary's local id. */
+  failedChats?: Record<string, HermesFailedChat>;
   /** Mentions: replies newer than this are unseen (ADR 0023 §6). Null until first read. */
   mentionsSeenAt: string | null;
   /**
@@ -364,11 +368,12 @@ export function listSessionInferenceMarks(sessionId: string): SessionInferenceMa
 
 export function appendSessionInferenceMark(
   sessionId: string,
-  input: Pick<SessionInferenceMark, 'kind' | 'provider' | 'modelId' | 'sharedBy'>
+  input: Pick<SessionInferenceMark, 'kind' | 'provider' | 'modelId' | 'sharedBy'>,
+  at: Date = new Date()
 ): SessionInferenceMark {
   const mark: SessionInferenceMark = {
     id: randomUUID(),
-    at: new Date().toISOString(),
+    at: at.toISOString(),
     kind: input.kind,
     provider: input.provider,
     modelId: input.modelId,
@@ -419,8 +424,82 @@ export function copySessionInference(fromId: string, toId: string): void {
  * to the chat, not the id. That is its inference override and its project (ADR 0024), with
  * their transcript marks.
  */
+/** Runtime ids and stored ids of one session share a record. */
+function failedChatKey(sessionId: string): string {
+  return store().get('sessionAliases')?.[sessionId] ?? sessionId;
+}
+
+export function listFailedChats(): Record<string, HermesFailedChat> {
+  return store().get('failedChats') ?? {};
+}
+
+export function getFailedChat(sessionId: string): HermesFailedChat | null {
+  return listFailedChats()[failedChatKey(sessionId)] ?? null;
+}
+
+/** Adds a failed send to its chat's record, starting the record from `chat` if it has none. */
+export function addFailedTurn(
+  sessionId: string,
+  chat: Omit<HermesFailedChat, 'turns'>,
+  turn: Omit<HermesFailedTurn, 'id'>
+): void {
+  const key = failedChatKey(sessionId);
+  const chats = listFailedChats();
+  const prior = chats[key] ?? { ...chat, turns: [] };
+  store().set('failedChats', {
+    ...chats,
+    [key]: { ...prior, turns: [...prior.turns, { id: randomUUID(), ...turn }] },
+  });
+}
+
+/**
+ * Retry of the chat's latest failed send failed too: its error becomes the new one, in place.
+ * False when that send isn't the latest one on record, so nothing changed.
+ */
+export function replaceFailedTurn(
+  sessionId: string,
+  text: string,
+  failure: Pick<HermesFailedTurn, 'noReply' | 'errorCode'>
+): boolean {
+  const key = failedChatKey(sessionId);
+  const chats = listFailedChats();
+  const prior = chats[key];
+  const last = prior?.turns.at(-1);
+  if (!prior || last?.text !== text) return false;
+  const { errorCode: _old, ...kept } = last;
+  store().set('failedChats', {
+    ...chats,
+    [key]: { ...prior, turns: [...prior.turns.slice(0, -1), { ...kept, ...failure }] },
+  });
+  return true;
+}
+
+export function deleteFailedChat(sessionId: string): void {
+  const key = failedChatKey(sessionId);
+  const { [key]: _deleted, ...chats } = listFailedChats();
+  store().set('failedChats', chats);
+  const { [key]: _meta, ...meta } = store().get('sessionMeta') ?? {};
+  store().set('sessionMeta', meta);
+}
+
+/** The session id changed: the record follows, and the chat now has a Hermes session. */
+function moveFailedChat(fromId: string, toId: string): void {
+  const fromKey = failedChatKey(fromId);
+  const toKey = failedChatKey(toId);
+  const chats = listFailedChats();
+  const moving = chats[fromKey];
+  if (!moving || fromKey === toKey) return;
+  const { [fromKey]: _moved, ...rest } = chats;
+  const { local: _local, ...kept } = moving;
+  const turns = [...(chats[toKey]?.turns ?? []), ...moving.turns].sort((a, b) =>
+    a.at.localeCompare(b.at)
+  );
+  store().set('failedChats', { ...rest, [toKey]: { ...kept, ...chats[toKey], turns } });
+}
+
 export function migrateSessionInference(fromId: string, toId: string): void {
   if (!fromId || !toId || fromId === toId) return;
+  moveFailedChat(fromId, toId);
   const meta = { ...(store().get('sessionMeta') ?? {}) };
   const from = meta[fromId];
   const to = meta[toId];
@@ -642,6 +721,7 @@ export function resetHermesAgentsStoreForTests(
   store().set('agents', agents);
   store().set('standingDmByAgent', standingDmByAgent);
   store().set('sessionMeta', {});
+  store().set('failedChats', {});
   store().set('channels', []);
   store().set('lastOpened', null);
   store().set('sessionSpeakers', {});

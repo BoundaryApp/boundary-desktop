@@ -59,6 +59,33 @@ describe('ServerPath.plan', () => {
   });
 });
 
+describe('a failed send from Boundary’s record', () => {
+  const local = (id: string) => ({ ...u(id), localOnly: true });
+
+  it('sends again as a plain send when it is the latest turn', () => {
+    const path = new ServerPath([local('f1')]);
+    expect(path.has('f1')).toBe(true);
+    expect(path.plan([local('f1')])).toEqual({ kind: 'append', retry: true });
+  });
+
+  it('is left out of the ordinal of a turn Hermes holds', () => {
+    const path = new ServerPath([local('f1'), u('u1'), a('a1')]);
+    const plan = path.plan([local('f1'), u('u1')]);
+    expect(plan).toMatchObject({ kind: 'rewind', request: { userOrdinal: 0 } });
+  });
+
+  it('can’t be edited or retried once the chat has moved on', () => {
+    const path = new ServerPath([local('f1'), u('u1')]);
+    expect(path.has('f1')).toBe(false);
+    expect(path.plan([local('f1')]).kind).toBe('diverged');
+  });
+
+  it('lets a new message follow it', () => {
+    const path = new ServerPath([local('f1')]);
+    expect(path.plan([local('f1'), u('u1')])).toEqual({ kind: 'append' });
+  });
+});
+
 describe('ServerPath state', () => {
   it('commits a run, appends its reply, and notifies subscribers', () => {
     const path = new ServerPath();

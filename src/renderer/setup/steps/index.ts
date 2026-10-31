@@ -5,6 +5,7 @@ import { LlmOnboardingStep } from './LlmOnboardingStep';
 import { FoldersStep } from './FoldersStep';
 import { AssistantStackStep } from './AssistantStackStep';
 import { rendererExperiments } from '../../experiments';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 function isCapabilityComplete(ctx: SetupFlowSnapshot): boolean {
   // Acknowledgement alone advances — resource/runtime warnings are advisory.
@@ -42,7 +43,7 @@ const APP_SETUP_STEPS: SetupStepDefinition[] = [
     label: 'Machine',
     title: 'Check this Mac',
     description:
-      'Boundary runs its assistant on this machine. This checks memory, CPU, disk, and the container runtime.',
+      `${APP_NAME} runs its assistant on this machine. This checks memory, CPU, disk, and the container runtime.`,
     isComplete: isCapabilityComplete,
     Component: CapabilityStep,
   },
@@ -70,7 +71,7 @@ const APP_SETUP_STEPS: SetupStepDefinition[] = [
     label: 'Assistant',
     title: 'Start your assistant',
     description:
-      'Boundary starts its assistant services on this machine and connects them to your model.',
+      `${APP_NAME} starts its assistant services on this machine and connects them to your model.`,
     isComplete: isAssistantStackComplete,
     Component: AssistantStackStep,
   },

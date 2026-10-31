@@ -1,5 +1,6 @@
 import React from 'react';
 import type { HermesProjectRecord } from '../../../shared/types/hermesChat';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 const PROJECT_STARTERS = [
   'Summarize what’s in this folder',
@@ -10,7 +11,7 @@ const PROJECT_STARTERS = [
 const GENERAL_STARTERS = [
   'Plan my week from a list of tasks',
   'Draft a short email asking to meet next week',
-  'Explain how projects and sources work in Boundary',
+  `Explain how projects and sources work in ${APP_NAME}`,
 ];
 
 /** What an empty transcript shows: starters for a chat, a quiet note for a room. */

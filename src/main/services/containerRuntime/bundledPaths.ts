@@ -2,13 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
+import { INSTANCE_NAME } from '../../../shared/buildIdentity';
 
 export type DarwinRuntimeArch = 'arm64' | 'x64';
 
-declare const __BOUNDARY_PODMAN_MACHINE__: string | undefined;
-
-export const BOUNDARY_MACHINE_NAME =
-  (typeof __BOUNDARY_PODMAN_MACHINE__ === 'string' && __BOUNDARY_PODMAN_MACHINE__) || 'boundary';
+export const BOUNDARY_MACHINE_NAME = INSTANCE_NAME;
 
 /**
  * Memory for the bundled `boundary` Podman machine (MiB).

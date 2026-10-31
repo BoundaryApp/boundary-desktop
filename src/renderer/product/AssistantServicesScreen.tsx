@@ -7,6 +7,7 @@ import { refreshAssistantStackStatus, useAssistantStackStatus } from './assistan
 import type { AssistantUiServiceCard } from '../../shared/types/assistantStack';
 import { openSettings } from './settingsNavigation';
 import { useCalendarAccounts } from './useCalendarAccounts';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /**
  * caldav-mcp as "Calendar" (calendar spec, Phase 3): it runs only while a calendar is connected,
@@ -101,7 +102,7 @@ export const AssistantServicesScreen: React.FC = () => {
         <header>
           <h1 className="text-heading font-medium text-fg">Services</h1>
           <p className="mt-1.5 text-xs text-fg-faint">
-            Open each assistant service in your browser. They run in Boundary’s managed Compose
+            Open each assistant service in your browser. They run in {APP_NAME}’s managed Compose
             project on this machine.
           </p>
         </header>

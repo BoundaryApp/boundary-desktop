@@ -174,6 +174,23 @@ describe('Circles over a local DHT', () => {
     expect(removed.get(back)).toEqual([key]);
   });
 
+  it('lets a member who left join again and write', async () => {
+    const ada = await person('ada-rejoin');
+    const bo = await person('bo-rejoin');
+    const { key } = await ada.net.createCircle('Workshop');
+    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-rejoin')));
+    const identity = bo.net.snapshot().identity;
+    await bo.net.leaveCircle(key);
+    // A leave sent while the connection closes may not arrive; the admin's removal does.
+    await ada.net.removeMember(key, identity).catch((): undefined => undefined);
+    await ada.until((snapshot) => !memberNamed(snapshot, key, 'bo-rejoin'));
+
+    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await bo.net.publishOffer(key, { models: [{ id: 'm', tools: true }], available: true, away: false });
+    await ada.until((snapshot) => circleOf(snapshot, key)?.offers.length === 1);
+  });
+
   it('keeps the last admin from leaving, and lets a member leave', async () => {
     await ada.net.setRole(key, bo.net.snapshot().identity, 'member');
     await expect(ada.net.leaveCircle(key)).rejects.toThrow(/last admin/);

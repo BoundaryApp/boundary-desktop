@@ -31,6 +31,7 @@ import { InfoTip } from '../components/ui/info-tip';
 import { Sheet } from '../components/ui/sheet';
 import { useSheetAction } from '../components/ui/use-sheet-action';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 /** Passwords & Logins (docs/passwords-logins-study). */
 
@@ -506,7 +507,7 @@ function SourceRow({
             {busy ? 'Unlocking…' : 'Unlock'}
           </button>
           <p className="wb-vault-note">
-            Sent to {source.displayName} to unlock it. Boundary and Hermes don’t store it.
+            Sent to {source.displayName} to unlock it. {APP_NAME} and Hermes don’t store it.
           </p>
         </form>
       ) : null}
@@ -743,7 +744,7 @@ function LoginSheet({
 
       <p className="wb-vault-lockline">
         <Lock size={13} aria-hidden="true" />
-        Saved encrypted in {agentName}’s vault. Boundary can’t show it again, and the model never
+        Saved encrypted in {agentName}’s vault. {APP_NAME} can’t show it again, and the model never
         sees it.
       </p>
     </Sheet>

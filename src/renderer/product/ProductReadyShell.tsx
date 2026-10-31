@@ -7,6 +7,7 @@ import { ProductSettingsScreen } from './ProductSettingsScreen';
 import { SettingsSheet } from './SettingsSheet';
 import { UpdateCard } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
+import { CircleOfferAlerts } from './circles/CircleOfferAlerts';
 import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
 import {
@@ -130,6 +131,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
         <UpdateCard onOpenUpdates={() => openSettings({ tab: 'updates' })} />
       </div>
       {sheetRequest ? <SettingsSheet request={sheetRequest} onClose={() => setSheetRequest(null)} /> : null}
+      <CircleOfferAlerts />
     </div>
   );
 };

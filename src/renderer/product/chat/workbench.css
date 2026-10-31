@@ -1198,6 +1198,30 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: color-mix(in srgb, var(--solid-fg) 14%, transparent);
 }
 
+/* Circle offer alerts: above every screen and the settings sheet. */
+.wb-circle-alerts {
+  position: fixed;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(560px, calc(100vw - 32px));
+}
+
+.wb-toast.wb-circle-alert {
+  position: static;
+  transform: none;
+  max-width: 100%;
+}
+
+.wb-circle-alert button {
+  flex: none;
+}
+
 /* Reply extras (spec Phase 4): ⋯ menu, selection popover, quote chip, tool-card files. */
 .wb-more {
   position: relative;
@@ -4803,6 +4827,44 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 .wb-inference-note.is-bad { color: var(--danger); }
 
+.wb-switch-progress {
+  margin: 2px 0 8px;
+  padding: 0 12px;
+}
+.wb-switch-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+.wb-switch-bar span {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.wb-switch-bar .is-done { background: var(--brand); }
+.wb-switch-bar .is-active {
+  background: var(--brand);
+  animation: wb-switch-pulse 1.2s ease-in-out infinite;
+}
+@keyframes wb-switch-pulse {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-switch-bar .is-active { animation: none; }
+}
+.wb-switch-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+.wb-switch-line p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
 /* 0023 — chat types: one mark per kind, typed rail sections, two-line headers ------------ */
 /* Living spec: docs/chat-types-ux-study/01-chat-types.html. */
 
@@ -6317,6 +6379,23 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   content: '';
   flex: 1;
   border-top: 1px dashed var(--line-strong);
+}
+
+/* Where a chat moved to a fallback, or back to its primary */
+.wb-switch-mark.wb-model-mark {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-0);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-switch-mark.wb-model-mark.is-fallback {
+  border-color: var(--warn-line);
 }
 
 /* Move sheet */

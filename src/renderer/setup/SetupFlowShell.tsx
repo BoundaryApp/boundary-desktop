@@ -4,6 +4,7 @@ import { useSetup } from './SetupContext';
 import { DebugLogCopy } from '../components/settings/DebugLogCopy';
 import { Callout } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
+import { APP_NAME } from '../../shared/buildIdentity';
 
 export const SetupFlowShell: React.FC = () => {
   const { loading, activeStep, capabilityError, capabilityAssessment, capabilityStatus, loadCapability } =
@@ -14,7 +15,7 @@ export const SetupFlowShell: React.FC = () => {
       <SetupShell
         step="capability"
         title="Couldn’t check this Mac"
-        description="Boundary could not finish checking memory, disk, and the container runtime."
+        description={`${APP_NAME} could not finish checking memory, disk, and the container runtime.`}
         actions={
           <Button type="button" onClick={() => void loadCapability()}>
             Try again
@@ -29,7 +30,7 @@ export const SetupFlowShell: React.FC = () => {
 
   if (loading || !activeStep) {
     return (
-      <SetupShell step={null} title="Preparing Boundary" centered>
+      <SetupShell step={null} title={`Preparing ${APP_NAME}`} centered>
         <SetupSpinner label="Loading setup…" />
       </SetupShell>
     );

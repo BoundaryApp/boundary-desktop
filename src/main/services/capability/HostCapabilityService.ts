@@ -6,6 +6,7 @@ import {
   ASSISTANT_STACK_RUNNING_CONTAINERS,
   LOCAL_ASSISTANT_STACK_RUNNING_CONTAINERS,
 } from '../../../shared/assistantStackRequirements';
+import { runtimeContainerName } from '../../../shared/assistantStackConstants';
 import { formatBytes } from '../../../shared/utils/format';
 import type {
   CapabilityAssessment,
@@ -26,6 +27,7 @@ import {
 import { getDebugLogPath, persistDebugLog, serializeError } from '../../persistDebugLog';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
 import { acknowledgeCapability, getCapabilityStatus, setLastAssessment } from './CapabilityStore';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 export type HostCapabilityProbes = {
   isRuntimeRunning: () => Promise<boolean>;
@@ -41,7 +43,7 @@ export type HostCapabilityProbes = {
 /** How the capability step names a container engine. */
 export function engineLabelForRuntime(runtime: ContainerRuntime): string {
   if (runtime.origin === 'bundled' && runtime.kind === 'podman') {
-    return 'Boundary’s bundled Podman';
+    return `${APP_NAME}’s bundled Podman`;
   }
   if (runtime.origin === 'system' && runtime.kind === 'docker') {
     return 'Docker Desktop / Docker Engine';
@@ -74,7 +76,7 @@ function composeDetail(composeVersion: string | null, lastError: string | null):
   if (!composeVersionAtLeast(composeVersion, min)) {
     return (
       `Compose v${composeVersion.replace(/^v/i, '')} is older than v${min}, the first ` +
-      'release that reports download progress the way Boundary reads it. Update Docker ' +
+      `release that reports download progress the way ${APP_NAME} reads it. Update Docker ` +
       'Desktop (or Docker Compose) and retry.'
     );
   }
@@ -88,7 +90,7 @@ function runtimeDetail(
 ): string | undefined {
   if (!running) {
     const generic =
-      'Start Docker Desktop, or let Boundary provision its bundled container engine, then retry.';
+      `Start Docker Desktop, or let ${APP_NAME} provision its bundled container engine, then retry.`;
     return lastError ? `${generic} Last error: ${lastError}` : generic;
   }
   if (!runtime) return undefined;
@@ -150,10 +152,10 @@ export async function detectAssistantStackRunning(
 ): Promise<boolean> {
   const required = localMode
     ? LOCAL_ASSISTANT_STACK_RUNNING_CONTAINERS
-    : ASSISTANT_STACK_RUNNING_CONTAINERS;
+    : ASSISTANT_STACK_RUNNING_CONTAINERS.map(runtimeContainerName);
   try {
     const names = new Set(await listRunningContainerNames());
-    return required.every((name) => names.has(name));
+    return required.every((name: string) => names.has(name));
   } catch {
     return false;
   }

@@ -73,6 +73,7 @@ sends; "live" is a call on the running gateway.
 | `session.events.since` | vendored replay after a redial (vendor/json-rpc-gateway.ts) | catalog |
 | `session.create` (`history_budget` from the stack's overlay) | `createSessionWithSeed` | catalog, live |
 | `session.resume` (`history_budget`, `omit_messages`) | `resumeSession`, `withLiveSession` | catalog, live |
+| `session.resume` answering "session not found" for an id Hermes never minted (it makes a row for a minted key with none); the row is otherwise written on the first `prompt.submit` | `startChatTurn` makes a new session for a DM or failed chat; `keepFailedSend` keeps what never got a row | unit: hermesFailedChats; no live case |
 | `session.context_breakdown` (`categories`, `context_max`, `context_used`, `history_*`) | `getContextBreakdown` | catalog, live |
 | `session.live_status` (stack overlay) | `getLiveStatus` | live |
 | `session.list`, `session.history` | `listSessions`, `getSessionHistory` | catalog |
@@ -129,7 +130,7 @@ without editing the test.
 | `browser.cdp_url` | `planHermesProfileWrites` from `hermesBrowserCdpUrl` | `test:stack` keys, settings program |
 | `mcp_servers.opencode`, `mcp_servers.searxng`, `mcp_servers.todos` (whole entries) | `defaultMcpServerEntries` (hermesAgentMcpServers.ts) | `test:stack` keys, settings program |
 | `mcp_servers.<calendar server>` (whole entry, through `hermes config set`) | `grant` (calendar/calendarService.ts) | `test:stack` keys |
-| `providers.boundary-chain` (whole entry: `base_url`, `api_key`, `session_affinity_header`); Hermes sends that header on the route whose `base_url` matches `model.base_url` | `desiredHermesConfig` with `routed` (ADR 0033) | `test:stack` keys, settings program, session header |
+| `providers.boundary-chain` (whole entry: `base_url`, `api_key`, `session_affinity_header`); Hermes sends that header on the route whose `base_url` matches `model.base_url`, and looks it up on each request, so writing this entry needs no restart (`build_api_kwargs`, `get_custom_provider_session_affinity_header`) | `desiredHermesConfig` with `routed` (ADR 0033), `hermesWritesNeedRestart` | `test:stack` keys, settings program, session header; no live case for the missing restart |
 
 The settings-program case also runs a refused key and expects the program to report it as a result
 line (`SystemExit` at that key) and exit 0, then reads the stored files back and expects Boundary's

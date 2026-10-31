@@ -1,4 +1,5 @@
 import { blockedMethodReason, blockedUrlReason, type SitePolicy } from './cdpPolicy';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Shares one Chrome DevTools connection (the debugging pipe) between several CDP clients
@@ -174,7 +175,7 @@ export class CdpMux {
           setImmediate(() => client.close());
           return;
         case 'Target.attachToBrowserTarget':
-          return refuse(ERR_BLOCKED, "Boundary's browser doesn't allow a browser-wide session.");
+          return refuse(ERR_BLOCKED, `${APP_NAME}'s browser doesn't allow a browser-wide session.`);
         case 'Target.setDiscoverTargets':
           state.discover = Boolean(params.discover);
           reply({ result: {} });
@@ -182,7 +183,7 @@ export class CdpMux {
           return;
         case 'Target.setAutoAttach':
           if (params.flatten === false) {
-            return refuse(ERR_BLOCKED, "Boundary's browser only supports flattened sessions.");
+            return refuse(ERR_BLOCKED, `${APP_NAME}'s browser only supports flattened sessions.`);
           }
           state.autoAttach = Boolean(params.autoAttach);
           // Like Chrome: existing pages are announced before the reply.

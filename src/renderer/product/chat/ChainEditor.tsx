@@ -157,27 +157,37 @@ export interface SharedModelChoicesProps {
   ctx: ChainContext;
   disabled?: boolean;
   onPick: (entry: InferenceChainEntry) => void;
+  /** Shown under a choice, such as a switch's progress. */
+  below?: (entry: InferenceChainEntry) => React.ReactNode;
 }
 
 /** Shared models as radio choices: for the app default in Settings, and for setup (ADR 0036). */
-export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({ current, ctx, disabled = false, onPick }) => (
+export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
+  current,
+  ctx,
+  disabled = false,
+  onPick,
+  below,
+}) => (
   <>
     {sharedModelChoices(current, ctx).map((view) => {
       const on = Boolean(current && entryKey(current) === entryKey(view.entry));
       return (
-        <button
-          key={entryKey(view.entry)}
-          type="button"
-          className={`wb-inference-choice ${on ? 'is-on' : ''}`}
-          disabled={disabled || (view.skipped && !view.offline)}
-          onClick={() => onPick(view.entry)}
-        >
-          <span className="wb-inference-radio" aria-hidden="true" />
-          <span>
-            <b>{view.label}</b>
-            <span>{view.detail}</span>
-          </span>
-        </button>
+        <React.Fragment key={entryKey(view.entry)}>
+          <button
+            type="button"
+            className={`wb-inference-choice ${on ? 'is-on' : ''}`}
+            disabled={disabled || (view.skipped && !view.offline)}
+            onClick={() => onPick(view.entry)}
+          >
+            <span className="wb-inference-radio" aria-hidden="true" />
+            <span>
+              <b>{view.label}</b>
+              <span>{view.detail}</span>
+            </span>
+          </button>
+          {below?.(view.entry)}
+        </React.Fragment>
       );
     })}
   </>

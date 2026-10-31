@@ -40,6 +40,7 @@ import {
   getStoredChannel,
   listStoredChannels,
 } from './hermesAgentStore';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 const RESERVED_SLUGS = new Set([
   BUILTIN_ASSISTANT_SLUG,
@@ -179,7 +180,7 @@ function soulForRole(displayName: string, role: string): string {
     '- Never type or ask for a password yourself.',
     '',
     '## Calendars',
-    '- If you can read a calendar but have no tool to add, move or delete events, say you can only read it, and that the owner can give you Read and change in Boundary under Settings → Calendars. Never say you changed an event you could not change.',
+    `- If you can read a calendar but have no tool to add, move or delete events, say you can only read it, and that the owner can give you Read and change in ${APP_NAME} under Settings → Calendars. Never say you changed an event you could not change.`,
     '',
     'When the owner asks you to draft a new specialist agent, reply with a fenced',
     'agent-draft block and nothing else required for the card:',

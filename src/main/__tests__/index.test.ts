@@ -349,8 +349,9 @@ describe('restart to install', () => {
   });
 
   it('still keeps the window for a plain quit', async () => {
+    vi.useFakeTimers();
     await loadMain();
-    const win = await ready();
+    const win = await readyWithFakeTimers();
     h.state.appHandlers['before-quit']({ preventDefault: vi.fn() });
     expect(closeEvent(win).preventDefault).toHaveBeenCalled();
   });

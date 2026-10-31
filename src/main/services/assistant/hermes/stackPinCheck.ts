@@ -1,5 +1,6 @@
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../../../shared/assistantStackConstants';
 import { JsonRpcGatewayError } from './vendor/json-rpc-channel';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * `gateway.capabilities` flags that stack v0.3.3 added (turn heartbeat, session.live_status,
@@ -43,7 +44,7 @@ export async function refuseLocalStackOlderThanPin(
   client.close();
   throw new AssistantStackTooOldError(
     `The local agent stack at ${root} is older than ${SOVEREIGN_AGENT_STACK_VERSION}, the ` +
-      `version this Boundary needs. Its gateway doesn't offer ${missing.join(', ')} ` +
+      `version this ${APP_NAME} needs. Its gateway doesn't offer ${missing.join(', ')} ` +
       `(added in v0.3.3). Update the checkout to ${SOVEREIGN_AGENT_STACK_VERSION} or later, ` +
       'restart its stack, then reopen the chat.'
   );

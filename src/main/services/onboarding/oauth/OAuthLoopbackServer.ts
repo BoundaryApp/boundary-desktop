@@ -1,6 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { persistDebugLog } from '../../../persistDebugLog';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /** OpenRouter's codes live 10 minutes, and a signed-out user has to sign in before getting one. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -73,7 +74,7 @@ export async function startOAuthLoopbackServer(
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(
-      '<html><body><p>Authorization complete. You can close this tab and return to Boundary.</p></body></html>'
+      `<html><body><p>Authorization complete. You can close this tab and return to ${APP_NAME}.</p></body></html>`
     );
     finish(() => settle.resolve({ code, port }));
   });

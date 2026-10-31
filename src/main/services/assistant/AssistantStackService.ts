@@ -1,3 +1,4 @@
+import { APP_NAME, IS_SEPARATE_INSTANCE } from '../../../shared/buildIdentity';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'node:net';
@@ -39,6 +40,7 @@ import {
 import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import type {
   ApplyAssistantLlmResult,
+  HermesApplyStage,
   AssistantStackIsolationMode,
   AssistantStackLifecycleSnapshot,
   AssistantStackLifecycleStage,
@@ -366,7 +368,8 @@ export async function resolveAssistantPorts(options?: {
   }
 
   const defaults = { ...DEFAULT_ASSISTANT_STACK_PORTS };
-  if (await arePortsAvailable(defaults)) {
+  // A separate instance stays off the defaults, which the default build may claim later.
+  if (!IS_SEPARATE_INSTANCE && (await arePortsAvailable(defaults))) {
     return { ports: defaults, isolationMode: 'default-ports' };
   }
 
@@ -935,7 +938,7 @@ async function prepareHermesHome(dataRoot: string): Promise<void> {
     throw new Error(
       'Hermes config.yaml is missing under the local assistant data directory. ' +
         'Run setup from your sovereign-agent-stack checkout (or start the stack there) ' +
-        'before using bun run dev:local-stack. Boundary will not run hermes setup --reset ' +
+        `before using bun run dev:local-stack. ${APP_NAME} will not run hermes setup --reset ` +
         'against a local checkout.'
     );
   }
@@ -988,7 +991,7 @@ async function prepareHermesHome(dataRoot: string): Promise<void> {
 
   if (!hermesConfigExists(dataRoot)) {
     throw new Error(
-      'Hermes setup did not create config.yaml under Boundary assistant data. Re-run Setup or reset the assistant stack and try again.'
+      `Hermes setup did not create config.yaml under ${APP_NAME} assistant data. Re-run Setup or reset the assistant stack and try again.`
     );
   }
 }
@@ -1038,7 +1041,7 @@ async function tryAttachToLiveLocalStack(): Promise<boolean> {
       throw new Error(
         `Compose project ${names} in ${root} is running, but Hermes did not answer on ` +
           `${healthUrl} within ${LIVE_LOCAL_STACK_START_TIMEOUT_MS / 60_000} minutes. ` +
-          'Boundary will not start a second copy beside it, since both use the same ports. ' +
+          `${APP_NAME} will not start a second copy beside it, since both use the same ports. ` +
           `Fix that stack's Hermes, or stop it (make down in ${root}) and relaunch.`
       );
     }
@@ -1099,7 +1102,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     }
 
     if (stackMode().kind === 'managed') {
-      emitStage('provision', 'Provisioning Boundary-managed agent stack…');
+      emitStage('provision', `Provisioning ${APP_NAME}-managed agent stack…`);
       await ensureSovereignProjectProvisioned({
         onProgress: emitProgress,
         beforeReplace: stopBoundaryContainersForUpgrade,
@@ -1159,7 +1162,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
       await markHostSetupComplete();
       const llmForEnv = await getLlmConnection();
       if (llmForEnv?.endpointUrl && llmForEnv.apiKey && llmForEnv.modelId) {
-        emitProgress('Writing Boundary LLM settings into project .env…');
+        emitProgress(`Writing ${APP_NAME} LLM settings into project .env…`);
         await applyLlmConnectionToProjectFiles(root, llmForEnv);
       }
     }
@@ -1185,7 +1188,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
       }
     }
 
-    emitProgress('Preparing Boundary assistant data directory…');
+    emitProgress(`Preparing ${APP_NAME} assistant data directory…`);
     await ensureAssistantDataDirs(dataRoot);
     ensureHermesWebuiSyncToInsights(dataRoot);
     const openCodeConfigFile = await ensureOpenCodeConfigFile(root, dataRoot);
@@ -1311,11 +1314,11 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
       );
       return { success: true };
     }
-    emitProgress('Stopping Boundary assistant stack…');
+    emitProgress(`Stopping ${APP_NAME} assistant stack…`);
     stopKeepingLlmProxyUpstream();
     setLifecycle(
       createLifecycleSnapshot('stopping', {
-        message: 'Stopping Boundary assistant stack…',
+        message: `Stopping ${APP_NAME} assistant stack…`,
         services: seedServiceProgress('working', 'Stopping…', 0.2),
       })
     );
@@ -1774,16 +1777,32 @@ type LlmConnectionRequest =
  * finds nothing left to write, so this makes the next apply restart anyway.
  */
 let hermesRestartPending = false;
+let hermesRestarting = false;
+
+/**
+ * A cancelled apply wrote settings and stopped before its restart, so the running Hermes never
+ * read them. Putting the same settings back then needs no restart; anything else does.
+ */
+let hermesSettingsUnread = false;
+
+interface ApplyRun {
+  showProgress: boolean;
+  onRestart: Array<() => void>;
+  onStage: Array<(stage: HermesApplyStage) => void>;
+  /** Stops the run at its next safe point. A restart already under way runs to its end. */
+  signal?: AbortSignal;
+  /** Restores what the running Hermes started with, after a cancelled apply. */
+  restoresRunningHermes: boolean;
+}
 
 /** The apply running now, and the one request made during it, which runs once after it. */
 let applyRunning: Promise<ApplyAssistantLlmResult> | null = null;
-let applyNext: {
+let applyRunningListeners: Array<() => void> = [];
+let applyNext: (ApplyRun & {
   connection: LlmConnectionRequest;
-  showProgress: boolean;
-  onRestart: Array<() => void>;
   result: Promise<ApplyAssistantLlmResult>;
   start: (result: Promise<ApplyAssistantLlmResult>) => void;
-} | null = null;
+}) | null = null;
 
 /**
  * Push Boundary's verified LLM connection into all Hermes profiles inside the Boundary stack.
@@ -1796,51 +1815,100 @@ let applyNext: {
  * app with the start-up screen; the caller shows any error.
  *
  * `onRestart` fires when the run this call waits on decides Hermes must restart. Most applies don't.
+ * `onStage` reports the run's stages for a caller showing progress. `signal` cancels the run: the
+ * latest request owns the queued run, so a later request without one makes it uncancellable.
  */
 export function applyLlmConnectionToHermes(
   connection?: LlmConnectionRequest,
-  { showProgress = false, onRestart }: { showProgress?: boolean; onRestart?: () => void } = {}
+  {
+    showProgress = false,
+    onRestart,
+    onStage,
+    signal,
+    restoresRunningHermes = false,
+  }: {
+    showProgress?: boolean;
+    onRestart?: () => void;
+    onStage?: (stage: HermesApplyStage) => void;
+    signal?: AbortSignal;
+    restoresRunningHermes?: boolean;
+  } = {}
 ): Promise<ApplyAssistantLlmResult> {
   const listeners = onRestart ? [onRestart] : [];
-  if (!applyRunning) return startApply(connection, showProgress, listeners);
+  const stages = onStage ? [onStage] : [];
+  if (!applyRunning) {
+    return startApply(connection, { showProgress, onRestart: listeners, onStage: stages, signal, restoresRunningHermes });
+  }
   if (applyNext) {
     applyNext.connection = connection;
     applyNext.showProgress ||= showProgress;
     applyNext.onRestart.push(...listeners);
+    applyNext.onStage.push(...stages);
+    applyNext.signal = signal;
+    applyNext.restoresRunningHermes = restoresRunningHermes;
     return applyNext.result;
   }
   let start!: (result: Promise<ApplyAssistantLlmResult>) => void;
   const result = new Promise<ApplyAssistantLlmResult>((resolve) => {
     start = resolve;
   });
-  applyNext = { connection, showProgress, onRestart: listeners, result, start };
+  applyNext = {
+    connection,
+    showProgress,
+    onRestart: listeners,
+    onStage: stages,
+    signal,
+    restoresRunningHermes,
+    result,
+    start,
+  };
   return result;
 }
 
-function startApply(
-  connection: LlmConnectionRequest,
-  showProgress: boolean,
-  onRestart: Array<() => void>
-): Promise<ApplyAssistantLlmResult> {
-  const run = applyLlmConnectionOnce(connection, showProgress, onRestart).catch((error: unknown) => ({
+function startApply(connection: LlmConnectionRequest, options: ApplyRun): Promise<ApplyAssistantLlmResult> {
+  const run = applyLlmConnectionOnce(connection, options).catch((error: unknown) => ({
     success: false as const,
     error: error instanceof Error ? error.message : String(error),
   }));
   applyRunning = run;
+  applyRunningListeners = options.onRestart;
   void run.then(() => {
     const next = applyNext;
     applyNext = null;
-    if (next) next.start(startApply(next.connection, next.showProgress, next.onRestart));
+    if (next) next.start(startApply(next.connection, next));
     else applyRunning = null;
   });
   return run;
 }
 
+/**
+ * Wait out any apply, so a turn doesn't start while Hermes restarts or on a model being replaced.
+ * `onRestart` fires if the run going now restarts Hermes, at once if it already is.
+ */
+export async function settleHermesApply(onRestart?: () => void): Promise<void> {
+  if (!applyRunning) return;
+  if (onRestart) {
+    if (hermesRestarting) onRestart();
+    else applyRunningListeners.push(onRestart);
+  }
+  while (applyRunning) await applyRunning;
+}
+
 async function applyLlmConnectionOnce(
   connection: LlmConnectionRequest,
-  showProgress: boolean,
-  onRestart: Array<() => void>
+  { showProgress, onRestart, onStage, signal, restoresRunningHermes }: ApplyRun
 ): Promise<ApplyAssistantLlmResult> {
+  const reportStage = (applyStage: HermesApplyStage) => {
+    for (const listener of onStage) listener(applyStage);
+  };
+  // Metadata only: how long each step took, for the debug log.
+  const stepsMs: Record<string, number> = {};
+  let stepStartedAt = Date.now();
+  const stepDone = (name: string) => {
+    const now = Date.now();
+    stepsMs[name] = now - stepStartedAt;
+    stepStartedAt = now;
+  };
   const stage = (message: string) => {
     if (showProgress) emitStage('configureLlm', message);
   };
@@ -1862,6 +1930,7 @@ async function applyLlmConnectionOnce(
     );
   let apiKey: string | undefined;
   try {
+    if (signal?.aborted) return { success: false, cancelled: true };
     // A shared model has no connection of its own; the store keeps it apart from the slots.
     const appShared = connection ? null : getAppSharedModel();
     const llm = connection ?? (appShared ? sharedModelConnection(appShared.modelId ?? '') : await getLlmConnection());
@@ -1887,9 +1956,17 @@ async function applyLlmConnectionOnce(
       reportReady(local);
       return { success: true };
     }
+    const routed = !local && plan.kind === 'routed' ? plan : null;
+    // An offer that doesn't say leaves nothing to ask: a shared model has no address of its own.
+    const contextLength =
+      routed?.chain.contextLength ?? (slot === 'peer' ? undefined : await lookupModelContextLength(llm));
+    stepDone('prepare');
+    // The last point where nothing has changed yet. Everything after it changes the stack.
+    if (signal?.aborted) return { success: false, cancelled: true };
+    reportStage('applying');
     const { root } = tryResolveAssistantRoot();
     if (root) {
-      stage('Updating project .env and OpenCode for Boundary LLM…');
+      stage(`Updating project .env and OpenCode for ${APP_NAME} LLM…`);
       await applyLlmConnectionToProjectFiles(
         root,
         { endpointUrl: llm.endpointUrl, apiKey: llm.apiKey, modelId: llm.modelId },
@@ -1897,10 +1974,6 @@ async function applyLlmConnectionOnce(
       );
     }
 
-    const routed = !local && plan.kind === 'routed' ? plan : null;
-    // An offer that doesn't say leaves nothing to ask: a shared model has no address of its own.
-    const contextLength =
-      routed?.chain.contextLength ?? (slot === 'peer' ? undefined : await lookupModelContextLength(llm));
     const upstreamUrl = rewriteLlmUrlForContainer(llm.endpointUrl);
     setInferenceRouterChain(routed?.chain ?? null);
 
@@ -1937,6 +2010,7 @@ async function applyLlmConnectionOnce(
       }
     }
 
+    stepDone('proxy');
     stage('Configuring Hermes inference endpoint…');
     const dataRoot = resolveAssistantDataRoot(root ?? undefined);
     const profiles = allHermesProfiles();
@@ -1964,21 +2038,36 @@ async function applyLlmConnectionOnce(
       { required: local ? [] : HERMES_CONFIG_PROFILES }
     );
 
-    const restart = written.restart || envChanged || hermesRestartPending;
+    stepDone('settings');
+    // The last point before the restart, which can't be stopped once it starts.
+    if (signal?.aborted) {
+      hermesSettingsUnread ||= written.restart;
+      hermesRestartPending ||= envChanged;
+      return { success: false, cancelled: true };
+    }
+    const settingsNeedRestart =
+      restoresRunningHermes && hermesSettingsUnread ? false : written.restart || hermesSettingsUnread;
+    hermesSettingsUnread = false;
+    const restart = settingsNeedRestart || envChanged || hermesRestartPending;
     if (restart) {
       hermesRestartPending = true;
+      hermesRestarting = true;
       for (const listener of onRestart) listener();
-      progress('Restarting Hermes to apply Boundary’s settings…');
+      reportStage('restarting');
+      progress(`Restarting Hermes to apply ${APP_NAME}’s settings…`);
       try {
         if (local) await runLiveLocalStackCompose(['restart', 'hermes'], { timeout: 120_000 });
         else await restartHermesService();
+        stepDone('restart');
+        reportStage('starting');
         // A stack with many profiles and plugins can take over two minutes to serve again after
         // a restart, so this uses the full stack-start budget.
         await waitUntilAssistantHealthy(getStoredAssistantPorts());
+        stepDone('health');
         hermesRestartPending = false;
       } catch (error) {
         if (!local) throw error;
-        const message = `Hermes didn't come back after restarting for Boundary's settings: ${
+        const message = `Hermes didn't come back after restarting for ${APP_NAME}'s settings: ${
           error instanceof Error ? error.message : String(error)
         }`;
         report(
@@ -1990,12 +2079,15 @@ async function applyLlmConnectionOnce(
           })
         );
         return { success: false, error: message };
+      } finally {
+        hermesRestarting = false;
       }
     }
     persistDebugLog('assistant-stack', 'Hermes settings applied', {
       profiles: written.profiles,
       envChanged,
       restarted: restart,
+      stepsMs,
     });
     if (local) {
       progress('Local stack mode: kept Hermes model settings (live stack keeps its runtime config).');

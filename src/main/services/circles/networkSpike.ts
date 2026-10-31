@@ -4,6 +4,7 @@ import { persistDebugLog } from '../../persistDebugLog';
 import { stopUtilityProcess } from '../stopUtilityProcess';
 import { NETWORK_ENTRY } from './networkEntry';
 import type { MainToNetwork, NetworkSpikeMode, NetworkToMain } from './networkMessages';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * Phase 0 of the Circles plan: a debug-only way to run the network utilityProcess (ADR 0032 §1,
@@ -36,7 +37,7 @@ export function startCirclesNetworkSpike(): void {
     return;
   }
 
-  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: 'Boundary Circles Network' });
+  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: `${APP_NAME} Circles Network` });
   child = proc;
   persistDebugLog('circles-network', 'forked', { mode: mode.kind, pid: proc.pid ?? null });
 
@@ -63,6 +64,7 @@ export function startCirclesNetworkSpike(): void {
       case 'shared-head':
       case 'shared-chunk':
       case 'shared-end':
+      case 'circle-paired':
       case 'circle-removed':
       case 'signal-received':
       case 'diag':

@@ -1,6 +1,6 @@
 # Circles and inference chains plan
 
-Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chains.md) (inference chains and the router), [0034](adr/0034-shared-models.md) (shared models) and [0036](adr/0036-shared-model-app-default.md) (a shared model as the app default).
+Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chains.md) (inference chains and the router), [0034](adr/0034-shared-models.md) (shared models) and [0036](adr/0036-shared-model-app-default.md) (a shared model as the app default). The Circles screen's redesign is in [its own spec](circles-ux-study/spec.md).
 
 ## Progress
 

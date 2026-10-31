@@ -178,6 +178,8 @@ import type {
   SendLlmTestMessageInput,
   SendLlmTestMessageResult,
   SetAppDefaultInput,
+  AppSwitchEvent,
+  InferenceStatusResult,
   SetAppDefaultResult,
   SetAppFallbacksInput,
   SetAppSharedModelInput,
@@ -234,6 +236,8 @@ export interface IpcInvokeChannels {
   'onboarding:set-app-default': (input: SetAppDefaultInput) => SetAppDefaultResult;
   'onboarding:set-app-fallbacks': (input: SetAppFallbacksInput) => SetAppFallbacksResult;
   'onboarding:set-app-shared-model': (input: SetAppSharedModelInput) => SetAppSharedModelResult;
+  'onboarding:get-app-switch': () => AppSwitchEvent;
+  'onboarding:cancel-app-switch': () => InferenceStatusResult;
   'onboarding:probe-slot-health': (input: ProbeSlotHealthInput) => ProbeSlotHealthResult;
   'onboarding:discover-local-llms': () => DiscoverLocalLlmsResult;
   'onboarding:adopt-local-llm': (input: AdoptLocalLlmInput) => AdoptLocalLlmResult;
@@ -338,6 +342,7 @@ export interface IpcInvokeChannels {
   'hermes-chat:running-list': () => HermesRunningTurn[];
   'hermes-chat:open-agent-dm': (payload: HermesOpenAgentDmPayload) => HermesOpenAgentDmResult;
   'hermes-chat:branch': (payload: HermesChatBranchPayload) => HermesChatBranchResult;
+  'hermes-chat:delete-failed-chat': (payload: HermesChatHistoryPayload) => { success: boolean };
   'hermes-chat:save-reply': (payload: HermesSaveReplyPayload) => HermesSaveReplyResult;
   'hermes-chat:reveal-project-file': (
     payload: HermesRevealProjectFilePayload
@@ -455,6 +460,7 @@ export interface IpcEventChannels {
   'assistant-stack:ready': boolean;
   /** A slot's health changed in main (a probe, or the local model appearing or going). */
   'onboarding:status': InferenceProvidersStatus;
+  'onboarding:app-switch': AppSwitchEvent;
   'resources:compose-inventory': ComposeInventorySnapshot;
   'updates:state': UpdateSnapshot;
   'updates:open': void;

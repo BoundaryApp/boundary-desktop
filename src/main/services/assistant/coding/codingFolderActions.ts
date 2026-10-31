@@ -28,6 +28,7 @@ import {
 } from './codingGrants';
 import { codingGrantRefuseMessage, folderFacts, refuseCodingGrantReason } from './codingGrantRules';
 import { findCodingGrant, removeCodingGrantRecord } from './codingGrantStore';
+import { APP_NAME } from '../../../../shared/buildIdentity';
 
 /**
  * Removing and deleting coding folders (ADR 0028 §10, §11). Removing never touches files.
@@ -163,8 +164,8 @@ async function gitFacts(hostPath: string) {
 
 function refuseDelete(hostPath: string): string | null {
   const grant = findCodingGrant(hostPath);
-  if (!grant) return 'Only folders granted to the coding agent can be deleted from Boundary.';
-  if (isProjectFolder(hostPath)) return 'A project’s own folder can’t be deleted from Boundary.';
+  if (!grant) return `Only folders granted to the coding agent can be deleted from ${APP_NAME}.`;
+  if (isProjectFolder(hostPath)) return `A project’s own folder can’t be deleted from ${APP_NAME}.`;
   const reason = refuseCodingGrantReason(hostPath, codingGrantDeps().ruleOptions());
   if (reason) return codingGrantRefuseMessage(reason);
   return null;

@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { CdpMux, type CdpClient } from './cdpMux';
 import type { SitePolicy } from './cdpPolicy';
 import { ChromePipe, type ChromeLaunchConfig } from './chromePipe';
+import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
  * The browser half of the bridge (ADR 0027 §4–6): Boundary's Chrome on a debugging pipe, shared
@@ -48,8 +49,8 @@ export class BrowserRelay {
 
   /** Why Hermes can't use the browser right now, or `null`. */
   unavailableReason(): string | null {
-    if (!this.config.enabled) return "Boundary's browser is turned off. Turn it on in Boundary's Settings.";
-    if (!this.config.chrome) return "Boundary's browser needs Google Chrome, and it isn't installed.";
+    if (!this.config.enabled) return `${APP_NAME}'s browser is turned off. Turn it on in ${APP_NAME}'s Settings.`;
+    if (!this.config.chrome) return `${APP_NAME}'s browser needs Google Chrome, and it isn't installed.`;
     return null;
   }
 
@@ -76,7 +77,7 @@ export class BrowserRelay {
 
   /** Start Chrome if needed and show a window, so the user can sign in to sites. */
   async open(): Promise<void> {
-    if (!this.config.chrome) throw new Error("Boundary's browser needs Google Chrome, and it isn't installed.");
+    if (!this.config.chrome) throw new Error(`${APP_NAME}'s browser needs Google Chrome, and it isn't installed.`);
     const alreadyRunning = Boolean(this.pipe?.running);
     await this.ensureChrome(true);
     if (alreadyRunning) this.pipe?.send({ id: 2_100_000_001, method: 'Target.createTarget', params: { url: 'about:blank', newWindow: true } });
@@ -125,7 +126,7 @@ export class BrowserRelay {
       if (!started || !pipe.running) {
         await pipe.close();
         throw new Error(
-          "Boundary's browser didn't start. If a Chrome window from an earlier Boundary session is still open, quit it and try again."
+          `${APP_NAME}'s browser didn't start. If a Chrome window from an earlier ${APP_NAME} session is still open, quit it and try again.`
         );
       }
       this.pipe = pipe;
