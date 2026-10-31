@@ -60,6 +60,16 @@ const circleOf = (snapshot: CirclesSnapshot, key: string) => snapshot.circles.fi
 const memberNamed = (snapshot: CirclesSnapshot, key: string, name: string) =>
   circleOf(snapshot, key)?.members.find((member) => member.name === name);
 
+/** Every core in a person's store, as discovery keys. */
+async function storedCores({ net }: Person): Promise<string[]> {
+  const { store } = net as unknown as {
+    store: { storage: { createCoreStream(): AsyncIterable<{ discoveryKey: Buffer }> } };
+  };
+  const cores: string[] = [];
+  for await (const { discoveryKey } of store.storage.createCoreStream()) cores.push(discoveryKey.toString('hex'));
+  return cores;
+}
+
 beforeAll(async () => {
   testnet = await createTestnet(4);
   dir = await mkdtemp(path.join(tmpdir(), 'boundary-circles-'));
@@ -102,6 +112,19 @@ describe('Circles over a local DHT', () => {
     expect(circleOf(ada.net.snapshot(), key)!.invites).toEqual([
       expect.objectContaining({ id: invite.id, used: true, revoked: false }),
     ]);
+  });
+
+  it('stops a join waiting for an admin, and keeps nothing', async () => {
+    // The only admin goes offline, so the invite can't be answered.
+    const host = await person('Host');
+    const quiet = (await host.net.createCircle('Quiet room')).key!;
+    const invite = await host.net.createInvite(quiet, Date.now() + 60_000);
+    await host.net.close();
+    const guest = await person('Guest');
+    const joining = guest.net.joinCircle(invite.code);
+    guest.net.cancelJoin();
+    await expect(joining).rejects.toThrow(/cancelled/);
+    expect(guest.net.snapshot().circles).toHaveLength(0);
   });
 
   it('refuses a used, an expired and a revoked invite', async () => {
@@ -198,5 +221,36 @@ describe('Circles over a local DHT', () => {
     await bo.net.leaveCircle(key);
     expect(circleOf(bo.net.snapshot(), key)).toBeUndefined();
     await ada.until((s) => circleOf(s, key)?.members.length === 1);
+  });
+
+  it('deletes a Circle with one member, purging its cores and leaving other Circles', async () => {
+    const seeds = { identitySeed: crypto.randomBytes(32), deviceSeed: crypto.randomBytes(32) };
+    const ada = await person('ada-delete', seeds);
+    const bo = await person('bo-delete');
+    const kept = await ada.net.createCircle('Kept');
+    const coresBefore = await storedCores(ada);
+
+    const { key } = await ada.net.createCircle('Short-lived');
+    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-delete')));
+    await expect(ada.net.deleteCircle(key)).rejects.toThrow(/last member/);
+    await expect(bo.net.deleteCircle(key)).rejects.toThrow(/last member/);
+    await ada.net.removeMember(key, bo.net.snapshot().identity);
+    await ada.until((snapshot) => !memberNamed(snapshot, key, 'bo-delete'));
+    const coresFull = await storedCores(ada);
+
+    await ada.net.deleteCircle(key);
+    expect(circleOf(ada.net.snapshot(), key)).toBeUndefined();
+    const coresAfter = await storedCores(ada);
+    expect(coresAfter.length).toBeLessThan(coresFull.length);
+    expect(coresBefore.every((core) => coresAfter.includes(core))).toBe(true);
+    expect(coresAfter).not.toContain(crypto.discoveryKey(Buffer.from(key, 'hex')).toString('hex'));
+
+    // The other Circle's data survives a restart on the same store.
+    await ada.net.close();
+    const back = await person('ada-delete', seeds);
+    await back.net.openCircle(kept);
+    expect(circleOf(back.net.snapshot(), kept.key!)).toMatchObject({ name: 'Kept', myRole: 'admin' });
+    await expect(back.net.createInvite(kept.key!)).resolves.toMatchObject({ code: expect.any(String) });
   });
 });

@@ -7,6 +7,9 @@ import { SetupProvider } from '../../setup/SetupContext';
 import { ProductApp } from '../ProductApp';
 import { ProductSettingsScreen } from '../ProductSettingsScreen';
 
+// The app as the public repository has it; each experiment tests what it adds beside its code.
+vi.mock('../../experiments', () => ({ rendererExperiments: [] }));
+
 vi.mock('../../setup/SetupFlowShell', () => ({
   SetupFlowShell: () => <div>setup-flow</div>,
 }));

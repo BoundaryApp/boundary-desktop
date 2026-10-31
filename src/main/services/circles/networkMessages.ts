@@ -4,7 +4,7 @@
  * and replicates one Hypercore.
  */
 import type { CircleRole, CirclesSnapshot } from '../../../shared/types/circles';
-import type { CircleOffer } from './circleOps';
+import type { CircleOffer, CircleRecord, CircleRecordScope } from './circleOps';
 import type { CircleSignal } from './circleSignals';
 import type { GatewayUpstream } from './inferenceGateway';
 
@@ -30,18 +30,34 @@ export interface CircleSecrets {
 
 export type { CircleSnapshot, CirclesSnapshot } from '../../../shared/types/circles';
 
+/** A record as this device sees it. `confirmed` means a majority of admins' devices have ordered it. */
+export interface CircleRecordEntry extends CircleRecord {
+  circleKey: string;
+  confirmed: boolean;
+}
+
+/** A record that appeared, changed, was deleted or was confirmed. `value` is null when deleted. */
+export interface CircleRecordChange extends CircleRecordEntry {
+  deleted: boolean;
+}
+
 /** Requests main sends to the running Circles network; each answer carries the same `id`. */
 export type CirclesRequest =
   | { op: 'create'; name: string }
   | { op: 'invite'; key: string; expiresAt: number }
   | { op: 'revoke-invite'; key: string; inviteId: string }
   | { op: 'join'; code: string }
+  | { op: 'join-cancel' }
   | { op: 'set-role'; key: string; identity: string; role: CircleRole }
   | { op: 'remove-member'; key: string; identity: string }
   | { op: 'leave'; key: string }
+  | { op: 'delete'; key: string }
   | { op: 'set-name'; name: string }
   | { op: 'publish-offer'; key: string; offer: CircleOffer }
   | { op: 'withdraw-offer'; key: string }
+  | { op: 'record-set'; key: string; app: string; scope: CircleRecordScope; record: string; value: unknown }
+  | { op: 'record-del'; key: string; app: string; scope: CircleRecordScope; record: string }
+  | { op: 'records-list'; key: string; app: string }
   /** The model server this user's gateway forwards to (ADR 0034 §2); null stops serving. */
   | { op: 'share-upstream'; upstream: GatewayUpstream | null };
 
@@ -71,6 +87,8 @@ export type MainToNetwork =
   | { type: 'signal-send'; key: string; topic: string; payload: unknown; to?: string }
   /** The signal topics main listens to; replaces the previous list. */
   | { type: 'signal-topics'; topics: string[] }
+  /** The record apps main listens to; replaces the previous list. */
+  | { type: 'record-apps'; apps: string[] }
   | { type: 'stop' };
 
 /** One call to a shared model's narrow API (ADR 0034 §2). `body` is JSON text. */
@@ -89,7 +107,14 @@ export type NetworkToMain =
   | { type: 'circles-ready'; snapshot: CirclesSnapshot }
   | { type: 'circles-snapshot'; snapshot: CirclesSnapshot }
   /** `secrets` for a Circle created or joined; main stores them. */
-  | { type: 'circles-reply'; id: number; ok: true; secrets?: CircleSecrets; invite?: { id: string; code: string; expires: number } }
+  | {
+      type: 'circles-reply';
+      id: number;
+      ok: true;
+      secrets?: CircleSecrets;
+      invite?: { id: string; code: string; expires: number };
+      records?: CircleRecordEntry[];
+    }
   | { type: 'circles-reply'; id: number; ok: false; error: string }
   | { type: 'log'; message: string; data?: Record<string, unknown> }
   /** A diagnostics event (metadata only); `at` is the process's wall clock in ms. */
@@ -100,6 +125,8 @@ export type NetworkToMain =
   | { type: 'shared-end'; id: number; error?: string }
   /** A peer signal on a topic main listens to, checked against the Circle's members. */
   | { type: 'signal-received'; signal: CircleSignal }
+  /** A change to a record of an app main listens to. */
+  | { type: 'record-changed'; change: CircleRecordChange }
   /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
   | { type: 'circle-paired'; secrets: CircleSecrets }
   | { type: 'circle-removed'; key: string };

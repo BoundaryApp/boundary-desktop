@@ -8,6 +8,8 @@ import { SettingsSheet } from './SettingsSheet';
 import { UpdateCard } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
 import { CircleOfferAlerts } from './circles/CircleOfferAlerts';
+import type { CirclesSelection } from './circles/CirclesNav';
+import { useOpenCirclesRequests } from './circles/circlesNavigation';
 import { CirclesScreen } from './circles/CirclesScreen';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
 import {
@@ -34,6 +36,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   useAppShortcuts();
   // Chat commands pressed elsewhere switch to Chat first, then replay there.
   const [pendingChatCommand, setPendingChatCommand] = useState<AppCommand | null>(null);
+  const [circlesSelection, setCirclesSelection] = useState<CirclesSelection>(null);
   // A request to open Settings on a tab; `seq` remounts Settings so it takes effect again.
   const [settingsRequest, setSettingsRequest] = useState<(OpenSettingsRequest & { seq: number }) | null>(
     null
@@ -55,6 +58,11 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   });
 
   useEffect(() => setSheetRequest(null), [view]);
+
+  useOpenCirclesRequests(({ person }) => {
+    setCirclesSelection({ kind: 'sharing', ...(person ? { person } : {}) });
+    onNavigate('circles');
+  });
 
   useAppCommand((command) => {
     if (command === 'go-chat') onNavigate('chat');
@@ -110,7 +118,7 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   } else if (view === 'resources') {
     main = <ResourcesScreen />;
   } else if (view === 'circles') {
-    main = <CirclesScreen />;
+    main = <CirclesScreen selection={circlesSelection} onSelect={setCirclesSelection} />;
   } else {
     main = <WorkbenchChatScreen />;
   }

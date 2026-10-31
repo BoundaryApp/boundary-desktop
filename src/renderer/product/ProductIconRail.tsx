@@ -1,3 +1,4 @@
+import { useSharingAttention } from './circles/CircleSharingPanel';
 import React from 'react';
 import { formatShortcut, type AppCommand } from '../../shared/appCommands';
 import { useAssistantStackStatus } from './assistantStack';
@@ -59,6 +60,10 @@ function RailButton({
       {children}
     </button>
   );
+}
+
+function SharingAttentionDot() {
+  return useSharingAttention() ? <i className="wb-attention-dot" role="img" aria-label="Members can’t use your models" /> : null;
 }
 
 export const ProductIconRail: React.FC<ProductIconRailProps> = ({
@@ -129,6 +134,7 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
         onClick={() => onNavigate('circles')}
         disabled={disabled}
       >
+        {disabled ? null : <SharingAttentionDot />}
         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="8" cy="8" r="5.5" />
           <circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none" />

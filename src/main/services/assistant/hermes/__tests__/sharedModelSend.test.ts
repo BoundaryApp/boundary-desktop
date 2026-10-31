@@ -123,7 +123,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
   ])('stops the send and says why when %s, naming no provider', async (_name, change, reason) => {
     change();
     const result = await ensureResolvedInferenceReady('s1');
-    expect(result).toEqual({ ok: false, error: expect.stringMatching(reason), errorCode: 'apply-failed' });
+    expect(result).toEqual({ ok: false, error: expect.stringMatching(reason), errorCode: 'apply-failed', provider: peer.providerId });
     expect(JSON.stringify(result)).not.toMatch(/OpenRouter/);
     expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
   });

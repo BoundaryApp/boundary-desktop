@@ -30,6 +30,8 @@ declare module 'corestore' {
     ready(): Promise<void>;
     get(opts: { name: string } | { key: Buffer; active?: boolean }): Hypercore;
     namespace(name: string): Corestore;
+    /** Deletes these cores from storage; `force` includes cores with open sessions. */
+    purge(keys: Buffer[], opts?: { force?: boolean }): Promise<Buffer[]>;
     replicate(stream: SecretStream): unknown;
     close(): Promise<void>;
   }
@@ -109,6 +111,8 @@ declare module 'autobase' {
     addWriter(key: Buffer, opts: { indexer: boolean }): Promise<void>;
     removeWriter(key: Buffer): Promise<void>;
     removeable(key: Buffer): boolean;
+    /** Throws, ending this apply; the base then emits `interrupt` and appends fail. */
+    interrupt(reason: string): void;
   }
 
   export default class Autobase<View = Hypercore> extends EventEmitter {
@@ -134,7 +138,15 @@ declare module 'autobase' {
     readonly writable: boolean;
     readonly signedLength: number;
     /** The system view, once open: the current indexers' writer keys. */
-    readonly system: { readonly indexers: ReadonlyArray<{ key: Buffer }> } | null;
+    readonly system: {
+      readonly indexers: ReadonlyArray<{ key: Buffer }>;
+      /** Every writer the system has seen, removed ones included. */
+      list(): AsyncIterable<{ key: Buffer }>;
+    } | null;
+    /** The system core. */
+    readonly core: Hypercore;
+    /** Private to Autobase, but its only list of the view cores (`lib/store.js`). */
+    readonly _viewStore: { getViews(): Array<{ core: Hypercore | null }> };
     ready(): Promise<void>;
     append(value: unknown): Promise<void>;
     update(): Promise<void>;
@@ -153,6 +165,8 @@ declare module 'hyperbee' {
     put(key: string, value: unknown): Promise<void>;
     del(key: string): Promise<void>;
     createReadStream(range?: { gt?: string; gte?: string; lt?: string; lte?: string }): AsyncIterable<{
+      /** The entry's block in the core, which `signedLength` is compared with. */
+      seq: number;
       key: string;
       value: unknown;
     }>;

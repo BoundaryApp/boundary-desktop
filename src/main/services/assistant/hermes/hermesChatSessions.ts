@@ -244,6 +244,7 @@ async function gateResolvedInference(
       error: ready.error,
       errorCode: ready.errorCode,
       ...(ready.sharedUnavailable ? { sharedUnavailable: true } : {}),
+      ...(ready.provider ? { provider: ready.provider } : {}),
     },
   };
 }

@@ -1,3 +1,4 @@
+import { openCircles } from '../circles/circlesNavigation';
 import React, { createContext, useContext } from 'react';
 import { useAui, useAuiState } from '@assistant-ui/store';
 import type { HermesNoReply, HermesNoReplyReason } from '../../../shared/types/hermesChat';
@@ -67,6 +68,11 @@ const NoReplyLine: React.FC<{
       <span className="wb-turn-note-detail" title={noReply.error}>
         · {noReply.error}
       </span>
+    ) : null}
+    {noReply.provider ? (
+      <button type="button" className="wb-ending-act" onClick={() => openCircles({ person: noReply.provider })}>
+        Open in Circles
+      </button>
     ) : null}
     {onRetry ? (
       <button type="button" className="wb-ending-act" onClick={onRetry}>

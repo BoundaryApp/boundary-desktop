@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CircleOfferView, CirclesState } from '../../../shared/types/circles';
-import { dispatchAppCommand } from '../useAppShortcuts';
+import { openCircles } from './circlesNavigation';
 import { alertsFor, diffOffers, type OfferAlert, type OfferChange } from './offerAlerts';
 import { useCirclesState } from './useCircles';
 
@@ -87,7 +87,7 @@ const AlertToast: React.FC<{ alert: OfferAlert; onDismiss: () => void }> = ({ al
       <button
         type="button"
         onClick={() => {
-          dispatchAppCommand('go-circles');
+          openCircles({ person: alert.provider });
           onDismiss();
         }}
       >

@@ -32,3 +32,13 @@ The run also showed something the source reading missed. **Promoting a member to
 At the 10-second ack interval Boundary uses, over three runs, a promoted admin's device took 31 to 41 seconds to become an active indexer, and an entry took 29 to 54 seconds to be confirmed after the second admin came back. Autobase pushes its ack timer back on every update (`lib/timer.js`, `bump`), so a busy Circle acks later rather than sooner.
 
 For phase 5 this means an unconfirmed mark can show for close to a minute in normal use. A newly promoted admin should also count as an admin for confirmation only once their device is an active indexer.
+
+## Builds that disagree
+
+Two peers on Autobase 7.28.2, one whose `apply` knew an operation and one whose `apply` didn't, replicating over a pipe. `circleUpgrade.net.test.ts` repeats the stopping cases on a testnet.
+
+When the older peer skips the entry, the linearizer still agrees: both reach the same `indexedLength`, because order doesn't depend on `apply`. The views don't agree. With both as indexers, `signedLength` stops on the view and both sides log `INVALID_SIGNATURE`, and a new peer joining logs it too. With the older peer as a member, its view is wrong with no warning, and the admin carries on normally. Reopening the older peer on the newer build fixes neither case, because the indexed entry is never applied again.
+
+When the older peer calls `host.interrupt` on the entry, it stops there. Reopened on the newer build, it applies the entry and the views match, and signing resumes when it's an indexer. An interrupted indexer stops acking, so it counts against the majority above until then. The README says an interrupt closes the Autobase; in 7.28.2 `base.closed` stays false, the view stays readable, and `append` throws.
+
+[ADR 0038](adr/0038-changing-circle-operations.md) is the rule built on this.

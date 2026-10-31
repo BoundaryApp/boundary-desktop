@@ -11,11 +11,11 @@
 
 | Phase | Status | Depends on |
 | --- | --- | --- |
-| 1 List and detail | Not started | — |
-| 2 People and the person panel | Not started | 1 |
-| 3 Sharing | Not started | 2 |
-| 4 Invites and joining | Not started | 1 |
-| 5 Links from the rest of the app | Not started | 2, 3 |
+| 1 List and detail | Built; live check pending | — |
+| 2 People and the person panel | Built; live check pending | 1 |
+| 3 Sharing | Built; live check pending | 2 |
+| 4 Invites and joining | Built; live check pending | 1 |
+| 5 Links from the rest of the app | Built; live check pending | 2, 3 |
 | 6 Usage | Not started | Metering (circles plan phase 4) |
 
 ## Goal
@@ -75,7 +75,7 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 ## Risks and open questions
 
 - **One model, two Circles.** A chain entry names a Circle as well as a provider, so one row can stand for two possible entries. **Use** saves the first Circle offering it where the provider is online, or the first offering it otherwise. Leaving that Circle makes the entry stale even if another Circle still offers the model. The router could look for the offer in any shared Circle, which needs a check against ADR 0033 §10.
-- **Cancel needs a network change.** `joinCircle` runs until it finishes, and the network process has no way to stop it. Phase 4 adds one and decides what happens to a half-joined Circle.
+- **Cancel stops only a waiting join.** Nothing is kept, because a device isn't in a Circle until an admin admits it. Once it's admitted, cancelling does nothing and the join finishes.
 - **Offers stay published as available** when the provider's server is down. Members see a model that fails until they try it. Fixing that is a network change outside this spec.
 - **Window width.** Icon rail, list and panel leave about 640px at a 1280px window. The panel should cover the detail pane below that width. The minimum window size needs checking.
 
@@ -95,16 +95,16 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 
 ## Acceptance criteria
 
-- [ ] **1.** A user with two Circles can switch between them from the list, and leaving the destination and coming back restores the selection.
-- [ ] **2.** Someone in two Circles appears with one set of switches, and a change shows in both Circles at once.
-- [ ] **3.** A member can trust a provider and make their model the default without leaving the Circles destination.
-- [ ] **4.** Use buttons stay disabled until the provider is Trusted, and main refuses the choice if the renderer is wrong.
-- [ ] **5.** A paused provider's dot is amber on the Circle page and in **Sharing**, and a provider who is offline is grey.
-- [ ] **6.** A user with no local model and nothing shared sees no **Shared from this Mac** and no **Share here**.
-- [ ] **7.** Turning off a Circle's switch on **Sharing** turns off **Share here** in that Circle, and the reverse.
-- [ ] **8.** With the local server stopped, the Circles icon shows a dot from any screen, and the banner offers **Open Settings**.
-- [ ] **9.** An invite's label never appears in the Circle's log or on another device.
-- [ ] **10.** A join in progress survives navigating away, shows its failure on return, and can be cancelled.
-- [ ] **11.** The chat's stop message for a shared model opens that person's panel.
-- [ ] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
+- [x] **1.** A user with two Circles can switch between them from the list, and leaving the destination and coming back restores the selection.
+- [x] **2.** Someone in two Circles appears with one set of switches, and a change shows in both Circles at once.
+- [x] **3.** A member can trust a provider and make their model the default without leaving the Circles destination.
+- [x] **4.** Use buttons stay disabled until the provider is Trusted, and main refuses the choice if the renderer is wrong.
+- [x] **5.** A paused provider's dot is amber on the Circle page and in **Sharing**, and a provider who is offline is grey.
+- [x] **6.** A user with no local model and nothing shared sees no **Shared from this Mac** and no **Share here**.
+- [x] **7.** Turning off a Circle's switch on **Sharing** turns off **Share here** in that Circle, and the reverse.
+- [x] **8.** With the local server stopped, the Circles icon shows a dot from any screen, and the banner offers **Open Settings**.
+- [x] **9.** An invite's label never appears in the Circle's log or on another device.
+- [x] **10.** A join in progress survives navigating away, shows its failure on return, and can be cancelled.
+- [x] **11.** The chat's stop message for a shared model opens that person's panel.
+- [x] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
 - [ ] **13.** Usage counts appear only on the provider's and that member's own Macs.

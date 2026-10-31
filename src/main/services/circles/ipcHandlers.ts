@@ -4,10 +4,12 @@ import { handle, handleResult } from '../../ipc';
 import { circlesDiagnosticsPath, diag } from './circlesDiagnostics';
 import {
   createCircle,
+  cancelJoin,
   createCircleInvite,
   ensureCirclesStarted,
   getCirclesState,
   joinCircle,
+  deleteCircle,
   leaveCircle,
   removeCircleMember,
   revokeCircleInvite,
@@ -30,11 +32,13 @@ export function registerCirclesHandlers(): void {
   handleResult('circles:set-display-name', (_event, input) => setDisplayName(input.name));
   handleResult('circles:create', (_event, input) => createCircle(input.name));
   handleResult('circles:join', (_event, input) => joinCircle(input.code));
-  handleResult('circles:create-invite', (_event, input) => createCircleInvite(input.key, input.expiresInMs));
+  handleResult('circles:cancel-join', () => cancelJoin());
+  handleResult('circles:create-invite', (_event, input) => createCircleInvite(input.key, input.expiresInMs, input.label));
   handleResult('circles:revoke-invite', (_event, input) => revokeCircleInvite(input.key, input.inviteId));
   handleResult('circles:set-role', (_event, input) => setCircleRole(input.key, input.identity, input.role));
   handleResult('circles:remove-member', (_event, input) => removeCircleMember(input.key, input.identity));
   handleResult('circles:leave', (_event, input) => leaveCircle(input.key));
+  handleResult('circles:delete', (_event, input) => deleteCircle(input.key));
   handleResult('circles:reveal-diagnostics', () => {
     const file = circlesDiagnosticsPath();
     // Writing a line first makes sure the file exists to be shown.

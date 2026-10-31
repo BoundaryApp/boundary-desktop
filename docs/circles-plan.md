@@ -74,6 +74,18 @@ Short messages between the members of a Circle that nothing keeps, for typing in
 
 A connection belongs to a device, not a Circle, so each frame names its Circle. The receiver takes the sender's identity from the connection's device key and drops the frame unless that device is a current member of the Circle. Topics no listener has registered are dropped in the network process. Payloads are limited to 4 KB of JSON. Each peer may send 30 signals a second with bursts of 60, and receivers drop what goes past twice that. A member who is offline misses the signal.
 
+## Circle records
+
+Values kept in a Circle's Autobase for a feature, such as Circle settings, member profile fields and phase 5's channel settings. `setCircleRecord(circleKey, app, scope, key, value)` writes one, `deleteCircleRecord` removes it, `getCircleRecords(circleKey, app)` reads an app's records, and `onCircleRecord(app, handler)` reports changes. Main's code calls these directly, so there is no IPC.
+
+A `circle` record is one value that only admins write. A `member` record is one value per member under the author's identity, and `remove-member` deletes them. `app` and `key` match `[a-z0-9][a-z0-9._-]{0,63}`, and a value is JSON up to 16 KB. `apply` checks shape, size and author and never reads the value, so a reader validates it. A device replicates every record, including apps it doesn't listen to.
+
+Each record has `confirmed`, and a change event fires when that flips. Listeners also get every record of a Circle as it opens. Until a record is confirmed it can be undone or reordered, and two admins writing one key resolve to whichever Autobase orders last.
+
+## Changing Circle operations
+
+[ADR 0038](adr/0038-changing-circle-operations.md) sets the rule: a Circle has a format, what an operation does at a format never changes, and only an admin can move a Circle to a later format. Read it before adding an operation.
+
 ## Acceptance criteria
 
 ### Chains (0033)
@@ -94,6 +106,8 @@ A connection belongs to a device, not a Circle, so each frame names its Circle. 
 - [x] **11.** An invite completes only while an admin is online, and an expired or revoked invite is refused.
 - [ ] **12.** A removed member's device gets no new data, and the remove dialog says history they hold stays with them. (The dialog says so, and peers stop replicating with the removed device. A removed member who shares another Circle with a peer, or who makes a new device key, can still fetch the Circle's blocks: see ADR 0032 §6.)
 - [ ] **13.** Entries written while no admin is online show as unconfirmed until one is.
+
+The last admin can't leave while others remain. A Circle's only member deletes it instead: their device closes it, purges the cores Autobase lists and forgets its key. Nothing goes in the log, because no other peer is a member. Older view cores aren't listed, so they stay on disk, encrypted, with the key gone. The [lifecycle check](testing/circle-lifecycle.md) covers leaving, joining again, removal, roles and deleting.
 
 ### Shared models (0034)
 

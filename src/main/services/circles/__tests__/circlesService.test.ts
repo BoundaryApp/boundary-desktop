@@ -48,17 +48,22 @@ const stored = {
   circles: new Map<string, unknown>(),
   providers: {} as Record<string, unknown>,
   sharing: NOT_SHARING as unknown,
+  wiped: [] as string[],
+  inviteLabels: {} as Record<string, string>,
 };
 vi.mock('../circlesStore', () => ({
   getCirclesDisplayName: () => stored.name,
   setCirclesDisplayName: (name: string) => void (stored.name = name),
   hasCircles: () => stored.circles.size > 0,
+  wipeOutdatedCircles: (dir: string) => void stored.wiped.push(dir),
   loadCircleSeeds: async () => ({ identitySeed: '11'.repeat(32), deviceSeed: '22'.repeat(32) }),
   listCircleSecrets: async () => [...stored.circles.values()],
   saveCircleSecrets: async (secrets: { key: string }) => void stored.circles.set(secrets.key, secrets),
   forgetCircle: (key: string) => void stored.circles.delete(key),
   getProviderSettings: () => stored.providers,
   getCircleSharing: () => stored.sharing,
+  getInviteLabels: () => stored.inviteLabels,
+  setInviteLabels: (labels: Record<string, string>) => void (stored.inviteLabels = labels),
   setCircleSharing: (sharing: unknown) => void (stored.sharing = sharing),
   setProviderSettings: (identity: string, settings: { private: boolean; trusted: boolean }) => {
     stored.providers = { ...stored.providers, [identity]: settings };
@@ -78,6 +83,7 @@ beforeEach(() => {
   stored.circles.clear();
   stored.providers = {};
   stored.sharing = NOT_SHARING;
+  stored.inviteLabels = {};
   blocker.running.clear();
   powerSaveBlocker.start.mockClear();
   powerSaveBlocker.stop.mockClear();
@@ -134,6 +140,53 @@ describe('circlesService', () => {
     expect(stored.circles.size).toBe(0);
   });
 
+  it('holds a join’s failure until the user clears it', async () => {
+    stored.name = 'Bo';
+    const service = await load();
+    fork.mockImplementationOnce(() => {
+      lastChild = new FakeChild();
+      lastChild.reply = () => ({ ok: false, error: 'That invite has expired. Ask for a new one.' });
+      return lastChild;
+    });
+    await service.joinCircle('code');
+    expect(service.getCirclesState().join).toEqual({ waiting: false, error: 'That invite has expired. Ask for a new one.' });
+    await service.cancelJoin();
+    expect(service.getCirclesState().join).toBeNull();
+  });
+
+  it('keeps one join at a time, and a cancelled join shows no failure', async () => {
+    stored.name = 'Bo';
+    const service = await load();
+    fork.mockImplementationOnce(() => {
+      lastChild = new FakeChild();
+      lastChild.reply = (request) => (request.op === 'join' ? { ok: false, error: 'Join cancelled.' } : { ok: true });
+      return lastChild;
+    });
+    const joining = service.joinCircle('code');
+    expect(service.getCirclesState().join).toEqual({ waiting: true });
+    expect(await service.joinCircle('other')).toMatchObject({ success: false, error: /already waiting/ });
+    await service.cancelJoin();
+    expect(service.getCirclesState().join).toBeNull();
+    await joining;
+    expect(service.getCirclesState().join).toBeNull();
+  });
+
+  it('keeps an invite’s label on this device, and sends none to the network', async () => {
+    stored.name = 'Ada';
+    const service = await load();
+    fork.mockImplementationOnce(() => {
+      lastChild = new FakeChild();
+      lastChild.reply = () => ({ ok: true, invite: { id: 'i1', code: 'code', expires: Date.now() + 1000 } });
+      return lastChild;
+    });
+    await service.createCircleInvite('c1', 1000, '  Sam ');
+    expect(stored.inviteLabels).toEqual({ i1: 'Sam' });
+    expect(service.getCirclesState().inviteLabels).toEqual({ i1: 'Sam' });
+    const sent = lastChild!.postMessage.mock.calls.map(([message]) => JSON.stringify(message));
+    expect(sent.some((message) => message.includes('"invite"'))).toBe(true);
+    expect(sent.some((message) => message.includes('Sam'))).toBe(false);
+  });
+
   it('answers pending requests when the process dies, and reports it', async () => {
     stored.name = 'Bo';
     const service = await load();
@@ -173,6 +226,15 @@ describe('circlesService', () => {
     expect(stored.circles.has('c1')).toBe(false);
     await service.stopCircles();
     expect(lastChild!.postMessage).toHaveBeenLastCalledWith({ type: 'stop' });
+  });
+
+  it('forgets a Circle it has deleted', async () => {
+    stored.name = 'Ada';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1' });
+    const service = await load();
+    expect(await service.deleteCircle('c1')).toMatchObject({ success: true });
+    expect(stored.circles.has('c1')).toBe(false);
+    await service.stopCircles();
   });
 
   it('forgets a Circle the network process says this device was removed from', async () => {
@@ -443,6 +505,63 @@ describe('circlesService', () => {
       expect((await service.setCircleSharingSettings({ models: [{ id: ' ', tools: true }], circles: [A], paused: false, away: false })).success).toBe(false);
       await service.setCircleSharingSettings({ models: [model], circles: [A, 'nope'], paused: false, away: false });
       expect(stored.sharing).toMatchObject({ circles: [A] });
+    });
+  });
+
+  describe('records', () => {
+    const KEY = 'c'.repeat(64);
+
+    it('tells the network which apps are listened to, until the last listener stops', async () => {
+      stored.name = 'Ada';
+      const service = await load();
+      await service.ensureCirclesStarted();
+      const stop = service.onCircleRecord('profile', () => undefined);
+      expect(lastChild!.postMessage).toHaveBeenCalledWith({ type: 'record-apps', apps: ['profile'] });
+      stop();
+      expect(lastChild!.postMessage).toHaveBeenLastCalledWith({ type: 'record-apps', apps: [] });
+    });
+
+    it('passes changes to the app’s listeners, past one that throws', async () => {
+      stored.name = 'Ada';
+      const service = await load();
+      await service.ensureCirclesStarted();
+      const heard = vi.fn();
+      service.onCircleRecord('profile', () => {
+        throw new Error('no');
+      });
+      service.onCircleRecord('profile', heard);
+      const other = vi.fn();
+      service.onCircleRecord('other', other);
+      const change = { app: 'profile', scope: 'member', identity: 'a', key: 'bio', value: 1, circleKey: KEY, confirmed: false, deleted: false };
+      lastChild!.emit('message', { type: 'record-changed', change });
+      expect(heard).toHaveBeenCalledWith(change);
+      expect(other).not.toHaveBeenCalled();
+    });
+
+    it('refuses an app name that isn’t one', async () => {
+      const service = await load();
+      expect(() => service.onCircleRecord('a/b', () => undefined)).toThrow();
+    });
+
+    it('sets, deletes and lists through the network', async () => {
+      stored.name = 'Ada';
+      const service = await load();
+      await service.ensureCirclesStarted();
+      const records = [{ app: 'profile' }];
+      lastChild!.reply = (request) => (request.op === 'records-list' ? { ok: true, records } : { ok: true });
+      expect((await service.setCircleRecord(KEY, 'profile', 'member', 'bio', { a: 1 })).success).toBe(true);
+      expect((await service.deleteCircleRecord(KEY, 'profile', 'member', 'bio')).success).toBe(true);
+      const listed = await service.getCircleRecords(KEY, 'profile');
+      expect(listed.success && listed.records).toEqual(records);
+    });
+
+    it('answers with the network’s refusal', async () => {
+      stored.name = 'Ada';
+      const service = await load();
+      await service.ensureCirclesStarted();
+      lastChild!.reply = () => ({ ok: false, error: 'Only admins can change this Circle’s records.' });
+      const result = await service.setCircleRecord(KEY, 'settings', 'circle', 'topic', 1);
+      expect(result).toMatchObject({ success: false, error: 'Only admins can change this Circle’s records.' });
     });
   });
 });

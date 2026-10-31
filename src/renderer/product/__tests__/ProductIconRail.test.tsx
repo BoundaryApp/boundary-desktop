@@ -1,6 +1,7 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { ProductIconRail } from '../ProductIconRail';
 import { setKanbanSnapshotForTests } from '../chat/kanbanActivity';
 
@@ -32,6 +33,39 @@ describe('ProductIconRail stack badge', () => {
     useAssistantStackStatus.mockReturnValue(null);
     rerender(<ProductIconRail active="chat" />);
     expect(screen.queryByText('Local')).toBeNull();
+  });
+});
+
+describe('ProductIconRail Circles dot', () => {
+  const KEY = 'c'.repeat(64);
+  const sharingState = {
+    status: 'running',
+    displayName: 'Ada',
+    snapshot: { identity: 'a'.repeat(64), circles: [{ key: KEY, name: 'Garden club', myRole: 'admin', members: [], invites: [], offers: [] }] },
+    providers: {},
+    sharing: { models: [{ id: 'qwen3-8b', tools: true }], circles: [KEY], paused: false, away: false },
+  };
+
+  afterEach(() => {
+    cleanup();
+    useAssistantStackStatus.mockReset();
+  });
+
+  it.each([
+    ['unreachable', true],
+    ['reachable', false],
+  ])('with a shared local server %s: dot %s', async (health, shown) => {
+    useAssistantStackStatus.mockReturnValue(null);
+    stubElectronAPI({
+      circles: { getState: vi.fn().mockResolvedValue(sharingState) },
+      onboarding: {
+        getStatus: vi.fn().mockResolvedValue({ configured: true, slots: { local: { configured: true, modelId: 'qwen3-8b', health } } }),
+      },
+    });
+    render(<ProductIconRail active="chat" />);
+    await act(async () => undefined);
+    await act(async () => undefined);
+    expect(screen.queryByRole('img', { name: 'Members can’t use your models' }) !== null).toBe(shown);
   });
 });
 

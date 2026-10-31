@@ -11,4 +11,4 @@ Two Macs, for [ADR 0036](../adr/0036-shared-model-app-default.md). The provider 
 7. Connect OpenRouter on the consumer. The default stays the shared model. Add OpenRouter as a fallback, pause sharing and send: OpenRouter answers.
 8. Quit and relaunch the consumer with sharing paused. It reaches the workbench, not a stuck start-up screen.
 9. Pick OpenRouter as the app default. The chip follows, and the shared model can be picked again.
-10. Fresh install on the consumer: at the Model step choose **Use a model from my Circle**, enter a name and an invite while an admin is online, turn on Trusted and pick the model. Setup continues and the first chat sends.
+10. Fresh install on the consumer: at the Model step choose **Use a model from my Circle**, enter a name and an invite while an admin is online, turn on Trusted and press **Use as default**. Setup continues and the first chat sends.

@@ -34,12 +34,14 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | `net.stopping` | A last health record before quitting. |
 | `dht.nat-update`, `dht.network-change`, `dht.persistent` | The DHT learned its public address, the network changed, or this node became reachable. |
 | `circle.topic-flushed` | A Circle's topic was announced; `ms` is how long that took. |
+| `circle.needs-update` | A Circle moved to a format this build can't apply, and stopped here. |
 | `circle.state` | A Circle's members, offers, invites, writability or indexer status changed. |
 | `circle.created`, `invite.created` | Created here. |
 | `invite.admit` | An admin's device answered an invitee: `added`, `re-confirmed`, `revoked`, `used`, `expired`, `bad-intro`, `unknown-invite`. |
 | `join.request`, `join.paired`, `join.writable`, `join.not-writable`, `join.refused` | The invitee's side, with time since the request. |
 | `peer.connect`, `peer.close`, `peer.error` | A connection. `peer.close` has its length, rtt, bytes and packets each way, and retransmits. |
 | `peer.replicate`, `peer.drop-removed` | Replication started with a device, or a removed device was dropped. |
+| `circle.deleted` | This device's last member deleted a Circle: how many cores were listed and purged. |
 | `removal.notice-sent`, `removal.notice-ignored`, `circle.removed-here` | An admin told a device it was removed, a device ignored a notice from someone who isn't an admin, or this device closed a Circle it was removed from. |
 | `link.attach`, `link.open`, `link.close`, `link.refused-unknown` | The inference channel to a device: who opened it, how long until both sides had it, requests made and served. |
 | `offer.published`, `offer.withdrawn`, `share.upstream` | This user's sharing. |

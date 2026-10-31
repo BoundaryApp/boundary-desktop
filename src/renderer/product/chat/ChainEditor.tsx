@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import { formatInferenceChipTitle, isVisibleChatProvider, sharedModelLabel } from '../../../shared/inferenceDisplay';
 import type { CirclesState } from '../../../shared/types/circles';
+import { openCircles } from '../circles/circlesNavigation';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboarding';
 
@@ -26,7 +27,7 @@ export interface ChainEntryView {
   offline?: boolean;
 }
 
-function entryKey(entry: InferenceChainEntry): string {
+export function entryKey(entry: InferenceChainEntry): string {
   const model = entry.modelId?.trim() ?? '';
   return entry.slot === 'peer'
     ? `peer:${entry.peer?.circleId ?? ''}:${entry.peer?.providerId ?? ''}:${model}`
@@ -161,6 +162,17 @@ export interface SharedModelChoicesProps {
   below?: (entry: InferenceChainEntry) => React.ReactNode;
 }
 
+/** A shared model that can't serve: the fix is in its provider's panel. */
+const OpenInCircles: React.FC<{ entry: InferenceChainEntry }> = ({ entry }) => (
+  <button
+    type="button"
+    className="wb-inference-btn"
+    onClick={() => openCircles({ person: entry.peer?.providerId })}
+  >
+    Open in Circles
+  </button>
+);
+
 /** Shared models as radio choices: for the app default in Settings, and for setup (ADR 0036). */
 export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
   current,
@@ -186,6 +198,9 @@ export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
               <span>{view.detail}</span>
             </span>
           </button>
+          {view.skipped && view.entry.slot === 'peer' ? (
+            <OpenInCircles entry={view.entry} />
+          ) : null}
           {below?.(view.entry)}
         </React.Fragment>
       );
@@ -240,6 +255,7 @@ export const ChainEditor: React.FC<ChainEditorProps> = ({
                 <small>{view.detail}</small>
               </span>
               <span className="wb-chain-actions">
+                {view.skipped && view.entry.slot === 'peer' ? <OpenInCircles entry={view.entry} /> : null}
                 <button
                   type="button"
                   aria-label={`Move ${view.label} up`}

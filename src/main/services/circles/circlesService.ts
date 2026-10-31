@@ -3,6 +3,7 @@ import { app, utilityProcess, type UtilityProcess } from 'electron';
 import { persistDebugLog } from '../../persistDebugLog';
 import { getSlotLlmConnection } from '../onboarding/OpenAiOnboardingStore';
 import { setAwayBlocker } from './awayMode';
+import { isRecordName, type CircleRecordScope } from './circleOps';
 import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals';
 import { diag, short } from './circlesDiagnostics';
 import { broadcast } from '../windows';
@@ -25,15 +26,20 @@ import {
   listCircleSecrets,
   loadCircleSeeds,
   saveCircleSecrets,
+  wipeOutdatedCircles,
   setCircleSharing,
   setCirclesDisplayName,
   setProviderSettings as storeProviderSettings,
+  getInviteLabels,
+  setInviteLabels,
 } from './circlesStore';
 import { NETWORK_ENTRY } from './networkEntry';
 import type {
   CircleSecrets,
   CirclesRequest,
   MainToNetwork,
+  CircleRecordChange,
+  CircleRecordEntry,
   NetworkToMain,
   SharedModelCall,
 } from './networkMessages';
@@ -71,6 +77,10 @@ const sharedCalls = new Map<number, SharedCall>();
 
 type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; payload: unknown }) => void;
 const signalHandlers = new Map<string, Set<CircleSignalHandler>>();
+type CircleRecordHandler = (change: CircleRecordChange) => void;
+const recordHandlers = new Map<string, Set<CircleRecordHandler>>();
+/** The waiting join was cancelled, so its failure isn't one to show. */
+let joinCancelled = false;
 const emptySnapshot: CirclesSnapshot = { identity: '', circles: [] };
 let state: CirclesState = {
   status: 'stopped',
@@ -78,6 +88,8 @@ let state: CirclesState = {
   snapshot: emptySnapshot,
   providers: getProviderSettings(),
   sharing: getCircleSharing(),
+  inviteLabels: getInviteLabels(),
+  join: null,
 };
 
 function setState(next: Partial<CirclesState>): void {
@@ -102,12 +114,16 @@ export function ensureCirclesStarted(): Promise<void> {
   return starting;
 }
 
+const circlesStorageDir = (): string => path.join(app.getPath('userData'), 'circles');
+
 async function start(): Promise<void> {
   if (!state.displayName) throw new Error('Choose the name other members will see first.');
   setState({ status: 'starting', error: undefined });
   let seeds: Awaited<ReturnType<typeof loadCircleSeeds>>;
   let circles: CircleSecrets[];
   try {
+    wipeOutdatedCircles(circlesStorageDir());
+    setState({ sharing: getCircleSharing() });
     seeds = await loadCircleSeeds();
     circles = await listCircleSecrets();
   } catch (error) {
@@ -129,6 +145,7 @@ async function start(): Promise<void> {
           diag('main.net-ready', { ms: Date.now() - forkedAt, identity: short(message.snapshot.identity) });
           setState({ status: 'running', snapshot: message.snapshot });
           postSignalTopics();
+          postRecordApps();
           resolve();
           syncSharing().catch((error: unknown) => {
             persistDebugLog('circles', 'sharing sync failed', { error: error instanceof Error ? error.message : String(error) });
@@ -169,6 +186,9 @@ async function start(): Promise<void> {
         case 'signal-received':
           onSignalReceived(message.signal);
           return;
+        case 'record-changed':
+          onRecordChanged(message.change);
+          return;
         case 'addons':
         case 'stopped':
           return;
@@ -187,7 +207,7 @@ async function start(): Promise<void> {
     });
     post(proc, {
       type: 'circles-start',
-      storageDir: path.join(app.getPath('userData'), 'circles'),
+      storageDir: circlesStorageDir(),
       identitySeed: seeds.identitySeed,
       deviceSeed: seeds.deviceSeed,
       name: state.displayName,
@@ -504,6 +524,69 @@ function sharingSummary(): Record<string, unknown> {
   return { models: models.map((model) => model.id), circles: circles.map(short), paused, away };
 }
 
+function postRecordApps(): void {
+  if (child && state.status === 'running') post(child, { type: 'record-apps', apps: [...recordHandlers.keys()] });
+}
+
+function onRecordChanged(change: CircleRecordChange): void {
+  for (const handler of recordHandlers.get(change.app) ?? []) {
+    try {
+      handler(change);
+    } catch (error) {
+      // The app only: an error from a handler can quote the value.
+      persistDebugLog('circles', 'record handler failed', { app: change.app });
+      diag('main.record-handler-failed', { app: change.app, error: error instanceof Error ? error.name : typeof error });
+    }
+  }
+}
+
+/**
+ * Listen to one app's records in every Circle: changes, deletions and confirmations, and every
+ * record of a Circle as it opens. A value is untrusted, as `apply` checks only its size. Returns a
+ * function that stops listening.
+ */
+export function onCircleRecord(app: string, handler: CircleRecordHandler): () => void {
+  if (!isRecordName(app)) throw new Error('That isn’t a record name.');
+  const handlers = recordHandlers.get(app) ?? new Set<CircleRecordHandler>();
+  recordHandlers.set(app, handlers);
+  handlers.add(handler);
+  postRecordApps();
+  return () => {
+    handlers.delete(handler);
+    if (handlers.size > 0 || recordHandlers.get(app) !== handlers) return;
+    recordHandlers.delete(app);
+    postRecordApps();
+  };
+}
+
+/**
+ * Keep a value in a Circle for every member. `scope: 'circle'` is one value that only admins
+ * write; `scope: 'member'` is this user's own value. Values are JSON, up to 16 KB.
+ */
+export function setCircleRecord(
+  circleKey: string,
+  app: string,
+  scope: CircleRecordScope,
+  record: string,
+  value: unknown
+): Promise<CirclesResult> {
+  return run({ op: 'record-set', key: circleKey, app, scope, record, value });
+}
+
+export function deleteCircleRecord(
+  circleKey: string,
+  app: string,
+  scope: CircleRecordScope,
+  record: string
+): Promise<CirclesResult> {
+  return run({ op: 'record-del', key: circleKey, app, scope, record });
+}
+
+/** One app's records in a Circle as this device has them now. */
+export function getCircleRecords(circleKey: string, app: string): Promise<CirclesResult<{ records: CircleRecordEntry[] }>> {
+  return run({ op: 'records-list', key: circleKey, app }, (reply) => ({ records: reply.records ?? [] }));
+}
+
 function fail(error: unknown): CirclesResult<never> {
   return { success: false, error: error instanceof Error ? error.message : String(error), state };
 }
@@ -542,18 +625,49 @@ export function createCircle(name: string): Promise<CirclesResult<{ key: string 
   });
 }
 
-export function joinCircle(code: string): Promise<CirclesResult<{ key: string }>> {
-  return run({ op: 'join', code }, async (reply) => {
+/** Main holds a join's state, so it outlives the screen that started it. */
+export async function joinCircle(code: string): Promise<CirclesResult<{ key: string }>> {
+  if (state.join?.waiting) return fail(new Error('A join is already waiting for an admin.'));
+  joinCancelled = false;
+  setState({ join: { waiting: true } });
+  const result = await run({ op: 'join', code }, async (reply) => {
     await saveCircleSecrets(reply.secrets!);
     return { key: reply.secrets!.key! };
   });
+  setState({ join: result.success === false && !joinCancelled ? { waiting: false, error: result.error } : null });
+  return { ...result, state };
 }
 
-export function createCircleInvite(
+/** Stops a join that's waiting, or clears one that failed. */
+export async function cancelJoin(): Promise<CirclesResult> {
+  const waiting = state.join?.waiting === true;
+  joinCancelled = waiting;
+  setState({ join: null });
+  return waiting ? run({ op: 'join-cancel' }) : { success: true, state };
+}
+
+export async function createCircleInvite(
   key: string,
-  expiresInMs = DEFAULT_INVITE_MS
+  expiresInMs = DEFAULT_INVITE_MS,
+  label = ''
 ): Promise<CirclesResult<{ invite: { id: string; code: string; expires: number } }>> {
-  return run({ op: 'invite', key, expiresAt: Date.now() + expiresInMs }, (reply) => ({ invite: reply.invite! }));
+  const result = await run({ op: 'invite', key, expiresAt: Date.now() + expiresInMs }, (reply) => ({
+    invite: reply.invite!,
+  }));
+  const name = label.trim().slice(0, 80);
+  if (result.success === false || !name) return result;
+  // Labels of invites that are over go, so the list doesn't grow.
+  const now = Date.now();
+  const open = new Set(
+    state.snapshot.circles.flatMap((circle) =>
+      circle.invites.filter((invite) => !invite.used && !invite.revoked && invite.expires > now).map((invite) => invite.id)
+    )
+  );
+  const kept = Object.entries(state.inviteLabels ?? {}).filter(([id]) => open.has(id));
+  const inviteLabels = { ...Object.fromEntries(kept), [result.invite.id]: name };
+  setInviteLabels(inviteLabels);
+  setState({ inviteLabels });
+  return { ...result, state };
 }
 
 export function revokeCircleInvite(key: string, inviteId: string): Promise<CirclesResult> {
@@ -570,6 +684,13 @@ export function removeCircleMember(key: string, identity: string): Promise<Circl
 
 export function leaveCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'leave', key }, (): object => {
+    forgetCircle(key);
+    return {};
+  });
+}
+
+export function deleteCircle(key: string): Promise<CirclesResult> {
+  return run({ op: 'delete', key }, (): object => {
     forgetCircle(key);
     return {};
   });
