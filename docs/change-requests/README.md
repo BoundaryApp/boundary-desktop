@@ -41,3 +41,4 @@ The stack developer updates **Status** in the table below and replies inline und
 | [0016](0016-bash-3-2-setup.md) | `setup.sh` fails on macOS's bash 3.2 when `HERMES_BUZZ_PROFILES` is empty | First-run setup and upgrades | R1–R2 done (v0.3.7) |
 | [0017](0017-stack-releases.md) | Stack releases Boundary can install unattended | [updates plan](../updates-plan.md) | Open |
 | [0018](0018-workload-scheduling.md) | Workload scheduling: pausing coding tasks | [workload scheduling plan](../workload-scheduling-plan.md) | Open |
+| [0019](0019-faster-stack-start.md) | Faster stack start on every launch | App launch time | Open |

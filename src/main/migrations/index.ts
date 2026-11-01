@@ -2,6 +2,7 @@ import { isAssistantStackSetupComplete, repairStoredAssistantPorts } from '../se
 import { listStoredHermesProjects } from '../services/assistant/hermes/hermesProjectStore';
 import { recordSetupHistoryOnce } from '../services/setup/SetupProgressStore';
 import { repairApiServerListenPort } from './assistantStack';
+import { dropWipedCircleReferences } from './circleReferences';
 import {
   claimLegacyStoreForActiveStack,
   dropBuiltinStandingDmInEveryStore,
@@ -57,6 +58,13 @@ const MIGRATIONS: readonly Migration[] = [
         setupComplete: isAssistantStackSetupComplete(),
         hasProjects: listStoredHermesProjects().length > 0,
       }),
+  },
+  {
+    // Once only, not a check at each start: a Circle the user leaves later keeps its model
+    // selected (ADR 0036 §5), so this never returns false to run again.
+    id: 'circles-drop-wiped-references',
+    removeAfter: NEXT_MINOR,
+    run: () => dropWipedCircleReferences(),
   },
 ];
 

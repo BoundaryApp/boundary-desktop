@@ -3,6 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedServiceProgress } from '../../../../shared/assistantStackLifecycle';
+import { expectedOffsets, type StartTiming } from '../../../../shared/startupTiming';
 import { STARTUP_TOOLS } from '../startupModel';
 import { STORY_CARD_MS, STORY_DELAY_MS, StartupScreen } from '../StartupScreen';
 
@@ -41,24 +42,128 @@ describe('StartupScreen', () => {
     expect(screen.getByRole('heading', { name: STARTUP_TOOLS[4].title })).toBeTruthy();
   });
 
+  const startTiming = (overrides: Partial<StartTiming> = {}): StartTiming => ({
+    startedAt: Date.now(),
+    kind: 'relaunch',
+    expected: expectedOffsets('relaunch', []),
+    expectedServices: {},
+    reached: {},
+    fromHistory: true,
+    ...overrides,
+  });
+
+  const outline = (container: HTMLElement, label: string) =>
+    container
+      .querySelector(`[aria-label^="${label}:"] .su-tile-fill path`)
+      ?.getAttribute('style');
+
+  it('fills each tile outline toward when that tool is expected up', () => {
+    const timing = startTiming({
+      startedAt: Date.now() - 50_000,
+      expectedServices: { 'boundary-n8n': 100_000, 'boundary-searxng': 200_000 },
+    });
+    const { container } = render(
+      <StartupScreen variant="launch" stage="compose" services={services} startTiming={timing} />
+    );
+    expect(outline(container, 'Automations')).toContain('stroke-dasharray: 50 100');
+    expect(outline(container, 'Search')).toContain('stroke-dasharray: 25 100');
+  });
+
+  it('never moves a tile outline backwards', () => {
+    const timing = startTiming({ startedAt: Date.now() - 50_000 });
+    const props = { variant: 'launch', stage: 'compose', services } as const;
+    const { container, rerender } = render(
+      <StartupScreen
+        {...props}
+        startTiming={{ ...timing, expectedServices: { 'boundary-n8n': 100_000 } }}
+      />
+    );
+    rerender(
+      <StartupScreen
+        {...props}
+        startTiming={{ ...timing, expectedServices: { 'boundary-n8n': 900_000 } }}
+      />
+    );
+    expect(outline(container, 'Automations')).toContain('stroke-dasharray: 50 100');
+  });
+
+  it('keeps the travelling arc when there is no start timing', () => {
+    const { container } = render(
+      <StartupScreen variant="launch" stage="compose" services={services} />
+    );
+    expect(container.querySelector('.su-tile-fill')).toBeNull();
+    expect(container.querySelector('[data-filled]')).toBeNull();
+  });
+
   it('never moves the bar backwards', () => {
+    const ahead = startTiming({ reached: { apiBootstrapDone: 1_000 } });
     const { rerender } = render(
-      <StartupScreen variant="launch" stage="compose" services={seedServiceProgress('working', '', 0.8)} />
+      <StartupScreen variant="launch" stage="compose" services={services} startTiming={ahead} />
     );
     const bar = screen.getByRole('progressbar');
     const before = Number(bar.getAttribute('aria-valuenow'));
-    rerender(<StartupScreen variant="launch" stage="compose" services={services} />);
+    rerender(
+      <StartupScreen variant="launch" stage="compose" services={services} startTiming={startTiming()} />
+    );
     expect(Number(bar.getAttribute('aria-valuenow'))).toBe(before);
   });
 
   it('starts the bar again after Try again', () => {
-    const high = seedServiceProgress('working', '', 0.8);
-    const low = seedServiceProgress('working', '', 0.1);
-    const { rerender } = render(<StartupScreen variant="launch" stage="compose" services={high} />);
+    const ahead = startTiming({ reached: { apiBootstrapDone: 1_000 } });
+    const { rerender } = render(
+      <StartupScreen variant="launch" stage="compose" services={services} startTiming={ahead} />
+    );
     const peak = Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'));
-    rerender(<StartupScreen variant="launch" stage="error" services={high} error="compose failed" onRetry={() => undefined} />);
-    rerender(<StartupScreen variant="launch" stage="provision" services={low} />);
+    rerender(<StartupScreen variant="launch" stage="error" services={services} error="compose failed" onRetry={() => undefined} />);
+    rerender(
+      <StartupScreen variant="launch" stage="provision" services={services} startTiming={startTiming()} />
+    );
     expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(peak);
+  });
+
+  it('moves the bar with time while the containers report nothing new', () => {
+    const running = startTiming({ reached: { prepared: 0, toolsStarting: 0 } });
+    render(<StartupScreen variant="launch" stage="compose" services={services} startTiming={running} />);
+    const bar = screen.getByRole('progressbar');
+    const before = Number(bar.getAttribute('aria-valuenow'));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(Number(bar.getAttribute('aria-valuenow'))).toBeGreaterThan(before + 10);
+  });
+
+  it('gives a loose estimate from earlier starts, and only steps it down', () => {
+    const { rerender } = render(
+      <StartupScreen variant="launch" stage="compose" services={services} startTiming={startTiming()} />
+    );
+    expect(screen.getByText('About 4 minutes left')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText('A couple of minutes left')).toBeTruthy();
+    // A later milestone that puts the run behind doesn't raise the figure.
+    const started = Date.now() - 60_000;
+    rerender(
+      <StartupScreen
+        variant="launch"
+        stage="compose"
+        services={services}
+        startTiming={startTiming({ startedAt: started, reached: { prepared: 30_000 } })}
+      />
+    );
+    expect(screen.getByText('A couple of minutes left')).toBeTruthy();
+  });
+
+  it('says it is unsure on a kind of start this Mac has not finished', () => {
+    render(
+      <StartupScreen
+        variant="launch"
+        stage="compose"
+        services={services}
+        startTiming={startTiming({ fromHistory: false })}
+      />
+    );
+    expect(screen.getByText('This usually takes a few minutes')).toBeTruthy();
   });
 
   it('shows each service card at the progress main reports for this start', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { localDay } from '../../../../shared/circleUsage';
 import type { CircleOffer } from '../circleOps';
 import {
   GATEWAY_CHUNK_BYTES,
@@ -295,5 +296,148 @@ describe('InferenceGateway', () => {
     expect(events[6][1]).toMatchObject({ status: 403, reason: 'not-member' });
     expect(JSON.stringify(events)).not.toContain('secret prompt');
     expect(JSON.stringify(events)).not.toContain('data: one');
+  });
+});
+
+describe('metering', () => {
+  const chat = (id: number): GatewayRequest => ({
+    id,
+    circle: CIRCLE,
+    method: 'POST',
+    path: '/v1/chat/completions',
+    body: JSON.stringify({ model: 'qwen3-8b', messages: [] }),
+  });
+  const reply = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'application/json' } });
+  const deps = (fetchImpl: typeof fetch, extra: Partial<InferenceGatewayDeps> = {}): InferenceGatewayDeps => ({
+    offerFor: () => offer,
+    memberFor: () => MEMBER,
+    upstream: () => ({ baseUrl: 'http://127.0.0.1:1234/v1' }),
+    fetchImpl,
+    ...extra,
+  });
+  const today = () => localDay(new Date());
+
+  it('counts requests and tokens per member, from JSON and from a stream', async () => {
+    const onUsage = vi.fn();
+    const stream = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}\n\ndata: [DONE]\n\n';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(reply('{"choices":[],"usage":{"total_tokens":30}}'))
+      .mockResolvedValueOnce(reply(stream));
+    const gateway = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch, { onUsage }));
+    const first = sink();
+    gateway.handle(DEVICE, chat(1), first);
+    await first.done;
+    const second = sink();
+    gateway.handle(DEVICE, chat(2), second);
+    await second.done;
+    await flush();
+    expect(onUsage.mock.lastCall?.[0]).toEqual({ day: today(), counts: { [MEMBER]: { requests: 2, tokens: 42 } } });
+    expect(onUsage.mock.lastCall?.[1]).toEqual({ running: null, queued: [] });
+  });
+
+  it('doesn’t take a reply’s words for its usage', async () => {
+    const onUsage = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue(reply(JSON.stringify({ choices: [{ message: { content: '"total_tokens": 99' } }] })));
+    const gateway = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch, { onUsage }));
+    const out = sink();
+    gateway.handle(DEVICE, chat(1), out);
+    await out.done;
+    await flush();
+    expect(onUsage.mock.lastCall?.[0].counts[MEMBER]).toEqual({ requests: 1, tokens: 0 });
+  });
+
+  it('keeps today’s counts from main and ignores yesterday’s', () => {
+    const gateway = new InferenceGateway(
+      deps(vi.fn() as unknown as typeof fetch, { usage: { day: today(), counts: { [MEMBER]: { requests: 3, tokens: 0 } } } })
+    );
+    gateway.setLimits({ everyone: { requestsPerDay: 3 }, members: {} });
+    const over = sink();
+    gateway.handle(DEVICE, chat(1), over);
+    expect(over.status).toBe(429);
+
+    const fresh = new InferenceGateway(
+      deps(vi.fn().mockReturnValue(new Promise(() => undefined)) as unknown as typeof fetch, {
+        usage: { day: '2000-01-01', counts: { [MEMBER]: { requests: 3, tokens: 0 } } },
+      })
+    );
+    fresh.setLimits({ everyone: { requestsPerDay: 3 }, members: {} });
+    const allowed = sink();
+    fresh.handle(DEVICE, chat(1), allowed);
+    expect(allowed.status).toBe(0);
+    fresh.close();
+  });
+
+  it('answers 429 before any reply once a daily limit is used, without calling the server', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => reply('{"usage":{"total_tokens":100}}'));
+    const gateway = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch));
+    gateway.setLimits({ everyone: { tokensPerDay: 100 }, members: {} });
+    const first = sink();
+    gateway.handle(DEVICE, chat(1), first);
+    await first.done;
+    await flush();
+    const second = sink();
+    gateway.handle(DEVICE, chat(2), second);
+    expect(second.status).toBe(429);
+    expect(second.text()).toContain('today’s tokens');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts queued requests against the daily limit and the limit on requests at once', () => {
+    const fetchImpl = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const daily = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch));
+    daily.setLimits({ everyone: { requestsPerDay: 2 }, members: {} });
+    daily.handle(DEVICE, chat(1), sink());
+    daily.handle(DEVICE, chat(2), sink());
+    const dailyOver = sink();
+    daily.handle(DEVICE, chat(3), dailyOver);
+    expect(dailyOver.status).toBe(429);
+    daily.close();
+
+    const atOnce = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch));
+    atOnce.setLimits({ everyone: { concurrent: 1 }, members: {} });
+    atOnce.handle(DEVICE, chat(1), sink());
+    const concurrentOver = sink();
+    atOnce.handle(DEVICE, chat(2), concurrentOver);
+    expect(concurrentOver.status).toBe(429);
+    atOnce.close();
+  });
+
+  it('lets a member’s own limit replace the limit for everyone', () => {
+    const fetchImpl = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const gateway = new InferenceGateway(deps(fetchImpl as unknown as typeof fetch));
+    gateway.setLimits({ everyone: { requestsPerDay: 1 }, members: { [MEMBER]: {} } });
+    gateway.handle(DEVICE, chat(1), sink());
+    const second = sink();
+    gateway.handle(DEVICE, chat(2), second);
+    expect(second.status).toBe(0);
+    gateway.close();
+  });
+
+  it('gives a request back when the server refuses it or it never started', async () => {
+    const onUsage = vi.fn();
+    const held = heldFetch();
+    const gateway = new InferenceGateway(deps(held.fetchImpl, { onUsage }));
+    const refused = sink();
+    gateway.handle(DEVICE, chat(1), refused);
+    const queued = sink();
+    gateway.handle(DEVICE, chat(2), queued);
+    gateway.cancel(DEVICE, 2);
+    expect(onUsage.mock.lastCall?.[0].counts[MEMBER].requests).toBe(1);
+    await flush();
+    held.calls[0].release(reply('{}', 500));
+    await refused.done;
+    await flush();
+    expect(onUsage.mock.lastCall?.[0].counts[MEMBER].requests).toBe(0);
+  });
+
+  it('reports who is running and who is waiting', () => {
+    const onUsage = vi.fn();
+    const held = heldFetch();
+    const gateway = new InferenceGateway(deps(held.fetchImpl, { onUsage }));
+    gateway.handle(DEVICE, chat(1), sink());
+    gateway.handle(DEVICE, chat(2), sink());
+    expect(onUsage.mock.lastCall?.[1]).toEqual({ running: MEMBER, queued: [MEMBER] });
+    gateway.close();
   });
 });

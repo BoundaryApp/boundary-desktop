@@ -25,6 +25,11 @@ function deps(overrides: Partial<HostToolDeps> & { outcome?: ApprovalOutcome; gr
     writeFile: vi.fn(async () => undefined),
     now: () => NOW,
     calendarConnected: vi.fn(() => false),
+    agentApp: {
+      check: vi.fn(async () => ({ ok: true as const })),
+      status: vi.fn(async () => ({ version: '1.2.3', screen: { view: 'chat', sheet: null } })),
+      problems: vi.fn(() => [{ ts: 't', area: 'startup', message: 'load failed' }]),
+    },
     audit: vi.fn(),
     ...rest,
   };
@@ -253,5 +258,66 @@ describe('offer_setup', () => {
       const result = await executeHostTool('offer_setup', args, deps());
       expect(result.isError).toBe(true);
     }
+  });
+});
+
+describe('get_app_status', () => {
+  it('returns the status with no approval, and audits the read', async () => {
+    const d = deps();
+    const result = await executeHostTool('get_app_status', {}, d);
+    expect(JSON.parse(textOf(result))).toEqual({ version: '1.2.3', screen: { view: 'chat', sheet: null } });
+    expect(d.requestApproval).not.toHaveBeenCalled();
+    expect(d.audit).toHaveBeenCalledWith({ tool: 'get_app_status', decision: 'allowed', args: {}, outcome: 'read' });
+  });
+
+  it('refuses with the reason and reads nothing when the check fails', async () => {
+    const d = deps();
+    vi.mocked(d.agentApp.check).mockResolvedValue({ ok: false, reason: 'Refused because gpt is a cloud model.' });
+    const result = await executeHostTool('get_app_status', {}, d);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe('Refused because gpt is a cloud model.');
+    expect(d.agentApp.status).not.toHaveBeenCalled();
+    expect(d.audit).toHaveBeenCalledWith({
+      tool: 'get_app_status',
+      decision: 'denied',
+      args: {},
+      outcome: 'Refused because gpt is a cloud model.',
+    });
+  });
+
+  it('turns down arguments', async () => {
+    const d = deps();
+    expect((await executeHostTool('get_app_status', { path: '/etc' }, d)).isError).toBe(true);
+    expect(d.agentApp.check).not.toHaveBeenCalled();
+  });
+});
+
+describe('get_recent_problems', () => {
+  it('asks first, then returns the problems', async () => {
+    const d = deps();
+    const result = await executeHostTool('get_recent_problems', {}, d);
+    expect(d.requestApproval).toHaveBeenCalledWith(expect.objectContaining({ capability: 'app_diagnostics' }));
+    expect(JSON.parse(textOf(result))).toEqual([{ ts: 't', area: 'startup', message: 'load failed' }]);
+  });
+
+  it('skips the question once always allowed', async () => {
+    const d = deps({ grants: ['app_diagnostics:*'] });
+    await executeHostTool('get_recent_problems', {}, d);
+    expect(d.requestApproval).not.toHaveBeenCalled();
+    expect(d.agentApp.problems).toHaveBeenCalled();
+  });
+
+  it('reads nothing when the user declines', async () => {
+    const d = deps({ outcome: 'deny' });
+    expect((await executeHostTool('get_recent_problems', {}, d)).isError).toBe(true);
+    expect(d.agentApp.problems).not.toHaveBeenCalled();
+  });
+
+  it('never asks the user when the check fails', async () => {
+    const d = deps();
+    vi.mocked(d.agentApp.check).mockResolvedValue({ ok: false, reason: 'No model route is applied.' });
+    await executeHostTool('get_recent_problems', {}, d);
+    expect(d.requestApproval).not.toHaveBeenCalled();
+    expect(d.agentApp.problems).not.toHaveBeenCalled();
   });
 });

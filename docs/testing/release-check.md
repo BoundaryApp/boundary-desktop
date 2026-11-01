@@ -28,8 +28,10 @@ Hermes stores a chat on its first accepted message, so Boundary keeps a chat who
 3. Quit Boundary and open it again. Both chats are still listed and open the same way, with Retry on the error line.
 4. Start the stack again. In "Failed chat one", click **Retry**. The reply comes in the same chat, the rail shows no extra chat, and the error stays above the reply after reopening the chat.
 5. In "Failed chat two", open the title menu and click **Delete chat…**, then confirm. It leaves the rail and doesn't return after a relaunch.
+6. With the stack running and the default model unable to serve, press ⌘N and send "Refused chat". The send is refused, and the rail has one highlighted row titled with the message.
+7. Fix the model, then click **Retry** without leaving the chat. The reply comes in place with no **Loading chat…**, and the rail still has that one highlighted row, with no **New chat** row beside it. It stays one row after a relaunch.
 
-Fails if: a failed chat leaves the rail, a Retry starts a separate chat, or the error is gone after a reopen.
+Fails if: a failed chat leaves the rail, a Retry starts a separate chat or leaves a **New chat** row, or the error is gone after a reopen.
 
 ## 2. A channel hand-off
 

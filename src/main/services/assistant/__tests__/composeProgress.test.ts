@@ -95,8 +95,8 @@ describe('compose ps polling during a streamed run', () => {
     const result = await stopAssistantStack();
     expect(result.success).toBe(false);
     expect(result.error).toContain('already in progress');
-    // Only the streamed run: no plain `compose down` retry.
-    expect(runCompose.mock.calls.filter(([, args]) => (args as string[]).includes('down'))).toHaveLength(0);
+    // Only the streamed run: no plain `compose stop` retry.
+    expect(runCompose.mock.calls.filter(([, args]) => (args as string[]).includes('stop'))).toHaveLength(0);
   });
 
   it('leaves no poll running after the run ends', async () => {

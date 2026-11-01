@@ -269,6 +269,17 @@ describe('a shared model over a local DHT', () => {
     }
   });
 
+  it('answers a member over a limit with 429 before reaching the server, and keeps counts out of the Circle', async () => {
+    const before = server.seen.length;
+    ada.net.setShareUpstream({ baseUrl: server.url, apiKey: 'lm-key' }, { everyone: { requestsPerDay: 1 }, members: {} });
+    const response = await bo.net.requestSharedModel(key, adaIdentity, chat());
+    expect(response.status).toBe(429);
+    expect(await readAll(response.body)).toContain('today’s requests');
+    expect(server.seen.length).toBe(before);
+    ada.net.setShareUpstream({ baseUrl: server.url, apiKey: 'lm-key' });
+    expect(JSON.stringify(bo.net.snapshot())).not.toMatch(/requestsPerDay|tokens"/);
+  });
+
   it('answers 503 once the offer is withdrawn', async () => {
     await ada.net.withdrawOffer(key);
     await bo.until(() => !offerOf(bo));

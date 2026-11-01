@@ -9,6 +9,7 @@ import {
   applyLlmConnectionToHermes,
   isAssistantStackReady,
 } from '../assistant/AssistantStackService';
+import { agentAppSource, noteAppScreen } from './agentAppSource';
 import { listPendingHostBridgeApprovals, respondToHostBridgeApproval } from './approvals';
 import {
   getBoundaryBrowserState,
@@ -17,6 +18,7 @@ import {
   openBoundaryBrowser,
   resumeHostBridgeAgent,
   rotateHostBridgeAgentTokens,
+  setAgentAppSource,
   stopHostBridgeAgent,
   type ProvisionHermes,
   updateBoundaryBrowserSettings,
@@ -31,6 +33,10 @@ const provisionHermes: ProvisionHermes = async () =>
   (await isAssistantStackReady()) ? applyLlmConnectionToHermes() : { success: true };
 
 export function registerHostBridgeHandlers(): void {
+  setAgentAppSource(agentAppSource);
+
+  handle('host-bridge:report-screen', async (_event, next) => noteAppScreen(next));
+
   handleResult('host-bridge:approval-respond', async (_event, payload: HostBridgeApprovalRespondPayload) => {
     const ok = respondToHostBridgeApproval(payload.id, payload.choice);
     return ok ? { success: true } : { success: false, error: 'That approval is no longer pending.' };

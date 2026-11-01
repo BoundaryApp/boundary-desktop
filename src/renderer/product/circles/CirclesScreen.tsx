@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type {
   CircleMemberView,
   CircleOfferView,
@@ -6,14 +6,14 @@ import type {
   CirclesState,
 } from '../../../shared/types/circles';
 import { Callout } from '../../components/ui/alert';
-import { Pill } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
+import { Avatar, CircleButton, CirclePill, TextButton } from './CircleControls';
 import { CircleSharingPanel, MyShareRow, useCanShare } from './CircleSharingPanel';
 import { CircleOffers } from './CircleOffers';
 import { CirclesNav, resolveSelection, type CirclesSelection } from './CirclesNav';
-import { InviteSheet, inviteName, openInvites } from './InviteSheet';
+import { InviteSheet, inviteName, openInvites, useInviteHints } from './InviteSheet';
 import { PersonPanel } from './PersonPanel';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
@@ -61,7 +61,7 @@ export function JoinForm({ onJoin }: { onJoin?: (code: string) => void }) {
   return (
     <form
       aria-label="Join a Circle"
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
+      className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface-1 p-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (onJoin) {
@@ -73,13 +73,16 @@ export function JoinForm({ onJoin }: { onJoin?: (code: string) => void }) {
         });
       }}
     >
-      <span className="font-medium text-fg">Join with an invite</span>
-      <Input aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
-      <Button type="submit" variant="outline" disabled={join.busy || !code.trim()}>
-        {join.busy ? 'Waiting for an admin…' : 'Join'}
-      </Button>
+      <span className="text-title font-medium text-fg">Join with an invite</span>
+      <span className="text-xs text-fg-faint">Paste the code someone sent you.</span>
+      <Input className="h-[34px] bg-surface-0" aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
+      <CircleButton type="submit" variant="outline" disabled={join.busy || !code.trim()}>
+        {join.busy ? 'Joining…' : 'Join'}
+      </CircleButton>
       {join.busy ? (
-        <p className="text-xs text-fg-faint">An admin of the Circle has to be online to let you in. Keep {APP_NAME} open.</p>
+        <p className="text-xs text-fg-faint">
+          This finishes on its own once one of the Circle&apos;s admins has {APP_NAME} open. Keep {APP_NAME} open.
+        </p>
       ) : null}
       {join.error ? <p className="text-xs text-danger">{join.error}</p> : null}
     </form>
@@ -101,7 +104,7 @@ function StartForms({
     <div className={`grid gap-4${stacked ? '' : ' md:grid-cols-2'}`}>
       <form
         aria-label="Start a Circle"
-        className="flex flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4"
+        className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface-1 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void create.run(() => api().create({ name })).then((result) => {
@@ -112,11 +115,12 @@ function StartForms({
           });
         }}
       >
-        <span className="font-medium text-fg">Start a Circle</span>
-        <Input aria-label="Circle name" placeholder="Name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
-        <Button type="submit" variant="outline" disabled={create.busy || !name.trim()}>
+        <span className="text-title font-medium text-fg">Start a Circle</span>
+        <span className="text-xs text-fg-faint">You&apos;ll be its admin and can invite people.</span>
+        <Input className="h-[34px] bg-surface-0" aria-label="Circle name" placeholder="Circle name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+        <CircleButton type="submit" variant="default" disabled={create.busy || !name.trim()}>
           {create.busy ? 'Creating…' : 'Create'}
-        </Button>
+        </CircleButton>
         {create.error ? <p className="text-xs text-danger">{create.error}</p> : null}
       </form>
       <JoinForm onJoin={onJoin} />
@@ -134,10 +138,10 @@ function Welcome({
   onJoin: (code: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="mx-auto mt-16 flex w-full max-w-[680px] flex-col gap-6">
       <header>
         <h1 className="text-heading font-medium text-fg">Share a model with people you know</h1>
-        <p className="mt-1.5 text-ui text-fg-muted">
+        <p className="mt-2 text-ui text-fg-muted">
           A Circle is a small invite-only group. Members&apos; Macs connect to each other directly, with no server in
           between, while {APP_NAME} is open.
         </p>
@@ -147,22 +151,25 @@ function Welcome({
   );
 }
 
-function JoinPage({ error }: { error?: string }) {
+/** `admitted` is the moment before the Circle reaches the list, when there's nothing to cancel. */
+function JoinPage({ error, admitted }: { error?: string; admitted: boolean }) {
   const cancel = useAction();
   return (
-    <div className="flex flex-col gap-3">
-      <h1 className="text-heading font-medium text-fg">{error ? 'Couldn’t join' : 'Waiting for an admin'}</h1>
+    <div className="mx-auto mt-[120px] flex w-full max-w-[460px] flex-col items-center gap-2.5 text-center">
+      <h1 className="text-heading font-medium text-fg">{error ? 'Couldn’t join' : 'Joining the Circle'}</h1>
       {error ? (
         <Callout variant="destructive">{error}</Callout>
       ) : (
         <p className="text-ui text-fg-muted">
-          An admin of this Circle has to be online to let you in. Keep {APP_NAME} open and you&apos;ll join as soon as
-          one is.
+          This finishes on its own once one of the Circle&apos;s admins has {APP_NAME} open. They don&apos;t need to do
+          anything. Keep {APP_NAME} open.
         </p>
       )}
-      <Button variant="outline" className="self-start" disabled={cancel.busy} onClick={() => void cancel.run(() => api().cancelJoin())}>
-        {error ? 'Dismiss' : 'Cancel'}
-      </Button>
+      {admitted ? null : (
+        <CircleButton variant="outline" className="mt-2" disabled={cancel.busy} onClick={() => void cancel.run(() => api().cancelJoin())}>
+          {error ? 'Dismiss' : 'Cancel'}
+        </CircleButton>
+      )}
       {cancel.error ? <p className="text-xs text-danger">{cancel.error}</p> : null}
     </div>
   );
@@ -255,29 +262,29 @@ function PersonRow({
   const models = offer?.models.map((model) => model.id).join(', ');
   const body = (
     <>
-      <span className={`size-2 shrink-0 rounded-full ${dot}`} role="img" aria-label={label} />
+      <Avatar name={member.name} dot={dot} label={label} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-ui text-fg">{member.name}</span>
           {member.isMe ? <span className="text-xs text-fg-faint">you</span> : null}
-          {member.role === 'admin' ? <Pill variant="outline">Admin</Pill> : null}
-          {offer?.away ? <Pill variant="outline">Away mode</Pill> : null}
+          {member.role === 'admin' ? <CirclePill tone="tag">Admin</CirclePill> : null}
+          {offer?.away ? <CirclePill tone="tag">Away mode</CirclePill> : null}
         </span>
-        {models ? <span className="text-xs break-words text-fg-muted">{models}</span> : null}
+        <span className="text-xs break-words text-fg-faint">{models ? (member.online ? models : `${models} · offline`) : label}</span>
       </span>
-      {offer ? <Pill variant={trusted ? 'ok' : 'warn'}>{trusted ? 'Trusted' : 'Not trusted'}</Pill> : null}
+      {offer ? <CirclePill tone={trusted ? 'ok' : 'warn'}>{trusted ? 'Trusted' : 'Not trusted'}</CirclePill> : null}
     </>
   );
   return (
     <li>
       {member.isMe ? (
-        <div className="flex min-h-[58px] items-center gap-3 px-2">{body}</div>
+        <div className="flex min-h-[58px] items-center gap-3 px-2.5">{body}</div>
       ) : (
         <button
           type="button"
           aria-expanded={open}
           onClick={onOpen}
-          className={`flex min-h-[58px] w-full items-center gap-3 rounded-md px-2 text-left hover:bg-surface-hover${open ? ' bg-surface-hover' : ''}`}
+          className={`flex min-h-[58px] w-full cursor-pointer items-center gap-3 px-2.5 text-left hover:bg-surface-hover${open ? ' bg-surface-1' : ''}`}
         >
           {body}
         </button>
@@ -289,6 +296,7 @@ function PersonRow({
 function CirclePage({
   circle,
   circles,
+  hints,
   person,
   onPerson,
   onLeave,
@@ -296,6 +304,7 @@ function CirclePage({
 }: {
   circle: CircleSnapshot;
   circles: CirclesState;
+  hints: Record<string, string>;
   person: string | null;
   onPerson: (identity: string) => void;
   /** Leaving, or deleting when the user is the last member. */
@@ -309,25 +318,25 @@ function CirclePage({
   const alone = circle.members.length === 1 && Boolean(me);
   const invites = circle.myRole === 'admin' ? openInvites(circle) : [];
   return (
-    <section aria-label={circle.name || 'Circle'} className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-heading font-medium text-fg">{circle.name || 'Joining…'}</h1>
-        {circle.myRole === 'admin' ? <Pill variant="brand">Admin</Pill> : null}
-        <span className="text-xs text-fg-faint">
-          {circle.members.length} {circle.members.length === 1 ? 'member' : 'members'} · {online} online
+    <section aria-label={circle.name || 'Circle'} className="flex flex-col gap-5">
+      <header className="flex items-start gap-3">
+        <span className="min-w-0 flex-1">
+          <h1 className="text-heading leading-[1.2] font-medium text-fg">{circle.name || 'Joining…'}</h1>
+          <p className="mt-1.5 text-xs text-fg-faint">
+            {circle.members.length} {circle.members.length === 1 ? 'member' : 'members'} · {online} online · invites work while
+            an admin is online
+          </p>
         </span>
-        <span className="ml-auto flex gap-1.5">
-          {circle.myRole === 'admin' ? (
-            <Button size="sm" variant="outline" onClick={onInvite}>
-              Invite someone
-            </Button>
-          ) : null}
-          <Button size="sm" variant="ghost" onClick={() => onLeave(alone)}>
-            {alone ? 'Delete Circle' : 'Leave'}
-          </Button>
-        </span>
-      </div>
-      <ul aria-label="People" className="flex flex-col divide-y divide-line">
+        {circle.myRole === 'admin' ? (
+          <CircleButton variant="default" onClick={onInvite}>
+            Invite someone
+          </CircleButton>
+        ) : null}
+        <CircleButton variant="outline" disabled={!circle.writable} onClick={() => onLeave(alone)}>
+          {alone ? 'Delete Circle' : 'Leave'}
+        </CircleButton>
+      </header>
+      <ul aria-label="People" className="flex flex-col divide-y divide-line border-t border-line">
         {canShare ? (
           <MyShareRow circle={circle} circles={circles} />
         ) : me ? (
@@ -344,18 +353,23 @@ function CirclePage({
           />
         ))}
       </ul>
+      {circle.writable ? null : (
+        <p role="status" className="text-xs text-fg-faint">
+          {circles.finishingJoin === circle.key
+            ? 'Finishing joining'
+            : 'Finishing joining is taking longer than usual. You can read this Circle now, and you can change things in it once this Mac has caught up.'}
+        </p>
+      )}
       {circle.needsUpdate ? (
         <Callout variant="warn">This Circle moved to a newer format. Update the app to see its changes and write to it.</Callout>
       ) : null}
       {invites.length ? (
-        <p className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-xs text-fg-muted">
+        <p className="flex items-center gap-3 rounded-md border border-dashed border-line px-3 py-2.5 text-xs text-fg-muted">
           <span className="min-w-0 flex-1">
-            {inviteName(circles, invites[0].id)}
+            {inviteName(circles, invites[0].id, hints)}
             {invites.length > 1 ? ` and ${invites.length - 1} more waiting to be used` : ', waiting to be used'}
           </span>
-          <Button size="sm" variant="ghost" onClick={onInvite}>
-            Manage
-          </Button>
+          <TextButton onClick={onInvite}>Manage</TextButton>
         </p>
       ) : null}
     </section>
@@ -409,6 +423,7 @@ export const CirclesScreen: React.FC<{
   const [pending, setPending] = useState<Pending | null>(null);
   const selected = resolveSelection(selection, state);
   const circle = selected?.kind === 'circle' ? state.snapshot.circles.find((item) => item.key === selected.key) : null;
+  const hints = useInviteHints(circle?.key, state.inviteCodeIds);
   // A person who has left the Circle closes their panel.
   const inView = circle ? [circle] : state.snapshot.circles;
   const person = selected?.kind === 'joining' ? undefined : selected?.person;
@@ -423,12 +438,16 @@ export const CirclesScreen: React.FC<{
   const startJoin = (code: string): void => {
     setSheet(null);
     onSelect({ kind: 'joining' });
-    void api().join({ code }).then((result) => {
-      if (result.success) onSelect({ kind: 'circle', key: result.key });
-    });
+    void api().join({ code });
   };
+  // Admission moves the page to the Circle. Someone who has gone elsewhere stays there.
+  const admitted = state.finishingJoin && state.snapshot.circles.some((item) => item.key === state.finishingJoin) ? state.finishingJoin : null;
+  const onJoinPage = selected?.kind === 'joining';
+  useEffect(() => {
+    if (admitted && onJoinPage) onSelect({ kind: 'circle', key: admitted });
+  }, [admitted, onJoinPage, onSelect]);
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="wb-circles flex min-h-0 flex-1">
       <CirclesNav
         circles={state}
         selected={selected}
@@ -436,14 +455,14 @@ export const CirclesScreen: React.FC<{
         onAdd={() => setSheet('add')}
         onProfile={() => setSheet('profile')}
       />
-      <div className="min-w-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
-        <div className="flex max-w-[760px] flex-col gap-5">
+      <div className="wb-circles-page min-w-0 flex-1 overflow-y-auto">
+        <div className={`flex max-w-[760px] flex-col ${selected?.kind === 'sharing' ? 'gap-6' : 'gap-5'}`}>
           {state.status === 'failed' && state.error ? <Callout variant="destructive">{state.error}</Callout> : null}
           {selected === null ? <Welcome circles={state} onCreated={ready} onJoin={startJoin} /> : null}
-          {selected?.kind === 'joining' ? <JoinPage error={state.join?.error} /> : null}
+          {selected?.kind === 'joining' ? <JoinPage error={state.join?.error} admitted={Boolean(state.finishingJoin)} /> : null}
           {selected?.kind === 'sharing' ? (
             <>
-              <h1 className="text-heading font-medium text-fg">Sharing</h1>
+              <h1 className="text-heading leading-[1.2] font-medium text-fg">Sharing</h1>
               <CircleSharingPanel circles={state} />
               <CircleOffers circles={state} person={member?.identity ?? null} onPerson={setPerson} />
             </>
@@ -453,6 +472,7 @@ export const CirclesScreen: React.FC<{
               key={circle.key}
               circle={circle}
               circles={state}
+              hints={hints}
               person={member?.identity ?? null}
               onPerson={setPerson}
               onLeave={(alone) => setPending({ kind: alone ? 'delete' : 'leave' })}
@@ -484,7 +504,7 @@ export const CirclesScreen: React.FC<{
       >
         <StartForms stacked onCreated={ready} onJoin={startJoin} />
       </Sheet>
-      {circle ? <InviteSheet key={`invite-${circle.key}`} circle={circle} circles={state} open={sheet === 'invite'} onClose={() => setSheet(null)} /> : null}
+      {circle ? <InviteSheet key={`invite-${circle.key}`} circle={circle} circles={state} hints={hints} open={sheet === 'invite'} onClose={() => setSheet(null)} /> : null}
       <ProfileSheet circles={state} open={sheet === 'profile'} onClose={() => setSheet(null)} />
     </div>
   );

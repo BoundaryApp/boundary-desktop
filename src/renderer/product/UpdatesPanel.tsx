@@ -2,7 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../shared/assistantStackConstants';
 import type { UpdateChannel, UpdateSnapshot } from '../../shared/types/updates';
 import { Segmented } from '../components/ui/segmented';
-import { UpdateTasks, formatSize, useRestartToInstall, useUpdates, waitingTitle } from './updates';
+import {
+  UpdateTasks,
+  downloadDetail,
+  downloadTitle,
+  formatSize,
+  useRestartToInstall,
+  useUpdates,
+  waitingTitle,
+} from './updates';
 import { APP_NAME } from '../../shared/buildIdentity';
 
 type HeroTone = 'ok' | 'brand' | 'warn';
@@ -161,11 +169,8 @@ export const UpdatesPanel: React.FC = () => {
       );
     }
     if (state.phase === 'downloading') {
-      return hero(
-        'brand',
-        `Downloading ${APP_NAME} ${state.version}`,
-        state.size ? `${formatSize(state.size)}. Keep working.` : 'Keep working.'
-      );
+      const detail = downloadDetail(state);
+      return hero('brand', downloadTitle(state), detail ? `${detail}. Keep working.` : 'Keep working.');
     }
     if (state.phase === 'available') {
       const failed = state.error === 'download';

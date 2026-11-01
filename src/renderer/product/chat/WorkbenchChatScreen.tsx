@@ -219,7 +219,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   const { adoptResolvedId } = ids;
   const { renameThread } = lists;
   const handleSessionResolved = useCallback(
-    (resolvedId: string) => adoptResolvedId(resolvedId, renameThread),
+    (resolvedId: string, storedId?: string) => adoptResolvedId(resolvedId, renameThread, storedId),
     [adoptResolvedId, renameThread]
   );
 

@@ -10,7 +10,7 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 1 Chain model and resolver | Done | |
 | 2 Router and chain UI | In progress: fallbacks shipped for the app default, project pins and chat overrides; live proxy case not started | 1 |
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
-| 4 Shared models | In progress: sharing from the Circles screen with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas not started | 2, 3 |
+| 4 Shared models | In progress: sharing from the Circles screen with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
 | 5 Circle chats | Not started | 3 |
 | Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
 
@@ -62,7 +62,7 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
 **In.**
 - Provider side: publishing an offer, the gateway's narrow API and queue, availability and away mode with a power-save blocker, metering, and quotas.
-- Consumer side: the `peer` entry type in the router, tunnelled over Protomux. An ordered chain editor, which replaces the fallback switches once a chain can hold more than two entries. A shared model as the app default, chosen in Settings or in setup's Model step (0036). Private and trusted settings for each provider. Approval for every side-effecting tool call in turns served by an untrusted provider. Remaining quota in offers.
+- Consumer side: the `peer` entry type in the router, tunnelled over Protomux. An ordered chain editor, which replaces the fallback switches once a chain can hold more than two entries. A shared model as the app default, chosen in Settings or in setup's Model step (0036). Private and trusted settings for each provider. Approval for every side-effecting tool call in turns served by an untrusted provider.
 
 ## Phase 5 · Circle chats
 
@@ -113,8 +113,8 @@ The last admin can't leave while others remain. A Circle's only member deletes i
 
 - [ ] **14.** The gateway refuses any path other than `GET /v1/models` and `POST /v1/chat/completions`, and any model not in the offer.
 - [ ] **15.** A turn served by an untrusted provider asks for approval on every side-effecting tool call.
-- [ ] **16.** Over quota, the gateway answers 429 before any reply bytes, and the consumer's router falls back.
-- [ ] **17.** Usage counts never appear in the Circle's log.
+- [x] **16.** Over quota, the gateway answers 429 before any reply bytes, and the consumer's router falls back.
+- [x] **17.** Usage counts never appear in the Circle's log.
 
 ### A shared model as the app default (0036)
 

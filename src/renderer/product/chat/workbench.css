@@ -4783,6 +4783,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
 }
 .wb-inference-choice:disabled { opacity: 0.5; }
+.wb-inference-choice.is-blocked b,
+.wb-inference-choice.is-blocked .wb-inference-radio { opacity: 0.6; }
 
 .wb-inference-radio {
   width: 14px;
@@ -5678,6 +5680,12 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   transition: width 1s linear;
 }
 
+.wb-update-bar > i.is-fill {
+  inset: 0 auto 0 0;
+  animation: none;
+  transition: width 0.3s linear;
+}
+
 @keyframes wb-update-slide {
   to {
     left: 100%;
@@ -5831,7 +5839,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
     animation: none;
   }
 
-  .wb-update-bar > i:not(.is-drain) {
+  .wb-update-bar > i:not(.is-drain, .is-fill) {
     left: 0;
     width: 100%;
     opacity: 0.5;
@@ -8565,6 +8573,49 @@ button.wb-task-card:hover {
   margin-top: 2px;
 }
 
+.wb-chain-add.is-skipped .wb-chain-text b,
+.wb-chain-add.is-skipped svg {
+  opacity: 0.55;
+}
+
+.wb-chain-choice {
+  position: relative;
+}
+
+.wb-chain-choice:has(.wb-chain-link) .wb-inference-choice {
+  padding-right: 118px;
+}
+
+.wb-chain-choice .wb-chain-link {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.wb-chain-actions button.wb-chain-link,
+.wb-chain-link {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  text-decoration: underline;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.wb-chain-link:hover {
+  color: var(--text);
+}
+
+.wb-chain-row:hover .wb-chain-link,
+.wb-chain-row:focus-within .wb-chain-link,
+.wb-chain-choice:hover .wb-chain-link,
+.wb-chain-choice:focus-within .wb-chain-link {
+  opacity: 1;
+}
+
 .wb-chain-empty {
   margin: 0;
   color: var(--text-muted);
@@ -8572,16 +8623,6 @@ button.wb-task-card:hover {
 }
 
 /* Sharing the local model with Circles (ADR 0034), on the Circles screen. */
-.wb-share {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
-
 /* The status line in Settings' Local card. */
 .wb-share-line {
   display: flex;
@@ -8598,94 +8639,9 @@ button.wb-task-card:hover {
   min-width: 0;
 }
 
-.wb-share-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.wb-share-status {
   margin: 0;
   color: var(--text);
-  font-size: var(--size-ui);
-  font-weight: var(--weight-medium);
-}
-
-.wb-share-status,
-.wb-share-note,
-.wb-share-error {
-  margin: 0;
   font-size: var(--size-xs);
 }
 
-.wb-share-status {
-  color: var(--text);
-}
-
-.wb-share-note {
-  color: var(--text-muted);
-}
-
-.wb-share-error {
-  color: var(--danger);
-}
-
-.wb-share-set {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.wb-share-set legend {
-  margin-bottom: 4px;
-  padding: 0;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.wb-share-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  color: var(--text);
-  font-size: var(--size-ui);
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.wb-share-option input {
-  margin-top: 3px;
-  accent-color: var(--gen);
-}
-
-.wb-share-option small {
-  margin-left: 6px;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
-}
-
-.wb-share-switch {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.wb-share-switch .wb-switch {
-  flex: none;
-}
-
-.wb-share-switch b {
-  display: block;
-  color: var(--text);
-  font-size: var(--size-ui);
-  font-weight: var(--weight-medium);
-}
-
-.wb-share-switch small {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
-}

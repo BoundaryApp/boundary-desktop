@@ -12,6 +12,11 @@ async function load(instance?: string, appName?: string) {
 }
 
 describe('build identity', () => {
+  it('names an instance so it can be a URL scheme', async () => {
+    const { identity } = await load('boundary-beta');
+    expect(identity.INSTANCE_NAME).toMatch(/^[a-z][a-z0-9+.-]*$/);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

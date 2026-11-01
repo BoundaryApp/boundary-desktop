@@ -237,7 +237,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const appDefault = status?.appDefault ?? null;
   const appSlot = appDefault ? status?.slots[appDefault] : undefined;
   const appLabel = status?.appSharedModel
-    ? describeChainEntry(status.appSharedModel, { slots: status.slots, circles }, true).label
+    ? describeChainEntry(status.appSharedModel, { slots: status.slots, circles }, 'first').label
     : appDefault && appSlot?.configured && appSlot.modelId
       ? formatInferenceChipTitle(appDefault, appSlot.modelId)
       : 'No app default';

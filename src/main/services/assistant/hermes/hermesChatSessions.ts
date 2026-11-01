@@ -142,6 +142,12 @@ const webuiOnlyThreadIds = new Set<string>();
  */
 const unlistedNewChats = new Map<string, HermesChatThreadSummary>();
 
+/** The chat moved to another session, so its old stored id must not stay listed. */
+function dropUnlistedChat(sessionId: string): void {
+  unlistedNewChats.delete(sessionId);
+  unlistedNewChats.delete(durableSessionId(sessionId));
+}
+
 function withUnlistedNewChats(
   sessions: HermesChatThreadSummary[],
   storedIdOf: (id: string) => string
@@ -1316,6 +1322,7 @@ function isSessionNotFound(err: unknown): boolean {
 
 /** Carries what Boundary keeps about a session over to the runtime id it resumed as. */
 function moveToResumedSession(fromId: string, toId: string, agentSlug: string): void {
+  if (durableSessionId(fromId) !== durableSessionId(toId)) dropUnlistedChat(fromId);
   const prev = localThreads.get(fromId);
   if (prev) {
     localThreads.delete(fromId);
@@ -1601,9 +1608,17 @@ export async function startHermesChatStream(
   payload: HermesChatStartPayload
 ): Promise<HermesChatStartResult> {
   const result = await startChatTurn(sender, payload);
-  if (result.success || result.errorCode?.startsWith('rewind-')) return result;
+  if (result.success || result.errorCode?.startsWith('rewind-')) return withStoredId(result);
   const noReply: HermesNoReply = { reason: 'unreachable', ...(result.error ? { error: result.error } : {}) };
-  return { ...result, sessionId: await keepFailedSend(payload, result.sessionId, noReply, result.errorCode) };
+  const sessionId = await keepFailedSend(payload, result.sessionId, noReply, result.errorCode);
+  return withStoredId({ ...result, sessionId });
+}
+
+/** The screen opens a chat under its runtime id and finds its row by the stored id. */
+function withStoredId(result: HermesChatStartResult): HermesChatStartResult {
+  return result.sessionId
+    ? { ...result, storedSessionId: durableSessionId(result.sessionId) }
+    : result;
 }
 
 /**
@@ -1716,8 +1731,9 @@ async function startChatTurn(
       let resumedOk = false;
       let resumeError: unknown = null;
       try {
+        // Hermes resumes by stored id and answers "not found" for a runtime id, even a live one.
         // The send needs only the live session, not the transcript resume would return.
-        const resumed = await gateway.resumeSession(sessionId, {
+        const resumed = await gateway.resumeSession(gateway.storedSessionId(sessionId), {
           ...resumeOptsFor(sessionId)[0],
           omitMessages: true,
         });
@@ -1793,6 +1809,7 @@ async function startChatTurn(
           const prev = localThreads.get(sessionId);
           const previousId = sessionId;
           localThreads.delete(previousId);
+          dropUnlistedChat(previousId);
           sessionId = await gateway.createSessionWithSeed(
             newSessionOpts(agentSlug, profile, previousId)
           );

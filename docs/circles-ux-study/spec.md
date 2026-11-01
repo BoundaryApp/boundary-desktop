@@ -16,7 +16,7 @@
 | 3 Sharing | Built; live check pending | 2 |
 | 4 Invites and joining | Built; live check pending | 1 |
 | 5 Links from the rest of the app | Built; live check pending | 2, 3 |
-| 6 Usage | Not started | Metering (circles plan phase 4) |
+| 6 Usage | Built; live check pending | 3 |
 
 ## Goal
 
@@ -77,6 +77,7 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 - **One model, two Circles.** A chain entry names a Circle as well as a provider, so one row can stand for two possible entries. **Use** saves the first Circle offering it where the provider is online, or the first offering it otherwise. Leaving that Circle makes the entry stale even if another Circle still offers the model. The router could look for the offer in any shared Circle, which needs a check against ADR 0033 §10.
 - **Cancel stops only a waiting join.** Nothing is kept, because a device isn't in a Circle until an admin admits it. Once it's admitted, cancelling does nothing and the join finishes.
 - **Offers stay published as available** when the provider's server is down. Members see a model that fails until they try it. Fixing that is a network change outside this spec.
+- **Tokens depend on the server.** Tokens come from each reply's `usage` field. A server that leaves it out counts requests only, so a token limit never stops its members.
 - **Window width.** Icon rail, list and panel leave about 640px at a 1280px window. The panel should cover the detail pane below that width. The minimum window size needs checking.
 
 ## Build order
@@ -107,4 +108,4 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 - [x] **10.** A join in progress survives navigating away, shows its failure on return, and can be cancelled.
 - [x] **11.** The chat's stop message for a shared model opens that person's panel.
 - [x] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
-- [ ] **13.** Usage counts appear only on the provider's and that member's own Macs.
+- [x] **13.** Usage counts appear only on the provider's and that member's own Macs.

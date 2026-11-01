@@ -174,6 +174,8 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
         if (circles) post({ type: 'circles-snapshot', snapshot: circles.snapshot() });
       });
     },
+    usage: message.usage,
+    onUsage: (served, serving) => post({ type: 'share-usage', served, serving }),
     onSignal: (signal) => post({ type: 'signal-received', signal }),
     onRecord: (change) => post({ type: 'record-changed', change }),
     onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
@@ -227,7 +229,7 @@ async function handleCircles(
     case 'withdraw-offer':
       return net.withdrawOffer(request.key);
     case 'share-upstream':
-      return net.setShareUpstream(request.upstream);
+      return net.setShareUpstream(request.upstream, request.limits);
     case 'record-set':
       return net.setRecord(request.key, request.app, request.scope, request.record, request.value);
     case 'record-del':

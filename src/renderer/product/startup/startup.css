@@ -218,6 +218,32 @@
   animation: su-spin 1.4s linear infinite;
 }
 
+/* With start-up timing the outline is the tile's own progress bar instead. */
+.su-tile[data-filled] .su-tile-box {
+  border-style: solid;
+  border-color: var(--line);
+}
+
+.su-tile[data-filled] .su-tile-box::before {
+  content: none;
+}
+
+.su-tile-box svg.su-tile-fill {
+  position: absolute;
+  inset: -1px;
+  width: 44px;
+  height: 44px;
+  opacity: 1;
+  overflow: visible;
+}
+
+.su-tile-fill path {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 1.5;
+  transition: stroke-dasharray 700ms var(--ease);
+}
+
 @property --su-spin {
   syntax: '<angle>';
   inherits: false;

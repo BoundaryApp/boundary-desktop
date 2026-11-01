@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { parseUpdateInfo } from 'electron-updater/out/providers/Provider';
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../../../shared/assistantStackConstants';
-import { buildFeed, feedLabel, pinnedStackVersion } from '../../../../../scripts/write-update-feed.mjs';
+import {
+  buildChannelFile,
+  buildFeed,
+  feedLabel,
+  pinnedStackVersion,
+} from '../../../../../scripts/write-update-feed.mjs';
 
 const release = {
   version: '0.0.1',
@@ -30,5 +36,16 @@ describe('write-update-feed', () => {
     expect(feed.releases[0].version).toBe('0.0.1-rc.999999');
     expect(feed.releases[0].updateTo.version).toBe('0.0.1');
     expect(feed.releases[0].updateTo.sha256).toBe('ab');
+  });
+
+  it('writes a channel file electron-updater reads, with the real version and no label', async () => {
+    const text = JSON.stringify(buildChannelFile({ ...release, sha512: 'cd', stackVersion: 'v0.3.7' }));
+    const info = parseUpdateInfo(text, 'beta-darwin-arm64-mac.yml', 'https://x.test/');
+    expect(info).toMatchObject({
+      version: '0.0.1',
+      releaseNotes: 'Line',
+      stackVersion: 'v0.3.7',
+      files: [{ url: 'https://example.com/a.zip', sha512: 'cd', size: 1 }],
+    });
   });
 });

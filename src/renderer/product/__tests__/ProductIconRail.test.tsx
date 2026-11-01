@@ -41,7 +41,7 @@ describe('ProductIconRail Circles dot', () => {
   const sharingState = {
     status: 'running',
     displayName: 'Ada',
-    snapshot: { identity: 'a'.repeat(64), circles: [{ key: KEY, name: 'Garden club', myRole: 'admin', members: [], invites: [], offers: [] }] },
+    snapshot: { identity: 'a'.repeat(64), circles: [{ key: KEY, name: 'Garden club', myRole: 'admin', writable: true, members: [], invites: [], offers: [] }] },
     providers: {},
     sharing: { models: [{ id: 'qwen3-8b', tools: true }], circles: [KEY], paused: false, away: false },
   };

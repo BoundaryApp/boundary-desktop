@@ -108,7 +108,7 @@ describe('ProductSettingsScreen', () => {
       providers: {},
       snapshot: {
         identity: 'a'.repeat(64),
-        circles: [{ key: 'c'.repeat(64), name: 'Workshop', myRole: 'member', members: [], invites: [], offers: [] }],
+        circles: [{ key: 'c'.repeat(64), name: 'Workshop', myRole: 'member', writable: true, members: [], invites: [], offers: [] }],
       },
       sharing: { models: [{ id: 'qwen3:14b', tools: true }], circles: ['c'.repeat(64)], paused: true, away: false },
     };

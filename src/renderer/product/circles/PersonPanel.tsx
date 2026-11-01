@@ -3,10 +3,12 @@ import { X } from 'lucide-react';
 import type { CircleMemberView, CircleProviderSettings, CircleSnapshot, CirclesState } from '../../../shared/types/circles';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import { Button } from '../../components/ui/button';
+import { Avatar, CircleButton, CircleSwitch } from './CircleControls';
 import { beginAppSwitch, endAppSwitch, useAppSwitch } from '../../onboarding/appSwitch';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { AppSwitchProgress } from '../AppSwitchProgress';
 import { describeChainEntry, entryKey, type ChainContext } from '../chat/ChainEditor';
+import { MemberLimit, YourUsage } from './CircleUsage';
 import { useAction } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
@@ -56,17 +58,7 @@ function ClaimSwitch({
 }) {
   return (
     <div className="flex items-start gap-2.5">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={disabled}
-        onClick={onToggle}
-        className={`wb-switch shrink-0${on ? ' is-on' : ''}`}
-      >
-        <i />
-      </button>
+      <CircleSwitch label={label} on={on} disabled={disabled} onToggle={onToggle} />
       <span className="flex flex-col">
         <span className="text-ui text-fg">{label}</span>
         <span className="text-xs text-fg-faint">{detail}</span>
@@ -84,7 +76,7 @@ export function ProviderClaims({ identity, name, circles }: { identity: string; 
   };
   return (
     <section aria-label={`What you accept from ${name}`} className="flex flex-col gap-2.5">
-      <h3 className="text-xs font-medium text-fg-faint">What you accept from {name}</h3>
+      <h3 className="text-2xs font-medium text-fg-faint">What you accept from {name}</h3>
       <ClaimSwitch
         label="Trusted"
         detail={`${name}'s model can run your agent's tools. Needed before it can answer your chats.`}
@@ -129,7 +121,7 @@ function ModelCard({
   onFallback: () => void;
 }) {
   const trusted = ctx.circles.providers[entry.peer?.providerId ?? '']?.trusted === true;
-  const view = describeChainEntry(entry, ctx, true);
+  const view = describeChainEntry(entry, ctx, 'first');
   // An offline provider's model can be chosen for when they're back (ADR 0036 §5).
   const blocked = view.skipped && !view.offline;
   return (
@@ -141,13 +133,13 @@ function ModelCard({
         </span>
       ) : (
         <span className="flex gap-1.5">
-          <Button size="sm" variant="outline" disabled={busy || blocked} onClick={onDefault}>
+          <CircleButton size="panel" variant="default" className="flex-1" disabled={busy || blocked} onClick={onDefault}>
             Use as default
-          </Button>
+          </CircleButton>
           {canAddFallback ? (
-            <Button size="sm" variant="ghost" disabled={busy || blocked || isFallback} onClick={onFallback}>
+            <CircleButton size="panel" variant="outline" className="flex-1" disabled={busy || blocked || isFallback} onClick={onFallback}>
               {isFallback ? 'In your fallbacks' : 'Add as fallback'}
-            </Button>
+            </CircleButton>
           ) : null}
         </span>
       )}
@@ -227,7 +219,7 @@ export function PersonModels({
 
   return (
     <section aria-label={`${name}'s models`} className="flex flex-col gap-2">
-      <h3 className="text-xs font-medium text-fg-faint">Models</h3>
+      <h3 className="text-2xs font-medium text-fg-faint">Models</h3>
       <ul className="flex flex-col gap-2">
         {entries.map((entry) => (
           <ModelCard
@@ -262,11 +254,12 @@ function CircleActions({
   const action = useAction();
   return (
     <section aria-label={`In ${circle.name}`} className="mt-auto flex flex-col gap-1.5 border-t border-line pt-3">
-      <h3 className="text-xs font-medium text-fg-faint">In {circle.name}</h3>
+      <h3 className="text-2xs font-medium text-fg-faint">In {circle.name}</h3>
       <span className="flex gap-1.5">
-        <Button
-          size="sm"
+        <CircleButton
+          size="panel"
           variant="outline"
+          className="flex-1"
           disabled={action.busy}
           onClick={() =>
             void action.run(() =>
@@ -275,10 +268,10 @@ function CircleActions({
           }
         >
           {member.role === 'admin' ? 'Make member' : 'Make admin'}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onRemove}>
+        </CircleButton>
+        <CircleButton size="panel" variant="destructive" className="flex-1" onClick={onRemove}>
           Remove
-        </Button>
+        </CircleButton>
       </span>
       {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
     </section>
@@ -304,9 +297,10 @@ export function PersonPanel({
   return (
     <aside
       aria-label={member.name}
-      className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-surface-1 p-5"
+      className="wb-circles-panel flex w-[320px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-line bg-surface-1"
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2.5">
+        <Avatar name={member.name} large />
         <span className="flex min-w-0 flex-1 flex-col">
           <h2 className="text-title font-medium break-words text-fg">{member.name}</h2>
           <span className="text-xs text-fg-faint">
@@ -319,6 +313,10 @@ export function PersonPanel({
       </div>
       {hasModels ? <ProviderClaims identity={member.identity} name={member.name} circles={circles} /> : null}
       <PersonModels identity={member.identity} name={member.name} circles={circles} />
+      <YourUsage identity={member.identity} circles={circles} />
+      {circles.sharing.models.length > 0 && !member.isMe ? (
+        <MemberLimit identity={member.identity} name={member.name} circles={circles} />
+      ) : null}
       {circle?.myRole === 'admin' ? <CircleActions circle={circle} member={member} onRemove={() => onRemove(member)} /> : null}
     </aside>
   );

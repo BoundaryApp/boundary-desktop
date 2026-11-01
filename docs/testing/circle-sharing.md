@@ -18,11 +18,13 @@ Two Macs. The provider has a local model connected and is in a Circle with the m
 
 1. With two Circles, select each in the list. One page shows at a time. Go to Chat and back: the same Circle is selected.
 2. Press **+**, start a Circle. The sheet closes and the new Circle opens.
-3. Press **+**, enter a code for a Circle with no admin online, and press **Join**. The sheet closes, the list shows **Joining…** and the page says it's waiting for an admin. Go to Chat and back: it's still waiting. Have an admin come online: the Circle opens.
+3. Press **+**, enter a code for a Circle with no admin online, and press **Join**. The sheet closes, the list shows **Joining…** and the page says **Joining the Circle** and that it finishes on its own once an admin has Boundary open. Go to Chat and back: it's still joining. Have an admin open Boundary and touch nothing there: the page moves to the Circle as soon as the admin's device admits this one, with no **Cancel**, and the list shows the Circle. "Finishing joining" shows under the people, and **Leave** and **Share here** are disabled until it goes. If it takes over a minute, the note says this Mac is still catching up and you can read the Circle in the meantime.
 4. Repeat, and press **Cancel**. The **Joining…** row goes. Bring an admin online: nothing happens, and the code still works.
 5. Join with an expired code. The page says **Couldn’t join** with the reason. Press **Dismiss**.
 6. Press **Profile**. Change your name, and press **Show diagnostics file**.
-7. As an admin, press **Invite someone**, enter a name and press **Create code**. The sheet says to copy it now and names the admins who must be online. Close it: the page shows the invite by name, and **Manage** reopens the list with **Revoke**. The invited person never sees the name.
+7. As an admin, press **Invite someone**, enter a name and press **Create code**. The sheet shows the code, says it can be copied again from the list, and names the admins who must be online. Close it: the page shows the invite by name and the code's first 9 characters, such as `For Sam · yrb7ei1ng…`. **Manage** reopens the list with the code masked. **Show** reveals it, **Copy** puts it on the clipboard, and **Revoke** is beside them. Restart Boundary: all of that still works. The invited person never sees the name.
+   Type the same name with different case or extra spaces. Before you create it, the sheet says it replaces the open code for that name. Press **Create code**: the list has one invite for that name, with a new short code. Try the old code on a second install once this admin's device is online: it's refused.
+   On a second admin's device the same invite shows `Invite` and part of its id, with no **Show** or **Copy**. An invite made before this build looks the same on its own device. Use or revoke an invite, or leave the Circle, and its code goes.
 8. Leave the selected Circle. The next Circle opens, and with none left the welcome screen shows.
 
 ## People and the person panel
@@ -54,7 +56,22 @@ Run these on a member whose default is the provider's model, with no fallback.
 
 1. Turn off **Trusted** and send a chat. The stop message names the reason and has **Open in Circles**, which opens **Sharing** with the provider's panel. Turn **Trusted** on and press **Retry** in the chat.
 2. Quit Boundary on the provider and send. The stop message says they're offline and has the same link.
-3. In Settings, a shared model that can't serve has **Open in Circles** in the app default list and under Fallbacks.
+3. In Settings, hover a shared model that can't serve, in the app default list and under Fallbacks. A text link **Open in Circles** appears. Press Tab until it has focus: it appears for the keyboard too. Rows that can serve show no link.
+4. With **Trusted** off, click the row in the app default list. Circles opens on **Sharing** with the provider's panel, and the default doesn't change.
+5. Turn **Trusted** on, pause sharing on the provider, and click the row. Circles opens on **Sharing** with no panel, and the default doesn't change.
+6. Leave the Circle. The row says you're no longer in that Circle and to choose another model, has no link, and can't be clicked.
+7. With a provider you don't trust, open **Add a fallback** in Settings. Their model is dimmed and says it can't be used until you trust them. Add it: it's listed as skipped. Trust them and a send can reach it.
+
+## Usage and limits
+
+Run these with a member using the provider's model.
+
+1. On the provider, **Sharing** says no member has used your models today. Send a chat from the member. **Today** shows them with **Running** during the reply, then their requests and tokens.
+2. On the member, the provider's panel says what you used today. The numbers should be close to the provider's.
+3. Restart the provider. The counts stay.
+4. Under **Limit for everyone**, set **Requests a day** to the member's count and press **Save limit**. The member's next chat moves to their fallback. With no fallback, it stops and says they've used today's requests.
+5. Open the member's panel from a Circle's page on the provider, set a higher **Requests a day** and save. The member can chat again. Press **Use the limit for everyone** and they're stopped again.
+6. Clear the limit. Ask a third install in the Circle to confirm it shows none of these counts.
 
 ## Alerts when a shared model changes
 

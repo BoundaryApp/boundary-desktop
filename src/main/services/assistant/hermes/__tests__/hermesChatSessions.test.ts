@@ -1370,7 +1370,7 @@ describe('Stop from any window (decision D4)', () => {
 
   it('resumes the chat without its transcript before sending (G06-15)', async () => {
     await startTurn();
-    expect(resumeSession).toHaveBeenCalledWith('sess-1', { omitMessages: true });
+    expect(resumeSession).toHaveBeenCalledWith('stored-1', { omitMessages: true });
   });
 
   it("stops a chat's turn by the chat's stored id", async () => {

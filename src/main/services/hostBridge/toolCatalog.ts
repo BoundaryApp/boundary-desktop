@@ -34,6 +34,9 @@ const OFFER_SETUP_TOOL = 'offer_setup';
 /** What `offer_setup` can offer. Only calendars so far. */
 export const SETUP_KINDS = ['calendar'] as const;
 
+/** Tools that report on the app itself; listed only where ADR 0040 §1 allows them. */
+const AGENT_APP_TOOLS: readonly string[] = ['get_app_status', 'get_recent_problems'];
+
 const ASKS = `The user approves it in ${APP_NAME}; if they decline, do not retry.`;
 
 /** Keeps each tool's name as a literal, so `HostToolName` lists exactly the catalog. */
@@ -169,6 +172,25 @@ export const HOST_TOOLS = defineHostTools([
       additionalProperties: false,
     },
   },
+  {
+    name: 'get_app_status',
+    title: `Read ${APP_NAME}'s status`,
+    description:
+      `Read ${APP_NAME}'s own state: version, the screen open now, whether the stack is ready, and ` +
+      `the models that can serve. Use it when a developer asks about ${APP_NAME} itself. The screen ` +
+      "is what the user has open, which may not be this chat. Refused when a model that isn't local " +
+      'or Trusted could serve.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_recent_problems',
+    title: `Read recent ${APP_NAME} errors`,
+    description:
+      `Read recent errors from ${APP_NAME}'s debug log: time, area, message and error name. Use it ` +
+      `when a developer asks what went wrong in ${APP_NAME}. Refused when a model that isn't local ` +
+      `or Trusted could serve. ${ASKS}`,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ]);
 
 /** The one list of tool names: main's dispatch (`hostTools.ts`) is keyed by it. */
@@ -179,6 +201,10 @@ export function isHostToolName(name: string): name is HostToolName {
 }
 
 /** The tools `tools/list` returns now. */
-export function listedHostTools(state: { offerCalendarSetup: boolean }): HostToolDefinition[] {
-  return HOST_TOOLS.filter((tool) => tool.name !== OFFER_SETUP_TOOL || state.offerCalendarSetup);
+export function listedHostTools(state: { offerCalendarSetup: boolean; agentAppAccess: boolean }): HostToolDefinition[] {
+  return HOST_TOOLS.filter(
+    (tool) =>
+      (tool.name !== OFFER_SETUP_TOOL || state.offerCalendarSetup) &&
+      (!AGENT_APP_TOOLS.includes(tool.name) || state.agentAppAccess)
+  );
 }

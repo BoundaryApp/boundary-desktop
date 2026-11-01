@@ -14,6 +14,7 @@ const base: UpdateSnapshot = {
   version: '0.0.1-rc.10',
   summary: ['Chats remember their project.'],
   size: 324000000,
+  downloadPercent: null,
   stackChanges: false,
   checking: false,
   lastCheckedAt: null,
@@ -102,6 +103,42 @@ describe('updates', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Restart to update' }));
     });
     expect(api.restart).toHaveBeenCalledWith({ force: false });
+  });
+
+  it('fills the bar and the ring with the download, then loops while Squirrel checks', async () => {
+    const { push } = mockApi({ ...base, phase: 'downloading', downloadPercent: 42 });
+    await mount(
+      <>
+        {card}
+        <Rail />
+      </>
+    );
+    expect(screen.getByText('42% of 324 MB')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Update download' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('42');
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('42%');
+    const ring = document.querySelector('.wb-update-ring');
+    expect(ring?.classList.contains('is-sweeping')).toBe(false);
+    expect(Number(ring?.querySelector('.is-arc')?.getAttribute('stroke-dashoffset'))).toBeCloseTo(75.4 * 0.58);
+
+    push({ ...base, phase: 'downloading', downloadPercent: 100 });
+    expect(screen.getByRole('heading', { name: /Checking Boundary/ })).toBeTruthy();
+    expect(screen.getByText('324 MB')).toBeTruthy();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(document.querySelector('.wb-update-ring')?.classList.contains('is-sweeping')).toBe(true);
+  });
+
+  it('loops when the total is unknown', async () => {
+    mockApi({ ...base, phase: 'downloading', size: null, downloadPercent: null });
+    await mount(card);
+    expect(screen.getByRole('heading', { name: /Downloading Boundary/ })).toBeTruthy();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('shows the percent on the Updates page', async () => {
+    mockApi({ ...base, phase: 'downloading', downloadPercent: 42, showCard: false });
+    await mount(<UpdatesPanel />);
+    expect(screen.getByText('42% of 324 MB. Keep working.')).toBeTruthy();
   });
 
   it('warns about a slow next start when the update moves the stack', async () => {

@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Copy } from 'lucide-react';
-import type { CircleSnapshot, CirclesState } from '../../../shared/types/circles';
+import { isOpenInvite, openInvitesNamed } from '../../../shared/circleInvites';
+import type { CircleCreatedInvite, CircleInviteView, CircleSnapshot, CirclesState } from '../../../shared/types/circles';
+import { CircleButton, TextButton } from './CircleControls';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet } from '../../components/ui/sheet';
 import { useAction } from './useCircles';
 
 /**
- * Invites to one Circle. A code exists only when it's made, so this sheet is the one place it
- * shows. A label stays on this device: other members never see it.
+ * Invites to one Circle. Main keeps a code on the device that made it until the invite is over,
+ * and hands it here only when the user asks, so codes stay out of `CirclesState`. A label stays on
+ * this device too: other members never see it.
  */
 
 const api = () => window.electronAPI.circles;
@@ -21,12 +24,116 @@ function formatExpiry(expires: number, now = Date.now()): string {
 }
 
 export function openInvites(circle: CircleSnapshot, now = Date.now()) {
-  return circle.invites.filter((invite) => !invite.used && !invite.revoked && invite.expires > now);
+  return circle.invites.filter((invite) => isOpenInvite(invite, now));
 }
 
-export function inviteName(circles: CirclesState, id: string): string {
+/** The start of each code this device keeps for a Circle, by invite id. */
+export function useInviteHints(key: string | undefined, keptIds: string[] | undefined): Record<string, string> {
+  const [hints, setHints] = useState<Record<string, string>>({});
+  const kept = keptIds?.join() ?? '';
+  useEffect(() => {
+    if (!key || !kept) {
+      setHints({});
+      return;
+    }
+    let live = true;
+    void api().inviteHints({ key }).then((result) => {
+      if (live && result.success) setHints(result.hints);
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, kept]);
+  return hints;
+}
+
+export function inviteName(circles: CirclesState, id: string, hints: Record<string, string> = {}): string {
   const label = circles.inviteLabels?.[id];
-  return label ? `For ${label}` : `Invite ${id.slice(0, 6)}`;
+  const hint = hints[id];
+  if (!hint) return label ? `For ${label}` : `Invite ${id.slice(0, 6)}`;
+  return label ? `For ${label} · ${hint}…` : `Invite ${hint}…`;
+}
+
+/** What the sheet says before a name replaces open invites. */
+function replaceNote(replaced: CircleInviteView[], circles: CirclesState): string | null {
+  if (!replaced.length) return null;
+  const name = circles.inviteLabels?.[replaced[0].id];
+  return replaced.length === 1
+    ? `Replaces the open code for ${name}. The old code stops working once an admin's device has seen the change.`
+    : `Replaces ${replaced.length} open codes for ${name}. The old codes stop working once an admin's device has seen the change.`;
+}
+
+function InviteRow({
+  circleKey,
+  invite,
+  name,
+  expiry,
+  kept,
+  action,
+  onRevoke,
+}: {
+  circleKey: string;
+  invite: CircleInviteView;
+  name: string;
+  expiry: string;
+  kept: boolean;
+  action: ReturnType<typeof useAction>;
+  onRevoke: () => void;
+}) {
+  const [shown, setShown] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const fetchCode = () => api().inviteCode({ key: circleKey, inviteId: invite.id });
+  return (
+    <li className="flex flex-col gap-1 text-xs text-fg-muted">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span>{name}</span>
+        <span className="text-fg-faint">{expiry}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {kept ? (
+            <>
+              <TextButton
+                disabled={action.busy}
+                onClick={() => {
+                  if (shown) {
+                    setShown(null);
+                    return;
+                  }
+                  void action.run(fetchCode).then((result) => {
+                    if (result?.success) setShown(result.code);
+                  });
+                }}
+              >
+                {shown ? 'Hide' : 'Show'}
+              </TextButton>
+              <TextButton
+                disabled={action.busy}
+                onClick={() =>
+                  void action.run(async () => {
+                    const result = await fetchCode();
+                    if (result.success) {
+                      await navigator.clipboard.writeText(result.code);
+                      setCopied(true);
+                    }
+                    return result;
+                  })
+                }
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </TextButton>
+            </>
+          ) : null}
+          <TextButton disabled={action.busy} onClick={onRevoke}>
+            Revoke
+          </TextButton>
+        </span>
+      </div>
+      {shown ? (
+        <code className="font-mono break-all text-fg" aria-label={`Code ${name}`}>
+          {shown}
+        </code>
+      ) : null}
+    </li>
+  );
 }
 
 /** Who has to be online for a code to work, as a sentence's end: "you or Maya". */
@@ -41,16 +148,18 @@ function adminNames(circle: CircleSnapshot): string {
 export function InviteSheet({
   circle,
   circles,
+  hints,
   open,
   onClose,
 }: {
   circle: CircleSnapshot;
   circles: CirclesState;
+  hints: Record<string, string>;
   open: boolean;
   onClose: () => void;
 }) {
   const [label, setLabel] = useState('');
-  const [code, setCode] = useState<{ id: string; code: string; expires: number } | null>(null);
+  const [code, setCode] = useState<CircleCreatedInvite | null>(null);
   const [copied, setCopied] = useState(false);
   const action = useAction();
   const now = Date.now();
@@ -58,15 +167,21 @@ export function InviteSheet({
   // A new code can be missing from the snapshot for a moment, so only a known-spent one hides.
   const spent = circle.invites.some((invite) => invite.id === code?.id && (invite.used || invite.revoked));
   const shownCode = code && !spent && code.expires > now ? code : null;
+  const replaces = replaceNote(openInvitesNamed(circle, circles.inviteLabels, label, now), circles);
+  // A kept code goes back behind Show. One this Mac couldn't keep stays, or it would be lost.
+  const close = (): void => {
+    if (code?.kept) setCode(null);
+    onClose();
+  };
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={close}
       titleId={`circle-invite-${circle.key}`}
       title={`Invite to ${circle.name}`}
       error={action.error}
       actions={
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={close}>
           Done
         </Button>
       }
@@ -91,33 +206,42 @@ export function InviteSheet({
           <div className="flex gap-2">
             <Input
               id="circle-invite-label"
+              className="h-[34px]"
               value={label}
               maxLength={80}
               placeholder="Optional. Only you see this."
               onChange={(event) => setLabel(event.target.value)}
             />
-            <Button type="submit" variant="outline" disabled={action.busy}>
+            <CircleButton type="submit" variant="default" disabled={action.busy}>
               Create code
-            </Button>
+            </CircleButton>
           </div>
+          {replaces ? <p className="text-xs text-fg-faint">{replaces}</p> : null}
         </form>
         {shownCode ? (
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 rounded-md border border-line bg-surface-0 p-2">
-              <code className="min-w-0 flex-1 break-all text-xs text-fg" aria-label="Invite code">
+            <div className="flex items-center gap-2 rounded-md border border-line bg-surface-0 px-2.5 py-2">
+              <code className="min-w-0 flex-1 font-mono text-xs break-all text-fg" aria-label="Invite code">
                 {shownCode.code}
               </code>
-              <Button
-                size="sm"
-                variant="ghost"
+              <CircleButton
+                size="row"
+                variant="default"
                 aria-label="Copy invite code"
                 onClick={() => void navigator.clipboard.writeText(shownCode.code).then(() => setCopied(true))}
               >
-                <Copy className="size-4" aria-hidden />
+                <Copy className="size-3.5" aria-hidden />
                 {copied ? 'Copied' : 'Copy'}
-              </Button>
+              </CircleButton>
             </div>
-            <p className="text-xs text-fg-faint">Copy it now: it can't be shown again.</p>
+            <p className="text-xs text-fg-faint">
+              {shownCode.kept
+                ? 'Copy it again from the list below until it’s used, revoked or expired.'
+                : 'This Mac couldn’t keep the code, so copy it now.'}
+            </p>
+            {shownCode.stillOpen ? (
+              <p className="text-xs text-danger">The earlier code for this name is still open. Revoke it below.</p>
+            ) : null}
           </div>
         ) : null}
         <p className="text-xs text-fg-faint">
@@ -126,22 +250,19 @@ export function InviteSheet({
         {invites.length ? (
           <ul aria-label="Open invites" className="flex flex-col gap-1 border-t border-line pt-2">
             {invites.map((invite) => (
-              <li key={invite.id} className="flex items-center gap-2 text-xs text-fg-muted">
-                <span>{inviteName(circles, invite.id)}</span>
-                <span className="text-fg-faint">{formatExpiry(invite.expires, now)}</span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="ml-auto"
-                  disabled={action.busy}
-                  onClick={() => {
-                    if (code?.id === invite.id) setCode(null);
-                    void action.run(() => api().revokeInvite({ key: circle.key, inviteId: invite.id }));
-                  }}
-                >
-                  Revoke
-                </Button>
-              </li>
+              <InviteRow
+                key={invite.id}
+                circleKey={circle.key}
+                invite={invite}
+                name={inviteName(circles, invite.id, hints)}
+                expiry={formatExpiry(invite.expires, now)}
+                kept={Boolean(hints[invite.id])}
+                action={action}
+                onRevoke={() => {
+                  if (code?.id === invite.id) setCode(null);
+                  void action.run(() => api().revokeInvite({ key: circle.key, inviteId: invite.id }));
+                }}
+              />
             ))}
           </ul>
         ) : null}

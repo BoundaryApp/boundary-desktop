@@ -45,6 +45,7 @@ import {
 } from './circleOps';
 import { addressClass } from './addressClass';
 import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
+import type { CircleDayUsage, CircleLimits, CircleServing } from '../../../shared/types/circles';
 import { InferenceLink, onInferenceOpen, type SharedModelResponse } from './inferenceChannel';
 import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
 import type {
@@ -70,6 +71,9 @@ export interface CircleNetworkOptions {
   ackInterval?: number;
   /** Stands in for a build with a different `CIRCLE_FORMAT`, in tests. */
   supportedFormat?: number;
+  /** What members have used of this user's models today. */
+  usage?: CircleDayUsage;
+  onUsage?: (served: CircleDayUsage | undefined, serving: CircleServing) => void;
   /** Called whenever what `snapshot()` returns may have changed. */
   onChange?: () => void;
   /** A peer signal on a topic passed to `setSignalTopics`, from a current member of its Circle. */
@@ -205,6 +209,8 @@ export class CircleNetwork {
         this.circles.get(key)?.state.members.find((member) => member.device === device)?.identity ?? null,
       upstream: () => this.shareUpstream,
       log: (message, data) => this.log(message, data),
+      usage: options.usage,
+      onUsage: options.onUsage,
     });
   }
 
@@ -576,6 +582,8 @@ export class CircleNetwork {
       closing: false,
     };
     base.on('update', () => void this.refreshCircle(circle));
+    base.on('writable', () => this.changed());
+    base.on('unwritable', () => this.changed());
     base.on('interrupt', () => {
       circle.needsUpdate = true;
       this.diag('circle.needs-update', { circle: short(circle.secrets.key), supported: this.supportedFormat });
@@ -728,8 +736,13 @@ export class CircleNetwork {
     };
   }
 
+  private requireWritable(circle: OpenCircle): void {
+    if (!circle.base.writable) throw new Error('This device is still joining this Circle.');
+  }
+
   private async append(circle: OpenCircle, op: CircleOp): Promise<void> {
     if (circle.needsUpdate) throw new Error('This Circle needs a newer version of the app.');
+    this.requireWritable(circle);
     await circle.base.append(op);
     await circle.base.update();
     await this.refreshCircle(circle);
@@ -833,6 +846,7 @@ export class CircleNetwork {
   /** Leave a Circle: remove this member, then close it here. Main forgets its secrets. */
   async leaveCircle(key: string): Promise<void> {
     const circle = this.circle(key);
+    this.requireWritable(circle);
     circle.closing = true;
     await this.revokeInvitesFrom(circle, this.identityHex);
     await this.append(circle, { type: 'remove-member', identity: this.identityHex });
@@ -952,9 +966,10 @@ export class CircleNetwork {
   }
 
   /**
-   * Join with an invite code. Resolves once an admin has confirmed this device and the Circle
-   * opened here, with the secrets main must keep. Rejects when the invite is refused or the
-   * join is cancelled. Once an admin has admitted this device, cancelling does nothing.
+   * Join with an invite code. `onPaired` fires once an admin has admitted this device, after
+   * which cancelling does nothing. Resolves once the Circle is writable here or the wait runs
+   * out, with the secrets main must keep. Rejects when the invite is refused or the join is
+   * cancelled.
    */
   async joinCircle(code: string): Promise<CircleSecrets> {
     let invite: Buffer;
@@ -1064,8 +1079,9 @@ export class CircleNetwork {
   }
 
   /** Where this user's gateway forwards to; null stops serving without touching offers. */
-  setShareUpstream(upstream: GatewayUpstream | null): void {
+  setShareUpstream(upstream: GatewayUpstream | null, limits?: CircleLimits): void {
     this.shareUpstream = upstream;
+    this.gateway.setLimits(limits ?? null);
     let host: string | null = null;
     let port: string | null = null;
     try {
@@ -1133,6 +1149,7 @@ export class CircleNetwork {
         name: circle.state.name,
         myRole: mine?.role ?? null,
         needsUpdate: circle.needsUpdate,
+        writable: circle.base.writable,
         members: circle.state.members.map((member) => ({
           identity: member.identity,
           name: member.name,

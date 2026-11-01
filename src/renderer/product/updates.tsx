@@ -62,6 +62,18 @@ export function formatSize(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
 }
 
+/** At 100 every byte is in, and Squirrel is checking the update and unpacking it. */
+export function downloadTitle(state: UpdateSnapshot): string {
+  const verb = state.downloadPercent === 100 ? 'Checking' : 'Downloading';
+  return `${verb} ${APP_NAME} ${state.version}`;
+}
+
+/** The percent while one is known, otherwise the size alone. */
+export function downloadDetail({ downloadPercent: percent, size }: UpdateSnapshot): string | null {
+  if (percent === null || percent === 100) return size ? formatSize(size) : null;
+  return size ? `${percent}% of ${formatSize(size)}` : `${percent}%`;
+}
+
 export function waitingTitle(remaining: number): string {
   return `Restarting when ${remaining === 1 ? '1 task finishes' : `${remaining} tasks finish`}`;
 }
@@ -194,7 +206,7 @@ function railLabel(state: UpdateSnapshot, stage: RailStage): string {
     case 'ready':
       return `${APP_NAME} ${state.version} is ready`;
     case 'downloading':
-      return `Downloading ${APP_NAME} ${state.version}`;
+      return downloadTitle(state);
     case 'failed':
       return `${APP_NAME} ${state.version} didn’t download`;
     case 'available':
@@ -222,6 +234,7 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
     : 1 - state.restartIn / 30;
   const label = railLabel(state, stage);
   const isOpen = cardOpened || state.showCard || state.showUpdated;
+  const measured = state.downloadPercent !== null && state.downloadPercent < 100;
   return (
     <button
       type="button"
@@ -254,10 +267,24 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
       ) : (
         <>
           {stage === 'downloading' ? (
-            <svg className="wb-update-ring is-sweeping" viewBox="0 0 26 26" aria-hidden="true">
-              <circle cx="13" cy="13" r="12" />
-              <circle className="is-arc" cx="13" cy="13" r="12" strokeDasharray="20 56" />
-            </svg>
+            measured ? (
+              <svg className="wb-update-ring" viewBox="0 0 26 26" aria-hidden="true">
+                <circle cx="13" cy="13" r="12" />
+                <circle
+                  className="is-arc"
+                  cx="13"
+                  cy="13"
+                  r="12"
+                  strokeDasharray={RING}
+                  strokeDashoffset={RING * (1 - (state.downloadPercent ?? 0) / 100)}
+                />
+              </svg>
+            ) : (
+              <svg className="wb-update-ring is-sweeping" viewBox="0 0 26 26" aria-hidden="true">
+                <circle cx="13" cy="13" r="12" />
+                <circle className="is-arc" cx="13" cy="13" r="12" strokeDasharray="20 56" />
+              </svg>
+            )
           ) : null}
           <DownloadGlyph />
         </>
@@ -265,6 +292,29 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
     </button>
   );
 };
+
+/** Fills with the download, and loops when the total is unknown or Squirrel has the zip. */
+function DownloadBar({ percent }: { percent: number | null }) {
+  if (percent === null || percent === 100) {
+    return (
+      <div className="wb-update-bar" aria-hidden="true">
+        <i />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="wb-update-bar"
+      role="progressbar"
+      aria-label="Update download"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+    >
+      <i className="is-fill" style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
 
 function Lines({ lines }: { lines: string[] }) {
   if (lines.length === 0) return null;
@@ -395,16 +445,16 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
     }
     const size = state.size ? <span className="wb-update-size">{formatSize(state.size)}</span> : null;
     if (state.phase === 'downloading') {
+      const detail = downloadDetail(state);
       return (
         <>
           <div className="wb-update-card-head">
-            <h3>Downloading {APP_NAME} {state.version}</h3>
-            {size}
+            <h3>{downloadTitle(state)}</h3>
+            {/* The card is a live region, so the changing number stays out of it. */}
+            {detail ? <span className="wb-update-size" aria-hidden={state.downloadPercent !== null}>{detail}</span> : null}
           </div>
           <p>Keep working. {APP_NAME} tells you when it’s ready.</p>
-          <div className="wb-update-bar" aria-hidden="true">
-            <i />
-          </div>
+          <DownloadBar percent={state.downloadPercent} />
           <div className="wb-update-actions">
             <button type="button" className="wb-update-link" onClick={collapse}>
               Hide

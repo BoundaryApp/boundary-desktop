@@ -23,7 +23,7 @@ function state(sharing: CircleSharing, overrides: Partial<CirclesState> = {}): C
     sharing,
     snapshot: {
       identity: 'f'.repeat(64),
-      circles: [{ key: A, name: 'Workshop', myRole: 'member', members: [], invites: [], offers: [] }],
+      circles: [{ key: A, name: 'Workshop', myRole: 'member', writable: true, members: [], invites: [], offers: [] }],
     },
     ...overrides,
   };

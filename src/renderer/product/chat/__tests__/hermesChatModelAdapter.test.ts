@@ -255,6 +255,7 @@ describe('createHermesChatModelAdapter', () => {
       success: true,
       requestId: 'req-2',
       sessionId: 'gateway-session',
+      storedSessionId: 'stored-session',
     });
 
     const onResolved = vi.fn();
@@ -278,7 +279,7 @@ describe('createHermesChatModelAdapter', () => {
       /* drain */
     }
 
-    expect(onResolved).toHaveBeenCalledWith('gateway-session');
+    expect(onResolved).toHaveBeenCalledWith('gateway-session', 'stored-session');
   });
 
   it('passes toolsEnabled false from getter', async () => {

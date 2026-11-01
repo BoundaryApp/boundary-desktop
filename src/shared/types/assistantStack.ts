@@ -1,4 +1,5 @@
 import type { StartupDownload } from '../startupDownload';
+import type { StartTiming } from '../startupTiming';
 import type { IpcResult } from '../ipc/result';
 export type AssistantStackIsolationMode = 'default-ports' | 'offset-ports';
 
@@ -130,4 +131,6 @@ export interface AssistantStackLifecycleSnapshot {
   error?: string;
   /** Image bytes pulled so far in this start (ADR 0029); absent until a pull reports sizes. */
   download?: StartupDownload;
+  /** This start's milestones and what earlier starts took (ADR 0029); set while starting. */
+  startTiming?: StartTiming;
 }

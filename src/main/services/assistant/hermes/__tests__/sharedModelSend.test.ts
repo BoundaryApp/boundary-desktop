@@ -3,6 +3,7 @@ import type { PeerModelRef } from '../../../../../shared/types/inferenceChain';
 import { clearLastAppliedLlm, setLastAppliedLlm } from '../../AssistantStackStore';
 import {
   clearOpenAiConfig,
+  dropAppEntries,
   saveLlmConnection,
   setAppDefault,
   setAppFallbacks,
@@ -24,7 +25,7 @@ vi.mock('../../../inference/inferenceRouterService', () => ({
   setInferenceRouterChain: (...args: unknown[]) => setInferenceRouterChain(...args),
 }));
 
-const circles = { offered: true, trusted: true, online: true, private: false };
+const circles = { joined: true, offered: true, trusted: true, online: true, private: false };
 vi.mock('../../../circles/circlesService', () => ({
   ensureCirclesStarted: async () => undefined,
   sharedModelFacts: () => ({
@@ -32,7 +33,7 @@ vi.mock('../../../circles/circlesService', () => ({
     identity: 'a'.repeat(64),
     providerName: (_peer: PeerModelRef) => 'Bo',
     providerOnline: () => circles.online,
-    circleJoined: () => true,
+    circleJoined: () => circles.joined,
     peerOffer: () => (circles.offered ? { 'qwen3-8b': { contextLength: 16_384 } } : null),
     providerTrusted: () => circles.trusted,
     providerPrivate: () => circles.private,
@@ -71,7 +72,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
     resetHermesAgentsStoreForTests();
     clearLastAppliedLlm();
     resetRunningTurnsForTests();
-    Object.assign(circles, { offered: true, trusted: true, online: true, private: false });
+    Object.assign(circles, { joined: true, offered: true, trusted: true, online: true, private: false });
     routerPushed = false;
     localStack = false;
     project = null;
@@ -88,6 +89,46 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
       providerDisplayName: "Bo's qwen3-8b",
       provenance: 'app-default',
       configured: true,
+    });
+  });
+
+  it('sends through a usable fallback when the first entry’s Circle is gone', async () => {
+    const openRouter = {
+      endpointUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-or-key',
+      modelId: 'anthropic/claude-sonnet-4',
+      provider: 'openrouter',
+    } as const;
+    await saveLlmConnection(openRouter);
+    expect((await setAppFallbacks([{ slot: 'openrouter' }])).success).toBe(true);
+    circles.joined = false;
+    expect((await ensureResolvedInferenceReady('s1')).ok).toBe(true);
+    expect(applyLlmConnectionToHermes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slot: 'peer',
+        plan: expect.objectContaining({
+          kind: 'routed',
+          chain: expect.objectContaining({
+            upstreams: { [`openrouter:`]: expect.objectContaining({ modelId: openRouter.modelId }) },
+          }),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it('says what to do when the first entry’s Circle is gone and nothing else can serve', async () => {
+    circles.joined = false;
+    const ready = await ensureResolvedInferenceReady('s1');
+    expect(ready).toMatchObject({ ok: false, error: expect.stringMatching(/no longer in the Circle.*pick another model in Settings/) });
+    expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
+  });
+
+  it('says where to choose a model once none is left', async () => {
+    dropAppEntries(() => true, () => false);
+    expect(await ensureResolvedInferenceReady('s1')).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/No model is chosen.*Connect a provider or choose a shared model in Settings/),
     });
   });
 

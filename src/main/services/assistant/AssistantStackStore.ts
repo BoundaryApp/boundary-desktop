@@ -8,6 +8,7 @@ import type {
   AssistantStackPorts,
   LastAppliedLlm,
 } from '../../../shared/types/assistantStack';
+import { START_HISTORY_RUNS, type StartKind, type StartOffsets } from '../../../shared/startupTiming';
 import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import { readStoreFromMemory } from '../storeMemoryCache';
 import { sameEndpoint } from '../../../shared/utils/endpointUrl';
@@ -18,6 +19,8 @@ interface AssistantStackStoreShape {
   ports: AssistantStackPorts;
   assistantRootOverride: string;
   lastAppliedLlm?: LastAppliedLlm;
+  /** Milestone offsets of the latest finished starts, newest last. Durations only. */
+  startRuns?: Partial<Record<StartKind, StartOffsets[]>>;
 }
 
 // Read from memory: every Hermes record lookup checks the root override here.
@@ -30,6 +33,17 @@ const store = readStoreFromMemory(new Store<AssistantStackStoreShape>({
     assistantRootOverride: '',
   },
 }));
+
+export function getStartRuns(kind: StartKind): StartOffsets[] {
+  return store.get('startRuns')?.[kind] ?? [];
+}
+
+export function recordStartRun(kind: StartKind, offsets: StartOffsets): void {
+  store.set('startRuns', {
+    ...store.get('startRuns'),
+    [kind]: [...getStartRuns(kind), offsets].slice(-START_HISTORY_RUNS),
+  });
+}
 
 export function isAssistantStackSetupComplete(): boolean {
   return Boolean(store.get('setupComplete'));

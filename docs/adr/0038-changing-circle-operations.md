@@ -2,7 +2,7 @@
 
 - Date: 2026-10-31
 - Status: Accepted
-- Related: [0032](0032-circles.md), [Autobase 7: builds that disagree](../circles-autobase-confirmation.md#builds-that-disagree)
+- Related: [0032](0032-circles.md), [0039](0039-shared-models-that-cant-serve.md), [Autobase 7: builds that disagree](../circles-autobase-confirmation.md#builds-that-disagree)
 
 ## Context
 
@@ -19,7 +19,7 @@ Interrupting on any unknown operation would let one member stop everyone by appe
 5. **A stopped Circle** stays open and readable at what it last applied, refuses writes, and says on the Circles screen that the app needs updating. The next launch on a newer build continues from the entry that stopped it.
 6. **An admin's device refuses a joiner** whose declared format is below the Circle's.
 7. **Dependency updates count.** `autobase` and `hyperbee` are pinned exactly, and updating either needs the same care, since view blocks and signatures must match between builds.
-8. **Circles from before this ADR are wiped once** at Circles start, keeping the identity, name, provider settings and sharing settings. Those builds skip what they don't know, and they have no format to raise.
+8. **Circles from before this ADR are wiped once** at Circles start, keeping the identity, name, provider settings and sharing settings. Models chosen from those Circles are cleared ([0039](0039-shared-models-that-cant-serve.md) §2). Those builds skip what they don't know, and they have no format to raise.
 
 No build moves a Circle's format yet; `CircleNetwork.setFormat` has no request or UI. The first change that needs format 2 decides when an admin's device sends it.
 

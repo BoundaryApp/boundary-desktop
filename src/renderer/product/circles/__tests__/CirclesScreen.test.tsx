@@ -13,6 +13,9 @@ const create = vi.fn();
 const join = vi.fn();
 const cancelJoin = vi.fn();
 const createInvite = vi.fn();
+const inviteHints = vi.fn();
+const inviteCode = vi.fn();
+const revokeInvite = vi.fn();
 const removeMember = vi.fn();
 const deleteCircle = vi.fn();
 const setRole = vi.fn();
@@ -33,6 +36,9 @@ stubElectronAPI({
     join: (...args: unknown[]) => join(...args),
     cancelJoin: (...args: unknown[]) => cancelJoin(...args),
     createInvite: (...args: unknown[]) => createInvite(...args),
+    inviteHints: (...args: unknown[]) => inviteHints(...args),
+    inviteCode: (...args: unknown[]) => inviteCode(...args),
+    revokeInvite: (...args: unknown[]) => revokeInvite(...args),
     removeMember: (...args: unknown[]) => removeMember(...args),
     delete: (...args: unknown[]) => deleteCircle(...args),
     setRole: (...args: unknown[]) => setRole(...args),
@@ -80,7 +86,7 @@ const withCircle = (myRole: 'admin' | 'member'): CirclesState => ({
         ],
         invites: [],
         offers: [],
-        needsUpdate: false,
+        needsUpdate: false, writable: true,
       },
     ],
   },
@@ -145,7 +151,7 @@ describe('CirclesScreen', () => {
     expect(await screen.findByRole('form', { name: 'Start a Circle' })).toBeTruthy();
   });
 
-  it('says joining waits for an admin, and shows a refusal', async () => {
+  it('says joining finishes on its own, and shows a refusal', async () => {
     getState.mockResolvedValue({ ...unnamed, displayName: 'Bo' });
     const named = { ...unnamed, displayName: 'Bo' };
     let answer!: (value: unknown) => void;
@@ -155,14 +161,16 @@ describe('CirclesScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join' }));
     expect(join).toHaveBeenCalledWith({ code: ' code ' });
     act(() => push.current?.({ ...named, join: { waiting: true } }));
-    expect(await screen.findByRole('heading', { name: 'Waiting for an admin' })).toBeTruthy();
-    expect(screen.getByRole('navigation', { name: 'Circles' }).textContent).toMatch(/Joining…/);
+    expect(await screen.findByRole('heading', { name: 'Joining the Circle' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Circles' }).textContent).toMatch(/Joining…Finishes when an admin is online/);
+    expect(screen.getByText(/finishes on its own once one of the Circle's admins has .+ open\. They don't need to do anything\./)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/let you in|Waiting for an admin/);
 
     // Main holds the join, so it's still there after leaving the destination.
     fireEvent.click(screen.getByRole('button', { name: 'Toggle destination' }));
     getState.mockResolvedValue({ ...named, join: { waiting: true } });
     fireEvent.click(screen.getByRole('button', { name: 'Toggle destination' }));
-    expect(await screen.findByRole('heading', { name: 'Waiting for an admin' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Joining the Circle' })).toBeTruthy();
 
     const refused = { ...named, join: { waiting: false, error: 'That invite has expired. Ask for a new one.' } };
     await act(async () => {
@@ -173,9 +181,66 @@ describe('CirclesScreen', () => {
     expect(screen.getByText('That invite has expired. Ask for a new one.')).toBeTruthy();
   });
 
+  describe('after admission', () => {
+    const KEY = 'c'.repeat(64);
+    const named = { ...unnamed, status: 'running' as const, displayName: 'Bo' };
+    const joined = (writable: boolean): CirclesState => {
+      const base = withCircle('member');
+      return { ...base, snapshot: { ...base.snapshot, circles: [{ ...base.snapshot.circles[0], writable }] } };
+    };
+    const startJoining = async () => {
+      getState.mockResolvedValue(named);
+      join.mockReturnValue(new Promise(() => undefined));
+      render(<Screen />);
+      fireEvent.change(await screen.findByLabelText('Invite code'), { target: { value: 'code' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+      act(() => push.current?.({ ...named, join: { waiting: true } }));
+      expect(await screen.findByRole('heading', { name: 'Joining the Circle' })).toBeTruthy();
+    };
+
+    it('opens the Circle at once, with a note and no way to cancel or write', async () => {
+      await startJoining();
+      // Admitted, with the Circle not in the list yet.
+      act(() => push.current?.({ ...named, finishingJoin: KEY }));
+      expect(screen.getByRole('heading', { name: 'Joining the Circle' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+      act(() => push.current?.({ ...joined(false), finishingJoin: KEY }));
+      const circle = await screen.findByRole('region', { name: 'Garden club' });
+      expect(screen.queryByRole('heading', { name: 'Joining the Circle' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      expect(within(circle).getByRole('status').textContent).toBe('Finishing joining');
+      expect((within(circle).getByRole('button', { name: 'Leave' }) as HTMLButtonElement).disabled).toBe(true);
+
+      act(() => push.current?.({ ...joined(true), finishingJoin: KEY }));
+      expect(within(circle).queryByRole('status')).toBeNull();
+      expect((within(circle).getByRole('button', { name: 'Leave' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('says what is true when the wait runs out', async () => {
+      await startJoining();
+      act(() => push.current?.({ ...joined(false), finishingJoin: KEY }));
+      const circle = await screen.findByRole('region', { name: 'Garden club' });
+      act(() => push.current?.(joined(false)));
+      expect(within(circle).getByRole('status').textContent).toMatch(/taking longer than usual\. You can read this Circle now/);
+    });
+
+    it('leaves someone who went elsewhere where they are', async () => {
+      const before = joined(true);
+      const [first] = before.snapshot.circles;
+      getState.mockResolvedValue(before);
+      render(<Screen />);
+      await screen.findByRole('region', { name: 'Garden club' });
+      const second = { ...first, key: 'd'.repeat(64), name: 'Book group', writable: false };
+      act(() => push.current?.({ ...before, snapshot: { ...before.snapshot, circles: [first, second] }, finishingJoin: second.key }));
+      expect(await screen.findByRole('region', { name: 'Garden club' })).toBeTruthy();
+      expect(screen.queryByRole('region', { name: 'Book group' })).toBeNull();
+    });
+  });
+
   it('lets an admin invite, change roles and remove, saying removal is forward-only', async () => {
     getState.mockResolvedValue(withCircle('admin'));
-    createInvite.mockResolvedValue({ success: true, state: withCircle('admin'), invite: { id: 'f'.repeat(64), code: 'yry-code', expires: Date.now() + 7 * 86_400_000 } });
+    createInvite.mockResolvedValue({ success: true, state: withCircle('admin'), invite: { id: 'f'.repeat(64), code: 'yry-code', expires: Date.now() + 7 * 86_400_000, kept: true, stillOpen: 0 } });
     removeMember.mockResolvedValue({ success: true, state: withCircle('admin') });
     render(<Screen />);
     const circle = await screen.findByRole('region', { name: 'Garden club' });
@@ -187,7 +252,7 @@ describe('CirclesScreen', () => {
     fireEvent.click(within(invite).getByRole('button', { name: 'Create code' }));
     expect((await within(invite).findByLabelText('Invite code')).textContent).toBe('yry-code');
     expect(createInvite).toHaveBeenCalledWith({ key: 'c'.repeat(64), label: 'Sam' });
-    expect(within(invite).getByText(/can't be shown again/)).toBeTruthy();
+    expect(within(invite).getByText(/Copy it again from the list below/)).toBeTruthy();
     fireEvent.click(within(invite).getByRole('button', { name: 'Done' }));
 
     expect(within(circle).queryByRole('button', { name: 'Make admin' })).toBeNull();
@@ -231,7 +296,7 @@ describe('CirclesScreen', () => {
     const state = withCircle('admin');
     const id = 'f'.repeat(64);
     getState.mockResolvedValue(state);
-    createInvite.mockResolvedValue({ success: true, state, invite: { id, code: 'yry-code', expires: Date.now() + 86_400_000 } });
+    createInvite.mockResolvedValue({ success: true, state, invite: { id, code: 'yry-code', expires: Date.now() + 86_400_000, kept: true, stillOpen: 0 } });
     render(<Screen />);
     const circle = await screen.findByRole('region', { name: 'Garden club' });
     fireEvent.click(within(circle).getByRole('button', { name: 'Invite someone' }));
@@ -276,6 +341,107 @@ describe('CirclesScreen', () => {
     const sheet = screen.getByRole('dialog', { name: 'Invite to Garden club' });
     expect(within(sheet).getByText(/when they use it: you or Bo/)).toBeTruthy();
     expect(within(within(sheet).getByRole('list', { name: 'Open invites' })).getByText('For Sam')).toBeTruthy();
+  });
+
+  describe('open invites', () => {
+    const CODE = 'yrb7ei1ng-the-rest-of-the-code';
+    const KEY = 'c'.repeat(64);
+    const mine = 'f'.repeat(64);
+    const theirs = 'e'.repeat(64);
+    const open = (id: string) => ({ id, expires: Date.now() + 2 * 86_400_000, revoked: false, used: false });
+    const stateWith = (patch: Partial<CirclesState>, ids = [mine, theirs]): CirclesState => {
+      const base = withCircle('admin');
+      return {
+        ...base,
+        ...patch,
+        snapshot: { ...base.snapshot, circles: [{ ...base.snapshot.circles[0], invites: ids.map(open) }] },
+      };
+    };
+
+    async function openSheet(state: CirclesState) {
+      getState.mockResolvedValue(state);
+      inviteHints.mockResolvedValue({ success: true, state, hints: { [mine]: CODE.slice(0, 9) } });
+      inviteCode.mockResolvedValue({ success: true, state, code: CODE });
+      render(<Screen />);
+      const circle = await screen.findByRole('region', { name: 'Garden club' });
+      fireEvent.click(within(circle).getByRole('button', { name: 'Manage' }));
+      return { circle, sheet: screen.getByRole('dialog', { name: 'Invite to Garden club' }) };
+    }
+
+    it('shows a kept code masked until Show, and others without controls', async () => {
+      const { circle, sheet } = await openSheet(stateWith({ inviteLabels: { [mine]: 'Sam' }, inviteCodeIds: [mine] }));
+      const list = within(sheet).getByRole('list', { name: 'Open invites' });
+      const row = (await within(list).findByText('For Sam · yrb7ei1ng…')).closest('li')!;
+      expect(within(circle).getByText(/For Sam · yrb7ei1ng…/)).toBeTruthy();
+      expect(inviteHints).toHaveBeenCalledWith({ key: KEY });
+      expect(inviteCode).not.toHaveBeenCalled();
+      expect(sheet.textContent).not.toContain(CODE);
+
+      const other = within(list).getByText(`Invite ${theirs.slice(0, 6)}`).closest('li')!;
+      expect(within(other).queryByRole('button', { name: 'Show' })).toBeNull();
+      expect(within(other).queryByRole('button', { name: 'Copy' })).toBeNull();
+      expect(within(other).getByRole('button', { name: 'Revoke' })).toBeTruthy();
+
+      fireEvent.click(within(row).getByRole('button', { name: 'Show' }));
+      expect(await within(row).findByText(CODE)).toBeTruthy();
+      expect(inviteCode).toHaveBeenCalledWith({ key: KEY, inviteId: mine });
+      fireEvent.click(within(row).getByRole('button', { name: 'Hide' }));
+      expect(within(row).queryByText(CODE)).toBeNull();
+    });
+
+    it('copies a kept code without showing it', async () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+      const { sheet } = await openSheet(stateWith({ inviteCodeIds: [mine] }, [mine]));
+      const row = (await within(sheet).findByText('Invite yrb7ei1ng…')).closest('li')!;
+      fireEvent.click(within(row).getByRole('button', { name: 'Copy' }));
+      expect(await within(row).findByRole('button', { name: 'Copied' })).toBeTruthy();
+      expect(writeText).toHaveBeenCalledWith(CODE);
+      expect(row.textContent).not.toContain(CODE);
+      vi.unstubAllGlobals();
+    });
+
+    it('fetches no codes when this device keeps none', async () => {
+      const { sheet } = await openSheet(stateWith({}, [theirs]));
+      expect(within(sheet).getByText(`Invite ${theirs.slice(0, 6)}`)).toBeTruthy();
+      expect(inviteHints).not.toHaveBeenCalled();
+    });
+
+    it('says before creating that a name replaces an open code', async () => {
+      const { sheet } = await openSheet(stateWith({ inviteLabels: { [mine]: 'Sam' }, inviteCodeIds: [mine] }));
+      const name = within(sheet).getByLabelText('Who is it for?');
+      expect(within(sheet).queryByText(/Replaces/)).toBeNull();
+      fireEvent.change(name, { target: { value: ' sAM ' } });
+      expect(within(sheet).getByText(/Replaces the open code for Sam\./)).toBeTruthy();
+      expect(within(sheet).getByText(/stops working once an admin's device has seen the change/)).toBeTruthy();
+      fireEvent.change(name, { target: { value: 'Samuel' } });
+      expect(within(sheet).queryByText(/Replaces/)).toBeNull();
+    });
+
+    it('warns when the earlier code stayed open, and when this Mac couldn’t keep the new one', async () => {
+      const state = stateWith({ inviteCodeIds: [] }, []);
+      getState.mockResolvedValue(state);
+      createInvite.mockResolvedValue({ success: true, state, invite: { id: mine, code: CODE, expires: Date.now() + 86_400_000, kept: false, stillOpen: 1 } });
+      render(<Screen />);
+      const circle = await screen.findByRole('region', { name: 'Garden club' });
+      fireEvent.click(within(circle).getByRole('button', { name: 'Invite someone' }));
+      const sheet = screen.getByRole('dialog', { name: 'Invite to Garden club' });
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Create code' }));
+      expect(await within(sheet).findByText(/couldn’t keep the code/)).toBeTruthy();
+      expect(within(sheet).getByText(/earlier code for this name is still open/)).toBeTruthy();
+    });
+
+    it('puts a kept code back behind Show when the sheet closes', async () => {
+      const state = stateWith({ inviteCodeIds: [mine], inviteLabels: { [mine]: 'Sam' } });
+      createInvite.mockResolvedValue({ success: true, state, invite: { id: theirs, code: 'fresh-code', expires: Date.now() + 86_400_000, kept: true, stillOpen: 0 } });
+      const { circle, sheet } = await openSheet(state);
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Create code' }));
+      await within(sheet).findByLabelText('Invite code');
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+      fireEvent.click(within(circle).getByRole('button', { name: 'Manage' }));
+      const reopened = screen.getByRole('dialog', { name: 'Invite to Garden club' });
+      expect(within(reopened).queryByLabelText('Invite code')).toBeNull();
+    });
   });
 
   it('gives a member no admin controls', async () => {
@@ -541,11 +707,10 @@ describe('CirclesScreen', () => {
       expect(await screen.findByRole('region', { name: 'Book group' })).toBeTruthy();
     });
 
-    it('moves a join to its own page, cancels it, and opens the Circle when it succeeds', async () => {
+    it('moves a join to its own page, cancels it, and opens the Circle at admission', async () => {
       const state = withCircle('member');
       getState.mockResolvedValue(state);
-      let answer!: (value: unknown) => void;
-      join.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      join.mockReturnValue(new Promise(() => undefined));
       cancelJoin.mockResolvedValue({ success: true, state });
       render(<Screen />);
       await screen.findByRole('region', { name: 'Garden club' });
@@ -559,10 +724,9 @@ describe('CirclesScreen', () => {
       expect(cancelJoin).toHaveBeenCalled();
 
       const [first] = state.snapshot.circles;
-      const joined = { ...state, join: null, snapshot: { ...state.snapshot, circles: [first, { ...first, key: second, name: 'Book group' }] } };
+      const joined = { ...state, join: null, finishingJoin: second, snapshot: { ...state.snapshot, circles: [first, { ...first, key: second, name: 'Book group' }] } };
       await act(async () => {
         push.current?.(joined);
-        answer({ success: true, state: joined, key: second });
       });
       expect(await screen.findByRole('region', { name: 'Book group' })).toBeTruthy();
     });

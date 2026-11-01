@@ -102,7 +102,7 @@ describe('stopAssistantStack cleanup', () => {
     runCli.mockResolvedValue({ stdout: '', stderr: '' });
   });
 
-  it('runs down with --volumes and --remove-orphans (no --rmi)', async () => {
+  it('stops the containers and keeps them, their volumes and their images', async () => {
     const { stopAssistantStack, __test } = await import('../AssistantStackService');
     __test.resetLifecycle();
 
@@ -111,28 +111,20 @@ describe('stopAssistantStack cleanup', () => {
 
     expect(runComposeStreaming).toHaveBeenCalled();
     const args = runComposeStreaming.mock.calls[0][1] as string[];
-    expect(args).toContain('down');
-    expect(args).toContain('--volumes');
-    expect(args).toContain('--remove-orphans');
+    expect(args).toContain('stop');
     expect(args).toContain('--progress');
     expect(args).toContain('json');
+    expect(args).not.toContain('down');
+    expect(args).not.toContain('--volumes');
     expect(args).not.toContain('--rmi');
-    expect(args).not.toContain('rmi');
 
-    expect(runCli).toHaveBeenCalled();
-    const pruneArgs = runCli.mock.calls[0][1] as string[];
-    expect(pruneArgs).toEqual([
-      'volume',
-      'prune',
-      '--filter',
-      'label=com.docker.compose.project=boundary-assistant',
-      '-f',
-    ]);
+    // A volume prune would delete the named volumes on Podman.
+    expect(runCli).not.toHaveBeenCalled();
 
     expect(__test.getLifecycleSnapshot().phase).toBe('stopped');
   });
 
-  it('skips compose down in local-stack mode', async () => {
+  it('skips compose stop in local-stack mode', async () => {
     isLocalAssistantStackMode.mockReturnValue(true);
     const { stopAssistantStack, __test } = await import('../AssistantStackService');
     __test.resetLifecycle();

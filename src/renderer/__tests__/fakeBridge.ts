@@ -239,6 +239,7 @@ function idleMain(bridge: FakeBridge): BridgeLeaves {
       onApprovalCleared: bridge.listen('host-bridge:approval-cleared'),
       listPendingApprovals: async () => [],
       getToolsState: async () => 'off' as const,
+      reportScreen: async () => undefined,
       onToolsState: bridge.listen('host-bridge:tools-state'),
     },
     codingFolders: {

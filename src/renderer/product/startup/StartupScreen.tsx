@@ -24,13 +24,16 @@ import { Stepper, type StepperStep } from '../../components/ui/stepper';
 import { ServiceProgressCards } from '../ServiceProgressCards';
 import { describeStartupError } from '../../../shared/startupErrors';
 import type { StartupDownload } from '../../../shared/startupDownload';
+import type { StartTiming } from '../../../shared/startupTiming';
 import { formatBytes } from '../../../shared/utils/format';
 import {
   SLOW_STAGE_MS,
   STARTUP_TOOLS,
   slowStageHint,
   stageCopy,
+  startupEstimate,
   startupProgress,
+  toolFill,
   toolState,
   type StartupToolId,
   type StartupToolState,
@@ -67,6 +70,8 @@ export interface StartupScreenProps {
   services: AssistantStackServiceProgress[];
   /** Image bytes pulled so far (lifecycle snapshot). */
   download?: StartupDownload;
+  /** This start's milestones and what earlier starts took (lifecycle snapshot). */
+  startTiming?: StartTiming;
   error?: string | null;
   onRetry?: () => void;
   retrying?: boolean;
@@ -101,6 +106,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
   message,
   services,
   download,
+  startTiming,
   error,
   onRetry,
   retrying = false,
@@ -124,6 +130,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
   const msInStage = now - (stageStartedAt ?? stageSeenAt.current.at);
   const highWater = useRef(0);
+  const toolHighWater = useRef<number[]>([]);
   // Leaving the error state is a new start; main resets its progress there too (a wave
   // boundary), so the bar and the download rate start again instead of at the failed peak.
   const attempt = useRef({ failed: isError, count: 0 });
@@ -131,10 +138,11 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
     if (attempt.current.failed) {
       attempt.current.count += 1;
       highWater.current = 0;
+      toolHighWater.current = [];
     }
     attempt.current.failed = isError;
   }
-  highWater.current = Math.max(highWater.current, startupProgress(stage, services, msInStage));
+  highWater.current = Math.max(highWater.current, startupProgress(stage, startTiming, now));
   const pct = Math.round(highWater.current * 100);
 
   const showStory =
@@ -157,6 +165,11 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
   }, [isError]);
 
   const states = STARTUP_TOOLS.map((tool) => toolState(tool, services));
+  if (startTiming) {
+    toolHighWater.current = STARTUP_TOOLS.map((tool, index) =>
+      Math.max(toolHighWater.current[index] ?? 0, toolFill(tool, services, startTiming, now))
+    );
+  }
   const highlighted = showStory ? card : -1;
   const lookAt = highlighted >= 0 ? highlighted : states.findIndex((s) => s === 'working');
 
@@ -170,7 +183,20 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
         : 'Starting your assistant';
   const stageLine = failure ? failure.body : stageCopy(stage, variant);
   const downloading = useDownloadLine(download, now, !isError && !isReady, attempt.current.count);
-  const slow = !isError && !isReady && !downloading && msInStage >= SLOW_STAGE_MS;
+  const heldEstimate = useRef<{ key: string; minutes?: number }>({ key: '' });
+  const estimateKey = `${attempt.current.count}:${startTiming?.kind}`;
+  if (heldEstimate.current.key !== estimateKey) heldEstimate.current = { key: estimateKey };
+  const estimate =
+    startTiming && !isError && !isReady
+      ? startupEstimate(startTiming, now, heldEstimate.current.minutes)
+      : null;
+  if (estimate?.minutes !== undefined) heldEstimate.current.minutes = estimate.minutes;
+  const slow =
+    !isError &&
+    !isReady &&
+    !downloading &&
+    msInStage >= SLOW_STAGE_MS &&
+    (!estimate || Boolean(estimate.unknown));
 
   return (
     <div
@@ -186,6 +212,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
       <div className="su-column">
         <ToolRing
           states={states}
+          fills={startTiming && !isError ? toolHighWater.current : undefined}
           highlighted={highlighted}
           lookAt={lookAt}
           mood={isError ? 'error' : isReady ? 'ready' : 'working'}
@@ -201,6 +228,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
             </p>
             {downloading && <p className="su-hint">{downloading}</p>}
             {slow && <p className="su-hint">{slowStageHint(stage)}</p>}
+            {estimate && !downloading && !slow && <p className="su-hint">{estimate.text}</p>}
           </div>
 
           {!isError && (
@@ -411,13 +439,15 @@ const START_WORDS: Record<StartupToolState, string> = {
 
 export const ToolRing: React.FC<{
   states: StartupToolState[];
+  /** Each tile's outline fill, 0 to 1. Without it a working tile shows a travelling arc. */
+  fills?: number[];
   highlighted: number;
   lookAt: number;
   mood: Mood;
   onPick?: (index: number) => void;
   /** Screen-reader word for each tile state. */
   words?: Record<StartupToolState, string>;
-}> = ({ states, highlighted, lookAt, mood, onPick, words = START_WORDS }) => {
+}> = ({ states, fills, highlighted, lookAt, mood, onPick, words = START_WORDS }) => {
   const step = 360 / STARTUP_TOOLS.length;
   return (
     <div className="su-ring">
@@ -430,9 +460,13 @@ export const ToolRing: React.FC<{
           const Icon = TOOL_ICONS[tool.id];
           const state = states[index];
           const label = `${tool.label}: ${words[state]}`;
+          const fill = fills?.[index];
           const box = (
             <span className="su-tile-box">
               <Icon aria-hidden="true" />
+              {fill !== undefined && (state === 'pending' || state === 'working') && (
+                <TileFill fill={fill} />
+              )}
             </span>
           );
           return (
@@ -440,6 +474,7 @@ export const ToolRing: React.FC<{
               key={tool.id}
               className="su-tile"
               data-state={state}
+              data-filled={fill !== undefined || undefined}
               data-highlighted={index === highlighted || undefined}
               style={{ '--a': `${index * step}deg` } as React.CSSProperties}
             >
@@ -467,6 +502,17 @@ export const ToolRing: React.FC<{
     </div>
   );
 };
+
+/** The tile's outline as a progress bar, running clockwise from the top. */
+const TileFill: React.FC<{ fill: number }> = ({ fill }) => (
+  <svg className="su-tile-fill" viewBox="0 0 44 44" aria-hidden="true">
+    <path
+      d="M22 .75H31.25A12 12 0 0 1 43.25 12.75V31.25A12 12 0 0 1 31.25 43.25H12.75A12 12 0 0 1 .75 31.25V12.75A12 12 0 0 1 12.75 .75H22"
+      pathLength={100}
+      style={{ strokeDasharray: `${fill * 100} 100` }}
+    />
+  </svg>
+);
 
 /** An experiment's figure when one draws the ring's centre, otherwise the face. */
 const Figure: React.FC<{ mood: Mood; angle: number | null }> = (props) => {

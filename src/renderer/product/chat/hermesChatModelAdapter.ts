@@ -67,7 +67,7 @@ function messageText(content: unknown): string {
 export function createHermesChatModelAdapter(
   getSessionId: () => string | null,
   opts?: {
-    onSessionResolved?: (sessionId: string) => void;
+    onSessionResolved?: (sessionId: string, storedId?: string) => void;
     getToolsEnabled?: () => boolean;
     getAgentSlug?: () => string | null;
     onLocalUnreachable?: () => void;
@@ -217,7 +217,7 @@ export function createHermesChatModelAdapter(
         stopListening();
         settle('');
         // Main keeps a failed send as a chat, so a first send has an id here too.
-        if (start.sessionId) opts?.onSessionResolved?.(start.sessionId);
+        if (start.sessionId) opts?.onSessionResolved?.(start.sessionId, start.storedSessionId);
         if (start.errorCode === 'rewind-unsupported') serverPath?.setRewindable(false);
         // The transcript says what happened; its Retry sends this message again.
         const unreachableNote = {
@@ -245,7 +245,7 @@ export function createHermesChatModelAdapter(
       }
 
       if (start.sessionId) {
-        opts?.onSessionResolved?.(start.sessionId);
+        opts?.onSessionResolved?.(start.sessionId, start.storedSessionId);
       }
 
       if (start.posted) {

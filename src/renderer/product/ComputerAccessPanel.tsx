@@ -24,6 +24,8 @@ export function describeGrant(grant: HostBridgeGrant): { label: string; detail: 
       return { label: `Open ${grant.resource} pages in your browser`, detail: null };
     case 'clipboard_write':
       return { label: 'Replace your clipboard', detail: null };
+    case 'app_diagnostics':
+      return { label: 'Read recent app errors', detail: null };
     case 'read_file':
       return { label: `Read ${basename(grant.resource)}`, detail: grant.resource };
     default:
