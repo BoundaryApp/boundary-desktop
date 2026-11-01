@@ -4,6 +4,7 @@ import type { ToolCallResult } from './mcpProtocol';
 /** Which conditional tools `tools/list` includes (`listedHostTools`). */
 export interface HostToolListing {
   offerCalendarSetup: boolean;
+  agentAppAccess: boolean;
 }
 
 /**

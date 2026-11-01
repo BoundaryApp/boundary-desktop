@@ -57,6 +57,7 @@ vi.mock('../hermesSessionsChanged', () => ({
 }));
 
 import {
+  createHermesChat,
   deleteHermesFailedChat,
   getHermesChatHistory,
   listHermesChatThreads,
@@ -398,5 +399,83 @@ describe('sending again from a failed chat', () => {
     deleteHermesFailedChat(id);
     expect(getFailedChat(id)).toBeNull();
     expect(await listed()).toEqual([]);
+  });
+});
+
+/**
+ * Per Hermes's `_resume_locate`: session.resume finds a stored key, whether its session is live
+ * or was minted and never written. It answers 4007 for a runtime id, which it never stores.
+ */
+describe('a refused send in a chat made by New chat', () => {
+  const runtimeId = 'a1b2c3d4';
+  const storedId = '20261101_100000_abc123';
+  const refused = { ok: false, error: 'No model answered.', errorCode: 'provider-unreachable' };
+
+  async function refusedChat() {
+    createSessionWithSeed.mockResolvedValueOnce(runtimeId);
+    storedIds.set(runtimeId, storedId);
+    setStoredSessionAlias(runtimeId, storedId);
+    resumeSession.mockImplementation(async (id: string) => {
+      if (id === storedId) return { sessionId: runtimeId, messages: [] };
+      throw new Error('session not found');
+    });
+    const { thread } = await createHermesChat();
+    ensureResolvedInferenceReady.mockResolvedValueOnce(refused);
+    const result = await send('Plan my week', { sessionId: thread!.id });
+    expect(result).toMatchObject({ sessionId: runtimeId, storedSessionId: storedId });
+    createSessionWithSeed.mockClear();
+  }
+  const rows = async () => (await listed()).map((t) => [t.id, t.title]);
+
+  it('lists the one chat, titled from the message', async () => {
+    await refusedChat();
+    expect(await rows()).toEqual([[storedId, 'Plan my week']]);
+  });
+
+  it('retries in the live session, leaving one row through a relaunch', async () => {
+    await refusedChat();
+    // The open screen's runtime believes Hermes holds the turn, so its Retry is a rewind.
+    const rewind = { userOrdinal: 0, expectedText: 'Plan my week' };
+    const result = await send('Plan my week', { sessionId: runtimeId, rewind });
+    expect(result).toMatchObject({ success: true, sessionId: runtimeId, storedSessionId: storedId });
+    expect(createSessionWithSeed).not.toHaveBeenCalled();
+    expect(await rows()).toEqual([[storedId, 'Plan my week']]);
+    await turnSubmitted();
+    expect(submitPrompt.mock.calls[0]?.[0]).toBe(runtimeId);
+    finishTurn(runtimeId);
+
+    listSessions.mockResolvedValue([{ id: storedId, title: 'New chat', source: 'boundary' }]);
+    expect(await rows()).toEqual([[storedId, 'Plan my week']]);
+    expect(getFailedChat(storedId)?.turns).toHaveLength(1);
+
+    vi.resetModules();
+    const relaunched = await import('../hermesChatSessions');
+    const threads = (await relaunched.listHermesChatThreads()).threads;
+    expect(threads.map((t) => [t.id, t.title])).toEqual([[storedId, 'Plan my week']]);
+  });
+
+  it('follows the session to a new runtime id when Hermes restarted before the Retry', async () => {
+    await refusedChat();
+    storedIds.set('e5f6a7b8', storedId);
+    setStoredSessionAlias('e5f6a7b8', storedId);
+    resumeSession.mockImplementation(async (id: string) => {
+      if (id === storedId) return { sessionId: 'e5f6a7b8', messages: [] };
+      throw new Error('session not found');
+    });
+    const result = await send('Plan my week', { sessionId: runtimeId, retry: true });
+    expect(result).toMatchObject({ success: true, sessionId: 'e5f6a7b8', storedSessionId: storedId });
+    expect(createSessionWithSeed).not.toHaveBeenCalled();
+    expect(await rows()).toEqual([[storedId, 'Plan my week']]);
+  });
+
+  it('strands no New chat row when Hermes has lost the session too', async () => {
+    await refusedChat();
+    resumeSession.mockRejectedValue(new Error('session not found'));
+    createSessionWithSeed.mockResolvedValueOnce('run-next');
+    storedIds.set('run-next', 'stored-next');
+    setStoredSessionAlias('run-next', 'stored-next');
+    const result = await send('Plan my week', { sessionId: runtimeId, retry: true });
+    expect(result).toMatchObject({ sessionId: 'run-next', storedSessionId: 'stored-next' });
+    expect(await rows()).toEqual([['stored-next', 'Plan my week']]);
   });
 });

@@ -3,6 +3,7 @@
 - Date: 2026-10-29
 - Status: Accepted
 - Parent: [0032](0032-circles.md)
+- Amended by: [0039](0039-shared-models-that-cant-serve.md) §1 (§3: an untrusted provider's models are skipped)
 - Related: [0006](0006-tool-approval-interrupt.md) (approval interrupt), [0033](0033-inference-chains.md), [0035](0035-turn-admission-and-model-gate.md) (proposed: a provider's own work goes ahead of members' requests), [circles plan](../circles-plan.md)
 
 ## Context
@@ -19,7 +20,7 @@ Local model servers often serve one request at a time, and the provider knows th
 2. **The provider's gateway forwards a narrow API.** A Protomux `inference` channel accepts requests only from current members' device keys. It forwards `GET /v1/models` and `POST /v1/chat/completions` to the local server and nothing else, so pull, delete and load endpoints are never reachable. It only serves models listed in the offer, queues requests in order, and streams replies back.
 3. **Private and trusted are two separate settings, set by the consumer for each provider.**
    - **Private** means "I accept that this person can read my prompts." It lets a provider's models serve privacy-locked projects ([0033](0033-inference-chains.md) §4). It is off by default, so a shared model counts as cloud.
-   - **Trusted** means "I accept that this person's model can run my agent's tools." Without it, every tool call with side effects in a turn served by that provider goes through the approval interrupt ([0006](0006-tool-approval-interrupt.md)), whatever the session's approval mode.
+   - **Trusted** means "I accept that this person's model can run my agent's tools." Without it, the provider's models are skipped at every position in a chain, so they serve no turn ([0039](0039-shared-models-that-cant-serve.md) §1). This ADR first had those turns run with every side-effecting tool call going through the approval interrupt ([0006](0006-tool-approval-interrupt.md)). Hermes can't do that until change request [0015](../change-requests/0015-untrusted-reply-approvals.md) ships.
 
    Both settings attach to the provider's identity, not the Circle, so one person sharing in two Circles has one pair of settings. Neither can be verified, and the UI states each one as the claim it is.
 4. **Away mode.** A provider can mark their models available while they are away. Boundary then holds a power-save blocker so the Mac doesn't sleep. Away mode only works while Boundary is open, and the setting says so.
@@ -28,12 +29,13 @@ Local model servers often serve one request at a time, and the provider knows th
    - Counts stay on those two machines and never go to the Circle's log, so members can't see each other's usage.
    - A provider sees every member's totals; a member sees only their own.
    - Quotas are off by default. A provider can set requests per day, tokens per day and concurrent requests, for everyone or per member. Quotas count per identity across all Circles.
-   - Over quota, the gateway answers 429 before any reply starts, which the router treats as a reason to fall back ([0033](0033-inference-chains.md) §6). An offer includes each member's remaining quota so the router can skip a model that's used up.
+   - Over quota, the gateway answers 429 before any reply starts, which the router treats as a reason to fall back ([0033](0033-inference-chains.md) §6). Offers don't carry remaining quota: they live in the Circle's log, where every member could read it. The cost is one round trip to the provider for each turn while a member is over.
+   - Daily quotas start over at midnight on the provider's Mac. A limit set for one member replaces the limit for everyone.
 6. **No prompt content leaves the request path.** The gateway logs metadata only: member identity, model, token counts, status and timings.
 
 ## Consequences
 
 - Sharing a model is the user's decision to run a service for their Circle. Settings shows the queue, usage by member, and a stop button.
-- An untrusted provider's turns ask for more approvals. That cost is intended.
+- A provider's models serve nobody until that member trusts them, as a fallback too.
 - A provider who leaves a Circle, or whose offer is withdrawn, becomes a stale chain entry for consumers ([0033](0033-inference-chains.md) §10).
 - Embeddings are not shared in this decision. LightRAG keeps using the consumer's own embedding route.

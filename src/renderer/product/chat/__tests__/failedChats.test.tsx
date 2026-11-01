@@ -26,6 +26,8 @@ const ipc = vi.hoisted(() => ({
   error: new Set<(e: Record<string, unknown>) => void>(),
   getHistory: null as unknown as ReturnType<typeof vi.fn>,
   startChat: null as unknown as ReturnType<typeof vi.fn>,
+  listThreads: null as unknown as ReturnType<typeof vi.fn>,
+  sessionsChanged: new Set<() => void>(),
 }));
 
 /**
@@ -46,6 +48,12 @@ stubElectronAPI({
   hermesChat: {
     getHistory: ipcCalls.track((...args: unknown[]) => ipc.getHistory(...args)),
     startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
+    listThreads: ipcCalls.track((...args: unknown[]) => ipc.listThreads(...args)),
+    listMentions: ipcCalls.track(async () => ({ success: true, mentions: [] })),
+    onSessionsChanged: (cb: () => void) => {
+      ipc.sessionsChanged.add(cb);
+      return () => ipc.sessionsChanged.delete(cb);
+    },
     cancelChat: vi.fn(),
     onChatChunk: on(ipc.chunk as Set<Listener>),
     onChatEnd: on(ipc.end as Set<Listener>),
@@ -60,6 +68,12 @@ stubElectronAPI({
   projects: {
     completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
   },
+  agents: {
+    list: ipcCalls.track(async () => ({ success: true, agents: [], standingDmByAgent: {} })),
+  },
+  channels: {
+    list: ipcCalls.track(async () => ({ success: true, channels: [], lastOpened: null })),
+  },
 });
 
 vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
@@ -67,6 +81,8 @@ vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
 
 import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
+import { useChatIds } from '../useChatIds';
+import { useChatLists } from '../useChatLists';
 
 const Chat: React.FC<{ initialId?: string | null }> = ({ initialId = null }) => {
   const [id, setId] = useState<string | null>(initialId);
@@ -268,5 +284,188 @@ describe('a chat whose send failed', () => {
     await ipcCalls.settle();
     const note = screen.getByText(ERROR).closest('.wb-turn-note') as HTMLElement;
     expect(within(note).queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+});
+
+/** The rail and open chat, on the hooks WorkbenchChatScreen keeps them in. */
+const Screen: React.FC = () => {
+  const ids = useChatIds(null);
+  const lists = useChatLists(null, ids);
+  const { adoptResolvedId } = ids;
+  const { renameThread } = lists;
+  const resolved = useCallback(
+    (id: string, storedId?: string) => adoptResolvedId(id, renameThread, storedId),
+    [adoptResolvedId, renameThread]
+  );
+  return (
+    <>
+      <nav aria-label="Chats">
+        {lists.threads.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            aria-current={ids.sameChat(t.id, ids.activeThreadId) ? 'true' : undefined}
+            onClick={() => ids.setActiveThreadId(t.id)}
+          >
+            {t.title}
+          </button>
+        ))}
+      </nav>
+      <HermesChatRuntimeProvider
+        sessionId={ids.activeThreadId}
+        onSessionResolved={resolved}
+        sameChat={ids.sameChat}
+      >
+        <WorkbenchThread
+          sessionId={ids.activeThreadId}
+          sameChat={ids.sameChat}
+          threadTitle="Chat"
+          activeProject={null}
+          projects={[]}
+          activeProjectId={null}
+          toolsEnabled
+          onToolsEnabledChange={noop}
+          onSelectProject={noop}
+          onClearProject={noop}
+          onNewProject={noop}
+          onCreateAgentFromDraft={noop}
+          onEditAgentDraft={noop}
+        />
+      </HermesChatRuntimeProvider>
+    </>
+  );
+};
+
+/**
+ * What main answers for a refused send and its Retry, per hermesFailedChats.test.ts: results carry
+ * the runtime id and the stored id, and the list holds the stored id, titled from the message.
+ */
+describe('retrying a refused send in the open chat', () => {
+  const REFUSED = 'The default shared model is offline.';
+  const row = (id: string, title = 'Plan my week') => ({ id, title, kind: 'hermes' as const });
+  const started = (result: Record<string, unknown>) =>
+    ipc.startChat.mockImplementationOnce(async ({ requestId }: { requestId: string }) => ({
+      requestId,
+      ...result,
+    }));
+  const refused = (sessionId: string, storedSessionId: string) => ({
+    success: false,
+    sessionId,
+    storedSessionId,
+    errorCode: 'provider-unreachable',
+    error: REFUSED,
+  });
+  const listing = (...threads: ReturnType<typeof row>[]) =>
+    ipc.listThreads.mockResolvedValue({ success: true, threads });
+
+  /** Main says sessions changed; the rail lists again once the burst settles. */
+  async function sessionsChanged() {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await act(async () => {
+      for (const cb of ipc.sessionsChanged) cb();
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    vi.useRealTimers();
+    await ipcCalls.settle();
+  }
+
+  const rail = () => within(screen.getByRole('navigation', { name: 'Chats' }));
+  const expectOneActiveRow = () => {
+    const rows = rail().getAllByRole('button');
+    expect(rows.map((b) => b.textContent)).toEqual(['Plan my week']);
+    expect(rows[0]!.getAttribute('aria-current')).toBe('true');
+  };
+
+  async function retry(result: Record<string, unknown>) {
+    started(result);
+    ipc.getHistory.mockClear();
+    const note = screen.getByText(REFUSED).closest('.wb-turn-note') as HTMLElement;
+    await act(async () => fireEvent.click(within(note).getByRole('button', { name: 'Retry' })));
+    await ipcCalls.settle();
+  }
+
+  async function refusedInNewChat() {
+    listing(row('stored-1', 'New chat'));
+    render(<Screen />);
+    await ipcCalls.settle();
+    started(refused('run-1', 'stored-1'));
+    await sendMessage('Plan my week');
+    listing(row('stored-1'));
+    await sessionsChanged();
+    expectOneActiveRow();
+    expect(screen.getByText(REFUSED)).toBeTruthy();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ipc.startChat = vi.fn();
+    ipc.listThreads = vi.fn();
+    ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      success: true,
+      sessionId,
+      messages: [],
+    }));
+  });
+  afterEach(async () => {
+    await ipcCalls.settle();
+    cleanup();
+  });
+
+  it('keeps one active row and the transcript when the session is still live', async () => {
+    await refusedInNewChat();
+    await retry({ success: true, sessionId: 'run-1', storedSessionId: 'stored-1' });
+    expect(lastStart()).toMatchObject({
+      sessionId: 'run-1',
+      rewind: { userOrdinal: 0, expectedText: 'Plan my week' },
+    });
+    await sessionsChanged();
+    await finishTurn();
+
+    expectOneActiveRow();
+    expect(ipc.getHistory).not.toHaveBeenCalled();
+    expect(screen.getByText('Here you go.')).toBeTruthy();
+  });
+
+  it('keeps one active row when the Retry had to start a new session', async () => {
+    await refusedInNewChat();
+    await retry({ success: true, sessionId: 'run-2', storedSessionId: 'stored-2' });
+    listing(row('stored-2'));
+    await sessionsChanged();
+    await finishTurn();
+
+    expectOneActiveRow();
+    expect(ipc.getHistory).not.toHaveBeenCalled();
+    expect(screen.queryByText('Loading chat…')).toBeNull();
+    expect(screen.getByText('Here you go.')).toBeTruthy();
+  });
+
+  it('marks the row of a chat whose first send came from the empty composer', async () => {
+    listing();
+    render(<Screen />);
+    await ipcCalls.settle();
+    started(refused('run-1', 'stored-1'));
+    // An empty composer has no history to keep, so the chat loads its kept send from main.
+    ipc.getHistory.mockResolvedValueOnce({
+      success: true,
+      sessionId: 'run-1',
+      messages: [
+        {
+          role: 'user',
+          content: 'Plan my week',
+          timestamp: 1_790_000_000,
+          noReply: { reason: 'unreachable', error: REFUSED },
+          localOnly: true,
+        },
+      ],
+    });
+    await sendMessage('Plan my week');
+    listing(row('stored-1'));
+    await sessionsChanged();
+    expectOneActiveRow();
+
+    await retry({ success: true, sessionId: 'run-1', storedSessionId: 'stored-1' });
+    await sessionsChanged();
+    await finishTurn();
+    expectOneActiveRow();
   });
 });

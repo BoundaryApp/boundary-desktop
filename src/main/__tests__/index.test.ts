@@ -467,6 +467,11 @@ describe('platform setup (G15-14)', () => {
     expect(h.electron.app.setName).toHaveBeenCalledTimes(1);
     expect(h.electron.app.setName).toHaveBeenCalledWith('Boundary');
   });
+
+  it('registers the URL scheme named for the instance', async () => {
+    await loadMain('darwin');
+    expect(h.electron.app.setAsDefaultProtocolClient).toHaveBeenCalledWith('boundary');
+  });
 });
 
 describe('main window navigation (G15-16)', () => {

@@ -168,6 +168,16 @@ const config: ForgeConfig = {
       await copyViteExternalPackages(buildPath, platform, arch);
       await copyExperimentResources(buildPath);
     },
+    // Electron names the app from productName before any JS runs. That name sets userData, which
+    // stores read during import, ahead of app.setName. After prune because the Vite plugin rewrites
+    // this file from the project's copy in packageAfterCopy.
+    packageAfterPrune: async (_config, buildPath) => {
+      const appName = process.env.BOUNDARY_APP_NAME;
+      if (!appName) return;
+      const manifestPath = path.join(buildPath, 'package.json');
+      const manifest = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8'));
+      await fs.promises.writeFile(manifestPath, JSON.stringify({ ...manifest, productName: appName }, null, 2));
+    },
     postStart: async (_config, child: ChildProcess) => {
       let forgeExiting = false;
       const exitForge = (code: number) => {

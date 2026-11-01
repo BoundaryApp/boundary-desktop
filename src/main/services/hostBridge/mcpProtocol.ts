@@ -69,7 +69,7 @@ export function isReply(value: JsonRpcRequest | McpReply): value is McpReply {
 export async function handleMcpMessage(
   msg: JsonRpcRequest,
   callTool: CallTool,
-  listTools: ListTools = () => listedHostTools({ offerCalendarSetup: false })
+  listTools: ListTools = () => listedHostTools({ offerCalendarSetup: false, agentAppAccess: false })
 ): Promise<McpReply> {
   const isNotification = msg.id === undefined;
   if (isNotification) {

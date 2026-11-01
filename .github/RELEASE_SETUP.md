@@ -35,7 +35,7 @@ Boundary updates itself from feeds on the `update-feed` release (docs/updates-pl
 BOUNDARY_UPDATE_FEED_URL=https://github.com/BoundaryApp/boundary-desktop/releases/download/update-feed
 ```
 
-Builds without it have updates off, and the release skips the feed step. Every release is published as a prerelease on the beta feed. **Promote to Stable** (Actions → **Run workflow**, with a tag such as `v0.0.1`) writes the stable feed from that release's assets and marks it Latest. `.github/update-summary.txt` holds the line shown in the update notice; change it with each release.
+Each channel has two files there: `<channel>-darwin-arm64-mac.yml` for electron-updater, and `<channel>-darwin-arm64.json` for 0.0.1-rc.13 and earlier. Builds without the setting have updates off, and the release skips the feed step. Every release is published as a prerelease on the beta feed. **Promote to Stable** (Actions → **Run workflow**, with a tag such as `v0.0.1`) writes the stable feed from that release's assets and marks it Latest. `.github/update-summary.txt` holds the line shown in the update notice; change it with each release.
 
 ## Required GitHub Secrets
 

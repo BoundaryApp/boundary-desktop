@@ -29,7 +29,8 @@ import {
   setHostBridgePorts,
   type HostBridgeBrowserSettings,
 } from './hostBridgeStore';
-import { executeHostTool, notificationFailureMessage, type HostToolDeps } from './hostTools';
+import { agentAppAccessEnabled } from './agentAppAccess';
+import { executeHostTool, notificationFailureMessage, type AgentAppSource, type HostToolDeps } from './hostTools';
 import { dialogStartFolder, rememberDialogPick } from '../dialogFolders';
 import { stopUtilityProcess } from '../stopUtilityProcess';
 import {
@@ -103,6 +104,17 @@ function dialogParent(): BrowserWindow | null {
   return win;
 }
 
+/** Set at registration: the source reads services that import this module. */
+let agentAppSource: AgentAppSource = {
+  check: async () => ({ ok: false, reason: "This tool isn't available yet." }),
+  status: async () => ({}),
+  problems: () => [],
+};
+
+export function setAgentAppSource(source: AgentAppSource): void {
+  agentAppSource = source;
+}
+
 const toolDeps: HostToolDeps = {
   hasGrant: (capability, resource) => hasHostBridgeGrant(capability, resource),
   addGrant: (capability, resource, expiresAt) => addHostBridgeGrant(capability, resource, expiresAt ?? null),
@@ -172,6 +184,11 @@ const toolDeps: HostToolDeps = {
   writeFile: (filePath, content) => fs.promises.writeFile(filePath, content, 'utf8'),
   now: () => Date.now(),
   calendarConnected: () => hasCalendarAccounts(),
+  agentApp: {
+    check: () => agentAppSource.check(),
+    status: () => agentAppSource.status(),
+    problems: () => agentAppSource.problems(),
+  },
   audit: (entry) => appendAudit({ ...entry, args: trimForAudit(entry.args) }),
 };
 
@@ -355,7 +372,10 @@ async function launch(): Promise<HostBridgeEndpoints> {
 }
 
 function hostToolListing(): HostToolListing {
-  return { offerCalendarSetup: !hasCalendarAccounts() };
+  return {
+    offerCalendarSetup: !hasCalendarAccounts(),
+    agentAppAccess: agentAppAccessEnabled(process.env, app.isPackaged),
+  };
 }
 
 /**

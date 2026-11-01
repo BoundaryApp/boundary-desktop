@@ -26,7 +26,7 @@ const state = (offers: CircleOfferView[], overrides: Partial<CirclesState> = {})
   displayName: 'Ada',
   snapshot: {
     identity: 'a'.repeat(64),
-    circles: [{ key: 'c'.repeat(64), name: 'Garden club', myRole: 'member', members: [], invites: [], offers }],
+    circles: [{ key: 'c'.repeat(64), name: 'Garden club', myRole: 'member', writable: true, members: [], invites: [], offers }],
   },
   providers: {},
   sharing: { models: [], circles: [], paused: false, away: false },

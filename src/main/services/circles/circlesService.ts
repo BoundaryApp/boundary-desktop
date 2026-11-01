@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess } from 'electron';
+import { openInvitesNamed, isOpenInvite } from '../../../shared/circleInvites';
+import { addUsage, localDay } from '../../../shared/circleUsage';
 import { persistDebugLog } from '../../persistDebugLog';
 import { getSlotLlmConnection } from '../onboarding/OpenAiOnboardingStore';
 import { setAwayBlocker } from './awayMode';
@@ -8,6 +10,9 @@ import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals'
 import { diag, short } from './circlesDiagnostics';
 import { broadcast } from '../windows';
 import type {
+  CircleCreatedInvite,
+  CircleLimit,
+  CircleLimits,
   CircleProviderSettings,
   CircleRole,
   CircleSharing,
@@ -32,6 +37,16 @@ import {
   setProviderSettings as storeProviderSettings,
   getInviteLabels,
   setInviteLabels,
+  forgetInviteCode,
+  getInviteCodeIds,
+  listInviteCodeIds,
+  pruneInviteCodes,
+  readInviteCode,
+  saveInviteCode,
+  getServedUsage,
+  getUsedUsage,
+  setServedUsage,
+  setUsedUsage,
 } from './circlesStore';
 import { NETWORK_ENTRY } from './networkEntry';
 import type {
@@ -43,6 +58,7 @@ import type {
   NetworkToMain,
   SharedModelCall,
 } from './networkMessages';
+import { UsageTail } from './usageTail';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
@@ -54,6 +70,8 @@ import { APP_NAME } from '../../../shared/buildIdentity';
 const STOP_TIMEOUT_MS = 5_000;
 /** Invites last a week unless the admin picks otherwise. */
 const DEFAULT_INVITE_MS = 7 * 24 * 60 * 60_000;
+/** The first 3 characters of a code are constant and its end repeats, so this leaves 6 that vary. */
+const INVITE_HINT_LENGTH = 9;
 
 type Reply = Extract<NetworkToMain, { type: 'circles-reply' }>;
 
@@ -72,6 +90,10 @@ interface SharedCall {
   sentAt: number;
   bytes: number;
   provider: string;
+  providerId: string;
+  /** The provider answered with a reply, so this call counts as used. */
+  served: boolean;
+  tail: UsageTail;
 }
 const sharedCalls = new Map<number, SharedCall>();
 
@@ -81,6 +103,8 @@ type CircleRecordHandler = (change: CircleRecordChange) => void;
 const recordHandlers = new Map<string, Set<CircleRecordHandler>>();
 /** The waiting join was cancelled, so its failure isn't one to show. */
 let joinCancelled = false;
+/** Whether the secrets saved at admission reached the store. */
+let pairedSave: Promise<boolean> | null = null;
 const emptySnapshot: CirclesSnapshot = { identity: '', circles: [] };
 let state: CirclesState = {
   status: 'stopped',
@@ -89,7 +113,12 @@ let state: CirclesState = {
   providers: getProviderSettings(),
   sharing: getCircleSharing(),
   inviteLabels: getInviteLabels(),
+  inviteCodeIds: getInviteCodeIds(),
   join: null,
+  finishingJoin: null,
+  served: getServedUsage(),
+  serving: null,
+  used: getUsedUsage(),
 };
 
 function setState(next: Partial<CirclesState>): void {
@@ -123,7 +152,7 @@ async function start(): Promise<void> {
   let circles: CircleSecrets[];
   try {
     wipeOutdatedCircles(circlesStorageDir());
-    setState({ sharing: getCircleSharing() });
+    setState({ sharing: getCircleSharing(), inviteCodeIds: getInviteCodeIds() });
     seeds = await loadCircleSeeds();
     circles = await listCircleSecrets();
   } catch (error) {
@@ -143,7 +172,7 @@ async function start(): Promise<void> {
       switch (message.type) {
         case 'circles-ready':
           diag('main.net-ready', { ms: Date.now() - forkedAt, identity: short(message.snapshot.identity) });
-          setState({ status: 'running', snapshot: message.snapshot });
+          setState({ status: 'running', snapshot: message.snapshot, inviteCodeIds: pruneInviteCodes(message.snapshot.circles) });
           postSignalTopics();
           postRecordApps();
           resolve();
@@ -152,7 +181,7 @@ async function start(): Promise<void> {
           });
           return;
         case 'circles-snapshot':
-          setState({ snapshot: message.snapshot });
+          onSnapshot(message.snapshot);
           return;
         case 'circles-reply':
           pending.get(message.id)?.(message);
@@ -176,13 +205,16 @@ async function start(): Promise<void> {
           onSharedMessage(message);
           return;
         case 'circle-paired':
-          saveCircleSecrets(message.secrets).catch((error: unknown) => {
-            persistDebugLog('circles', 'saving a joined Circle failed', { error: error instanceof Error ? error.name : 'unknown' });
-          });
+          onCirclePaired(message.secrets);
           return;
         case 'circle-removed':
           forgetCircle(message.key);
+          setState({ inviteCodeIds: getInviteCodeIds() });
           break;
+        case 'share-usage':
+          if (message.served) setServedUsage(message.served);
+          setState({ served: message.served, serving: message.serving });
+          return;
         case 'signal-received':
           onSignalReceived(message.signal);
           return;
@@ -200,6 +232,7 @@ async function start(): Promise<void> {
       pending.clear();
       failSharedCalls(new Error('Circles stopped.'));
       setAwayBlocker(false);
+      setState({ serving: null });
       persistDebugLog('circles', 'network process exited', { code });
       diag('main.net-exit', { code, expected: state.status === 'stopped', ms: Date.now() - forkedAt });
       if (state.status !== 'stopped') setState({ status: 'failed', error: 'Circles stopped unexpectedly.' });
@@ -212,13 +245,46 @@ async function start(): Promise<void> {
       deviceSeed: seeds.deviceSeed,
       name: state.displayName,
       circles,
+      usage: state.served,
     });
   });
+}
+
+function onSnapshot(snapshot: CirclesSnapshot): void {
+  const caughtUp = snapshot.circles.some(
+    (circle) => circle.writable && state.snapshot.circles.find((before) => before.key === circle.key)?.writable === false
+  );
+  setState({ snapshot, inviteCodeIds: pruneInviteCodes(snapshot.circles) });
+  if (!caughtUp) return;
+  syncSharing().catch((error: unknown) => {
+    persistDebugLog('circles', 'sharing sync failed', { error: error instanceof Error ? error.message : String(error) });
+  });
+}
+
+/** Admitted: there's nothing left to cancel, so the join's state goes and the Circle takes over. */
+function onCirclePaired(secrets: CircleSecrets): void {
+  pairedSave = saveCircleSecrets(secrets).then(
+    () => true,
+    (error: unknown) => {
+      persistDebugLog('circles', 'saving a joined Circle failed', { error: error instanceof Error ? error.name : 'unknown' });
+      return false;
+    }
+  );
+  setState({ join: null, finishingJoin: secrets.key ?? null });
+}
+
+/** The member's own count of a call the provider answered (ADR 0034 §5). */
+function countUsed(call: SharedCall): void {
+  if (!call.served) return;
+  const used = addUsage(state.used, call.providerId, localDay(new Date()), { requests: 1, tokens: call.tail.tokens() ?? 0 });
+  setUsedUsage(used);
+  setState({ used });
 }
 
 function failSharedCalls(error: Error): void {
   if (sharedCalls.size) diag('main.shared-failed-all', { calls: sharedCalls.size, error: error.message });
   for (const call of sharedCalls.values()) {
+    countUsed(call);
     if (call.body) call.body.error(error);
     else call.fail(error);
   }
@@ -238,21 +304,25 @@ function onSharedMessage(message: Extract<NetworkToMain, { type: 'shared-head' |
       // The router stopped reading: the client hung up or the reply was refused.
       cancel: () => {
         if (!sharedCalls.delete(id)) return;
+        countUsed(call);
         diag('main.shared-cancel', { id, by: 'reader', bytes: call.bytes, ms: Date.now() - call.sentAt });
         if (child) post(child, { type: 'shared-cancel', id });
       },
     });
     const status = message.status >= 200 && message.status <= 599 ? message.status : 502;
+    call.served = status >= 200 && status < 300;
     diag('main.shared-head', { id, provider: call.provider, status: message.status, headMs: Date.now() - call.sentAt });
     call.head(new Response(body, { status, headers: { 'Content-Type': message.contentType } }));
     return;
   }
   if (message.type === 'shared-chunk') {
     call.bytes += message.data.byteLength;
+    call.tail.push(message.data);
     call.body?.enqueue(new Uint8Array(message.data));
     return;
   }
   sharedCalls.delete(message.id);
+  countUsed(call);
   const error = message.error ? new Error(message.error) : null;
   diag('main.shared-end', {
     id: message.id,
@@ -289,12 +359,23 @@ export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, sign
     inFlight: sharedCalls.size,
   });
   return new Promise<Response>((resolve, reject) => {
-    const entry: SharedCall = { head: resolve, fail: reject, body: null, sentAt: Date.now(), bytes: 0, provider: short(peer.providerId)! };
+    const entry: SharedCall = {
+      head: resolve,
+      fail: reject,
+      body: null,
+      sentAt: Date.now(),
+      bytes: 0,
+      provider: short(peer.providerId)!,
+      providerId: peer.providerId,
+      served: false,
+      tail: new UsageTail(),
+    };
     sharedCalls.set(id, entry);
     signal?.addEventListener(
       'abort',
       () => {
         if (!sharedCalls.delete(id)) return;
+        countUsed(entry);
         diag('main.shared-cancel', { id, by: 'abort', afterHead: entry.body !== null, bytes: entry.bytes, ms: Date.now() - entry.sentAt });
         if (child) post(child, { type: 'shared-cancel', id });
         const error = new Error('cancelled');
@@ -356,6 +437,23 @@ export function sendCircleSignal(circleKey: string, topic: string, payload: unkn
 
 const MAX_SHARED_MODELS = 32;
 
+function cleanLimit(input: CircleLimit | undefined): CircleLimit {
+  const limit: CircleLimit = {};
+  for (const field of ['requestsPerDay', 'tokensPerDay', 'concurrent'] as const) {
+    const value = input?.[field];
+    if (Number.isSafeInteger(value) && value! > 0) limit[field] = value;
+  }
+  return limit;
+}
+
+function cleanLimits(input: CircleLimits): CircleLimits {
+  const members = Object.entries(input.members ?? {}).filter(([identity]) => /^[0-9a-f]{64}$/.test(identity));
+  return {
+    everyone: cleanLimit(input.everyone),
+    members: Object.fromEntries(members.map(([identity, limit]) => [identity, cleanLimit(limit)])),
+  };
+}
+
 async function requestOrThrow(body: CirclesRequest): Promise<void> {
   const reply = await request(body);
   if (reply.ok === false) throw new Error(reply.error);
@@ -367,7 +465,7 @@ async function syncSharing(): Promise<void> {
     setAwayBlocker(false);
     return;
   }
-  const { models, circles, paused, away } = state.sharing;
+  const { models, circles, paused, away, limits } = state.sharing;
   const me = state.snapshot.identity;
   const sharingAny = models.length > 0 && state.snapshot.circles.some((circle) => circles.includes(circle.key));
   // Upstream first, so a member who sees the new offer can use it straight away.
@@ -376,9 +474,12 @@ async function syncSharing(): Promise<void> {
   await requestOrThrow({
     op: 'share-upstream',
     upstream: local ? { baseUrl: local.endpointUrl, ...(local.apiKey ? { apiKey: local.apiKey } : {}) } : null,
+    ...(limits ? { limits } : {}),
   });
   for (const circle of state.snapshot.circles) {
     const mine = circle.offers.find((offer) => offer.identity === me);
+    // A Circle still joining can't take an offer. This runs again once it has caught up.
+    if (!circle.writable) continue;
     const wanted = models.length > 0 && circles.includes(circle.key);
     if (!wanted) {
       if (mine) await requestOrThrow({ op: 'withdraw-offer', key: circle.key });
@@ -411,11 +512,13 @@ export async function setCircleSharingSettings(input: CircleSharing): Promise<Ci
     const contextLength = Number.isInteger(model.contextLength) && model.contextLength! > 0 ? model.contextLength : undefined;
     cleaned.push({ id, tools: model.tools !== false, ...(contextLength ? { contextLength } : {}) });
   }
+  const limits = input.limits ?? state.sharing.limits;
   const sharing: CircleSharing = {
     models: cleaned,
     circles: [...new Set((Array.isArray(input.circles) ? input.circles : []).filter((key) => /^[0-9a-f]{64}$/.test(key)))],
     paused: input.paused === true,
     away: input.away === true,
+    ...(limits ? { limits: cleanLimits(limits) } : {}),
   };
   setCircleSharing(sharing);
   setState({ sharing });
@@ -627,14 +730,25 @@ export function createCircle(name: string): Promise<CirclesResult<{ key: string 
 
 /** Main holds a join's state, so it outlives the screen that started it. */
 export async function joinCircle(code: string): Promise<CirclesResult<{ key: string }>> {
-  if (state.join?.waiting) return fail(new Error('A join is already waiting for an admin.'));
+  if (state.join?.waiting || state.finishingJoin) return fail(new Error('A join is already in progress.'));
   joinCancelled = false;
   setState({ join: { waiting: true } });
   const result = await run({ op: 'join', code }, async (reply) => {
     await saveCircleSecrets(reply.secrets!);
     return { key: reply.secrets!.key! };
   });
-  setState({ join: result.success === false && !joinCancelled ? { waiting: false, error: result.error } : null });
+  if (result.success === false && state.finishingJoin) {
+    // Admitted, so saying the join failed would be wrong. The secrets decide what comes next.
+    const error = (await pairedSave)
+      ? `This device joined, but the Circle couldn’t open. Restart ${APP_NAME} to finish joining.`
+      : 'This device joined, but the keychain couldn’t keep the Circle’s key. It won’t be here after you quit.';
+    setState({ finishingJoin: null, join: { waiting: false, error } });
+    return { ...result, state };
+  }
+  setState({
+    finishingJoin: null,
+    join: result.success === false && !joinCancelled ? { waiting: false, error: result.error } : null,
+  });
   return { ...result, state };
 }
 
@@ -646,32 +760,81 @@ export async function cancelJoin(): Promise<CirclesResult> {
   return waiting ? run({ op: 'join-cancel' }) : { success: true, state };
 }
 
+/** Keep a new invite's code on this device. Failing costs the Show and Copy controls, not the invite. */
+async function keepInviteCode(key: string, invite: { id: string; code: string; expires: number }): Promise<boolean> {
+  try {
+    await saveInviteCode(key, invite.id, invite.code, invite.expires);
+    setState({ inviteCodeIds: getInviteCodeIds() });
+    return true;
+  } catch (error) {
+    persistDebugLog('circles', 'keeping an invite code failed', { error: error instanceof Error ? error.name : 'unknown' });
+    return false;
+  }
+}
+
+/**
+ * Make an invite. One named like an open invite in this Circle replaces it: the new code comes
+ * first, so a failure leaves the old one working, and the old code stops working once an admin's
+ * device has seen the revoke.
+ */
 export async function createCircleInvite(
   key: string,
   expiresInMs = DEFAULT_INVITE_MS,
   label = ''
-): Promise<CirclesResult<{ invite: { id: string; code: string; expires: number } }>> {
+): Promise<CirclesResult<{ invite: CircleCreatedInvite }>> {
+  const name = label.trim().slice(0, 80);
+  const named = openInvitesNamed(
+    state.snapshot.circles.find((circle) => circle.key === key),
+    state.inviteLabels,
+    name
+  );
   const result = await run({ op: 'invite', key, expiresAt: Date.now() + expiresInMs }, (reply) => ({
     invite: reply.invite!,
   }));
-  const name = label.trim().slice(0, 80);
-  if (result.success === false || !name) return result;
+  if (result.success === false) return result;
+  const kept = await keepInviteCode(key, result.invite);
+  const replaced = new Set<string>();
+  for (const invite of named) {
+    const revoked = await revokeCircleInvite(key, invite.id);
+    if (revoked.success) replaced.add(invite.id);
+  }
+  if (named.length) diag('main.invite-replaced', { circle: short(key), replaced: replaced.size, stillOpen: named.length - replaced.size });
+  const invite = { ...result.invite, kept, stillOpen: named.length - replaced.size };
+  if (!name) return { ...result, invite, state };
   // Labels of invites that are over go, so the list doesn't grow.
   const now = Date.now();
   const open = new Set(
-    state.snapshot.circles.flatMap((circle) =>
-      circle.invites.filter((invite) => !invite.used && !invite.revoked && invite.expires > now).map((invite) => invite.id)
-    )
+    state.snapshot.circles.flatMap((circle) => circle.invites.filter((item) => isOpenInvite(item, now)).map((item) => item.id))
   );
-  const kept = Object.entries(state.inviteLabels ?? {}).filter(([id]) => open.has(id));
-  const inviteLabels = { ...Object.fromEntries(kept), [result.invite.id]: name };
+  const held = Object.entries(state.inviteLabels ?? {}).filter(([id]) => open.has(id) && !replaced.has(id));
+  const inviteLabels = { ...Object.fromEntries(held), [invite.id]: name };
   setInviteLabels(inviteLabels);
   setState({ inviteLabels });
-  return { ...result, state };
+  return { ...result, invite, state };
 }
 
 export function revokeCircleInvite(key: string, inviteId: string): Promise<CirclesResult> {
-  return run({ op: 'revoke-invite', key, inviteId });
+  return run({ op: 'revoke-invite', key, inviteId }, (): object => {
+    forgetInviteCode(key, inviteId);
+    setState({ inviteCodeIds: getInviteCodeIds() });
+    return {};
+  });
+}
+
+/** The start of each code this device keeps for a Circle, by invite id. */
+export async function getCircleInviteHints(key: string): Promise<CirclesResult<{ hints: Record<string, string> }>> {
+  const hints: Record<string, string> = {};
+  for (const inviteId of listInviteCodeIds(key)) {
+    const code = await readInviteCode(key, inviteId);
+    if (code) hints[inviteId] = code.slice(0, INVITE_HINT_LENGTH);
+  }
+  return { success: true, state, hints };
+}
+
+export async function getCircleInviteCode(key: string, inviteId: string): Promise<CirclesResult<{ code: string }>> {
+  setState({ inviteCodeIds: pruneInviteCodes(state.snapshot.circles) });
+  const code = await readInviteCode(key, inviteId);
+  return code ? { success: true, state, code } : fail(new Error('This Mac no longer has that code.'));
 }
 
 export function setCircleRole(key: string, identity: string, role: CircleRole): Promise<CirclesResult> {
@@ -685,6 +848,7 @@ export function removeCircleMember(key: string, identity: string): Promise<Circl
 export function leaveCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'leave', key }, (): object => {
     forgetCircle(key);
+    setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });
 }
@@ -692,6 +856,7 @@ export function leaveCircle(key: string): Promise<CirclesResult> {
 export function deleteCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'delete', key }, (): object => {
     forgetCircle(key);
+    setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });
 }

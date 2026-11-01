@@ -225,7 +225,10 @@ export async function ensureResolvedInferenceReady(
   });
   const resolved = await resolveSessionInference(sessionId);
   if (!resolved?.configured) {
-    return { ok: false, error: 'No configured LLM connection.' };
+    return {
+      ok: false,
+      error: 'No model is chosen, so your message wasn’t sent. Connect a provider or choose a shared model in Settings.',
+    };
   }
   const shared = resolved.slot === 'peer';
   // llm-proxy goes through the router only on a managed stack, and a shared model needs it.

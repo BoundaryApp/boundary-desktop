@@ -30,6 +30,7 @@ export const AssistantStackStartingScreen: React.FC<AssistantStackStartingScreen
       message={lifecycle.message}
       services={startupServices(lifecycle)}
       download={lifecycle.download}
+      startTiming={lifecycle.startTiming}
       error={error}
       onRetry={isError ? () => void start() : undefined}
       retrying={running}

@@ -3,12 +3,16 @@
  * the inference channel and are forwarded to the provider's own model server. Only
  * `GET /v1/models` and `POST /v1/chat/completions` pass, only from current members' devices, and
  * only for models in this user's offer to that Circle. Chat requests run one at a time, in the
- * order they arrived.
+ * order they arrived. Requests and tokens are counted per member, and a member over a limit is
+ * answered 429 before any reply starts (§5).
  *
  * Kept free of native modules so it can be tested on its own. Logs carry metadata only: who,
  * which model, status and timings, never prompt or reply text (§6).
  */
+import { addUsage, limitFor, localDay, usedToday } from '../../../shared/circleUsage';
+import type { CircleDayUsage, CircleLimit, CircleLimits, CircleServing, CircleUsageCount } from '../../../shared/types/circles';
 import type { CircleOffer } from './circleOps';
+import { UsageTail } from './usageTail';
 
 /** What a consumer asks for. `id` is unique per connection and direction. */
 export interface GatewayRequest {
@@ -46,6 +50,10 @@ export interface InferenceGatewayDeps {
   log?(message: string, data?: Record<string, unknown>): void;
   /** Diagnostics events (metadata only): every request's path through the gateway. */
   diag?(event: string, data: Record<string, unknown>): void;
+  /** What today's counts started from, kept by main across restarts. */
+  usage?: CircleDayUsage;
+  /** Counts or the queue changed. */
+  onUsage?(served: CircleDayUsage | undefined, serving: CircleServing): void;
 }
 
 /** Larger than any chat request Boundary sends, and well under secret-stream's 16 MB frame. */
@@ -68,6 +76,14 @@ function errorName(err: unknown): string {
   if (!(err instanceof Error)) return typeof err;
   const cause = (err as Error & { cause?: { code?: string } }).cause;
   return [err.name, cause?.code].filter(Boolean).join(':');
+}
+
+/** Why `limit` stops a member from starting another request, or null. */
+function overLimit(limit: CircleLimit, used: CircleUsageCount, active: number): string | null {
+  if (limit.concurrent !== undefined && active >= limit.concurrent) return 'You have as many requests running here as this provider allows.';
+  if (limit.requestsPerDay !== undefined && used.requests >= limit.requestsPerDay) return 'You’ve used today’s requests from this provider.';
+  if (limit.tokensPerDay !== undefined && used.tokens >= limit.tokensPerDay) return 'You’ve used today’s tokens from this provider.';
+  return null;
 }
 
 function normalizePath(path: string): string {
@@ -100,9 +116,28 @@ export class InferenceGateway {
   private readonly queue: Job[] = [];
   private running: Job | null = null;
   private closed = false;
+  private limits: CircleLimits | null = null;
+  private served: CircleDayUsage | undefined;
 
   constructor(private readonly deps: InferenceGatewayDeps) {
     this.fetchImpl = deps.fetchImpl ?? fetch;
+    this.served = deps.usage;
+  }
+
+  /** Applies to requests from now on; ones already waiting stay. */
+  setLimits(limits: CircleLimits | null): void {
+    this.limits = limits;
+  }
+
+  private count(identity: string, added: Partial<CircleUsageCount>): void {
+    this.served = addUsage(this.served, identity, localDay(new Date()), added);
+  }
+
+  private report(): void {
+    this.deps.onUsage?.(this.served, {
+      running: this.running?.identity ?? null,
+      queued: this.queue.map((job) => job.identity),
+    });
   }
 
   /** Answer one request from `device`. Never throws; every outcome reaches `sink`. */
@@ -161,6 +196,9 @@ export class InferenceGateway {
     if (!offer.models.some((offered) => offered.id === model)) {
       return refuse(404, 'That model isn’t shared.', 'model-not-offered');
     }
+    const active = this.queue.filter((job) => job.identity === identity).length + (this.running?.identity === identity ? 1 : 0);
+    const over = overLimit(limitFor(this.limits, identity), usedToday(this.served, identity, localDay(new Date())), active);
+    if (over) return refuse(429, over, 'over-limit');
     // Shape only: counts, never content.
     this.deps.diag?.('gateway.queued', {
       device: device.slice(0, 8),
@@ -173,7 +211,10 @@ export class InferenceGateway {
       ahead: this.queue.length + (this.running ? 1 : 0),
     });
     this.queue.push({ device, request, identity, model, sink, abort: new AbortController(), queuedAt: Date.now() });
+    // Counted on arrival, so requests waiting in the queue can't pass the limit together.
+    this.count(identity, { requests: 1 });
     this.pump();
+    this.report();
   }
 
   /** The consumer gave up on a request: drop it from the queue or stop it. */
@@ -206,9 +247,11 @@ export class InferenceGateway {
       const job = this.queue[i];
       if (!test(job)) continue;
       this.queue.splice(i, 1);
+      this.count(job.identity, { requests: -1 });
       if (reason) refuse(job.sink, 503, reason);
     }
     if (this.running && test(this.running)) this.running.abort.abort();
+    this.report();
   }
 
   private pump(): void {
@@ -219,6 +262,7 @@ export class InferenceGateway {
     void this.chat(job).finally(() => {
       this.running = null;
       this.pump();
+      this.report();
     });
   }
 
@@ -266,15 +310,20 @@ export class InferenceGateway {
     const started = Date.now();
     const meta = { member: job.identity.slice(0, 12), model: job.model, queuedMs: started - job.queuedAt };
     if (!upstream) {
+      this.count(job.identity, { requests: -1 });
       refuse(sink, 503, 'This provider’s model server isn’t set up.');
       return;
     }
-    if (job.abort.signal.aborted) return;
+    if (job.abort.signal.aborted) {
+      this.count(job.identity, { requests: -1 });
+      return;
+    }
     this.deps.diag?.('gateway.start', { device: job.device.slice(0, 8), id: job.request.id, waitMs: meta.queuedMs });
     let headSent = false;
     let bytes = 0;
     let chunks = 0;
     let firstChunkMs: number | null = null;
+    const tail = new UsageTail();
     try {
       const response = await this.fetchImpl(upstreamUrl(upstream, '/chat/completions'), {
         method: 'POST',
@@ -290,6 +339,8 @@ export class InferenceGateway {
         contentType: response.headers.get('content-type'),
         headMs,
       });
+      // A refused request served nothing, so it doesn't use up the member's day.
+      if (!response.ok) this.count(job.identity, { requests: -1 });
       sink.head(response.status, response.headers.get('content-type') ?? 'application/json');
       headSent = true;
       if (response.body) {
@@ -297,6 +348,7 @@ export class InferenceGateway {
           const data = Buffer.from(piece);
           firstChunkMs ??= Date.now() - started;
           bytes += data.length;
+          tail.push(data);
           for (let at = 0; at < data.length; at += GATEWAY_CHUNK_BYTES) {
             chunks++;
             sink.chunk(data.subarray(at, at + GATEWAY_CHUNK_BYTES));
@@ -304,7 +356,9 @@ export class InferenceGateway {
         }
       }
       sink.end();
-      this.deps.log?.('shared model request', { ...meta, status: response.status, ms: Date.now() - started });
+      const tokens = response.ok ? tail.tokens() : null;
+      if (tokens) this.count(job.identity, { tokens });
+      this.deps.log?.('shared model request', { ...meta, status: response.status, tokens, ms: Date.now() - started });
       this.deps.diag?.('gateway.done', {
         device: job.device.slice(0, 8),
         id: job.request.id,
@@ -313,10 +367,12 @@ export class InferenceGateway {
         chunks,
         headMs,
         firstChunkMs,
+        tokens,
         ms: Date.now() - started,
       });
     } catch (err) {
       const cancelled = job.abort.signal.aborted;
+      if (!headSent) this.count(job.identity, { requests: -1 });
       if (headSent) sink.end(cancelled ? 'cancelled' : 'The model server stopped mid-reply.');
       else if (!cancelled) refuse(sink, 502, 'The model server isn’t reachable.');
       this.deps.log?.('shared model request failed', {

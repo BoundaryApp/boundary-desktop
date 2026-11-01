@@ -39,10 +39,12 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │         └── 0012 Host Compose inventory lives on Resources
  ├── 0026 The model key lives in the proxy's memory, not on disk
  ├── 0027 A host bridge gives Hermes the host's browser and capabilities
+ │    └── 0040 Developer-only agent access to app state
  ├── 0031 Checks on the stack contract and on drift
  └── 0032 Circles: invite-only groups that network peer to peer
       └── 0034 Sharing a local model with a Circle
-            └── 0036 A shared model as the app default (amends 0033 §5)
+            ├── 0036 A shared model as the app default (amends 0033 §5)
+            └── 0039 Shared models that can't serve (amends 0034 §3, 0036 §5)
 ```
 
 | ADR | Status | Title |
@@ -80,11 +82,14 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0031](0031-checks-on-the-stack-contract-and-drift.md) | Proposed | Checks on the stack contract and on drift |
 | [0032](0032-circles.md) | Accepted | Circles: invite-only groups that network peer to peer |
 | [0033](0033-inference-chains.md) | Accepted · amends 0016 §4 · §5 amended by 0036 | Inference chains and a host-side router |
-| [0034](0034-shared-models.md) | Accepted | Sharing a local model with a Circle |
+| [0034](0034-shared-models.md) | Accepted · §3 amended by 0039 | Sharing a local model with a Circle |
 | [0035](0035-turn-admission-and-model-gate.md) | Proposed · would amend 0033 §5–6 | Turn admission and a model gate in the router |
-| [0036](0036-shared-model-app-default.md) | Accepted · amends 0033 §5 | A shared model as the app default |
+| [0036](0036-shared-model-app-default.md) | Accepted · amends 0033 §5 · §5 amended by 0039 | A shared model as the app default |
 | [0037](0037-update-rail-button.md) | Accepted | Updates live in a rail button and card |
 | [0038](0038-changing-circle-operations.md) | Accepted | Changing Circle operations after release |
+| [0039](0039-shared-models-that-cant-serve.md) | Accepted · amends 0034 §3, 0036 §5 | Shared models that can't serve |
+| [0040](0040-developer-agent-app-access.md) | Proposed | Developer-only agent access to app state |
+| [0041](0041-electron-updater.md) | Accepted · replaces the updater in updates plan decision 4 | App updates use electron-updater |
 
 ## Host bridge research
 

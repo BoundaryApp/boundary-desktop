@@ -358,6 +358,8 @@ export interface HermesChatStartResult {
   success: boolean;
   requestId: string;
   sessionId?: string;
+  /** The stored id behind `sessionId`, which is the id chat lists use. */
+  storedSessionId?: string;
   error?: string;
   errorCode?: HermesChatStartErrorCode;
   /** The chat's shared model can't serve either; `error` says so. */

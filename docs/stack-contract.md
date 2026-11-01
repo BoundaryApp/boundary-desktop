@@ -74,6 +74,7 @@ sends; "live" is a call on the running gateway.
 | `session.create` (`history_budget` from the stack's overlay) | `createSessionWithSeed` | catalog, live |
 | `session.resume` (`history_budget`, `omit_messages`) | `resumeSession`, `withLiveSession` | catalog, live |
 | `session.resume` answering "session not found" for an id Hermes never minted (it makes a row for a minted key with none); the row is otherwise written on the first `prompt.submit` | `startChatTurn` makes a new session for a DM or failed chat; `keepFailedSend` keeps what never got a row | unit: hermesFailedChats; no live case |
+| `session.resume` finding a session by stored id, live or minted, and answering "session not found" for a runtime id | `startChatTurn` resumes by stored id, so a failed chat keeps its live session | live, unit: hermesFailedChats |
 | `session.context_breakdown` (`categories`, `context_max`, `context_used`, `history_*`) | `getContextBreakdown` | catalog, live |
 | `session.live_status` (stack overlay) | `getLiveStatus` | live |
 | `session.list`, `session.history` | `listSessions`, `getSessionHistory` | catalog |
@@ -135,6 +136,22 @@ without editing the test.
 The settings-program case also runs a refused key and expects the program to report it as a result
 line (`SystemExit` at that key) and exit 0, then reads the stored files back and expects Boundary's
 own plan to find nothing left to write.
+
+## Request shape
+
+Token counts for shared models rely on Hermes sending `stream_options: {"include_usage": true}` on streamed chats (`_open_chat_stream` in `agent/chat_completion_helpers.py`), which it skips for native Gemini and for endpoints that refused it. Without it, `UsageTail` finds no `usage` and only requests are counted. No `test:stack` case covers this; the "Usage and limits" check in `docs/testing/circle-sharing.md` does.
+
+## Compose progress
+
+The start-up screen's milestones (`StartTimer`, startTimer.ts) read `compose --progress json` lines. A
+missing event leaves the bar easing toward that milestone until a later one arrives, and a tool's
+outline easing short of full until the stack is ready.
+
+| Event | Used for | Check |
+| --- | --- | --- |
+| `Exited` on the `hermes-api-bootstrap` and `hermes-browser-bootstrap` containers | Bootstrap milestones. Compose v2.38.2 sends it from `waitDependencies` | manual: `start-up milestones` debug-log line |
+| `Started` on any container, and on `boundary-hermes` | First-container and Hermes milestones | manual: `start-up milestones` debug-log line |
+| `Started` and `Healthy` per container | Each tool's outline on the ring. `Healthy` arrives only where a dependent waits on `service_healthy` in the stack's compose file; the rest stop at `Started` | manual: `services` in the `start-up milestones` debug-log line |
 
 ## Files under the stack's folder
 

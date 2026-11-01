@@ -6,7 +6,7 @@
  * each channel with `invoker` and subscribes to events with `listen` (src/preload.ts), so
  * `window.electronAPI` takes its types from here.
  */
-import type { CircleRole, CircleSharing, CirclesResult, CirclesState } from '../types/circles';
+import type { CircleCreatedInvite, CircleRole, CircleSharing, CirclesResult, CirclesState } from '../types/circles';
 import type { AppCommand } from '../appCommands';
 import type { ThemePreference } from '../theme';
 import type { IpcResult } from './result';
@@ -218,7 +218,11 @@ export interface IpcInvokeChannels {
     expiresInMs?: number;
     /** Kept on this device only. */
     label?: string;
-  }) => CirclesResult<{ invite: { id: string; code: string; expires: number } }>;
+  }) => CirclesResult<{ invite: CircleCreatedInvite }>;
+  /** The start of each code this device keeps for a Circle, by invite id, for telling them apart. */
+  'circles:invite-hints': (input: { key: string }) => CirclesResult<{ hints: Record<string, string> }>;
+  /** A whole code, when the user asks to show or copy it. */
+  'circles:invite-code': (input: { key: string; inviteId: string }) => CirclesResult<{ code: string }>;
   'circles:revoke-invite': (input: { key: string; inviteId: string }) => CirclesResult;
   'circles:set-role': (input: { key: string; identity: string; role: CircleRole }) => CirclesResult;
   'circles:remove-member': (input: { key: string; identity: string }) => CirclesResult;
@@ -298,6 +302,7 @@ export interface IpcInvokeChannels {
   ) => IpcResult;
   'host-bridge:approvals-pending': () => HostBridgeApprovalEvent[];
   'host-bridge:tools-state': () => HostToolsState;
+  'host-bridge:report-screen': (screen: { view: string; sheet: string | null }) => void;
   'host-bridge:browser-state': () => BoundaryBrowserState;
   'host-bridge:browser-update': (settings: HostBridgeBrowserSettings) => BoundaryBrowserUpdateResult;
   'host-bridge:browser-open': () => IpcResult;

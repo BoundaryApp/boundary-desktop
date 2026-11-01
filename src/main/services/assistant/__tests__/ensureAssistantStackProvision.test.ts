@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AssistantStackLifecycleSnapshot } from '../../../../shared/types/assistantStack';
 
 const runComposeStreaming = vi.fn();
 const runCompose = vi.fn();
@@ -268,6 +269,72 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       expect((await ensureAssistantStackRunning()).success).toBe(true);
       expect(runComposeStreaming).toHaveBeenCalled();
       expect(removeIncompleteHermesProfiles).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('start timing', () => {
+    /** One `compose up` that reports the bootstraps and Hermes, then a healthy stack. */
+    function composeReportsMilestones(): void {
+      let up = false;
+      runComposeStreaming.mockImplementation(async (_runtime, args, options) => {
+        if ((args as string[]).includes('up')) {
+          for (const [id, text] of [
+            ['Container boundary-assistant-hermes-api-bootstrap-1', 'Started'],
+            ['Container boundary-assistant-hermes-api-bootstrap-1', 'Exited'],
+            ['Container boundary-assistant-hermes-browser-bootstrap-1', 'Exited'],
+            ['Container boundary-hermes', 'Started'],
+          ]) {
+            options.onStdoutLine(JSON.stringify({ id, text }));
+          }
+        }
+        up = true;
+        return { stdout: '', stderr: '', code: 0 };
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: up })) as unknown as typeof fetch);
+    }
+
+    it('gives the next start of that kind the finished run to go by', async () => {
+      isHostSetupComplete.mockReturnValue(true);
+      composeReportsMilestones();
+      runCli.mockResolvedValue({ stdout: 'abc123\n', stderr: '' });
+      const {
+        ensureAssistantStackRunning,
+        getAssistantStackLifecycle,
+        setAssistantStackLifecycleCallback,
+        __test,
+      } = await import('../AssistantStackService');
+      __test.resetLifecycle();
+      const seen: AssistantStackLifecycleSnapshot[] = [];
+      setAssistantStackLifecycleCallback((snapshot) => seen.push(snapshot));
+
+      expect((await ensureAssistantStackRunning()).success).toBe(true);
+      const during = seen.filter((snapshot) => snapshot.startTiming).at(-1)?.startTiming;
+      expect(during).toMatchObject({ kind: 'relaunch', fromHistory: false });
+      expect(Object.keys(during?.reached ?? {})).toEqual(
+        expect.arrayContaining(['prepared', 'apiBootstrapDone', 'browserBootstrapDone', 'hermesStarted'])
+      );
+      expect(getAssistantStackLifecycle().startTiming).toBeUndefined();
+
+      seen.length = 0;
+      vi.mocked(fetch).mockImplementation(async () => ({ ok: false }) as Response);
+      composeReportsMilestones();
+      await ensureAssistantStackRunning();
+      const next = seen.find((snapshot) => snapshot.startTiming)?.startTiming;
+      expect(next).toMatchObject({ kind: 'relaunch', fromHistory: true });
+    });
+
+    it('counts a start with no containers as new containers', async () => {
+      isHostSetupComplete.mockReturnValue(true);
+      composeReportsMilestones();
+      runCli.mockResolvedValue({ stdout: '', stderr: '' });
+      const { ensureAssistantStackRunning, setAssistantStackLifecycleCallback, __test } =
+        await import('../AssistantStackService');
+      __test.resetLifecycle();
+      const seen: AssistantStackLifecycleSnapshot[] = [];
+      setAssistantStackLifecycleCallback((snapshot) => seen.push(snapshot));
+
+      await ensureAssistantStackRunning();
+      expect(seen.some((snapshot) => snapshot.startTiming?.kind === 'newContainers')).toBe(true);
     });
   });
 

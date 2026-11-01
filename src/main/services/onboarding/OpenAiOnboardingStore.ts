@@ -817,6 +817,34 @@ export function getAppFallbacks(): InferenceChainEntry[] {
   return store.get('appFallbacks') ?? [];
 }
 
+/**
+ * Remove the app default's entries for Circles that can never come back (ADR 0039 §2). When that
+ * was the default, the first fallback that may serve takes its place, then a connected provider,
+ * as when the default is empty. With neither, nothing is chosen and Settings says so.
+ */
+export function dropAppEntries(
+  isGone: (entry: InferenceChainEntry) => boolean,
+  providerTrusted: (providerId: string) => boolean
+): void {
+  ensureV2Document();
+  const shared = getAppSharedModel();
+  const fallbacks = getAppFallbacks().filter((entry) => !isGone(entry));
+  if (!shared || !isGone(shared)) {
+    store.set('appFallbacks', fallbacks);
+    return;
+  }
+  deleteStoreKey('appSharedModel');
+  const slots = readSlots();
+  const connected = (slot: InferenceSlotId) => Boolean(slots[slot]?.modelId?.trim());
+  const next = fallbacks.find((entry) =>
+    entry.slot === 'peer' ? providerTrusted(entry.peer?.providerId ?? '') : connected(entry.slot)
+  );
+  if (next?.slot === 'peer') store.set('appSharedModel', next);
+  else if (next) setStoredAppDefault(next.slot);
+  else setStoredAppDefault((['local', 'openrouter', 'infrastructure'] as const).find(connected) ?? null);
+  store.set('appFallbacks', fallbacks.filter((entry) => entry !== next));
+}
+
 const HEX_KEY = /^[0-9a-f]{64}$/;
 
 function wellFormedSharedEntry(entry: InferenceChainEntry): InferenceChainEntry | null {

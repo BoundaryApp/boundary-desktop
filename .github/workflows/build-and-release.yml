@@ -214,7 +214,8 @@ jobs:
           node scripts/write-update-feed.mjs --channel beta --version "${version}" \
             --zip "./release-assets/Boundary-darwin-arm64-${version}.zip" \
             --repo "${GITHUB_REPOSITORY}" --notes-file .github/update-summary.txt \
+            --channel-out beta-darwin-arm64-mac.yml \
             --out beta-darwin-arm64.json
           gh release view update-feed >/dev/null 2>&1 ||
             gh release create update-feed --prerelease --title "Update feeds" --notes "Feeds Boundary reads for updates."
-          gh release upload update-feed beta-darwin-arm64.json --clobber
+          gh release upload update-feed beta-darwin-arm64.json beta-darwin-arm64-mac.yml --clobber

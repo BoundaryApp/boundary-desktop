@@ -328,6 +328,14 @@ describe.skipIf(!probe.ok)(`Hermes gateway over /api/ws${skipNote(probe)}`, () =
     expect(breakdown.history?.budget).toBe(DM_HISTORY_BUDGET);
   });
 
+  it('resumes a live session by stored id, and answers not found for its runtime id', async () => {
+    const resumed = await session.resumeSession(session.storedSessionId(sessionId), {
+      omitMessages: true,
+    });
+    expect(resumed.sessionId).toBe(sessionId);
+    await expect(session.resumeSession(sessionId, { omitMessages: true })).rejects.toThrow(/not found/i);
+  });
+
   it('answers session.live_status for one session', async () => {
     const raw = (await client.request('session.live_status', { session_id: sessionId })) as {
       status?: unknown;

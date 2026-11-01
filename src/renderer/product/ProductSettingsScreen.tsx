@@ -542,7 +542,10 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
 
           {status && !local && !openrouter && !infrastructure && !appShared && (
             <div className="wb-inference-banner is-warn" role="status">
-              <p>No model provider is connected. Chats can’t send until you connect one below.</p>
+              <p>
+                No model provider is connected. Chats can’t send until you connect one below or choose a model
+                someone shares in a Circle.
+              </p>
             </div>
           )}
           {local && localHealth === 'unreachable' && (

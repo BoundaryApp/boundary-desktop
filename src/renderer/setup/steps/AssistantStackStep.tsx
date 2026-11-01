@@ -45,6 +45,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
         message={lifecycle.message}
         services={services}
         download={lifecycle.download}
+        startTiming={lifecycle.startTiming}
         setupSteps={stepper}
       />
     );

@@ -19,6 +19,7 @@ import {
   claimLegacyHermesAgentsStore,
   claimLegacyStoreForActiveStack,
   dropBuiltinStandingDm,
+  dropChatFallbacks,
   type LegacyHermesAgentsStore,
   movePendingChannelMessages,
   movePendingChannelMessagesInEveryStore,
@@ -163,6 +164,24 @@ describe('hermes agent store migrations', () => {
       posted: [kept],
     });
     expect(store.get('pendingChannelMessages')).toBeUndefined();
+  });
+
+  it('drops only the matching fallbacks from a chat’s override', () => {
+    const gone = { slot: 'peer', modelId: 'm', peer: { circleId: 'old', providerId: 'p' } };
+    const local = { slot: 'local' };
+    const store = legacyStore('hermes-agents-local-fallbacks', {
+      sessionMeta: {
+        mixed: { title: 't', inference: { provider: 'local', modelId: 'a', fallbacks: [gone, local] } },
+        only: { inference: { provider: 'local', modelId: 'a', fallbacks: [gone] } },
+        other: { inference: { provider: 'local', modelId: 'a', fallbacks: [local] } },
+      },
+    });
+    dropChatFallbacks(store, (entry) => entry.peer?.circleId === 'old');
+    expect(store.get('sessionMeta')).toEqual({
+      mixed: { title: 't', inference: { provider: 'local', modelId: 'a', fallbacks: [local] } },
+      only: { inference: { provider: 'local', modelId: 'a' } },
+      other: { inference: { provider: 'local', modelId: 'a', fallbacks: [local] } },
+    });
   });
 
   it('changes every per-stack store file once the pre-split store is gone', () => {

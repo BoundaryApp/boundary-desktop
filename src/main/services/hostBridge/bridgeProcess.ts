@@ -15,7 +15,7 @@ const port = process.parentPort;
 let servers: BridgeServers | null = null;
 let relay: BrowserRelay | null = null;
 let nextCallId = 1;
-let listing: HostToolListing = { offerCalendarSetup: false };
+let listing: HostToolListing = { offerCalendarSetup: false, agentAppAccess: false };
 let hermesSessions: LiveHermesSessions | null = null;
 let sweepTimer: NodeJS.Timeout | null = null;
 const pendingCalls = new Map<number, (result: ToolCallResult) => void>();

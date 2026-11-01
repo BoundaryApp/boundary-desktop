@@ -54,6 +54,11 @@ export function setInferenceRouterChain(next: RouterChain | null): void {
   chain = next;
 }
 
+/** What the router serves now. */
+export function inferenceRouterChain(): RouterChain | null {
+  return chain;
+}
+
 export function noteInferenceRouterPushed(port: number): void {
   pushedPort = port;
 }

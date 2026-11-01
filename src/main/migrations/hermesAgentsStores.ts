@@ -3,7 +3,8 @@ import path from 'node:path';
 import { app } from 'electron';
 import Store from 'electron-store';
 import { BUILTIN_AGENT_FALLBACK } from '../../shared/hermesAgentIdentity';
-import type { AgentProfile, ChannelPostRecord } from '../../shared/types/hermesChat';
+import type { AgentProfile, ChannelPostRecord, SessionInferenceOverride } from '../../shared/types/hermesChat';
+import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
 import {
   type AssistantStackIdentity,
@@ -24,6 +25,7 @@ export interface LegacyHermesAgentsStore {
   get(key: 'standingDmByAgent'): Record<string, string | null> | undefined;
   get(key: 'pendingChannelMessages'): Record<string, string[]> | undefined;
   get(key: 'channelPosts'): Record<string, ChannelPostRecord[]> | undefined;
+  get(key: 'sessionMeta'): Record<string, { inference?: SessionInferenceOverride }> | undefined;
   set(key: string, value: unknown): void;
   delete(key: string): void;
 }
@@ -64,6 +66,16 @@ export function claimLegacyStoreForActiveStack(dir = storeDir()): boolean {
   return !legacyStorePresent(dir);
 }
 
+function changeStackStores(change: (store: LegacyHermesAgentsStore) => void, dir: string): void {
+  const names = fs
+    .readdirSync(dir)
+    .filter((file) => /^hermes-agents-.+\.json$/.test(file))
+    .map((file) => file.slice(0, -'.json'.length));
+  for (const name of names) {
+    change(new Store({ name, cwd: dir }) as unknown as LegacyHermesAgentsStore);
+  }
+}
+
 /**
  * Apply `change` to every per-stack store file. Waits while the pre-split file is
  * unclaimed, so the store that later claims it is changed too.
@@ -73,13 +85,7 @@ function changeEveryStore(
   dir = storeDir()
 ): boolean {
   if (legacyStorePresent(dir)) return false;
-  const names = fs
-    .readdirSync(dir)
-    .filter((file) => /^hermes-agents-.+\.json$/.test(file))
-    .map((file) => file.slice(0, -'.json'.length));
-  for (const name of names) {
-    change(new Store({ name, cwd: dir }) as unknown as LegacyHermesAgentsStore);
-  }
+  changeStackStores(change, dir);
   return true;
 }
 
@@ -125,6 +131,33 @@ export function dropBuiltinStandingDm(store: LegacyHermesAgentsStore): void {
   delete map[BUILTIN_ASSISTANT_SLUG];
   store.set('standingDmByAgent', map);
 }
+
+/** Removes fallbacks that `isGone` matches from each chat's override. */
+export function dropChatFallbacks(
+  store: LegacyHermesAgentsStore,
+  isGone: (entry: InferenceChainEntry) => boolean
+): void {
+  const meta = { ...(store.get('sessionMeta') ?? {}) };
+  let changed = false;
+  for (const [id, row] of Object.entries(meta)) {
+    const fallbacks = row.inference?.fallbacks;
+    if (!row.inference || !fallbacks?.some(isGone)) continue;
+    const { fallbacks: _drop, ...inference } = row.inference;
+    const kept = fallbacks.filter((entry) => !isGone(entry));
+    meta[id] = { ...row, inference: { ...inference, ...(kept.length ? { fallbacks: kept } : {}) } };
+    changed = true;
+  }
+  if (changed) store.set('sessionMeta', meta);
+}
+
+/**
+ * Chains came after the split, so the pre-split file holds none. Not waiting for it matters: a
+ * run that repeated at a later start would also clear a Circle the user left (ADR 0036 §5).
+ */
+export const dropChatFallbacksInEveryStore = (
+  isGone: (entry: InferenceChainEntry) => boolean,
+  dir = storeDir()
+) => changeStackStores((store) => dropChatFallbacks(store, isGone), dir);
 
 export const movePendingChannelMessagesInEveryStore = (dir?: string) =>
   changeEveryStore(movePendingChannelMessages, dir);

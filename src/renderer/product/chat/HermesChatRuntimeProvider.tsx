@@ -109,7 +109,7 @@ interface HermesChatRuntimeProviderProps {
   sessionId: string | null;
   agentSlug?: string | null;
   toolsEnabled?: boolean;
-  onSessionResolved?: (sessionId: string) => void;
+  onSessionResolved?: (sessionId: string, storedId?: string) => void;
   /** Whether two ids name the same chat (a runtime id and its stored id). */
   sameChat?: (a: string, b: string) => boolean;
   children: React.ReactNode;
@@ -255,10 +255,10 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
       createHermesChatModelAdapter(() => sessionId, {
         getToolsEnabled: () => toolsEnabledRef.current,
         getAgentSlug: () => agentSlugRef.current,
-        onSessionResolved: (id) => {
+        onSessionResolved: (id, storedId) => {
           const from = sessionIdRef.current;
           if (from && from !== id) adoptedRef.current = { from, to: id };
-          onSessionResolvedRef.current?.(id);
+          onSessionResolvedRef.current?.(id, storedId);
         },
         onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
         onPrivateRefused: () => sendHandlersRef.current?.onPrivateRefused(),

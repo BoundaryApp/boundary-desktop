@@ -11,9 +11,9 @@
 
 | Phase | Status | Depends on |
 | --- | --- | --- |
-| 1 Release workflow publishes update feeds | Built, not yet run | — |
-| 2 Boundary asks, downloads and restarts | Built, not yet tested on a signed build | 1 |
-| 3 Release candidates prove the update path | Not started | 2 |
+| 1 Release workflow publishes update feeds | Running on the beta channel | — |
+| 2 Boundary asks, downloads and restarts | Built; signed local rehearsal passed, except the update from a build before the electron-updater switch, which rc.13 to rc.14 covers | 1 |
+| 3 Release candidates prove the update path | In progress | 2 |
 | 4 0.0.1 is released | Not started | 3 |
 | 5 The stack version comes from a signed channel file | Not started | 4 |
 | 6 Going back to the previous stack | Not started | 5 |
@@ -26,7 +26,7 @@ The first Boundary with an updater never downloads anything without the user's s
 
 1. At launch and every 24 hours, Boundary fetches the feed for its channel. The fetch sends no ID.
 2. If the feed names a newer version that the user hasn't skipped, a button appears above Settings on the icon rail and a card opens from it once, with **Download** and **Later** ([ADR 0037](adr/0037-update-rail-button.md)). The button stays until the update installs or the version is skipped.
-3. **Download** starts Squirrel. The card shows the size and that it is downloading, with no percentage and no cancel, because `autoUpdater` offers neither.
+3. **Download** fetches the zip and shows the percent received, with no cancel. Squirrel then checks the update, which the card shows as **Checking**.
 4. When the download finishes, the card says the update installs on quit and offers **Restart to update**. Boundary runs the running-work check (decision 6), stops the stack, and installs.
 
 The stack needs no updater of its own in this release. Its ref is compiled into each build, so the first launch of a new app runs the existing provisioning path. That means stack changes reach users only with an app release, and that launch is slow. It also moves one-way data with no automatic rollback, so `db` joins the backup now rather than in phase 6.
@@ -52,7 +52,7 @@ Boundary already has a careful stack upgrade path; it only runs when a new Bound
 
 **Stack updates are tied to Boundary's code more than a version number suggests.** Boundary's overlay (`resources/assistant/docker-compose.boundary.yml`) names the stack's services and container paths. A gateway contract generated from one Hermes version is vendored in `src/main/services/assistant/hermes/vendor/`. Boundary writes Hermes profile configs, `.env` keys and WebUI settings into the stack's tree, and `PRESERVED_PROJECT_PATHS` has to match the stack's `.gitignore`. The stack's semver does not cover these: v0.3.3 was a patch tag and moved Hermes to v0.22, which migrates Hermes state one way. A stack release is safe for a given Boundary only once someone has run that pair.
 
-**The stack's lifetime is the app's lifetime.** Quit runs `compose down`, and launch runs `compose up`. A stack update therefore costs no extra downtime if it is applied during a launch, and an app update and a stack update can share one restart. Updating the stack while Boundary keeps running would be a new kind of interruption that Boundary does not have today.
+**The stack's lifetime is the app's lifetime.** Quit runs `compose stop`, and launch runs `compose up`, which restarts the same containers unless their config changed. A stack update therefore costs no extra downtime if it is applied during a launch, and an app update and a stack update can share one restart. Updating the stack while Boundary keeps running would be a new kind of interruption that Boundary does not have today.
 
 **The stack holds state that only migrates forward.** Hermes, n8n and the Postgres services migrate their own data on start. Rolling back means restoring the data copy taken before the update, not running old code on migrated data. The current backup leaves out `data/db`, the shared Postgres cluster, and it keeps only the copy from the most recent update.
 
@@ -144,60 +144,43 @@ When the app update has finished downloading, Boundary picks the stack release f
 
 Each app version supports the stack version it was certified with and the one before it. That way, a failed stack update can roll back to the previous stack under the new app. An app downgrade can then run on the stack it left behind.
 
-### 4. Boundary updates itself with Squirrel.Mac and a static feed
+### 4. Boundary updates itself with electron-updater and a static feed
 
-Electron's built-in `autoUpdater` on macOS uses Squirrel.Mac with `serverType: 'json'`. `update.electronjs.org` is ruled out because it has no channels, and electron-updater because it belongs to electron-builder and has no documented Forge integration.
+[ADR 0041](adr/0041-electron-updater.md) replaced Electron's built-in `autoUpdater` with electron-updater, which still installs through Squirrel.Mac. `update.electronjs.org` is ruled out because it has no channels.
 
-`checkForUpdates()` downloads as soon as it finds an update, so it can't serve as the check behind the first prompt. Boundary fetches the feed itself, compares `updateTo.version` with its own version by semver, and calls `checkForUpdates()` only after the user chooses **Download** (or, once phase 5 ships, after the channel file verifies and the rollout includes this install).
+With `autoDownload` off, `checkForUpdates()` only reads the channel file and compares versions by semver. `downloadUpdate()` runs after the user chooses **Download** (or, once phase 5 ships, after the channel file verifies and the rollout includes this install).
 
-**Feed.** One file per channel and architecture, read without credentials:
+**Channel file.** One file per channel and architecture, read without credentials. It is JSON, which electron-updater parses as YAML, named `<channel>-darwin-<arch>-mac.yml`:
 
 ```json
 {
-  "currentRelease": "0.0.1-rc.10",
-  "releases": [
+  "version": "0.0.1-rc.14",
+  "files": [
     {
-      "version": "0.0.1-rc.10",
-      "updateTo": {
-        "name": "Boundary 0.0.1-rc.10",
-        "version": "0.0.1-rc.10",
-        "pub_date": "2026-11-02T18:00:00Z",
-        "url": "https://github.com/BoundaryApp/boundary-desktop/releases/download/v0.0.1-rc.10/Boundary-darwin-arm64-0.0.1-rc.10.zip",
-        "sha256": "<hex>",
-        "size": 324000000,
-        "notes": "Plain-language lines shown in the card, one per line.",
-        "stackVersion": "v0.3.7"
-      }
+      "url": "https://github.com/BoundaryApp/boundary-desktop/releases/download/v0.0.1-rc.14/Boundary-darwin-arm64-0.0.1-rc.14.zip",
+      "sha512": "<base64>",
+      "size": 324000000
     }
-  ]
+  ],
+  "releaseDate": "2026-11-02T18:00:00Z",
+  "releaseNotes": "Plain-language lines shown in the card, one per line.",
+  "stackVersion": "v0.3.7"
 }
 ```
 
-Squirrel discards a download that doesn't match `sha256`.
+electron-updater discards a download that doesn't match `sha512`.
 
-**Hosting.** Feeds are assets on one fixed prerelease, `update-feed`, in the public repository: `beta-darwin-arm64.json` and `stable-darwin-arm64.json`. Zips stay on their tagged releases. `/releases/latest/download` won't work, because GitHub leaves prereleases out of it. Forge's `macUpdateManifestBaseUrl` won't work either, because it fetches the manifest during `make` and writes the zip's URL under the manifest's base. A step in the release workflow writes the feed instead. Replacing an asset can leave a short gap where the feed returns 404, which Boundary treats as an unreachable feed.
+**Download progress.** electron-updater reports the percent received, downloads the zip into `~/Library/Caches/<name>-updater`, and serves it to Squirrel from `127.0.0.1`. Squirrel doesn't compare versions on that path, and it still checks the signature. A connection that delivers nothing for 60 seconds counts as a failed download. Boundary times this itself, because the library's timeout doesn't run under Electron's `net`. Quitting mid-download leaves the partial zip in that folder.
+
+**Hosting.** Feeds are assets on one fixed prerelease, `update-feed`, in the public repository: `beta-darwin-arm64-mac.yml` and `stable-darwin-arm64-mac.yml`. Zips stay on their tagged releases. `/releases/latest/download` won't work, because GitHub leaves prereleases out of it. A step in the release workflow writes the files. Replacing an asset can leave a short gap where the feed returns 404, which Boundary treats as an unreachable feed.
 
 The feed's base URL is the build setting `BOUNDARY_UPDATE_FEED_URL`. Builds without it have updates off. Only `darwin-arm64` is built today, so other architectures get no updates.
 
-A build of Boundary for a private group can set `BOUNDARY_UPDATE_KEY_REQUIRED=1`. **Updates** then asks for a personal key, stored with `safeStorage` and sent as a bearer token on feed requests, so its checks identify the person. Squirrel sends no custom headers with the zip request, so such a feed must give each client a URL that needs no credentials. Public builds send no key. `BOUNDARY_APP_ID`, `BOUNDARY_APP_NAME` and `BOUNDARY_INSTANCE` give a build its own identity, so it installs beside Boundary with separate data, logs, Podman machine and Compose project. `BOUNDARY_APP_ICON` sets its icon.
+A build of Boundary for a private group can set `BOUNDARY_UPDATE_KEY_REQUIRED=1`. **Updates** then asks for a personal key, stored with `safeStorage` and sent as a bearer token on feed requests, so its checks identify the person. Boundary clears the key before the zip request, so such a feed must give each client a URL that needs no credentials. Public builds send no key. `BOUNDARY_APP_ID`, `BOUNDARY_APP_NAME` and `BOUNDARY_INSTANCE` give a build its own identity, so it installs beside Boundary with separate data, logs, Podman machine and Compose project. `BOUNDARY_APP_ICON` sets its icon.
 
-**Release candidates to their final version.** In JSON mode Squirrel doesn't use semver. It compares the running version with `currentRelease` using `NSNumericSearch`, and skips the update when the running version sorts later. That ordering puts `0.0.1-rc.9` after `0.0.1`, so an RC refuses its own final release. RC to RC works, and so does a final release to the next RC. The beta feed carries a final release under a label that sorts higher, while `updateTo` names the real version:
+**Builds before the switch.** `0.0.1-rc.13` and earlier read `beta-darwin-arm64.json` and `stable-darwin-arm64.json`, Squirrel's JSON format, so the workflows keep writing those until nobody runs such a build. In that format Squirrel compares the running version with `currentRelease` using `NSNumericSearch`, which puts `0.0.1-rc.9` after `0.0.1`, so an RC would refuse its own final release. The beta JSON feed therefore carries a final release under the label `<version>-rc.999999`, while `updateTo` names the real version. The channel file needs no label, because semver orders an RC before its final release.
 
-```json
-{
-  "currentRelease": "0.0.1-rc.999999",
-  "releases": [
-    {
-      "version": "0.0.1-rc.999999",
-      "updateTo": { "version": "0.0.1", "url": "https://…/Boundary-darwin-arm64-0.0.1.zip", "...": "..." }
-    }
-  ]
-}
-```
-
-After that update Squirrel alone would offer the same release again. Boundary's check reads `updateTo.version`, sees nothing newer, and never calls `checkForUpdates()`. The stable feed needs no label, because no one on stable runs an RC. Step 0 of [Testing before 0.0.1](#testing-before-001) proves this, and if it fails, RC testers install the final release from the DMG.
-
-**Restart.** `quitAndInstall()` closes windows before `before-quit` fires, so the quit screen and `runQuitTeardown()` in `src/main/index.ts` would not run first. **Restart to update** shows the quit screen, runs the teardown, sets the flag that lets `before-quit` pass, and then calls `quitAndInstall()`. That call waits for every window to close, so the window stops holding itself open for the quit screen at that point. If Squirrel hasn't taken over after 30 seconds, Boundary exits, and the update installs then. Choosing **Quit** with a downloaded update keeps the normal path, which ends in `app.exit(0)`. Step 0 checks that the update still installs that way.
+**Restart.** Electron's `quitAndInstall()` closes windows before `before-quit` fires, so the quit screen and `runQuitTeardown()` in `src/main/index.ts` would not run first. **Restart to update** shows the quit screen, runs the teardown, sets the flag that lets `before-quit` pass, and then calls `quitAndInstall()`. That call waits for every window to close, so the window stops holding itself open for the quit screen at that point. If Squirrel hasn't taken over after 30 seconds, Boundary exits, and the update installs then. Choosing **Quit** with a downloaded update keeps the normal path, which ends in `app.exit(0)`. Step 0 checks that the update still installs that way.
 
 Squirrel.Mac cannot update an app that runs from the DMG or from a translocated path. On first run Boundary checks `app.isInApplicationsFolder()` and offers `app.moveToApplicationsFolder()`.
 
@@ -287,7 +270,7 @@ Each step must pass before the next. Step 0 uses no public release. Version numb
 
 | Step | Build | What it proves |
 | --- | --- | --- |
-| 0 Local rehearsal | Three local builds signed with the Developer ID certificate, not notarized: `0.0.1-rc.900`, `0.0.1-rc.901` and `0.0.1`. `BOUNDARY_UPDATE_FEED_URL` points at a static server on `127.0.0.1` | Squirrel accepts the feed. Both restart paths work. The label moves `rc.901` to `0.0.1`, and `0.0.1` isn't offered it again. The failure cases below |
+| 0 Local rehearsal | Three local builds signed with the Developer ID certificate, not notarized: `0.0.1-rc.900`, `0.0.1-rc.901` and `0.0.1`. `BOUNDARY_UPDATE_FEED_URL` points at a static server on `127.0.0.1` | electron-updater reads the channel file and Squirrel accepts the zip. Both restart paths work. `rc.901` moves to `0.0.1`, and `0.0.1` isn't offered it again. A build from before the switch updates from the JSON feed to a build after it. The failure cases below |
 | 1 rc.9 | First public build with the updater and the feed setting. Installed from the DMG, because rc.8 and earlier can't update themselves | The release workflow's feed step, and a real install from a notarized DMG |
 | 2 rc.10 | A small visible change | The whole flow from the card to the restart, over GitHub, on a Mac with a running stack and real work in progress |
 | 3 rc.11 | Moves `SOVEREIGN_AGENT_STACK_REF` to the next stack tag | An app update moves the stack on first launch, and the backup includes `db` |
@@ -300,7 +283,7 @@ Steps 0 and 2 also cover these cases. In each, Boundary keeps running the versio
 | Case | Expected |
 | --- | --- |
 | Offline, or the feed returns 404 | No card; the **Updates** page says it couldn't check |
-| Zip doesn't match `sha256` | Squirrel discards it; the card reopens with **Try again** |
+| Zip doesn't match `sha512` | electron-updater discards it; the card reopens with **Try again** |
 | Update signed with an Apple Development certificate | Squirrel refuses it; the running app is unaffected |
 | Running from the DMG | No download offered; the page offers **Move to Applications** |
 | Work running at **Restart to update** | The running-work prompt names it |
@@ -313,7 +296,7 @@ Steps 0 and 2 also cover these cases. In each, Boundary keeps running the versio
 | What fails | What Boundary does |
 | --- | --- |
 | Feed or channel file unreachable, signature bad, serial older, or expired | Offers nothing, keeps running the installed versions, and notes it in the debug log. The Updates page says when it last checked successfully. |
-| App update download or signature check | Squirrel reports an error; the Updates page shows it with **Try again**. The running app is unaffected. |
+| App update download or signature check | electron-updater or Squirrel reports an error; the Updates page shows it with **Try again**. The running app is unaffected. |
 | Archive download or SHA-256 mismatch | Staging stops and deletes the staged tree. Nothing installed changes. |
 | Image pull or build during staging | Staging stops, the update stays available, and **Try again** restarts from the failed step. |
 | Disk space below what staging needs | Staging doesn't start; the page says how much space is needed. |

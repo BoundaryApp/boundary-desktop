@@ -28,6 +28,7 @@ function circles(overrides: Partial<CirclesState> = {}, offer: Partial<CirclesSt
           key: CIRCLE,
           name: 'Workshop',
           myRole: 'member',
+          writable: true,
           members: [],
           invites: [],
           offers: [
@@ -69,7 +70,7 @@ describe('shared models as the app default (ADR 0036)', () => {
   });
 
   it('says what stops chats, since no entry comes after it', () => {
-    const detail = (state: CirclesState, entry = shared()) => describeChainEntry(entry, { slots, circles: state }, true).detail;
+    const detail = (state: CirclesState, entry = shared()) => describeChainEntry(entry, { slots, circles: state }, 'first').detail;
     expect(detail(circles({ providers: {} }))).toMatch(/Trust Bo in Circles to use it/);
     expect(detail(circles({}, { available: false }))).toMatch(/Chats can’t send until that changes/);
     expect(detail(circles({}, { online: false }))).toMatch(/Offline now, so chats can’t send/);
@@ -79,8 +80,8 @@ describe('shared models as the app default (ADR 0036)', () => {
   it('only lets the user pick a model that can serve', () => {
     const onPick = vi.fn();
     render(<SharedModelChoices current={null} ctx={{ slots, circles: circles({ providers: {} }) }} onPick={onPick} />);
-    const choice = screen.getByRole('button', { name: /Bo's qwen3-8b/ }) as HTMLButtonElement;
-    expect(choice.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Bo's qwen3-8b/ }));
+    expect(onPick).not.toHaveBeenCalled();
     cleanup();
     render(<SharedModelChoices current={null} ctx={{ slots, circles: circles() }} onPick={onPick} />);
     fireEvent.click(screen.getByRole('button', { name: /Bo's qwen3-8b/ }));
@@ -143,6 +144,54 @@ describe('chainCandidates', () => {
   it('offers the other provider and others’ shared models not already in the chain', () => {
     const labels = chainCandidates({ slot: 'local' }, [shared()], { slots, circles: circles() }).map((view) => view.label);
     expect(labels).toEqual(['OpenRouter · claude-sonnet-4', "Bo's gemma"]);
+  });
+});
+
+describe('a candidate that can’t serve yet', () => {
+  const untrusted = { slots, circles: circles({ providers: {} }) };
+
+  it('says so, in words that don’t read as an active fallback', () => {
+    const [view] = chainCandidates({ slot: 'local' }, [], untrusted).filter((item) => item.entry.slot === 'peer');
+    expect(view).toMatchObject({ skipped: true, detail: 'Shared in Workshop. Can’t be used until you trust Bo in Circles.' });
+    expect(view.detail).not.toMatch(/Skipped/);
+    const offline = { slots, circles: circles({}, { online: false }) };
+    expect(chainCandidates({ slot: 'local' }, [], offline).find((item) => item.entry.slot === 'peer')?.detail).toMatch(
+      /Offline now, so it can’t be used yet/
+    );
+  });
+
+  it('can still be added, dimmed, and then reads as skipped', () => {
+    const onChange = vi.fn();
+    render(<ChainEditor primary={{ slot: 'local' }} fallbacks={[]} ctx={untrusted} emptyNote="none" onChange={onChange} />);
+    const add = screen.getByRole('button', { name: /^Add Bo's gemma\. .*Can’t be used until you trust Bo/ });
+    expect(add.className).toContain('is-skipped');
+    fireEvent.click(add);
+    expect(onChange).toHaveBeenCalledWith([shared('gemma')]);
+    cleanup();
+    render(<ChainEditor primary={{ slot: 'local' }} fallbacks={[shared('gemma')]} ctx={untrusted} emptyNote="none" onChange={onChange} />);
+    expect(screen.getByRole('list', { name: 'Fallbacks' }).textContent).toMatch(/Skipped until you trust Bo/);
+  });
+});
+
+describe('the link to Circles', () => {
+  const left = { slots, circles: circles({ snapshot: { identity: ME, circles: [] } }) };
+
+  it('shows on a fallback that can’t serve, and opens the fix', () => {
+    const opened = vi.fn();
+    window.addEventListener('boundary:open-circles', opened);
+    render(<ChainEditor primary={{ slot: 'local' }} fallbacks={[shared()]} ctx={{ slots, circles: circles({ providers: {} }) }} emptyNote="none" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Circles' }));
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ person: BO });
+    window.removeEventListener('boundary:open-circles', opened);
+  });
+
+  it('is absent on a fallback that can serve, and on one from a Circle the user left', () => {
+    render(<ChainEditor primary={{ slot: 'local' }} fallbacks={[shared()]} ctx={{ slots, circles: circles() }} emptyNote="none" onChange={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Open in Circles' })).toBeNull();
+    cleanup();
+    render(<ChainEditor primary={{ slot: 'local' }} fallbacks={[shared()]} ctx={left} emptyNote="none" onChange={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Open in Circles' })).toBeNull();
+    expect(screen.getByRole('list', { name: 'Fallbacks' }).textContent).toMatch(/no longer in that Circle.*Choose another model/);
   });
 });
 

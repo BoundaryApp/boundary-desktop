@@ -60,6 +60,12 @@ function printSession(entries) {
     if (entry.message === 'compose finished' && entry.data.args?.includes('up')) {
       printCompose(entry.data);
     }
+    if (entry.message === 'start-up milestones') {
+      console.log(`  milestones (${entry.data.kind}):`);
+      for (const [milestone, ms] of Object.entries(entry.data.reached)) {
+        console.log(`    ${milestone.padEnd(30)} ${seconds(ms).padStart(7)}`);
+      }
+    }
   }
 }
 

@@ -41,6 +41,21 @@ describe('ProductReadyShell navigation', () => {
     cleanup();
   });
 
+  it('reports the open screen and sheet to main', () => {
+    const api = window.electronAPI as unknown as { hostBridge?: object };
+    const hostBridge = api.hostBridge;
+    const reportScreen = vi.fn(async () => undefined);
+    api.hostBridge = { ...hostBridge, reportScreen };
+    const onNavigate = vi.fn();
+    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    expect(reportScreen).toHaveBeenLastCalledWith({ view: 'chat', sheet: null });
+    act(() => openSettings({ tab: 'passwords' }));
+    expect(reportScreen).toHaveBeenLastCalledWith({ view: 'chat', sheet: 'passwords' });
+    rerender(<ProductReadyShell view="services" onNavigate={onNavigate} />);
+    expect(reportScreen).toHaveBeenLastCalledWith({ view: 'services', sheet: null });
+    api.hostBridge = hostBridge;
+  });
+
   it('moves to the asked-for tab when Settings is already open', () => {
     const onNavigate = vi.fn();
     render(<ProductReadyShell view="settings" onNavigate={onNavigate} />);

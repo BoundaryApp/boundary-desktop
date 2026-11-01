@@ -21,7 +21,7 @@ The first updater showed an update in three unconnected places: a banner above t
 
 ## Consequences
 
-- Squirrel reports no progress, so downloading shows an indeterminate bar beside the size.
+- Squirrel reports no progress, so electron-updater ([0041](0041-electron-updater.md)) fetches the zip and hands it to Squirrel over `127.0.0.1`. The bar and the rail ring follow the bytes received, and the bar loops when the feed and the response give no total, or while Squirrel checks the finished zip.
 - The stack line is only as right as the checkout that writes the feed, so **Promote to stable** must run on a ref that pins the same stack as the release. The same goes for its notes.
 - The restart prompt names chats by the title Hermes lists. A chat outside the 100 most recent, or on an agent profile, reads "A chat".
 - The study's mock stays as the record of the earlier design.

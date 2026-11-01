@@ -1,8 +1,18 @@
 import { configDefaults, defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
 /** Experiments sit beside main/ and are absent from the public repository. */
 const experimentsDir = resolve(import.meta.dirname, '../experiments');
+
+/**
+ * Each run gets its own TMPDIR. Tests build fixed paths on `os.tmpdir()`, and some empty the
+ * mocked userData folder there, so runs sharing the system temp folder delete each other's files.
+ * The stack and circles configs spread this config, so they inherit it.
+ */
+const runTmpDir = mkdtempSync(join(tmpdir(), 'boundary-vitest-'));
+process.once('exit', () => rmSync(runTmpDir, { recursive: true, force: true }));
 
 /** Main-process service unit tests (node, Electron mocked). */
 export default defineConfig({
@@ -30,6 +40,7 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       ENVIRONMENT: 'test',
+      TMPDIR: runTmpDir,
     },
     pool: 'forks',
   },

@@ -36,6 +36,7 @@ const circleState = {
         key: CIRCLE,
         name: 'Workshop',
         myRole: 'member',
+        writable: true,
         members: [],
         invites: [],
         offers: [

@@ -23,6 +23,7 @@ function circles(overrides: Partial<CirclesState> = {}): CirclesState {
           key: CIRCLE,
           name: 'Workshop',
           myRole: 'member',
+          writable: true,
           members: [],
           invites: [],
           offers: [
@@ -59,7 +60,20 @@ function stub(state: CirclesState, status: object = nothingConnected) {
   return { setAppSharedModel };
 }
 
-afterEach(() => cleanup());
+/** The requests sent to open Circles while a test runs. */
+function watchOpenCircles(): unknown[] {
+  const opened: unknown[] = [];
+  const listener = (event: Event) => opened.push((event as CustomEvent).detail);
+  window.addEventListener('boundary:open-circles', listener);
+  stopWatching = () => window.removeEventListener('boundary:open-circles', listener);
+  return opened;
+}
+let stopWatching = () => undefined as void;
+
+afterEach(() => {
+  stopWatching();
+  cleanup();
+});
 
 describe('choosing a shared model in Settings (ADR 0036)', () => {
   it('lets a member with no provider make it the app default, and the warning goes', async () => {
@@ -76,20 +90,43 @@ describe('choosing a shared model in Settings (ADR 0036)', () => {
     expect(screen.getByRole('heading', { name: /Fallbacks/ })).toBeTruthy();
   });
 
-  it('holds back a model until its provider is trusted, and says where to do that', async () => {
-    stub(circles({ providers: {} }));
+  it('sends a click on an untrusted provider’s model to their panel, and doesn’t pick it', async () => {
+    const { setAppSharedModel } = stub(circles({ providers: {} }));
+    const opened = watchOpenCircles();
     render(<ProductSettingsScreen onBack={() => undefined} />);
-    const choice = (await screen.findByRole('button', { name: /Bo's qwen3-8b/ })) as HTMLButtonElement;
-    expect(choice.disabled).toBe(true);
+    const choice = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
     expect(choice.textContent).toMatch(/Trust Bo in Circles to use it/);
+    fireEvent.click(choice);
+    expect(opened).toEqual([{ person: BO }]);
+    expect(setAppSharedModel).not.toHaveBeenCalled();
   });
 
-  it('keeps showing a chosen model that stopped being shared, with what that means', async () => {
+  it('sends a click on a model the provider stopped sharing to Sharing, and doesn’t pick it', async () => {
+    const state = circles();
+    state.snapshot.circles[0].offers[0].available = false;
+    const { setAppSharedModel } = stub(state);
+    const opened = watchOpenCircles();
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Bo's qwen3-8b/ }));
+    expect(opened).toEqual([{}]);
+    expect(setAppSharedModel).not.toHaveBeenCalled();
+  });
+
+  it('offers no link for a model from a Circle the user left, and says to choose another', async () => {
     stub(circles({ snapshot: { identity: 'a'.repeat(64), circles: [] } }), usingShared);
     render(<ProductSettingsScreen onBack={() => undefined} />);
-    const choice = await screen.findByRole('button', { name: /qwen3-8b/ });
+    const choice = (await screen.findByRole('button', { name: /qwen3-8b/ })) as HTMLButtonElement;
     expect(choice.className).toContain('is-on');
-    expect(choice.textContent).toMatch(/Chats can’t send until that changes/);
+    expect(choice.disabled).toBe(true);
+    expect(choice.textContent).toMatch(/Chats can’t send until that changes\. Choose another model/);
+    expect(screen.queryByRole('button', { name: 'Open in Circles' })).toBeNull();
+  });
+
+  it('says what to do after a wipe clears the only model', async () => {
+    stub(circles({ snapshot: { identity: 'a'.repeat(64), circles: [] } }), { ...nothingConnected, appFallbacks: [] });
+    render(<ProductSettingsScreen onBack={() => undefined} />);
+    expect(await screen.findByText(/connect one below or choose a model someone shares in a Circle/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /qwen3-8b/ })).toBeNull();
   });
 
   it('shows the error main gives when the model stopped being available', async () => {

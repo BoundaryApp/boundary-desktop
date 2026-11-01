@@ -52,6 +52,8 @@ export interface CircleSnapshot {
   offers: CircleOfferView[];
   /** The Circle moved to a format this build can't apply; it stays stopped until the app updates. */
   needsUpdate: boolean;
+  /** False from admission until this device has caught up, and read-only until then. */
+  writable: boolean;
 }
 
 export interface CirclesSnapshot {
@@ -81,11 +83,44 @@ export interface CircleSharing {
   paused: boolean;
   /** Keep the Mac awake while Boundary is open, so members can use the models while you're away. */
   away: boolean;
+  /** Off until the user sets one (ADR 0034 §5). */
+  limits?: CircleLimits;
+}
+
+/** What one member may use; a field left out has no limit. */
+export interface CircleLimit {
+  requestsPerDay?: number;
+  tokensPerDay?: number;
+  /** Requests running or waiting at once. */
+  concurrent?: number;
+}
+
+export interface CircleLimits {
+  everyone: CircleLimit;
+  /** By identity, across all Circles. Replaces `everyone` for that member. */
+  members: Record<string, CircleLimit>;
+}
+
+export interface CircleUsageCount {
+  requests: number;
+  tokens: number;
+}
+
+/** One calendar day's counts, by identity. */
+export interface CircleDayUsage {
+  day: string;
+  counts: Record<string, CircleUsageCount>;
+}
+
+/** Who the gateway is working for now, by identity, in order. */
+export interface CircleServing {
+  running: string | null;
+  queued: string[];
 }
 
 /** A join in progress, or the failure of the last one until the user clears it. */
 export interface CircleJoinState {
-  /** Waiting for an admin to let this device in. */
+  /** Waiting for an admin's device to let this device in. */
   waiting: boolean;
   error?: string;
 }
@@ -102,7 +137,26 @@ export interface CirclesState {
   sharing: CircleSharing;
   /** What the user called each invite, by invite id. Stays on this device. */
   inviteLabels?: Record<string, string>;
+  /** Invites whose code this device keeps. Ids only: the codes stay in main. */
+  inviteCodeIds?: string[];
   join?: CircleJoinState | null;
+  /** The Circle a join has been admitted to, until the wait for write access ends. */
+  finishingJoin?: string | null;
+  /** What members used of this user's models today. Stays on this device. */
+  served?: CircleDayUsage;
+  serving?: CircleServing | null;
+  /** What this user used of each provider's models today. Stays on this device. */
+  used?: CircleDayUsage;
+}
+
+export interface CircleCreatedInvite {
+  id: string;
+  code: string;
+  expires: number;
+  /** This device kept the code, so the sheet can show it again. */
+  kept: boolean;
+  /** Earlier invites with this name that couldn't be revoked. */
+  stillOpen: number;
 }
 
 export type CirclesResult<T extends object = object> =

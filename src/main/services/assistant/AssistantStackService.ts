@@ -89,6 +89,8 @@ import {
   markAssistantStackSetupComplete,
   setLastAppliedLlm,
   setStoredAssistantPorts,
+  getStartRuns,
+  recordStartRun,
 } from './AssistantStackStore';
 import {
   isLocalAssistantStackMode,
@@ -158,6 +160,8 @@ import { runSovereignSetup } from './runSovereignSetup';
 import { syncStackImagePins } from './stackImagePins';
 import { persistDebugLog } from '../../persistDebugLog';
 import { ComposeTimeline } from './composeTimeline';
+import { StartTimer } from './startTimer';
+import type { StartKind } from '../../../shared/startupTiming';
 import { ensureHermesWebuiSyncToInsights } from './hermes/hermesWebuiSync';
 import { activeAssistantStackIdentity } from './assistantStackIdentity';
 import {
@@ -263,6 +267,15 @@ function emitStage(
   });
 }
 
+/** The stack is up: keep this start's timings for the next start's bar and estimate. */
+function finishStartTimer(): void {
+  if (!startTimer) return;
+  startTimer.reach('stackUp');
+  const { kind, reached } = startTimer.timing();
+  recordStartRun(kind, reached);
+  persistDebugLog('assistant-stack', 'start-up milestones', { kind, reached });
+}
+
 /**
  * One debug-log line per finished start-up stage, to tune the start-up screen's
  * progress curves (ADR 0029) from real runs.
@@ -300,6 +313,7 @@ function setLifecycle(snapshot: AssistantStackLifecycleSnapshot): void {
       ? (snapshot.stageStartedAt ?? Date.now())
       : (snapshot.stageStartedAt ?? prev.stageStartedAt),
     stage: snapshot.stage ?? prev.stage,
+    startTiming: snapshot.phase === 'starting' ? startTimer?.timing() : undefined,
   };
   lifecycleCallback?.(lifecycleSnapshot);
 }
@@ -321,6 +335,8 @@ function markAllServicesDone(
   );
 }
 
+/** The current start's milestones; replaced when an ensure begins. */
+let startTimer: StartTimer | null = null;
 /** Layer bytes for the current start; reset when an ensure begins. */
 let downloadTally: DownloadTally = {};
 /** Whether the current start includes host setup, for the stage-timing log. */
@@ -649,7 +665,9 @@ async function runBoundaryComposeWithProgress(
     const event = parseComposeProgressLine(line);
     if (event) timeline.record(event);
     const before = lifecycleSnapshot.services;
+    const passedMilestone = Boolean(event && isUp && startTimer?.noteComposeEvent(event));
     handleProgressLine(line);
+    if (passedMilestone) setLifecycle({ ...lifecycleSnapshot });
     if (lifecycleSnapshot.services !== before) {
       sawJsonProgress = true;
       if (pollTimer) {
@@ -866,6 +884,27 @@ function applyPsRow(
   });
 }
 
+/** Every container of Boundary's Compose project, running or stopped. */
+async function boundaryContainerIds(): Promise<string[]> {
+  const runtime = await getContainerRuntime();
+  const { stdout } = await runCli(
+    runtime,
+    ['ps', '-aq', '--filter', `label=com.docker.compose.project=${BOUNDARY_ASSISTANT_PROJECT_NAME}`],
+    { timeout: 30_000 }
+  );
+  return stdout.split(/\s+/).filter(Boolean);
+}
+
+/** A kept container restarts in far less time than a new one takes to create and patch. */
+async function startKindBeforeUp(): Promise<StartKind> {
+  if (startIsFirstRun) return 'firstRun';
+  try {
+    return (await boundaryContainerIds()).length > 0 ? 'relaunch' : 'newContainers';
+  } catch {
+    return 'relaunch';
+  }
+}
+
 /**
  * Stop and remove Boundary's stack containers before its tree is replaced, so nothing
  * keeps writing into data/ while it moves. Goes by the Compose project label rather than
@@ -873,12 +912,7 @@ function applyPsRow(
  */
 async function stopBoundaryContainersForUpgrade(): Promise<void> {
   const runtime = await getContainerRuntime();
-  const { stdout } = await runCli(
-    runtime,
-    ['ps', '-aq', '--filter', `label=com.docker.compose.project=${BOUNDARY_ASSISTANT_PROJECT_NAME}`],
-    { timeout: 30_000 }
-  );
-  const ids = stdout.split(/\s+/).filter(Boolean);
+  const ids = await boundaryContainerIds();
   if (ids.length === 0) return;
   await runCli(runtime, ['stop', '-t', '10', ...ids], { timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS });
   await runCli(runtime, ['rm', '-f', ...ids], { timeout: 60_000 });
@@ -1085,6 +1119,7 @@ export function ensureAssistantStackRunningInBackground(): void {
 async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackResult> {
   downloadTally = {};
   startIsFirstRun = !isHostSetupComplete();
+  startTimer = new StartTimer(startIsFirstRun ? 'firstRun' : 'relaunch', getStartRuns);
   // Set once this start holds the folder remount queue; released when the start ends.
   let releaseRemounts: (() => void) | null = null;
   try {
@@ -1238,6 +1273,8 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     const buildImages = boundaryOwned && needsImageBuild();
     if (buildImages) emitProgress('Building the agent stack’s local images for this version…');
 
+    startTimer?.setKind(await startKindBeforeUp());
+    startTimer?.reach('prepared');
     emitStage('compose', startMessage);
     await runBoundaryComposeWithProgress(
       [...buildComposeProfileArgs(), 'up', '-d', ...(buildImages ? ['--build'] : [])],
@@ -1255,6 +1292,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     if (overlayHostPaths) recordMountedProjectFolders(overlayHostPaths);
     recordAppliedCodingAliases(currentCodingPathAliases());
     if (buildImages) await markImagesBuilt();
+    finishStartTimer();
 
     const baseServices = lifecycleSnapshot.services.length
       ? lifecycleSnapshot.services
@@ -1323,19 +1361,13 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
       })
     );
 
+    // `stop`, not `down`: the next launch's `up` restarts these containers, where Hermes's
+    // start-up patches are already applied, and the named volumes (the uv cache) survive. `up`
+    // recreates a container whose config changed, and an upgrade removes them all.
     await runBoundaryComposeWithProgress(
-      [
-        ...buildComposeProfileArgs(),
-        'down',
-        '--timeout',
-        '10',
-        '--volumes',
-        '--remove-orphans',
-      ],
+      [...buildComposeProfileArgs(), 'stop', '--timeout', '10'],
       { timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS }
     );
-
-    await pruneBoundaryAssistantVolumes();
 
     setLifecycle(
       createLifecycleSnapshot('stopped', {
@@ -2320,6 +2352,7 @@ export const __test = {
     lifecycleSnapshot = createLifecycleSnapshot('idle');
     ensureRunningPromise = null;
     hermesRestartPending = false;
+    startTimer = null;
   },
   getEnsureRunningPromise: () => ensureRunningPromise,
   resetReadyForTests: () => {

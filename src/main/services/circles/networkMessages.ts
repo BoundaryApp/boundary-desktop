@@ -3,7 +3,7 @@
  * the user's Circles (`circles-*`), or, as the phase 0 debug spike, loads the Holepunch modules
  * and replicates one Hypercore.
  */
-import type { CircleRole, CirclesSnapshot } from '../../../shared/types/circles';
+import type { CircleDayUsage, CircleLimits, CircleRole, CircleServing, CirclesSnapshot } from '../../../shared/types/circles';
 import type { CircleOffer, CircleRecord, CircleRecordScope } from './circleOps';
 import type { CircleSignal } from './circleSignals';
 import type { GatewayUpstream } from './inferenceGateway';
@@ -59,7 +59,7 @@ export type CirclesRequest =
   | { op: 'record-del'; key: string; app: string; scope: CircleRecordScope; record: string }
   | { op: 'records-list'; key: string; app: string }
   /** The model server this user's gateway forwards to (ADR 0034 §2); null stops serving. */
-  | { op: 'share-upstream'; upstream: GatewayUpstream | null };
+  | { op: 'share-upstream'; upstream: GatewayUpstream | null; limits?: CircleLimits };
 
 export type MainToNetwork =
   | {
@@ -78,6 +78,8 @@ export type MainToNetwork =
       name: string;
       circles: CircleSecrets[];
       bootstrap?: string[];
+      /** What members have used today, so a restart doesn't refill their limits. */
+      usage?: CircleDayUsage;
     }
   | { type: 'circles-request'; id: number; request: CirclesRequest }
   /** A request for a member's shared model, for the router (ADR 0033 §5). */
@@ -123,6 +125,8 @@ export type NetworkToMain =
   | { type: 'shared-head'; id: number; status: number; contentType: string }
   | { type: 'shared-chunk'; id: number; data: Uint8Array }
   | { type: 'shared-end'; id: number; error?: string }
+  /** The gateway's counts or queue changed. */
+  | { type: 'share-usage'; served?: CircleDayUsage; serving: CircleServing }
   /** A peer signal on a topic main listens to, checked against the Circle's members. */
   | { type: 'signal-received'; signal: CircleSignal }
   /** A change to a record of an app main listens to. */

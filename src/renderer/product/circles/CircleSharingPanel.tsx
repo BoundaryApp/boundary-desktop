@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import type { CircleSharing, CircleSnapshot, CirclesState } from '../../../shared/types/circles';
 import type { InferenceProvidersStatus, ListedModel } from '../../../shared/types/onboarding';
-import { Callout } from '../../components/ui/alert';
-import { Pill } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { InfoTip } from '../../components/ui/info-tip';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { dispatchAppCommand } from '../useAppShortcuts';
+import { Avatar, CircleButton, CirclePill, CircleSwitch } from './CircleControls';
 import { openCircles } from './circlesNavigation';
+import { SharingUsage } from './CircleUsage';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
@@ -83,40 +83,6 @@ export function useSharingAttention(): boolean {
 }
 
 const openInferenceSettings = (): void => dispatchAppCommand('go-settings');
-
-function SwitchRow({
-  label,
-  detail,
-  on,
-  disabled,
-  onToggle,
-}: {
-  label: string;
-  detail: string;
-  on: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="wb-share-switch">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={disabled}
-        onClick={onToggle}
-        className={`wb-switch${on ? ' is-on' : ''}`}
-      >
-        <i />
-      </button>
-      <span>
-        <b>{label}</b>
-        <small>{detail}</small>
-      </span>
-    </div>
-  );
-}
 
 export function formatContext(tokens: number | undefined): string {
   if (!tokens) return '';
@@ -194,19 +160,19 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
       : `This Mac stays awake so members can use your models while you're away. Only while ${APP_NAME} is open.`;
 
   return (
-    <div className="wb-share" aria-label="Shared from this Mac" role="group">
-      <h2 className="wb-share-head">
+    <section aria-label="Shared from this Mac" role="group" className="flex flex-col gap-3">
+      <h2 className="flex items-center gap-1.5 text-title font-medium text-fg">
         Shared from this Mac
         <InfoTip label="sharing with Circles">
           Members can put your models in their chats. Their prompts reach your model server, and your
-          model&apos;s replies drive their agent. {APP_NAME} keeps only who asked, which model, and timings.
+          model&apos;s replies drive their agent. {APP_NAME} keeps only who asked, which model, token counts and timings.
           Requests run one at a time.
         </InfoTip>
       </h2>
 
       {sharingAny ? (
         <>
-          <Callout variant={blocked ? 'warn' : 'ok'} className="flex flex-wrap items-center gap-2">
+          <div role={blocked ? 'alert' : undefined} className={`wb-circle-banner ${blocked ? 'is-warn' : 'is-ok'}`}>
             <span className="min-w-0 flex-1">
               {blocked
                 ? `${blocked}.`
@@ -215,27 +181,26 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
                   } while ${APP_NAME} is open.`}
             </span>
             {fixInSettings ? (
-              <Button size="sm" variant="outline" onClick={openInferenceSettings}>
+              <CircleButton size="row" variant="outline" onClick={openInferenceSettings}>
                 Open Settings
-              </Button>
+              </CircleButton>
             ) : null}
-            <Button
-              size="sm"
+            <CircleButton
+              size="row"
               variant="outline"
               disabled={action.busy}
               onClick={() => save({ ...sharing, paused: !sharing.paused })}
             >
               {sharing.paused ? 'Resume sharing' : 'Pause sharing'}
-            </Button>
-          </Callout>
-          <p className="wb-share-note">
-            {sharing.paused ? 'Your choices are kept.' : 'Pausing keeps your choices.'} Pause and away mode apply to
-            every Circle. While paused, members&apos; chats move on to their next model.
-          </p>
+            </CircleButton>
+          </div>
+          {sharing.paused ? (
+            <p className="text-xs text-fg-faint">Your choices are kept. While paused, members&apos; chats move on to their next model.</p>
+          ) : null}
         </>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="wb-share-status min-w-0 flex-1">{startHint(sharing, hasLocal, sharedCircles)}</p>
+          <p className="min-w-0 flex-1 text-ui text-fg-muted">{startHint(sharing, hasLocal, sharedCircles)}</p>
           {!hasLocal ? (
             <Button size="sm" variant="outline" onClick={openInferenceSettings}>
               Open Settings
@@ -244,58 +209,64 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
         </div>
       )}
       {!sharingAny && circles.status !== 'running' ? (
-        <p className="wb-share-note">Circles aren&apos;t connected. Changes go out when they are.</p>
+        <p className="text-xs text-fg-faint">Circles aren&apos;t connected. Changes go out when they are.</p>
       ) : null}
 
-      {listed.length > 0 ? (
-        <fieldset className="wb-share-set" disabled={action.busy}>
-          <legend>Models</legend>
-          {listed.map((model) => (
-            <label key={model.id} className="wb-share-option">
-              <input type="checkbox" checked={sharedIds.has(model.id)} onChange={() => toggleModel(model)} />
-              <span>
-                {model.id}
-                {model.contextLength ? <small>{formatContext(model.contextLength)}</small> : null}
+      <div className="grid gap-4 md:grid-cols-2">
+        {listed.length > 0 ? (
+          <fieldset className="wb-circle-box" disabled={action.busy}>
+            <legend>Models on your server</legend>
+            {listed.map((model) => (
+              <label key={model.id} className="flex items-center gap-2 py-[3px]">
+                <input type="checkbox" checked={sharedIds.has(model.id)} onChange={() => toggleModel(model)} />
+                <span className="min-w-0 flex-1 font-mono text-xs break-all text-fg">{model.id}</span>
+                {model.contextLength ? <small className="text-xs text-fg-faint">{formatContext(model.contextLength)}</small> : null}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
+
+        <fieldset className="wb-circle-box" disabled={action.busy}>
+          <legend>Shared with</legend>
+          {circles.snapshot.circles.map((circle) => {
+            const on = sharing.circles.includes(circle.key);
+            const name = circle.name || 'this Circle';
+            return (
+              <div key={circle.key} className="flex items-center gap-2 py-[3px]">
+                <span className="min-w-0 flex-1 text-ui text-fg">{name}</span>
+                <CircleSwitch
+                  label={`Share with ${name}`}
+                  on={on}
+                  disabled={action.busy}
+                  onToggle={() =>
+                    save({
+                      ...sharing,
+                      circles: on ? sharing.circles.filter((key) => key !== circle.key) : [...sharing.circles, circle.key],
+                    })
+                  }
+                />
+              </div>
+            );
+          })}
+          {sharingAny ? (
+            <div className="mt-1.5 flex items-center gap-2 border-t border-line pt-2">
+              <span className="flex min-w-0 flex-1 flex-col text-ui text-fg">
+                Away mode
+                <small className="text-xs text-fg-faint">{awayDetail}</small>
               </span>
-            </label>
-          ))}
+              <CircleSwitch
+                label="Away mode"
+                on={sharing.away}
+                disabled={action.busy}
+                onToggle={() => save({ ...sharing, away: !sharing.away })}
+              />
+            </div>
+          ) : null}
         </fieldset>
-      ) : null}
-
-      <fieldset className="wb-share-set" disabled={action.busy}>
-        <legend>Shared with</legend>
-        {circles.snapshot.circles.map((circle) => {
-          const on = sharing.circles.includes(circle.key);
-          const name = circle.name || 'this Circle';
-          return (
-            <SwitchRow
-              key={circle.key}
-              label={`Share with ${name}`}
-              detail={on ? `Members of ${name} get the models ticked above.` : `Members of ${name} can't use your models.`}
-              on={on}
-              disabled={action.busy}
-              onToggle={() =>
-                save({
-                  ...sharing,
-                  circles: on ? sharing.circles.filter((key) => key !== circle.key) : [...sharing.circles, circle.key],
-                })
-              }
-            />
-          );
-        })}
-      </fieldset>
-
-      {sharingAny ? (
-        <SwitchRow
-          label="Away mode"
-          detail={awayDetail}
-          on={sharing.away}
-          disabled={action.busy}
-          onToggle={() => save({ ...sharing, away: !sharing.away })}
-        />
-      ) : null}
-      {action.error ? <p className="wb-share-error">{action.error}</p> : null}
-    </div>
+      </div>
+      {sharingAny ? <SharingUsage circles={circles} /> : null}
+      {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
+    </section>
   );
 };
 
@@ -315,26 +286,29 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
       : available
         ? `Members of ${name} can use your models while ${APP_NAME} is open.`
         : 'Your choices for this Circle are kept.';
-  const dot = !shared ? 'bg-line' : available ? 'bg-ok' : 'bg-warn';
+  const dot = !shared ? 'bg-line-strong' : available ? 'bg-ok' : 'bg-warn';
   const dotLabel = !shared ? 'Not sharing' : available ? 'Sharing' : 'Unavailable to members';
   return (
-    <li className="flex flex-col gap-2 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`size-2 rounded-full ${dot}`} role="img" aria-label={dotLabel} />
-        <span className="text-ui text-fg">You</span>
-        {circle.myRole === 'admin' ? <Pill variant="outline">Admin</Pill> : null}
-        {shared ? (
-          <span className="min-w-0 text-xs break-words text-fg-muted">{sharing.models.map((model) => model.id).join(', ')}</span>
-        ) : null}
-        {shared && blocked ? <Pill variant="warn">{blocked}</Pill> : null}
-        {available && sharing.away ? <Pill variant="outline">Away mode</Pill> : null}
-      </div>
-      <div className="pl-4">
-        <SwitchRow
+    <li className="flex flex-col justify-center gap-1 px-2.5 py-2">
+      <div className="flex min-h-[42px] items-center gap-3">
+        <Avatar name={circles.displayName || 'You'} dot={dot} label={dotLabel} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-ui text-fg">You</span>
+            {circle.myRole === 'admin' ? <CirclePill tone="tag">Admin</CirclePill> : null}
+            {available && sharing.away ? <CirclePill tone="tag">Away mode</CirclePill> : null}
+          </span>
+          <span className="text-xs break-words text-fg-faint">
+            {available ? sharing.models.map((model) => model.id).join(', ') : shared && blocked ? blocked : detail}
+          </span>
+        </span>
+        <span className="text-xs text-fg-muted" aria-hidden>
+          Share here
+        </span>
+        <CircleSwitch
           label="Share here"
-          detail={detail}
           on={on}
-          disabled={action.busy}
+          disabled={action.busy || !circle.writable}
           onToggle={() =>
             void action.run(() =>
               window.electronAPI.circles.setSharing({

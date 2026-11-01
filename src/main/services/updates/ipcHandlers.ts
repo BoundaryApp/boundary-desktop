@@ -1,6 +1,10 @@
-import { app, autoUpdater, dialog } from 'electron';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { app, autoUpdater as squirrel, dialog } from 'electron';
 import Store from 'electron-store';
-import type { RunningWorkItem } from '../../../shared/types/updates';
+import { autoUpdater } from 'electron-updater';
+import type { RunningWorkItem, UpdateSnapshot } from '../../../shared/types/updates';
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../../shared/assistantStackConstants';
 import { handle } from '../../ipc';
 import { persistDebugLog, serializeError } from '../../persistDebugLog';
@@ -10,9 +14,9 @@ import { getKanbanSnapshot } from '../assistant/hermes/hermesKanban';
 import { listRunningTurns } from '../assistant/hermes/hermesRunningTurns';
 import { broadcast } from '../windows';
 import { decryptFromBase64, encryptToBase64 } from '../secrets/osEncryption';
+import { removeLegacyUpdateFiles } from './legacyUpdateFiles';
 import { compareVersions } from './updateFeed';
 import {
-  FeedKeyRejected,
   UpdateService,
   type FeedKey,
   type UpdateStore,
@@ -22,8 +26,6 @@ import { APP_NAME } from '../../../shared/buildIdentity';
 
 declare const __BOUNDARY_UPDATE_FEED_URL__: string | undefined;
 declare const __BOUNDARY_UPDATE_KEY_REQUIRED__: boolean | undefined;
-
-const FEED_TIMEOUT_MS = 15_000;
 
 interface UpdatesFileShape extends UpdateStoreShape {
   moveToApplicationsOffered?: boolean;
@@ -37,15 +39,19 @@ function buildFeedBase(): string {
   return typeof __BOUNDARY_UPDATE_FEED_URL__ === 'string' ? __BOUNDARY_UPDATE_FEED_URL__ : '';
 }
 
-async function fetchText(url: string, headers: Record<string, string>): Promise<string> {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers,
-    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-  });
-  if (response.status === 401 || response.status === 403) throw new FeedKeyRejected();
-  if (!response.ok) throw new Error(`Feed returned ${response.status}`);
-  return response.text();
+/**
+ * electron-updater reads its cache folder's name from a file electron-builder would ship, even
+ * with a feed set here. Writing it keeps packaging unchanged and gives each instance its own.
+ */
+function configureUpdater(feedBase: string): void {
+  autoUpdater.logger = null;
+  autoUpdater.autoDownload = false;
+  autoUpdater.disableDifferentialDownload = true;
+  if (!feedBase) return;
+  const configPath = join(app.getPath('userData'), 'app-update.yml');
+  writeFileSync(configPath, `updaterCacheDirName: ${JSON.stringify(`${app.getName()}-updater`)}\n`);
+  autoUpdater.updateConfigPath = configPath;
+  autoUpdater.setFeedURL({ provider: 'generic', url: feedBase });
 }
 
 function storedFeedKey(store: Store<UpdatesFileShape>): FeedKey {
@@ -102,9 +108,14 @@ async function runningWork(): Promise<RunningWorkItem[]> {
 }
 
 /** Hand over to Squirrel. If it refuses, quit normally: the stack has already stopped. */
+/** The update state now; null until the handlers are registered. */
+export function currentUpdateSnapshot(): UpdateSnapshot | null {
+  return service?.snapshot() ?? null;
+}
+
 export function quitAndInstallUpdate(): void {
   try {
-    autoUpdater.quitAndInstall();
+    squirrel.quitAndInstall();
   } catch (error) {
     persistDebugLog('updates', 'quitAndInstall failed', serializeError(error));
     app.exit(0);
@@ -118,18 +129,20 @@ export function registerUpdateHandlers(
   const store = new Store<UpdatesFileShape>({ name: 'updates' });
   let ready = false;
   settings = store;
+  const feedBase = buildFeedBase();
+  configureUpdater(feedBase);
   const updates = new UpdateService({
     currentVersion: app.getVersion(),
     stackVersion: SOVEREIGN_AGENT_STACK_VERSION,
     arch: process.arch,
-    feedBase: buildFeedBase(),
+    feedBase,
     inApplications: () => app.isInApplicationsFolder(),
-    fetchText,
     feedKey:
       typeof __BOUNDARY_UPDATE_KEY_REQUIRED__ === 'boolean' && __BOUNDARY_UPDATE_KEY_REQUIRED__
         ? storedFeedKey(store)
         : undefined,
     updater: autoUpdater,
+    squirrel,
     store: store as unknown as UpdateStore,
     runningWork,
     installAndRestart,
@@ -176,8 +189,18 @@ async function offerMoveToApplications(): Promise<void> {
   if (response === 0) app.moveToApplicationsFolder();
 }
 
+async function clearLegacyUpdateFiles(): Promise<void> {
+  try {
+    const removed = await removeLegacyUpdateFiles(tmpdir(), Date.now());
+    if (removed > 0) persistDebugLog('updates', 'removed old update files', { removed });
+  } catch (error) {
+    persistDebugLog('updates', 'old update file cleanup failed', serializeError(error));
+  }
+}
+
 export async function startUpdates(): Promise<void> {
   if (!service) return;
+  void clearLegacyUpdateFiles();
   if (service.snapshot().blocked === 'not-in-applications') {
     await offerMoveToApplications().catch((error: unknown) => {
       persistDebugLog('updates', 'move to Applications failed', serializeError(error));

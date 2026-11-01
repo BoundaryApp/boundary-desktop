@@ -86,10 +86,11 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
 
   /**
    * The open chat now runs under `resolvedId`. Records the alias and calls `rename` with the
-   * id it was open under, so the caller can rename that list row.
+   * id it was open under, so the caller can rename that list row. `storedId` is the id lists
+   * will bring back for it, which is new when a send had to start another session.
    */
   const adoptResolvedId = useCallback(
-    (resolvedId: string, rename: (from: string, to: string) => void) => {
+    (resolvedId: string, rename: (from: string, to: string) => void, storedId?: string) => {
       setActiveThreadId((current) => {
         if (!current) {
           setToolsOff((prev) => {
@@ -97,11 +98,17 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
             const { ['']: _empty, ...rest } = prev;
             return { ...rest, [resolvedId]: true };
           });
-          return resolvedId;
+        } else if (current !== resolvedId) {
+          rename(current, resolvedId);
         }
-        if (current === resolvedId) return resolvedId;
-        setIdAliases((prev) => ({ ...prev, [resolvedId]: prev[current] ?? current }));
-        rename(current, resolvedId);
+        setIdAliases((prev) => {
+          const root = current ? (prev[current] ?? current) : resolvedId;
+          const added = [resolvedId, storedId].filter(
+            (id): id is string => Boolean(id) && id !== root && prev[id!] !== root
+          );
+          if (added.length === 0) return prev;
+          return { ...prev, ...Object.fromEntries(added.map((id) => [id, root])) };
+        });
         return resolvedId;
       });
     },

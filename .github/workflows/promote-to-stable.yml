@@ -33,6 +33,7 @@ jobs:
           gh release download "${TAG}" --pattern "${zip}"
           node scripts/write-update-feed.mjs --channel stable --version "${version}" \
             --zip "${zip}" --repo "${GITHUB_REPOSITORY}" \
-            --notes-file .github/update-summary.txt --out stable-darwin-arm64.json
-          gh release upload update-feed stable-darwin-arm64.json --clobber
+            --notes-file .github/update-summary.txt --out stable-darwin-arm64.json \
+            --channel-out stable-darwin-arm64-mac.yml
+          gh release upload update-feed stable-darwin-arm64.json stable-darwin-arm64-mac.yml --clobber
           gh release edit "${TAG}" --prerelease=false --latest

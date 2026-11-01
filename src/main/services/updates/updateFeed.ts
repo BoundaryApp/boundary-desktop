@@ -2,7 +2,7 @@ import type { UpdateChannel } from '../../../shared/types/updates';
 
 export interface UpdateOffer {
   version: string;
-  /** One line per line of the feed's `notes`. */
+  /** One line per line of the channel file's `releaseNotes`. */
   summary: string[];
   size: number | null;
   /** The stack version the offered build pins, when the feed names one. */
@@ -39,10 +39,7 @@ function comparePrerelease(a: string[], b: string[]): number {
   return a.length - b.length;
 }
 
-/**
- * Semver precedence. Squirrel's own check isn't semver (see scripts/write-update-feed.mjs), so
- * this decides what Boundary offers. Null when either version doesn't parse.
- */
+/** Semver precedence, for the data version. Null when either version doesn't parse. */
 export function compareVersions(a: string, b: string): number | null {
   const [x, y] = [parseVersion(a), parseVersion(b)];
   if (!x || !y) return null;
@@ -52,30 +49,21 @@ export function compareVersions(a: string, b: string): number | null {
   return comparePrerelease(x.prerelease, y.prerelease);
 }
 
-/** The offer in a feed, read from `updateTo`, or null when the feed has none we can use. */
-export function parseFeed(text: string): UpdateOffer | null {
-  let feed: unknown;
-  try {
-    feed = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (typeof feed !== 'object' || feed === null) return null;
-  const { currentRelease, releases } = feed as { currentRelease?: unknown; releases?: unknown };
-  if (typeof currentRelease !== 'string' || !Array.isArray(releases)) return null;
-  const entry = releases.find(
-    (release: { version?: unknown }) => release?.version === currentRelease
-  ) as
-    | { updateTo?: { version?: unknown; notes?: unknown; size?: unknown; stackVersion?: unknown } }
-    | undefined;
-  const version = entry?.updateTo?.version;
-  if (typeof version !== 'string' || !parseVersion(version)) return null;
-  const { notes, size, stackVersion } = entry?.updateTo ?? {};
+/** What this service reads from a channel file. Unknown keys reach it unchanged. */
+export interface ChannelInfo {
+  version: string;
+  releaseNotes?: unknown;
+  files?: { size?: number }[];
+  stackVersion?: unknown;
+}
+
+export function parseOffer({ version, releaseNotes, files, stackVersion }: ChannelInfo): UpdateOffer {
+  const size = files?.[0]?.size;
   return {
     version,
     summary:
-      typeof notes === 'string'
-        ? notes
+      typeof releaseNotes === 'string'
+        ? releaseNotes
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)
@@ -85,8 +73,9 @@ export function parseFeed(text: string): UpdateOffer | null {
   };
 }
 
-export function feedUrl(base: string, channel: UpdateChannel, arch: string): string {
-  return `${base.replace(/\/+$/, '')}/${channel}-darwin-${arch}.json`;
+/** The name electron-updater turns into `<name>-mac.yml`. Only built architectures have a file. */
+export function channelName(channel: UpdateChannel, arch: string): string {
+  return `${channel}-darwin-${arch}`;
 }
 
 export function defaultChannel(version: string): UpdateChannel {

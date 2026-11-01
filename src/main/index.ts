@@ -1,6 +1,6 @@
 // First: the lag probe times IPC handlers, so it must patch ipcMain before any register.
 import { startLagProbe } from './perf/lagProbe';
-import { APP_NAME } from '../shared/buildIdentity';
+import { APP_ID, APP_NAME, INSTANCE_NAME } from '../shared/buildIdentity';
 import { APP_COMMANDS, APP_MENU_COMMAND_CHANNEL, type AppCommand } from '../shared/appCommands';
 import { persistDebugLog, serializeError, getDebugLogPath, fileStatForLog } from './persistDebugLog';
 import { app, BrowserWindow, Menu } from 'electron';
@@ -236,23 +236,24 @@ if (started) {
   app.quit();
 }
 
+// Too late for userData: stores read it during import. A packaged build's name reaches userData
+// through productName, which forge.config.ts sets.
 app.setName(APP_NAME);
 
 // Windows groups taskbar entries and notifications by this id.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.boundary.desktop');
+  app.setAppUserModelId(APP_ID);
 }
 
 // macOS specific app configuration
 if (process.platform === 'darwin') {
   // Enable macOS integration
-  app.setAsDefaultProtocolClient('boundary');
+  app.setAsDefaultProtocolClient(INSTANCE_NAME);
 }
 
 // Packaged only, so a dev build can run beside an installed app.
 const runningSibling = app.isPackaged ? findRunningSibling() : null;
 
-// After setName: the lock lives in userData, which the app name decides.
 const isPrimaryInstance =
   !runningSibling &&
   claimSingleInstance(app, () => {

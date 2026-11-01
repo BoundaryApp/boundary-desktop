@@ -59,6 +59,12 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
 
   useEffect(() => setSheetRequest(null), [view]);
 
+  // Ids only, for the tool that tells a developer's agent what's open (ADR 0040 §4).
+  const sheet = sheetRequest?.tab ?? null;
+  useEffect(() => {
+    void window.electronAPI?.hostBridge?.reportScreen?.({ view, sheet });
+  }, [view, sheet]);
+
   useOpenCirclesRequests(({ person }) => {
     setCirclesSelection({ kind: 'sharing', ...(person ? { person } : {}) });
     onNavigate('circles');
@@ -129,8 +135,8 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       {/* Keep this a flex column: screens scroll by taking `flex: 1; min-height: 0` here.
           As a plain block they grow to their content and the overflow is clipped. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" inert={Boolean(sheetRequest)}>
-        {/* Chat draws its own band from the rail and thread headers. */}
-        {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
+        {/* Chat draws its own band from the rail and thread headers; Circles' columns run to the top. */}
+        {view === 'chat' || view === 'circles' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
         <Profiler id={`screen:${view}`} onRender={onReactRender}>
           {main}
         </Profiler>

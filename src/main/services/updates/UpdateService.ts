@@ -1,3 +1,5 @@
+import type { OutgoingHttpHeaders } from 'node:http';
+import { CancellationToken } from 'electron-updater';
 import type {
   RunningWorkItem,
   UpdateBlock,
@@ -8,15 +10,17 @@ import type {
   UpdateWaitItem,
 } from '../../../shared/types/updates';
 import {
-  compareVersions,
+  channelName,
   defaultChannel,
-  feedUrl,
-  parseFeed,
+  parseOffer,
+  type ChannelInfo,
   type UpdateOffer,
 } from './updateFeed';
 
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const WORK_POLL_MS = 15_000;
+/** Longest a download may go without receiving a byte. Electron's `net` has no socket timeout. */
+const STALL_MS = 60_000;
 /** Time to read what just finished, or to stop the restart, before it goes ahead. */
 const LAST_CALL_SECONDS = 30;
 
@@ -40,16 +44,22 @@ export interface UpdateStore {
   set<K extends keyof UpdateStoreShape>(key: K, value: NonNullable<UpdateStoreShape[K]>): void;
 }
 
-/** The part of Electron's autoUpdater this service uses. */
-export interface SquirrelUpdater {
-  setFeedURL(options: {
-    url: string;
-    serverType: 'json';
-    headers: Record<string, string>;
-  }): void;
-  checkForUpdates(): void;
-  on(event: 'update-downloaded' | 'update-not-available', listener: () => void): unknown;
+/** The part of electron-updater's autoUpdater this service uses. */
+export interface AppUpdater {
+  channel: string | null;
+  allowDowngrade: boolean;
+  requestHeaders: OutgoingHttpHeaders | null;
+  checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: ChannelInfo } | null>;
+  downloadUpdate(cancellationToken: CancellationToken): Promise<unknown>;
+  on(event: 'download-progress', listener: (progress: { percent: number }) => void): unknown;
+  /** The zip is here and its `sha512` matched. Squirrel hasn't looked at it yet. */
+  on(event: 'update-downloaded', listener: () => void): unknown;
   on(event: 'error', listener: (error: Error) => void): unknown;
+}
+
+/** The part of Electron's autoUpdater this service uses: Squirrel's verdict on the zip. */
+export interface SquirrelUpdater {
+  on(event: 'update-downloaded' | 'update-not-available', listener: () => void): unknown;
 }
 
 /** The personal key a gated feed needs. It stays in the main process. */
@@ -60,9 +70,6 @@ export interface FeedKey {
   write: (key: string) => Promise<void>;
 }
 
-/** The feed refused this key. */
-export class FeedKeyRejected extends Error {}
-
 export interface UpdateServiceDeps {
   currentVersion: string;
   /** The stack version this build pins, to tell whether an update moves it. */
@@ -71,16 +78,23 @@ export interface UpdateServiceDeps {
   /** Empty when the build has no feed, as in dev builds and forks. */
   feedBase: string;
   inApplications: () => boolean;
-  fetchText: (url: string, headers: Record<string, string>) => Promise<string>;
   /** Set when this build's feed needs a personal key. */
   feedKey?: FeedKey;
-  updater: SquirrelUpdater;
+  updater: AppUpdater;
+  squirrel: SquirrelUpdater;
   store: UpdateStore;
   runningWork: () => Promise<RunningWorkItem[]>;
   /** Stop the stack the way a quit does, then hand over to Squirrel. */
   installAndRestart: () => void;
   onChange: (snapshot: UpdateSnapshot) => void;
   log: (message: string, details?: Record<string, unknown>) => void;
+}
+
+/** electron-updater's `ERR_UPDATER_…` code when it has one. These name no URL or path. */
+function failureReason(error: unknown): string {
+  const { code, name } = error as { code?: unknown; name?: unknown };
+  if (typeof code === 'string') return code;
+  return typeof name === 'string' ? name : typeof error;
 }
 
 /** Offers, downloads and installs app updates. Nothing downloads until the user says so. */
@@ -95,11 +109,21 @@ export class UpdateService {
   private restartIn: number | null = null;
   private lastCallTimer: ReturnType<typeof setInterval> | null = null;
   private restarting = false;
-  private feedHeaders: Record<string, string> = {};
+  private downloadPercent: number | null = null;
+  private cancelDownload: CancellationToken | null = null;
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: UpdateServiceDeps) {
+    deps.updater.on('download-progress', ({ percent }) => this.received(percent));
     deps.updater.on('update-downloaded', () => {
       if (this.phase !== 'downloading') return;
+      this.clearStallTimer();
+      this.setDownloadPercent(100);
+    });
+    deps.updater.on('error', (error) => this.downloadFailed(failureReason(error)));
+    deps.squirrel.on('update-downloaded', () => {
+      if (this.phase !== 'downloading') return;
+      this.endDownload();
       this.phase = 'ready';
       if (this.offer) {
         const { version, summary } = this.offer;
@@ -107,8 +131,7 @@ export class UpdateService {
       }
       this.changed();
     });
-    deps.updater.on('update-not-available', () => this.downloadFailed('update-not-available'));
-    deps.updater.on('error', (error) => this.downloadFailed(error.name));
+    deps.squirrel.on('update-not-available', () => this.downloadFailed('update-not-available'));
   }
 
   start(): void {
@@ -135,6 +158,7 @@ export class UpdateService {
       version,
       summary: version ? (this.offer?.summary ?? []) : [],
       size: version ? (this.offer?.size ?? null) : null,
+      downloadPercent: this.downloadPercent,
       stackChanges: version !== null && this.stackChanges(),
       checking: this.checking,
       lastCheckedAt: store.get('lastCheckedAt') ?? null,
@@ -153,26 +177,29 @@ export class UpdateService {
   async check(options: { manual: boolean }): Promise<UpdateSnapshot> {
     if (this.blocked() !== 'none' || this.checking) return this.snapshot();
     if (this.phase === 'downloading' || this.phase === 'ready') return this.snapshot();
-    const { store, fetchText, currentVersion, arch, feedBase } = this.deps;
+    const { store, updater, arch } = this.deps;
     this.checking = true;
     this.error = null;
     this.changed();
     try {
-      const offer = parseFeed(await fetchText(feedUrl(feedBase, this.channel(), arch), await this.readFeedHeaders()));
-      if (!offer) throw new Error('Unreadable feed');
+      updater.channel = channelName(this.channel(), arch);
+      // Setting a channel turns downgrades on.
+      updater.allowDowngrade = false;
+      updater.requestHeaders = await this.readFeedHeaders();
+      const result = await updater.checkForUpdates();
+      if (!result) throw new Error('Updater inactive');
+      const offer = parseOffer(result.updateInfo);
       store.set('lastCheckedAt', new Date().toISOString());
       if (options.manual && store.get('skippedVersion') === offer.version) {
         store.set('skippedVersion', '');
       }
-      const newer = (compareVersions(offer.version, currentVersion) ?? 0) > 0;
-      const wanted = newer && store.get('skippedVersion') !== offer.version;
+      const wanted = result.isUpdateAvailable && store.get('skippedVersion') !== offer.version;
       this.offer = wanted ? offer : null;
       this.phase = wanted ? 'available' : 'idle';
     } catch (error) {
-      this.error = error instanceof FeedKeyRejected ? 'key' : 'check';
-      this.deps.log('update check failed', {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
+      const { statusCode } = error as { statusCode?: number };
+      this.error = statusCode === 401 || statusCode === 403 ? 'key' : 'check';
+      this.deps.log('update check failed', { reason: failureReason(error) });
     } finally {
       this.checking = false;
       this.changed();
@@ -182,22 +209,53 @@ export class UpdateService {
 
   download(): UpdateSnapshot {
     if (this.phase !== 'available') return this.snapshot();
-    const { updater, feedBase, arch } = this.deps;
     this.phase = 'downloading';
+    this.downloadPercent = null;
     this.error = null;
-    try {
-      updater.setFeedURL({
-        url: feedUrl(feedBase, this.channel(), arch),
-        serverType: 'json',
-        headers: this.feedHeaders,
-      });
-      updater.checkForUpdates();
-    } catch (error) {
-      this.downloadFailed(error instanceof Error ? error.name : typeof error);
-      return this.snapshot();
-    }
     this.changed();
+    // The personal key is for the feed only. A gated feed's zip URL needs no credentials.
+    this.deps.updater.requestHeaders = null;
+    const token = new CancellationToken();
+    this.cancelDownload = token;
+    this.watchForStall();
+    this.deps.updater.downloadUpdate(token).catch((error: unknown) => {
+      // A cancelled attempt can reject after Try again has started the next one.
+      if (this.cancelDownload === token) this.downloadFailed(failureReason(error));
+    });
     return this.snapshot();
+  }
+
+  /** Held at 99 until the zip is complete, so 100 only ever means Squirrel has it. */
+  private received(percent: number): void {
+    if (this.phase !== 'downloading') return;
+    this.watchForStall();
+    this.setDownloadPercent(Math.min(99, Math.floor(percent)));
+  }
+
+  private watchForStall(): void {
+    this.clearStallTimer();
+    this.stallTimer = setTimeout(() => {
+      const cancel = this.cancelDownload;
+      this.downloadFailed('stalled');
+      cancel?.cancel();
+    }, STALL_MS);
+  }
+
+  private clearStallTimer(): void {
+    if (this.stallTimer) clearTimeout(this.stallTimer);
+    this.stallTimer = null;
+  }
+
+  private setDownloadPercent(percent: number): void {
+    if (percent === this.downloadPercent) return;
+    this.downloadPercent = percent;
+    this.changed();
+  }
+
+  private endDownload(): void {
+    this.clearStallTimer();
+    this.cancelDownload = null;
+    this.downloadPercent = null;
   }
 
   /** Restarts now when nothing is running or `force` is set; otherwise says what is running. */
@@ -271,11 +329,9 @@ export class UpdateService {
     return this.check({ manual: false });
   }
 
-  /** Download only follows a check, so it reuses the headers that check read. */
   private async readFeedHeaders(): Promise<Record<string, string>> {
     const key = await this.deps.feedKey?.read();
-    this.feedHeaders = key ? { Authorization: `Bearer ${key}` } : {};
-    return this.feedHeaders;
+    return key ? { Authorization: `Bearer ${key}` } : {};
   }
 
   private blocked(): UpdateBlock {
@@ -317,6 +373,7 @@ export class UpdateService {
   private downloadFailed(reason: string): void {
     if (this.phase !== 'downloading') return;
     this.deps.log('update download failed', { reason });
+    this.endDownload();
     this.phase = 'available';
     this.error = 'download';
     this.changed();

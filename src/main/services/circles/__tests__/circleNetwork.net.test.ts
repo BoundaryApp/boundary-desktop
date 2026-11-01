@@ -106,6 +106,7 @@ describe('Circles over a local DHT', () => {
 
     const seenByBo = await bo.until((s) => circleOf(s, key)?.members.length === 2 && Boolean(memberNamed(s, key, 'Ada')?.online));
     expect(circleOf(seenByBo, key)!.myRole).toBe('member');
+    expect(circleOf(seenByBo, key)!.writable).toBe(true);
     await ada.until((s) => Boolean(memberNamed(s, key, 'Bo')?.online));
     // The same identity is visible across Circles (ADR 0032 §2).
     expect(memberNamed(ada.net.snapshot(), key, 'Bo')!.identity).toBe(bo.net.snapshot().identity);

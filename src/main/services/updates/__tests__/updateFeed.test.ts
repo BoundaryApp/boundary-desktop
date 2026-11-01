@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { compareVersions, defaultChannel, feedUrl, parseFeed } from '../updateFeed';
+import { describe, expect, it, vi } from 'vitest';
+import { GenericProvider } from 'electron-updater/out/providers/GenericProvider';
+import { channelName, compareVersions, defaultChannel, parseOffer } from '../updateFeed';
 
 describe('compareVersions', () => {
   it.each([
@@ -17,32 +18,42 @@ describe('compareVersions', () => {
   });
 });
 
-describe('parseFeed', () => {
-  it('reads the real version under a label', () => {
-    const feed = JSON.stringify({
-      currentRelease: '0.0.1-rc.999999',
-      releases: [{ version: '0.0.1-rc.999999', updateTo: { version: '0.0.1', notes: 'Line' } }],
-    });
-    expect(parseFeed(feed)).toEqual({
+describe('parseOffer', () => {
+  it('reads notes, size and the stack version', () => {
+    expect(
+      parseOffer({
+        version: '0.0.1',
+        releaseNotes: 'One\n\n Two ',
+        files: [{ size: 5 }],
+        stackVersion: 'v0.3.7',
+      })
+    ).toEqual({ version: '0.0.1', summary: ['One', 'Two'], size: 5, stackVersion: 'v0.3.7' });
+  });
+
+  it('leaves out what the channel file does not give', () => {
+    expect(parseOffer({ version: '0.0.1' })).toEqual({
       version: '0.0.1',
-      summary: ['Line'],
+      summary: [],
       size: null,
       stackVersion: null,
     });
   });
-
-  it.each(['not json', 'null', '{}', '{"currentRelease":"1.0.0","releases":[]}'])(
-    'rejects %s',
-    (text) => {
-      expect(parseFeed(text)).toBeNull();
-    }
-  );
 });
 
-it('builds the feed URL for a channel and architecture', () => {
-  expect(feedUrl('https://x.test/f/', 'beta', 'arm64')).toBe(
-    'https://x.test/f/beta-darwin-arm64.json'
+it('names the file the release workflows upload', async () => {
+  const requested: string[] = [];
+  const provider = new GenericProvider(
+    { provider: 'generic', url: 'https://x.test/f' },
+    { channel: channelName('beta', 'arm64'), isAddNoCacheQuery: false } as never,
+    { platform: 'darwin', executor: null as never, isUseMultipleRangeRequest: false }
   );
+  vi.spyOn(provider as never as { httpRequest: (url: URL) => Promise<string> }, 'httpRequest')
+    .mockImplementation(async (url) => {
+      requested.push(url.href);
+      return '{"version":"0.0.1","files":[]}';
+    });
+  await provider.getLatestVersion();
+  expect(requested).toEqual(['https://x.test/f/beta-darwin-arm64-mac.yml']);
 });
 
 it('starts prerelease builds on beta', () => {

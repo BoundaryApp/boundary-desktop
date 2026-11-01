@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import { formatInferenceChipTitle, isVisibleChatProvider, sharedModelLabel } from '../../../shared/inferenceDisplay';
 import type { CirclesState } from '../../../shared/types/circles';
-import { openCircles } from '../circles/circlesNavigation';
+import { openCircles, type OpenCirclesRequest } from '../circles/circlesNavigation';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboarding';
 
@@ -25,7 +25,18 @@ export interface ChainEntryView {
   skipped: boolean;
   /** Skipped only because the provider is offline, so it can still be picked for when they're back. */
   offline?: boolean;
+  /** Where in Circles the user can act on this entry. Absent when nothing there can help. */
+  fix?: OpenCirclesRequest;
 }
+
+/** `first` starts the chain, `fallback` follows it, and `candidate` isn't in it yet. */
+export type ChainPlace = 'first' | 'fallback' | 'candidate';
+
+const SKIPPED_NOTE: Record<ChainPlace, string> = {
+  first: 'Chats can’t send until that changes.',
+  fallback: 'Skipped.',
+  candidate: 'Can’t be used yet.',
+};
 
 export function entryKey(entry: InferenceChainEntry): string {
   const model = entry.modelId?.trim() ?? '';
@@ -34,11 +45,12 @@ export function entryKey(entry: InferenceChainEntry): string {
     : `${entry.slot}:${model}`;
 }
 
-/**
- * `first`: the entry starts the chain, so nothing comes after it and "skipped" means chats stop
- * (ADR 0036).
- */
-export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext, first = false): ChainEntryView {
+/** When `first`, nothing comes after the entry, so "skipped" means chats stop (ADR 0036). */
+export function describeChainEntry(
+  entry: InferenceChainEntry,
+  ctx: ChainContext,
+  place: ChainPlace = 'fallback'
+): ChainEntryView {
   if (entry.slot !== 'peer') {
     const slot = ctx.slots[entry.slot];
     const modelId = entry.modelId?.trim() || slot?.modelId || '';
@@ -58,25 +70,43 @@ export function describeChainEntry(entry: InferenceChainEntry, ctx: ChainContext
   const settings = ctx.circles.providers[entry.peer?.providerId ?? ''];
   const label = sharedModelLabel(name, modelId);
   const where = circle ? `Shared in ${circle.name}` : 'Shared model';
-  const skip = (why: string): ChainEntryView => ({ entry, label, detail: `${where}. ${why}`, skipped: true });
-  const skipped = first ? 'Chats can’t send until that changes.' : 'Skipped.';
+  const person: OpenCirclesRequest = { person: entry.peer?.providerId };
+  const skip = (why: string, fix: OpenCirclesRequest = {}): ChainEntryView => ({
+    entry,
+    label,
+    detail: `${where}. ${why}`,
+    skipped: true,
+    fix,
+  });
+  const note = SKIPPED_NOTE[place];
 
-  if (ctx.circles.status !== 'running') return skip(`Circles aren’t connected. ${skipped}`);
-  if (!circle) return { entry, label, detail: `You’re no longer in that Circle. ${skipped}`, skipped: true };
-  if (!offer || !offer.available) return skip(`${name} isn’t sharing it now. ${skipped}`);
+  if (ctx.circles.status !== 'running') return skip(`Circles aren’t connected. ${note}`);
+  // Circles has nothing to show for this one: Sharing would open with no panel.
+  if (!circle) return { entry, label, detail: `You’re no longer in that Circle. ${note} Choose another model.`, skipped: true };
+  if (!offer || !offer.available) return skip(`${name} isn’t sharing it now. ${note}`);
   const offered = offer.models.find((model) => model.id === modelId);
-  if (!offered) return skip(`No longer shared. ${skipped}`);
+  if (!offered) return skip(`No longer shared. ${note}`);
   if (!settings?.trusted) {
-    return skip(first ? `Trust ${name} in Circles to use it.` : `Skipped until you trust ${name} in Circles.`);
+    const trust: Record<ChainPlace, string> = {
+      first: `Trust ${name} in Circles to use it.`,
+      fallback: `Skipped until you trust ${name} in Circles.`,
+      candidate: `Can’t be used until you trust ${name} in Circles.`,
+    };
+    return skip(trust[place], person);
   }
   const privacy = settings.private ? 'Can serve private projects' : 'Not for private projects';
-  const offline = first ? 'Offline now, so chats can’t send.' : 'Offline now. Skipped.';
-  const tools = first && !offered.tools ? ' Doesn’t support tool calls.' : '';
+  const offline: Record<ChainPlace, string> = {
+    first: 'Offline now, so chats can’t send.',
+    fallback: 'Offline now. Skipped.',
+    candidate: 'Offline now, so it can’t be used yet.',
+  };
+  const tools = place === 'first' && !offered.tools ? ' Doesn’t support tool calls.' : '';
   return {
     entry,
     label,
-    detail: `${where}. ${offer.online ? privacy : `${offline} ${privacy}`}.${tools}`,
+    detail: `${where}. ${offer.online ? privacy : `${offline[place]} ${privacy}`}.${tools}`,
     skipped: !offer.online,
+    fix: person,
     ...(offer.online ? {} : { offline: true }),
   };
 }
@@ -102,7 +132,10 @@ function chainViews(
   });
 }
 
-/** Entries the user could add: the other connected provider, and models members share. */
+/**
+ * Entries the user could add: the other connected provider, and models members share. One that
+ * can't serve yet can still be added: the router skips it until it can (ADR 0039 §3).
+ */
 export function chainCandidates(
   primary: InferenceChainEntry | null,
   fallbacks: InferenceChainEntry[],
@@ -114,7 +147,7 @@ export function chainCandidates(
   for (const slot of ['local', 'openrouter'] as const) {
     const status = ctx.slots[slot];
     if (!status?.configured || !status.modelId || taken.has(entryKey({ slot }))) continue;
-    candidates.push(describeChainEntry({ slot }, ctx));
+    candidates.push(describeChainEntry({ slot }, ctx, 'candidate'));
   }
   for (const circle of ctx.circles.snapshot.circles) {
     for (const offer of circle.offers) {
@@ -126,7 +159,7 @@ export function chainCandidates(
           peer: { circleId: circle.key, providerId: offer.identity },
         };
         if (takenExact.has(entryKey(entry))) continue;
-        candidates.push(describeChainEntry(entry, ctx));
+        candidates.push(describeChainEntry(entry, ctx, 'candidate'));
       }
     }
   }
@@ -150,7 +183,7 @@ export function sharedModelChoices(current: InferenceChainEntry | null, ctx: Cha
       )
   );
   const listed = current && !entries.some((entry) => entryKey(entry) === entryKey(current));
-  return [...(listed ? [current] : []), ...entries].map((entry) => describeChainEntry(entry, ctx, true));
+  return [...(listed ? [current] : []), ...entries].map((entry) => describeChainEntry(entry, ctx, 'first'));
 }
 
 export interface SharedModelChoicesProps {
@@ -162,18 +195,15 @@ export interface SharedModelChoicesProps {
   below?: (entry: InferenceChainEntry) => React.ReactNode;
 }
 
-/** A shared model that can't serve: the fix is in its provider's panel. */
-const OpenInCircles: React.FC<{ entry: InferenceChainEntry }> = ({ entry }) => (
-  <button
-    type="button"
-    className="wb-inference-btn"
-    onClick={() => openCircles({ person: entry.peer?.providerId })}
-  >
-    Open in Circles
-  </button>
-);
+/** A link to the fix for an entry that can't serve, shown on hover and keyboard focus. */
+const OpenInCircles: React.FC<{ view: ChainEntryView }> = ({ view }) =>
+  view.skipped && view.fix ? (
+    <button type="button" className="wb-chain-link" onClick={() => openCircles(view.fix)}>
+      Open in Circles
+    </button>
+  ) : null;
 
-/** Shared models as radio choices: for the app default in Settings, and for setup (ADR 0036). */
+/** Shared models as radio choices for the app default in Settings (ADR 0036). */
 export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
   current,
   ctx,
@@ -184,13 +214,16 @@ export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
   <>
     {sharedModelChoices(current, ctx).map((view) => {
       const on = Boolean(current && entryKey(current) === entryKey(view.entry));
+      // An offline provider's model can be picked for when they're back (ADR 0036 §5). Anything
+      // else that can't serve is never picked: the row leads to the fix, if there is one.
+      const blocked = view.skipped && !view.offline;
       return (
-        <React.Fragment key={entryKey(view.entry)}>
+        <div key={entryKey(view.entry)} className="wb-chain-choice">
           <button
             type="button"
-            className={`wb-inference-choice ${on ? 'is-on' : ''}`}
-            disabled={disabled || (view.skipped && !view.offline)}
-            onClick={() => onPick(view.entry)}
+            className={`wb-inference-choice ${on ? 'is-on' : ''} ${blocked ? 'is-blocked' : ''}`}
+            disabled={disabled || (blocked && !view.fix)}
+            onClick={() => (blocked ? openCircles(view.fix) : onPick(view.entry))}
           >
             <span className="wb-inference-radio" aria-hidden="true" />
             <span>
@@ -198,11 +231,9 @@ export const SharedModelChoices: React.FC<SharedModelChoicesProps> = ({
               <span>{view.detail}</span>
             </span>
           </button>
-          {view.skipped && view.entry.slot === 'peer' ? (
-            <OpenInCircles entry={view.entry} />
-          ) : null}
+          <OpenInCircles view={view} />
           {below?.(view.entry)}
-        </React.Fragment>
+        </div>
       );
     })}
   </>
@@ -255,7 +286,7 @@ export const ChainEditor: React.FC<ChainEditorProps> = ({
                 <small>{view.detail}</small>
               </span>
               <span className="wb-chain-actions">
-                {view.skipped && view.entry.slot === 'peer' ? <OpenInCircles entry={view.entry} /> : null}
+                <OpenInCircles view={view} />
                 <button
                   type="button"
                   aria-label={`Move ${view.label} up`}
@@ -293,8 +324,8 @@ export const ChainEditor: React.FC<ChainEditorProps> = ({
             <li key={entryKey(candidate.entry)}>
               <button
                 type="button"
-                className="wb-chain-add"
-                aria-label={`Add ${candidate.label}`}
+                className={`wb-chain-add${candidate.skipped ? ' is-skipped' : ''}`}
+                aria-label={candidate.skipped ? `Add ${candidate.label}. ${candidate.detail}` : `Add ${candidate.label}`}
                 disabled={disabled}
                 onClick={() => onChange([...fallbacks, candidate.entry])}
               >

@@ -32,6 +32,11 @@ export interface UpdateSnapshot {
   summary: string[];
   /** Download size in bytes, when the feed gives one. */
   size: number | null;
+  /**
+   * Whole percent of the zip received during `downloading`; null when the total isn't known or
+   * nothing is downloading. 100 means every byte is in and Squirrel is checking the update.
+   */
+  downloadPercent: number | null;
   /** This update moves the stack, so the first start after it takes minutes. */
   stackChanges: boolean;
   checking: boolean;

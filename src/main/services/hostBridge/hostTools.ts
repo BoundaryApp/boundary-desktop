@@ -1,8 +1,10 @@
 import path from 'node:path';
 import type { HostBridgeApprovalEvent } from '../../../shared/types/hostBridge';
+import type { RouteCheck } from './agentAppAccess';
 import type { ApprovalOutcome } from './approvals';
 import type { AuditEntry } from './auditLog';
 import type { ToolCallResult } from './mcpProtocol';
+import type { RecentProblem } from './recentProblems';
 import {
   CLIPBOARD_MAX,
   isHostToolName,
@@ -26,6 +28,14 @@ import { APP_NAME } from '../../../shared/buildIdentity';
  * Dependencies are passed in so tests can drive each path.
  */
 
+/** Main's answers for the tools that report on the app itself (ADR 0040). */
+export interface AgentAppSource {
+  /** Whether this build and the applied model route allow the tools now. */
+  check(): Promise<RouteCheck>;
+  status(): Promise<Record<string, unknown>>;
+  problems(): RecentProblem[];
+}
+
 export interface HostToolDeps {
   hasGrant(capability: string, resource?: string): boolean;
   addGrant(capability: string, resource?: string, expiresAt?: string | null): void;
@@ -48,6 +58,7 @@ export interface HostToolDeps {
   now(): number;
   /** Whether any calendar is connected in Settings → Calendars. */
   calendarConnected(): boolean;
+  agentApp: AgentAppSource;
   audit(entry: AuditEntry): void;
 }
 
@@ -423,6 +434,53 @@ async function offerSetup(args: Record<string, unknown>, deps: HostToolDeps): Pr
   );
 }
 
+// ---------------------------------------------------------------------------- app status
+
+/** Runs for every call, because the route can change after Hermes lists the tools. */
+async function agentAppRefusal(
+  tool: Tool,
+  args: Record<string, unknown>,
+  deps: HostToolDeps
+): Promise<ToolCallResult | null> {
+  const extra = unexpected(args, []);
+  if (extra) return invalid(tool, { arguments: Object.keys(args) }, extra, deps);
+  const check = await deps.agentApp.check();
+  if (!('reason' in check)) return null;
+  deps.audit({ tool, decision: 'denied', args: {}, outcome: check.reason });
+  return text(check.reason, true);
+}
+
+async function getAppStatus(args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {
+  const tool = 'get_app_status';
+  const refused = await agentAppRefusal(tool, args, deps);
+  if (refused) return refused;
+  return attempt(deps, tool, {}, `${APP_NAME} could not read its status`, async () => {
+    const status = await deps.agentApp.status();
+    deps.audit({ tool, decision: 'allowed', args: {}, outcome: 'read' });
+    return text(JSON.stringify(status));
+  });
+}
+
+async function getRecentProblems(args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {
+  const tool = 'get_recent_problems';
+  const refused = await agentAppRefusal(tool, args, deps);
+  if (refused) return refused;
+  const gate = await approve(deps, {
+    tool,
+    read: {},
+    capability: 'app_diagnostics',
+    title: `Read recent ${APP_NAME} errors`,
+    detail: 'Times, areas, messages and error names from the debug log, with paths and names removed.',
+    always: { resource: '*', description: `From now on, Hermes can read ${APP_NAME}'s recent errors without asking.` },
+  });
+  if ('result' in gate) return gate.result;
+  return attempt(deps, tool, {}, `${APP_NAME} could not read its debug log`, async () => {
+    const problems = deps.agentApp.problems();
+    deps.audit({ tool, decision: gate.decision, args: {}, outcome: `${problems.length} problems` });
+    return text(JSON.stringify(problems));
+  });
+}
+
 // ---------------------------------------------------------------------------- dispatch
 
 /** Never rejects: Hermes gets an error result, so its request isn't left open. */
@@ -450,6 +508,8 @@ const HANDLERS: Record<HostToolName, (args: Record<string, unknown>, deps: HostT
   read_file: readFile,
   write_file: writeFile,
   offer_setup: offerSetup,
+  get_app_status: getAppStatus,
+  get_recent_problems: getRecentProblems,
 };
 
 function dispatchHostTool(name: string, args: Record<string, unknown>, deps: HostToolDeps): Promise<ToolCallResult> {

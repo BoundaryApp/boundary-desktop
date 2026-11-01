@@ -7,6 +7,8 @@ import {
   cancelJoin,
   createCircleInvite,
   ensureCirclesStarted,
+  getCircleInviteCode,
+  getCircleInviteHints,
   getCirclesState,
   joinCircle,
   deleteCircle,
@@ -35,6 +37,8 @@ export function registerCirclesHandlers(): void {
   handleResult('circles:cancel-join', () => cancelJoin());
   handleResult('circles:create-invite', (_event, input) => createCircleInvite(input.key, input.expiresInMs, input.label));
   handleResult('circles:revoke-invite', (_event, input) => revokeCircleInvite(input.key, input.inviteId));
+  handleResult('circles:invite-hints', (_event, input) => getCircleInviteHints(input.key));
+  handleResult('circles:invite-code', (_event, input) => getCircleInviteCode(input.key, input.inviteId));
   handleResult('circles:set-role', (_event, input) => setCircleRole(input.key, input.identity, input.role));
   handleResult('circles:remove-member', (_event, input) => removeCircleMember(input.key, input.identity));
   handleResult('circles:leave', (_event, input) => leaveCircle(input.key));
