@@ -11,8 +11,9 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 2 Router and chain UI | In progress: fallbacks shipped for the app default, project pins and chat overrides; live proxy case not started | 1 |
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
 | 4 Shared models | In progress: sharing from the Circles screen with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
-| 5 Circle chats | Not started | 3 |
+| 5 Circle chats | In progress: [ADR 0042](adr/0042-circle-chats.md) and the [Circle chats spec](circle-chats-ux-study/spec.md); format 2 and the chat service (spec phases 1 and 2) are built, and Circles as places in the chat (phase 3) are in progress | 3 |
 | Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
+| Camera and microphone | Built; not yet tried in a signed build, and nothing in the app uses it yet | |
 
 Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
@@ -68,6 +69,8 @@ Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
 **In.** Chat channels stored in the Circle's Autobase, unconfirmed marks until an admin indexes, and an explicit share action from a Hermes chat.
 
+The [Circle chats spec](circle-chats-ux-study/spec.md) holds the phases, and [ADR 0042](adr/0042-circle-chats.md) the decisions: messages are operations at format 2, which also lets `member` records outlive their member and reserves a field for agents' messages, channels are Circle records, typing and read marks are peer signals, and each Circle is a place in the Workbench chat: switching to it makes the chat rail show only that Circle's channels and people, apart from Hermes chats. [ADR 0043](adr/0043-circles-live-in-the-chat.md) then retires the Circles destination: a Circle is managed from a Circle tab in the chat's inspector, starting and joining are sheets from the place switcher, and model sharing and trust move to the Inference destination. [ADR 0044](adr/0044-circle-calls.md) and the [Circle calls spec](circle-calls-ux-study/spec.md) add calls in channels and between two people, set up over peer signals and kept nowhere.
+
 ## Peer signals
 
 Short messages between the members of a Circle that nothing keeps, for typing indicators and read marks in Circle chats. A Protomux `signal` channel runs alongside `inference` on each connection, so signals are ordered and need no Autobase operation. Main sends with `sendCircleSignal(circleKey, topic, payload, toIdentity?)` and listens with `onCircleSignal(topic, handler)`.
@@ -78,9 +81,33 @@ A connection belongs to a device, not a Circle, so each frame names its Circle. 
 
 Values kept in a Circle's Autobase for a feature, such as Circle settings, member profile fields and phase 5's channel settings. `setCircleRecord(circleKey, app, scope, key, value)` writes one, `deleteCircleRecord` removes it, `getCircleRecords(circleKey, app)` reads an app's records, and `onCircleRecord(app, handler)` reports changes. Main's code calls these directly, so there is no IPC.
 
-A `circle` record is one value that only admins write. A `member` record is one value per member under the author's identity, and `remove-member` deletes them. `app` and `key` match `[a-z0-9][a-z0-9._-]{0,63}`, and a value is JSON up to 16 KB. `apply` checks shape, size and author and never reads the value, so a reader validates it. A device replicates every record, including apps it doesn't listen to.
+A `circle` record is one value that only admins write. A `member` record is one value per member under the author's identity, and `remove-member` deletes them unless they were set with `keep` (format 2). An admin deletes a kept record of someone who is no longer a member by passing their `identity` to `deleteCircleRecord`. `app` and `key` match `[a-z0-9][a-z0-9._-]{0,63}`, and a value is JSON up to 16 KB. `apply` checks shape, size and author and never reads the value, so a reader validates it. A device replicates every record, including apps it doesn't listen to.
 
 Each record has `confirmed`, and a change event fires when that flips. Listeners also get every record of a Circle as it opens. Until a record is confirmed it can be undone or reordered, and two admins writing one key resolve to whichever Autobase orders last.
+
+## Circle chat
+
+Channels and messages of a Circle at format 2, read from its view. Main calls `listCircleChannels(circleKey)`, `getCircleMessages(circleKey, channel, { before, limit })`, `postCircleMessage`, `editCircleMessage` and `deleteCircleMessage`, and listens with `onCircleMessage(handler)` and `onCircleMessageChange(handler)`. The renderer has the same over `circles:chat-*` IPC, and the `circles:chat-event` broadcast carries one channel's added, changed and gone messages per update.
+
+Every Circle has `general`, shown as **General**. Any other channel is a `circle` record of app `chat` whose value is `{ name }`, so only admins add, rename and remove channels, with `addCircleChannel`, `renameCircleChannel` and `removeCircleChannel`. A new channel's id is its name in lowercase with a random ending, so a name a removed channel used starts empty. Names are up to 80 characters and unique in a Circle, ignoring case. General can be renamed but not removed. Removing a channel deletes its record: it disappears for everyone and its messages stay in the log. `circles:chat-channels` tells the renderer when a Circle's channel records change. A message is named by its `author` and `id`. Its position can change until it is confirmed, so `before` takes an `author` and `id`, never a position.
+
+A read returns the newest 50 messages by default, or those before `before`, at most 200, oldest first. `onCircleMessage` fires once per message per launch, the first time this device sees it after its Circle opened, so history already there doesn't fire and messages caught up after being offline do. `onCircleMessageChange` reports edits, deletes and confirmation, and a message that was shown unconfirmed and disappeared when its order settled, for example because its author's removal was ordered first.
+
+Typing and read marks are peer signals on `chat.typing` (`{ channel }`) and `chat.read` (`{ channel, author, id }`). Main sends a channel's typing at most once every 3 seconds and its reads at most once a second, keeping the newest read for the end of that second, and drops marks of the wrong shape before the renderer gets them on `circles:chat-presence`. The renderer shows someone as typing until 6 seconds after their last mark, and a member as having seen the newest message when their last read names it.
+
+`CircleThread` takes `compact` for a narrow dock: with `channels` and `onOpenChannel` its header has a channel picker instead of `headerEnd`, message actions sit behind a **…** button, the composer's hint is left out and the composer grows to five lines before it scrolls. `bun run check:circle-compact` renders it at 320px in headless Chromium in both themes and fails if anything scrolls sideways.
+
+A Hermes chat message's **More** menu has **Share to Circle…** for prompts and replies while the user is in a Circle. The sheet posts only the text in its box, with `shared` set to the role and, for a reply, the model the chat's chip showed. Main passes `shared` on, and the network checks its shape as `apply` does. The last Circle and channel shared to are kept in the window's storage and picked first next time.
+
+Each device keeps the newest message read in each channel in its own Circles store, never in the Circle. Unread counts are the messages after that position. When the read message is gone they count messages after its time, which can be off by a few. Posting marks the channel read up to the new message.
+
+## Camera and microphone
+
+The app's page may use the camera and microphone through `getUserMedia`, for calls between Circle members or any other feature that needs them. A call's setup messages can go over peer signals, and the media itself goes between the two devices over WebRTC. Members behind restrictive NATs would need a TURN relay, which doesn't exist yet.
+
+The default session's permission handlers in `src/main/services/media.ts` grant `media` only to the app's own top-level page (the packaged `index.html`, or the dev server's origin), and only for audio, video or both. Other pages and frames are refused, and so is every other permission except clipboard writes. macOS then asks the user once per device. `window.electronAPI.media.getAccess()` reports the OS's answer for each device without prompting, and `requestAccess('camera' | 'microphone')` shows the prompt if it hasn't been answered and returns the status. After a denial only System Settings can change it.
+
+A signed build needs `NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in its Info.plist (set in `forge.config.ts`) and the `com.apple.security.device.camera` and `com.apple.security.device.audio-input` entitlements (in `build/entitlements.mac.plist`). [The media access checklist](testing/media-access.md) covers a signed build.
 
 ## Changing Circle operations
 

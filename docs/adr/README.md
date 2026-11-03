@@ -42,9 +42,13 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    └── 0040 Developer-only agent access to app state
  ├── 0031 Checks on the stack contract and on drift
  └── 0032 Circles: invite-only groups that network peer to peer
-      └── 0034 Sharing a local model with a Circle
-            ├── 0036 A shared model as the app default (amends 0033 §5)
-            └── 0039 Shared models that can't serve (amends 0034 §3, 0036 §5)
+      ├── 0034 Sharing a local model with a Circle
+      │     ├── 0036 A shared model as the app default (amends 0033 §5)
+      │     └── 0039 Shared models that can't serve (amends 0034 §3, 0036 §5)
+      ├── 0038 Changing Circle operations after release
+      └── 0042 Circle chats: channels in the Circle's log at format 2, each Circle a place in the chat (proposed)
+          ├── 0043 Circles live in the chat, models live in Inference (proposed)
+          └── 0044 Circle calls: live audio and video between members, kept nowhere (proposed)
 ```
 
 | ADR | Status | Title |
@@ -90,6 +94,9 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0039](0039-shared-models-that-cant-serve.md) | Accepted · amends 0034 §3, 0036 §5 | Shared models that can't serve |
 | [0040](0040-developer-agent-app-access.md) | Proposed | Developer-only agent access to app state |
 | [0041](0041-electron-updater.md) | Accepted · replaces the updater in updates plan decision 4 | App updates use electron-updater |
+| [0042](0042-circle-chats.md) | Proposed | Circle chats: channels in the Circle's log at format 2, each Circle a place in the chat |
+| [0043](0043-circles-live-in-the-chat.md) | Proposed | Circles live in the chat, models live in Inference |
+| [0044](0044-circle-calls.md) | Proposed | Circle calls: live audio and video between members, kept nowhere |
 
 ## Host bridge research
 

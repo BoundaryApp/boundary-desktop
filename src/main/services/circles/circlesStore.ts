@@ -3,7 +3,13 @@ import { rmSync } from 'node:fs';
 import Store from 'electron-store';
 import { persistDebugLog } from '../../persistDebugLog';
 import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
-import type { CircleDayUsage, CircleProviderSettings, CircleSharing, CircleSnapshot } from '../../../shared/types/circles';
+import type {
+  CircleDayUsage,
+  CircleProviderSettings,
+  CircleReadPosition,
+  CircleSharing,
+  CircleSnapshot,
+} from '../../../shared/types/circles';
 import type { CircleSecrets } from './networkMessages';
 
 interface StoredInviteCode {
@@ -35,6 +41,8 @@ interface CirclesStoreShape {
   servedUsage?: CircleDayUsage;
   /** What this user used of each provider's models today. Never goes to a Circle's log. */
   usedUsage?: CircleDayUsage;
+  /** The newest message read in each channel, by Circle key and channel. Never goes to a Circle (ADR 0042 §8). */
+  readPositions?: Record<string, Record<string, CircleReadPosition>>;
   /** The `CIRCLES_DATA_VERSION` this device's Circles were last kept at. */
   dataVersion?: number;
 }
@@ -191,6 +199,7 @@ export function wipeOutdatedCircles(storageDir: string): void {
   rmSync(storageDir, { recursive: true, force: true });
   store.set('circles', {});
   store.set('inviteCodes', {});
+  store.set('readPositions', {});
   store.set('sharing', { ...getCircleSharing(), circles: [] });
   store.set('dataVersion', CIRCLES_DATA_VERSION);
 }
@@ -232,4 +241,17 @@ export function forgetCircle(key: string): void {
   const inviteCodes = { ...store.get('inviteCodes') };
   delete inviteCodes[key];
   store.set('inviteCodes', inviteCodes);
+  const readPositions = { ...store.get('readPositions') };
+  delete readPositions[key];
+  store.set('readPositions', readPositions);
+}
+
+/** This device's read positions in a Circle, by channel. */
+export function getReadPositions(key: string): Record<string, CircleReadPosition> {
+  return store.get('readPositions')?.[key] ?? {};
+}
+
+export function setReadPosition(key: string, channel: string, position: CircleReadPosition): void {
+  const readPositions = store.get('readPositions') ?? {};
+  store.set('readPositions', { ...readPositions, [key]: { ...readPositions[key], [channel]: position } });
 }

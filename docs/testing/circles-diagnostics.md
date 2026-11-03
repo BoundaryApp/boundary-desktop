@@ -59,6 +59,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | `chain.plan` | Each time a chain is planned: every entry with its stale reason and privacy, and whether the result is direct, routed or refused. |
 | `router.request` | Each model call through the router: session (8 characters), message and tool counts, requests already in flight per entry, the chain, each attempt's outcome and time, the entry that served, and whether it fell back. |
 | `router.reply` | The served reply finished: bytes, time to first byte, and whether it ended, the upstream failed or the client hung up. |
+| `call.check` | One connection of the [call transport check](call-transport.md), only while the app runs with `BOUNDARY_CALLS_CHECK=1`: run, mode, role, whether it connected or where it failed, the address kinds used, connect time, round trip, audio delay, the session description's size and parts, frames a second for load runs, and the app's CPU use. |
 
 ## Following one message
 

@@ -43,6 +43,8 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
   const activeThreadIdRef = useRef<string | null>(null);
   activeThreadIdRef.current = activeThreadId;
   const [idAliases, setIdAliases] = useState<Record<string, string>>(cached?.idAliases ?? {});
+  /** The mount refresh has chosen the open chat. A remount from the cache already had one. */
+  const [landed, setLanded] = useState(cached !== null);
   const sameChat = useCallback<SameChat>(
     (a, b) => Boolean(a && b && (a === b || (idAliases[a] ?? a) === (idAliases[b] ?? b))),
     [idAliases]
@@ -63,6 +65,7 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
         }
         return defaultThreadId(threadList, channelList, lastOpened);
       });
+      setLanded(true);
     },
     []
   );
@@ -123,6 +126,7 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
     sameChat,
     sameChatRef,
     land,
+    landed,
     adoptResolvedId,
     toolsEnabled,
     setToolsEnabled,

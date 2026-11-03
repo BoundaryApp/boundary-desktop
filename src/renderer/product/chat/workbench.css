@@ -6158,6 +6158,21 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--warn);
 }
 
+.wb-icon-btn > .wb-icon-count {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--brand);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: var(--weight-strong);
+  line-height: 15px;
+  text-align: center;
+}
+
 .wb-icon-btn > .wb-working-dot {
   position: absolute;
   top: 5px;

@@ -55,7 +55,11 @@ const h = vi.hoisted(() => {
     getURL() {
       return '';
     }
-    session = { webRequest: { onHeadersReceived: vi.fn() } };
+    session = {
+      webRequest: { onHeadersReceived: vi.fn() },
+      setPermissionRequestHandler: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+    };
     openDevTools = vi.fn();
   }
 

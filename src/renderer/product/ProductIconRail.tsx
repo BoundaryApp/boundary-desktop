@@ -8,6 +8,8 @@ import { WorkingDot } from './chat/WorkingDot';
 import { UpdateRailButton, useUpdates } from './updates';
 import { isMacPlatform } from './useAppShortcuts';
 import { experimentDestinations } from '../experiments';
+import { useCirclesState } from './circles/useCircles';
+import { circleUnread, useCircleChannels } from './circles/useCircleChat';
 
 /** `experiment:<id>` is a screen a private experiment adds (`ExperimentDestination`). */
 export type ProductDestination =
@@ -62,6 +64,19 @@ function RailButton({
   );
 }
 
+/** Unread Circle messages, the only chat messages from other people (Circle chats spec decision 7). */
+function CircleUnreadCount() {
+  const state = useCirclesState();
+  const keys = state.status === 'running' ? state.snapshot.circles.map((circle) => circle.key) : [];
+  const channels = useCircleChannels(keys);
+  const total = keys.reduce((sum, key) => sum + circleUnread(channels[key]), 0);
+  return total ? (
+    <span className="wb-icon-count" role="img" aria-label={`${total} unread in Circles`}>
+      {total > 99 ? '99+' : total}
+    </span>
+  ) : null;
+}
+
 function SharingAttentionDot() {
   return useSharingAttention() ? <i className="wb-attention-dot" role="img" aria-label="Members can’t use your models" /> : null;
 }
@@ -99,6 +114,7 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
           <path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z" />
         </svg>
         {working ? <WorkingDot label="An agent is working" /> : null}
+        {disabled ? null : <CircleUnreadCount />}
       </RailButton>
       <RailButton
         label="Services"

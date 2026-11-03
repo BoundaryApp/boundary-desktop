@@ -13,17 +13,17 @@
 | --- | --- | --- |
 | 1 Type scale and copy pass | Built; live check pending | — |
 | 2 Sheets over the current screen | Built; live check pending | — |
-| 3 Models destination | Not started | 2 |
+| 3 Inference destination | Not started | 2 |
 | 4 Move panels to where they act | Not started | 2 |
 | 5 A stack per request type | Not started | 3, stack change request, ADR |
 
 ## Goal
 
-A user changes a setting from the place it has an effect and sees the effect without losing their place. Models are a destination of their own, shown as the ordered stack a request falls through.
+A user changes a setting from the place it has an effect and sees the effect without losing their place. Inference is a destination of its own: the ordered stack a request falls through, and the models this Mac shares and is offered through Circles ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)).
 
 ## Decisions
 
-1. **Models joins the rail, second after Chat.** Every chat, project and service depends on it. Shortcuts follow rail order: ⌘1 Chat, ⌘2 Models, ⌘3 Services, ⌘4 Resources, ⌘5 Circles. A warning dot on the icon means the Chat stack's first model isn't answering.
+1. **Inference joins the rail, second after Chat.** Every chat, project and service depends on it. Shortcuts follow rail order: ⌘1 Chat, ⌘2 Inference, ⌘3 Services, ⌘4 Resources. Circles has no destination; it lives in the chat, and its model sharing lives here ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)). This destination was called Models until ADR 0043; the mocks still say Models. A warning dot on the icon means the Chat stack's first model isn't answering.
 2. **The UI says "stack"; the code keeps "chain".** A *model stack* is the chain of ADR 0033. *Fallback* and *app default* leave the UI, because position in the stack says both.
 3. **The stack draws the rules that already run.** Numbered entries sit on a spine, each with its status. The privacy cut is a dashed line, **Private projects stop here**, placed after the last private entry before the first non-private one, so it moves when the user reorders. The end cap says what happens when nothing answers. The footer names the context limit from ADR 0033 §8, because adding a small model shrinks every reply's context and nothing shows that today.
 4. **Try a request is a dry run.** It walks the stack with main's chain planning and sends nothing to any model. Each entry reports why it answered or was skipped, in the words the chat's provenance line uses.
@@ -37,13 +37,13 @@ A user changes a setting from the place it has an effect and sees the effect wit
 
 | Setting | Today | Proposed | Stays findable from |
 | --- | --- | --- | --- |
-| Connect and test Local, OpenRouter | General | Models: add a model, entry details | Settings search |
-| App default, fallbacks | General | Models: stack order | — |
-| Chat override | Composer chip | Composer chip, now listing the whole stack in order | Models › Exceptions |
-| Project pin | Project inspector | Project inspector, same list | Models › Exceptions |
-| Privacy lock | Working switch in the inspector | Working switch in the inspector | Models › Exceptions |
-| Share my model | Circles | Circles, with a status line on the Local entry | Settings search |
-| Trusted, Private per person | Circles | Circles' person panel, opened from the shared entry | — |
+| Connect and test Local, OpenRouter | General | Inference: add a model, entry details | Settings search |
+| App default, fallbacks | General | Inference: stack order | — |
+| Chat override | Composer chip | Composer chip, now listing the whole stack in order | Inference › Exceptions |
+| Project pin | Project inspector | Project inspector, same list | Inference › Exceptions |
+| Privacy lock | Working switch in the inspector | Working switch in the inspector | Inference › Exceptions |
+| Share my model | Circles | Inference: **Shared from this Mac**, with a status line on the Local entry | Settings search |
+| Trusted, Private per person | Circles | Inference: **From your Circles**, the person's row | — |
 | Calendars | Settings tab | Services card, sheet over chat from the setup offer | Settings search |
 | Logins | Settings tab | Sheet from a chat's saved-login note; Settings row | Settings row |
 | Always-allowed grants | Settings tab | Undo on the approval; Settings row | Settings row |
@@ -56,7 +56,7 @@ Settings keeps Appearance, a list of what agents can reach with a live summary o
 
 ## Type and layout
 
-Settings, Models and sheets use a reading scale. The chat rail and other dense chrome keep the current tokens.
+Settings, Inference and sheets use a reading scale. The chat rail and other dense chrome keep the current tokens.
 
 | Role | Today | Proposed |
 | --- | --- | --- |
@@ -104,7 +104,7 @@ Confirm each against source when its phase starts, as the stack contract require
 
 **2 Sheets.** A sheet in the ready shell; each panel renders inside it. Mounted tests open one from a chat, close it, and confirm the chat wasn't remounted and its draft and focus are unchanged.
 
-**3 Models destination.** Rail entry, stack view on the existing chain IPC, details panel, dry run, inline trust and sign-in. Replaces the two cards, the default radio and `ChainEditor`'s list. The composer chip and project inspector take the same list.
+**3 Inference destination.** Rail entry, stack view on the existing chain IPC, details panel, dry run, inline trust and sign-in, and the Circles screen's Sharing sections with per-person trust (ADR 0043 §2). Replaces the two cards, the default radio and `ChainEditor`'s list. The composer chip and project inspector take the same list.
 
 **4 Move panels.** Calendars to Services, a sharing status line on the Local entry ([Circles spec](../circles-ux-study/spec.md) decision 8), folders to the project inspector, the slimmed Settings page with search.
 
@@ -113,9 +113,9 @@ Confirm each against source when its phase starts, as the stack contract require
 ## Acceptance criteria
 
 - [ ] From a chat, a user can reorder the stack, trust a provider and connect a calendar, and return to the same scroll position and draft.
-- [ ] The Models screen shows why each entry would be skipped, with no navigation.
+- [ ] Inference shows why each entry would be skipped, with no navigation.
 - [ ] A dry run makes no model request.
 - [ ] Moving a private entry moves the **Private projects stop here** line in the same render.
-- [ ] No text in Settings, Models or sheets is below 12.5px.
+- [ ] No text in Settings, Inference or sheets is below 12.5px.
 - [x] Every string in the copy audit is gone.
 - [ ] Every setting in the table is reachable from Settings search.

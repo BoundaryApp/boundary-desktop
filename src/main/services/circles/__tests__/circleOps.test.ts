@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyCircleNodes,
+  chatCountKey,
+  chatMessageKey,
   CIRCLE_FORMAT,
   CIRCLE_KEY,
   circleRecordKey,
@@ -12,6 +14,7 @@ import {
   type CircleHost,
   type CircleMemberIntro,
   type CircleMemberRecord,
+  type CircleMessageRecord,
   type CircleOp,
   type CircleView,
 } from '../circleOps';
@@ -315,6 +318,176 @@ describe('applyCircleNodes', () => {
     expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad offer', 'bad offer', 'bad offer', 'bad offer', 'not a member']);
     expect(view.data.has(offerKey(bo.identity))).toBe(false);
     expect(view.data.has(offerKey(cy.identity))).toBe(false);
+  });
+});
+
+const id = (char: string) => char.repeat(16);
+const post = (text: string, char = 'a', channel = 'general'): CircleOp => ({ type: 'chat-post', channel, id: id(char), text, at: 1 });
+
+/** A format 2 Circle with Ada (admin) and Bo (member). */
+async function chatCircle() {
+  const view = fakeView();
+  const host = fakeHost();
+  await run(view, host, [
+    [ada, { type: 'create', name: 'Garden club', format: 2, member: ada }],
+    [ada, invite('1')],
+    [ada, { type: 'add-member', member: bo, invite: hex('1') }],
+  ]);
+  return { view, host };
+}
+
+const messageAt = (view: ReturnType<typeof fakeView>, position: number, channel = 'general') =>
+  view.data.get(chatMessageKey(channel, position)) as CircleMessageRecord | undefined;
+
+describe('format 2 chat', () => {
+  it('starts new Circles at format 2', () => {
+    expect(CIRCLE_FORMAT).toBe(2);
+  });
+
+  it('skips chat in a format 1 Circle, as builds before format 2 did', async () => {
+    const { view, host } = await circleWithBo();
+    const skipped = await run(view, host, [[ada, post('Hello')]]);
+    expect(skipped).toHaveBeenCalledWith('unknown operation', expect.anything());
+    expect(view.data.has(chatCountKey('general'))).toBe(false);
+  });
+
+  it('numbers messages per channel and copies the author’s name', async () => {
+    const { view, host } = await chatCircle();
+    await run(view, host, [
+      [ada, post('One')],
+      [bo, post('Two', 'b')],
+      [bo, post('Elsewhere', 'b', 'design')],
+    ]);
+    expect(messageAt(view, 0)).toMatchObject({ author: ada.identity, name: 'Ada', text: 'One', position: 0, deleted: null });
+    expect(messageAt(view, 1)).toMatchObject({ author: bo.identity, name: 'Bo', text: 'Two', position: 1 });
+    expect(messageAt(view, 0, 'design')).toMatchObject({ text: 'Elsewhere', position: 0 });
+    expect(view.data.get(chatCountKey('general'))).toBe(2);
+  });
+
+  it('skips repeats, bad ids, blank text and oversized messages', async () => {
+    const { view, host } = await chatCircle();
+    const skipped = await run(view, host, [
+      [ada, post('Hello')],
+      [ada, post('Hello again')],
+      [ada, { type: 'chat-post', channel: 'general', id: 'ABCDEF0123456789', text: 'x', at: 1 }],
+      [ada, { type: 'chat-post', channel: 'general', id: id('b'), text: 'x', at: -1 }],
+      [ada, post(' \n ', 'c')],
+      [ada, post('x'.repeat(12 * 1024 + 1), 'd')],
+      [ada, post('é'.repeat(6 * 1024 + 1), 'e')],
+      [ada, { type: 'chat-post', channel: 'general', id: id('f'), text: 'x', at: 1, shared: { role: 'system' } } as unknown as CircleOp],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual([
+      'message already posted',
+      'bad message id',
+      'bad message time',
+      'bad message text',
+      'bad message text',
+      'bad message text',
+      'bad message',
+    ]);
+    await run(view, host, [[ada, post('x'.repeat(12 * 1024), '9')]]);
+    expect(view.data.get(chatCountKey('general'))).toBe(2);
+  });
+
+  it('skips a chat operation longer than 16 KB of JSON', async () => {
+    const { view, host } = await chatCircle();
+    const op = { ...post('Hi'), padding: 'x'.repeat(16 * 1024) } as CircleOp;
+    const skipped = await run(view, host, [[ada, op]]);
+    expect(skipped).toHaveBeenCalledWith('chat operation too long', expect.anything());
+  });
+
+  it('lets only the author edit, and only the author or an admin delete', async () => {
+    const { view, host } = await chatCircle();
+    await run(view, host, [
+      [bo, post('Draft', 'b')],
+      [ada, post('Ada’s')],
+    ]);
+    const skipped = await run(view, host, [
+      [ada, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'Not mine' }],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'Final' }],
+      [bo, { type: 'chat-delete', channel: 'general', author: ada.identity, id: id('a') }],
+      [ada, { type: 'chat-delete', channel: 'general', author: bo.identity, id: id('b') }],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'After delete' }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual([
+      'no such message of theirs',
+      'only the author or an admin deletes',
+      'message deleted',
+    ]);
+    expect(messageAt(view, 0)).toMatchObject({ text: '', edited: true, deleted: 'admin', name: 'Bo' });
+    expect(messageAt(view, 1)).toMatchObject({ text: 'Ada’s', deleted: null });
+  });
+
+  it('keeps a removed member’s messages and skips what they post afterwards', async () => {
+    const { view, host } = await chatCircle();
+    await run(view, host, [[bo, post('Before', 'b')], [ada, { type: 'remove-member', identity: bo.identity }]]);
+    const skipped = await run(view, host, [[bo, post('After', 'c')]]);
+    expect(skipped).toHaveBeenCalledWith('not a member', expect.anything());
+    expect(messageAt(view, 0)).toMatchObject({ name: 'Bo', text: 'Before' });
+    expect(view.data.get(chatCountKey('general'))).toBe(1);
+  });
+
+  it('marks a call with empty text, and lets its author add the end', async () => {
+    const { view, host } = await chatCircle();
+    const call = { id: id('c') };
+    const skipped = await run(view, host, [
+      [bo, { type: 'chat-post', channel: 'general', id: id('b'), text: '', at: 5, call }],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: '', call: { id: id('d'), ended: 9 } }],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: '', call: { ...call, ended: 9 } }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad message']);
+    expect(messageAt(view, 0)).toMatchObject({ text: '', edited: false, call: { id: id('c'), ended: 9 } });
+  });
+});
+
+describe('format 2 kept records', () => {
+  it('keeps a kept record after its member leaves, and drops the rest', async () => {
+    const { view, host } = await chatCircle();
+    await run(view, host, [
+      [bo, { type: 'record-set', app: 'garden', scope: 'member', key: 'plot', value: 1, keep: true }],
+      [bo, { type: 'record-set', app: 'garden', scope: 'member', key: 'note', value: 2 }],
+      [ada, { type: 'remove-member', identity: bo.identity }],
+    ]);
+    expect(view.data.get(memberRecordKey(bo.identity, 'garden', 'plot'))).toMatchObject({ value: 1, keep: true });
+    expect(view.data.has(memberRecordKey(bo.identity, 'garden', 'note'))).toBe(false);
+  });
+
+  it('lets only an admin clear a departed member’s kept record', async () => {
+    const { view, host } = await chatCircle();
+    const clear = { type: 'record-del', app: 'garden', scope: 'member', key: 'plot', identity: bo.identity } as const;
+    const skipped = await run(view, host, [
+      [bo, { type: 'record-set', app: 'garden', scope: 'member', key: 'plot', value: 1, keep: true }],
+      [ada, clear],
+      [ada, { type: 'remove-member', identity: bo.identity }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['that member is still in the Circle']);
+    await run(view, host, [[ada, clear]]);
+    expect(view.data.has(memberRecordKey(bo.identity, 'garden', 'plot'))).toBe(false);
+  });
+
+  it('refuses keep on a Circle record', async () => {
+    const { view, host } = await chatCircle();
+    const skipped = await run(view, host, [[ada, { type: 'record-set', app: 'garden', scope: 'circle', key: 'map', value: 1, keep: true }]]);
+    expect(skipped).toHaveBeenCalledWith('bad record', expect.anything());
+  });
+
+  it('ignores keep and identity in a format 1 Circle', async () => {
+    const { view, host } = await circleWithBo();
+    await run(view, host, [
+      [bo, { type: 'record-set', app: 'garden', scope: 'member', key: 'plot', value: 1, keep: true }],
+      [ada, { type: 'record-set', app: 'garden', scope: 'member', key: 'plot', value: 2 }],
+      [ada, { type: 'record-del', app: 'garden', scope: 'member', key: 'plot', identity: bo.identity }],
+    ]);
+    expect(view.data.get(memberRecordKey(bo.identity, 'garden', 'plot'))).toEqual({
+      app: 'garden',
+      scope: 'member',
+      identity: bo.identity,
+      key: 'plot',
+      value: 1,
+    });
+    expect(view.data.has(memberRecordKey(ada.identity, 'garden', 'plot'))).toBe(false);
+    await run(view, host, [[ada, { type: 'remove-member', identity: bo.identity }]]);
+    expect(view.data.has(memberRecordKey(bo.identity, 'garden', 'plot'))).toBe(false);
   });
 });
 

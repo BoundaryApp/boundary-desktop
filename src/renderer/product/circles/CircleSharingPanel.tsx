@@ -291,7 +291,12 @@ export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circle
   return (
     <li className="flex flex-col justify-center gap-1 px-2.5 py-2">
       <div className="flex min-h-[42px] items-center gap-3">
-        <Avatar name={circles.displayName || 'You'} dot={dot} label={dotLabel} />
+        <Avatar
+          name={circles.displayName || 'You'}
+          seed={circles.status === 'running' ? circles.snapshot.identity : undefined}
+          dot={dot}
+          label={dotLabel}
+        />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-ui text-fg">You</span>

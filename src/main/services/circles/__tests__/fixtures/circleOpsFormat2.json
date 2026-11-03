@@ -1,0 +1,151 @@
+{
+  "view": {
+    "chat/design/count": 1,
+    "chat/design/ids/4444444444444444444444444444444444444444444444444444444444444444/aaaaaaaaaaaaaaaa": 0,
+    "chat/design/messages/000000000000": {
+      "channel": "design",
+      "position": 0,
+      "author": "4444444444444444444444444444444444444444444444444444444444444444",
+      "id": "aaaaaaaaaaaaaaaa",
+      "name": "Cy",
+      "text": "Other channel",
+      "at": 1600,
+      "edited": false,
+      "deleted": null
+    },
+    "chat/general/count": 4,
+    "chat/general/ids/1111111111111111111111111111111111111111111111111111111111111111/bbbbbbbbbbbbbbbb": 1,
+    "chat/general/ids/4444444444444444444444444444444444444444444444444444444444444444/cccccccccccccccc": 2,
+    "chat/general/ids/4444444444444444444444444444444444444444444444444444444444444444/dddddddddddddddd": 3,
+    "chat/general/ids/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaa": 0,
+    "chat/general/messages/000000000000": {
+      "channel": "general",
+      "position": 0,
+      "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "aaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "text": "Seed swap on the 10th?",
+      "at": 1000,
+      "edited": true,
+      "deleted": null
+    },
+    "chat/general/messages/000000000001": {
+      "channel": "general",
+      "position": 1,
+      "author": "1111111111111111111111111111111111111111111111111111111111111111",
+      "id": "bbbbbbbbbbbbbbbb",
+      "name": "Bo",
+      "text": "",
+      "at": 1100,
+      "edited": false,
+      "deleted": "author"
+    },
+    "chat/general/messages/000000000002": {
+      "channel": "general",
+      "position": 2,
+      "author": "4444444444444444444444444444444444444444444444444444444444444444",
+      "id": "cccccccccccccccc",
+      "name": "Cy",
+      "text": "",
+      "at": 1400,
+      "edited": false,
+      "deleted": "admin"
+    },
+    "chat/general/messages/000000000003": {
+      "channel": "general",
+      "position": 3,
+      "author": "4444444444444444444444444444444444444444444444444444444444444444",
+      "id": "dddddddddddddddd",
+      "name": "Cy",
+      "text": "",
+      "at": 1500,
+      "edited": false,
+      "deleted": null,
+      "call": {
+        "id": "eeeeeeeeeeeeeeee",
+        "ended": 2500
+      }
+    },
+    "circle": {
+      "name": "Garden club",
+      "format": 2
+    },
+    "invites/7777777777777777777777777777777777777777777777777777777777777777": {
+      "id": "7777777777777777777777777777777777777777777777777777777777777777",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "invites/8888888888888888888888888888888888888888888888888888888888888888": {
+      "id": "8888888888888888888888888888888888888888888888888888888888888888",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "members/1111111111111111111111111111111111111111111111111111111111111111": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "Bo",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "device": "3333333333333333333333333333333333333333333333333333333333333333",
+      "signature": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "role": "member"
+    },
+    "members/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "device": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "signature": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "admin"
+    },
+    "records/member/4444444444444444444444444444444444444444444444444444444444444444/garden/shed": {
+      "app": "garden",
+      "scope": "member",
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "key": "shed",
+      "value": "stays",
+      "keep": true
+    },
+    "writers/2222222222222222222222222222222222222222222222222222222222222222": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "writers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "writers": [
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      false
+    ],
+    [
+      "add",
+      "5555555555555555555555555555555555555555555555555555555555555555",
+      false
+    ],
+    [
+      "remove",
+      "5555555555555555555555555555555555555555555555555555555555555555"
+    ]
+  ],
+  "skipped": [
+    "message already posted",
+    "bad message id",
+    "bad message text",
+    "bad channel",
+    "bad message text",
+    "no such message of theirs",
+    "bad message",
+    "only the author or an admin deletes",
+    "message deleted",
+    "bad record",
+    "only admins delete another member’s record",
+    "that member is still in the Circle",
+    "not a member",
+    "only admins delete another member’s record",
+    "no such kept record"
+  ]
+}

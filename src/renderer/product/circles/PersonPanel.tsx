@@ -300,7 +300,7 @@ export function PersonPanel({
       className="wb-circles-panel flex w-[320px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-line bg-surface-1"
     >
       <div className="flex items-center gap-2.5">
-        <Avatar name={member.name} large />
+        <Avatar name={member.name} seed={member.identity} large />
         <span className="flex min-w-0 flex-1 flex-col">
           <h2 className="text-title font-medium break-words text-fg">{member.name}</h2>
           <span className="text-xs text-fg-faint">

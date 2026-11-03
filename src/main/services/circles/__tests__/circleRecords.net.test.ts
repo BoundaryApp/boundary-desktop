@@ -8,8 +8,9 @@ import { CircleNetwork } from '../circleNetwork';
 import type { CircleRecordChange } from '../networkMessages';
 
 /**
- * Ada (admin), Bo and Cy in one Circle on a HyperDHT testnet. Only Ada and Bo listen to the
- * `profile` app, so Cy shows that a build ignoring an app still replicates its records.
+ * Ada (admin), Bo and Cy in one Circle on a HyperDHT testnet, at this build's format. Only Ada
+ * and Bo listen to the `profile` app, so Cy shows that a build ignoring an app still replicates
+ * its records.
  */
 
 interface Person {
@@ -137,9 +138,23 @@ describe('Circle records', () => {
     expect(await bo.net.listRecords(key, 'settings')).toEqual([]);
   });
 
-  it('clears a removed member’s records for everyone', async () => {
+  it('clears a removed member’s records for everyone, except kept ones', async () => {
+    await bo.net.setRecord(key, 'profile', 'member', 'plot', { row: 3 }, { keep: true });
+    await ada.until(() => holds(ada, (c) => c.key === 'plot' && !c.deleted));
+    await expect(ada.net.deleteRecord(key, 'profile', 'member', 'plot', bo.identity)).rejects.toThrow('still in');
+    await expect(bo.net.setRecord(key, 'settings', 'circle', 'map', 1, { keep: true })).rejects.toThrow();
+
     await ada.net.removeMember(key, bo.identity);
     await ada.until(() => holds(ada, (c) => c.key === 'bio' && c.deleted) && holds(ada, (c) => c.key === 'note' && c.deleted));
+    expect(await ada.net.listRecords(key, 'profile')).toEqual([
+      expect.objectContaining({ key: 'plot', identity: bo.identity, keep: true, value: { row: 3 } }),
+    ]);
+  });
+
+  it('lets an admin delete a departed member’s kept record', async () => {
+    await expect(cy.net.deleteRecord(key, 'profile', 'member', 'plot', bo.identity)).rejects.toThrow('Only admins');
+    await ada.net.deleteRecord(key, 'profile', 'member', 'plot', bo.identity);
+    await ada.until(() => holds(ada, (c) => c.key === 'plot' && c.deleted));
     expect(await ada.net.listRecords(key, 'profile')).toEqual([]);
   });
 });

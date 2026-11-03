@@ -17,7 +17,17 @@ import Hyperbee from 'hyperbee';
 import Hyperswarm, { type SecretStream } from 'hyperswarm';
 import z32 from 'z32';
 import {
+  ChatScan,
+  chatChannels,
+  findChatMessage,
+  readChatMessages,
+  unreadCount,
+  type ChatReader,
+} from './circleChat';
+import {
   applyCircleNodes,
+  CHAT_FORMAT,
+  chatPostProblem,
   CIRCLE_FORMAT,
   CIRCLE_KEY,
   deviceProofMessage,
@@ -26,6 +36,8 @@ import {
   inviteKey,
   isRecordName,
   isRecordScope,
+  isMessageId,
+  isMessageText,
   isRecordValue,
   lostMembership,
   MEMBERS_PREFIX,
@@ -35,6 +47,7 @@ import {
   type CircleInviteRecord,
   type CircleMemberIntro,
   type CircleMemberRecord,
+  type CircleMessageShared,
   type CircleOffer,
   type CircleOfferRecord,
   type CircleOp,
@@ -45,10 +58,20 @@ import {
 } from './circleOps';
 import { addressClass } from './addressClass';
 import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
-import type { CircleDayUsage, CircleLimits, CircleServing } from '../../../shared/types/circles';
+import type {
+  CircleChannel,
+  CircleChatUpdate,
+  CircleDayUsage,
+  CircleLimits,
+  CircleMessage,
+  CircleMessageRef,
+  CircleReadPosition,
+  CircleServing,
+} from '../../../shared/types/circles';
 import { InferenceLink, onInferenceOpen, type SharedModelResponse } from './inferenceChannel';
 import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
 import type {
+  CirclePublicAddress,
   CircleRecordChange,
   CircleRecordEntry,
   CircleSecrets,
@@ -80,6 +103,8 @@ export interface CircleNetworkOptions {
   onSignal?: (signal: CircleSignal) => void;
   /** A record of an app passed to `setRecordApps` changed. */
   onRecord?: (change: CircleRecordChange) => void;
+  /** Messages in one channel of a Circle were added, changed or settled away. */
+  onChat?: (update: CircleChatUpdate) => void;
   /** An admin admitted this device. Main keeps the secrets now: the Circle opens from here on. */
   onPaired?: (secrets: CircleSecrets) => void;
   /** This device was removed from a Circle and has closed it. Main forgets its secrets. */
@@ -111,6 +136,8 @@ interface OpenCircle {
   needsUpdate: boolean;
   /** Each record seen by the last scan, by view key, to tell what changed. */
   records: Map<string, CircleRecordEntry>;
+  /** Follows the chat across updates. */
+  chat: ChatScan;
   /** The scan in progress; scans run one at a time. */
   scan: Promise<void>;
   /** The last state written to diagnostics, to log changes only. */
@@ -225,6 +252,12 @@ export class CircleNetwork {
 
   private diag(event: string, data: Record<string, unknown> = {}): void {
     this.options.diag?.(event, data);
+  }
+
+  /** This device's address as the DHT sees it. Main passes it only to the renderer, never to a log. */
+  publicAddress(): CirclePublicAddress {
+    const dht = this.swarm.dht;
+    return { host: dht.host, port: dht.port, firewalled: dht.firewalled, randomizedNat: dht.randomized };
   }
 
   private dhtState(): Record<string, unknown> {
@@ -577,6 +610,7 @@ export class CircleNetwork {
       state: { name: '', format: this.supportedFormat, members: [], invites: [], offers: [] },
       needsUpdate: false,
       records: new Map(),
+      chat: new ChatScan(),
       scan: Promise.resolve(),
       lastDiag: '',
       closing: false,
@@ -618,7 +652,7 @@ export class CircleNetwork {
       offers: (await listPrefix(view, OFFERS_PREFIX)) as CircleOfferRecord[],
     };
     this.trackRemovedDevices(circle.secrets.key!, before, circle.state.members);
-    circle.scan = circle.scan.then(() => this.scanRecords(circle));
+    circle.scan = circle.scan.then(() => this.scanRecords(circle)).then(() => this.scanChat(circle));
     await circle.scan;
     const me = circle.state.members.find((member) => member.identity === this.identityHex);
     this.diagCircleState(circle, me?.role ?? null);
@@ -679,6 +713,27 @@ export class CircleNetwork {
     for (const [key, record] of previous) {
       if (!records.has(key)) this.reportRecord({ ...record, value: null, deleted: true });
     }
+  }
+
+  /** Report chat changes since the last scan. Runs after the record scan, which holds the channels. */
+  private async scanChat(circle: OpenCircle): Promise<void> {
+    if (circle.state.format < CHAT_FORMAT) return;
+    let updates: CircleChatUpdate[];
+    try {
+      updates = await circle.chat.scan(circle.view, new Set(this.channels(circle).keys()), this.chatReader(circle));
+    } catch (err) {
+      if (!circle.closing && !this.closed) this.log('chat scan failed', { error: err instanceof Error ? err.name : typeof err });
+      return;
+    }
+    for (const update of updates) this.options.onChat?.(update);
+  }
+
+  private channels(circle: OpenCircle): Map<string, string> {
+    return chatChannels(circle.records.values());
+  }
+
+  private chatReader(circle: OpenCircle): ChatReader {
+    return { circleKey: circle.secrets.key!, me: this.identityHex, signedLength: circle.view.core.signedLength };
   }
 
   private reportRecord(change: CircleRecordChange): void {
@@ -790,20 +845,112 @@ export class CircleNetwork {
     return circle;
   }
 
-  async setRecord(key: string, app: string, scope: CircleRecordScope, record: string, value: unknown): Promise<void> {
+  /** `keep` makes a `member` record stay after this user leaves, until an admin deletes it. */
+  async setRecord(
+    key: string,
+    app: string,
+    scope: CircleRecordScope,
+    record: string,
+    value: unknown,
+    { keep = false }: { keep?: boolean } = {}
+  ): Promise<void> {
     const circle = this.recordCircle(key, app, scope, record);
     if (!isRecordValue(value)) throw new Error('That record is too long, or isn’t JSON.');
-    await this.append(circle, { type: 'record-set', app, scope, key: record, value });
+    if (keep && scope !== 'member') throw new Error('Only a member’s own records can be kept.');
+    if (keep && circle.state.format < CHAT_FORMAT) throw new Error('This Circle can’t keep records after their member leaves.');
+    await this.append(circle, { type: 'record-set', app, scope, key: record, value, ...(keep ? { keep: true as const } : {}) });
   }
 
-  async deleteRecord(key: string, app: string, scope: CircleRecordScope, record: string): Promise<void> {
-    await this.append(this.recordCircle(key, app, scope, record), { type: 'record-del', app, scope, key: record });
+  /** With `identity`, an admin deletes a kept record of someone who is no longer a member. */
+  async deleteRecord(key: string, app: string, scope: CircleRecordScope, record: string, identity?: string): Promise<void> {
+    const circle = this.recordCircle(key, app, scope, record);
+    if (identity === undefined || identity === this.identityHex) {
+      await this.append(circle, { type: 'record-del', app, scope, key: record });
+      return;
+    }
+    const me = circle.state.members.find((member) => member.identity === this.identityHex);
+    if (me?.role !== 'admin') throw new Error('Only admins can delete another member’s record.');
+    if (scope !== 'member' || circle.state.format < CHAT_FORMAT) throw new Error('That record can’t be deleted for someone else.');
+    if (circle.state.members.some((member) => member.identity === identity)) throw new Error('That person is still in this Circle.');
+    await this.append(circle, { type: 'record-del', app, scope, key: record, identity });
   }
 
   /** One app's records in a Circle: its `circle` records and every member's. */
   async listRecords(key: string, app: string): Promise<CircleRecordEntry[]> {
     const records = await this.readRecords(this.circle(key));
     return [...records.values()].filter((record) => record.app === app);
+  }
+
+  // ---- Chat (ADR 0042) -------------------------------------------------------------------------
+
+  /** A Circle with chat, and a channel it has. */
+  private chatCircle(key: string, channel: string): OpenCircle {
+    const circle = this.circle(key);
+    if (circle.state.format < CHAT_FORMAT) throw new Error('This Circle doesn’t have chat.');
+    if (!this.channels(circle).has(channel)) throw new Error('That channel isn’t in this Circle.');
+    return circle;
+  }
+
+  /** Channels with unread counts after this device's read positions. */
+  async listChannels(key: string, reads: Record<string, CircleReadPosition>): Promise<CircleChannel[]> {
+    const circle = this.circle(key);
+    if (circle.state.format < CHAT_FORMAT) return [];
+    const channels: CircleChannel[] = [];
+    for (const [id, name] of this.channels(circle)) {
+      channels.push({ id, name, unread: await unreadCount(circle.view, id, reads[id]) });
+    }
+    return channels;
+  }
+
+  async listMessages(
+    key: string,
+    channel: string,
+    options: { before?: CircleMessageRef; limit: number }
+  ): Promise<{ messages: CircleMessage[]; more: boolean }> {
+    const circle = this.chatCircle(key, channel);
+    return readChatMessages(circle.view, channel, options, this.chatReader(circle));
+  }
+
+  /** Post as this user; returns the message's id. */
+  async postMessage(key: string, channel: string, text: string, shared?: CircleMessageShared): Promise<string> {
+    const circle = this.chatCircle(key, channel);
+    const op = {
+      type: 'chat-post' as const,
+      channel,
+      id: crypto.randomBytes(16).toString('hex'),
+      text,
+      at: Date.now(),
+      ...(shared ? { shared } : {}),
+    };
+    const problem = chatPostProblem(op);
+    if (problem === 'bad message text') throw new Error('A message needs text, up to 12 KB.');
+    if (problem === 'chat operation too long') throw new Error('That message is too long.');
+    if (problem) throw new Error('That message can’t be posted.');
+    await this.append(circle, op);
+    return op.id;
+  }
+
+  /** Only the author edits. */
+  async editMessage(key: string, channel: string, id: string, text: string): Promise<void> {
+    const circle = this.chatCircle(key, channel);
+    const mine = { author: this.identityHex, id };
+    const message = isMessageId(id) ? await findChatMessage(circle.view, channel, mine, this.chatReader(circle)) : null;
+    if (!message) throw new Error('That message isn’t yours, or isn’t here.');
+    if (message.deleted) throw new Error('That message was deleted.');
+    if (!isMessageText(text, Boolean(message.call))) throw new Error('A message needs text, up to 12 KB.');
+    await this.append(circle, { type: 'chat-edit', channel, id, text });
+  }
+
+  /** The author or an admin deletes. */
+  async deleteMessage(key: string, channel: string, author: string, id: string): Promise<void> {
+    const circle = this.chatCircle(key, channel);
+    const me = circle.state.members.find((member) => member.identity === this.identityHex);
+    if (author !== this.identityHex && me?.role !== 'admin') throw new Error('Only its author or an admin can delete a message.');
+    const ref = { author, id };
+    const message = isMessageId(id) ? await findChatMessage(circle.view, channel, ref, this.chatReader(circle)) : null;
+    if (!message) throw new Error('That message isn’t here.');
+    if (message.deleted) return;
+    await this.append(circle, { type: 'chat-delete', channel, author, id });
   }
 
   /** Move a Circle to a later format. Builds that can't apply it stop until they update (ADR 0038). */

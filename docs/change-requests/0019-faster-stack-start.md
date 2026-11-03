@@ -1,7 +1,7 @@
 # 0019 · Faster stack start on every launch
 
 **Serves:** app launch time. Boundary starts the stack on each launch and stops it on quit ([updates plan](../updates-plan.md)).
-**Status:** Open
+**Status:** R1 delivered in stack `v0.3.8` · R2 and R3 partly delivered in `v0.3.8`
 
 ## Background
 
@@ -32,6 +32,8 @@ The first gives the larger saving. The second also shortens first run and upgrad
 
 **Acceptance:** with no change to scripts, environment or image, both bootstrap containers finish in under 5s each on `compose up -d`. Changing an input runs the full bootstrap. If the stack has settings that must be re-applied on every start, it says which ones.
 
+**Delivered (3 Nov 2026, stack `v0.3.8`).** The bootstraps compare their inputs with stamps under `data/hermes/.bootstrap-stamps/` and skip when nothing changed (about 0.5s), and a full run batches its config writes in one Python process. `HERMES_BOOTSTRAP_FORCE=1` forces a full run.
+
 **Boundary fallback:** none today. Boundary could override the bootstrap's `command` in its overlay with its own stamp check, but only the stack knows the full set of inputs, so that risks skipping a needed write.
 
 ## R2 · Shorten Hermes's `cont-init` in a new container (Wanted)
@@ -42,6 +44,8 @@ The first gives the larger saving. The second also shortens first run and upgrad
 
 **Acceptance:** a new Hermes container passes its healthcheck within 45s of starting on an idle Mac, with all patches in place.
 
+**Partly delivered (3 Nov 2026, stack `v0.3.8`).** A new cont-init step, `007-profile-ownership`, removes stale sockets and fixes ownership under `profiles/` before `01-hermes-setup`, which otherwise ran `chown -R` over every profile on each boot. The healthcheck now probes the api-server gateway's `/health` on 8643 as well as the dashboard. Patches still apply at container start, and the 45s acceptance hasn't been measured in Boundary.
+
 **Boundary fallback:** `compose stop` on quit covers ordinary relaunches. New containers stay slow.
 
 ## R3 · Gate Hermes only on what it needs at start (Later)
@@ -51,5 +55,7 @@ The first gives the larger saving. The second also shortens first run and upgrad
 **Ask:** confirm how Hermes treats an MCP server that is down at gateway start. If it reconnects, relax these gates to `service_started`, and drop `opencode`'s wait on `gptr-mcp` if it's only a registration.
 
 **Acceptance:** with `gptr-mcp` stopped, Hermes turns healthy and connects to it once it starts, with no Hermes restart.
+
+**Partly delivered (3 Nov 2026, stack `v0.3.8`).** `hermes` no longer lists any MCP sidecar in `depends_on`. A sidecar still booting at discovery parks, and its tools return within about 15s of it coming up (`MCP_PARKED_RETRY_INTERVAL`). `opencode` still waits on `gptr-mcp`.
 
 **Boundary fallback:** Boundary's overlay keeps the shorter probe intervals, at the cost of more probes while the stack runs.

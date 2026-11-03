@@ -98,7 +98,10 @@ const project = {
   containerPath: '/opt/projects/job-search',
 } as HermesProjectRecord;
 
-const Chat: React.FC<{ withProject?: boolean }> = ({ withProject = true }) => (
+const Chat: React.FC<{
+  withProject?: boolean;
+  onShareToCircle?: (share: { text: string; role: 'user' | 'assistant'; model?: string }) => void;
+}> = ({ withProject = true, onShareToCircle }) => (
   <HermesChatRuntimeProvider sessionId="s1">
     <WorkbenchThread
       sessionId="s1"
@@ -113,12 +116,13 @@ const Chat: React.FC<{ withProject?: boolean }> = ({ withProject = true }) => (
       onNewProject={noop}
       onCreateAgentFromDraft={noop}
       onEditAgentDraft={noop}
+      onShareToCircle={onShareToCircle}
     />
   </HermesChatRuntimeProvider>
 );
 
 /** Renders the chat once its history and the rest of its first loads are in. */
-async function renderChat(props: { withProject?: boolean } = {}) {
+async function renderChat(props: React.ComponentProps<typeof Chat> = {}) {
   render(<Chat {...props} />);
   await ipcCalls.settle();
 }
@@ -152,6 +156,28 @@ describe('Reply extras', () => {
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+  });
+
+  it('shares a reply or a prompt to a Circle from More, and offers nothing extra on prompts', async () => {
+    const share = vi.fn();
+    await renderChat({ onShareToCircle: share });
+    const [promptMore, replyMore] = screen.getAllByRole('button', { name: 'More' });
+    await act(async () => fireEvent.click(promptMore));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Share to Circle…everyone in the Circle gets a copy',
+    ]);
+    await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Share to Circle/ })));
+    expect(share).toHaveBeenLastCalledWith({ text: expect.any(String), role: 'user' });
+    await act(async () => fireEvent.click(replyMore));
+    await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Share to Circle/ })));
+    expect(share).toHaveBeenLastCalledWith(expect.objectContaining({ text: '## Plan\n\n- **Mon:** write', role: 'assistant' }));
+  });
+
+  it('offers no Share outside Circles, and no More on prompts', async () => {
+    await renderChat();
+    expect(screen.getAllByRole('button', { name: 'More' })).toHaveLength(1);
+    await openMenu();
+    expect(screen.queryByRole('menuitem', { name: /Share to Circle/ })).toBeNull();
   });
 
   it('copies a reply as plain text', async () => {

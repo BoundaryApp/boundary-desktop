@@ -128,6 +128,8 @@ export function useChatInference({
     refreshKey,
     openRouterConfigured,
     privateRefused: refusedSend || resolvedInference?.privacyRefused === true,
+    /** The model the chip shows, for a reply shared to a Circle. */
+    modelId: resolvedInference?.modelId ?? null,
     localModelId,
     sendViaLocal,
     checkReachable,

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Proposed |
+| Status | Proposed; the destination is retired by [ADR 0043](../adr/0043-circles-live-in-the-chat.md) once Circle chats' places and Inference ship |
 | Visuals | [prototype.dc.html](prototype.dc.html) (click-through source) |
 | Started | 31 Oct 2026 |
 | Builds on | [ADR 0032](../adr/0032-circles.md), [ADR 0034](../adr/0034-shared-models.md), [ADR 0036](../adr/0036-shared-model-app-default.md), [circles plan](../circles-plan.md), [settings spec](../settings-ux-study/spec.md) |
@@ -17,6 +17,11 @@
 | 4 Invites and joining | Built; live check pending | 1 |
 | 5 Links from the rest of the app | Built; live check pending | 2, 3 |
 | 6 Usage | Built; live check pending | 3 |
+| 7 Circle tab and person drill-in | Not started | Circle chats phase 3 |
+| 8 Start and join sheets | Not started | 7 |
+| 9 Retire the destination | Not started | 7, 8, settings spec phase 3 |
+
+Phases 7 to 9 move this screen's parts into the chat and into Inference ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)): membership to the chat's Circle tab, sharing, trust and use to Inference. Decisions 1, 4, 7, 8, 10, 13, 14 and 15 change there; the rest still describe the parts, wherever they're mounted.
 
 ## Goal
 
@@ -43,7 +48,7 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 11. **Invites are a sheet.** It creates a code with an optional **Who is it for?** label, says which admins must be online, and lists open invites by label. The label stays on this device and never enters the Autobase. Codes aren't stored after they're made, so the sheet says to copy the code now, and a lost code means revoking and making another.
 12. **Joining has its own state.** A join shows a **Joining…** row and a waiting page, and it survives leaving the screen. **Cancel** stops it. Failures show on that page.
 13. **Problems reach the user wherever they are.** A sharing problem sets a warning dot on the Circles icon, and **Sharing**'s status line in the list names it. A banner on **Sharing** carries the fix.
-14. **Tabs wait for a second thing.** When Circle chats arrive (circles plan phase 5), Chat becomes the first tab of a Circle and this page becomes People. Until then there is no tab bar.
+14. **No tab bar.** Circle chats open in the Workbench chat instead of a Chat tab here ([ADR 0042](../adr/0042-circle-chats.md) §10), and a Circle's header gets **Open chat**, which switches the chat to that Circle. This replaces the earlier plan for a Chat tab. Once phase 9 ships there is no Circles screen, and the Circle tab in the chat's inspector takes this page's place ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)).
 15. **Diagnostics moves to Profile.** So do the display name and renaming.
 
 ## Where each flow goes
@@ -94,6 +99,12 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 
 **6 Usage.** Who is running or queued, requests and tokens today, and daily limits (ADR 0034 §5). Members see only their own totals.
 
+**7 Circle tab and person drill-in.** The Circle tab from Circle chats phase 3 gains invites, **Leave** and the membership panel inside it with **Back**, opened from the tab, the rail's People and who-lines, with **Open in Inference** for what a person shares.
+
+**8 Start and join sheets.** **Start a Circle…** and **Join with an invite…** in the switcher's menu, the **Joining…** row and its waiting page in the chat area, and the no-Circles menu.
+
+**9 Retire the destination.** Once Inference (settings spec phase 3) holds Sharing and per-person trust: remove the Circles icon and `CirclesScreen`, move the warning dot to Inference, add the **Circles profile** row to Settings, and point every navigation request that named the Circles screen or a person's panel at the Circle tab or Inference. Re-check criteria 1, 3 and 8 against the new places.
+
 ## Acceptance criteria
 
 - [x] **1.** A user with two Circles can switch between them from the list, and leaving the destination and coming back restores the selection.
@@ -109,3 +120,6 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 - [x] **11.** The chat's stop message for a shared model opens that person's panel.
 - [x] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
 - [x] **13.** Usage counts appear only on the provider's and that member's own Macs.
+- [ ] **14.** There is no Circles icon. Every Circle, invite, join and member is reachable from the chat's switcher, the Circle tab or a sheet.
+- [ ] **15.** No control in a Circle place changes a model setting; sharing, trust and use are only in Inference.
+- [ ] **16.** A link about a person's model opens Inference at their row without changing the chat's place.
