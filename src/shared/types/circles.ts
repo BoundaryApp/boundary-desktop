@@ -162,3 +162,71 @@ export interface CircleCreatedInvite {
 export type CirclesResult<T extends object = object> =
   | ({ success: true; state: CirclesState } & T)
   | { success: false; error: string; state: CirclesState };
+
+/** A channel in a Circle's chat (ADR 0042 §1). `general` exists in every Circle. */
+export interface CircleChannel {
+  id: string;
+  name: string;
+  /** Messages after this device's read position. */
+  unread: number;
+}
+
+/** Names a message everywhere outside the Circle's `apply`; positions change until confirmed. */
+export interface CircleMessageRef {
+  author: string;
+  id: string;
+}
+
+/** A read position: the newest message read, with its time for when that message is gone. */
+export interface CircleReadPosition extends CircleMessageRef {
+  at: number;
+}
+
+/** A Circle chat message as this device sees it (Circle chats spec, the public seam). */
+export interface CircleMessage extends CircleMessageRef {
+  circleKey: string;
+  channel: string;
+  /** The author's display name when they posted. */
+  name: string;
+  /** Which of the author's agents wrote it. */
+  agent: { slug: string; name: string } | null;
+  /** Empty once deleted. */
+  text: string;
+  /** The author's clock in milliseconds. */
+  at: number;
+  /** A majority of admins' devices have ordered it, so its place won't change. */
+  confirmed: boolean;
+  edited: boolean;
+  deleted: 'author' | 'admin' | null;
+  /** Where shared text came from. */
+  shared: { role: 'user' | 'assistant'; model?: string } | null;
+  /** A call's start, and its end once known. */
+  call: { id: string; ended?: number } | null;
+  mine: boolean;
+}
+
+/**
+ * What changed in one channel in one update. `added` are messages this device sees for the first
+ * time since the Circle opened; `gone` were shown unconfirmed and disappeared when the order settled.
+ */
+export interface CircleChatUpdate {
+  circleKey: string;
+  channel: string;
+  added: CircleMessage[];
+  changed: CircleMessage[];
+  gone: CircleMessageRef[];
+}
+
+/** Typing in a channel, or the newest message read there (ADR 0042 §8). */
+export type CircleChatMark = { channel: string } & ({ kind: 'typing' } | { kind: 'read'; ref: CircleMessageRef });
+
+/** A member's typing or read mark, with the Circle and who sent it. */
+export type CircleChatPresence = { circleKey: string; from: string } & CircleChatMark;
+
+/** The DHT's view of this device's public address (ADR 0044). `host` is null until the DHT knows it. */
+export interface CirclePublicAddress {
+  host: string | null;
+  port: number;
+  firewalled: boolean;
+  randomizedNat: boolean;
+}

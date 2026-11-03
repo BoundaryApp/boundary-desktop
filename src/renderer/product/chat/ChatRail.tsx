@@ -166,6 +166,8 @@ export interface ChatRailProps {
   onOpenRoster: () => void;
 
   error: string | null;
+  /** Above everything else: the place switcher, when the user is in a Circle (ADR 0042 §10). */
+  top?: React.ReactNode;
 }
 
 /**
@@ -208,6 +210,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
   onNewAgent,
   onOpenRoster,
   error,
+  top = null,
 }) => {
   const hermesName = builtinAgentName(agents);
   const inConversation = centerMode === 'conversation';
@@ -223,6 +226,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
   return (
     <aside className="wb-left">
       <div className="wb-titlebar-spacer" aria-hidden="true" />
+      {top}
       {projects.length === 0 ? (
         <div className="wb-proj-empty">
           Choose a folder on this Mac, or chat without one.

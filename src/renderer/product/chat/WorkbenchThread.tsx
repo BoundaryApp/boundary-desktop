@@ -147,6 +147,8 @@ interface WorkbenchThreadProps {
     role: string;
   }) => void;
   onEditAgentDraft?: (payload: AgentDraftProposal) => void;
+  /** Share a message to a Circle; absent when the user is in no Circle (ADR 0042 §9). */
+  onShareToCircle?: (share: { text: string; role: 'user' | 'assistant'; model?: string }) => void;
 }
 
 // Stable default: a fresh `[]` per render would retrigger the mention effect forever.
@@ -195,7 +197,10 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   onNewProject,
   onCreateAgentFromDraft,
   onEditAgentDraft,
+  onShareToCircle,
 }) => {
+  // Read when Share is pressed, so the reply carries the model the chip shows then.
+  const shareModelRef = useRef<string | null>(null);
   const showBranchToast = Boolean(branchedFrom?.justBranched);
   const dismissBranchToast = branchedFrom?.onDismissToast;
   useEffect(() => {
@@ -315,8 +320,16 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             },
           }
         : undefined,
+      onShare: onShareToCircle
+        ? ({ text, role }) =>
+            onShareToCircle({
+              text,
+              role,
+              ...(role === 'assistant' && shareModelRef.current ? { model: shareModelRef.current } : {}),
+            })
+        : undefined,
     }),
-    [onQuote, activeProject]
+    [onQuote, activeProject, onShareToCircle]
   );
 
   // A branch from a prompt hands the prompt back, unsent. Once per mount: the runtime
@@ -392,6 +405,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   });
 
   const inference = useChatInference({ sessionId, send: sendNow });
+  shareModelRef.current = inference.modelId;
   const { offlinePrompt } = inference;
 
   const phaseLine = formatPhaseLine({

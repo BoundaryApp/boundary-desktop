@@ -11,7 +11,9 @@ import { CircleOfferAlerts } from './circles/CircleOfferAlerts';
 import type { CirclesSelection } from './circles/CirclesNav';
 import { useOpenCirclesRequests } from './circles/circlesNavigation';
 import { CirclesScreen } from './circles/CirclesScreen';
+import { useCallCheck } from './circles/useCallCheck';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
+import { useOpenCircleChatRequests } from './chat/circlePlace';
 import {
   openSettings,
   useOpenSettingsRequests,
@@ -34,6 +36,8 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   onNavigate,
 }) => {
   useAppShortcuts();
+  // While the call transport check is on, this Mac answers other members' test offers anywhere.
+  useCallCheck();
   // Chat commands pressed elsewhere switch to Chat first, then replay there.
   const [pendingChatCommand, setPendingChatCommand] = useState<AppCommand | null>(null);
   const [circlesSelection, setCirclesSelection] = useState<CirclesSelection>(null);
@@ -69,6 +73,9 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     setCirclesSelection({ kind: 'sharing', ...(person ? { person } : {}) });
     onNavigate('circles');
   });
+
+  // Open chat on the Circles screen: the place is already set, so show the chat.
+  useOpenCircleChatRequests(() => onNavigate('chat'));
 
   useAppCommand((command) => {
     if (command === 'go-chat') onNavigate('chat');

@@ -8,15 +8,39 @@ import './circles.css';
  * dense settings rows, so changing them would change every other screen.
  */
 
+/** Two letters: the first two words' initials, or a one-word name's first two letters. */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) return [...words[0]].slice(0, 2).join('').toUpperCase();
   return words.slice(0, 2).map((word) => [...word][0].toUpperCase()).join('');
 }
 
-/** `dot` is a background class for the corner status dot, and `label` says it to a screen reader. */
-export function Avatar({ name, dot, label, large = false }: { name: string; dot?: string; label?: string; large?: boolean }) {
+/** A colour for a Circle or a person, the same on every Mac because it comes from their key. */
+export function keyHue(key: string): string {
+  let hash = 0;
+  for (const char of key.slice(0, 16)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return `hsl(${hash % 360} 45% 46%)`;
+}
+
+/**
+ * `seed` is the person's identity key, which picks their colour; without it the name does.
+ * `dot` is a background class for the corner status dot, and `label` says it to a screen reader.
+ */
+export function Avatar({
+  name,
+  seed,
+  dot,
+  label,
+  large = false,
+}: {
+  name: string;
+  seed?: string;
+  dot?: string;
+  label?: string;
+  large?: boolean;
+}) {
   return (
-    <span className={`wb-circle-avatar${large ? ' is-large' : ''}`}>
+    <span className={`wb-circle-avatar${large ? ' is-large' : ''}`} style={{ background: keyHue(seed || name) }}>
       <span aria-hidden>{initials(name)}</span>
       {dot ? <i className={dot} role="img" aria-label={label} /> : null}
     </span>

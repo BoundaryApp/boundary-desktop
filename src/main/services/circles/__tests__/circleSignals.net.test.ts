@@ -153,6 +153,14 @@ describe('Peer signals over a local DHT', () => {
     cy.received.length = 0;
   });
 
+  it('reports this device’s address as the DHT sees it, for call setup', () => {
+    const address = ada.net.publicAddress();
+    expect(Number.isInteger(address.port) && address.port > 0).toBe(true);
+    expect(typeof address.firewalled).toBe('boolean');
+    expect(typeof address.randomizedNat).toBe('boolean');
+    expect(address.host === null || typeof address.host === 'string').toBe(true);
+  });
+
   it('keeps messages in order', async () => {
     for (let index = 0; index < 40; index++) ada.net.sendSignal(first, 'typing', index, bo.identity);
     await fence(ada, bo, first);

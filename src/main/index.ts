@@ -5,6 +5,8 @@ import { APP_COMMANDS, APP_MENU_COMMAND_CHANNEL, type AppCommand } from '../shar
 import { persistDebugLog, serializeError, getDebugLogPath, fileStatForLog } from './persistDebugLog';
 import { app, BrowserWindow, Menu } from 'electron';
 import { initNativeTheme, registerAppearanceHandlers, themeWindowBackground } from './appearance';
+import { appUrlMatcher } from './appUrl';
+import { installPermissionHandlers, registerMediaHandlers } from './services/media';
 import { openHttpUrlExternally, registerUrlHandlers } from './openExternal';
 import { sendEvent } from './ipc';
 import path from 'node:path';
@@ -312,6 +314,7 @@ if (isPrimaryInstance) {
 }
 
 registerAppearanceHandlers(store);
+registerMediaHandlers();
 registerUrlHandlers();
 registerOnboardingHandlers();
 registerCapabilityHandlers();
@@ -427,19 +430,10 @@ const createWindow = async () => {
   const createdWindow = global.mainWindow;
 
   // The window shows only the app. New windows and navigation elsewhere are refused, and
-  // http(s) targets open in the system browser instead.
+  // http(s) targets open in the system browser instead. Only the app's page gets web permissions.
   const appUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL ?? pathToFileURL(rendererIndexPath).href);
-  const isAppUrl = (url: string): boolean => {
-    try {
-      const target = new URL(url);
-      if (appUrl.protocol === 'file:') {
-        return target.protocol === 'file:' && target.pathname === appUrl.pathname;
-      }
-      return target.origin === appUrl.origin;
-    } catch {
-      return false;
-    }
-  };
+  const isAppUrl = appUrlMatcher(appUrl);
+  installPermissionHandlers(createdWindow.webContents.session, isAppUrl);
   createdWindow.webContents.setWindowOpenHandler(({ url }) => {
     void openHttpUrlExternally(url);
     return { action: 'deny' };

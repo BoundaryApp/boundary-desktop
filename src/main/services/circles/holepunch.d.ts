@@ -164,12 +164,29 @@ declare module 'hyperbee' {
     get(key: string): Promise<{ key: string; value: unknown } | null>;
     put(key: string, value: unknown): Promise<void>;
     del(key: string): Promise<void>;
-    createReadStream(range?: { gt?: string; gte?: string; lt?: string; lte?: string }): AsyncIterable<{
-      /** The entry's block in the core, which `signedLength` is compared with. */
-      seq: number;
-      key: string;
-      value: unknown;
-    }>;
+    createReadStream(range?: {
+      gt?: string;
+      gte?: string;
+      lt?: string;
+      lte?: string;
+      reverse?: boolean;
+      limit?: number;
+    }): AsyncIterable<HyperbeeEntry>;
+    /**
+     * Entries that differ between this version and `version`: `left` is this one's, `right` the
+     * other's, null where a side has no entry.
+     */
+    createDiffStream(
+      version: number,
+      range?: { gt?: string; gte?: string; lt?: string; lte?: string }
+    ): AsyncIterable<{ left: HyperbeeEntry | null; right: HyperbeeEntry | null }>;
+  }
+
+  export interface HyperbeeEntry {
+    /** The entry's block in the core, which `signedLength` is compared with. */
+    seq: number;
+    key: string;
+    value: unknown;
   }
 }
 

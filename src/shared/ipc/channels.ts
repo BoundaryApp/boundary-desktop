@@ -6,9 +6,25 @@
  * each channel with `invoker` and subscribes to events with `listen` (src/preload.ts), so
  * `window.electronAPI` takes its types from here.
  */
-import type { CircleCreatedInvite, CircleRole, CircleSharing, CirclesResult, CirclesState } from '../types/circles';
+import type { CallCheckResult } from '../callCheck';
+import type { CallPart } from '../callSignalParts';
+import type {
+  CircleChannel,
+  CircleChatPresence,
+  CirclePublicAddress,
+  CircleChatUpdate,
+  CircleCreatedInvite,
+  CircleMessage,
+  CircleMessageRef,
+  CircleReadPosition,
+  CircleRole,
+  CircleSharing,
+  CirclesResult,
+  CirclesState,
+} from '../types/circles';
 import type { AppCommand } from '../appCommands';
 import type { ThemePreference } from '../theme';
+import type { MediaAccess, MediaAccessStatus, MediaDevice } from '../types/media';
 import type { IpcResult } from './result';
 import type {
   RunningWorkItem,
@@ -234,8 +250,45 @@ export interface IpcInvokeChannels {
   'circles:reveal-diagnostics': () => IpcResult;
   /** What the user accepts from one provider (ADR 0034 §3); applies from the next send. */
   'circles:set-provider-settings': (input: { identity: string; private: boolean; trusted: boolean }) => CirclesResult;
+  /** A Circle's chat (ADR 0042). Changes arrive on `circles:chat-event`. */
+  'circles:chat-channels': (input: { key: string }) => CirclesResult<{ channels: CircleChannel[] }>;
+  'circles:chat-messages': (input: {
+    key: string;
+    channel: string;
+    before?: CircleMessageRef;
+    limit?: number;
+  }) => CirclesResult<{ messages: CircleMessage[]; more: boolean }>;
+  /** `shared` marks text shared from a Hermes chat (ADR 0042 §9); main checks its shape. */
+  'circles:chat-post': (input: {
+    key: string;
+    channel: string;
+    text: string;
+    shared?: { role: 'user' | 'assistant'; model?: string };
+  }) => CirclesResult<{ id: string }>;
+  'circles:chat-edit': (input: { key: string; channel: string; id: string; text: string }) => CirclesResult;
+  'circles:chat-delete': (input: { key: string; channel: string; author: string; id: string }) => CirclesResult;
+  /** Keeps this device's read position and tells members online (a `chat.read` signal). */
+  'circles:chat-read': (input: { key: string; channel: string; position: CircleReadPosition }) => CirclesResult;
+  /** Admins add, rename and remove channels; they are `chat` records (ADR 0042 §1). */
+  'circles:chat-add-channel': (input: { key: string; name: string }) => CirclesResult<{ id: string }>;
+  'circles:chat-rename-channel': (input: { key: string; channel: string; name: string }) => CirclesResult;
+  'circles:chat-remove-channel': (input: { key: string; channel: string }) => CirclesResult;
+  /** Tells members online that this user is typing; main sends at most one every 3 seconds. */
+  'circles:chat-typing': (input: { key: string; channel: string }) => void;
+  /** Whether this run has the call transport check on (`BOUNDARY_CALLS_CHECK=1`). */
+  'circles:call-check-enabled': () => boolean;
+  /** One part of a call check message to one member; false when the check is off or the part is wrong. */
+  'circles:call-signal-send': (input: { key: string; to: string; part: CallPart }) => boolean;
+  /** This device's address as the DHT sees it, for the check's `swarm` mode. */
+  'circles:public-address': () => CirclesResult<{ address: CirclePublicAddress | null }>;
+  /** Log one check result as metadata; returns what was logged, or null. */
+  'circles:call-check-result': (input: CallCheckResult) => CallCheckResult | null;
   'appearance:get-theme': () => ThemePreference;
   'appearance:set-theme': (preference: ThemePreference) => IpcResult;
+  /** The OS's camera and microphone access for the app; no prompt. */
+  'media:get-access': () => MediaAccess;
+  /** Shows the macOS prompt for one device if it hasn't been answered, then reports its status. */
+  'media:request-access': (device: MediaDevice) => MediaAccessStatus;
   'urls:open-url': (url: string) => IpcResult;
 
   'onboarding:get-status': () => InferenceProvidersStatus;
@@ -462,6 +515,14 @@ export interface IpcInvokeChannels {
  */
 export interface IpcEventChannels {
   'circles:state': CirclesState;
+  /** One channel's new, changed and settled-away messages. */
+  'circles:chat-event': CircleChatUpdate;
+  /** A Circle's channels may have changed: added, renamed or removed. */
+  'circles:chat-channels': { circleKey: string };
+  /** A member's typing or read mark, from a peer signal. */
+  'circles:chat-presence': CircleChatPresence;
+  /** One part of a member's call check message. */
+  'circles:call-signal': { circleKey: string; from: string; part: CallPart };
   'app:menu-command': AppCommand;
   'local-llm:changed': LocalLlmChangedPayload;
   'capability:progress': string;

@@ -1,0 +1,747 @@
+/* Circle places in the chat screen (Circle chats spec decisions 1 to 10). */
+
+.wb-circles-mark {
+  flex-shrink: 0;
+  color: var(--brand);
+}
+
+/* Place switcher: the top of the chat rail says which place the rail shows. */
+.wb-place {
+  position: relative;
+  margin: 0 8px 8px;
+}
+
+.wb-place-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-place-button:hover {
+  border-color: var(--line-strong, var(--line));
+}
+
+.wb-place-button.is-circle {
+  border-color: transparent;
+  background: var(--brand-dim);
+}
+
+.wb-place-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-place-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.wb-place-copy b,
+.wb-place-copy span {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-place-copy small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-place-chev {
+  color: var(--text-faint);
+}
+
+.wb-place-tile {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-strong);
+}
+
+.wb-place-tile.is-mac {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.wb-place-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 260px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.16));
+}
+
+.wb-place-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-place-menu > button:hover,
+.wb-place-menu > button:focus-visible {
+  outline: none;
+  background: var(--surface-hover);
+}
+
+.wb-place-menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.wb-place-menu-head {
+  padding: 6px 8px 4px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-place-check {
+  width: 14px;
+  color: var(--brand);
+}
+
+/* The Circle's rail. */
+.wb-circle-rail .wb-row .wb-circle-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 8px;
+}
+
+.wb-circle-admin {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-online-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: var(--radius-full);
+  background: var(--ok);
+}
+
+.wb-online-dot.is-off {
+  border: 1px solid var(--text-faint);
+  background: none;
+}
+
+/* The channel. Messages sit closer than Hermes turns: a group chat has many short ones. */
+.wb-circle-thread .wb-thread-head {
+  height: 56px;
+}
+
+.wb-circle-channel {
+  color: var(--text-muted);
+  font-weight: var(--weight-normal, 400);
+}
+
+.wb-circle-log {
+  gap: 14px;
+}
+
+.wb-circle-msg.is-cont {
+  margin-top: -8px;
+}
+
+.wb-circle-msg.is-pending {
+  opacity: 0.85;
+}
+
+/* Someone else's message: avatar, then the who-line and text (Circle chats spec decision 9). */
+.wb-circle-row {
+  display: flex;
+  gap: 10px;
+}
+
+.wb-circle-row > .wb-circle-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 10.5px;
+}
+
+.wb-circle-gutter {
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.wb-circle-m {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-who.wb-circle-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+}
+
+.wb-circle-name {
+  color: var(--text);
+}
+
+.wb-circle-time {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-regular);
+}
+
+/* A person's message reads as chat, not as an assistant's reply. */
+.wb-circle-msg .wb-prose,
+.wb-circle-msg .wb-prose .wb-streamdown,
+.wb-circle-shared-card {
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  line-height: 1.55;
+}
+
+.wb-circle-msg .wb-bubble {
+  padding: 9px 14px;
+  border-radius: 14px;
+  font-size: var(--size-ui);
+}
+
+/* **edited** and the clock follow the text on its last line when they fit. */
+.wb-circle-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+}
+
+.wb-circle-body {
+  min-width: 0;
+}
+
+.wb-circle-text .wb-circle-stamp {
+  margin-top: 0;
+}
+
+.wb-circle-stamp:empty {
+  display: none;
+}
+
+.wb-circle-tag {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-circle-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-circle-clock {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.wb-circle-gone,
+.wb-circle-call {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-shared-card {
+  margin-top: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text);
+}
+
+.wb-msg.is-user .wb-circle-shared-card {
+  max-width: 80%;
+}
+
+.wb-circle-shared {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  line-height: 1.45;
+}
+
+.wb-circle-gone {
+  font-style: italic;
+}
+
+.wb-circle-edit textarea {
+  width: 100%;
+  min-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.wb-circle-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-circle-edit-row span {
+  flex: 1;
+}
+
+.wb-circle-error {
+  margin: 4px 0;
+  color: var(--danger, var(--warn));
+  font-size: var(--size-xs);
+}
+
+.wb-circle-empty {
+  margin: auto;
+  max-width: 360px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.wb-circle-empty h2 {
+  margin: 10px 0 6px;
+  color: var(--text);
+  font-size: var(--size-title);
+  font-weight: var(--weight-medium);
+}
+
+.wb-circle-older {
+  align-self: center;
+}
+
+.wb-circle-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--chat-inline) 6px;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-status.is-warn {
+  color: var(--warn);
+}
+
+/* The composer's box carries the brand edge, so it reads as a Circle's (decision 6). */
+.wb-circle-composer .wb-input-box {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--brand);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+.wb-circle-composer .wb-input-box textarea {
+  min-height: 0;
+  padding: 12px 14px 4px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--size-body);
+  line-height: 1.45;
+  overflow-y: auto;
+  resize: none;
+}
+
+.wb-circle-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 8px 10px;
+}
+
+.wb-circle-tools .wb-run {
+  position: static;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+}
+
+.wb-circle-composer .wb-input-box textarea:focus {
+  outline: none;
+}
+
+.wb-circle-tools .wb-circle-audience {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--brand-dim);
+  color: var(--text);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-hint {
+  margin: 6px 0 0;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  text-align: center;
+}
+
+.wb-circle-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.wb-circle-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--text-faint);
+  animation: wb-circle-dot 1.2s infinite;
+}
+
+.wb-circle-dots i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.wb-circle-dots i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes wb-circle-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-circle-dots i {
+    animation: none;
+  }
+}
+
+/* The Circle tab. */
+.wb-circle-insp .wb-insp-tabs {
+  display: flex;
+  align-items: center;
+}
+
+.wb-circle-insp-close {
+  margin-left: auto;
+}
+
+.wb-circle-insp-ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.wb-circle-insp-ident > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-circle-insp-head {
+  margin: 18px 0 6px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wb-circle-insp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-circle-insp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+button.wb-circle-insp-row {
+  cursor: pointer;
+}
+
+button.wb-circle-insp-row:hover {
+  background: var(--surface-hover);
+}
+
+.wb-circle-insp-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.wb-circle-insp-copy small,
+.wb-circle-insp-note {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-insp-foot {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.wb-circle-seen {
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 3px;
+  margin-top: -6px;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-circle-seen .wb-circle-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 7px;
+}
+
+/* Share to Circle (Circle chats spec decision 14). */
+.wb-circle-share {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-circle-share-pick {
+  display: flex;
+  gap: 10px;
+}
+
+.wb-circle-share-pick label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-share select,
+.wb-circle-share textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+}
+
+.wb-circle-share textarea {
+  resize: vertical;
+}
+
+.wb-circle-share-left,
+.wb-circle-share-from {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-share-left.is-over {
+  color: var(--danger);
+}
+
+/* Compact thread: docked from 320px wide in another screen (Circle chats spec phase 7). */
+.wb-circle-thread.is-compact {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  --chat-inline: 12px;
+}
+
+.wb-circle-thread.is-compact .wb-thread-head {
+  gap: 8px;
+  height: auto;
+  min-height: 48px;
+  padding: 8px 12px;
+}
+
+.wb-circle-thread.is-compact .wb-thread-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wb-circle-thread.is-compact .wb-grow {
+  display: none;
+}
+
+.wb-circle-thread.is-compact .wb-thread-id-copy {
+  min-width: 0;
+}
+
+.wb-circle-thread.is-compact .wb-thread-id-copy strong,
+.wb-circle-thread.is-compact .wb-thread-kind {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-circle-pick {
+  flex-shrink: 0;
+  max-width: 45%;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-xs);
+}
+
+.wb-circle-thread.is-compact .wb-log {
+  padding: 16px 12px 24px;
+}
+
+.wb-circle-thread.is-compact .wb-msg {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wb-circle-thread.is-compact .wb-circle-edit textarea {
+  min-width: 0;
+}
+
+.wb-circle-thread.is-compact .wb-circle-composer {
+  padding-inline: 12px;
+}
+
+/* The … button and its row sit at the message's top right instead of in the gap below. */
+.wb-circle-more {
+  top: 0;
+  right: 0;
+  left: auto;
+  margin-top: 0;
+  opacity: 1;
+}
+
+.wb-circle-thread.is-compact .wb-cluster {
+  min-width: 0;
+}
+
+.wb-circle-thread.is-compact .wb-circle-audience {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.wb-circle-thread.is-compact .wb-circle-audience,
+.wb-circle-thread.is-compact .wb-circle-status {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The call transport check (Circle calls spec phase 1), shown only while it's on. */
+.wb-circle-check {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.wb-circle-check-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.wb-circle-check-table {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: collapse;
+  font-size: var(--size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-circle-check-table th,
+.wb-circle-check-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.wb-circle-check-table th {
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+}

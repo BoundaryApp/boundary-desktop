@@ -72,7 +72,7 @@ function OfferRow({
         onClick={onOpen}
         className={`flex min-h-[58px] w-full cursor-pointer items-center gap-3 px-2.5 text-left hover:bg-surface-hover${open ? ' bg-surface-1' : ''}`}
       >
-        <Avatar name={name} dot={dot} label={dotLabel} />
+        <Avatar name={name} seed={identity} dot={dot} label={dotLabel} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="font-mono text-xs break-all text-fg">{entry.modelId}</span>
           <span className="text-xs text-fg-faint">{detail}</span>

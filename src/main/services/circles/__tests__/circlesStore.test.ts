@@ -39,11 +39,13 @@ import {
   forgetInviteCode,
   getCircleSharing,
   getInviteCodeIds,
+  getReadPositions,
   hasCircles,
   listInviteCodeIds,
   pruneInviteCodes,
   readInviteCode,
   saveInviteCode,
+  setReadPosition,
   wipeOutdatedCircles,
 } from '../circlesStore';
 
@@ -109,6 +111,24 @@ describe('invite codes', () => {
     expect(listInviteCodeIds('aa')).toEqual(['i2']);
     forgetCircle('aa');
     expect(getInviteCodeIds()).toEqual(['i3']);
+  });
+});
+
+describe('read positions', () => {
+  beforeEach(() => data.clear());
+
+  it('keeps one per channel, and forgets a Circle’s when it goes', () => {
+    setReadPosition('aa', 'general', { author: 'a1', id: 'm1', at: 1 });
+    setReadPosition('aa', 'general', { author: 'a1', id: 'm2', at: 2 });
+    setReadPosition('aa', 'garden', { author: 'a2', id: 'm3', at: 3 });
+    setReadPosition('bb', 'general', { author: 'a1', id: 'm4', at: 4 });
+    expect(getReadPositions('aa')).toEqual({
+      general: { author: 'a1', id: 'm2', at: 2 },
+      garden: { author: 'a2', id: 'm3', at: 3 },
+    });
+    forgetCircle('aa');
+    expect(getReadPositions('aa')).toEqual({});
+    expect(getReadPositions('bb').general?.id).toBe('m4');
   });
 });
 

@@ -3,8 +3,22 @@
  * the user's Circles (`circles-*`), or, as the phase 0 debug spike, loads the Holepunch modules
  * and replicates one Hypercore.
  */
-import type { CircleDayUsage, CircleLimits, CircleRole, CircleServing, CirclesSnapshot } from '../../../shared/types/circles';
-import type { CircleOffer, CircleRecord, CircleRecordScope } from './circleOps';
+import type {
+  CircleChannel,
+  CircleChatUpdate,
+  CircleDayUsage,
+  CircleLimits,
+  CircleMessage,
+  CircleMessageRef,
+  CirclePublicAddress,
+  CircleReadPosition,
+  CircleRole,
+  CircleServing,
+  CirclesSnapshot,
+} from '../../../shared/types/circles';
+
+export type { CirclePublicAddress };
+import type { CircleMessageShared, CircleOffer, CircleRecord, CircleRecordScope } from './circleOps';
 import type { CircleSignal } from './circleSignals';
 import type { GatewayUpstream } from './inferenceGateway';
 
@@ -41,6 +55,16 @@ export interface CircleRecordChange extends CircleRecordEntry {
   deleted: boolean;
 }
 
+/** What a chat request answers with. */
+export interface CircleChatReply {
+  channels?: CircleChannel[];
+  messages?: CircleMessage[];
+  /** Older messages exist before the first one returned. */
+  more?: boolean;
+  /** A posted message's id. */
+  id?: string;
+}
+
 /** Requests main sends to the running Circles network; each answer carries the same `id`. */
 export type CirclesRequest =
   | { op: 'create'; name: string }
@@ -55,11 +79,21 @@ export type CirclesRequest =
   | { op: 'set-name'; name: string }
   | { op: 'publish-offer'; key: string; offer: CircleOffer }
   | { op: 'withdraw-offer'; key: string }
-  | { op: 'record-set'; key: string; app: string; scope: CircleRecordScope; record: string; value: unknown }
-  | { op: 'record-del'; key: string; app: string; scope: CircleRecordScope; record: string }
+  | { op: 'record-set'; key: string; app: string; scope: CircleRecordScope; record: string; value: unknown; keep?: boolean }
+  | { op: 'record-del'; key: string; app: string; scope: CircleRecordScope; record: string; identity?: string }
   | { op: 'records-list'; key: string; app: string }
+  /** Channels with unread counts after this device's read positions, by channel. */
+  | { op: 'chat-channels'; key: string; reads: Record<string, CircleReadPosition> }
+  /** The newest `limit` messages, or those before `before`. */
+  | { op: 'chat-messages'; key: string; channel: string; before?: CircleMessageRef; limit: number }
+  | { op: 'chat-post'; key: string; channel: string; text: string; shared?: CircleMessageShared }
+  | { op: 'chat-edit'; key: string; channel: string; id: string; text: string }
+  | { op: 'chat-delete'; key: string; channel: string; author: string; id: string }
   /** The model server this user's gateway forwards to (ADR 0034 §2); null stops serving. */
-  | { op: 'share-upstream'; upstream: GatewayUpstream | null; limits?: CircleLimits };
+  | { op: 'share-upstream'; upstream: GatewayUpstream | null; limits?: CircleLimits }
+  /** This device's address as the DHT sees it, for call setup (ADR 0044). */
+  | { op: 'public-address' };
+
 
 export type MainToNetwork =
   | {
@@ -116,6 +150,8 @@ export type NetworkToMain =
       secrets?: CircleSecrets;
       invite?: { id: string; code: string; expires: number };
       records?: CircleRecordEntry[];
+      chat?: CircleChatReply;
+      address?: CirclePublicAddress;
     }
   | { type: 'circles-reply'; id: number; ok: false; error: string }
   | { type: 'log'; message: string; data?: Record<string, unknown> }
@@ -131,6 +167,8 @@ export type NetworkToMain =
   | { type: 'signal-received'; signal: CircleSignal }
   /** A change to a record of an app main listens to. */
   | { type: 'record-changed'; change: CircleRecordChange }
+  /** New, changed and settled-away messages in one channel. */
+  | { type: 'chat-update'; update: CircleChatUpdate }
   /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
   | { type: 'circle-paired'; secrets: CircleSecrets }
   | { type: 'circle-removed'; key: string };

@@ -3,6 +3,7 @@
 - Date: 2026-09-25
 - Status: Accepted
 - Parent: [0003](0003-workbench-chrome.md)
+- Amended by: [0043](0043-circles-live-in-the-chat.md) (a Circle tab in a Circle place)
 - Related: [0013](0013-project-sources-inspector.md), [0007](0007-multi-agent-dms-and-roster.md), [0008](0008-multi-agent-channels-and-wake.md)
 - Sources: [`10-inspector.html`](../chat-ux-study/10-inspector.html) (J)
 

@@ -14,6 +14,8 @@ import Corestore, { type Hypercore } from 'corestore';
 import Hyperswarm from 'hyperswarm';
 import { CircleNetwork } from './circleNetwork';
 import type {
+  CircleChatReply,
+  CirclePublicAddress,
   CircleRecordEntry,
   CircleSecrets,
   CirclesRequest,
@@ -178,6 +180,7 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
     onUsage: (served, serving) => post({ type: 'share-usage', served, serving }),
     onSignal: (signal) => post({ type: 'signal-received', signal }),
     onRecord: (change) => post({ type: 'record-changed', change }),
+    onChat: (update) => post({ type: 'chat-update', update }),
     onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
     onRemoved: (key) => post({ type: 'circle-removed', key }),
     log,
@@ -200,7 +203,14 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
 /** Runs one request; a created or joined Circle returns its secrets, an invite its code. */
 async function handleCircles(
   request: CirclesRequest
-): Promise<CircleSecrets | { id: string; code: string; expires: number } | CircleRecordEntry[] | void> {
+): Promise<
+  | CircleSecrets
+  | { id: string; code: string; expires: number }
+  | CircleRecordEntry[]
+  | { chat: CircleChatReply }
+  | { address: CirclePublicAddress }
+  | void
+> {
   const net = circles;
   if (!net) throw new Error('Circles are not running.');
   switch (request.op) {
@@ -230,12 +240,24 @@ async function handleCircles(
       return net.withdrawOffer(request.key);
     case 'share-upstream':
       return net.setShareUpstream(request.upstream, request.limits);
+    case 'public-address':
+      return { address: net.publicAddress() };
     case 'record-set':
-      return net.setRecord(request.key, request.app, request.scope, request.record, request.value);
+      return net.setRecord(request.key, request.app, request.scope, request.record, request.value, { keep: request.keep });
     case 'record-del':
-      return net.deleteRecord(request.key, request.app, request.scope, request.record);
+      return net.deleteRecord(request.key, request.app, request.scope, request.record, request.identity);
     case 'records-list':
       return net.listRecords(request.key, request.app);
+    case 'chat-channels':
+      return { chat: { channels: await net.listChannels(request.key, request.reads) } };
+    case 'chat-messages':
+      return { chat: await net.listMessages(request.key, request.channel, { before: request.before, limit: request.limit }) };
+    case 'chat-post':
+      return { chat: { id: await net.postMessage(request.key, request.channel, request.text, request.shared) } };
+    case 'chat-edit':
+      return net.editMessage(request.key, request.channel, request.id, request.text);
+    case 'chat-delete':
+      return net.deleteMessage(request.key, request.channel, request.author, request.id);
   }
 }
 
@@ -307,9 +329,11 @@ port.on('message', (event: { data: MainToNetwork }) => {
             ? {}
             : Array.isArray(result)
               ? { records: result }
-              : 'code' in result
-                ? { invite: result }
-                : { secrets: result };
+              : 'chat' in result || 'address' in result
+                ? result
+                : 'code' in result
+                  ? { invite: result }
+                  : { secrets: result };
           post({ type: 'circles-reply', id, ok: true, ...extra });
         },
         (err: unknown) => post({ type: 'circles-reply', id, ok: false, error: errorMessage(err) })

@@ -16,6 +16,7 @@ import { CirclesNav, resolveSelection, type CirclesSelection } from './CirclesNa
 import { InviteSheet, inviteName, openInvites, useInviteHints } from './InviteSheet';
 import { PersonPanel } from './PersonPanel';
 import { useAction, useCirclesState } from './useCircles';
+import { openCircleChat } from '../chat/circlePlace';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
@@ -262,7 +263,7 @@ function PersonRow({
   const models = offer?.models.map((model) => model.id).join(', ');
   const body = (
     <>
-      <Avatar name={member.name} dot={dot} label={label} />
+      <Avatar name={member.name} seed={member.identity} dot={dot} label={label} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-ui text-fg">{member.name}</span>
@@ -330,6 +331,11 @@ function CirclePage({
         {circle.myRole === 'admin' ? (
           <CircleButton variant="default" onClick={onInvite}>
             Invite someone
+          </CircleButton>
+        ) : null}
+        {circle.myRole ? (
+          <CircleButton variant="outline" onClick={() => openCircleChat(circle.key)}>
+            Open chat
           </CircleButton>
         ) : null}
         <CircleButton variant="outline" disabled={!circle.writable} onClick={() => onLeave(alone)}>

@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle chats</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+/* Values from src/renderer/styles/tokens.css; layout after the Workbench chat (workbench.css). */
+:root {
+  --s0:#0d0d0f; --rail:#111113; --s1:#161618; --s2:#1c1c22; --hover:#1d1d22; --line:#2a2a30; --line2:#3a3a44;
+  --tx:#f5f5f7; --mut:#c4c4cc; --fnt:#9e9ea8; --brand:#8b87f8; --brandd:#26244a; --solid:#f5f5f7; --solidfg:#111;
+  --ok:#86c089; --warn:#e8c27a; --warnd:#2a2415; --warnl:#5a4a2a; --dng:#e8a0a0; --dngl:#5a3030;
+  --pop:0 12px 32px rgb(0 0 0 / .35); --overlay:0 18px 48px rgb(0 0 0 / .45); --page:#050506;
+}
+:root[data-theme="light"] {
+  --s0:#f3f1ea; --rail:#ece8dc; --s1:#fffcf6; --s2:#f7f4ec; --hover:#ece8dc; --line:#e3dfd3; --line2:#cfc9b8;
+  --tx:#1c1b17; --mut:#6d6a60; --fnt:#9a968a; --brand:#5b56d6; --brandd:#e6e4fb; --solid:#1c1b17; --solidfg:#fffcf6;
+  --ok:#3f7d44; --warn:#8a6415; --warnd:#f6ecd6; --warnl:#e3cf9f; --dng:#a83a3a; --dngl:#e2b4b4;
+  --pop:0 12px 32px rgb(40 32 16 / .12); --overlay:0 18px 48px rgb(40 32 16 / .16); --page:#d9d5c8;
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--page); color:var(--tx); font:13px/1.45 'IBM Plex Sans',system-ui,sans-serif }
+button { font:inherit; color:inherit; cursor:pointer }
+.mono { font-family:'IBM Plex Mono',monospace; font-size:12px }
+
+.bar { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 16px; background:var(--s1); border-bottom:1px solid var(--line) }
+.bar b { font-weight:500; margin-right:6px }
+.bar .sep { width:1px; height:20px; background:var(--line); margin:0 6px }
+.chip { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:none; color:var(--mut); font-size:12px }
+.chip[aria-pressed="true"] { background:var(--brandd); border-color:var(--brand); color:var(--tx) }
+.note { width:100%; margin:4px 0 0; font-size:12px; color:var(--fnt) }
+.stage { padding:20px 16px 40px; display:flex; justify-content:center }
+.fit { transform-origin:top left }
+
+.app { position:relative; width:1280px; height:800px; overflow:hidden; display:flex; background:var(--s0); border-radius:10px; box-shadow:var(--overlay) }
+.rail { width:56px; flex-shrink:0; background:var(--rail); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; gap:8px; padding-top:44px }
+.rail .ic { position:relative; width:36px; height:36px; border:0; border-radius:8px; background:none; display:flex; align-items:center; justify-content:center; color:var(--fnt) }
+.rail .ic:hover { color:var(--tx) }
+.rail .ic.on { background:var(--brandd); color:var(--brand) }
+.badge { position:absolute; top:1px; right:-1px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:var(--brand); color:#fff; font-size:10px; font-weight:600; line-height:16px; text-align:center }
+
+/* Chat rail */
+.left { width:248px; flex-shrink:0; background:var(--s1); border-right:1px solid var(--line); display:flex; flex-direction:column; padding-top:38px; overflow:auto }
+.proj { display:flex; align-items:center; gap:8px; margin:0 8px 6px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; color:var(--mut) }
+.proj i { width:18px; height:18px; border-radius:5px; background:#c4843a; color:#fff; font-style:normal; font-size:10px; font-weight:600; display:flex; align-items:center; justify-content:center }
+.r { display:flex; align-items:center; gap:7px; width:calc(100% - 16px); margin:1px 8px; padding:6px 8px; border:0; border-radius:7px; background:none; color:var(--mut); text-align:left }
+.r:hover { background:var(--hover); color:var(--tx) }
+.r.on { background:var(--hover); color:var(--tx) }
+.r .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.r.unread .t { color:var(--tx); font-weight:500 }
+.r.sub { padding-left:30px }
+.r small { color:var(--fnt); font-size:11px }
+.cnt { min-width:18px; height:17px; padding:0 6px; border-radius:999px; background:var(--tx); color:var(--s0); font-size:10.5px; font-weight:600; line-height:17px; text-align:center }
+.sect { display:flex; align-items:center; justify-content:space-between; padding:12px 8px 4px 16px; font-size:12px; color:var(--fnt) }
+.sect .nm { display:inline-flex; align-items:center; gap:6px; border:0; background:none; padding:0; color:var(--fnt) }
+.sect button.nm:hover { color:var(--tx) }
+.sect .add { width:22px; height:22px; border:0; border-radius:6px; background:none; color:var(--fnt); font-size:15px; line-height:1 }
+.sect .add:hover { background:var(--hover); color:var(--tx) }
+.mk { width:16px; height:16px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center }
+.mk.sp { border-radius:4px; background:var(--brand); color:#fff }
+.mk.hash { color:var(--fnt); font-size:13px }
+.mk.dm { border-radius:50%; color:#fff; font-size:9px; font-weight:600 }
+.mk.ci { color:var(--brand) }
+/* Place switcher: the top of the chat rail says which place the rail shows. */
+.place { position:relative; display:flex; align-items:center; gap:9px; width:calc(100% - 16px); margin:0 8px 8px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:none; text-align:left }
+.place:hover { border-color:var(--line2) }
+.place.in { background:var(--brandd); border-color:transparent }
+.place .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3 }
+.place .pt b { font-weight:500; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.place .pt small { font-size:11px; color:var(--fnt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.place .chev { color:var(--fnt) }
+.ptile { width:26px; height:26px; flex-shrink:0; border-radius:7px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:10.5px; font-weight:600 }
+.ptile.mac { background:var(--s2); color:var(--mut); border:1px solid var(--line) }
+.menu .pl { display:flex; align-items:center; gap:9px; height:auto; padding:6px 8px }
+.menu .pl .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3 }
+.menu .pl small { font-size:11px; color:var(--fnt) }
+.menu .pl .ok { color:var(--brand); width:14px }
+.pmenu-h { padding:6px 8px 4px; font-size:11px; color:var(--fnt) }
+.r .av { width:20px; height:20px; font-size:8px }
+.pdot { width:7px; height:7px; border-radius:50%; background:var(--ok) }
+.pdot.off { background:none; border:1px solid var(--fnt) }
+.r.later { color:var(--fnt) }
+.pmenu-note { margin:4px 8px 6px; font-size:11.5px; line-height:1.4; color:var(--fnt) }
+.pmenu-note.warn { padding:6px 8px; border:1px solid var(--warnl); border-radius:6px; background:var(--warnd); color:var(--warn) }
+/* Inspector: the right rail, with a Circle tab in a Circle place (ADR 0043). */
+.insp { width:320px; flex-shrink:0; border-left:1px solid var(--line); background:var(--s1); display:flex; flex-direction:column; min-height:0 }
+.itabs { display:flex; align-items:flex-end; gap:12px; height:64px; padding:0 12px 0 16px; border-bottom:1px solid var(--line) }
+.itab { padding:0 2px 11px; border:0; border-bottom:2px solid var(--brand); background:none; color:var(--tx); font-weight:500 }
+.itabs .back { padding:0 0 12px; border:0; background:none; color:var(--mut) }
+.itabs .back:hover { color:var(--tx) }
+.itabs .x { margin-left:auto; margin-bottom:8px; width:26px; height:26px; border:0; border-radius:6px; background:none; color:var(--fnt); font-size:16px }
+.itabs .x:hover { background:var(--hover); color:var(--tx) }
+.ibody { flex:1; min-height:0; overflow:auto; padding:16px }
+.ibody h3 { margin:0; font-size:15px; font-weight:500 }
+.ibody .sub { font-size:12px; color:var(--fnt) }
+.isec { margin:18px 0 6px; font-size:11px; color:var(--fnt); text-transform:uppercase; letter-spacing:.04em }
+.irow { display:flex; align-items:center; gap:10px; width:100%; padding:7px 6px; margin:0 -6px; border:0; border-radius:7px; background:none; text-align:left; color:var(--tx) }
+button.irow:hover { background:var(--hover) }
+.irow .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.35 }
+.irow small { font-size:11.5px; color:var(--fnt) }
+.setrow { display:flex; align-items:flex-start; gap:12px; padding:8px 0; border-top:1px solid var(--line) }
+.setrow:first-of-type { border-top:0 }
+.setrow .pt { flex:1; display:flex; flex-direction:column; line-height:1.4 }
+.setrow small { font-size:11.5px; color:var(--fnt) }
+.sw { position:relative; width:30px; height:18px; flex-shrink:0; margin-top:2px; border:0; border-radius:999px; background:var(--line2); padding:0 }
+.sw::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left .15s }
+.sw[aria-checked="true"] { background:var(--brand) }
+.sw[aria-checked="true"]::after { left:14px }
+@media (prefers-reduced-motion: reduce) { .sw::after { transition:none } }
+.model { padding:10px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px }
+.model .row3 { display:flex; gap:6px; margin-top:8px }
+.btn:disabled { opacity:.45; cursor:default }
+.bigav { width:44px; height:44px; font-size:15px }
+.okline { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ok) }
+.code { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px dashed var(--line2); border-radius:8px; margin-bottom:12px; font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:.04em }
+.code span { flex:1 }
+.waiting { margin:120px auto 0; max-width:400px; text-align:center; color:var(--mut) }
+.waiting h2 { margin:14px 0 6px; font-size:16px; font-weight:500; color:var(--tx) }
+.spin { width:28px; height:28px; margin:0 auto; border:2px solid var(--line2); border-top-color:var(--brand); border-radius:50%; animation:sp 1s linear infinite }
+@keyframes sp { to { transform:rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) { .spin { animation:none } }
+.ipage { flex:1; min-width:0; overflow:auto; padding:40px 40px 60px }
+.ipage h1 { margin:0; font-size:22px; font-weight:500 }
+.ipage > p { margin:6px 0 24px; color:var(--mut) }
+.ipage section { max-width:720px; margin-bottom:28px }
+.ipage h2 { margin:0 0 8px; font-size:13px; font-weight:500; color:var(--fnt) }
+.stk { display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:var(--s1) }
+.stk .n { width:20px; height:20px; border-radius:50%; background:var(--s2); color:var(--mut); font-size:11px; display:flex; align-items:center; justify-content:center }
+.stk .pt { flex:1; display:flex; flex-direction:column; line-height:1.35 }
+.stk small { font-size:11.5px; color:var(--fnt) }
+.offer { padding:12px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; background:var(--s1) }
+.offer.focus { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) }
+.offer .top { display:flex; align-items:center; gap:10px }
+.offer .top .pt { flex:1; display:flex; flex-direction:column; line-height:1.35 }
+.offer .top small { font-size:11.5px; color:var(--fnt) }
+/* Calls (ADR 0044) */
+.livemk { display:inline-flex; align-items:center; gap:3px; color:var(--ok) }
+.livemk .av { width:15px; height:15px; font-size:6.5px; margin-left:-4px; border:1px solid var(--s1) }
+.livedot { position:absolute; bottom:4px; right:4px; width:9px; height:9px; border-radius:50%; background:var(--ok); border:2px solid var(--rail) }
+.callbar { flex-shrink:0; margin:auto 8px 10px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--s2) }
+.callbar.float { position:absolute; left:64px; bottom:12px; width:232px; margin:0; z-index:25; box-shadow:var(--pop) }
+.callbar .cb1 { display:flex; align-items:center; gap:7px; width:100%; border:0; background:none; padding:0; text-align:left; color:var(--tx) }
+.callbar .cb1 .cn { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.callbar .cb1 small { color:var(--fnt); font-size:11px }
+.callbar .cb2 { display:flex; gap:4px; margin-top:7px }
+.cbtn { height:28px; flex:1; border:1px solid var(--line); border-radius:7px; background:var(--s1); color:var(--mut); font-size:12px }
+.cbtn:hover { color:var(--tx); border-color:var(--line2) }
+.cbtn.off { color:var(--dng) }
+.cbtn.leave { flex:0 0 auto; padding:0 10px; border-color:var(--dngl); color:var(--dng) }
+.gdot { width:7px; height:7px; flex-shrink:0; border-radius:50%; background:var(--ok) }
+.callstage { flex:1; min-width:0; display:flex; flex-direction:column; background:var(--s0) }
+.tiles { flex:1; min-height:0; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); grid-auto-rows:minmax(0, 1fr); gap:10px; padding:14px 16px }
+.vtile { position:relative; display:flex; align-items:center; justify-content:center; border:2px solid transparent; border-radius:12px; background:var(--s2); overflow:hidden }
+.vtile.speak { border-color:var(--ok) }
+.vtile .lab { position:absolute; left:10px; bottom:8px; display:flex; align-items:center; gap:5px; padding:2px 8px; border-radius:6px; background:rgb(0 0 0 / .5); color:#fff; font-size:12px }
+.vtile .huge { width:68px; height:68px; font-size:21px }
+.vtile .vid { position:absolute; inset:0; background:linear-gradient(135deg, #3a4a6b, #6b5a3a) }
+.vtile .warnt { text-align:center; color:var(--mut); font-size:12.5px; padding:0 12px }
+.ctrls { display:flex; justify-content:center; gap:8px; padding:4px 16px 18px }
+.ctrls .btn { height:34px }
+.callline { display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--mut) }
+.callline .btn { height:26px }
+.ok { color:var(--ok) }
+.preview { position:relative; height:190px; margin-bottom:12px; border:1px solid var(--line); border-radius:10px; background:var(--s0); display:flex; align-items:center; justify-content:center; overflow:hidden }
+.meter { display:inline-flex; align-items:flex-end; gap:2px; height:14px; margin-left:6px }
+.meter i { width:3px; border-radius:1px; background:var(--ok) }
+.ringcard { position:absolute; right:20px; bottom:20px; z-index:35; width:300px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--s1); box-shadow:var(--overlay) }
+.sheet h4 { margin:16px 0 4px; font-size:12px; font-weight:500; color:var(--fnt) }
+
+/* Thread */
+main.center { flex:1; min-width:0; display:flex; flex-direction:column; position:relative }
+.head { display:flex; align-items:center; gap:10px; height:64px; padding:20px 24px 0; border-bottom:1px solid var(--line) }
+.head .ttl { flex:1; min-width:0; display:flex; flex-direction:column; padding-bottom:12px }
+.head strong { font-weight:500; font-size:14px }
+.head strong span { color:var(--fnt); font-weight:400 }
+.head small { font-size:12px; color:var(--fnt) }
+.head .right { display:flex; align-items:center; gap:8px; padding-bottom:12px }
+.btn { height:30px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:none; color:var(--mut); font-size:12px }
+.btn:hover { border-color:var(--line2); color:var(--tx) }
+.btn.solid { border:0; background:var(--solid); color:var(--solidfg); font-weight:500 }
+.btn.danger { border-color:var(--dngl); color:var(--dng) }
+.btn.ico { width:30px; padding:0 }
+.scroll { flex:1; min-height:0; overflow:auto; padding:12px 0 8px }
+.col { max-width:740px; margin:0 auto; padding:0 32px }
+.day { display:flex; align-items:center; gap:10px; margin:18px 0 8px; font-size:11px; color:var(--fnt) }
+.day::before, .day::after { content:""; flex:1; height:1px; background:var(--line) }
+.av { width:28px; height:28px; flex-shrink:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#fff; border:0; padding:0 }
+.msg { position:relative; display:flex; gap:10px; padding:2px 8px; margin:0 -8px; border-radius:8px }
+.msg:hover { background:var(--s1) }
+.msg.first { margin-top:12px }
+.gutter { width:28px; flex-shrink:0 }
+.m { flex:1; min-width:0 }
+.who { display:flex; align-items:baseline; gap:8px; margin-bottom:2px; font-size:12px; color:var(--fnt); font-weight:500 }
+.who .nm { color:var(--tx); border:0; background:none; padding:0; font-weight:500 }
+.who button.nm:hover { text-decoration:underline; text-underline-offset:2px }
+.who .time { font-weight:400; font-size:11px }
+.tag { padding:0 6px; border:1px solid var(--line); border-radius:6px; font-size:10.5px; font-weight:400; color:var(--fnt) }
+.text { font-size:14px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere }
+.text code { font-family:'IBM Plex Mono',monospace; font-size:12px; padding:1px 4px; border-radius:4px; background:var(--s2) }
+.meta { display:inline-flex; align-items:center; gap:4px; margin-left:6px; font-size:11px; color:var(--fnt) }
+.clock { display:inline-flex; color:var(--fnt); cursor:help }
+.gone { color:var(--fnt); font-style:italic; font-size:13px }
+.pending .text { color:var(--mut) }
+/* Your own messages hug the right edge, as in every Workbench conversation (ADR 0021). */
+.mine { display:flex; flex-direction:column; align-items:flex-end; margin-top:12px; position:relative }
+.mine.cont { margin-top:4px }
+.mine .bub { width:fit-content; max-width:80%; padding:9px 14px; border-radius:14px; background:var(--s2); border:1px solid var(--line) }
+.mine .stamp { font-size:11px; color:var(--fnt); margin-top:3px; display:flex; align-items:center; gap:4px }
+.shared { margin-top:2px; border:1px solid var(--line); border-left:3px solid var(--brand); border-radius:8px; padding:8px 12px; background:var(--s1) }
+.mine .shared { max-width:80% }
+.shared .from { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:11px; color:var(--fnt) }
+.acts { position:absolute; top:-12px; right:8px; display:none; gap:2px; padding:2px; border:1px solid var(--line); border-radius:8px; background:var(--s1); box-shadow:var(--pop); z-index:2 }
+.msg:hover .acts, .mine:hover .acts { display:flex }
+.mine .acts { right:0 }
+.acts button { height:24px; padding:0 8px; border:0; border-radius:6px; background:none; color:var(--mut); font-size:12px }
+.acts button:hover { background:var(--hover); color:var(--tx) }
+.compact .acts { top:0; right:0 }
+.compact .acts .wide { display:none }
+.thread:not(.compact) .acts .dots { display:none }
+.menu { position:absolute; z-index:20; min-width:170px; padding:4px; border:1px solid var(--line); border-radius:8px; background:var(--s1); box-shadow:var(--pop) }
+.menu button { display:block; width:100%; height:28px; padding:0 10px; border:0; border-radius:6px; background:none; text-align:left; color:var(--tx) }
+.menu button:hover { background:var(--hover) }
+.menu button.d { color:var(--dng) }
+.menu hr { border:0; border-top:1px solid var(--line); margin:4px 0 }
+.seen { display:flex; justify-content:flex-end; align-items:center; gap:2px; margin-top:6px; cursor:help }
+.seen .av { width:16px; height:16px; font-size:7.5px }
+.seen span { font-size:11px; color:var(--fnt); margin-left:4px }
+.edit { margin-top:2px; border:1px solid var(--brand); border-radius:8px; padding:6px 8px; background:var(--s1); width:100% }
+.edit textarea { width:100%; resize:none; border:0; outline:0; background:none; color:var(--tx); font:inherit; font-size:14px }
+.edit .row2 { display:flex; justify-content:flex-end; gap:6px; align-items:center; margin-top:4px; font-size:11px; color:var(--fnt) }
+.mine .edit { max-width:80% }
+
+/* Composer */
+.foot { padding:0 0 14px }
+.status { display:flex; align-items:center; gap:6px; min-height:22px; font-size:12px; color:var(--fnt) }
+.status.warn { color:var(--warn) }
+.typing i { display:inline-block; width:4px; height:4px; margin-right:2px; border-radius:50%; background:var(--fnt); animation:b 1.2s infinite }
+.typing i:nth-child(2) { animation-delay:.2s } .typing i:nth-child(3) { animation-delay:.4s }
+@keyframes b { 0%,60%,100% { opacity:.3 } 30% { opacity:1 } }
+@media (prefers-reduced-motion: reduce) { .typing i { animation:none } }
+.box { border:1px solid var(--line); border-radius:12px; background:var(--s1); overflow:hidden }
+.box:focus-within { border-color:var(--line2) }
+.box.circle { border-top:2px solid var(--brand) }
+.box textarea { display:block; width:100%; resize:none; border:0; outline:0; background:none; color:var(--tx); font:inherit; font-size:14px; line-height:1.45; padding:12px 14px 4px; max-height:calc(1.45em * 5 + 16px) }
+.box .tools { display:flex; align-items:center; gap:6px; padding:6px 8px 8px 10px }
+.pill { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border:1px solid var(--line); border-radius:7px; font-size:12px; color:var(--mut); background:none }
+.pill.aud { border-color:transparent; background:var(--brandd); color:var(--tx) }
+.send { margin-left:auto; width:30px; height:30px; border:0; border-radius:8px; background:var(--solid); color:var(--solidfg); display:flex; align-items:center; justify-content:center }
+.send:disabled { opacity:.35; cursor:default }
+.hint { margin-top:6px; font-size:11px; color:var(--fnt); text-align:center }
+.empty { margin:110px auto 0; max-width:380px; text-align:center; color:var(--fnt) }
+.empty h2 { margin:10px 0 6px; font-size:15px; font-weight:500; color:var(--tx) }
+.cpick { display:none; height:28px; max-width:150px; padding:0 6px; border:1px solid var(--line); border-radius:6px; background:var(--s1); color:var(--tx); font:inherit; font-size:12px }
+.compact .cpick { display:inline-block }
+
+/* Hermes turn styling, for contrast in the share scene */
+.uturn { display:flex; flex-direction:column; align-items:flex-end; margin-top:28px }
+.uturn .bub { max-width:80%; padding:12px 16px; border-radius:14px; background:var(--s2); border:1px solid var(--line); font-size:14px }
+.aturn { margin-top:28px; position:relative }
+.aturn .wh { font-size:11px; color:var(--fnt); font-weight:500; margin-bottom:8px }
+.hrow { display:flex; gap:2px; margin-top:6px; position:relative }
+.hrow button { height:26px; padding:0 9px; border:1px solid transparent; border-radius:6px; background:none; color:var(--fnt); font-size:12px }
+.hrow button:hover, .hrow button.on { border-color:var(--line); color:var(--tx); background:var(--s1) }
+
+
+/* Sheets */
+.scrim { position:absolute; inset:0; z-index:30; background:rgb(0 0 0 / .45); display:flex; align-items:center; justify-content:center }
+:root[data-theme="light"] .scrim { background:rgb(40 32 16 / .2) }
+.sheet { width:480px; max-width:calc(100% - 32px); border:1px solid var(--line); border-radius:12px; background:var(--s1); box-shadow:var(--overlay); padding:20px }
+.sheet h2 { margin:0 0 4px; font-size:17px; font-weight:500 }
+.sheet p { margin:0 0 14px; color:var(--mut) }
+.sheet label { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; color:var(--mut); font-size:12px }
+.sheet input, .sheet select, .sheet textarea { width:100%; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--s0); color:var(--tx); font:inherit; font-size:13px }
+.sheet textarea { resize:vertical; min-height:140px; line-height:1.45 }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:10px }
+.acts2 { display:flex; justify-content:flex-end; gap:8px; margin-top:6px }
+.wbox { padding:8px 10px; border:1px solid var(--warnl); border-radius:8px; background:var(--warnd); color:var(--warn); font-size:12px; margin-bottom:12px }
+.limit { display:flex; justify-content:space-between; font-size:11px; color:var(--fnt); margin-top:-6px; margin-bottom:12px }
+.limit.over { color:var(--dng) }
+.toast { position:absolute; z-index:40; left:50%; bottom:24px; transform:translateX(-50%); display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--s2); box-shadow:var(--pop) }
+.toast button { border:0; background:none; color:var(--brand); padding:0 }
+
+.host { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--fnt); background:repeating-linear-gradient(45deg, var(--s0), var(--s0) 10px, var(--s1) 10px, var(--s1) 20px) }
+.dock { width:320px; flex-shrink:0; border-left:1px solid var(--line); display:flex; flex-direction:column; background:var(--s0) }
+.compact .head { height:auto; padding:10px 12px; }
+.compact .head .ttl, .compact .head .right { padding-bottom:0 }
+.compact .col { padding:0 12px }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="stage"><div class="fit" id="fit"><div class="app" id="app"></div></div></div>
+
+<script>
+// Click-through for the Circle chats spec. People, messages, projects and models are made up.
+const ME = 'jordan';
+const PEOPLE = {
+  jordan: { name: 'Jordan', initials: 'JO', hue: '#6b7bd6', role: 'admin', online: true },
+  maya: { name: 'Maya', initials: 'MA', hue: '#c4843a', role: 'admin', online: true, models: ['qwen3-32b'], trusted: true, priv: false },
+  sam: { name: 'Sam', initials: 'SA', hue: '#3f9a8a', role: 'member', online: true, models: ['llama-3.1-8b'], trusted: false, priv: false },
+  priya: { name: 'Priya', initials: 'PR', hue: '#b0558a', role: 'member', online: false },
+  theo: { name: 'Theo', initials: 'TH', hue: '#7a7a84', role: null, online: false },
+};
+const SCENES = [
+  ['chat', 'In a Circle'],
+  ['switch', 'Switching places'],
+  ['mac', 'This Mac'],
+  ['channels', 'Several channels'],
+  ['noadmin', 'No admin online'],
+  ['fresh', 'New Circle'],
+  ['agent', 'An invited agent (later)'],
+  ['share', 'Share from a Hermes chat'],
+  ['manage', 'Circle tab'],
+  ['person', 'A person'],
+  ['join', 'Joining'],
+  ['inference', 'Inference'],
+  ['joincall', 'Join a call'],
+  ['call', 'In a call'],
+  ['ring', 'Incoming call'],
+  ['narrow', 'Compact, 320px'],
+];
+const NOTES = {
+  chat: 'You are in Book club. The rail shows only its channels and people; your Hermes chats, projects and agents are in This Mac. The header, the tinted composer and its hint still say who gets each message. Hover for Copy, Edit and Delete; sending shows the unconfirmed clock until admins confirm (about 4 seconds here, up to a minute for real).',
+  switch: 'The place switcher at the top of the rail. Each place shows its unread count, so you see that Studio is talking while you are in Book club. Each place reopens where you left it.',
+  mac: 'This Mac is your own place: projects, Hermes chats, your agent channels and DMs, as today. No Circle appears in its rail. The switcher’s count says Book club has unread messages.',
+  channels: 'Studio has three channels. Admins add them from the section’s + and manage them from the header’s … menu.',
+  noadmin: 'Maya, the other admin, is offline. New messages show at once and stay unconfirmed, and a line above the composer says why.',
+  fresh: 'A Circle just made: General exists with no setup, and you are its only person.',
+  agent: 'Not built in phase 5. Maya brought her Hermes into Book club, so it is listed under Agents and replies when someone @-mentions it. It runs on Maya’s Mac. Shown to check how it reads.',
+  share: 'Sharing is the one way text moves from This Mac into a Circle. More is open on the reply; pick Share to Circle. Only the text in the box is sent, and you stay in This Mac.',
+  manage: 'There is no Circles screen (ADR 0043). The one button at the top right of the channel opens the Circle tab: channels, people, invites and Leave. Click a person to drill in.',
+  person: 'A member’s panel inside the inspector, opened from the Circle tab, the rail’s People or a name in the chat. It is about membership: role and removal. What they share links to Inference.',
+  join: 'Join with an invite… in the switcher’s menu adds a Joining row there. This waiting page shows while it’s selected; you can switch places and the join keeps going. In about 6 seconds an admin lets you in.',
+  inference: 'Everything about models lives in Inference, not in Circles (ADR 0043): the stack, what this Mac shares with each Circle, and every model your Circles offer, with each person’s trust. Open in Inference on a person in a Circle lands here on their row.',
+  joincall: 'Maya and Sam are in a call in General: the rail row, the header’s Join and the call message all show it. The join sheet starts with the camera off; here macOS has denied the camera, so the sheet says how to turn it on and lets you join without it.',
+  call: 'In General’s call. Tiles fill the main area and the channel’s chat sits beside them in the compact thread. The call bar at the foot of the rail stays in every place; switch to This Mac or Inference and the call keeps going. Leave posts the call’s end.',
+  ring: 'Sam is calling from Studio while you are in This Mac. The ring card shows on any screen for 30 seconds. Calls with one person leave nothing in the Circle. Call on a person’s panel starts one the other way.',
+  narrow: 'The same thread in its compact layout, docked at 320px in another screen. The channel list folds into a picker and hover actions move behind the … button.',
+};
+
+const ui = { scene: 'chat', admin: true, theme: 'dark', menu: null, editing: null, dialog: null, toast: null, draft: {}, hermesMenu: false, placeMenu: false, view: 'circle', insp: null, joining: null, infFocus: null };
+const SHARE = { book: true, studio: false, paused: false, away: false };
+let timer = 0;
+let S;
+let seq = 0;
+const msg = (author, text, o = {}) => ({ id: 'm' + (++seq), author, text, at: o.at || '9:12', confirmed: o.confirmed !== false, edited: !!o.edited, deleted: o.deleted || null, shared: o.shared || null, agent: o.agent || null, call: o.call || null, day: o.day });
+// The call this Mac is in, if any (ADR 0044). A channel's live call is `ch.live`, known from call.state signals.
+let CALL = null;
+let callTimer = 0;
+
+const REPLY = 'The map shows the valley before the dam was built, which is why the village sits on the river’s old course. The author mentions it again in chapter 6, when the water level drops and the old road comes back into view.';
+function circles(scene) {
+  const book = { key: 'book', name: 'Book club', hue: '#3f8a5a', members: ['jordan', 'maya', 'sam', 'priya'], seen: ['maya'], typing: 'maya', channels: [{ id: 'general', name: 'General', unread: 0, messages: [
+    msg('maya', 'Has anyone started chapter 4 yet?', { at: '9:02', day: 'Yesterday' }),
+    msg('sam', 'Halfway. The flashback in the middle threw me for a minute.', { at: '9:05' }),
+    msg('theo', 'I’ll catch up this weekend, no spoilers please.', { at: '9:20' }),
+    msg('maya', '', { at: '9:31', deleted: 'admin' }),
+    msg(ME, 'I asked about the map at the start of chapter 2. Here’s what I got:', { at: '8:40', day: 'Today' }),
+    msg(ME, REPLY, { at: '8:40', shared: { role: 'assistant', model: 'qwen3-32b' } }),
+    msg('maya', 'Oh, that explains the bridge to nowhere.', { at: '8:52', edited: true }),
+    msg('sam', 'Can we meet Thursday instead of Wednesday?', { at: '9:14', confirmed: false }),
+  ] }] };
+  const studio = { key: 'studio', name: 'Studio', hue: '#7a62c8', members: ['jordan', 'maya', 'sam', 'priya'], seen: [], typing: null, channels: [
+    { id: 'general', name: 'General', unread: 0, messages: [msg('priya', 'Morning all. Kettle’s on.', { at: '8:01', day: 'Today' }), msg('sam', 'Back from the print shop, proofs look good.', { at: '8:47' })] },
+    { id: 'design', name: 'design', unread: 3, messages: [
+      msg('maya', 'New cover options are in the shared folder.', { at: '10:02', day: 'Today' }),
+      msg('maya', 'I like the second one, but the type is too tight at small sizes.', { at: '10:03' }),
+      msg('sam', 'Agree on two. Try the lighter weight?', { at: '10:09', confirmed: false })] },
+    { id: 'releases', name: 'releases', unread: 0, messages: [msg(ME, 'Spring list goes to the printer on the 14th.', { at: '16:10', day: 'Monday' })] },
+  ] };
+  const list = [book, studio];
+  if (scene === 'fresh') list.push({ key: 'climb', name: 'Climbing', hue: '#b8643a', members: ['jordan'], seen: [], typing: null, channels: [{ id: 'general', name: 'General', unread: 0, messages: [] }] });
+  if (scene === 'noadmin') { book.typing = null; book.seen = []; book.channels[0].messages.push(msg('sam', 'Also, who’s bringing snacks?', { at: '9:16', confirmed: false })); }
+  if (scene === 'agent') {
+    book.typing = null; book.seen = [];
+    book.channels[0].messages.push(
+      msg('sam', '@Maya’s Hermes when does the library want the books back?', { at: '9:20' }),
+      msg('maya', 'The loan runs to the 21st. You can renew once online if nobody has reserved it.', { at: '9:21', agent: { name: 'Hermes' } }));
+  }
+  const inStudio = scene === 'channels' || scene === 'narrow';
+  studio.channels[0].unread = inStudio ? 2 : 0;
+  studio.channels[1].unread = inStudio ? 0 : 3;
+  if (scene === 'mac' || scene === 'share') book.channels[0].unread = 2;
+  if (scene === 'joincall' || scene === 'call') {
+    book.typing = null; book.seen = [];
+    book.channels[0].messages.push(msg('maya', '', { at: '9:40', call: { id: 'a1' } }));
+    book.channels[0].live = { id: 'a1', people: scene === 'call' ? ['maya', 'sam', ME] : ['maya', 'sam'] };
+  }
+  return list;
+}
+
+function load(scene) {
+  clearTimeout(timer);
+  Object.assign(ui, { scene, menu: null, editing: null, dialog: null, toast: null, hermesMenu: scene === 'share', placeMenu: scene === 'switch',
+    insp: scene === 'manage' ? 'circle' : scene === 'person' ? { person: 'maya' } : null, joining: null, infFocus: null });
+  PEOPLE.sam.trusted = false;
+  clearTimeout(callTimer); CALL = null; ui.ring = null; ui.camDenied = scene === 'joincall';
+  PEOPLE.maya.online = scene !== 'noadmin';
+  const list = circles(scene);
+  S = {
+    circles: list,
+    sel: scene === 'channels' || scene === 'narrow' ? 'studio' : scene === 'fresh' ? 'climb' : 'book',
+    chan: scene === 'channels' || scene === 'narrow' ? 'design' : 'general',
+  };
+  if (scene === 'joincall') ui.dialog = { type: 'callsheet', kind: 'channel' };
+  if (scene === 'call') CALL = { kind: 'channel', circle: 'book', chan: 'general', people: ['maya', 'sam'], muted: false, cam: true, view: true, status: 'live', t0: Date.now() - 252000 };
+  if (scene === 'ring') ui.ring = { from: 'sam', circle: 'studio' };
+  ui.view = scene === 'share' || scene === 'mac' || scene === 'ring' ? 'hermes' : scene === 'inference' ? 'inference' : scene === 'narrow' ? 'narrow' : 'circle';
+  if (scene === 'join') startJoin();
+  render();
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+// Markdown subset: inline code only here. Never images or HTML (spec decision 11).
+const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+const circle = () => S.circles.find((c) => c.key === S.sel);
+const channel = () => circle().channels.find((c) => c.id === S.chan) || circle().channels[0];
+// Two admins, so confirming needs the other admin online too.
+const adminsOnline = () => Object.entries(PEOPLE).some(([id, p]) => id !== ME && p.role === 'admin' && p.online);
+const unreadOf = (c) => c.channels.reduce((n, ch) => n + ch.unread, 0);
+const totalUnread = () => S.circles.reduce((n, c) => n + unreadOf(c), 0);
+const av = (id, extra = '') => `<span class="av" style="background:${PEOPLE[id].hue}" ${extra}>${PEOPLE[id].initials}</span>`;
+
+const I = {
+  chat: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
+  circles: (w = 16) => `<svg width="${w}" height="${w}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none"/></svg>`,
+  tasks: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8l2 2 4-4"/></svg>',
+  gear: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4"/></svg>',
+  spark: '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0.8 7.2 4.8 11.2 6 7.2 7.2 6 11.2 4.8 7.2 0.8 6 4.8 4.8z"/></svg>',
+  clock: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6" cy="6" r="4.6"/><path d="M6 3.4V6l1.8 1.1"/></svg>',
+  send: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>',
+  stack: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2 14 5 8 8 2 5z"/><path d="M2 8l6 3 6-3M2 11l6 3 6-3"/></svg>',
+  panel: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>',
+  mac: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="11" height="7.5" rx="1.2"/><path d="M1 13h14"/></svg>',
+  phone: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h3l1.2 3-1.7 1.2a8 8 0 0 0 3.8 3.8l1.2-1.7 3 1.2v3a1 1 0 0 1-1 1A11 11 0 0 1 2 3.5a1 1 0 0 1 1-1z"/></svg>',
+  mic: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14"/></svg>',
+  share: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M7 2h3v3M10 2 5.5 6.5M9 7v2.5H2.5V3H5"/></svg>',
+};
+
+function renderBar() {
+  document.getElementById('bar').innerHTML = `<b>Circle chats</b>${SCENES.map(([id, l]) => `<button class="chip" aria-pressed="${ui.scene === id}" data-scene="${id}">${l}</button>`).join('')}<span class="sep"></span>
+    <button class="chip" aria-pressed="${ui.admin}" data-toggle="admin">${ui.admin ? 'Viewing as an admin' : 'Viewing as a member'}</button>
+    <button class="chip" data-toggle="theme">${ui.theme === 'dark' ? 'Dark' : 'Light'} theme</button>
+    <p class="note">${NOTES[ui.scene]}</p>`;
+}
+
+function iconRail(active) {
+  const n = S.circles.length ? totalUnread() : 0;
+  return `<div class="rail">
+    <button class="ic ${active === 'chat' ? 'on' : ''}" aria-label="Chat${n ? `, ${n} unread in Circles` : ''}" data-go="chat">${I.chat}${n ? `<span class="badge">${n}</span>` : ''}${CALL ? '<span class="livedot" title="In a call"></span>' : ''}</button>
+    <button class="ic ${active === 'inference' ? 'on' : ''}" aria-label="Inference" title="Inference" data-go="inference">${I.stack}</button>
+    <button class="ic">${I.tasks}</button>
+    <span style="flex:1"></span><button class="ic" style="margin-bottom:12px" aria-label="Settings">${I.gear}</button>
+  </div>`;
+}
+
+// The chat rail shows one place: This Mac or one Circle. The rail's switcher moves between them.
+const place = () => (ui.view === 'hermes' || !circle() ? 'mac' : S.sel);
+const ctile = (c, w = 26) => `<span class="ptile" style="background:${c.hue};width:${w}px;height:${w}px">${esc(c.name.slice(0, 2).toUpperCase())}</span>`;
+const mactile = () => `<span class="ptile mac">${I.mac}</span>`;
+const onlineOf = (c) => c.members.filter((m) => PEOPLE[m].online).length;
+
+function placeButton() {
+  const c = place() === 'mac' ? null : circle();
+  const elsewhere = S.circles.filter((x) => !c || x.key !== c.key).reduce((n, x) => n + unreadOf(x), 0);
+  const label = c ? `<b>${esc(c.name)}</b><small>Circle · ${c.members.length} ${c.members.length === 1 ? 'person' : 'people'} · ${onlineOf(c)} online</small>` : '<b>This Mac</b><small>Projects, Hermes, your agents</small>';
+  return `<button class="place ${c ? 'in' : ''}" aria-haspopup="menu" aria-expanded="${ui.placeMenu}" aria-label="Place: ${c ? esc(c.name) : 'This Mac'}${elsewhere ? `, ${elsewhere} unread elsewhere` : ''}" data-place-menu>${c ? ctile(c) : mactile()}<span class="pt">${label}</span>${elsewhere ? `<span class="cnt" title="Unread in other places">${elsewhere}</span>` : ''}<span class="chev">⌄</span></button>`;
+}
+
+function placeMenuHtml() {
+  if (!ui.placeMenu) return '';
+  const here = ui.view === 'joining' ? 'joining' : place();
+  const row = (key, tile, name, sub, n) => `<button class="pl" role="menuitem" data-place="${key}">${tile}<span class="pt"><span>${name}</span><small>${sub}</small></span>${n ? `<span class="cnt">${n}</span>` : ''}<span class="ok">${here === key ? '✓' : ''}</span></button>`;
+  return `<div class="menu" role="menu" style="left:64px;top:88px;width:250px">
+    ${row('mac', mactile(), 'This Mac', 'Projects, Hermes, your agents', 0)}
+    ${S.circles.length || ui.joining ? `<div class="pmenu-h">Circles</div>${S.circles.map((c) => row(c.key, ctile(c), esc(c.name), `${c.members.length} ${c.members.length === 1 ? 'person' : 'people'} · ${onlineOf(c)} online${c.channels.some((x) => x.live) ? ` · <span class="ok">${I.phone} call</span>` : ''}`, unreadOf(c))).join('')}` : ''}
+    ${ui.joining ? row('joining', `<span class="ptile mac">${I.clock}</span>`, 'Joining a Circle…', 'Waiting for an admin', 0) : ''}
+    ${S.circles.length || ui.joining ? '' : '<div class="pmenu-note">A Circle is a small invite-only group. Members’ Macs connect to each other directly and keep its chat.</div>'}
+    <hr><button data-sheet="start">Start a Circle…</button><button data-sheet="join">Join with an invite…</button></div>`;
+}
+
+function macRail() {
+  const hermes = [['Map in chapter 2', 'hermes'], ['Why is Podman slow on first run?', 'h2'], ['Grocery list', 'h3']];
+  const hRows = hermes.map(([t, id]) => `<button class="r ${id === 'hermes' ? 'on' : ''}"><span class="mk sp">${I.spark}</span><span class="t">${t}</span></button>`).join('');
+  return `<div class="proj"><i>B</i><span style="flex:1">boundary-desktop</span><span>⌄</span></div>
+    <button class="r"><span class="t">All chats</span></button>
+    <button class="r"><span class="t">Mentions</span></button>
+    <div class="sect"><span class="nm"><span class="mk sp">${I.spark}</span>Hermes <small style="margin-left:4px">⌘N</small></span><button class="add" aria-label="New Hermes chat">+</button></div>
+    ${hRows}
+    <div class="sect"><span class="nm"><span class="mk hash">#</span>Channels</span><button class="add" aria-label="New channel">+</button></div>
+    <button class="r"><span class="mk hash">#</span><span class="t mono">research</span></button>
+    <button class="r"><span class="mk hash">#</span><span class="t mono">launch</span></button>
+    <div class="sect"><span class="nm"><span class="mk dm" style="background:var(--fnt)"></span>Direct messages</span><button class="add" aria-label="Message an agent">+</button></div>
+    <button class="r"><span class="mk dm" style="background:#3f9a6a">A</span><span class="t">Ana <small>Researcher</small></span></button>
+    <button class="r"><span class="mk dm" style="background:#c4843a">B</span><span class="t">Ben <small>Editor</small></span></button>`;
+}
+
+function circleRail(c) {
+  const chans = c.channels.map((ch) => `<button class="r ${ch.id === S.chan ? 'on' : ''} ${ch.unread ? 'unread' : ''}" data-chan="${ch.id}"><span class="mk ci">${I.circles(14)}</span><span class="t">${esc(ch.name)}</span>${ch.live ? `<span class="livemk" title="Call: ${ch.live.people.map((x) => (x === ME ? 'you' : PEOPLE[x].name)).join(', ')}">${I.phone}${ch.live.people.slice(0, 3).map((x) => av(x)).join('')}</span>` : ''}${ch.unread ? `<span class="cnt">${ch.unread}</span>` : ''}</button>`).join('');
+  const people = [...c.members].sort((a, b) => (a === ME) - (b === ME) || PEOPLE[b].online - PEOPLE[a].online)
+    .map((id) => `<button class="r" data-person="${id}" title="Open ${id === ME ? 'your' : PEOPLE[id].name + '’s'} details">${av(id)}<span class="t">${id === ME ? 'You' : PEOPLE[id].name}${PEOPLE[id].role === 'admin' ? ' <small>admin</small>' : ''}</span><span class="pdot ${PEOPLE[id].online ? '' : 'off'}" aria-label="${PEOPLE[id].online ? 'Online' : 'Offline'}"></span></button>`).join('');
+  const agents = ui.scene === 'agent' ? `<div class="sect"><span class="nm"><span class="mk sp">${I.spark}</span>Agents</span><button class="add" aria-label="Bring one of your agents">+</button></div>
+    <button class="r"><span class="av" style="background:var(--brand)">${I.spark}</span><span class="t">Maya’s Hermes <small>on Maya’s Mac</small></span><span class="pdot"></span></button>` : '';
+  return `<div class="sect"><span class="nm">Channels</span>${ui.admin ? '<button class="add" aria-label="Add a channel" data-add-chan>+</button>' : ''}</div>
+    ${chans}
+    <div class="sect"><span class="nm">People</span>${ui.admin ? '<button class="add" aria-label="Invite someone" data-sheet="invite">+</button>' : ''}</div>
+    ${people}${agents}`;
+}
+
+function chatRail() {
+  if (ui.view === 'joining') return `<nav class="left" aria-label="Chats"><button class="place" aria-haspopup="menu" data-place-menu><span class="ptile mac">${I.clock}</span><span class="pt"><b>Joining a Circle…</b><small>Waiting for an admin</small></span><span class="chev">⌄</span></button></nav>`;
+  const c = place() === 'mac' ? null : circle();
+  return `<nav class="left" aria-label="Chats">${placeButton()}${c ? circleRail(c) : macRail()}${callBar(false)}</nav>`;
+}
+
+function messageHtml(m, prev) {
+  const p = PEOPLE[m.author];
+  const left = !p.role;
+  const mine = m.author === ME && !m.agent;
+  const first = !prev || prev.author !== m.author || !!prev.agent !== !!m.agent || m.day;
+  const canDelete = !m.deleted && (m.author === ME || ui.admin);
+  const canEdit = mine && !m.deleted && !m.shared;
+  const clock = m.confirmed ? '' : `<span class="clock" title="Waiting for admins to confirm. Its place in the chat can still change.">${I.clock}</span>`;
+  const meta = `${m.edited && !m.deleted ? '<span class="meta">edited</span>' : ''}${clock ? `<span class="meta">${clock}</span>` : ''}`;
+  const acts = m.deleted || ui.editing === m.id ? '' : `<div class="acts"><button class="wide" data-copy>Copy</button>${canEdit ? `<button class="wide" data-edit-start="${m.id}">Edit</button>` : ''}${canDelete ? `<button class="wide" data-del="${m.id}">Delete</button>` : ''}<button class="dots" aria-label="Message actions" data-msg-menu="${m.id}">…</button></div>`;
+  const day = m.day ? `<div class="day">${m.day}</div>` : '';
+  const sharedBlock = m.shared ? `<div class="shared"><div class="from">${I.share} Shared from a chat · reply from <span class="mono">${esc(m.shared.model)}</span></div><div class="text">${md(m.text)}</div></div>` : '';
+  const editor = ui.editing === m.id ? `<div class="edit"><textarea rows="2" data-edit="${m.id}">${esc(m.text)}</textarea><div class="row2"><span>Esc to cancel · Enter to save</span><button class="btn" data-cancel-edit>Cancel</button><button class="btn solid" data-save-edit="${m.id}">Save</button></div></div>` : null;
+  if (m.call) {
+    const live = RCH && RCH.live && RCH.live.id === m.call.id;
+    const inIt = CALL && CALL.kind === 'channel' && live;
+    const line = live
+      ? `<span class="ok">${I.phone}</span> Started a call <span class="livemk">${RCH.live.people.map((x) => av(x)).join('')}</span>${inIt ? '<span class="tag">You’re in it</span>' : '<button class="btn" data-call-join>Join</button>'}`
+      : `<span>${I.phone}</span> Call · ${m.call.len || 'ended'}`;
+    return `${day}<div class="msg first">${av(m.author)}<div class="m"><div class="who">${mine ? '<span class="nm">You</span>' : `<button class="nm" data-person="${m.author}">${p.name}</button>`}<span class="time">${m.at}</span></div><div class="callline">${line}</div></div></div>`;
+  }
+  if (mine) {
+    let body;
+    if (m.deleted) body = `<div class="bub"><span class="gone">Deleted</span></div>`;
+    else if (editor) body = editor;
+    else if (m.shared) body = sharedBlock;
+    else body = `<div class="bub"><div class="text">${md(m.text)}</div></div>`;
+    return `${day}<div class="mine ${first ? '' : 'cont'} ${m.confirmed ? '' : 'pending'}">${body}<div class="stamp">${m.at}${meta}</div>${acts}</div>`;
+  }
+  let body;
+  if (m.deleted) body = `<div class="gone">${m.deleted === 'admin' ? 'Removed by an admin' : 'Deleted'}</div>`;
+  else if (editor) body = editor;
+  else body = m.shared ? sharedBlock + meta : `<div class="text">${md(m.text)}${meta}</div>`;
+  const name = m.agent
+    ? `<span class="nm">${p.name}’s ${esc(m.agent.name)}</span><span class="tag">Agent</span>`
+    : left ? `<span class="nm">${p.name}</span><span class="tag">Left</span>` : `<button class="nm" data-person="${m.author}">${p.name}</button>`;
+  const face = m.agent ? `<span class="av" style="background:var(--brand)">${I.spark}</span>` : av(m.author);
+  if (first) return `${day}<div class="msg first ${m.confirmed ? '' : 'pending'}">${face}<div class="m"><div class="who">${name}<span class="time">${m.at}</span></div>${body}</div>${acts}</div>`;
+  return `${day}<div class="msg ${m.confirmed ? '' : 'pending'}"><span class="gutter"></span><div class="m">${body}</div>${acts}</div>`;
+}
+
+// CircleThread: everything it shows comes from the Circle, channel and member data passed in.
+let RCH = null;
+function threadHtml(c, ch, compact) {
+  RCH = ch;
+  const msgs = ch.messages;
+  const seen = c.seen.length ? `<div class="seen" title="Seen while you were online">${c.seen.map((id) => av(id)).join('')}<span>Seen</span></div>` : '';
+  const list = msgs.length ? msgs.map((m, i) => messageHtml(m, msgs[i - 1])).join('') + seen
+    : `<div class="empty"><span class="mk ci" style="width:auto">${I.circles(28)}</span><h2>This is the start of ${esc(ch.name)}</h2>Everyone in ${esc(c.name)} can read it. Messages stay on members’ Macs, not on a server.</div>`;
+  const pending = msgs.some((m) => !m.confirmed);
+  let status = '<div class="status"></div>';
+  if (pending && !adminsOnline()) status = `<div class="status warn">${I.clock} No admin is online. New messages show now and settle in order once one is.</div>`;
+  else if (c.typing) status = `<div class="status typing"><i></i><i></i><i></i> ${PEOPLE[c.typing].name} is typing…</div>`;
+  const people = c.members.length;
+  const online = c.members.filter((m) => PEOPLE[m].online).length;
+  const draft = ui.draft[c.key + ch.id] || '';
+  const picker = `<select class="cpick" aria-label="Channel" data-chan-select>${c.channels.map((x) => `<option value="${x.id}" ${x.id === ch.id ? 'selected' : ''}>${esc(x.name)}${x.unread ? ` (${x.unread})` : ''}</option>`).join('')}</select>`;
+  const head = `<header class="head"><span class="mk ci" style="width:auto">${I.circles(18)}</span>
+      <div class="ttl"><strong>${esc(c.name)} <span>· ${esc(ch.name)}</span></strong><small>${compact ? `${people} people · ${online} online` : `Circle channel · ${people} ${people === 1 ? 'person' : 'people'} · ${online} online`}</small></div>
+      <div class="right">${compact ? picker : `${callButton(ch)}<button class="btn ico" aria-label="${ui.insp ? 'Close' : 'Open'} Circle details" aria-pressed="${!!ui.insp}" title="Circle details" data-insp-toggle>${I.panel}</button>`}</div></header>`;
+  return `<section class="thread ${compact ? 'compact' : ''}" style="flex:1;min-height:0;display:flex;flex-direction:column" aria-label="Circle channel">
+    ${head}
+    <div class="scroll" id="scroll"><div class="col">${list}</div></div>
+    <div class="foot"><div class="col">${status}
+      <div class="box circle"><textarea rows="1" placeholder="Message ${esc(c.name)} · ${people} ${people === 1 ? 'person' : 'people'}" data-composer>${esc(draft)}</textarea>
+        <div class="tools"><span class="pill aud"><span class="mk ci" style="width:auto">${I.circles(12)}</span>${esc(c.name)}${compact ? '' : ` · ${esc(ch.name)}`}</span><button class="send" aria-label="Send" data-send ${draft.trim() ? '' : 'disabled'}>${I.send}</button></div></div>
+      ${compact ? '' : `<div class="hint">Everyone in ${esc(c.name)} gets a copy</div>`}
+    </div></div>
+  </section>`;
+}
+
+function callButton(ch) {
+  if (CALL && CALL.kind === 'channel' && CALL.chan === ch.id && CALL.circle === S.sel) return `<button class="btn" data-call-open><span class="ok">${I.phone}</span> In call</button>`;
+  if (ch.live) return `<button class="btn" data-call-join><span class="livemk">${ch.live.people.slice(0, 3).map((x) => av(x)).join('')}</span> Join call</button>`;
+  return `<button class="btn" data-call-start>${I.phone} Call</button>`;
+}
+const callName = () => (CALL.kind === 'channel' ? `${esc(S.circles.find((c) => c.key === CALL.circle).name)} · ${esc(S.circles.find((c) => c.key === CALL.circle).channels.find((x) => x.id === CALL.chan).name)}` : PEOPLE[CALL.with].name);
+const elapsed = () => { const t = Math.floor((Date.now() - CALL.t0) / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
+function callBar(float) {
+  if (!CALL) return '';
+  const st = CALL.status === 'calling' ? `Calling ${PEOPLE[CALL.with].name}…` : CALL.status === 'noanswer' ? 'No answer' : elapsed();
+  return `<div class="callbar ${float ? 'float' : ''}" role="region" aria-label="Call"><button class="cb1" data-call-open title="Open the call"><span class="gdot"></span><span class="cn">${callName()}</span><small>${st}</small></button>
+    <div class="cb2">${CALL.status === 'noanswer' ? `<button class="cbtn" data-call-person="${CALL.with}">Try again</button>` : `<button class="cbtn ${CALL.muted ? 'off' : ''}" data-call-mute>${CALL.muted ? 'Unmute' : 'Mute'}</button><button class="cbtn ${CALL.cam ? '' : 'off'}" data-call-cam>${CALL.cam ? 'Camera off' : 'Camera'}</button>`}<button class="cbtn leave" data-call-leave>${CALL.status === 'noanswer' ? 'Close' : 'Leave'}</button></div></div>`;
+}
+
+function tileHtml(id, o = {}) {
+  const p = PEOPLE[id];
+  const inner = o.video ? '<span class="vid"></span>' : `<span class="av huge" style="background:${p.hue}">${p.initials}</span>`;
+  return `<div class="vtile ${o.speak ? 'speak' : ''}">${inner}<span class="lab">${o.muted ? I.mic + ' muted · ' : ''}${id === ME ? 'You' : p.name}</span></div>`;
+}
+
+// CallStage: tiles and controls for a call passed in. A channel's call has its chat beside it.
+function callViewHtml() {
+  const ring = CALL.status === 'calling';
+  const tiles = [tileHtml(ME, { video: CALL.cam, muted: CALL.muted })].concat(
+    ring ? [`<div class="vtile"><span class="warnt">${av(CALL.with)}<br><br>Calling ${PEOPLE[CALL.with].name}…</span></div>`]
+      : CALL.people.map((id) => tileHtml(id, { speak: id === 'maya', muted: id === 'sam' })));
+  const stage = `<main class="callstage"><header class="head"><span class="ok" style="display:flex">${I.phone}</span><div class="ttl"><strong>${callName()}</strong><small>Call · ${CALL.people.length + 1} people · ${elapsed()} · nothing is recorded or kept</small></div></header>
+    <div class="tiles">${tiles.join('')}</div>
+    <div class="ctrls"><button class="btn ${CALL.muted ? 'danger' : ''}" data-call-mute>${I.mic} ${CALL.muted ? 'Unmute' : 'Mute'}</button><button class="btn" data-call-cam>${CALL.cam ? 'Camera off' : 'Camera on'}</button><button class="btn" data-sheet="devices">Devices</button><button class="btn" data-call-back>Back to chat</button><button class="btn danger" data-call-leave>Leave</button></div></main>`;
+  if (CALL.kind !== 'channel') return stage;
+  const c = S.circles.find((x) => x.key === CALL.circle);
+  return stage + `<div class="dock">${threadHtml(c, c.channels.find((x) => x.id === CALL.chan), true)}</div>`;
+}
+
+function ringHtml() {
+  if (!ui.ring) return '';
+  const c = S.circles.find((x) => x.key === ui.ring.circle);
+  return `<div class="ringcard" role="alertdialog" aria-label="Incoming call"><div style="display:flex;gap:10px;align-items:center">${av(ui.ring.from)}<div style="flex:1"><b style="font-weight:500">${PEOPLE[ui.ring.from].name} is calling</b><div class="sub" style="font-size:12px;color:var(--fnt)">${esc(c.name)} · just you two</div></div><span class="ok">${I.phone}</span></div>
+    <div class="acts2" style="margin-top:12px"><button class="btn" data-ring-decline>Decline</button><button class="btn solid" data-ring-join>Join</button></div></div>`;
+}
+
+function hermesHtml() {
+  return `<main class="center"><header class="head"><span class="mk sp" style="width:18px;height:18px">${I.spark}</span><div class="ttl"><strong>Map in chapter 2</strong><small>Hermes chat · started today 8:31</small></div><div class="right"><button class="btn">New chat ⌘N</button></div></header>
+    <div class="scroll"><div class="col">
+      <div class="uturn"><div class="bub">What is the map at the start of chapter 2 showing? It doesn’t match the village described later.</div></div>
+      <div class="aturn"><div class="wh">Hermes</div><div class="text">${REPLY}</div>
+        <div class="hrow"><button>Copy</button><button>Retry</button><button>Branch</button><button class="${ui.hermesMenu ? 'on' : ''}" data-hermes-more>More</button>
+        ${ui.hermesMenu ? `<div class="menu" style="left:200px;top:30px"><button>Quote</button><button>Save to folder…</button><hr><button data-open-share>Share to Circle…</button></div>` : ''}</div>
+      </div>
+    </div></div>
+    <div class="foot"><div class="col"><div class="status"></div><div class="box"><textarea rows="1" placeholder="Ask Hermes anything"></textarea>
+      <div class="tools"><span class="pill">boundary-desktop</span><span class="pill">qwen3-32b · Maya</span><span class="pill">@</span><button class="send" disabled>${I.send}</button></div></div>
+      <div class="hint">Hermes chat · stays on this Mac · ⌘N starts a new one</div></div></div></main>`;
+}
+
+const sw = (on, attr, label) => `<button class="sw" role="switch" aria-checked="${on}" aria-label="${label}" ${attr}></button>`;
+
+// Circle tab (ADR 0043 §2).
+function circleTab(c) {
+  const rows = [...c.members].sort((a, b) => (a === ME) - (b === ME) || PEOPLE[b].online - PEOPLE[a].online).map((id) => {
+    const p = PEOPLE[id];
+    const line = (p.role === 'admin' ? 'Admin · ' : '') + (p.online ? 'Online' : 'Offline');
+    return `<button class="irow" data-person="${id}">${av(id)}<span class="pt"><span>${id === ME ? 'You' : p.name}</span><small>${line}</small></span><span class="pdot ${p.online ? '' : 'off'}"></span></button>`;
+  }).join('');
+  return `<div class="ibody"><div style="display:flex;align-items:center;gap:10px">${ctile(c, 34)}<div><h3>${esc(c.name)}</h3><div class="sub">${c.members.length} ${c.members.length === 1 ? 'person' : 'people'} · ${onlineOf(c)} online</div></div></div>
+    ${ui.admin ? '<button class="btn solid" style="margin-top:14px;width:100%" data-sheet="invite">Invite someone</button>' : ''}
+    <div class="isec">Channels</div>${c.channels.map((ch) => `<div class="irow"><span class="mk ci">${I.circles(14)}</span><span class="pt"><span>${esc(ch.name)}</span></span>${ui.admin ? `<button class="btn" style="height:26px" data-rename-chan="${ch.id}">Rename</button>${ch.id === 'general' ? '' : `<button class="btn danger" style="height:26px" data-remove-chan="${ch.id}">Remove</button>`}` : ''}</div>`).join('')}
+    ${ui.admin ? '<button class="btn" style="margin-top:4px" data-add-chan>Add a channel</button>' : ''}
+    <div class="isec">People</div>${rows}
+    ${ui.admin && c.key === 'book' ? `<div class="isec">Open invites</div><button class="irow" data-sheet="invite"><span class="pt"><span>Priya’s partner</span><small>Made yesterday · works once</small></span></button>` : ''}
+    <div style="margin-top:22px;padding-top:12px;border-top:1px solid var(--line)"><button class="btn danger" data-leave>Leave ${esc(c.name)}</button></div></div>`;
+}
+
+// The person panel: one component, in the inspector inside a Circle or in a sheet from This Mac (ADR 0043 §3, §4).
+const big = (id) => `<span class="av bigav" style="background:${PEOPLE[id].hue}">${PEOPLE[id].initials}</span>`;
+function personBody(id, c) {
+  const p = PEOPLE[id];
+  const shares = p.models ? `<div class="isec">Shares</div><div class="setrow"><span class="pt"><span class="mono">${p.models.join(', ')}</span><small>Trust and use are in Inference.</small></span><button class="btn" data-inf="${id}">Open in Inference</button></div>` : '';
+  const admin = ui.admin && id !== ME ? `<div class="isec">In ${esc(c.name)}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn">${p.role === 'admin' ? 'Make member' : 'Make admin'}</button><button class="btn danger">Remove from ${esc(c.name)}</button></div>` : '';
+  return `<div style="display:flex;gap:12px;align-items:center">${big(id)}<div><h3>${id === ME ? 'You' : p.name}</h3><div class="sub">${p.online ? 'Online' : 'Offline'}${p.role === 'admin' ? ` · Admin in ${esc(c.name)}` : ''}</div></div></div>
+    ${id === ME ? '<p class="sub" style="margin-top:14px">Your name and connection are in Settings › Circles profile.</p>' : p.online ? `<button class="btn" style="margin-top:14px" data-call-person="${id}">${I.phone} Call ${p.name}</button>` : ''}${shares}${admin}`;
+}
+
+// Inference destination (ADR 0043 §2): the stack, sharing and every Circle's offers. The settings spec owns its full design.
+function inferenceHtml() {
+  const offers = Object.entries(PEOPLE).filter(([, p]) => p.models).map(([id, p]) => `<div class="offer ${ui.infFocus === id ? 'focus' : ''}" id="offer-${id}">
+      <div class="top">${av(id)}<span class="pt"><span>${p.name} · <span class="mono">${p.models[0]}</span></span><small>Offered in Book club, Studio · ${p.online ? 'Online' : 'Offline'}</small></span><button class="btn" ${p.trusted ? '' : 'disabled'}>Add to stack</button></div>
+      <div class="setrow" style="margin-top:8px"><span class="pt"><span>Trusted</span><small>${p.name}’s model can answer your chats, in every Circle you share with them.</small></span>${sw(!!p.trusted, `data-trust="${id}"`, 'Trusted')}</div>
+      <div class="setrow"><span class="pt"><span>Allow in private projects</span><small>Off: private projects never send to ${p.name}’s model.</small></span>${sw(!!p.priv, `data-priv="${id}"`, 'Allow in private projects')}</div></div>`).join('');
+  return `<main class="ipage"><h1>Inference</h1><p>What answers your chats, what this Mac shares, and what your Circles offer.</p>
+    <section><h2>Chat stack</h2>
+      <div class="stk"><span class="n">1</span><span class="pt"><span>Local · <span class="mono">qwen3-32b</span></span><small>This Mac · ready</small></span></div>
+      <div class="stk"><span class="n">2</span><span class="pt"><span>Maya · <span class="mono">qwen3-32b</span></span><small>Book club · trusted · online</small></span></div>
+      <div class="stk"><span class="n">3</span><span class="pt"><span>OpenRouter · <span class="mono">llama-3.3-70b</span></span><small>Cloud · private projects stop before this</small></span></div>
+      <small style="color:var(--fnt)">Order, details, dry run and exceptions follow the settings spec; shown here to place sharing beside the stack.</small></section>
+    <section><h2>Shared from this Mac</h2>
+      <div class="okline">● ${SHARE.paused ? 'Paused' : 'Sharing <span class="mono">qwen3-32b</span> · 1 person using it now'}</div>
+      <div class="setrow"><span class="pt"><span>Pause sharing</span><small>Members see your model as paused.</small></span>${sw(SHARE.paused, 'data-share-flag="paused"', 'Pause sharing')}</div>
+      ${S.circles.map((c) => `<div class="setrow"><span class="pt"><span>Share in ${esc(c.name)}</span><small>${c.members.length} people</small></span>${sw(!!SHARE[c.key], `data-share-here="${c.key}"`, `Share in ${esc(c.name)}`)}</div>`).join('')}
+      <div class="setrow"><span class="pt"><span>Away mode</span><small>Keep sharing while this Mac is idle and locked.</small></span>${sw(SHARE.away, 'data-share-flag="away"', 'Away mode')}</div>
+      <div class="setrow"><span class="pt"><span>Usage today</span><small>42 requests · 61k tokens · Sam 30, Maya 12</small></span></div></section>
+    <section><h2>From your Circles</h2>${offers}</section></main>`;
+}
+
+function inspectorHtml(c) {
+  if (!ui.insp) return '';
+  const x = '<button class="x" aria-label="Close" data-insp-close>×</button>';
+  if (ui.insp.person) return `<aside class="insp" aria-label="Person"><div class="itabs"><button class="back" data-insp="circle">← ${esc(c.name)}</button>${x}</div><div class="ibody">${personBody(ui.insp.person, c)}</div></aside>`;
+  return `<aside class="insp" aria-label="Circle"><div class="itabs"><span class="itab">Circle</span>${x}</div>${circleTab(c)}</aside>`;
+}
+
+function joiningHtml() {
+  const failed = ui.joining && ui.joining.state === 'failed';
+  return `<main class="center"><div class="waiting">${failed ? '' : '<div class="spin"></div>'}<h2>${failed ? 'The invite didn’t work' : 'Waiting for an admin to let you in'}</h2>
+    <p>${failed ? 'The code may have been used or revoked. Ask for a new one.' : 'An admin of the Circle needs to be online. You can switch places; the join keeps going and the Circle appears in the switcher.'}</p>
+    <button class="btn" data-cancel-join>${failed ? 'Close' : 'Cancel'}</button></div></main>`;
+}
+
+function startCall(dl) {
+  clearTimeout(callTimer);
+  if (dl.kind === 'channel') {
+    const ch = channel();
+    if (!ch.live) { const id = 'k' + (++seq); ch.live = { id, people: [] }; ch.messages.push(msg(ME, '', { at: 'now', call: { id } })); }
+    const others = ch.live.people.filter((x) => x !== ME);
+    ch.live.people.push(ME);
+    CALL = { kind: 'channel', circle: S.sel, chan: ch.id, people: others, muted: false, cam: !!dl.cam && !ui.camDenied, view: true, status: 'live', t0: Date.now() };
+    if (!others.length) callTimer = setTimeout(() => { if (CALL && ch.live) { ch.live.people.push('maya'); CALL.people.push('maya'); render(); } }, 4000);
+    return;
+  }
+  const incoming = !!dl.incoming;
+  CALL = { kind: 'person', with: dl.with, circle: dl.circle || S.sel, people: incoming ? [dl.with] : [], muted: false, cam: !!dl.cam, view: incoming, status: incoming ? 'live' : 'calling', t0: Date.now() };
+  if (!incoming) callTimer = setTimeout(() => { if (!CALL) return; CALL.status = 'live'; CALL.people = [CALL.with]; CALL.t0 = Date.now(); render(); }, 3000);
+}
+function leaveCall() {
+  clearTimeout(callTimer);
+  if (CALL && CALL.kind === 'channel') {
+    const c = S.circles.find((x) => x.key === CALL.circle), ch = c.channels.find((x) => x.id === CALL.chan);
+    if (ch.live) {
+      ch.live.people = ch.live.people.filter((x) => x !== ME);
+      // The last one out ends it; the starter's device adds `ended` to its message.
+      if (!ch.live.people.length) { const m = ch.messages.find((x) => x.call && x.call.id === ch.live.id); if (m) { const mins = +elapsed().split(':')[0]; m.call.len = mins ? `${mins} min` : 'under a minute'; } ch.live = null; }
+    }
+  }
+  CALL = null;
+}
+
+function startJoin() {
+  ui.joining = { state: 'waiting' };
+  ui.view = 'joining';
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    if (!ui.joining) return;
+    ui.joining = null;
+    S.circles.push({ key: 'garden', name: 'Garden club', hue: '#4f8aa8', members: ['jordan', 'maya'], seen: [], typing: null, channels: [{ id: 'general', name: 'General', unread: 1, messages: [msg('maya', 'Welcome! Seed swap is on the 9th.', { at: '11:02', day: 'Today' })] }] });
+    if (ui.view === 'joining') openCircle('garden');
+    render();
+  }, 6000);
+}
+
+function dialogHtml() {
+  const d = ui.dialog;
+  if (!d) return '';
+  const wrap = (label, inner, w = 480) => `<div class="scrim"><div class="sheet" role="dialog" aria-label="${label}" style="width:${w}px">${inner}</div></div>`;
+  if (d.type === 'delete') {
+    const m = channel().messages.find((x) => x.id === d.id);
+    const other = m.author !== ME;
+    return wrap('Delete message', `<h2>Delete ${other ? `${PEOPLE[m.author].name}’s` : 'this'} message?</h2><p>It disappears from the chat. Every member’s Mac still holds the Circle’s history, so it isn’t erased.${other ? ' The chat shows “Removed by an admin” in its place.' : ''}</p><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn danger" data-confirm-del="${d.id}">Delete</button></div>`);
+  }
+  if (d.type === 'add' || d.type === 'rename') {
+    const ch = d.type === 'rename' ? channel() : null;
+    return wrap('Channel name', `<h2>${ch ? 'Rename channel' : 'Add a channel'}</h2><p>${ch ? 'Everyone sees the new name once admins confirm it.' : `Everyone in ${esc(circle().name)} can read and post in it. Only admins add, rename or remove channels.`}</p><label>Name<input data-chan-name value="${ch ? esc(ch.name) : ''}" placeholder="e.g. reading-list" maxlength="64"></label><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-save-chan="${ch ? ch.id : ''}">${ch ? 'Rename' : 'Add channel'}</button></div>`);
+  }
+  if (d.type === 'remove-chan') return wrap('Remove channel', `<h2>Remove ${esc(channel().name)}?</h2><p>It leaves everyone’s channel list. Its messages stay in the Circle’s history on every member’s Mac.</p><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn danger" data-confirm-remove-chan>Remove</button></div>`);
+  if (d.type === 'leave') return wrap('Leave Circle', `<h2>Leave ${esc(circle().name)}?</h2><p>This Circle’s chats leave this Mac with it. Your messages stay in the Circle. You’ll need a new invite to come back.</p><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn danger" data-close>Leave</button></div>`);
+  if (d.type === 'callsheet' || d.type === 'devices') {
+    const title = d.type === 'devices' ? 'Devices' : d.kind === 'person' ? `${d.incoming ? 'Join the call with' : 'Call'} ${PEOPLE[d.with].name}` : `${channel().live ? 'Join the call' : 'Start a call'} in ${esc(channel().name)}`;
+    const cam = d.type === 'devices' ? CALL.cam : !!d.cam;
+    const preview = `<div class="preview">${cam && !ui.camDenied ? '<span class="vid" style="position:absolute;inset:0;background:linear-gradient(135deg,#3a4a6b,#6b5a3a)"></span><span class="lab" style="position:absolute;left:10px;bottom:8px;color:#fff;font-size:12px">Camera preview</span>' : `<span class="av huge" style="width:64px;height:64px;font-size:20px;background:${PEOPLE[ME].hue}">${PEOPLE[ME].initials}</span>`}</div>`;
+    const denied = ui.camDenied ? `<div class="wbox">Boundary can’t use the camera. Turn it on in System Settings › Privacy &amp; Security › Camera. <button class="btn" style="margin-left:6px;height:24px">Open System Settings</button></div>` : '';
+    return wrap('Call', `<h2>${title}</h2><p>${d.kind === 'person' ? 'Just the two of you. Nothing about the call is kept.' : 'Anyone in the Circle can join. Nothing is recorded or kept.'}</p>${preview}${denied}
+      <div class="grid"><label>Microphone <span class="meter"><i style="height:5px"></i><i style="height:10px"></i><i style="height:7px"></i><i style="height:12px"></i></span><select><option>MacBook Pro Microphone</option><option>AirPods</option></select></label>
+      <label>Camera<select ${ui.camDenied ? 'disabled' : ''}><option>FaceTime HD Camera</option></select></label></div>
+      <div class="setrow"><span class="pt"><span>Camera on</span><small>${ui.camDenied ? 'Not allowed by macOS.' : 'Starts off. Change the default in Settings › Calls.'}</small></span>${ui.camDenied ? '' : `<button class="sw" role="switch" aria-checked="${cam}" aria-label="Camera on" ${d.type === 'devices' ? 'data-call-cam' : 'data-sheet-cam'}></button>`}</div>
+      <div class="acts2"><button class="btn" data-close>${d.type === 'devices' ? 'Done' : 'Cancel'}</button>${d.type === 'devices' ? '' : `<button class="btn solid" data-do-call>${d.kind === 'person' && !d.incoming ? 'Call' : 'Join'}</button>`}</div>`, 460);
+  }
+  if (d.type === 'start') return wrap('Start a Circle', `<h2>Start a Circle</h2><p>You’ll be its admin and can invite people. It starts with a General channel.</p><label>Name<input data-new-name placeholder="e.g. Book club" maxlength="40"></label><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-create>Create</button></div>`);
+  if (d.type === 'join') return wrap('Join a Circle', `<h2>Join with an invite</h2><p>Paste the code someone sent you. An admin of that Circle has to be online to let you in.</p><label>Invite code<input data-join-code class="mono" placeholder="e.g. yrb7ei1ng…"></label><div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-do-join>Join</button></div>`);
+  if (d.type === 'invite') {
+    const c = circle();
+    return wrap('Invite someone', `<h2>Invite someone to ${esc(c.name)}</h2><p>A code works once. When they use it, an admin’s Mac must be online: you${c.members.includes('maya') ? ' or Maya' : ''}.</p>
+      ${d.code ? `<div class="code"><span>${d.code}</span><button class="btn" data-close>Copy</button></div><p style="font-size:12px">Copy it now. Codes aren’t stored, so a lost code means revoking it and making another.</p>`
+        : `<label>Who is it for? <span style="color:var(--fnt)">Optional, only on this Mac</span><input data-invite-label placeholder="e.g. Sam’s sister"></label>`}
+      ${c.key === 'book' ? '<h4>Open invites</h4><div class="setrow"><span class="pt"><span>Priya’s partner</span><small>Made yesterday</small></span><button class="btn">Revoke</button></div>' : ''}
+      <div class="acts2"><button class="btn" data-close>${d.code ? 'Done' : 'Cancel'}</button>${d.code ? '' : '<button class="btn solid" data-make-code>Create code</button>'}</div>`);
+  }
+  if (d.type === 'share') {
+    const target = S.circles.find((c) => c.key === d.circle);
+    const bytes = new TextEncoder().encode(d.text).length;
+    return wrap('Share to a Circle', `<h2>Share to a Circle</h2><p>Edit it first if you like. Only the text below is sent, nothing else from this chat.</p>
+      <div class="grid"><label>Circle<select data-share-circle>${S.circles.map((c) => `<option value="${c.key}" ${c.key === d.circle ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      <label>Channel<select data-share-chan>${target.channels.map((ch) => `<option value="${ch.id}" ${ch.id === d.chan ? 'selected' : ''}>${esc(ch.name)}</option>`).join('')}</select></label></div>
+      <label>Message<textarea data-share-text>${esc(d.text)}</textarea></label>
+      <div class="limit ${bytes > 12288 ? 'over' : ''}"><span>Shows as “Shared from a chat · reply from <span class="mono">qwen3-32b</span>”</span><span>${bytes > 10000 ? `${(bytes / 1024).toFixed(1)} of 12 KB` : ''}</span></div>
+      <div class="wbox">Everyone in ${esc(target.name)} gets a copy that you can’t take back.</div>
+      <div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-do-share ${bytes > 12288 || !d.text.trim() ? 'disabled' : ''}>Share</button></div>`, 540);
+  }
+  return '';
+}
+
+function menuHtml() {
+  const m = ui.menu;
+  if (!m) return '';
+  const x = channel().messages.find((y) => y.id === m.id);
+  return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button data-copy>Copy</button>${x.author === ME && !x.shared ? `<button data-edit-start="${m.id}">Edit</button>` : ''}${x.author === ME || ui.admin ? `<button class="d" data-del="${m.id}">Delete</button>` : ''}</div>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = ui.theme;
+  renderBar();
+  const app = document.getElementById('app');
+  const prev = document.getElementById('scroll');
+  const keep = prev ? { top: prev.scrollTop, atBottom: prev.scrollHeight - prev.scrollTop - prev.clientHeight < 4 } : null;
+  let html;
+  if (ui.view === 'inference') html = iconRail('inference') + inferenceHtml() + callBar(true);
+  else if (ui.view === 'joining') html = iconRail('chat') + chatRail() + joiningHtml();
+  else if (ui.view === 'hermes') html = iconRail('chat') + chatRail() + (CALL && CALL.view ? callViewHtml() : hermesHtml());
+  else if (ui.view === 'narrow') html = iconRail('none') + `<div class="host"><span style="font-size:15px;color:var(--mut)">Any screen</span><span>The thread on the right is 320px wide and takes its data from props or <span class="mono">useCircleChat</span>.</span></div><div class="dock">${threadHtml(circle(), channel(), true)}</div>`;
+  else html = iconRail('chat') + chatRail() + (CALL && CALL.view ? callViewHtml() : `<main class="center">${threadHtml(circle(), channel(), false)}</main>` + inspectorHtml(circle()));
+  if (ui.view === 'hermes' || ui.view === 'circle') ui.lastPlace = place();
+  app.innerHTML = html + ringHtml() + menuHtml() + placeMenuHtml() + dialogHtml() + (ui.toast ? `<div class="toast" role="status">${ui.toast.text}<button data-toast-open>Open</button></div>` : '');
+  const sc = document.getElementById('scroll');
+  if (sc) sc.scrollTop = keep && !keep.atBottom && !ui.forceBottom ? keep.top : sc.scrollHeight;
+  ui.forceBottom = false;
+  const comp = app.querySelector('[data-composer]');
+  if (comp) grow(comp);
+  const ed = app.querySelector('[data-edit]');
+  if (ed) { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); }
+  app.querySelector('[data-chan-name], [data-new-name], [data-join-code], [data-invite-label]')?.focus();
+  fit();
+}
+function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
+function fit() {
+  const k = Math.min(1, (window.innerWidth - 32) / 1280);
+  const f = document.getElementById('fit');
+  f.style.transform = `scale(${k})`; f.style.width = 1280 * k + 'px'; f.style.height = 800 * k + 'px';
+}
+window.addEventListener('resize', fit);
+
+function later(m, ms) { if (adminsOnline()) setTimeout(() => { m.confirmed = true; render(); }, ms); }
+function send(text, shared) {
+  const c = circle(), ch = channel(), now = new Date();
+  const m = msg(ME, text, { at: `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`, confirmed: false, shared });
+  ch.messages.push(m); c.typing = null; c.seen = []; ui.forceBottom = true;
+  later(m, 4000);
+  if (adminsOnline()) setTimeout(() => { c.seen = ['maya']; render(); }, 5500);
+}
+function menuAt(type, id, el) {
+  const a = document.getElementById('app').getBoundingClientRect(), r = el.getBoundingClientRect(), k = a.width / 1280;
+  ui.menu = { type, id, x: Math.min((r.left - a.left) / k, 1280 - 180), y: (r.bottom - a.top) / k + 4 };
+}
+// Each place reopens where it was left.
+function openCircle(key, chan) { ui.view = 'circle'; S.sel = key; S.chan = chan || circle().last || 'general'; circle().last = S.chan; markRead(); ui.forceBottom = true; }
+function markRead() { const ch = channel(); if (ch) ch.unread = 0; }
+function saveEdit(id) {
+  const t = document.querySelector(`[data-edit="${id}"]`), m = channel().messages.find((x) => x.id === id), text = t.value.trim();
+  if (text && text !== m.text) { m.text = text; m.edited = true; m.confirmed = false; later(m, 3000); }
+  ui.editing = null; render();
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button, a');
+  if (!t) { if (ui.menu || ui.hermesMenu || ui.placeMenu) { ui.menu = null; ui.hermesMenu = false; ui.placeMenu = false; render(); } return; }
+  const d = t.dataset;
+  if (!('msgMenu' in d)) ui.menu = null;
+  if (!('placeMenu' in d)) ui.placeMenu = false;
+  if (d.scene) return load(d.scene);
+  if (d.toggle === 'admin') { ui.admin = !ui.admin; return render(); }
+  if (d.toggle === 'theme') { ui.theme = ui.theme === 'dark' ? 'light' : 'dark'; return render(); }
+  if (d.go === 'inference') { ui.view = 'inference'; ui.infFocus = null; return render(); }
+  if (d.go === 'chat') { if (ui.lastPlace === 'mac' || !S.circles.length) ui.view = 'hermes'; else openCircle(S.sel); return render(); }
+  if ('placeMenu' in d) { ui.placeMenu = !ui.placeMenu; return render(); }
+  if (d.place) { if (d.place === 'mac') ui.view = 'hermes'; else if (d.place === 'joining') ui.view = 'joining'; else openCircle(d.place); return render(); }
+  if (d.sheet) { ui.dialog = { type: d.sheet }; return render(); }
+  if ('callStart' in d || 'callJoin' in d) { ui.dialog = { type: 'callsheet', kind: 'channel' }; return render(); }
+  if (d.callPerson) { clearTimeout(callTimer); CALL = null; ui.dialog = { type: 'callsheet', kind: 'person', with: d.callPerson }; return render(); }
+  if ('sheetCam' in d) { ui.dialog.cam = !ui.dialog.cam; return render(); }
+  if ('doCall' in d) { startCall(ui.dialog); ui.dialog = null; return render(); }
+  if ('ringJoin' in d) { const r = ui.ring; ui.ring = null; ui.dialog = { type: 'callsheet', kind: 'person', with: r.from, incoming: true, circle: r.circle }; return render(); }
+  if ('ringDecline' in d) { ui.ring = null; return render(); }
+  if ('callMute' in d) { CALL.muted = !CALL.muted; return render(); }
+  if ('callCam' in d) { CALL.cam = !CALL.cam; return render(); }
+  if ('callBack' in d) { CALL.view = false; return render(); }
+  if ('callOpen' in d) { if (CALL.status !== 'live') return; if (CALL.kind === 'channel') openCircle(CALL.circle, CALL.chan); else if (ui.view === 'inference') ui.view = 'hermes'; CALL.view = true; return render(); }
+  if ('callLeave' in d) { leaveCall(); return render(); }
+  if (d.person && ui.view === 'circle') { ui.insp = { person: d.person }; return render(); }
+  if (d.inf) { ui.view = 'inference'; ui.infFocus = d.inf; render(); document.getElementById('offer-' + d.inf)?.scrollIntoView({ block: 'center' }); return; }
+  if (d.insp) { ui.insp = d.insp; return render(); }
+  if ('inspToggle' in d) { ui.insp = ui.insp ? null : 'circle'; return render(); }
+  if ('inspClose' in d) { ui.insp = null; return render(); }
+  if (d.trust) { PEOPLE[d.trust].trusted = !PEOPLE[d.trust].trusted; return render(); }
+  if (d.priv) { PEOPLE[d.priv].priv = !PEOPLE[d.priv].priv; return render(); }
+  if (d.shareHere) { SHARE[d.shareHere] = !SHARE[d.shareHere]; return render(); }
+  if (d.shareFlag) { SHARE[d.shareFlag] = !SHARE[d.shareFlag]; return render(); }
+  if ('makeCode' in d) { ui.dialog.code = 'K7QD-M2XA-9FTR'; return render(); }
+  if ('create' in d) {
+    const name = document.querySelector('[data-new-name]').value.trim();
+    if (!name) return;
+    const key = 'c' + (++seq);
+    S.circles.push({ key, name, hue: '#b8643a', members: [ME], seen: [], typing: null, channels: [{ id: 'general', name: 'General', unread: 0, messages: [] }] });
+    ui.dialog = null; openCircle(key); return render();
+  }
+  if ('doJoin' in d) { if (!document.querySelector('[data-join-code]').value.trim()) return; ui.dialog = null; startJoin(); return render(); }
+  if ('cancelJoin' in d) { clearTimeout(timer); ui.joining = null; ui.view = 'hermes'; return render(); }
+  if (d.chan) { S.chan = circle().last = d.chan; markRead(); ui.forceBottom = true; return render(); }
+  if (d.msgMenu) { menuAt('msg', d.msgMenu, t); return render(); }
+  if ('send' in d) { const k = circle().key + channel().id, text = (ui.draft[k] || '').trim(); if (!text) return; ui.draft[k] = ''; send(text); return render(); }
+  if (d.editStart) { ui.editing = d.editStart; return render(); }
+  if ('cancelEdit' in d) { ui.editing = null; return render(); }
+  if (d.saveEdit) return saveEdit(d.saveEdit);
+  if (d.del) { ui.dialog = { type: 'delete', id: d.del }; return render(); }
+  if (d.confirmDel) { const m = channel().messages.find((x) => x.id === d.confirmDel); m.deleted = m.author === ME ? 'author' : 'admin'; m.confirmed = false; ui.dialog = null; later(m, 3000); return render(); }
+  if ('addChan' in d) { ui.dialog = { type: 'add' }; return render(); }
+  if (d.renameChan) { S.chan = circle().last = d.renameChan; ui.dialog = { type: 'rename' }; return render(); }
+  if (d.removeChan) { S.chan = circle().last = d.removeChan; ui.dialog = { type: 'remove-chan' }; return render(); }
+  if ('confirmRemoveChan' in d) { const c = circle(); c.channels = c.channels.filter((x) => x.id !== S.chan); S.chan = 'general'; ui.dialog = null; return render(); }
+  if ('saveChan' in d) {
+    const name = document.querySelector('[data-chan-name]').value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+/, '').slice(0, 64);
+    if (!name) return;
+    const c = circle();
+    if (d.saveChan) channel().name = d.saveChan === 'general' ? name.charAt(0).toUpperCase() + name.slice(1) : name;
+    else { if (!c.channels.some((x) => x.id === name)) c.channels.push({ id: name, name, unread: 0, messages: [] }); S.chan = name; }
+    ui.dialog = null; return render();
+  }
+  if ('leave' in d) { ui.dialog = { type: 'leave' }; return render(); }
+  if ('close' in d || 'copy' in d) { ui.dialog = null; return render(); }
+  if ('hermesMore' in d) { ui.hermesMenu = !ui.hermesMenu; return render(); }
+  if ('openShare' in d) { ui.hermesMenu = false; ui.dialog = { type: 'share', circle: 'book', chan: 'general', text: REPLY }; return render(); }
+  if ('doShare' in d) {
+    const dl = ui.dialog; ui.dialog = null; S.sel = dl.circle; S.chan = dl.chan;
+    send(dl.text, { role: 'assistant', model: 'qwen3-32b' });
+    ui.toast = { text: `Shared to ${esc(circle().name)} · ${esc(channel().name)}` };
+    return render();
+  }
+  if ('toastOpen' in d) { ui.toast = null; openCircle(S.sel, S.chan); return render(); }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.matches('[data-composer]')) { ui.draft[circle().key + channel().id] = t.value; grow(t); document.querySelector('[data-send]').disabled = !t.value.trim(); }
+  if (t.matches('[data-share-text]')) {
+    ui.dialog.text = t.value;
+    const bytes = new TextEncoder().encode(t.value).length, lim = document.querySelector('.limit');
+    lim.classList.toggle('over', bytes > 12288);
+    lim.lastElementChild.textContent = bytes > 10000 ? `${(bytes / 1024).toFixed(1)} of 12 KB` : '';
+    document.querySelector('[data-do-share]').disabled = bytes > 12288 || !t.value.trim();
+  }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.matches('[data-chan-select]')) { S.chan = circle().last = t.value; markRead(); ui.forceBottom = true; render(); }
+  if (t.matches('[data-share-circle]')) { ui.dialog.circle = t.value; ui.dialog.chan = 'general'; render(); }
+  if (t.matches('[data-share-chan]')) ui.dialog.chan = t.value;
+});
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t.matches('[data-composer]') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.querySelector('[data-send]').click(); }
+  if (t.matches('[data-edit]') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(t.dataset.edit); }
+  if (t.matches('[data-chan-name]') && e.key === 'Enter') document.querySelector('[data-save-chan]').click();
+  if (t.matches('[data-new-name]') && e.key === 'Enter') document.querySelector('[data-create]').click();
+  if (t.matches('[data-join-code]') && e.key === 'Enter') document.querySelector('[data-do-join]').click();
+  if (e.key === 'Escape') { Object.assign(ui, { editing: null, dialog: null, menu: null, hermesMenu: false, placeMenu: false }); render(); }
+});
+
+const q = new URLSearchParams(location.search);
+if (q.get('theme') === 'light') ui.theme = 'light';
+load(SCENES.some(([id]) => id === q.get('start')) ? q.get('start') : 'chat');
+</script>
+</body>
+</html>

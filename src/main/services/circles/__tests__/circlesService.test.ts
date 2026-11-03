@@ -56,6 +56,7 @@ const stored = {
   saveSecretsFails: false,
   served: undefined as unknown,
   used: undefined as unknown,
+  reads: {} as Record<string, Record<string, unknown>>,
 };
 vi.mock('../circlesStore', () => ({
   getCirclesDisplayName: () => stored.name,
@@ -91,6 +92,10 @@ vi.mock('../circlesStore', () => ({
     return [...stored.inviteCodes.keys()];
   },
   setCircleSharing: (sharing: unknown) => void (stored.sharing = sharing),
+  getReadPositions: (key: string) => stored.reads[key] ?? {},
+  setReadPosition: (key: string, channel: string, position: unknown) => {
+    stored.reads = { ...stored.reads, [key]: { ...stored.reads[key], [channel]: position } };
+  },
   getServedUsage: () => stored.served,
   setServedUsage: (usage: unknown) => void (stored.served = usage),
   getUsedUsage: () => stored.used,
@@ -117,6 +122,7 @@ beforeEach(() => {
   stored.sharing = NOT_SHARING;
   stored.inviteLabels = {};
   stored.inviteCodes.clear();
+  stored.reads = {};
   stored.saveFails = false;
   stored.saveSecretsFails = false;
   blocker.running.clear();
@@ -853,6 +859,179 @@ describe('circlesService', () => {
       lastChild!.reply = () => ({ ok: false, error: 'Only admins can change this Circle’s records.' });
       const result = await service.setCircleRecord(KEY, 'settings', 'circle', 'topic', 1);
       expect(result).toMatchObject({ success: false, error: 'Only admins can change this Circle’s records.' });
+    });
+  });
+
+  describe('chat', () => {
+    const KEY = 'cd'.repeat(32);
+    const ME = SNAPSHOT.identity;
+    const ID = '0123456789abcdef';
+    const requests = () =>
+      lastChild!.postMessage.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.type === 'circles-request')
+        .map((message) => message.request as { op: string } & Record<string, unknown>);
+
+    async function running(reply: (request: { op: string }) => Record<string, unknown> = () => ({ ok: true })) {
+      const service = await load();
+      stored.name = 'Ada';
+      await service.setDisplayName('Ada');
+      await service.ensureCirclesStarted();
+      lastChild!.reply = reply;
+      await flush();
+      return service;
+    }
+
+    const message = (text: string, extra: Record<string, unknown> = {}) => ({
+      circleKey: KEY,
+      channel: 'general',
+      author: ME,
+      id: ID,
+      name: 'Ada',
+      agent: null,
+      text,
+      at: 1,
+      confirmed: false,
+      edited: false,
+      deleted: null,
+      shared: null,
+      call: null,
+      mine: true,
+      ...extra,
+    });
+
+    it('sends this device’s read positions with a channels request', async () => {
+      stored.reads = { [KEY]: { general: { author: ME, id: ID, at: 1 } } };
+      const channels = [{ id: 'general', name: 'General', unread: 2 }];
+      const service = await running(() => ({ ok: true, chat: { channels } }));
+      expect(await service.listCircleChannels(KEY)).toMatchObject({ success: true, channels });
+      expect(requests().at(-1)).toEqual({ op: 'chat-channels', key: KEY, reads: stored.reads[KEY] });
+    });
+
+    it('asks for 50 messages by default and at most 200', async () => {
+      const service = await running(() => ({ ok: true, chat: { messages: [], more: false } }));
+      await service.getCircleMessages(KEY, 'general');
+      await service.getCircleMessages(KEY, 'general', { before: { author: ME, id: ID }, limit: 5_000 });
+      const reads = requests().filter((request) => request.op === 'chat-messages');
+      expect(reads.map((request) => request.limit)).toEqual([50, 200]);
+      expect(reads.at(-1)?.before).toEqual({ author: ME, id: ID });
+    });
+
+    it('counts a channel read up to the user’s own new message, and not after a refusal', async () => {
+      let ok = true;
+      const service = await running(() =>
+        ok ? { ok: true, chat: { id: ID } } : { ok: false, error: 'That channel isn’t in this Circle.' }
+      );
+      expect(await service.postCircleMessage(KEY, 'general', 'Hello')).toMatchObject({ success: true, id: ID });
+      expect(stored.reads[KEY]?.general).toMatchObject({ author: ME, id: ID });
+      ok = false;
+      const refused = await service.postCircleMessage(KEY, 'garden', 'Hello');
+      expect(refused).toMatchObject({ success: false, error: 'That channel isn’t in this Circle.' });
+      expect(stored.reads[KEY]?.garden).toBeUndefined();
+    });
+
+    it('passes where shared text came from with the post', async () => {
+      const service = await running(() => ({ ok: true, chat: { id: ID } }));
+      await service.postCircleMessage(KEY, 'general', 'Summary', { shared: { role: 'assistant', model: 'qwen3-8b' } });
+      expect(requests().at(-1)).toEqual({
+        op: 'chat-post',
+        key: KEY,
+        channel: 'general',
+        text: 'Summary',
+        shared: { role: 'assistant', model: 'qwen3-8b' },
+      });
+    });
+
+    it('keeps a read position on this device only, and refuses one that isn’t', async () => {
+      const service = await running();
+      const sent = requests().length;
+      expect(service.markCircleChannelRead(KEY, 'general', { author: ME, id: ID, at: 3 })).toMatchObject({ success: true });
+      expect(stored.reads[KEY]?.general).toEqual({ author: ME, id: ID, at: 3 });
+      expect(service.markCircleChannelRead(KEY, 'general', { author: ME, id: 'not-hex', at: 3 })).toMatchObject({ success: false });
+      expect(service.markCircleChannelRead(KEY, 'Bad Channel', { author: ME, id: ID, at: 3 })).toMatchObject({ success: false });
+      expect(requests().length).toBe(sent);
+    });
+
+    describe('channels', () => {
+      const channels = [
+        { id: 'general', name: 'General', unread: 0 },
+        { id: 'garden-a1b2c3', name: 'Garden', unread: 0 },
+      ];
+      const reply = (request: { op: string }) =>
+        request.op === 'chat-channels' ? { ok: true, chat: { channels } } : { ok: true };
+      const recordRequests = () => requests().filter((request) => request.op.startsWith('record-'));
+
+      it('adds a channel as a Circle record with a random ending', async () => {
+        const service = await running(reply);
+        const added = await service.addCircleChannel(KEY, '  Book Picks! ');
+        expect(added).toMatchObject({ success: true, id: expect.stringMatching(/^book-picks-[0-9a-f]{6}$/) });
+        expect(recordRequests()).toEqual([
+          {
+            op: 'record-set',
+            key: KEY,
+            app: 'chat',
+            scope: 'circle',
+            record: (added as { id: string }).id,
+            value: { name: 'Book Picks!' },
+          },
+        ]);
+      });
+
+      it('refuses an empty or taken name before writing', async () => {
+        const service = await running(reply);
+        expect(await service.addCircleChannel(KEY, '  ')).toMatchObject({ success: false, error: 'Enter a name.' });
+        expect(await service.addCircleChannel(KEY, 'garden')).toMatchObject({
+          success: false,
+          error: 'This Circle already has a channel with that name.',
+        });
+        expect(await service.renameCircleChannel(KEY, 'garden-a1b2c3', 'Garden')).toMatchObject({ success: true });
+        expect(recordRequests()).toHaveLength(1);
+      });
+
+      it('renames General, never removes it, and removes others by deleting their record', async () => {
+        const service = await running(reply);
+        await service.renameCircleChannel(KEY, 'general', 'Lobby');
+        expect(await service.removeCircleChannel(KEY, 'general')).toMatchObject({ success: false, error: 'General can’t be removed.' });
+        await service.removeCircleChannel(KEY, 'garden-a1b2c3');
+        expect(recordRequests()).toEqual([
+          { op: 'record-set', key: KEY, app: 'chat', scope: 'circle', record: 'general', value: { name: 'Lobby' } },
+          { op: 'record-del', key: KEY, app: 'chat', scope: 'circle', record: 'garden-a1b2c3' },
+        ]);
+      });
+
+      it('tells the renderer when a Circle record of the chat app changes', async () => {
+        const service = await running();
+        service.listenForChannelChanges();
+        const change = { circleKey: KEY, app: 'chat', scope: 'circle', identity: null, key: 'garden', value: { name: 'G' }, confirmed: false, deleted: false };
+        lastChild!.emit('message', { type: 'record-changed', change });
+        lastChild!.emit('message', { type: 'record-changed', change: { ...change, scope: 'member', identity: ME } });
+        expect(broadcasts.filter((payload) => JSON.stringify(payload) === JSON.stringify({ circleKey: KEY }))).toHaveLength(1);
+      });
+    });
+
+    it('broadcasts a channel’s update and hands each message to listeners, past one that throws', async () => {
+      const service = await running();
+      const added: unknown[] = [];
+      const changes: unknown[] = [];
+      service.onCircleMessage(() => {
+        throw new Error('bad listener');
+      });
+      service.onCircleMessage((event) => added.push(event.text));
+      const stop = service.onCircleMessageChange((change) => changes.push(change.kind));
+      const update = {
+        circleKey: KEY,
+        channel: 'general',
+        added: [message('New')],
+        changed: [message('Edited', { edited: true })],
+        gone: [{ author: ME, id: 'fedcba9876543210' }],
+      };
+      lastChild!.emit('message', { type: 'chat-update', update });
+      expect(broadcasts.at(-1)).toEqual(update);
+      expect(added).toEqual(['New']);
+      expect(changes).toEqual(['changed', 'gone']);
+      stop();
+      lastChild!.emit('message', { type: 'chat-update', update });
+      expect(changes).toHaveLength(2);
     });
   });
 });

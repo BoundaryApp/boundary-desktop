@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess } from 'electron';
 import { openInvitesNamed, isOpenInvite } from '../../../shared/circleInvites';
@@ -5,15 +6,21 @@ import { addUsage, localDay } from '../../../shared/circleUsage';
 import { persistDebugLog } from '../../persistDebugLog';
 import { getSlotLlmConnection } from '../onboarding/OpenAiOnboardingStore';
 import { setAwayBlocker } from './awayMode';
-import { isRecordName, type CircleRecordScope } from './circleOps';
+import { isMessageId, isRecordName, type CircleMessageShared, type CircleRecordScope } from './circleOps';
 import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals';
 import { diag, short } from './circlesDiagnostics';
 import { broadcast } from '../windows';
 import type {
+  CircleChannel,
+  CircleChatUpdate,
   CircleCreatedInvite,
   CircleLimit,
   CircleLimits,
+  CircleMessage,
+  CirclePublicAddress,
+  CircleMessageRef,
   CircleProviderSettings,
+  CircleReadPosition,
   CircleRole,
   CircleSharing,
   CirclesResult,
@@ -43,8 +50,10 @@ import {
   pruneInviteCodes,
   readInviteCode,
   saveInviteCode,
+  getReadPositions,
   getServedUsage,
   getUsedUsage,
+  setReadPosition,
   setServedUsage,
   setUsedUsage,
 } from './circlesStore';
@@ -101,6 +110,16 @@ type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; p
 const signalHandlers = new Map<string, Set<CircleSignalHandler>>();
 type CircleRecordHandler = (change: CircleRecordChange) => void;
 const recordHandlers = new Map<string, Set<CircleRecordHandler>>();
+
+/** An edit, delete or confirmation, or a message that disappeared when its order settled. */
+export type CircleMessageChange =
+  | { kind: 'changed'; message: CircleMessage }
+  | ({ kind: 'gone'; circleKey: string; channel: string } & CircleMessageRef);
+const messageHandlers = new Set<(message: CircleMessage) => void>();
+const messageChangeHandlers = new Set<(change: CircleMessageChange) => void>();
+/** Messages a read returns when the caller doesn't say. */
+const DEFAULT_MESSAGE_LIMIT = 50;
+const MAX_MESSAGE_LIMIT = 200;
 /** The waiting join was cancelled, so its failure isn't one to show. */
 let joinCancelled = false;
 /** Whether the secrets saved at admission reached the store. */
@@ -220,6 +239,9 @@ async function start(): Promise<void> {
           return;
         case 'record-changed':
           onRecordChanged(message.change);
+          return;
+        case 'chat-update':
+          onChatUpdate(message.update);
           return;
         case 'addons':
         case 'stopped':
@@ -664,30 +686,179 @@ export function onCircleRecord(app: string, handler: CircleRecordHandler): () =>
 
 /**
  * Keep a value in a Circle for every member. `scope: 'circle'` is one value that only admins
- * write; `scope: 'member'` is this user's own value. Values are JSON, up to 16 KB.
+ * write; `scope: 'member'` is this user's own value. Values are JSON, up to 16 KB. With `keep`, a
+ * `member` record stays after this user leaves or is removed, until an admin deletes it.
  */
 export function setCircleRecord(
   circleKey: string,
   app: string,
   scope: CircleRecordScope,
   record: string,
-  value: unknown
+  value: unknown,
+  { keep = false }: { keep?: boolean } = {}
 ): Promise<CirclesResult> {
-  return run({ op: 'record-set', key: circleKey, app, scope, record, value });
+  return run({ op: 'record-set', key: circleKey, app, scope, record, value, ...(keep ? { keep } : {}) });
 }
 
+/** With `identity`, an admin deletes a kept record of someone who is no longer a member. */
 export function deleteCircleRecord(
   circleKey: string,
   app: string,
   scope: CircleRecordScope,
-  record: string
+  record: string,
+  { identity }: { identity?: string } = {}
 ): Promise<CirclesResult> {
-  return run({ op: 'record-del', key: circleKey, app, scope, record });
+  return run({ op: 'record-del', key: circleKey, app, scope, record, ...(identity ? { identity } : {}) });
+}
+
+/** This device's address as the DHT sees it, for the call check's `swarm` mode (ADR 0044). */
+export function getPublicAddress(): Promise<CirclesResult<{ address: CirclePublicAddress | null }>> {
+  return run({ op: 'public-address' }, (reply) => ({ address: reply.address ?? null }));
 }
 
 /** One app's records in a Circle as this device has them now. */
 export function getCircleRecords(circleKey: string, app: string): Promise<CirclesResult<{ records: CircleRecordEntry[] }>> {
   return run({ op: 'records-list', key: circleKey, app }, (reply) => ({ records: reply.records ?? [] }));
+}
+
+function callChatHandlers<T>(handlers: Set<(event: T) => void>, event: T): void {
+  for (const handler of handlers) {
+    try {
+      handler(event);
+    } catch (error) {
+      // No message content: an error from a handler can quote it.
+      diag('main.chat-handler-failed', { error: error instanceof Error ? error.name : typeof error });
+    }
+  }
+}
+
+function onChatUpdate(update: CircleChatUpdate): void {
+  broadcast('circles:chat-event', update);
+  for (const message of update.added) callChatHandlers(messageHandlers, message);
+  for (const message of update.changed) callChatHandlers(messageChangeHandlers, { kind: 'changed', message });
+  for (const ref of update.gone) {
+    callChatHandlers(messageChangeHandlers, { kind: 'gone', circleKey: update.circleKey, channel: update.channel, ...ref });
+  }
+}
+
+/**
+ * New messages in any Circle, each once per launch, the first time this device sees it after its
+ * Circle opened. Messages already there when a Circle opens don't fire; ones caught up after being
+ * offline do. Returns a function that stops listening.
+ */
+export function onCircleMessage(handler: (message: CircleMessage) => void): () => void {
+  messageHandlers.add(handler);
+  return () => messageHandlers.delete(handler);
+}
+
+/** Edits, deletes, confirmations and messages that disappear when their order settles. */
+export function onCircleMessageChange(handler: (change: CircleMessageChange) => void): () => void {
+  messageChangeHandlers.add(handler);
+  return () => messageChangeHandlers.delete(handler);
+}
+
+/** A Circle's channels, `general` first, with what's unread after this device's read positions. */
+export function listCircleChannels(circleKey: string): Promise<CirclesResult<{ channels: CircleChannel[] }>> {
+  return run({ op: 'chat-channels', key: circleKey, reads: getReadPositions(circleKey) }, (reply) => ({
+    channels: reply.chat?.channels ?? [],
+  }));
+}
+
+/** The newest messages in a channel, or those before `before`, oldest first. */
+export function getCircleMessages(
+  circleKey: string,
+  channel: string,
+  { before, limit = DEFAULT_MESSAGE_LIMIT }: { before?: CircleMessageRef; limit?: number } = {}
+): Promise<CirclesResult<{ messages: CircleMessage[]; more: boolean }>> {
+  const count = Math.max(1, Math.min(MAX_MESSAGE_LIMIT, Math.floor(limit) || DEFAULT_MESSAGE_LIMIT));
+  return run({ op: 'chat-messages', key: circleKey, channel, ...(before ? { before } : {}), limit: count }, (reply) => ({
+    messages: reply.chat?.messages ?? [],
+    more: reply.chat?.more === true,
+  }));
+}
+
+/** Post as this user. The channel counts as read up to the new message. */
+export async function postCircleMessage(
+  circleKey: string,
+  channel: string,
+  text: string,
+  { shared }: { shared?: CircleMessageShared } = {}
+): Promise<CirclesResult<{ id: string }>> {
+  const body = { op: 'chat-post' as const, key: circleKey, channel, text, ...(shared ? { shared } : {}) };
+  const result = await run(body, (reply) => ({ id: reply.chat!.id! }));
+  if (result.success === true && state.snapshot.identity) {
+    setReadPosition(circleKey, channel, { author: state.snapshot.identity, id: result.id, at: Date.now() });
+  }
+  return result;
+}
+
+export function editCircleMessage(circleKey: string, channel: string, id: string, text: string): Promise<CirclesResult> {
+  return run({ op: 'chat-edit', key: circleKey, channel, id, text });
+}
+
+/** The author deletes their own; an admin deletes anyone's. */
+export function deleteCircleMessage(circleKey: string, channel: string, author: string, id: string): Promise<CirclesResult> {
+  return run({ op: 'chat-delete', key: circleKey, channel, author, id });
+}
+
+/** Channels are Circle records of this app, valued `{ name }` (ADR 0042 §1). */
+const CHAT_APP = 'chat';
+const MAX_CHANNEL_NAME = 80;
+
+async function channelNameProblem(circleKey: string, name: string, except?: string): Promise<string | null> {
+  if (!name) return 'Enter a name.';
+  if (name.length > MAX_CHANNEL_NAME) return 'That name is too long.';
+  const current = await listCircleChannels(circleKey);
+  if (current.success === false) return current.error;
+  const taken = current.channels.some((channel) => channel.id !== except && channel.name.toLowerCase() === name.toLowerCase());
+  return taken ? 'This Circle already has a channel with that name.' : null;
+}
+
+/**
+ * Add a channel; admins only. Its id gets a random ending, so a name used by a removed channel
+ * starts empty instead of showing that channel's history again.
+ */
+export async function addCircleChannel(circleKey: string, name: string): Promise<CirclesResult<{ id: string }>> {
+  const trimmed = name.trim();
+  const problem = await channelNameProblem(circleKey, trimmed);
+  if (problem) return fail(new Error(problem));
+  const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'channel';
+  const id = `${slug}-${randomBytes(3).toString('hex')}`;
+  const result = await setCircleRecord(circleKey, CHAT_APP, 'circle', id, { name: trimmed });
+  return result.success === false ? result : { ...result, id };
+}
+
+/** Rename a channel, General included; admins only. */
+export async function renameCircleChannel(circleKey: string, channel: string, name: string): Promise<CirclesResult> {
+  const trimmed = name.trim();
+  if (!isRecordName(channel)) return fail(new Error('That isn’t a channel.'));
+  const problem = await channelNameProblem(circleKey, trimmed, channel);
+  if (problem) return fail(new Error(problem));
+  return setCircleRecord(circleKey, CHAT_APP, 'circle', channel, { name: trimmed });
+}
+
+/** Hide a channel for everyone; its messages stay in the Circle's log. General can't go. */
+export function removeCircleChannel(circleKey: string, channel: string): Promise<CirclesResult> {
+  if (channel === 'general') return Promise.resolve(fail(new Error('General can’t be removed.')));
+  if (!isRecordName(channel)) return Promise.resolve(fail(new Error('That isn’t a channel.')));
+  return deleteCircleRecord(circleKey, CHAT_APP, 'circle', channel);
+}
+
+/** Tell the renderer when a Circle's channels may have changed, on `circles:chat-channels`. */
+export function listenForChannelChanges(): () => void {
+  return onCircleRecord(CHAT_APP, (change) => {
+    if (change.scope === 'circle') broadcast('circles:chat-channels', { circleKey: change.circleKey });
+  });
+}
+
+/** Keep the newest message read in a channel, on this device only (ADR 0042 §8). */
+export function markCircleChannelRead(circleKey: string, channel: string, position: CircleReadPosition): CirclesResult {
+  const { author, id, at } = position ?? ({} as CircleReadPosition);
+  if (!isRecordName(channel) || typeof author !== 'string' || !isMessageId(id) || !Number.isSafeInteger(at)) {
+    return fail(new Error('That isn’t a read position.'));
+  }
+  setReadPosition(circleKey, channel, { author, id, at });
+  return { success: true, state };
 }
 
 function fail(error: unknown): CirclesResult<never> {

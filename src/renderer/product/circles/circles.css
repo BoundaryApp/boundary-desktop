@@ -54,10 +54,11 @@ html[data-platform='darwin'] .workbench:has(.wb-circles) .wb-icon-rail::after {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
+  /* The background is the person's colour, set inline from their key. */
   background: var(--surface-hover);
-  color: var(--text-muted);
+  color: var(--on-glyph);
   font-size: var(--size-2xs);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .wb-circle-avatar.is-large {

@@ -15,7 +15,10 @@ import type { SharedModelOffer } from '../../../shared/types/circles';
 export type CircleRole = 'admin' | 'member';
 
 /** The highest format this build can apply. New Circles start at it. */
-export const CIRCLE_FORMAT = 1;
+export const CIRCLE_FORMAT = 2;
+
+/** The first format with chat and kept records (ADR 0042 §1–§2). */
+export const CHAT_FORMAT = 2;
 
 /** How a device introduces its owner to a Circle. Hex strings throughout. */
 export interface CircleMemberIntro {
@@ -71,6 +74,50 @@ export interface CircleRecord {
   key: string;
   /** JSON. `apply` checks its size and never reads it, so readers must not trust it. */
   value: unknown;
+  /** A `member` record that stays after its member leaves, until an admin deletes it. Format 2. */
+  keep?: true;
+}
+
+/** Where shared text came from (ADR 0042 §9). */
+export interface CircleMessageShared {
+  role: 'user' | 'assistant';
+  /** The model name the Hermes chat showed, for an assistant reply. */
+  model?: string;
+}
+
+/** Which of the author's agents wrote a message (ADR 0042 §12). A label, not a separate identity. */
+export interface CircleMessageAgent {
+  slug: string;
+  name: string;
+}
+
+/** A call's start, and its end once the author's device saw it (ADR 0044 §7). */
+export interface CircleMessageCall {
+  id: string;
+  /** The author's clock in milliseconds. */
+  ended?: number;
+}
+
+/** A message as the view holds it. */
+export interface CircleMessageRecord {
+  channel: string;
+  /** Its place in the channel. Recomputed when unconfirmed entries reorder, so never an identity. */
+  position: number;
+  /** The author's identity. With `id`, names the message everywhere outside `apply`. */
+  author: string;
+  id: string;
+  /** The author's display name when they posted, kept after they leave. */
+  name: string;
+  /** Empty once deleted. */
+  text: string;
+  /** The author's clock in milliseconds; shown, never used for order. */
+  at: number;
+  edited: boolean;
+  /** Who removed it: its author, or an admin. */
+  deleted: 'author' | 'admin' | null;
+  shared?: CircleMessageShared;
+  agent?: CircleMessageAgent;
+  call?: CircleMessageCall;
 }
 
 export type CircleOp =
@@ -83,8 +130,20 @@ export type CircleOp =
   | { type: 'revoke-invite'; id: string }
   | { type: 'offer'; offer: CircleOffer }
   | { type: 'withdraw-offer' }
-  | { type: 'record-set'; app: string; scope: CircleRecordScope; key: string; value: unknown }
-  | { type: 'record-del'; app: string; scope: CircleRecordScope; key: string };
+  | { type: 'record-set'; app: string; scope: CircleRecordScope; key: string; value: unknown; keep?: true }
+  | { type: 'record-del'; app: string; scope: CircleRecordScope; key: string; identity?: string }
+  | {
+      type: 'chat-post';
+      channel: string;
+      id: string;
+      text: string;
+      at: number;
+      shared?: CircleMessageShared;
+      agent?: CircleMessageAgent;
+      call?: CircleMessageCall;
+    }
+  | { type: 'chat-edit'; channel: string; id: string; text: string; call?: CircleMessageCall }
+  | { type: 'chat-delete'; channel: string; author: string; id: string };
 
 /** The view's `CIRCLE_KEY` entry. */
 export interface CircleHeader {
@@ -107,6 +166,15 @@ const memberRecordsPrefix = (identity: string): string => `${RECORDS_PREFIX}memb
 export const circleRecordKey = (app: string, key: string): string => `${RECORDS_PREFIX}circle/${app}/${key}`;
 export const memberRecordKey = (identity: string, app: string, key: string): string =>
   `${memberRecordsPrefix(identity)}${app}/${key}`;
+const CHAT_PREFIX = 'chat/';
+/** A channel's message count. */
+export const chatCountKey = (channel: string): string => `${CHAT_PREFIX}${channel}/count`;
+/** Positions are zero-padded so a channel's messages list in order. */
+export const chatMessageKey = (channel: string, position: number): string =>
+  `${CHAT_PREFIX}${channel}/messages/${String(position).padStart(12, '0')}`;
+/** From `author/id` to the message's position. */
+export const chatIndexKey = (channel: string, author: string, id: string): string =>
+  `${CHAT_PREFIX}${channel}/ids/${author}/${id}`;
 
 /**
  * Whether a view update took away this device's own membership. A member who left and joined
@@ -160,6 +228,12 @@ const MAX_CONTEXT = 100_000_000;
 /** The longest record value, as JSON text. */
 export const MAX_RECORD_VALUE_BYTES = 16 * 1024;
 const RECORD_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const MESSAGE_ID = /^[0-9a-f]{16,32}$/;
+/** The longest message text, as UTF-8. */
+const MAX_MESSAGE_TEXT_BYTES = 12 * 1024;
+/** The longest chat operation, as JSON text. */
+const MAX_CHAT_OP_BYTES = 16 * 1024;
+const MAX_MODEL_NAME = 200;
 
 /** An `app` or record `key`. Neither can hold a `/`, so view keys stay unambiguous. */
 export const isRecordName = (name: unknown): name is string => typeof name === 'string' && RECORD_NAME.test(name);
@@ -229,6 +303,49 @@ function cleanOffer(value: unknown): CircleOffer | null {
   }
   return { models, available: offer.available, away: offer.away };
 }
+
+export const isMessageId = (id: unknown): id is string => typeof id === 'string' && MESSAGE_ID.test(id);
+
+/** Whether `text` fits; it may be empty only when the message marks a call. */
+export function isMessageText(text: unknown, call: boolean): text is string {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_MESSAGE_TEXT_BYTES) return false;
+  return call || text.trim().length > 0;
+}
+
+/** The optional parts of a message, cut to their known fields; null when one is malformed. */
+function cleanMessageParts(op: {
+  shared?: unknown;
+  agent?: unknown;
+  call?: unknown;
+}): Pick<CircleMessageRecord, 'shared' | 'agent' | 'call'> | null {
+  const parts: Pick<CircleMessageRecord, 'shared' | 'agent' | 'call'> = {};
+  if (op.shared !== undefined) {
+    const { role, model } = (op.shared ?? {}) as CircleMessageShared;
+    if (role !== 'user' && role !== 'assistant') return null;
+    if (model !== undefined && (typeof model !== 'string' || !model.trim() || model.length > MAX_MODEL_NAME)) return null;
+    parts.shared = { role, ...(model !== undefined ? { model } : {}) };
+  }
+  if (op.agent !== undefined) {
+    const { slug, name } = (op.agent ?? {}) as CircleMessageAgent;
+    if (!isRecordName(slug) || typeof name !== 'string' || !name.trim() || name.length > MAX_NAME) return null;
+    parts.agent = { slug, name: name.trim() };
+  }
+  if (op.call !== undefined) {
+    const call = cleanCall(op.call);
+    if (!call) return null;
+    parts.call = call;
+  }
+  return parts;
+}
+
+function cleanCall(value: unknown): CircleMessageCall | null {
+  const { id, ended } = (value ?? {}) as CircleMessageCall;
+  if (!isMessageId(id)) return null;
+  if (ended !== undefined && (!Number.isSafeInteger(ended) || ended < 0)) return null;
+  return { id, ...(ended !== undefined ? { ended } : {}) };
+}
+
+const fitsChatOp = (op: unknown): boolean => Buffer.byteLength(JSON.stringify(op)) <= MAX_CHAT_OP_BYTES;
 
 function introOnly(intro: CircleMemberIntro): CircleMemberIntro {
   const { identity, name, writer, device, signature } = intro;
@@ -369,8 +486,12 @@ async function applyOne(
       await view.del(writerKey(target.writer));
       // A member who leaves stops sharing too (ADR 0033 §10: their entries go stale).
       await view.del(offerKey(target.identity));
+      // Kept records outlive their member from format 2 (ADR 0042 §2); messages always do (§7).
       const records = (await view.list(memberRecordsPrefix(target.identity))) as CircleRecord[];
-      for (const record of records) await view.del(memberRecordKey(target.identity, record.app, record.key));
+      for (const record of records) {
+        if (circle.format >= CHAT_FORMAT && record.keep) continue;
+        await view.del(memberRecordKey(target.identity, record.app, record.key));
+      }
       return null;
     }
     case 'offer': {
@@ -391,6 +512,11 @@ async function applyOne(
       if (authorRole === null) return 'not a member';
       if (!isRecordName(op.app) || !isRecordName(op.key) || !isRecordScope(op.scope)) return 'bad record';
       if (op.scope === 'circle' && authorRole !== 'admin') return 'only admins write Circle records';
+      // Format 1 ignores `keep` and `identity`, as builds before format 2 did.
+      const format2 = circle.format >= CHAT_FORMAT;
+      if (op.type === 'record-del' && format2 && op.identity !== undefined && op.identity !== author!.identity) {
+        return deleteDepartedRecord(view, op, authorRole);
+      }
       const identity = op.scope === 'member' ? author!.identity : null;
       const viewKey = identity ? memberRecordKey(identity, op.app, op.key) : circleRecordKey(op.app, op.key);
       if (op.type === 'record-del') {
@@ -398,10 +524,131 @@ async function applyOne(
         return null;
       }
       if (!isRecordValue(op.value)) return 'bad record value';
-      await view.put(viewKey, { app: op.app, scope: op.scope, identity, key: op.key, value: op.value });
+      const keep = format2 && op.keep !== undefined;
+      if (keep && (op.keep !== true || op.scope !== 'member')) return 'bad record';
+      await view.put(viewKey, { app: op.app, scope: op.scope, identity, key: op.key, value: op.value, ...(keep ? { keep: true } : {}) });
       return null;
+    }
+    case 'chat-post':
+    case 'chat-edit':
+    case 'chat-delete': {
+      // Earlier formats skip chat, as builds before format 2 did (ADR 0038 §3).
+      if (circle.format < CHAT_FORMAT) return 'unknown operation';
+      if (authorRole === null) return 'not a member';
+      if (!isRecordName(op.channel)) return 'bad channel';
+      if (!fitsChatOp(op)) return 'chat operation too long';
+      if (op.type === 'chat-post') return postMessage(view, op, authorMember!);
+      if (op.type === 'chat-edit') return editMessage(view, op, author!.identity);
+      return deleteMessage(view, op, author!.identity, authorRole);
     }
     default:
       return 'unknown operation';
   }
+}
+
+/** An admin deleting a kept record whose owner is no longer a member (ADR 0042 §2). */
+async function deleteDepartedRecord(
+  view: CircleView,
+  op: Extract<CircleOp, { type: 'record-del' }>,
+  authorRole: CircleRole
+): Promise<string | null> {
+  if (authorRole !== 'admin') return 'only admins delete another member’s record';
+  if (op.scope !== 'member' || typeof op.identity !== 'string' || !HEX_KEY.test(op.identity)) return 'bad record';
+  if (await view.get(memberKey(op.identity))) return 'that member is still in the Circle';
+  const key = memberRecordKey(op.identity, op.app, op.key);
+  const record = await read<CircleRecord>(view, key);
+  if (!record?.keep) return 'no such kept record';
+  await view.del(key);
+  return null;
+}
+
+/** What `apply` would skip a post for without reading the view, or null. */
+export function chatPostProblem(op: Extract<CircleOp, { type: 'chat-post' }>): string | null {
+  if (!isRecordName(op.channel)) return 'bad channel';
+  if (!fitsChatOp(op)) return 'chat operation too long';
+  if (!isMessageId(op.id)) return 'bad message id';
+  if (!Number.isSafeInteger(op.at) || op.at < 0) return 'bad message time';
+  const parts = cleanMessageParts(op);
+  if (!parts) return 'bad message';
+  if (!isMessageText(op.text, Boolean(parts.call))) return 'bad message text';
+  return null;
+}
+
+async function postMessage(
+  view: CircleView,
+  op: Extract<CircleOp, { type: 'chat-post' }>,
+  author: CircleMemberRecord
+): Promise<string | null> {
+  const problem = chatPostProblem(op);
+  if (problem) return problem;
+  const parts = cleanMessageParts(op)!;
+  const index = chatIndexKey(op.channel, author.identity, op.id);
+  if (await view.get(index)) return 'message already posted';
+  const position = (await read<number>(view, chatCountKey(op.channel))) ?? 0;
+  const message: CircleMessageRecord = {
+    channel: op.channel,
+    position,
+    author: author.identity,
+    id: op.id,
+    name: author.name,
+    text: op.text,
+    at: op.at,
+    edited: false,
+    deleted: null,
+    ...parts,
+  };
+  await view.put(chatMessageKey(op.channel, position), message);
+  await view.put(index, position);
+  await view.put(chatCountKey(op.channel), position + 1);
+  return null;
+}
+
+async function findMessage(view: CircleView, channel: string, author: string, id: unknown) {
+  if (!isMessageId(id)) return null;
+  const position = await read<number>(view, chatIndexKey(channel, author, id));
+  if (position === null) return null;
+  return read<CircleMessageRecord>(view, chatMessageKey(channel, position));
+}
+
+/** Only the author edits (ADR 0042 §5). An edit may also add a call's end. */
+async function editMessage(
+  view: CircleView,
+  op: Extract<CircleOp, { type: 'chat-edit' }>,
+  identity: string
+): Promise<string | null> {
+  const message = await findMessage(view, op.channel, identity, op.id);
+  if (!message) return 'no such message of theirs';
+  if (message.deleted) return 'message deleted';
+  let call = message.call;
+  if (op.call !== undefined) {
+    const next = cleanCall(op.call);
+    if (!next || next.id !== message.call?.id) return 'bad message';
+    call = next;
+  }
+  if (!isMessageText(op.text, Boolean(call))) return 'bad message text';
+  await view.put(chatMessageKey(op.channel, message.position), {
+    ...message,
+    text: op.text,
+    edited: message.edited || op.text !== message.text,
+    ...(call ? { call } : {}),
+  });
+  return null;
+}
+
+/** The author or any admin deletes. The text goes; a stub says who removed it (ADR 0042 §5). */
+async function deleteMessage(
+  view: CircleView,
+  op: Extract<CircleOp, { type: 'chat-delete' }>,
+  identity: string,
+  role: CircleRole
+): Promise<string | null> {
+  if (typeof op.author !== 'string' || !HEX_KEY.test(op.author)) return 'bad message';
+  if (op.author !== identity && role !== 'admin') return 'only the author or an admin deletes';
+  const message = await findMessage(view, op.channel, op.author, op.id);
+  if (!message) return 'no such message';
+  if (message.deleted) return 'message deleted';
+  const { channel, position, author, id, name, at, edited } = message;
+  const stub: CircleMessageRecord = { channel, position, author, id, name, text: '', at, edited, deleted: op.author === identity ? 'author' : 'admin' };
+  await view.put(chatMessageKey(op.channel, position), stub);
+  return null;
 }

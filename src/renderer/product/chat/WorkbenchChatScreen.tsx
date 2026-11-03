@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HermesConversationKind } from '../../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
@@ -26,7 +26,13 @@ import { TasksPane, type TasksView } from './TasksPane';
 import { clearTaskOpenRequest, useTaskOpenRequest } from './kanbanActivity';
 import { ChatRail, railOrder, type CenterMode } from './ChatRail';
 import { headKindLine } from './conversationKinds';
-import { useAppCommand } from '../useAppShortcuts';
+import { dispatchAppCommand, useAppCommand } from '../useAppShortcuts';
+import { useCirclesState } from '../circles/useCircles';
+import { circleUnread, useCircleChannels } from '../circles/useCircleChat';
+import { circleChannel, forgetCirclePlace, showCirclePlace, showMacPlace, useChatPlace } from './circlePlace';
+import { CirclePlace } from './circle/CirclePlace';
+import { PlaceSwitcher } from './circle/PlaceSwitcher';
+import { ShareToCircleSheet, type CircleShareDraft, type CircleShareTarget } from './circle/ShareToCircleSheet';
 import { EmptyProjectSheet } from './EmptyProjectSheet';
 import { MoveProjectSheet } from './MoveProjectSheet';
 import { ProjectPane } from './ProjectPane';
@@ -342,6 +348,8 @@ export const WorkbenchChatScreen: React.FC = () => {
   // ⌘N / ⌘[ / ⌘] from the keyboard or menu bar (useAppShortcuts).
   useAppCommand((command) => {
     if (command === 'new-chat') {
+      // A Hermes chat lives in This Mac (Circle chats spec decision 4).
+      showMacPlace();
       void newHermesChat();
       return;
     }
@@ -360,6 +368,66 @@ export const WorkbenchChatScreen: React.FC = () => {
         : order[Math.max(0, at - 1)];
     if (target && target !== activeThreadId) void openThread(target);
   });
+
+  // Places (ADR 0042 §10). The switcher shows once the user is in a Circle.
+  const circlesState = useCirclesState();
+  const circles = circlesState.status === 'running' ? circlesState.snapshot.circles : [];
+  const circleChannels = useCircleChannels(useMemo(() => circles.map((circle) => circle.key), [circles]));
+  const unreadByCircle = useMemo(
+    () => Object.fromEntries(circles.map((circle) => [circle.key, circleUnread(circleChannels[circle.key])])),
+    [circles, circleChannels]
+  );
+  const placeState = useChatPlace();
+  const [shareDraft, setShareDraft] = useState<CircleShareDraft | null>(null);
+  const [sharedTo, setSharedTo] = useState<CircleShareTarget | null>(null);
+  const shownCircle =
+    placeState.place.kind === 'circle'
+      ? (circles.find((circle) => circle.key === (placeState.place as { key: string }).key) ?? null)
+      : null;
+  const missingCircle =
+    placeState.place.kind === 'circle' && circlesState.status === 'running' && !shownCircle
+      ? placeState.place.key
+      : null;
+  useEffect(() => {
+    if (missingCircle) forgetCirclePlace(missingCircle);
+  }, [missingCircle]);
+  // Opening anything of This Mac's (a chat, a task, Mentions, ⌘N) switches to This Mac. The
+  // chat list's first landing on a chat at launch is not the user opening it, so it doesn't.
+  const macTarget = JSON.stringify([activeThreadId, centerMode, activeTaskId, allChatsOpen.key]);
+  const lastMacTarget = useRef(macTarget);
+  const landedBefore = useRef(ids.landed);
+  useEffect(() => {
+    const opened = landedBefore.current;
+    landedBefore.current = ids.landed;
+    if (lastMacTarget.current === macTarget) return;
+    lastMacTarget.current = macTarget;
+    if (opened) showMacPlace();
+  }, [macTarget, ids.landed]);
+  const switcher = circles.length ? (
+    <PlaceSwitcher
+      place={shownCircle ? placeState.place : { kind: 'mac' }}
+      circles={circles}
+      unread={unreadByCircle}
+      onMac={showMacPlace}
+      onCircle={(key) => showCirclePlace(key)}
+      onManage={() => dispatchAppCommand('go-circles')}
+    />
+  ) : null;
+
+  if (shownCircle) {
+    return (
+      <div className="relative flex h-full min-h-0 w-full">
+        <CirclePlace
+          circle={shownCircle}
+          channels={circleChannels[shownCircle.key]}
+          channelId={circleChannel(placeState, shownCircle.key)}
+          onOpenChannel={(channelId) => showCirclePlace(shownCircle.key, channelId)}
+          switcher={switcher}
+          onManage={() => dispatchAppCommand('go-circles')}
+        />
+      </div>
+    );
+  }
 
   const mentionsPaneActions = {
     onOpenInRoom: (m: Parameters<typeof nav.openMentionInRoom>[0]): void =>
@@ -413,6 +481,7 @@ export const WorkbenchChatScreen: React.FC = () => {
         onNewAgent={agentSheets.newAgent}
         onOpenRoster={() => agentSheets.roster.show('roster')}
         error={projects.projectError ?? lists.threadError}
+        top={switcher}
       />
 
       <main className="wb-center">
@@ -582,6 +651,7 @@ export const WorkbenchChatScreen: React.FC = () => {
               onNewProject={projects.newProject.pick}
               onCreateAgentFromDraft={agentSheets.createFromDraft}
               onEditAgentDraft={agentSheets.editDraft}
+              onShareToCircle={circles.length ? setShareDraft : undefined}
             />
           </HermesChatRuntimeProvider>
         )}
@@ -745,6 +815,33 @@ export const WorkbenchChatScreen: React.FC = () => {
             aria-label="Dismiss"
             onClick={() => projects.setProjectToast(null)}
           >
+            ✕
+          </button>
+        </div>
+      ) : null}
+      <ShareToCircleSheet
+        draft={shareDraft}
+        circles={circles}
+        channels={circleChannels}
+        onClose={() => setShareDraft(null)}
+        onShared={(target) => {
+          setShareDraft(null);
+          setSharedTo(target);
+        }}
+      />
+      {sharedTo ? (
+        <div className="wb-toast is-screen" role="status">
+          Shared to {sharedTo.circleName} · {sharedTo.channelName}
+          <button
+            type="button"
+            onClick={() => {
+              setSharedTo(null);
+              showCirclePlace(sharedTo.circleKey, sharedTo.channel);
+            }}
+          >
+            Open
+          </button>
+          <button type="button" aria-label="Dismiss" onClick={() => setSharedTo(null)}>
             ✕
           </button>
         </div>

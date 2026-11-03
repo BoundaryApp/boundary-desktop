@@ -161,6 +161,7 @@ const shouldSign = Boolean(
 );
 
 const appIcon = process.env.BOUNDARY_APP_ICON || 'src/assets/icon.icns';
+const appDisplayName = process.env.BOUNDARY_APP_NAME || 'Boundary';
 
 const config: ForgeConfig = {
   hooks: {
@@ -224,6 +225,12 @@ const config: ForgeConfig = {
     // appVersion and buildVersion default to package.json's version, which releases are cut from.
     // Icon configuration for macOS
     icon: appIcon,
+    // macOS shows these in its camera and microphone prompts. Without them a signed build is
+    // stopped the first time a page asks for media.
+    extendInfo: {
+      NSCameraUsageDescription: `${appDisplayName} uses the camera for video calls you start or join.`,
+      NSMicrophoneUsageDescription: `${appDisplayName} uses the microphone for calls you start or join.`,
+    },
     // Podman/compose helpers must live outside the asar (executable + notarization).
     // Populate via ./scripts/fetch-container-runtime.sh before packaging.
     // Assistant compose overlay ships beside container-runtime for stack ownership.

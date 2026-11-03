@@ -190,14 +190,17 @@ export interface ReplyExtras {
   onQuote: (text: string) => void;
   /** Present when a project is bound; Save writes a .md file there by default. */
   saveTo?: { projectName: string; onSave: (markdown: string) => void };
+  /** Present when the user is in a Circle: opens the share sheet with this message (ADR 0042 §9). */
+  onShare?: (share: { text: string; role: 'user' | 'assistant' }) => void;
 }
 
 export const ReplyExtrasContext = createContext<ReplyExtras | null>(null);
 
-/** ⋯ on replies: the rarer verbs, so the row stays short. */
+/** ⋯ on replies: the rarer verbs, so the row stays short. On prompts it holds only Share. */
 const MoreAction: React.FC = () => {
   const extras = useContext(ReplyExtrasContext);
   const aui = useAui();
+  const isUser = useAuiState((s) => s.message.role === 'user');
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -207,7 +210,7 @@ const MoreAction: React.FC = () => {
     return () => clearTimeout(timer);
   }, [copied]);
 
-  if (!extras) return null;
+  if (!extras || (isUser && !extras.onShare)) return null;
   const replyText = () => textOf(aui.message.getState());
   const pick = (action: () => void) => () => {
     setOpen(false);
@@ -231,23 +234,37 @@ const MoreAction: React.FC = () => {
           </button>
         </PopoverTrigger>
         <PopoverContent className="wb-menu" role="menu" side="top" align="start">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={pick(() => {
-              void navigator.clipboard
-                ?.writeText(markdownToPlainText(replyText()))
-                .then(() => setCopied(true))
-                .catch((): void => undefined);
-            })}
-          >
-            Copy as plain text
-          </button>
-          <button type="button" role="menuitem" onClick={pick(() => extras.onQuote(replyText()))}>
-            Quote in reply
-            <small>or select text to quote part of it</small>
-          </button>
-          {extras.saveTo ? (
+          {isUser ? null : (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={pick(() => {
+                  void navigator.clipboard
+                    ?.writeText(markdownToPlainText(replyText()))
+                    .then(() => setCopied(true))
+                    .catch((): void => undefined);
+                })}
+              >
+                Copy as plain text
+              </button>
+              <button type="button" role="menuitem" onClick={pick(() => extras.onQuote(replyText()))}>
+                Quote in reply
+                <small>or select text to quote part of it</small>
+              </button>
+            </>
+          )}
+          {extras.onShare ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={pick(() => extras.onShare?.({ text: replyText(), role: isUser ? 'user' : 'assistant' }))}
+            >
+              Share to Circle…
+              <small>everyone in the Circle gets a copy</small>
+            </button>
+          ) : null}
+          {!isUser && extras.saveTo ? (
             <button
               type="button"
               role="menuitem"
@@ -570,6 +587,7 @@ export const UserMessageActions: React.FC = () => {
         </ActionBarPrimitive.Edit>
       ) : null}
       <BranchAction />
+      <MoreAction />
     </ActionBarPrimitive.Root>
   );
 };

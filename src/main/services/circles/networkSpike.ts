@@ -69,6 +69,7 @@ export function startCirclesNetworkSpike(): void {
       case 'circle-removed':
       case 'signal-received':
       case 'record-changed':
+      case 'chat-update':
       case 'diag':
         return;
     }
