@@ -122,6 +122,7 @@ const SERVICE_MILESTONE: Partial<Record<string, StartMilestone>> = {
   'boundary-lightrag-neo4j': 'apiBootstrapDone',
   'boundary-lightrag': 'browserBootstrapDone',
   'boundary-gpt-researcher': 'browserBootstrapDone',
+  'boundary-gptr-mcp': 'browserBootstrapDone',
   'boundary-n8n': 'browserBootstrapDone',
   'boundary-opencode': 'browserBootstrapDone',
   'boundary-opencode-mcp': 'browserBootstrapDone',

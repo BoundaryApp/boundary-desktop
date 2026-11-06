@@ -1,6 +1,6 @@
 # Shared model as the app default
 
-Two Macs, for [ADR 0036](../adr/0036-shared-model-app-default.md). The provider shares a local model from the Circles screen; `dev:local-stack` works there. The consumer must be a managed install, with OpenRouter and any local server disconnected.
+Two Macs, for [ADR 0036](../adr/0036-shared-model-app-default.md). The provider shares a local model from **Shared from this Mac** in Inference; `dev:local-stack` works there. The consumer must be a managed install, with OpenRouter and any local server disconnected.
 
 1. On the consumer, in Settings, Inference: the warning says no provider is connected, and the provider's model is listed under App default. With the provider not Trusted the row is disabled and says to trust them in Circles.
 2. In Circles, turn on Trusted. Back in Settings, pick the model. The warning goes, the assistant restarts and Fallbacks appears.

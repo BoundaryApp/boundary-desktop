@@ -25,6 +25,7 @@ import {
   hermesAgentsStoreName,
 } from '../assistantStackIdentity';
 import { readStoreFromMemory } from '../../storeMemoryCache';
+import { withBuiltinAgentName } from './builtinAgentName';
 
 interface SessionMeta {
   agentSlug: string;
@@ -153,8 +154,9 @@ function ensureBuiltin(): AgentProfile[] {
   return agents;
 }
 
+/** The stored agents, with the built-in agent under the name its source gives, if any. */
 export function listStoredAgents(): AgentProfile[] {
-  return ensureBuiltin();
+  return ensureBuiltin().map(withBuiltinAgentName);
 }
 
 export function getStoredAgent(slug: string): AgentProfile | null {
@@ -162,7 +164,8 @@ export function getStoredAgent(slug: string): AgentProfile | null {
 }
 
 export function upsertStoredAgent(agent: AgentProfile): void {
-  const agents = listStoredAgents().filter((a) => a.slug !== agent.slug);
+  // The stored records, so a supplied name for the built-in agent is never written back.
+  const agents = ensureBuiltin().filter((a) => a.slug !== agent.slug);
   // Built-in agent always first.
   if (agent.builtIn || agent.slug === BUILTIN_ASSISTANT_SLUG) {
     store().set('agents', [agent, ...agents.filter((a) => a.slug !== BUILTIN_ASSISTANT_SLUG)]);

@@ -8,6 +8,7 @@ import {
   stageCopy,
   startupEstimate,
   startupProgress,
+  startupTools,
   toolFill,
   toolState,
 } from '../startupModel';
@@ -30,6 +31,16 @@ describe('STARTUP_TOOLS', () => {
   it('covers every stack container exactly once', () => {
     const covered = STARTUP_TOOLS.flatMap((t) => t.containers).sort();
     expect(covered).toEqual([...BOUNDARY_ASSISTANT_CONTAINER_NAMES].sort());
+  });
+});
+
+describe('startupTools', () => {
+  it('drops a tool none of whose containers start, as Automations while n8n is off', () => {
+    const seeded = seedServiceProgress('pending', 'Queued…', 0.05);
+    expect(startupTools(seeded).map((t) => t.id)).toEqual(STARTUP_TOOLS.map((t) => t.id));
+    const withoutN8n = seeded.filter((s) => s.containerName !== 'boundary-n8n');
+    expect(startupTools(withoutN8n).map((t) => t.id)).not.toContain('automations');
+    expect(startupTools(withoutN8n)).toHaveLength(STARTUP_TOOLS.length - 1);
   });
 });
 

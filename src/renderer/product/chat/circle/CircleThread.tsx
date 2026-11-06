@@ -67,6 +67,7 @@ interface ThreadContextValue {
   setEditing: (id: string | null) => void;
   onEdit: (message: CircleMessage, text: string) => Promise<string | null>;
   onDelete: (message: CircleMessage) => void;
+  onPerson?: (identity: string) => void;
 }
 
 const ThreadContext = createContext<ThreadContextValue | null>(null);
@@ -258,7 +259,7 @@ const Actions: React.FC<{ message: CircleMessage }> = ({ message }) => {
 
 /** One message: the user's own on the right, everyone else's under a who-line (decision 9). */
 const MessageRow: React.FC = () => {
-  const { circle } = useThread();
+  const { circle, onPerson } = useThread();
   const message = useAuiState((s) => circleOf(s.message));
   const previous = useAuiState((s) => circleOf(s.thread.messages[s.message.index - 1]));
   if (!message) return null;
@@ -297,7 +298,18 @@ const MessageRow: React.FC = () => {
         <div className="wb-circle-m">
           {grouped ? null : (
             <div className="wb-who wb-circle-who">
-              <span className="wb-circle-name">{name}</span>
+              {onPerson && !message.agent && !left ? (
+                <button
+                  type="button"
+                  className="wb-circle-name"
+                  title={`${message.name}’s details`}
+                  onClick={() => onPerson(message.author)}
+                >
+                  {name}
+                </button>
+              ) : (
+                <span className="wb-circle-name">{name}</span>
+              )}
               {message.agent ? <span className="wb-circle-tag">Agent</span> : null}
               {left ? <span className="wb-circle-tag">Left</span> : null}
               <Time message={message} />
@@ -403,6 +415,8 @@ export interface CircleThreadProps {
   chat: CircleChatView;
   /** The header's controls on the right, such as the panel button. Not shown when compact. */
   headerEnd?: React.ReactNode;
+  /** Opens a person's details from their name in a who-line. */
+  onPerson?: (identity: string) => void;
   /**
    * The layout for a narrow dock, from 320px: a channel picker in the header (when `channels` is
    * given), actions behind …, no hint, and a composer that grows to five lines.
@@ -423,6 +437,7 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
   channel,
   chat,
   headerEnd,
+  onPerson,
   compact = false,
   channels,
   onOpenChannel,
@@ -467,8 +482,9 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
         setDeleteError(null);
         setDeleting(message);
       },
+      onPerson,
     }),
-    [circle, compact, editing, chat]
+    [circle, compact, editing, chat, onPerson]
   );
 
   const unconfirmed = chat.messages.some((message) => !message.confirmed);

@@ -1,6 +1,8 @@
 /**
  * Host requirements for running the assistant container stack
- * (core + rag + automation + coding + db) with a remote OpenAI-compatible LLM.
+ * (core + automation + coding + db, plus rag while LightRAG is on) with a remote
+ * OpenAI-compatible LLM. The figures leave room for LightRAG and Neo4j, which the user can
+ * turn on from Services.
  *
  * Memory ballpark from compose limits / tuning, excluding local LLM cost:
  *   hermes 3G + hermes-webui ~0.5G + searxng/mcp ~0.5G + neo4j ~1.5–2G +

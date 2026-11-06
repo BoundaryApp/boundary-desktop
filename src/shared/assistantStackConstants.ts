@@ -6,16 +6,40 @@ export const BOUNDARY_ASSISTANT_PROJECT_NAME = `${INSTANCE_NAME}-assistant`;
 
 /**
  * Profiles Boundary brings up on every ensure/stop (not ollama/calendar/signal/searxng-prod).
- * `db` is the shared Postgres plus SQL MCP for Hermes (stack docs/database.md), not n8n's
- * postgres, which `automation` brings up.
+ * `rag` (LightRAG and Neo4j) is off unless the user turns it on: compose calls then add
+ * {@link LIGHTRAG_COMPOSE_PROFILE}. `db` is the shared Postgres plus SQL MCP for Hermes (stack docs/database.md). `research` is
+ * gptr-mcp, which Hermes registers as GPT Researcher tools when GPTR_MCP_ENABLED is 1 (stack
+ * docs/gpt-researcher.md); `automation` starts it too, for OpenCode, along with the GPT
+ * Researcher API and n8n. n8n is off unless the user turns it on: `up` then names every other
+ * service ({@link N8N_COMPOSE_SERVICES}). `search-gate` paces web searches; it goes with
+ * {@link BOUNDARY_WEB_SEARCH_URL}. A stack older than a profile ignores the name.
  */
 export const BOUNDARY_ASSISTANT_COMPOSE_PROFILES = [
   'core',
-  'rag',
   'automation',
   'coding',
   'db',
+  'research',
+  'search-gate',
 ] as const;
+
+/**
+ * n8n, its one-shot seed job and the GPT Researcher API, which only n8n's research workflow
+ * calls (n8n waits for it at start). All three are in the `automation` profile; Hermes's and
+ * OpenCode's GPT Researcher tools are `gptr-mcp`, which `research` also starts. Compose pulls
+ * the image of every service in an active profile, even one scaled to 0, so with n8n off `up`
+ * lists the profile's other services by name instead of dropping the profile.
+ */
+export const N8N_COMPOSE_SERVICES = ['n8n-import', 'n8n', 'gpt-researcher'] as const;
+
+/**
+ * LightRAG's profile. It holds lightrag, its MCP sidecar and Neo4j, its graph store; nothing
+ * outside it needs them (n8n's `depends_on` on lightrag and neo4j is `required: false`).
+ */
+export const LIGHTRAG_COMPOSE_PROFILE = 'rag';
+
+/** The `rag` profile's services, sidecar first so `rm` stops it before what it calls. */
+export const LIGHTRAG_COMPOSE_SERVICES = ['lightrag-mcp', 'lightrag', 'neo4j'] as const;
 
 /** @deprecated Prefer BOUNDARY_ASSISTANT_COMPOSE_PROFILES — kept for hermes-only setup run. */
 export const BOUNDARY_ASSISTANT_COMPOSE_PROFILE = 'core';
@@ -32,8 +56,8 @@ const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
  * so a moved tag can't change what installs get. Read the stack's CHANGELOG.md before
  * bumping; a minor version can add services, required keys, host requirements or mounts.
  */
-export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.8';
-export const SOVEREIGN_AGENT_STACK_REF = '5d59e522a77c3216144e0a159649df21eff326b3';
+export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.10';
+export const SOVEREIGN_AGENT_STACK_REF = '0ddf7b81d81928465e56bcc4dcc41d41853df25a';
 
 /**
  * SHA-256 of the GitHub zip for SOVEREIGN_AGENT_STACK_REF; a download that doesn't match is
@@ -41,7 +65,7 @@ export const SOVEREIGN_AGENT_STACK_REF = '5d59e522a77c3216144e0a159649df21eff326
  *   curl -sL https://github.com/kaxline/sovereign-agent-stack/archive/<ref>.zip | shasum -a 256
  */
 export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
-  '1e505561b606e14a07522ba6e1dfbc7c2baacd4784e495e41e0e05d6f36faee5';
+  'f9c773e28b32347e43f311b7a857464c9e4b02d0b5fe2e6e1ed8cb8444c6c5cc';
 
 /**
  * Second-copy settings from the stack's docs/extending.md, passed in the compose
@@ -57,6 +81,14 @@ export const BOUNDARY_ASSISTANT_IMAGE_PREFIX = `${INSTANCE_NAME}-assistant`;
  */
 export const BOUNDARY_HERMES_TERMINAL_BACKEND = 'ssh';
 
+/**
+ * Where the stack's search clients (mcp-searxng, GPT Researcher, gptr-mcp) send web searches.
+ * The `search-gate` service sends each query to one SearXNG engine at a time and caches results
+ * (stack docs/searxng.md). It runs only with the `search-gate` profile, which Boundary always
+ * passes alongside this URL.
+ */
+export const BOUNDARY_WEB_SEARCH_URL = 'http://search-gate:8080';
+
 export const SOVEREIGN_AGENT_STACK_GITHUB_URL = `https://github.com/${SOVEREIGN_AGENT_STACK_REPO}`;
 
 export function sovereignAgentStackArchiveUrl(
@@ -71,6 +103,12 @@ export const BOUNDARY_SETUP_WEBUI_TITLE = `${APP_NAME} Knowledge Base`;
 
 /** Added to default ports when those are already bound (dual-stack with a developer stack). */
 export const BOUNDARY_ASSISTANT_PORT_OFFSET = 10_000;
+
+/**
+ * Offsets tried in order when the defaults are taken or skipped. The last one keeps every port
+ * below macOS's ephemeral range (49152), where outgoing connections could take them.
+ */
+export const BOUNDARY_ASSISTANT_PORT_OFFSETS = [BOUNDARY_ASSISTANT_PORT_OFFSET, 20_000, 30_000] as const;
 
 export const DEFAULT_ASSISTANT_STACK_PORTS: AssistantStackPorts = {
   gateway: 8642,
@@ -89,9 +127,10 @@ export const DEFAULT_ASSISTANT_STACK_PORTS: AssistantStackPorts = {
 
 /** Host publish ports for a given isolation mode (all keys, never a partial mix). */
 export function portsForIsolationMode(
-  isolationMode: import('./types/assistantStack').AssistantStackIsolationMode
+  isolationMode: import('./types/assistantStack').AssistantStackIsolationMode,
+  portOffset: number = BOUNDARY_ASSISTANT_PORT_OFFSET
 ): AssistantStackPorts {
-  const offset = isolationMode === 'offset-ports' ? BOUNDARY_ASSISTANT_PORT_OFFSET : 0;
+  const offset = isolationMode === 'offset-ports' ? portOffset : 0;
   return Object.fromEntries(
     Object.entries(DEFAULT_ASSISTANT_STACK_PORTS).map(([key, port]) => [key, port + offset])
   ) as AssistantStackPorts;
@@ -108,6 +147,7 @@ export const BOUNDARY_ASSISTANT_CONTAINER_NAMES = [
   'boundary-lightrag',
   'boundary-lightrag-neo4j',
   'boundary-gpt-researcher',
+  'boundary-gptr-mcp',
   'boundary-n8n',
   'boundary-opencode',
   'boundary-opencode-mcp',

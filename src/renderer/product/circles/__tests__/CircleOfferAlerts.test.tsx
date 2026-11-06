@@ -193,13 +193,13 @@ describe('Circle offer alerts', () => {
     expect(toasts()[0]).toContain('Bo stopped sharing qwen with Garden club.');
   });
 
-  it('opens the Circles screen, dismisses and expires', () => {
+  it('opens Inference, dismisses and expires', () => {
     const onNavigate = vi.fn();
     mountSettled([], onNavigate);
     send(state([offer()]));
     wait(OFFER_SETTLE_MS);
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circles' }));
-    expect(onNavigate).toHaveBeenCalledWith('circles');
+    fireEvent.click(screen.getByRole('button', { name: 'Open Inference' }));
+    expect(onNavigate).toHaveBeenCalledWith('inference');
     expect(toasts()).toEqual([]);
 
     send(state([offer({ available: false })]));

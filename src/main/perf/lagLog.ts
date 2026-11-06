@@ -18,6 +18,18 @@ function envFlag(name: string): boolean | undefined {
 const isTest = process.env.NODE_ENV === 'test' || process.env.ENVIRONMENT === 'test';
 export const lagProbeEnabled = !isTest && (envFlag('BOUNDARY_LAG_PROBE') ?? !app.isPackaged);
 export const lagProbeTracing = lagProbeEnabled && (envFlag('BOUNDARY_LAG_TRACE') ?? true);
+/**
+ * V8 CPU sampling: the rolling main-process profile and the trace's `v8.cpu_profiler`
+ * category. Off unless BOUNDARY_LAG_PROFILE=1.
+ *
+ * The sampler interrupts the thread it samples with a signal, about every millisecond. A
+ * blocking file call on the main thread that needs macOS to approve a protected folder
+ * (~/Documents, Desktop, Downloads) waits in the kernel, each signal cuts the wait short,
+ * and the call starts over and asks again before the answer can arrive. On 2026-11-05 that
+ * hung the main thread for good, and sandboxd's retries for the dead process froze the Mac.
+ * Async fs calls run on libuv's threads, which V8 doesn't sample, so they're safe.
+ */
+export const lagProbeProfiling = lagProbeTracing && (envFlag('BOUNDARY_LAG_PROFILE') ?? false);
 
 export const lagLogDir = lagProbeEnabled
   ? path.join(path.dirname(getDebugLogPath()), 'lag-probe')

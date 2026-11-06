@@ -22,6 +22,8 @@ let testnet: Awaited<ReturnType<typeof createTestnet>>;
 let dir: string;
 const people: Person[] = [];
 const removed = new Map<Person, string[]>();
+/** Who each person's device reported leaving, as an admin. */
+const departed = new Map<Person, string[]>();
 
 async function person(
   name: string,
@@ -36,6 +38,10 @@ async function person(
     onChange: () => waiters.forEach((wake) => wake()),
     onRemoved: (key) => {
       removed.set(made, [...(removed.get(made) ?? []), key]);
+      waiters.forEach((wake) => wake());
+    },
+    onMemberLeft: ({ name: left }) => {
+      departed.set(made, [...(departed.get(made) ?? []), left]);
       waiters.forEach((wake) => wake());
     },
   });
@@ -204,15 +210,44 @@ describe('Circles over a local DHT', () => {
     const { key } = await ada.net.createCircle('Workshop');
     await bo.net.joinCircle((await ada.net.createInvite(key)).code);
     await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-rejoin')));
-    const identity = bo.net.snapshot().identity;
     await bo.net.leaveCircle(key);
-    // A leave sent while the connection closes may not arrive; the admin's removal does.
-    await ada.net.removeMember(key, identity).catch((): undefined => undefined);
     await ada.until((snapshot) => !memberNamed(snapshot, key, 'bo-rejoin'));
+    await bo.until(() => Boolean(removed.get(bo)?.includes(key)));
+    expect(departed.get(ada)).toEqual(['bo-rejoin']);
 
     await bo.net.joinCircle((await ada.net.createInvite(key)).code);
     await bo.net.publishOffer(key, { models: [{ id: 'm', tools: true }], available: true, away: false });
     await ada.until((snapshot) => circleOf(snapshot, key)?.offers.length === 1);
+  });
+
+  it('finishes a leave made while the only admin was offline, after a restart, and tells the admin', async () => {
+    const adaSeeds = { identitySeed: crypto.randomBytes(32), deviceSeed: crypto.randomBytes(32) };
+    const boSeeds = { identitySeed: crypto.randomBytes(32), deviceSeed: crypto.randomBytes(32) };
+    const ada = await person('ada-away', adaSeeds);
+    const adaSecrets = await ada.net.createCircle('Allotment');
+    const key = adaSecrets.key!;
+    const bo = await person('bo-away', boSeeds);
+    const boSecrets = await bo.net.joinCircle((await ada.net.createInvite(key, Date.now() + 60 * 60_000)).code);
+    await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-away')?.online));
+    await ada.net.close();
+
+    await bo.net.leaveCircle(key);
+    expect(circleOf(bo.net.snapshot(), key)).toBeUndefined();
+    expect(bo.net.snapshot().leaving).toEqual([{ key, name: 'Allotment' }]);
+    await expect(bo.net.postMessage(key, 'general', 'hi')).rejects.toThrow(/Not a member/);
+
+    // Main keeps the secrets marked as leaving, so the Circle opens that way after a restart.
+    await bo.net.close();
+    const boBack = await person('bo-away', boSeeds);
+    await boBack.net.openCircle({ ...boSecrets, leaving: true });
+    expect(boBack.net.snapshot()).toMatchObject({ circles: [], leaving: [{ key }] });
+
+    const adaBack = await person('ada-away', adaSeeds);
+    await adaBack.net.openCircle(adaSecrets);
+    await adaBack.until((snapshot) => circleOf(snapshot, key)?.members.length === 1);
+    await boBack.until(() => Boolean(removed.get(boBack)?.includes(key)));
+    expect(boBack.net.snapshot().leaving).toBeUndefined();
+    expect(departed.get(adaBack)).toEqual(['bo-away']);
   });
 
   it('keeps the last admin from leaving, and lets a member leave', async () => {

@@ -125,13 +125,14 @@ export function SharingUsage({ circles }: { circles: CirclesState }) {
           to their next model.
         </p>
       </fieldset>
+      <OnePersonLimit circles={circles} />
       {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
     </section>
   );
 }
 
 /** One member's limit, which replaces the limit for everyone. */
-export function MemberLimit({ identity, name, circles }: { identity: string; name: string; circles: CirclesState }) {
+function MemberLimit({ identity, name, circles }: { identity: string; name: string; circles: CirclesState }) {
   const action = useAction();
   const { sharing } = circles;
   const limits = sharing.limits ?? NO_LIMITS;
@@ -161,6 +162,44 @@ export function MemberLimit({ identity, name, circles }: { identity: string; nam
       ) : null}
       {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
     </section>
+  );
+}
+
+/**
+ * A limit for one person, chosen from everyone in the user's Circles. People who have their own
+ * limit are marked, so it can be found and taken off again.
+ */
+function OnePersonLimit({ circles }: { circles: CirclesState }) {
+  const [chosen, setChosen] = useState('');
+  const own = (circles.sharing.limits ?? NO_LIMITS).members;
+  const people = [
+    ...new Map(
+      circles.snapshot.circles.flatMap((circle) =>
+        circle.members.filter((member) => !member.isMe).map((member) => [member.identity, member.name] as const)
+      )
+    ),
+  ].sort((a, b) => Number(b[0] in own) - Number(a[0] in own) || a[1].localeCompare(b[1]));
+  if (!people.length) return null;
+  const name = people.find(([identity]) => identity === chosen)?.[1];
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex flex-col gap-1.5 text-xs text-fg-faint">
+        Limit for one person
+        <select
+          className="h-[30px] max-w-[260px] rounded-md border border-line bg-surface-1 px-2 text-ui text-fg"
+          value={chosen}
+          onChange={(event) => setChosen(event.target.value)}
+        >
+          <option value="">Choose someone…</option>
+          {people.map(([identity, person]) => (
+            <option key={identity} value={identity}>
+              {identity in own ? `${person} · own limit` : person}
+            </option>
+          ))}
+        </select>
+      </label>
+      {name ? <MemberLimit key={chosen} identity={chosen} name={name} circles={circles} /> : null}
+    </div>
   );
 }
 

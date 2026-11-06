@@ -19,6 +19,7 @@ import {
   updateLlmModel,
 } from './OpenAiOnboardingStore';
 import { cancelAppSwitch, currentAppSwitch, switchAppInference } from './appInferenceSwitch';
+import { describeAppStack } from '../inference/inferenceChainService';
 import { probeSlotHealth } from './probeSlotHealth';
 import {
   clearSessionInferenceForProvider,
@@ -315,6 +316,7 @@ export function registerOnboardingHandlers(): void {
   handleResult('onboarding:set-app-fallbacks', async (_event, input: SetAppFallbacksInput) =>
     setAppFallbacks(input.fallbacks)
   );
+  handle('inference:describe-app-stack', () => describeAppStack());
 
   handleResult('onboarding:probe-slot-health', async (_event, input: ProbeSlotHealthInput) =>
     probeSlotHealthHandler(input)

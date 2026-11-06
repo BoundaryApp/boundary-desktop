@@ -84,3 +84,21 @@ describe('preload bridge', () => {
     expect(h.invoke).toHaveBeenLastCalledWith('resources:unsubscribe-compose-inventory');
   });
 });
+
+describe('addons namespace', () => {
+  it('maps its methods onto the add-on channels', () => {
+    void api.addons.list();
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:list');
+    void api.addons.turnOff('twenty');
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:turn-off', 'twenty');
+    void api.addons.removeData('twenty');
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:remove-data', 'twenty');
+    void api.addons.snapshot();
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:snapshot');
+    const cb = vi.fn();
+    const remove = api.addons.onProgress(cb);
+    expect(h.listeners.get('addons:progress')?.size).toBe(1);
+    remove();
+    expect(h.listeners.get('addons:progress')?.size).toBe(0);
+  });
+});

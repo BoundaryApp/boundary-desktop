@@ -9,9 +9,9 @@ export const isMacPlatform = (): boolean =>
 const KEY_TO_COMMAND: Record<string, AppCommand> = {
   n: 'new-chat',
   '1': 'go-chat',
-  '2': 'go-services',
-  '3': 'go-resources',
-  '4': 'go-circles',
+  '2': 'go-inference',
+  '3': 'go-services',
+  '4': 'go-resources',
   ',': 'go-settings',
   '[': 'prev-thread',
   ']': 'next-thread',

@@ -92,17 +92,9 @@
   gap: 4px;
 }
 
-.wb-mark {
-  width: 22px;
-  height: 22px;
-  margin: 2px 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-
 /* Shown while bound to a local checkout, so dev and managed stacks are never mistaken. */
 .wb-stack-badge {
-  margin: -4px 0 8px;
+  margin: 0 0 6px;
   padding: 1px 4px;
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-sm);
@@ -145,11 +137,13 @@
 
 /* Window chrome ---------------------------------------------------------- */
 /* macOS traffic lights sit inset over the top-left (main/index.ts
-   trafficLightPosition) and reach past the 48px icon rail. A 42px title band in
-   --surface-rail runs under them: the top of the icon rail plus the chat rail's
-   spacer, or .wb-titlebar-band on other screens. Its bottom line meets the
-   thread header's, and the icon rail's separator starts below it, so no line
-   crosses the buttons. Rails and headers double as the window drag area. */
+   trafficLightPosition), centred on a 42px title row, and reach past the 48px
+   icon rail. In the sidebar (the icon rail plus the chat rail's spacer) that row
+   is the top of the sidebar in --surface-rail, with no line under it, as in
+   Finder or Notes. In the content column the thread header, or
+   .wb-titlebar-band on other screens, closes the row with a line. The icon
+   rail's separator starts below the row, so no line touches the buttons. Rails
+   and headers double as the window drag area. */
 
 .wb-titlebar-spacer,
 .wb-titlebar-band {
@@ -161,6 +155,9 @@ html[data-platform='darwin'] :is(.wb-titlebar-spacer, .wb-titlebar-band) {
   height: 42px;
   flex-shrink: 0;
   background: var(--surface-rail);
+}
+
+html[data-platform='darwin'] .wb-titlebar-band {
   border-bottom: 1px solid var(--line);
 }
 
@@ -170,22 +167,11 @@ html[data-platform='darwin'] .wb-icon-rail {
   border-right-color: transparent;
 }
 
-html[data-platform='darwin'] .wb-icon-rail::before,
 html[data-platform='darwin'] .wb-icon-rail::after {
   content: '';
   position: absolute;
   background: var(--line);
   pointer-events: none;
-}
-
-html[data-platform='darwin'] .wb-icon-rail::before {
-  top: 41px;
-  left: 0;
-  right: -1px;
-  height: 1px;
-}
-
-html[data-platform='darwin'] .wb-icon-rail::after {
   top: 42px;
   bottom: 0;
   right: -1px;
@@ -1974,8 +1960,34 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-hover);
 }
 
-.wb-inf-kicker--then {
-  padding-top: 10px;
+/* The composer chip's menu: the chat's stack, first to last. */
+.wb-inf-order {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-inf-order .wb-inf-opt {
+  display: flex;
+  gap: 8px;
+  cursor: default;
+}
+
+.wb-inf-order .wb-inf-opt:hover:not(.is-on) {
+  background: transparent;
+}
+
+.wb-inf-order-num {
+  flex: none;
+  width: 16px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-inf-source {
+  margin: 4px 10px 0;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
 }
 
 .wb-inf-fallback-switch {
@@ -3073,43 +3085,24 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   cursor: not-allowed;
 }
 
-.wb-inf-opt-list {
-  padding: 0 8px 4px;
+/* The project inspector's stack, first to last, and its actions. */
+.wb-inf-rail-order {
+  padding: 0 8px;
 }
 
-.wb-inf-rail-opt {
-  display: block;
-  width: 100%;
+.wb-inf-rail-source {
+  margin: 0 18px 4px;
+}
+
+.wb-inf-rail-order .wb-inf-opt {
   overflow-wrap: anywhere;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
 }
 
-.wb-inf-rail-opt:hover:not(:disabled),
-.wb-inf-rail-opt.is-on {
-  background: var(--surface-hover);
-}
-
-.wb-inf-rail-opt:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.wb-inf-rail-opt small {
-  display: block;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
-  margin-top: 2px;
-}
-
-.wb-inf-rail-fallback {
-  padding: 6px 8px 0;
+.wb-inf-rail-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 18px 8px;
 }
 
 .wb-src {
@@ -4008,6 +4001,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-shrink: 0;
 }
 
+.wb-settings-hint.is-warn {
+  color: var(--warn);
+}
+
 .wb-settings-hint.mono {
   overflow-wrap: anywhere;
 }
@@ -4060,6 +4057,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-agent-browser-notice.is-warn {
   color: var(--warn, var(--text));
+}
+
+.wb-agent-browser-notice p {
+  margin: 0;
+}
+
+.wb-agent-browser-notice p + p {
+  margin-top: var(--space-2);
+}
+
+.wb-agent-browser-actions .wb-settings-hint {
+  align-self: center;
+  margin: 0;
 }
 
 .wb-settings-tabs {
@@ -4910,6 +4920,17 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-kind-mark.is-hermes svg {
   width: 60%;
   height: 60%;
+}
+
+/* A figure an experiment draws fills the square and brings its own background. */
+.wb-kind-mark.is-hermes.has-figure {
+  overflow: hidden;
+  background: transparent;
+}
+
+.wb-kind-mark.is-hermes.has-figure svg {
+  width: 100%;
+  height: 100%;
 }
 
 /* --text-muted keeps the outline above 3:1 on both panels. */
@@ -8475,166 +8496,6 @@ button.wb-task-card:hover {
   .wb-cal-progress li.is-now .wb-cal-progress-mark {
     animation: none;
   }
-}
-
-/* Ordered fallbacks after a chain's first entry (ADR 0033 §1), in Settings and a project's
-   Inference block. Skipped entries stay listed, dimmed, with the reason. */
-.wb-chain-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.wb-chain-list,
-.wb-chain-candidates {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.wb-chain-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-0);
-}
-
-.wb-chain-row.is-skipped .wb-chain-text b {
-  color: var(--text-muted);
-}
-
-.wb-chain-num {
-  min-width: 14px;
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.6;
-}
-
-.wb-chain-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  font-size: var(--size-ui);
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-
-.wb-chain-text b {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.wb-chain-text small {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
-}
-
-.wb-chain-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.wb-chain-actions button,
-.wb-chain-add {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-}
-
-.wb-chain-actions button {
-  padding: 3px;
-}
-
-.wb-chain-actions svg,
-.wb-chain-add svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-
-.wb-chain-actions button:hover:not(:disabled),
-.wb-chain-add:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.wb-chain-actions button:disabled,
-.wb-chain-add:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.wb-chain-add {
-  gap: 8px;
-  width: 100%;
-  padding: 6px 10px;
-  align-items: flex-start;
-}
-
-.wb-chain-add svg {
-  margin-top: 2px;
-}
-
-.wb-chain-add.is-skipped .wb-chain-text b,
-.wb-chain-add.is-skipped svg {
-  opacity: 0.55;
-}
-
-.wb-chain-choice {
-  position: relative;
-}
-
-.wb-chain-choice:has(.wb-chain-link) .wb-inference-choice {
-  padding-right: 118px;
-}
-
-.wb-chain-choice .wb-chain-link {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-}
-
-.wb-chain-actions button.wb-chain-link,
-.wb-chain-link {
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--size-xs);
-  text-decoration: underline;
-  white-space: nowrap;
-  opacity: 0;
-}
-
-.wb-chain-link:hover {
-  color: var(--text);
-}
-
-.wb-chain-row:hover .wb-chain-link,
-.wb-chain-row:focus-within .wb-chain-link,
-.wb-chain-choice:hover .wb-chain-link,
-.wb-chain-choice:focus-within .wb-chain-link {
-  opacity: 1;
-}
-
-.wb-chain-empty {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--size-2xs);
 }
 
 /* Sharing the local model with Circles (ADR 0034), on the Circles screen. */

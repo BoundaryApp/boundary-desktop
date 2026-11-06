@@ -40,6 +40,7 @@ const COMPOSE_SERVICE_TO_CONTAINER: Record<string, BoundaryAssistantContainerNam
   lightrag: 'boundary-lightrag',
   neo4j: 'boundary-lightrag-neo4j',
   'gpt-researcher': 'boundary-gpt-researcher',
+  'gptr-mcp': 'boundary-gptr-mcp',
   n8n: 'boundary-n8n',
   opencode: 'boundary-opencode',
   'opencode-mcp': 'boundary-opencode-mcp',
@@ -57,6 +58,7 @@ const CONTAINER_TITLES: Record<BoundaryAssistantContainerName, string> = {
   'boundary-lightrag': 'LightRAG',
   'boundary-lightrag-neo4j': 'Neo4j',
   'boundary-gpt-researcher': 'GPT Researcher',
+  'boundary-gptr-mcp': 'GPT Researcher tools',
   'boundary-n8n': 'n8n',
   'boundary-opencode': 'OpenCode',
   'boundary-opencode-mcp': 'OpenCode MCP',
@@ -158,6 +160,8 @@ export function createLifecycleSnapshot(
  * Examples: `Image gptresearcher/gpt-researcher:0.8.1`, `neo4j:5.26-community`.
  */
 const IMAGE_HINTS: Array<[string, BoundaryAssistantContainerName]> = [
+  ['assistant-gptr-mcp', 'boundary-gptr-mcp'],
+  ['gptr-mcp', 'boundary-gptr-mcp'],
   ['gpt-researcher', 'boundary-gpt-researcher'],
   ['gptresearcher', 'boundary-gpt-researcher'],
   ['hermes-webui', 'boundary-hermes-webui'],
@@ -192,6 +196,7 @@ const CONTAINER_IMAGE_HINTS: Record<BoundaryAssistantContainerName, string[]> = 
   'boundary-lightrag': ['assistant-lightrag', 'lightrag'],
   'boundary-lightrag-neo4j': ['neo4j'],
   'boundary-gpt-researcher': ['gptresearcher/gpt-researcher', 'gpt-researcher'],
+  'boundary-gptr-mcp': ['assistant-gptr-mcp', 'gptr-mcp'],
   'boundary-n8n': ['n8nio/n8n'],
   'boundary-opencode': ['assistant-opencode', 'opencode'],
   'boundary-opencode-mcp': ['boundary-assistant-opencode-mcp', 'opencode-mcp'],

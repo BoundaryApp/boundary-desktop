@@ -50,6 +50,34 @@ export interface SyncFsRecorder {
   flush(): void;
 }
 
+export interface ProbeLog {
+  /** Appends one JSON line with the time and pid; stops once `maxBytes` are written. */
+  log(entry: Record<string, unknown>): void;
+  /** True while a line is being written: the write goes through wrapped calls. */
+  writing(): boolean;
+}
+
+export function createProbeLog(write: (line: string) => void, maxBytes: number): ProbeLog {
+  let written = 0;
+  let writing = false;
+  return {
+    log(entry) {
+      if (written > maxBytes) return;
+      const line = JSON.stringify({ t: new Date().toISOString(), pid: process.pid, ...entry }) + '\n';
+      written += line.length;
+      writing = true;
+      try {
+        write(line);
+      } catch {
+        /* A probe must not break the call it watches. */
+      } finally {
+        writing = false;
+      }
+    },
+    writing: () => writing,
+  };
+}
+
 export function createSyncFsRecorder({ now, write, frames, pathClass }: RecorderDeps): SyncFsRecorder {
   let windowStart = now();
   let calls = 0;
@@ -57,23 +85,8 @@ export function createSyncFsRecorder({ now, write, frames, pathClass }: Recorder
   let slowLines = 0;
   let classes: Record<string, number> = {};
   let callers = new Map<string, { op: string; pathClass: string; frames: string[]; calls: number; ms: number }>();
-  let written = 0;
-  /** Node's append goes through its other file calls, which are wrapped. */
-  let logging = false;
-
-  const log = (entry: Record<string, unknown>) => {
-    if (written > MAX_LOG_BYTES) return;
-    const line = JSON.stringify({ t: new Date().toISOString(), pid: process.pid, ...entry }) + '\n';
-    written += line.length;
-    logging = true;
-    try {
-      write(line);
-    } catch {
-      /* A probe must not break the file call it watches. */
-    } finally {
-      logging = false;
-    }
-  };
+  const probeLog = createProbeLog(write, MAX_LOG_BYTES);
+  const log = probeLog.log;
 
   const flush = () => {
     if (calls >= BURST_CALLS) {
@@ -89,7 +102,7 @@ export function createSyncFsRecorder({ now, write, frames, pathClass }: Recorder
   };
 
   const record = (op: string, target: unknown, ms: number) => {
-    if (logging) return;
+    if (probeLog.writing()) return;
     if (now() - windowStart >= WINDOW_MS) flush();
     const cls = pathClass(target);
     calls++;
@@ -129,13 +142,14 @@ export function stackFrames(stack: string | undefined, skip = 0): string[] {
   return frames.filter((frame): frame is string => frame !== null).slice(0, STACK_FRAMES);
 }
 
-export function captureFrames(): string[] {
+/** `skip` is the probe's own frames on top of the stack, this function's included. */
+export function captureFrames(skip = PROBE_FRAMES): string[] {
   const limit = Error.stackTraceLimit;
   // Enough to reach past a store library's own frames to the code that called it.
-  Error.stackTraceLimit = STACK_FRAMES + PROBE_FRAMES + 12;
+  Error.stackTraceLimit = STACK_FRAMES + skip + 12;
   const stack = new Error().stack;
   Error.stackTraceLimit = limit;
-  return stackFrames(stack, PROBE_FRAMES);
+  return stackFrames(stack, skip);
 }
 
 interface PathRoots {

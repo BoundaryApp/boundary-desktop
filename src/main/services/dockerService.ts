@@ -24,6 +24,23 @@ export interface DockerServiceInfo {
 
 const COMPOSE_FILE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
 
+/** Container events in a burst wait this long and share one refresh. */
+export const EVENT_REFRESH_DELAY_MS = 500;
+
+/**
+ * Container actions that can't change a compose project's services, status or health.
+ * Health checks alone send exec_create, exec_start and exec_die every few seconds for each
+ * container that has one; refreshing on each of those ran hundreds of file checks a second.
+ */
+const IGNORED_CONTAINER_ACTIONS = new Set(['attach', 'detach', 'resize', 'top', 'archive-path', 'extract-to-dir', 'export', 'copy']);
+
+/** Whether a Docker event can change the compose configs. Actions can carry detail after ': '. */
+export function isComposeRelevantEvent(event: { Type?: string; Action?: string }): boolean {
+  if (event.Type !== 'container') return false;
+  const action = (event.Action ?? '').split(':')[0].trim();
+  return !action.startsWith('exec_') && !IGNORED_CONTAINER_ACTIONS.has(action);
+}
+
 class DockerService extends EventEmitter {
   private docker: Docker | null = null;
   private isConnected = false;
@@ -31,6 +48,7 @@ class DockerService extends EventEmitter {
   private configCache: Map<string, DockerComposeConfig> = new Map();
   private refreshInterval: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private eventRefreshTimer: NodeJS.Timeout | null = null;
   private eventBuffer: string = ''; // Buffer for incomplete JSON events
   private initPromise: Promise<void> | null = null;
 
@@ -123,8 +141,7 @@ class DockerService extends EventEmitter {
             
             try {
               const event = JSON.parse(trimmedLine);
-              // refreshComposeConfigs catches and logs its own failures.
-              void this.handleDockerEvent(event);
+              this.handleDockerEvent(event);
             } catch (parseError) {
               // Only log if the line looks like it should be valid JSON
               if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}')) {
@@ -174,11 +191,13 @@ class DockerService extends EventEmitter {
     }, 5000);
   }
 
-  private async handleDockerEvent(event: { Type?: string }) {
-    // Handle container events that might affect compose configs
-    if (event.Type === 'container') {
-      await this.refreshComposeConfigs();
-    }
+  private handleDockerEvent(event: { Type?: string; Action?: string }) {
+    if (!isComposeRelevantEvent(event) || this.eventRefreshTimer) return;
+    this.eventRefreshTimer = setTimeout(() => {
+      this.eventRefreshTimer = null;
+      // refreshComposeConfigs catches and logs its own failures.
+      void this.refreshComposeConfigs();
+    }, EVENT_REFRESH_DELAY_MS);
   }
 
   private startPeriodicRefresh() {
@@ -199,6 +218,7 @@ class DockerService extends EventEmitter {
     try {
       const containers = await this.docker.listContainers({ all: true });
       const composeConfigs = new Map<string, DockerComposeConfig>();
+      const filesExist = await this.composeFilesExistByPath(containers);
 
       // Group containers by compose project
       for (const container of containers) {
@@ -208,7 +228,7 @@ class DockerService extends EventEmitter {
 
         if (projectName && serviceName && composePath) {
           // Only add compose configs if the compose files still exist
-          if (this.composeFilesExist(composePath, container.Labels)) {
+          if (filesExist.get(composePath)) {
             if (!composeConfigs.has(composePath)) {
               composeConfigs.set(composePath, {
                 id: this.generateConfigId(composePath),
@@ -276,12 +296,32 @@ class DockerService extends EventEmitter {
    * Whether the project's compose files are still on disk. Uses the files the engine
    * recorded (`-f` included), else Compose's default file names in the working dir.
    */
-  private composeFilesExist(workingDir: string, labels: Record<string, string>): boolean {
+  private async composeFilesExist(workingDir: string, labels: Record<string, string>): Promise<boolean> {
     const configFiles = labels['com.docker.compose.project.config_files'];
     const candidates = configFiles
       ? configFiles.split(',').map((file) => path.resolve(workingDir, file.trim()))
       : COMPOSE_FILE_NAMES.map((name) => path.join(workingDir, name));
-    return candidates.some((file) => fs.existsSync(file));
+    // Async, so the check runs on libuv's threads: projects often sit under ~/Documents, and a
+    // blocking call there can stall the main thread on a macOS permission check.
+    const found = await Promise.all(
+      candidates.map((file) => fs.promises.access(file).then(() => true, () => false))
+    );
+    return found.includes(true);
+  }
+
+  /** One check per compose working directory, however many of its containers are listed. */
+  private async composeFilesExistByPath(
+    containers: { Labels: Record<string, string> }[]
+  ): Promise<Map<string, boolean>> {
+    const labelsByPath = new Map<string, Record<string, string>>();
+    for (const container of containers) {
+      const composePath = container.Labels['com.docker.compose.project.working_dir'];
+      if (composePath && !labelsByPath.has(composePath)) labelsByPath.set(composePath, container.Labels);
+    }
+    const entries = await Promise.all(
+      [...labelsByPath].map(async ([composePath, labels]) => [composePath, await this.composeFilesExist(composePath, labels)] as const)
+    );
+    return new Map(entries);
   }
 
   private generateConfigId(path: string): string {
@@ -374,6 +414,10 @@ class DockerService extends EventEmitter {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.eventRefreshTimer) {
+      clearTimeout(this.eventRefreshTimer);
+      this.eventRefreshTimer = null;
     }
     this.isConnected = false;
     

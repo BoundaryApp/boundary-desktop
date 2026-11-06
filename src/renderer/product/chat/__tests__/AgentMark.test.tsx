@@ -1,6 +1,10 @@
 import React from 'react';
 import { render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Builds with an experiment can draw their own built-in mark; this file checks the app's own.
+vi.mock('../../../experiments', () => ({ rendererExperiments: [] }));
+
 import { AgentMark } from '../ConversationMark';
 
 const mark = (container: HTMLElement) => container.querySelector('.wb-kind-mark') as HTMLElement;

@@ -9,6 +9,7 @@ import { setAwayBlocker } from './awayMode';
 import { isMessageId, isRecordName, type CircleMessageShared, type CircleRecordScope } from './circleOps';
 import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals';
 import { diag, short } from './circlesDiagnostics';
+import { showWindowNotification } from '../notifications';
 import { broadcast } from '../windows';
 import type {
   CircleChannel,
@@ -37,6 +38,7 @@ import {
   hasCircles,
   listCircleSecrets,
   loadCircleSeeds,
+  markCircleLeaving,
   saveCircleSecrets,
   wipeOutdatedCircles,
   setCircleSharing,
@@ -230,6 +232,9 @@ async function start(): Promise<void> {
           forgetCircle(message.key);
           setState({ inviteCodeIds: getInviteCodeIds() });
           break;
+        case 'member-left':
+          showWindowNotification({ title: message.circle, body: `${message.name} left the Circle.` });
+          return;
         case 'share-usage':
           if (message.served) setServedUsage(message.served);
           setState({ served: message.served, serving: message.serving });
@@ -1016,9 +1021,10 @@ export function removeCircleMember(key: string, identity: string): Promise<Circl
   return run({ op: 'remove-member', key, identity });
 }
 
+/** The Circle leaves the snapshot now; main keeps its secrets until an admin confirms the leave. */
 export function leaveCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'leave', key }, (): object => {
-    forgetCircle(key);
+    markCircleLeaving(key);
     setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });

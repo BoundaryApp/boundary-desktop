@@ -37,7 +37,7 @@ vi.mock('../../circles/circlesService', () => ({
   }),
 }));
 
-const { planAppInferenceChain, planInferenceChain, sharedModelCantServe } = await import('../inferenceChainService');
+const { describeAppStack, planAppInferenceChain, planInferenceChain, sharedModelCantServe } = await import('../inferenceChainService');
 
 const PEER: PeerModelRef = { circleId: 'c'.repeat(64), providerId: 'a'.repeat(64) };
 const shared = (modelId = 'qwen3-8b'): InferenceChainEntry => ({ slot: 'peer', modelId, peer: PEER });
@@ -186,5 +186,40 @@ describe('planInferenceChain with shared models', () => {
     circles.private.add(PEER.providerId);
     const plan = await planInferenceChain(lockedLocal, [shared()], { privacyLocked: true });
     expect(plan.kind === 'routed' && plan.chain.entries.map((state) => state.private)).toEqual([true, true]);
+  });
+});
+
+describe('the app stack for Inference', () => {
+  it('lists the default slot, then its fallbacks, keyed as they are stored', async () => {
+    connections.local = { endpointUrl: 'http://localhost:1234/v1', modelId: 'qwen3-32b' };
+    appFallbacks = [shared(), { slot: 'openrouter' }];
+    circles.private = new Set([PEER.providerId]);
+    const stack = await describeAppStack();
+    expect(stack.entries.map((state) => [state.key, state.stale, state.private, state.privateCut])).toEqual([
+      ['local:', null, true, false],
+      [`peer:${PEER.circleId}:${PEER.providerId}:qwen3-8b`, null, true, false],
+      ['openrouter:', null, false, true],
+    ]);
+    expect(stack.contextLength).toBe(16_384);
+    expect(stack.noPrivate).toBe(false);
+  });
+
+  it('marks a stale entry, and says when private projects can’t send', async () => {
+    appShared = shared();
+    appFallbacks = [{ slot: 'openrouter' }];
+    circles.trusted = new Set();
+    const stack = await describeAppStack();
+    expect(stack.entries.map((state) => [state.stale, state.privateCut])).toEqual([
+      ['provider-untrusted', true],
+      [null, true],
+    ]);
+    expect(stack.noPrivate).toBe(true);
+  });
+
+  it('drops a fallback that resolves to an entry already listed', async () => {
+    appFallbacks = [{ slot: 'openrouter', modelId: 'anthropic/claude' }];
+    connections.local = { endpointUrl: 'http://localhost:1234/v1', modelId: 'qwen3-32b' };
+    const stack = await describeAppStack();
+    expect(stack.entries.map((state) => state.key)).toEqual(['local:', 'openrouter:anthropic/claude']);
   });
 });

@@ -45,6 +45,8 @@ interface CirclesStoreShape {
   readPositions?: Record<string, Record<string, CircleReadPosition>>;
   /** The `CIRCLES_DATA_VERSION` this device's Circles were last kept at. */
   dataVersion?: number;
+  /** Circles this user left that an admin hasn't confirmed yet, by key. Their secrets stay until then. */
+  leavingCircles?: string[];
 }
 
 const store = new Store<CirclesStoreShape>({ name: 'circles', defaults: { circles: {} } });
@@ -220,10 +222,11 @@ export function hasCircles(): boolean {
 /** Every Circle's secrets that still decrypt. One that doesn't is logged and left in place. */
 export async function listCircleSecrets(): Promise<CircleSecrets[]> {
   const all = store.get('circles');
+  const leaving = new Set(store.get('leavingCircles') ?? []);
   const secrets: CircleSecrets[] = [];
   for (const [key, encrypted] of Object.entries(all)) {
     const json = await tryDecryptFromBase64(encrypted, (next) => store.set(`circles.${key}`, next));
-    if (json) secrets.push(JSON.parse(json) as CircleSecrets);
+    if (json) secrets.push({ ...(JSON.parse(json) as CircleSecrets), ...(leaving.has(key) ? { leaving: true } : {}) });
     else persistDebugLog('circles', 'a Circle’s secrets did not decrypt', { circle: key.slice(0, 12) });
   }
   return secrets;
@@ -231,13 +234,34 @@ export async function listCircleSecrets(): Promise<CircleSecrets[]> {
 
 export async function saveCircleSecrets(secrets: CircleSecrets): Promise<void> {
   if (!secrets.key) throw new Error('A Circle’s secrets need its key.');
-  store.set(`circles.${secrets.key}`, await encryptToBase64(JSON.stringify(secrets)));
+  const { leaving: _leaving, ...kept } = secrets;
+  setLeaving(secrets.key, false);
+  store.set(`circles.${secrets.key}`, await encryptToBase64(JSON.stringify(kept)));
+}
+
+function setLeaving(key: string, leaving: boolean): void {
+  const others = (store.get('leavingCircles') ?? []).filter((other) => other !== key);
+  store.set('leavingCircles', leaving ? [...others, key] : others);
+}
+
+/**
+ * This user left a Circle and is waiting for an admin to confirm it. The secrets stay, so the
+ * leave reaches an admin after a restart; what only this device used goes now.
+ */
+export function markCircleLeaving(key: string): void {
+  if (store.get('circles')[key]) setLeaving(key, true);
+  forgetLocalCircleData(key);
 }
 
 export function forgetCircle(key: string): void {
   const circles = { ...store.get('circles') };
   delete circles[key];
   store.set('circles', circles);
+  setLeaving(key, false);
+  forgetLocalCircleData(key);
+}
+
+function forgetLocalCircleData(key: string): void {
   const inviteCodes = { ...store.get('inviteCodes') };
   delete inviteCodes[key];
   store.set('inviteCodes', inviteCodes);

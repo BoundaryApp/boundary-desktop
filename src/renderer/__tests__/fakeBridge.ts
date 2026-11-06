@@ -245,6 +245,17 @@ function idleMain(bridge: FakeBridge): BridgeLeaves {
     codingFolders: {
       onAccessRequest: bridge.listen('coding-folders:access-request'),
     },
+    // The composer chip names shared models from Circles' state; this main has joined none.
+    circles: {
+      getState: async () => ({
+        status: 'stopped' as const,
+        displayName: '',
+        snapshot: { identity: '', circles: [] },
+        providers: {},
+        sharing: { models: [], circles: [], paused: false, away: false },
+      }),
+      onState: bridge.listen('circles:state'),
+    },
   };
 }
 

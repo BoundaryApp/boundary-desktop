@@ -31,9 +31,9 @@ describe('ensureHermesWebuiSyncToInsights', () => {
     expect(paths[1]).toContain(path.join('hermes', 'webui-state', 'settings.json'));
   });
 
-  it('creates primary settings.json with sync_to_insights', () => {
+  it('creates primary settings.json with sync_to_insights', async () => {
     const dataRoot = makeDataRoot();
-    const touched = ensureHermesWebuiSyncToInsights(dataRoot);
+    const touched = await ensureHermesWebuiSyncToInsights(dataRoot);
     expect(touched).toHaveLength(1);
     const primary = path.join(dataRoot, 'hermes', 'webui', 'settings.json');
     expect(fs.existsSync(primary)).toBe(true);
@@ -43,7 +43,7 @@ describe('ensureHermesWebuiSyncToInsights', () => {
     expect(parsed.sync_to_insights).toBe(true);
   });
 
-  it('merges into existing settings without clobbering other keys', () => {
+  it('merges into existing settings without clobbering other keys', async () => {
     const dataRoot = makeDataRoot();
     const primary = path.join(dataRoot, 'hermes', 'webui', 'settings.json');
     fs.mkdirSync(path.dirname(primary), { recursive: true });
@@ -52,7 +52,7 @@ describe('ensureHermesWebuiSyncToInsights', () => {
       JSON.stringify({ theme: 'dark', sync_to_insights: false }, null, 2),
       'utf8'
     );
-    const touched = ensureHermesWebuiSyncToInsights(dataRoot);
+    const touched = await ensureHermesWebuiSyncToInsights(dataRoot);
     expect(touched).toEqual([primary]);
     const parsed = JSON.parse(fs.readFileSync(primary, 'utf8')) as {
       theme?: string;
@@ -62,7 +62,7 @@ describe('ensureHermesWebuiSyncToInsights', () => {
     expect(parsed.sync_to_insights).toBe(true);
   });
 
-  it('is a no-op when sync_to_insights is already true', () => {
+  it('is a no-op when sync_to_insights is already true', async () => {
     const dataRoot = makeDataRoot();
     const primary = path.join(dataRoot, 'hermes', 'webui', 'settings.json');
     fs.mkdirSync(path.dirname(primary), { recursive: true });
@@ -71,15 +71,15 @@ describe('ensureHermesWebuiSyncToInsights', () => {
       JSON.stringify({ sync_to_insights: true }, null, 2),
       'utf8'
     );
-    expect(ensureHermesWebuiSyncToInsights(dataRoot)).toEqual([]);
+    expect(await ensureHermesWebuiSyncToInsights(dataRoot)).toEqual([]);
   });
 
-  it('updates legacy webui-state settings when present', () => {
+  it('updates legacy webui-state settings when present', async () => {
     const dataRoot = makeDataRoot();
     const legacy = path.join(dataRoot, 'hermes', 'webui-state', 'settings.json');
     fs.mkdirSync(path.dirname(legacy), { recursive: true });
     fs.writeFileSync(legacy, JSON.stringify({ sync_to_insights: false }), 'utf8');
-    const touched = ensureHermesWebuiSyncToInsights(dataRoot);
+    const touched = await ensureHermesWebuiSyncToInsights(dataRoot);
     expect(touched).toContain(legacy);
     const parsed = JSON.parse(fs.readFileSync(legacy, 'utf8')) as {
       sync_to_insights?: boolean;

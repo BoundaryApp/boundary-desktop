@@ -69,6 +69,7 @@ stubElectronAPI({
     completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
   },
   agents: {
+    onChanged: () => () => undefined,
     list: ipcCalls.track(async () => ({ success: true, agents: [], standingDmByAgent: {} })),
   },
   channels: {

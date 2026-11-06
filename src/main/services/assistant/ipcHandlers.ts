@@ -8,6 +8,10 @@ import {
   getAssistantStackStatus,
   setAssistantStackLifecycleCallback,
   setAssistantStackReadyCallback,
+  setN8nRunning,
+  setLightragRunning,
+  getWebSearchModeState,
+  setWebSearchModeRunning,
 } from './AssistantStackService';
 import { createStartupNotifier } from './startupNotice';
 import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
@@ -35,4 +39,15 @@ export function registerAssistantStackHandlers(): void {
   });
 
   handleResult('assistant-stack:ensure-and-apply-llm', async () => ensureAssistantStackAndApplyLlm());
+
+  handleResult('assistant-stack:set-n8n-enabled', async (_event, enabled) =>
+    setN8nRunning(enabled === true)
+  );
+  handleResult('assistant-stack:set-lightrag-enabled', async (_event, enabled) =>
+    setLightragRunning(enabled === true)
+  );
+  handle('assistant-stack:get-web-search-mode', async () => getWebSearchModeState());
+  handleResult('assistant-stack:set-web-search-mode', async (_event, mode) =>
+    setWebSearchModeRunning(mode)
+  );
 }

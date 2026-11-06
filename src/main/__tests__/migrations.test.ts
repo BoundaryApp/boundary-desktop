@@ -279,4 +279,25 @@ describe('repairStoredAssistantPorts', () => {
     repairStoredAssistantPorts();
     expect(raw().get('ports')).toEqual(portsForIsolationMode('offset-ports'));
   });
+
+  it('keeps a later offset through a repair', () => {
+    const later = portsForIsolationMode('offset-ports', 20_000);
+    setStoredAssistantPorts(later, 'offset-ports', 20_000);
+    expect(getStoredAssistantPorts()).toEqual(later);
+    repairStoredAssistantPorts();
+    expect(raw().get('ports')).toEqual(later);
+    expect(raw().get('portOffset')).toBe(20_000);
+  });
+
+  it('reads an offset store written before portOffset existed as the first offset', () => {
+    setStoredAssistantPorts(portsForIsolationMode('offset-ports'), 'offset-ports');
+    raw().delete('portOffset');
+    expect(getStoredAssistantPorts().llmProxyAdmin).toBe(14001);
+  });
+
+  it('ignores a stored offset that is not one Boundary uses', () => {
+    setStoredAssistantPorts(portsForIsolationMode('offset-ports'), 'offset-ports');
+    raw().set('portOffset', 55_000);
+    expect(getStoredAssistantPorts()).toEqual(portsForIsolationMode('offset-ports'));
+  });
 });

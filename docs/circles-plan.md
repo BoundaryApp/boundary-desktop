@@ -10,7 +10,7 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 1 Chain model and resolver | Done | |
 | 2 Router and chain UI | In progress: fallbacks shipped for the app default, project pins and chat overrides; live proxy case not started | 1 |
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
-| 4 Shared models | In progress: sharing from the Circles screen with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
+| 4 Shared models | In progress: sharing from Inference with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
 | 5 Circle chats | In progress: [ADR 0042](adr/0042-circle-chats.md) and the [Circle chats spec](circle-chats-ux-study/spec.md); format 2 and the chat service (spec phases 1 and 2) are built, and Circles as places in the chat (phase 3) are in progress | 3 |
 | Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
 | Camera and microphone | Built; not yet tried in a signed build, and nothing in the app uses it yet | |
@@ -134,7 +134,7 @@ A signed build needs `NSCameraUsageDescription` and `NSMicrophoneUsageDescriptio
 - [ ] **12.** A removed member's device gets no new data, and the remove dialog says history they hold stays with them. (The dialog says so, and peers stop replicating with the removed device. A removed member who shares another Circle with a peer, or who makes a new device key, can still fetch the Circle's blocks: see ADR 0032 §6.)
 - [ ] **13.** Entries written while no admin is online show as unconfirmed until one is.
 
-The last admin can't leave while others remain. A Circle's only member deletes it instead: their device closes it, purges the cores Autobase lists and forgets its key. Nothing goes in the log, because no other peer is a member. Older view cores aren't listed, so they stay on disk, encrypted, with the key gone. The [lifecycle check](testing/circle-lifecycle.md) covers leaving, joining again, removal, roles and deleting.
+The last admin can't leave while others remain. A member can leave while no admin is online: the removal is only in their own log until an admin's device receives it, so their device keeps the Circle open, out of their list and across restarts, until an admin's device confirms it or sends the removal notice. Then it closes the Circle and forgets its key, and the admin's device shows a notification that they left. A Circle's only member deletes it instead: their device closes it, purges the cores Autobase lists and forgets its key. Nothing goes in the log, because no other peer is a member. Older view cores aren't listed, so they stay on disk, encrypted, with the key gone. The [lifecycle check](testing/circle-lifecycle.md) covers leaving, joining again, removal, roles and deleting.
 
 ### Shared models (0034)
 

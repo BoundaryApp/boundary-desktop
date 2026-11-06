@@ -7,6 +7,7 @@
  * `window.electronAPI` takes its types from here.
  */
 import type { CallCheckResult } from '../callCheck';
+import type { InferenceStack } from '../types/inferenceChain';
 import type { CallPart } from '../callSignalParts';
 import type {
   CircleChannel,
@@ -26,6 +27,7 @@ import type { AppCommand } from '../appCommands';
 import type { ThemePreference } from '../theme';
 import type { MediaAccess, MediaAccessStatus, MediaDevice } from '../types/media';
 import type { IpcResult } from './result';
+import type { AddonId, AddonInstallSnapshot, AddonListing } from '../types/addons';
 import type {
   RunningWorkItem,
   UpdateChannel,
@@ -173,6 +175,7 @@ import type {
   HostBridgeGrant,
   HostToolsState,
 } from '../types/hostBridge';
+import type { WebSearchMode, WebSearchModeState } from '../webSearchMode';
 import type { HostResourceSnapshot } from '../types/hostResources';
 import type {
   AdoptLocalLlmInput,
@@ -220,6 +223,15 @@ import type {
  * handler resolves to. An interface, so private experiments can add channels by merging.
  */
 export interface IpcInvokeChannels {
+  'addons:list': () => AddonListing[];
+  'addons:install': (id: AddonId) => IpcResult;
+  'addons:undo': (id: AddonId) => IpcResult;
+  'addons:restart': (id: AddonId) => IpcResult;
+  'addons:turn-off': (id: AddonId) => IpcResult;
+  'addons:remove-data': (id: AddonId) => IpcResult<{ removed?: string[] }>;
+  'addons:running-work': () => RunningWorkItem[];
+  /** The installer's current snapshot, so a reopened page shows a run in progress. */
+  'addons:snapshot': () => AddonInstallSnapshot | null;
   'circles:get-state': () => CirclesState;
   /** Starts the network process if needed; the state comes back on `circles:state` too. */
   'circles:start': () => CirclesResult;
@@ -297,6 +309,8 @@ export interface IpcInvokeChannels {
   'onboarding:forget-saved-openrouter-key': () => ClearOpenAiConfigResult;
   'onboarding:set-app-default': (input: SetAppDefaultInput) => SetAppDefaultResult;
   'onboarding:set-app-fallbacks': (input: SetAppFallbacksInput) => SetAppFallbacksResult;
+  /** The app's stack as main would plan it now, for Inference. Sends nothing to any model. */
+  'inference:describe-app-stack': () => InferenceStack;
   'onboarding:set-app-shared-model': (input: SetAppSharedModelInput) => SetAppSharedModelResult;
   'onboarding:get-app-switch': () => AppSwitchEvent;
   'onboarding:cancel-app-switch': () => InferenceStatusResult;
@@ -330,6 +344,10 @@ export interface IpcInvokeChannels {
   'assistant-stack:ensure-running': () => EnsureAssistantStackResult;
   'assistant-stack:ensure-running-background': () => { started: boolean };
   'assistant-stack:ensure-and-apply-llm': () => EnsureAssistantStackResult;
+  'assistant-stack:set-n8n-enabled': (enabled: boolean) => { success: boolean; error?: string };
+  'assistant-stack:set-lightrag-enabled': (enabled: boolean) => { success: boolean; error?: string };
+  'assistant-stack:get-web-search-mode': () => WebSearchModeState;
+  'assistant-stack:set-web-search-mode': (mode: WebSearchMode) => { success: boolean; error?: string };
 
   'updates:get-state': () => UpdateSnapshot;
   'updates:check': () => UpdateSnapshot;
@@ -514,6 +532,7 @@ export interface IpcInvokeChannels {
  * `sendEvent` or `broadcast`, which check the payload against this map.
  */
 export interface IpcEventChannels {
+  'addons:progress': AddonInstallSnapshot;
   'circles:state': CirclesState;
   /** One channel's new, changed and settled-away messages. */
   'circles:chat-event': CircleChatUpdate;
@@ -552,6 +571,7 @@ export interface IpcEventChannels {
   'hermes-chat:credential-request': HermesChatCredentialRequestEvent;
   'hermes-chat:turn-stats': HermesChatTurnStats;
   'hermes-chat:sessions-changed': void;
+  'hermes-agents:changed': void;
   'hermes-kanban:snapshot': KanbanSnapshot;
   'hermes-kanban:open-task': string;
   'coding-folders:progress': string;

@@ -1,6 +1,6 @@
 # Circles diagnostics
 
-Every Boundary run writes what Circles do to `~/Library/Logs/Boundary/circles-diagnostics.log`, one JSON object per line. When the file passes 20 MB it moves to `circles-diagnostics.log.1` and a new one starts, so the two files hold the last 20–40 MB. **Show diagnostics file** on the Circles screen opens the folder in Finder.
+Every Boundary run writes what Circles do to `~/Library/Logs/Boundary/circles-diagnostics.log`, one JSON object per line. When the file passes 20 MB it moves to `circles-diagnostics.log.1` and a new one starts, so the two files hold the last 20–40 MB. **Show diagnostics file**, under **Profile…** on Settings' **Circles profile** row, opens the folder in Finder.
 
 The file holds metadata only: event names, counts, sizes, timings, status codes and model ids. People, devices and Circles appear as the first 8 hex characters of their keys, which are the same in both Macs' files. Peer addresses appear as a class (`loopback`, `lan`, `cgnat`, `link-local`, `public`, `ipv6`), never the IP. Names, invite codes, keys, prompts and replies are never written.
 

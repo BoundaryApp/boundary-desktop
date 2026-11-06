@@ -74,6 +74,23 @@ describe('recreateHermesForProjectMounts', () => {
     expect(upServices()).toEqual(['hermes', 'hermes-webui', 'hermes-worker']);
   });
 
+  it('turns on the shared database and GPT Researcher tools in Boundary’s compose env', async () => {
+    isLocalAssistantStackMode.mockReturnValue(false);
+    await recreateHermesForProjectMounts();
+    const env = (runCompose.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env;
+    expect(env.SQL_MCP_ENABLED).toBe('1');
+    expect(env.GPTR_MCP_ENABLED).toBe('1');
+    expect(env.COMPOSE_PROFILES?.split(',')).toContain('research');
+  });
+
+  it('routes web searches through search-gate and starts its profile', async () => {
+    isLocalAssistantStackMode.mockReturnValue(false);
+    await recreateHermesForProjectMounts();
+    const env = (runCompose.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env;
+    expect(env.WEB_SEARCH_URL).toBe('http://search-gate:8080');
+    expect(env.COMPOSE_PROFILES?.split(',')).toContain('search-gate');
+  });
+
   it('brings up the checkout’s terminal service, which holds the context-root binds', async () => {
     isLocalAssistantStackMode.mockReturnValue(true);
     fs.writeFileSync(path.join(checkout.root, '.env'), 'HERMES_TERMINAL_BACKEND=ssh\n', 'utf8');

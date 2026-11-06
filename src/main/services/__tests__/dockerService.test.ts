@@ -129,3 +129,96 @@ describe('dockerService event stream', () => {
     expect(getEvents).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('isComposeRelevantEvent', () => {
+  it('skips health-check execs and other actions that leave a project unchanged', async () => {
+    const { isComposeRelevantEvent } = await import('../dockerService');
+    for (const Action of ['exec_create: /bin/sh -c curl -f localhost', 'exec_start: /bin/sh -c true', 'exec_die', 'attach', 'resize', 'top']) {
+      expect(isComposeRelevantEvent({ Type: 'container', Action })).toBe(false);
+    }
+  });
+
+  it('keeps lifecycle and health changes, and only for containers', async () => {
+    const { isComposeRelevantEvent } = await import('../dockerService');
+    for (const Action of ['create', 'start', 'stop', 'die', 'destroy', 'rename', 'health_status: unhealthy']) {
+      expect(isComposeRelevantEvent({ Type: 'container', Action })).toBe(true);
+    }
+    expect(isComposeRelevantEvent({ Type: 'image', Action: 'pull' })).toBe(false);
+    expect(isComposeRelevantEvent({ Type: 'container' })).toBe(true);
+  });
+});
+
+describe('dockerService event refresh', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  type EventInternals = { handleDockerEvent: (event: { Type?: string; Action?: string }) => void };
+
+  async function serviceWithListing() {
+    const listContainers = vi.fn(async () => []);
+    const service = await connectedService({ listContainers });
+    const updates = vi.fn();
+    service.on('compose-configs-updated', updates);
+    return { service: service as typeof service & EventInternals, listContainers, updates };
+  }
+
+  it('does not refresh for health-check exec events', async () => {
+    const { service, listContainers } = await serviceWithListing();
+    for (let i = 0; i < 300; i++) {
+      service.handleDockerEvent({ Type: 'container', Action: 'exec_start: /bin/sh -c true' });
+    }
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(listContainers).not.toHaveBeenCalled();
+    service.destroy();
+  });
+
+  it('refreshes once for a burst of lifecycle events, after a short delay', async () => {
+    const { service, listContainers, updates } = await serviceWithListing();
+    service.handleDockerEvent({ Type: 'container', Action: 'stop' });
+    service.handleDockerEvent({ Type: 'container', Action: 'die' });
+    service.handleDockerEvent({ Type: 'container', Action: 'start' });
+    await vi.advanceTimersByTimeAsync(499);
+    expect(listContainers).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listContainers).toHaveBeenCalledTimes(1);
+    expect(updates).toHaveBeenCalledTimes(1);
+
+    service.handleDockerEvent({ Type: 'container', Action: 'start' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(listContainers).toHaveBeenCalledTimes(2);
+    service.destroy();
+  });
+
+  it('drops a pending refresh on destroy', async () => {
+    const { service, listContainers } = await serviceWithListing();
+    service.handleDockerEvent({ Type: 'container', Action: 'start' });
+    service.destroy();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(listContainers).not.toHaveBeenCalled();
+  });
+});
+
+describe('dockerService compose file checks', () => {
+  it('checks a working directory once however many of its containers are listed', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'compose-shared-'));
+    await writeFile(path.join(dir, 'compose.yaml'), 'services: {}\n');
+    const fsModule = await import('node:fs');
+    const access = vi.spyOn(fsModule.promises, 'access');
+    const containers = ['web', 'db', 'worker'].map((service) => ({
+      ...composeContainer(dir),
+      Labels: { ...composeContainer(dir).Labels, 'com.docker.compose.service': service },
+    }));
+    const service = await connectedService({ listContainers: vi.fn(async () => containers) });
+
+    const configs = await service.getComposeConfigs();
+    expect(configs.map((config) => config.services.length)).toEqual([3]);
+    const checkedDirs = new Set(access.mock.calls.map(([file]) => path.dirname(String(file))));
+    expect([...checkedDirs]).toEqual([dir]);
+    expect(access).toHaveBeenCalledTimes(4);
+    access.mockRestore();
+  });
+});

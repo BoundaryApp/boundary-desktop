@@ -318,7 +318,7 @@ let dockerClient: Docker | null = null;
 let diskCache: { at: number; app: number; stack: number; llm: number } | null = null;
 let diskRefresh: Promise<{ app: number; stack: number; llm: number } | null> | null = null;
 
-async function getDockerClient(): Promise<Docker | null> {
+export async function getDockerClient(): Promise<Docker | null> {
   if (dockerClient) return dockerClient;
   try {
     const runtime = await getContainerRuntime();
@@ -506,7 +506,7 @@ export function parsePodmanMachineMemoryBytes(stdout: string): number | null {
   }
 }
 
-async function readPodmanMachineReservedBytes(): Promise<number | null> {
+export async function readPodmanMachineReservedBytes(): Promise<number | null> {
   const binaries: string[] = [];
   try {
     const paths = resolveBundledRuntimePaths();
@@ -707,4 +707,48 @@ export function createDefaultResourceProbes(): HostResourceProbes {
     getAssistantRoot: () => tryResolveAssistantRoot().root,
     getEngineVmReservedBytes: readPodmanMachineReservedBytes,
   };
+}
+
+type MemoryDocker = {
+  listContainers(options: { all: boolean }): Promise<
+    Array<{ Id: string; Names?: string[]; Labels?: Record<string, string> }>
+  >;
+  getContainer(id: string): { stats(options: { stream: false }): Promise<unknown> };
+};
+
+/**
+ * Sum of `memory_stats.usage` over the running containers that belong to the assistant stack,
+ * leaving out those whose compose service is in `excludeServices`.
+ */
+export async function stackContainersMemoryBytes(
+  docker: MemoryDocker,
+  options: { localMode: boolean; assistantRoot: string | null; excludeServices?: readonly string[] }
+): Promise<number> {
+  const excluded = new Set(options.excludeServices ?? []);
+  const containers = await docker.listContainers({ all: false });
+  let total = 0;
+  for (const container of containers) {
+    const labels = container.Labels ?? {};
+    const name = (container.Names?.[0] ?? container.Id).replace(/^\//, '');
+    if (!isAssistantStackContainer(labels, name, options)) continue;
+    if (excluded.has(labels['com.docker.compose.service'] ?? '')) continue;
+    try {
+      const stats = (await docker.getContainer(container.Id).stats({ stream: false })) as DockerContainerStats;
+      total += stats.memory_stats?.usage ?? 0;
+    } catch {
+      // container stopped between list and stats
+    }
+  }
+  return total;
+}
+
+/** {@link stackContainersMemoryBytes} on the engine Boundary uses. */
+export async function sampleStackContainersMemoryBytes(excludeServices: readonly string[] = []): Promise<number> {
+  const docker = await getDockerClient();
+  if (!docker) return 0;
+  return stackContainersMemoryBytes(docker as unknown as MemoryDocker, {
+    localMode: isLocalAssistantStackMode(),
+    assistantRoot: tryResolveAssistantRoot().root,
+    excludeServices,
+  });
 }

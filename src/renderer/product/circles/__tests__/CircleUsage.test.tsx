@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localDay } from '../../../../shared/circleUsage';
 import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import { MemberLimit, SharingUsage, YourUsage } from '../CircleUsage';
+import { SharingUsage, YourUsage } from '../CircleUsage';
 
 const A = 'a'.repeat(64);
 const BO = 'b'.repeat(64);
@@ -73,17 +73,20 @@ describe('SharingUsage', () => {
   });
 });
 
-describe('MemberLimit', () => {
+describe('Limit for one person', () => {
   it('starts from the limit for everyone, and can go back to it', async () => {
     const setSharing = vi.fn().mockResolvedValue({ success: true, state: state() });
     stubElectronAPI({ circles: { setSharing } });
     const limits = { everyone: { requestsPerDay: 5 }, members: {} };
-    const { rerender } = render(<MemberLimit identity={BO} name="Bo" circles={state({ sharing: { ...SHARING, limits } })} />);
+    const { rerender } = render(<SharingUsage circles={state({ sharing: { ...SHARING, limits } })} />);
+    expect(screen.queryByLabelText('Requests a day for Bo')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Limit for one person'), { target: { value: BO } });
     expect((screen.getByLabelText('Requests a day for Bo') as HTMLInputElement).value).toBe('5');
     expect(screen.queryByRole('button', { name: 'Use the limit for everyone' })).toBeNull();
 
     const own = { ...limits, members: { [BO]: { requestsPerDay: 50 } } };
-    rerender(<MemberLimit identity={BO} name="Bo" circles={state({ sharing: { ...SHARING, limits: own } })} />);
+    rerender(<SharingUsage circles={state({ sharing: { ...SHARING, limits: own } })} />);
+    expect(screen.getByRole('option', { name: 'Bo · own limit' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Use the limit for everyone' }));
     await vi.waitFor(() => expect(setSharing).toHaveBeenCalled());
     expect(setSharing.mock.calls[0][0].limits.members).toEqual({});

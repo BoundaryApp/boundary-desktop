@@ -1,11 +1,12 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /**
- * Which place the chat screen shows (ADR 0042 §10): This Mac, or one Circle by key. Each Circle
+ * Which place the chat screen shows (ADR 0042 §10): This Mac, one Circle by key, or the page that
+ * waits for a join (ADR 0043 §7). Each Circle
  * remembers the channel last open in it. Kept in this window's storage, so it survives the chat
  * screen unmounting and a relaunch; it never reaches main or a Circle.
  */
-export type ChatPlace = { kind: 'mac' } | { kind: 'circle'; key: string };
+export type ChatPlace = { kind: 'mac' } | { kind: 'circle'; key: string } | { kind: 'joining' };
 
 interface PlaceState {
   place: ChatPlace;
@@ -14,14 +15,18 @@ interface PlaceState {
 }
 
 const STORAGE_KEY = 'boundary:chat-place';
-const OPEN_CIRCLE_CHAT_EVENT = 'boundary:open-circle-chat';
 const MAC: ChatPlace = { kind: 'mac' };
 
 function readStored(): PlaceState {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<PlaceState> | null;
-    const place =
-      parsed?.place?.kind === 'circle' && typeof parsed.place.key === 'string' ? parsed.place : MAC;
+    const stored = parsed?.place;
+    const place: ChatPlace =
+      stored?.kind === 'circle' && typeof stored.key === 'string'
+        ? stored
+        : stored?.kind === 'joining'
+          ? { kind: 'joining' }
+          : MAC;
     const lastChannel =
       parsed?.lastChannel && typeof parsed.lastChannel === 'object' ? parsed.lastChannel : {};
     return { place, lastChannel };
@@ -72,6 +77,12 @@ export function showCirclePlace(key: string, channel?: string): void {
   });
 }
 
+/** Show the page that waits for a join to be let in. */
+export function showJoiningPlace(): void {
+  if (current().place.kind === 'joining') return;
+  update({ ...current(), place: { kind: 'joining' } });
+}
+
 /** Forget a Circle this device left; the chat goes back to This Mac if it was showing it. */
 export function forgetCirclePlace(key: string): void {
   const { place, lastChannel } = current();
@@ -85,25 +96,6 @@ export function forgetCirclePlace(key: string): void {
 /** The channel a Circle opens on: the one last open there, else General. */
 export function circleChannel(placeState: PlaceState, key: string): string {
   return placeState.lastChannel[key] ?? 'general';
-}
-
-/**
- * Open a Circle's chat from another screen, such as the Circles screen's Open chat. The ready
- * shell switches to the chat screen, which shows the Circle.
- */
-export function openCircleChat(key: string, channel?: string): void {
-  showCirclePlace(key, channel);
-  window.dispatchEvent(new CustomEvent(OPEN_CIRCLE_CHAT_EVENT));
-}
-
-export function useOpenCircleChatRequests(handler: () => void): void {
-  const handlerRef = useRef(handler);
-  handlerRef.current = handler;
-  useEffect(() => {
-    const listener = () => handlerRef.current();
-    window.addEventListener(OPEN_CIRCLE_CHAT_EVENT, listener);
-    return () => window.removeEventListener(OPEN_CIRCLE_CHAT_EVENT, listener);
-  }, []);
 }
 
 /** For tests: drop the in-memory state so the next read comes from storage. */

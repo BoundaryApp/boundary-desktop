@@ -107,8 +107,13 @@ export interface CircleNetworkOptions {
   onChat?: (update: CircleChatUpdate) => void;
   /** An admin admitted this device. Main keeps the secrets now: the Circle opens from here on. */
   onPaired?: (secrets: CircleSecrets) => void;
-  /** This device was removed from a Circle and has closed it. Main forgets its secrets. */
+  /**
+   * This device was removed from a Circle, or its leave was confirmed, and it has closed the
+   * Circle. Main forgets its secrets.
+   */
   onRemoved?: (key: string) => void;
+  /** As an admin, this device saw a member leave a Circle. */
+  onMemberLeft?: (left: { key: string; circle: string; name: string }) => void;
   log?: (message: string, data?: Record<string, unknown>) => void;
   /**
    * Diagnostics events for a test run (metadata only: key prefixes, counts, timings, address
@@ -144,7 +149,16 @@ interface OpenCircle {
   lastDiag: string;
   /** Leaving or being removed: this device's own removal closes the Circle only once. */
   closing: boolean;
+  /**
+   * This user left, and the Circle stays open, out of the snapshot, until an admin confirms it.
+   * Until then the removal is only in this device's log, so it has to stay online to send it.
+   */
+  leaving: boolean;
+  /** Whether each removal `apply` saw was the member leaving, by identity. */
+  departures: Map<string, boolean>;
 }
+
+const LAST_ADMIN = 'The last admin can’t leave. Make someone else an admin first.';
 
 /** How long a removed device stays connected, for its notice to go out first. */
 const REMOVAL_NOTICE_MS = 2_000;
@@ -231,9 +245,9 @@ export class CircleNetwork {
     dht.on('persistent', () => this.diag('dht.persistent', this.dhtState()));
     this.gateway = new InferenceGateway({
       diag: (event, data) => this.diag(event, data),
-      offerFor: (key) => this.circles.get(key)?.state.offers.find((offer) => offer.identity === this.identityHex) ?? null,
+      offerFor: (key) => this.liveCircle(key)?.state.offers.find((offer) => offer.identity === this.identityHex) ?? null,
       memberFor: (key, device) =>
-        this.circles.get(key)?.state.members.find((member) => member.device === device)?.identity ?? null,
+        this.liveCircle(key)?.state.members.find((member) => member.device === device)?.identity ?? null,
       upstream: () => this.shareUpstream,
       log: (message, data) => this.log(message, data),
       usage: options.usage,
@@ -444,7 +458,7 @@ export class CircleNetwork {
     if (circle.closing) return;
     circle.closing = true;
     const key = circle.secrets.key!;
-    this.diag('circle.removed-here', { circle: short(key) });
+    this.diag(circle.leaving ? 'circle.left' : 'circle.removed-here', { circle: short(key) });
     // Called from inside Autobase's update, so the close waits for that turn to finish.
     setImmediate(() => {
       this.closeCircle(circle)
@@ -534,7 +548,7 @@ export class CircleNetwork {
   private onSignalFrame(device: string, raw: Buffer): void {
     const frame = decodeSignal(raw);
     if (!frame) return this.signalStats.onDropped('malformed');
-    const sender = this.circles.get(frame.circle)?.state.members.find((member) => member.device === device);
+    const sender = this.liveCircle(frame.circle)?.state.members.find((member) => member.device === device);
     if (!sender) return this.signalStats.onDropped('not-member');
     if (!this.signalTopics.has(frame.topic)) return this.signalStats.onDropped('unknown-topic');
     this.signalStats.onReceived(frame.topic, raw.length);
@@ -583,6 +597,7 @@ export class CircleNetwork {
 
   private async bootCircle(secrets: CircleSecrets): Promise<OpenCircle> {
     const namespace = this.store.namespace(secrets.namespace);
+    const departures = new Map<string, boolean>();
     const base = new Autobase(namespace, secrets.key ? Buffer.from(secrets.key, 'hex') : null, {
       encrypt: true,
       encryptionKey: secrets.encryptionKey ? Buffer.from(secrets.encryptionKey, 'hex') : undefined,
@@ -594,13 +609,15 @@ export class CircleNetwork {
           verify: (message, signature, publicKey) => crypto.verify(message, signature, publicKey),
           supportedFormat: this.supportedFormat,
           onSkip: (reason) => this.log('circle op skipped', { reason }),
+          onRemoveMember: (identity, byThemselves) => departures.set(identity, byThemselves),
         }),
       valueEncoding: 'json',
     });
     await base.ready();
+    const { leaving = false, ...kept } = secrets;
     const circle: OpenCircle = {
       secrets: {
-        ...secrets,
+        ...kept,
         key: base.key.toString('hex'),
         encryptionKey: base.encryptionKey!.toString('hex'),
       },
@@ -614,6 +631,8 @@ export class CircleNetwork {
       scan: Promise.resolve(),
       lastDiag: '',
       closing: false,
+      leaving,
+      departures,
     };
     base.on('update', () => void this.refreshCircle(circle));
     base.on('writable', () => this.changed());
@@ -652,10 +671,12 @@ export class CircleNetwork {
       offers: (await listPrefix(view, OFFERS_PREFIX)) as CircleOfferRecord[],
     };
     this.trackRemovedDevices(circle.secrets.key!, before, circle.state.members);
+    if (circle.leaving) return this.refreshLeaving(circle);
     circle.scan = circle.scan.then(() => this.scanRecords(circle)).then(() => this.scanChat(circle));
     await circle.scan;
     const me = circle.state.members.find((member) => member.identity === this.identityHex);
     this.diagCircleState(circle, me?.role ?? null);
+    this.reportDepartures(circle, before);
     // With a third member, the removal entry can reach this device by replication instead.
     if (lostMembership(before, circle.state.members, { identity: this.identityHex, writer: this.writerHex(circle) })) {
       this.closeRemovedCircle(circle);
@@ -674,6 +695,42 @@ export class CircleNetwork {
     }
     this.refreshPeers();
     this.changed();
+  }
+
+  /**
+   * A Circle this user is leaving reports nothing to main. It closes once an admin's device tells
+   * it the removal arrived, or once the view that leaves this user out is confirmed.
+   */
+  private async refreshLeaving(circle: OpenCircle): Promise<void> {
+    const me = circle.state.members.find((member) => member.identity === this.identityHex);
+    this.diagCircleState(circle, me?.role ?? null);
+    if (!me && circle.view.core.signedLength >= circle.view.core.length) {
+      this.closeRemovedCircle(circle);
+      return;
+    }
+    if (circle.member && me?.role !== 'admin') {
+      const member = circle.member;
+      circle.member = null;
+      await member.close();
+    }
+    this.refreshPeers();
+    this.changed();
+  }
+
+  /**
+   * As an admin, report members who left since the last update. Only a device that was already
+   * an admin with its current writer reports, so one catching up on history stays quiet.
+   */
+  private reportDepartures(circle: OpenCircle, before: CircleMemberRecord[]): void {
+    const self = before.find((member) => member.identity === this.identityHex);
+    if (self?.role !== 'admin' || self.writer !== this.writerHex(circle)) return;
+    const now = new Set(circle.state.members.map((member) => member.identity));
+    for (const member of before) {
+      if (member.identity === this.identityHex || now.has(member.identity)) continue;
+      if (!circle.departures.get(member.identity)) continue;
+      this.diag('member.left', { circle: short(circle.secrets.key) });
+      this.options.onMemberLeft?.({ key: circle.secrets.key!, circle: circle.state.name, name: member.name });
+    }
   }
 
   /** The records in a Circle's view now, with whether each is confirmed. */
@@ -804,9 +861,15 @@ export class CircleNetwork {
   }
 
   private circle(key: string): OpenCircle {
-    const circle = this.circles.get(key);
+    const circle = this.liveCircle(key);
     if (!circle) throw new Error('Not a member of that Circle.');
     return circle;
+  }
+
+  /** An open Circle this user hasn't left. */
+  private liveCircle(key: string): OpenCircle | undefined {
+    const circle = this.circles.get(key);
+    return circle?.leaving ? undefined : circle;
   }
 
   async createCircle(name: string): Promise<CircleSecrets> {
@@ -990,18 +1053,32 @@ export class CircleNetwork {
     }
   }
 
-  /** Leave a Circle: remove this member, then close it here. Main forgets its secrets. */
+  /**
+   * Leave a Circle: write this member's removal and stop showing the Circle. It stays open here
+   * until an admin confirms the removal, which can be after restarts, then closes and `onRemoved`
+   * fires. Main keeps its secrets, marked as leaving, until then.
+   */
   async leaveCircle(key: string): Promise<void> {
     const circle = this.circle(key);
     this.requireWritable(circle);
-    circle.closing = true;
+    const { members } = circle.state;
+    const me = members.find((member) => member.identity === this.identityHex);
+    const otherAdmin = members.some((member) => member.role === 'admin' && member.identity !== this.identityHex);
+    if (me?.role === 'admin' && !otherAdmin) throw new Error(LAST_ADMIN);
     await this.revokeInvitesFrom(circle, this.identityHex);
-    await this.append(circle, { type: 'remove-member', identity: this.identityHex });
-    if (circle.state.members.some((member) => member.identity === this.identityHex)) {
-      circle.closing = false;
-      throw new Error('The last admin can’t leave. Make someone else an admin first.');
+    circle.leaving = true;
+    try {
+      await this.append(circle, { type: 'remove-member', identity: this.identityHex });
+    } catch (err) {
+      circle.leaving = false;
+      throw err;
     }
-    await this.closeCircle(circle);
+    if (circle.state.members.some((member) => member.identity === this.identityHex)) {
+      circle.leaving = false;
+      await this.refreshCircle(circle);
+      throw new Error(LAST_ADMIN);
+    }
+    this.diag('circle.leaving', { circle: short(key) });
   }
 
   /**
@@ -1170,6 +1247,9 @@ export class CircleNetwork {
     };
     this.diag('join.paired', { circle: short(secrets.key), ms: Date.now() - started });
     this.options.onPaired?.(secrets);
+    // Joining again before an admin confirmed the leave: the new membership replaces it.
+    const left = this.circles.get(secrets.key!);
+    if (left?.leaving) await this.closeCircle(left);
     await this.releaseLocalWriter(paired.key);
     await this.openCircle(secrets);
     const circle = this.circle(secrets.key!);
@@ -1289,7 +1369,8 @@ export class CircleNetwork {
   snapshot(): CirclesSnapshot {
     const online = new Set(this.peers.keys());
     const me = this.identityHex;
-    const circles: CircleSnapshot[] = [...this.circles.values()].map((circle) => {
+    const open = [...this.circles.values()];
+    const circles: CircleSnapshot[] = open.filter((circle) => !circle.leaving).map((circle) => {
       const mine = circle.state.members.find((member) => member.identity === me);
       return {
         key: circle.secrets.key!,
@@ -1327,7 +1408,8 @@ export class CircleNetwork {
         }),
       };
     });
-    return { identity: me, circles };
+    const leaving = open.filter((circle) => circle.leaving).map((circle) => ({ key: circle.secrets.key!, name: circle.state.name }));
+    return { identity: me, circles, ...(leaving.length ? { leaving } : {}) };
   }
 
   async close(): Promise<void> {

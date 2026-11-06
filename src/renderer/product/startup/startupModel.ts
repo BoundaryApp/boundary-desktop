@@ -67,7 +67,7 @@ export const STARTUP_TOOLS: readonly StartupTool[] = [
     label: 'Research',
     title: 'Deep research',
     benefit: 'Reads dozens of sources on a question and writes you a report with citations.',
-    containers: ['boundary-gpt-researcher'],
+    containers: ['boundary-gptr-mcp', 'boundary-gpt-researcher'],
   },
   {
     id: 'memory',
@@ -108,6 +108,15 @@ export const STARTUP_TOOLS: readonly StartupTool[] = [
     containers: ['boundary-llm-proxy'],
   },
 ];
+
+/**
+ * The tools this start brings up: those with at least one container among the lifecycle's
+ * service cards. n8n has none while it is off, so Automations drops out.
+ */
+export function startupTools(services: AssistantStackServiceProgress[]): StartupTool[] {
+  const names = new Set(services.map((s) => s.containerName));
+  return STARTUP_TOOLS.filter((tool) => tool.containers.some((name) => names.has(name)));
+}
 
 export function toolState(
   tool: StartupTool,

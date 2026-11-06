@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { CircleChannel, CirclesResult } from '../../../../shared/types/circles';
 import { Input } from '../../../components/ui/input';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
+import { CircleFormSheet } from './CircleFormSheet';
 
 /** Which channel sheet is open: adding one, renaming one, or removing one. */
 export type ChannelSheet = { kind: 'add' } | { kind: 'rename'; channel: CircleChannel } | { kind: 'remove'; channel: CircleChannel };
@@ -85,28 +86,16 @@ export const ChannelSheets: React.FC<{
 
   const adding = sheet?.kind === 'add';
   return (
-    <Sheet
+    <CircleFormSheet
       open={sheet !== null}
       onClose={onClose}
       busy={busy}
       titleId="circle-channel-name"
       title={adding ? 'Add a channel' : 'Rename channel'}
       error={error}
-      as="form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-      actions={
-        <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="wb-btn-solid" disabled={busy || !name.trim()}>
-            {adding ? (busy ? 'Adding…' : 'Add') : busy ? 'Renaming…' : 'Rename'}
-          </button>
-        </>
-      }
+      submitLabel={adding ? (busy ? 'Adding…' : 'Add') : busy ? 'Renaming…' : 'Rename'}
+      canSubmit={Boolean(name.trim())}
+      onSubmit={() => void submit()}
     >
       <label htmlFor="circle-channel-name-input" className="wb-sheet-help">
         {adding ? `Everyone in ${circleName} can read it.` : 'Everyone sees the new name.'}
@@ -120,6 +109,6 @@ export const ChannelSheets: React.FC<{
         placeholder="Channel name"
         onChange={(event) => setName(event.target.value)}
       />
-    </Sheet>
+    </CircleFormSheet>
   );
 };

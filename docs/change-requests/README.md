@@ -42,3 +42,6 @@ The stack developer updates **Status** in the table below and replies inline und
 | [0017](0017-stack-releases.md) | Stack releases Boundary can install unattended | [updates plan](../updates-plan.md) | Open |
 | [0018](0018-workload-scheduling.md) | Workload scheduling: pausing coding tasks | [workload scheduling plan](../workload-scheduling-plan.md) | Open |
 | [0019](0019-faster-stack-start.md) | Faster stack start on every launch | App launch time | R1 done, R2–R3 partly (v0.3.8) |
+| [0020](0020-ui-installable-addons.md) | Add-ons Boundary can install from its UI: a manifest, resource limits, a scripted enable step, MCP registration without a restart, n8n as an add-on | [add-ons UX study](../addons-ux-study/README.md) | R1, R3, R6 planned with Boundary's additions · R2, R5 (healthchecks), R8 planned for 0.3.10 · R4 live check in the Twenty build · R5 capabilities, R7 later · R9 declined · R10 asked · R11 open |
+| [0021](0021-worker-key-owner.md) | The SSH worker key is owned by uid 1000 whatever `HERMES_UID` is | Agent terminal and file tools | Open |
+| [0022](0022-lightrag-off.md) | Turning LightRAG off leaves its MCP entry in Hermes; LightRAG as an add-on | LightRAG on Services | R1 built (unreleased, ships in 0.3.11) · R2 planned with 0020 R1 |

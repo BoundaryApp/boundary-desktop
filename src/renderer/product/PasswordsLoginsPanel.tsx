@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
+import { builtinAgent, builtinAgentName } from '../../shared/hermesAgentIdentity';
 import { useStoredAgents, useToast } from './settingsPanelHooks';
 import type {
   VaultIdentifierType,
@@ -86,7 +87,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
 
   const agentName =
     agents.find((a) => a.slug === agentSlug)?.displayName ??
-    (agentSlug === BUILTIN_ASSISTANT_SLUG ? 'Hermes' : agentSlug);
+    (agentSlug === BUILTIN_ASSISTANT_SLUG ? builtinAgentName(agents) : agentSlug);
 
   const refresh = useCallback(async (slug: string) => {
     const seq = ++loadSeq.current;
@@ -155,7 +156,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
           <select value={agentSlug} onChange={(e) => setAgentSlug(e.target.value)}>
             {(agents.length
               ? agents
-              : [{ slug: BUILTIN_ASSISTANT_SLUG, displayName: 'Hermes' }]
+              : [builtinAgent(agents)]
             ).map((a) => (
               <option key={a.slug} value={a.slug}>
                 {a.displayName}

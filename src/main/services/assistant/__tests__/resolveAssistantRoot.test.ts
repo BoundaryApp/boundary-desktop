@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE,
   SOVEREIGN_AGENT_STACK_GITHUB_URL,
@@ -11,7 +11,8 @@ describe('resolveAssistantRoot', () => {
   const prevEnv = process.env.BOUNDARY_ASSISTANT_ROOT;
   let tmpRoot: string | null = null;
 
-  afterEach(() => {
+  afterEach(async () => {
+    (await import('../resolveAssistantRoot')).forgetAssistantRootChecks();
     if (prevEnv === undefined) {
       delete process.env.BOUNDARY_ASSISTANT_ROOT;
     } else {
@@ -84,5 +85,63 @@ describe('resolveAssistantRoot', () => {
 
     const { resolveActiveAssistantDataRoot } = await import('../resolveAssistantRoot');
     expect(resolveActiveAssistantDataRoot()).toBe(path.join(resolveAssistantProjectRoot(), 'data'));
+  });
+
+  describe('cached compose-file checks', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    function stackDir(): string {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-cache-'));
+      fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
+      process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+      return tmpRoot;
+    }
+
+    it('checks the disk once, then answers from memory without a blocking call', async () => {
+      stackDir();
+      const { resolveAssistantRoot } = await import('../resolveAssistantRoot');
+      const existsSync = vi.spyOn(fs, 'existsSync');
+      resolveAssistantRoot();
+      resolveAssistantRoot();
+      resolveAssistantRoot();
+      expect(existsSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechecks an old find in the background and fails once the file is gone', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const dir = stackDir();
+      const { resolveAssistantRoot, AssistantRootError } = await import('../resolveAssistantRoot');
+      resolveAssistantRoot();
+      fs.rmSync(path.join(dir, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE));
+
+      // Within five seconds the cached find still answers.
+      expect(resolveAssistantRoot()).toBe(path.resolve(dir));
+      vi.setSystemTime(Date.now() + 5_000);
+      // Past them it still answers once, and starts a recheck that drops the find.
+      let finishRecheck!: (error: Error) => void;
+      const access = vi
+        .spyOn(fs.promises, 'access')
+        .mockReturnValueOnce(new Promise((_resolve, reject) => (finishRecheck = reject)));
+      expect(resolveAssistantRoot()).toBe(path.resolve(dir));
+      expect(access).toHaveBeenCalledTimes(1);
+      // A second call while the recheck runs doesn't start another.
+      expect(resolveAssistantRoot()).toBe(path.resolve(dir));
+      expect(access).toHaveBeenCalledTimes(1);
+      finishRecheck(new Error('ENOENT'));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(() => resolveAssistantRoot()).toThrow(AssistantRootError);
+    });
+
+    it('sees a stack installed after a miss on the next call', async () => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-late-'));
+      process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+      const { resolveAssistantRoot, AssistantRootError } = await import('../resolveAssistantRoot');
+      expect(() => resolveAssistantRoot()).toThrow(AssistantRootError);
+      fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
+      expect(resolveAssistantRoot()).toBe(path.resolve(tmpRoot));
+    });
   });
 });

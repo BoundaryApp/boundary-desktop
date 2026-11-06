@@ -3,7 +3,7 @@ import type { AssistantStackLifecycleSnapshot } from '../../shared/types/assista
 import { createLifecycleSnapshot } from '../../shared/assistantStackLifecycle';
 import { ServiceProgressCards } from './ServiceProgressCards';
 import { StartupDetails, ToolRing } from './startup/StartupScreen';
-import { STARTUP_TOOLS, toolState, type StartupToolState } from './startup/startupModel';
+import { startupTools, toolState, type StartupToolState } from './startup/startupModel';
 import { useUpdates } from './updates';
 import { APP_NAME } from '../../shared/buildIdentity';
 
@@ -45,7 +45,8 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
     lifecycle.services?.length > 0
       ? lifecycle.services
       : createLifecycleSnapshot('stopping').services;
-  const states = STARTUP_TOOLS.map((tool) => STOP_TILE[toolState(tool, services)]);
+  const tools = startupTools(services);
+  const states = tools.map((tool) => STOP_TILE[toolState(tool, services)]);
   const mean =
     lifecycle.phase === 'stopped'
       ? 1
@@ -63,7 +64,10 @@ export const AssistantStackQuitOverlay: React.FC<AssistantStackQuitOverlayProps>
       aria-labelledby="quit-overlay-title"
     >
       <div className="su-column">
-        <ToolRing states={states} highlighted={-1} lookAt={-1} mood="sleeping" words={STOP_WORDS} />
+        <ToolRing
+          tools={tools}
+          states={states}
+          highlighted={-1} lookAt={-1} mood="sleeping" words={STOP_WORDS} />
         <div className="su-heading">
           <h1 id="quit-overlay-title">Shutting down your assistant</h1>
           <p role="status">

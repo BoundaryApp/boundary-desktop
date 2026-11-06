@@ -5,7 +5,7 @@ import { createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { SetupProvider } from '../../setup/SetupContext';
 import { ProductApp } from '../ProductApp';
-import { ProductSettingsScreen } from '../ProductSettingsScreen';
+import { InferenceScreen } from '../inference/InferenceScreen';
 
 // The app as the public repository has it; each experiment tests what it adds beside its code.
 vi.mock('../../experiments', () => ({ rendererExperiments: [] }));
@@ -14,9 +14,9 @@ vi.mock('../../setup/SetupFlowShell', () => ({
   SetupFlowShell: () => <div>setup-flow</div>,
 }));
 
-// The shell's job here is only to keep Settings mounted; setup gating above it is under test.
+// The shell's job here is only to keep Inference mounted; setup gating above it is under test.
 vi.mock('../ProductReadyShell', () => ({
-  ProductReadyShell: () => <ProductSettingsScreen onBack={() => undefined} />,
+  ProductReadyShell: () => <InferenceScreen />,
 }));
 
 const openRouterOnly = {
@@ -53,6 +53,7 @@ const nothingConnected = {
 function stubApp() {
   const onboarding = {
     getStatus: vi.fn().mockResolvedValue(openRouterOnly),
+    describeAppStack: vi.fn().mockResolvedValue({ entries: [], noPrivate: false }),
     probeSlotHealth: vi.fn().mockResolvedValue({ success: true, health: 'reachable' }),
     listConfiguredEndpointModels: vi.fn().mockResolvedValue({ success: true, models: [] }),
     clearLlmSlot: vi.fn().mockResolvedValue({ success: true, status: nothingConnected }),
@@ -84,7 +85,7 @@ function stubApp() {
 describe('disconnecting the last provider', () => {
   afterEach(() => cleanup());
 
-  it('stays on Settings, says nothing is connected, and reconnects with the saved key', async () => {
+  it('stays on Inference, offers a first model, and reconnects with the saved key', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     const onboarding = stubApp();
     render(
@@ -95,15 +96,15 @@ describe('disconnecting the last provider', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
 
-    expect(await screen.findByText(/No model provider is connected/)).toBeTruthy();
+    expect(await screen.findByText('Add your first model')).toBeTruthy();
     expect(onboarding.clearLlmSlot).toHaveBeenCalledWith({ slot: 'openrouter' });
     expect(screen.queryByText('setup-flow')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Inference' })).toBeTruthy();
     expect(screen.getByText(/sk-or-…7f2a/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
 
-    await waitFor(() => expect(screen.queryByText(/No model provider is connected/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Add your first model')).toBeNull());
     expect(screen.queryByText('setup-flow')).toBeNull();
     expect(screen.getByRole('button', { name: 'Disconnect' })).toBeTruthy();
   });

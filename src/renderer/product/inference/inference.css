@@ -1,0 +1,459 @@
+/* Inference (settings spec phase 3). Reading scale: 14px body, 13px secondary, 58px rows. */
+
+.wb-inf {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--surface-0);
+  color: var(--text);
+  font-size: var(--size-body);
+}
+
+.wb-inf-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 40px 32px 64px;
+}
+
+.wb-inf-col {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.wb-inf-title {
+  margin: 0;
+  font-size: var(--size-page);
+  font-weight: var(--weight-strong);
+}
+
+.wb-inf-lede {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+.wb-inf-sec {
+  margin: 36px 0 12px;
+  font-size: var(--size-section);
+  font-weight: var(--weight-medium);
+}
+
+.wb-inf .wb-btn-ghost,
+.wb-inf .wb-btn-solid {
+  width: auto;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--size-small);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.wb-inf .wb-btn-ghost:disabled,
+.wb-inf .wb-btn-solid:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.wb-inf .wb-btn-ghost.is-danger {
+  color: var(--danger);
+}
+
+.wb-inf-rows {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  list-style: none;
+}
+
+.wb-inf-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--row-min-height, 58px);
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.wb-inf-row:first-child {
+  border-top: 0;
+}
+
+.wb-inf-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wb-inf-row-text b {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-inf-row-text > span {
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+/* Try a request: a dry run that sends nothing (settings spec decision 4). */
+.wb-inf-try {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+.wb-inf-try strong {
+  margin-right: auto;
+  font-weight: var(--weight-strong);
+}
+
+.wb-inf-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+.wb-inf-verdict {
+  flex-basis: 100%;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.wb-inf-verdict.is-none {
+  color: var(--warn);
+}
+
+/* The stack: numbered rungs on a spine (settings spec decision 3). */
+.wb-inf-stack {
+  position: relative;
+  padding-top: 14px;
+}
+
+.wb-inf-stack ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-inf-spine {
+  position: absolute;
+  top: 0;
+  bottom: 22px;
+  left: 21px;
+  width: 2px;
+  background: var(--line-strong);
+}
+
+.wb-inf-rung {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  margin-bottom: 12px;
+  padding: 10px 8px 10px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  transition:
+    border-color var(--dur-fast),
+    opacity var(--dur-fast);
+}
+
+.wb-inf-rung:hover {
+  border-color: var(--line-strong);
+}
+
+.wb-inf-rung.is-selected {
+  border-color: var(--brand);
+}
+
+.wb-inf-rung.is-answers {
+  border-color: var(--ok);
+  background: var(--ok-dim);
+}
+
+.wb-inf-rung.is-passed {
+  opacity: 0.72;
+}
+
+.wb-inf-rung.is-unreached {
+  opacity: 0.45;
+}
+
+.wb-inf-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 0 0 0 7px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-inf-num {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+}
+
+.wb-inf-rung.is-answers .wb-inf-num {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--surface-0);
+}
+
+.wb-inf-status {
+  color: var(--text-faint);
+  font-size: var(--size-small);
+  white-space: nowrap;
+}
+
+.wb-inf-status.is-ok {
+  color: var(--ok);
+}
+
+.wb-inf-status.is-warn {
+  color: var(--warn);
+}
+
+.wb-inf-acts {
+  display: flex;
+  gap: 2px;
+}
+
+.wb-inf-ico {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.wb-inf-ico:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wb-inf-ico:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.wb-inf-pline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px 44px;
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+.wb-inf-pline::before,
+.wb-inf-pline::after {
+  flex: 1;
+  height: 1px;
+  border-top: 1px dashed var(--line-strong);
+  content: '';
+}
+
+.wb-inf-add {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 48px;
+  margin-bottom: 12px;
+  padding-left: 7px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-0);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-inf-add:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.wb-inf-add .wb-inf-num {
+  border-style: dashed;
+  background: var(--surface-0);
+}
+
+.wb-inf-endcap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  padding-left: 7px;
+  color: var(--text-muted);
+}
+
+.wb-inf-endcap .wb-inf-num {
+  background: var(--surface-0);
+  color: var(--text-faint);
+}
+
+.wb-inf-foot,
+.wb-inf-note {
+  margin: 18px 0 0;
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+.wb-inf-error {
+  margin: 18px 0 0;
+  color: var(--danger);
+  font-size: var(--size-small);
+}
+
+/* Model details beside the stack. */
+.wb-inf-side {
+  flex: none;
+  width: 360px;
+  overflow-y: auto;
+  padding: 22px 20px 32px;
+  border-left: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.wb-inf-side-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.wb-inf-side-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  font-weight: var(--weight-strong);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.wb-inf-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  margin: 12px 0 0;
+  font-size: var(--size-small);
+}
+
+.wb-inf-kv dt {
+  color: var(--text-muted);
+}
+
+.wb-inf-kv dd {
+  margin: 0;
+  text-align: right;
+}
+
+.wb-inf-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.wb-inf-kick {
+  margin: 22px 0 8px;
+  color: var(--text-muted);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+}
+
+.wb-inf-claims {
+  margin-top: 22px;
+}
+
+/* From your Circles: each person's models and what the user accepts from them. */
+.wb-inf-people {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-inf-person {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+.wb-inf-person-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wb-inf-shared {
+  margin-top: 36px;
+}
+
+.wb-inf-person.is-focused {
+  border-color: var(--brand);
+}
+
+/* A chat's or project's stack in a sheet: details sit under the list instead of beside it. Its
+   hosts (the chip, the inspector) are small positioned boxes, so the backdrop covers the window. */
+.wb-sheet-backdrop.wb-inf-level-backdrop {
+  position: fixed;
+}
+
+.wb-inf-level .wb-inf-side {
+  width: auto;
+  margin-top: 8px;
+  padding: 16px 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+.wb-inf-level .wb-btn-ghost.is-danger {
+  color: var(--danger);
+}
+
+.wb-inf-level .wb-inf-rows {
+  margin-top: 8px;
+}

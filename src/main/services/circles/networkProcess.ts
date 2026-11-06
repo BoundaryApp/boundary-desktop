@@ -183,6 +183,7 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
     onChat: (update) => post({ type: 'chat-update', update }),
     onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
     onRemoved: (key) => post({ type: 'circle-removed', key }),
+    onMemberLeft: (left) => post({ type: 'member-left', ...left }),
     log,
     diag,
   });

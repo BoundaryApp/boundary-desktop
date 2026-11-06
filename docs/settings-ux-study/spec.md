@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 1 Type scale and copy pass | Built; live check pending | — |
 | 2 Sheets over the current screen | Built; live check pending | — |
-| 3 Inference destination | Not started | 2 |
+| 3 Inference destination | Built; live check pending | 2 |
 | 4 Move panels to where they act | Not started | 2 |
 | 5 A stack per request type | Not started | 3, stack change request, ADR |
 

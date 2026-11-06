@@ -95,26 +95,29 @@ describe('AssistantStackService helpers', () => {
     ]);
   });
 
-  it('builds multi-profile compose args for core+rag+automation+coding+db', () => {
+  it('builds multi-profile compose args for core+automation+coding+db+research, leaving rag to the LightRAG switch', () => {
     const args = buildComposeProfileArgs();
     expect(args).toEqual([
       '--profile',
       'core',
       '--profile',
-      'rag',
-      '--profile',
       'automation',
       '--profile',
       'coding',
       '--profile',
       'db',
+      '--profile',
+      'research',
+      '--profile',
+      'search-gate',
     ]);
     expect(BOUNDARY_ASSISTANT_COMPOSE_PROFILES).toEqual([
       'core',
-      'rag',
       'automation',
       'coding',
       'db',
+      'research',
+      'search-gate',
     ]);
     expect(__test.buildComposeProfileArgs()).toEqual(args);
   });

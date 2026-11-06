@@ -3,7 +3,7 @@ import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import { Callout } from '../components/ui/alert';
 import { chooseSharedModel } from './inferenceStatus';
 import { offerProviders } from '../product/circles/CircleOffers';
-import { JoinForm, NameForm } from '../product/circles/CirclesScreen';
+import { JoinForm, NameForm } from '../product/circles/CirclesProfile';
 import { PersonModels, ProviderClaims } from '../product/circles/PersonPanel';
 import { useCirclesState } from '../product/circles/useCircles';
 

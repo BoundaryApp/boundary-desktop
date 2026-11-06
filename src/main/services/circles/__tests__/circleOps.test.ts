@@ -131,6 +131,35 @@ describe('applyCircleNodes', () => {
     expect(host.writers.has(bo.writer)).toBe(false);
   });
 
+  it('says whether each removal was the member leaving', async () => {
+    const { view, host } = await circleWithBo();
+    const onRemoveMember = vi.fn();
+    const apply = (ops: Array<[CircleMemberIntro, CircleOp]>) =>
+      applyCircleNodes(
+        ops.map(([author, value]) => ({ value, from: { key: Buffer.from(author.writer, 'hex') } })),
+        view,
+        host,
+        { verify, onRemoveMember }
+      );
+    await apply([[bo, { type: 'remove-member', identity: bo.identity }]]);
+    expect(onRemoveMember).toHaveBeenCalledWith(bo.identity, true);
+
+    const again = await circleWithBo();
+    onRemoveMember.mockClear();
+    await applyCircleNodes([{ value: { type: 'remove-member', identity: bo.identity }, from: { key: Buffer.from(ada.writer, 'hex') } }], again.view, again.host, {
+      verify,
+      onRemoveMember,
+    });
+    expect(onRemoveMember).toHaveBeenCalledWith(bo.identity, false);
+    // A skipped removal says nothing.
+    onRemoveMember.mockClear();
+    await applyCircleNodes([{ value: { type: 'remove-member', identity: ada.identity }, from: { key: Buffer.from(ada.writer, 'hex') } }], again.view, again.host, {
+      verify,
+      onRemoveMember,
+    });
+    expect(onRemoveMember).not.toHaveBeenCalled();
+  });
+
   it('makes an admin an indexer, and never removes or demotes the last admin', async () => {
     const { view, host } = await circleWithBo();
     const skipped = await run(view, host, [

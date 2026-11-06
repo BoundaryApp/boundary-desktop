@@ -14,9 +14,9 @@ import { circleUnread, useCircleChannels } from './circles/useCircleChat';
 /** `experiment:<id>` is a screen a private experiment adds (`ExperimentDestination`). */
 export type ProductDestination =
   | 'chat'
+  | 'inference'
   | 'services'
   | 'resources'
-  | 'circles'
   | 'settings'
   | `experiment:${string}`;
 
@@ -97,7 +97,6 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   const working = (turns.length > 0 || boardRunning) && active !== 'chat';
   return (
     <nav aria-label="App" className={`wb-icon-rail${disabled ? ' is-disabled' : ''}`} inert={inert}>
-      <div className="wb-mark" aria-hidden="true" />
       {stack?.kind === 'local' ? (
         <div className="wb-stack-badge" title={`Local agent stack: ${stack.root}`}>
           Local
@@ -115,6 +114,20 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
         </svg>
         {working ? <WorkingDot label="An agent is working" /> : null}
         {disabled ? null : <CircleUnreadCount />}
+      </RailButton>
+      <RailButton
+        label="Inference"
+        command="go-inference"
+        active={active === 'inference'}
+        onClick={() => onNavigate('inference')}
+        disabled={disabled}
+      >
+        {disabled ? null : <SharingAttentionDot />}
+        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M8 2.5 13.5 5.5 8 8.5 2.5 5.5z" />
+          <path d="M2.5 8.5 8 11.5l5.5-3" />
+          <path d="M2.5 11 8 14l5.5-3" />
+        </svg>
       </RailButton>
       <RailButton
         label="Services"
@@ -141,21 +154,6 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
           <rect x="2.5" y="9.5" width="3" height="4" />
           <rect x="6.5" y="6.5" width="3" height="7" />
           <rect x="10.5" y="3.5" width="3" height="10" />
-        </svg>
-      </RailButton>
-      <RailButton
-        label="Circles"
-        command="go-circles"
-        active={active === 'circles'}
-        onClick={() => onNavigate('circles')}
-        disabled={disabled}
-      >
-        {disabled ? null : <SharingAttentionDot />}
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <circle cx="8" cy="8" r="5.5" />
-          <circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none" />
-          <circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
-          <circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
         </svg>
       </RailButton>
       {experimentDestinations().map(({ id, label, Icon }) => (

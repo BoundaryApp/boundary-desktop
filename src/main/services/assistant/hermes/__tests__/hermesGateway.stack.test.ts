@@ -13,6 +13,7 @@
  *   and calls the methods that only read, on one session it creates. That session is never sent
  *   a message, so Hermes doesn't store it.
  */
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HermesGatewaySession } from '../hermesGatewaySession';
 import { DM_HISTORY_BUDGET } from '../hermesAgents';
@@ -20,6 +21,7 @@ import { CREDENTIAL_REQUEST_KINDS } from '../hermesCredentialRequests';
 import { parseRecoveryNotice } from '../hermesRecoveryNotice';
 import { refuseLocalStackOlderThanPin } from '../stackPinCheck';
 import type { JsonRpcGatewayClient } from '../vendor';
+import { readEnvFile } from '../../stackEnv';
 import {
   probeStack,
   pythonJsonInHermes,
@@ -28,6 +30,13 @@ import {
 } from '../../__tests__/stackHarness';
 
 const probe = await probeStack();
+
+/**
+ * The stack under test registers GPT Researcher only with GPTR_MCP_ENABLED=1 in its `.env`
+ * (setup.sh --research). Boundary's own install sets it in the compose env instead.
+ */
+const gptrEnabled =
+  probe.ok && readEnvFile(path.join(probe.target.root, '.env')).GPTR_MCP_ENABLED === '1';
 
 interface Call {
   method: string;
@@ -371,6 +380,21 @@ describe.skipIf(!probe.ok)(`Hermes gateway over /api/ws${skipNote(probe)}`, () =
     // The built-in agent's call: the default profile.
     await expect(session.describeProfile('')).resolves.toHaveProperty('soul');
   });
+
+  it.skipIf(!gptrEnabled)(
+    `registers GPT Researcher on the default profile${gptrEnabled ? '' : ' (skipped: GPTR_MCP_ENABLED is not 1 in the stack .env)'}`,
+    async () => {
+      const list = (await client.request('mcp.servers.list', {})) as {
+        servers?: Array<{ name?: string; url?: string; enabled?: boolean; tools?: { include?: string[] } }>;
+      };
+      const gptr = list.servers?.find((s) => s.name === 'gptr');
+      expect(gptr?.enabled).toBe(true);
+      expect(gptr?.url).toMatch(/gptr-mcp:8000\/sse$/);
+      expect(gptr?.tools?.include).toEqual(
+        expect.arrayContaining(['deep_research', 'quick_search', 'write_report'])
+      );
+    }
+  );
 
   it('answers mcp.servers.status and vault.sources with the lists Boundary reads', async () => {
     const mcp = (await client.request('mcp.servers.status', {})) as { servers?: unknown };

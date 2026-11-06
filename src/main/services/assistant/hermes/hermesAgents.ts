@@ -54,11 +54,21 @@ function registryPath(): string {
   return path.join(resolveActiveAssistantDataRoot(), 'hermes', 'agents', 'registry.json');
 }
 
-function readRegistryAgents(): AgentProfile[] {
+/**
+ * Agents in Hermes's registry.json. Async: the agent list asks for this often, and a local
+ * stack's data sits under ~/Documents, where a blocking read on the main thread can wait on a
+ * macOS permission check.
+ */
+async function readRegistryAgents(): Promise<AgentProfile[]> {
   try {
     const file = registryPath();
-    if (!fs.existsSync(file)) return [];
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    let text: string;
+    try {
+      text = await fs.promises.readFile(file, 'utf8');
+    } catch {
+      return [];
+    }
+    const raw = JSON.parse(text) as {
       agents?: Array<{
         name?: string;
         display_name?: string;
@@ -123,10 +133,11 @@ function upsertRegistry(agent: AgentProfile): void {
   }
 }
 
-function mergeAgents(): AgentProfile[] {
+async function mergeAgents(): Promise<AgentProfile[]> {
+  const registry = await readRegistryAgents();
   const stored = listStoredAgents();
   const bySlug = new Map(stored.map((a) => [a.slug, a]));
-  for (const reg of readRegistryAgents()) {
+  for (const reg of registry) {
     if (!bySlug.has(reg.slug)) {
       bySlug.set(reg.slug, reg);
       upsertStoredAgent(reg);
@@ -139,11 +150,11 @@ function mergeAgents(): AgentProfile[] {
   return [builtin, ...rest];
 }
 
-export function listHermesAgents(): HermesAgentsListResult {
+export async function listHermesAgents(): Promise<HermesAgentsListResult> {
   try {
     return {
       success: true,
-      agents: mergeAgents(),
+      agents: await mergeAgents(),
       standingDmByAgent: getStandingDmMap(),
       orchestratorSlug: getOrchestratorRecord()?.slug ?? null,
     };
@@ -157,8 +168,8 @@ export function listHermesAgents(): HermesAgentsListResult {
   }
 }
 
-function uniqueAgentSlug(base: string): string {
-  return uniqueSlug(base, [...mergeAgents().map((a) => a.slug), ...RESERVED_SLUGS]);
+async function uniqueAgentSlug(base: string): Promise<string> {
+  return uniqueSlug(base, [...(await mergeAgents()).map((a) => a.slug), ...RESERVED_SLUGS]);
 }
 
 function soulForRole(displayName: string, role: string): string {
@@ -315,7 +326,19 @@ function agentFields(payload: {
   return { displayName, role, handle };
 }
 
-export async function createHermesAgent(
+/** Creates run one at a time, so two can't pick the same slug while the registry is read. */
+let createQueue: Promise<unknown> = Promise.resolve();
+
+export function createHermesAgent(payload: HermesAgentCreatePayload): Promise<HermesAgentCreateResult> {
+  const run = createQueue.then(
+    () => createHermesAgentNow(payload),
+    () => createHermesAgentNow(payload)
+  );
+  createQueue = run.catch((): void => undefined);
+  return run;
+}
+
+async function createHermesAgentNow(
   payload: HermesAgentCreatePayload
 ): Promise<HermesAgentCreateResult> {
   const fields = agentFields(payload);
@@ -327,7 +350,7 @@ export async function createHermesAgent(
   if (RESERVED_SLUGS.has(baseSlug) && baseSlug !== BUILTIN_ASSISTANT_SLUG) {
     return { success: false, error: `Name “${baseSlug}” is reserved.` };
   }
-  const slug = uniqueAgentSlug(baseSlug);
+  const slug = await uniqueAgentSlug(baseSlug);
 
   const agent: AgentProfile = {
     slug,

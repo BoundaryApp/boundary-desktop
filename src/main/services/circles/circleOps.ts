@@ -217,6 +217,11 @@ export interface CircleApplyDeps {
   supportedFormat?: number;
   /** Called with each skipped operation and why, for the debug log. */
   onSkip?(reason: string, op: unknown): void;
+  /**
+   * Called when `remove-member` applies, with whether the member removed themselves. Autobase
+   * reapplies reordered entries and a new device replays history, so it can fire more than once.
+   */
+  onRemoveMember?(identity: string, byThemselves: boolean): void;
 }
 
 const HEX_KEY = /^[0-9a-f]{64}$/;
@@ -482,6 +487,7 @@ async function applyOne(
       const writer = Buffer.from(target.writer, 'hex');
       if (!host.removeable(writer)) return 'Autobase will not remove that writer';
       await host.removeWriter(writer);
+      deps.onRemoveMember?.(target.identity, author?.identity === op.identity);
       await view.del(memberKey(target.identity));
       await view.del(writerKey(target.writer));
       // A member who leaves stops sharing too (ADR 0033 §10: their entries go stale).

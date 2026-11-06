@@ -8,7 +8,12 @@
 /* Place switcher: the top of the chat rail says which place the rail shows. */
 .wb-place {
   position: relative;
-  margin: 0 8px 8px;
+  margin: 10px 8px 8px;
+}
+
+/* The project picker's own top margin would double the gap under the switcher. */
+.wb-place + .wb-proj-picker {
+  margin-top: 0;
 }
 
 .wb-place-button {
@@ -115,6 +120,15 @@
   cursor: pointer;
 }
 
+.wb-place-menu > .wb-place-menu-static {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .wb-place-menu > button:hover,
 .wb-place-menu > button:focus-visible {
   outline: none;
@@ -131,6 +145,65 @@
   padding: 6px 8px 4px;
   color: var(--text-faint);
   font-size: var(--size-2xs);
+}
+
+.wb-place-menu-note {
+  margin: 4px 8px 6px;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  line-height: 1.45;
+}
+
+.wb-place-menu-note.is-warn {
+  padding: 6px 8px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-dim);
+  color: var(--warn);
+}
+
+.wb-place-menu-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The page that waits for a join (ADR 0043 §7). */
+.wb-circle-joining {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.wb-circle-joining h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--size-title, 16px);
+  font-weight: var(--weight-medium);
+}
+
+.wb-circle-joining p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-ui, 13px);
+}
+
+.wb-circle-joining .wb-circle-joining-error {
+  color: var(--danger);
+}
+
+.wb-circle-joining .wb-btn-tiny {
+  margin-top: 6px;
 }
 
 .wb-place-check {
@@ -220,6 +293,18 @@
 
 .wb-circle-name {
   color: var(--text);
+}
+
+button.wb-circle-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.wb-circle-name:hover {
+  text-decoration: underline;
 }
 
 .wb-circle-time {
@@ -553,9 +638,59 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-insp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 22px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+
+.wb-circle-insp .wb-btn-solid.wb-circle-insp-invite {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.wb-circle-insp-action {
+  margin-top: 4px;
+}
+
+.wb-circle-insp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wb-circle-insp-mono {
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
+  word-break: break-all;
+}
+
+.wb-circle-insp-error {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: var(--size-xs);
+}
+
+.wb-circle-insp .wb-insp-tab.wb-circle-insp-back {
+  color: var(--text-muted);
+  border-bottom-color: transparent;
+  cursor: pointer;
+}
+
+.wb-circle-insp .wb-insp-tab.wb-circle-insp-back:hover {
+  color: var(--text);
+}
+
+.wb-circle-insp .wb-btn-tiny.is-danger {
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+.wb-circle-insp .wb-btn-tiny.is-danger:hover:not(:disabled) {
+  background: var(--danger-dim);
+  color: var(--danger);
 }
 
 .wb-circle-seen {

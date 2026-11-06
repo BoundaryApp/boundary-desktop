@@ -1,5 +1,5 @@
 import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
-import type { AppSwitchEvent } from '../../shared/types/onboarding';
+import type { AppSwitchEvent, AppSwitchResult } from '../../shared/types/onboarding';
 import { createIpcStore, useIpcStore } from '../lib/ipcStore';
 import { takeInferenceStatus } from './inferenceStatus';
 
@@ -52,5 +52,33 @@ export async function cancelAppSwitch(): Promise<void> {
     await takeInferenceStatus(await window.electronAPI.onboarding.cancelAppSwitch());
   } finally {
     cancelling = false;
+  }
+}
+
+/**
+ * Change the app default with the switch bar showing from the click, and say how it went: an
+ * error, cancelled, or saved, and whether the move waits for a running reply.
+ */
+export async function runAppSwitch(
+  target: InferenceChainEntry,
+  previous: InferenceChainEntry | null,
+  change: () => Promise<AppSwitchResult>,
+  fallbackError: string
+): Promise<{ error: string | null; cancelled: boolean; deferred: boolean }> {
+  beginAppSwitch(target, previous);
+  try {
+    const result = await change();
+    await takeInferenceStatus(result);
+    if (result.cancelled) return { error: null, cancelled: true, deferred: false };
+    endAppSwitch();
+    const done = { cancelled: false, deferred: false };
+    if (!result.success) return { ...done, error: result.error ?? fallbackError };
+    if (result.applyError) {
+      return { ...done, error: `Saved, but the assistant didn’t switch: ${result.applyError} Your next message tries again.` };
+    }
+    return { ...done, error: null, deferred: Boolean(result.deferred) };
+  } catch (err) {
+    endAppSwitch();
+    return { error: err instanceof Error ? err.message : fallbackError, cancelled: false, deferred: false };
   }
 }

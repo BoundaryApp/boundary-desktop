@@ -173,6 +173,15 @@ export function useChatLists(
     };
   }, [loadLists]);
 
+  // Main sends this when an agent's name changed outside the chat screen.
+  useEffect(
+    () =>
+      window.electronAPI.agents.onChanged(() => {
+        void refreshAgents();
+      }),
+    [refreshAgents]
+  );
+
   useEffect(() => {
     const timer = setInterval(() => {
       void window.electronAPI.hermesChat

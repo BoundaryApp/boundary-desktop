@@ -5,7 +5,9 @@
  * only around a stall.
  *
  * On by default in unpackaged builds. BOUNDARY_LAG_PROBE=0 turns it off, =1 turns it on in
- * a packaged build. BOUNDARY_LAG_TRACE=0 keeps the log but turns the recorders off.
+ * a packaged build. BOUNDARY_LAG_TRACE=0 keeps the log but turns the recorders off. Renderer
+ * CPU profiles are on with the recorders. V8 sampling of the main process, in the trace and as
+ * a profile, is off unless BOUNDARY_LAG_PROFILE=1 (see lagLog.ts for why).
  */
 
 /** A measurement rounded to 0.1, for log fields. */

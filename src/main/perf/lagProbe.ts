@@ -6,8 +6,11 @@
  *
  * Writes ~/Library/Logs/Boundary/lag-probe/lag-probe.jsonl (one JSON object per line) and,
  * around a severe stall, traces/trace-<time>.perfetto-trace (Perfetto protobuf; open in
- * ui.perfetto.dev) and traces/main-<time>.cpuprofile (main-process JS; open in DevTools ›
- * Performance). Synchronous file calls go to sync-fs.jsonl beside it (see syncFsProbe.ts).
+ * ui.perfetto.dev), traces/renderer<id>-<time>.cpuprofile (each app window's JS, sampled through
+ * its debugger) and, with BOUNDARY_LAG_PROFILE=1, traces/main-<time>.cpuprofile (main-process
+ * JS). Open a .cpuprofile in DevTools › Performance. Synchronous file calls go to sync-fs.jsonl beside it (see syncFsProbe.ts), and
+ * calls and child processes that touch Documents, Desktop or Downloads to protected-fs.jsonl
+ * (see protectedFsProbe.ts).
  */
 import { app, contentTracing, ipcMain, session, type BrowserWindow, type WebContents } from 'electron';
 import fs from 'node:fs';
@@ -19,10 +22,13 @@ import {
   lagLog,
   lagLogDir as logDir,
   lagProbeEnabled as enabled,
+  lagProbeProfiling as profiling,
   lagProbeTracing as tracing,
   lagTraceDir as traceDir,
 } from './lagLog';
 import { MemoryTrend, type SeriesRule } from './memoryTrend';
+import { createRollingProfiler, type RollingProfiler } from './rollingProfiler';
+import { installProtectedFsProbe } from './protectedFsProbe';
 import { installSyncFsProbe } from './syncFsProbe';
 import {
   LAG_PROBE_CHANNELS,
@@ -252,7 +258,9 @@ const TRACE_CONFIG: Electron.TraceConfig = {
     'disabled-by-default-devtools.timeline',
     'disabled-by-default-devtools.timeline.frame',
     'disabled-by-default-devtools.timeline.stack',
-    'disabled-by-default-v8.cpu_profiler',
+    // V8's CPU sampler is added only with BOUNDARY_LAG_PROFILE=1 (see lagLog.ts): it samples
+    // the main process too, and that stalled a main-thread file open under ~/Documents forever.
+    ...(profiling ? ['disabled-by-default-v8.cpu_profiler'] : []),
     'v8.execute',
     'v8',
     'blink',
@@ -284,65 +292,71 @@ async function startTrace(): Promise<void> {
   }
 }
 
-/** Rolling main-process CPU profile: kept in memory, written only when a stall is saved. */
-const mainProfiler = (() => {
-  let inspectorSession: inspector.Session | null = null;
-  let windowStartedAt = 0;
-  let previous: unknown = null;
-
-  const post = <T>(method: string, params?: object) =>
-    new Promise<T>((resolve, reject) => {
-      inspectorSession!.post(method, params ?? {}, (err, result) =>
-        err ? reject(err) : resolve(result as T)
-      );
-    });
-
-  async function begin(): Promise<void> {
-    await post('Profiler.start');
-    windowStartedAt = Date.now();
-  }
-
-  async function end(): Promise<unknown> {
-    const { profile } = await post<{ profile: unknown }>('Profiler.stop');
+const PROFILE_OPTIONS = {
+  windowMs: PROFILE_WINDOW_MS,
+  samplingIntervalUs: 1000,
+  youngWindowMs: 10_000,
+  now: () => Date.now(),
+  writeFile: (file: string, contents: string) => fs.promises.writeFile(file, contents),
+  onWork: () => {
     probeWorkEndedAt = performance.now();
-    return profile;
-  }
+  },
+};
 
-  return {
-    async start(): Promise<void> {
-      try {
-        inspectorSession = new inspector.Session();
-        inspectorSession.connect();
-        await post('Profiler.enable');
-        await post('Profiler.setSamplingInterval', { interval: 1000 });
-        await begin();
-        setInterval(() => {
-          void (async () => {
-            previous = await end();
-            await begin();
-          })().catch((): void => undefined);
-        }, PROFILE_WINDOW_MS).unref();
-      } catch (err) {
-        inspectorSession = null;
-        lagLog({ proc: 'main', kind: 'probe-error', where: 'profiler-start', error: String(err) });
-      }
-    },
-    /** Write the current window (and the one before, if this one is young). */
-    async save(base: string): Promise<string[]> {
-      if (!inspectorSession) return [];
-      const youngWindow = Date.now() - windowStartedAt < 10_000;
-      const current = await end();
-      await begin();
-      const files: [string, unknown][] = [[`${base}.cpuprofile`, current]];
-      if (youngWindow && previous) files.push([`${base}-before.cpuprofile`, previous]);
-      for (const [file, profile] of files) {
-        await fs.promises.writeFile(file, JSON.stringify(profile));
-      }
-      probeWorkEndedAt = performance.now();
-      return files.map(([file]) => file);
-    },
-  };
-})();
+/**
+ * Rolling main-process CPU profile, only with BOUNDARY_LAG_PROFILE=1 (see lagLog.ts for why it
+ * isn't safe to run by default).
+ */
+let mainProfiler: RollingProfiler | null = null;
+
+async function startMainProfiler(): Promise<void> {
+  try {
+    const session = new inspector.Session();
+    session.connect();
+    const profiler = createRollingProfiler(
+      (method, params) =>
+        new Promise((resolve, reject) =>
+          session.post(method, params ?? {}, (err, result) => (err ? reject(err) : resolve(result)))
+        ),
+      PROFILE_OPTIONS
+    );
+    await profiler.start();
+    mainProfiler = profiler;
+  } catch (err) {
+    lagLog({ proc: 'main', kind: 'probe-error', where: 'profiler-start', error: String(err) });
+  }
+}
+
+function stopRendererProfiler(id: number): void {
+  rendererProfilers.get(id)?.stop();
+  rendererProfilers.delete(id);
+}
+
+/**
+ * Rolling CPU profiles of app windows' renderers, through each window's debugger. Sampling a
+ * renderer is safe where sampling main isn't: renderers are sandboxed and make no file calls
+ * into protected folders, so no sampled thread can be held in a macOS approval wait.
+ */
+const rendererProfilers = new Map<number, RollingProfiler>();
+
+async function startRendererProfiler(contents: WebContents): Promise<void> {
+  const id = contents.id;
+  // A reload or a new renderer process drops the profiler's state, so each load starts afresh.
+  stopRendererProfiler(id);
+  if (contents.isDestroyed()) return;
+  try {
+    // Version '1.3' is the protocol Electron's debugger speaks. DevTools can stay open alongside.
+    if (!contents.debugger.isAttached()) contents.debugger.attach('1.3');
+    const profiler = createRollingProfiler(
+      (method, params) => contents.debugger.sendCommand(method, params as Record<string, unknown>),
+      PROFILE_OPTIONS
+    );
+    await profiler.start();
+    rendererProfilers.set(id, profiler);
+  } catch (err) {
+    lagLog({ proc: 'main', kind: 'probe-error', where: 'renderer-profiler-start', error: String(err) });
+  }
+}
 
 let dumpTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDumpAt = -Infinity;
@@ -375,9 +389,16 @@ async function dump(): Promise<void> {
     void startTrace();
   }
   try {
-    saved.push(...(await mainProfiler.save(path.join(traceDir!, `main-${stamp}`))));
+    if (mainProfiler) saved.push(...(await mainProfiler.save(path.join(traceDir!, `main-${stamp}`))));
   } catch (err) {
     lagLog({ proc: 'main', kind: 'probe-error', where: 'profile-save', error: String(err) });
+  }
+  for (const [id, profiler] of rendererProfilers) {
+    try {
+      saved.push(...(await profiler.save(path.join(traceDir!, `renderer${id}-${stamp}`))));
+    } catch (err) {
+      lagLog({ proc: 'main', kind: 'probe-error', where: 'renderer-profile-save', error: String(err) });
+    }
   }
   lagLog({ proc: 'main', kind: 'recording-saved', files: saved, reasons }, true);
   void pruneRecordings();
@@ -385,11 +406,12 @@ async function dump(): Promise<void> {
 
 async function pruneRecordings(): Promise<void> {
   try {
-    // trace-<stamp>.perfetto-trace, main-<stamp>.cpuprofile, main-<stamp>-before.cpuprofile
+    // trace-<stamp>.perfetto-trace, main-<stamp>.cpuprofile, main-<stamp>-before.cpuprofile,
+    // renderer<id>-<stamp>.cpuprofile and renderer<id>-<stamp>-before.cpuprofile
     const stampOf = (name: string) =>
-      name.replace(/^(trace|main)-/, '').split('.')[0].replace(/-before$/, '');
+      name.replace(/^(trace|main|renderer\d+)-/, '').split('.')[0].replace(/-before$/, '');
     const names = (await fs.promises.readdir(traceDir!)).filter(
-      (n) => n.startsWith('trace-') || n.startsWith('main-')
+      (n) => n.startsWith('trace-') || n.startsWith('main-') || /^renderer\d+-/.test(n)
     );
     const keep = new Set([...new Set(names.map(stampOf))].sort().slice(-KEEP_TRACE_FILES));
     for (const name of names) {
@@ -527,6 +549,14 @@ if (enabled) {
   // performance.memory in the page is otherwise rounded into coarse buckets.
   app.commandLine.appendSwitch('enable-precise-memory-info');
   installIpcTiming();
+  // Before the sync probe, so this probe keeps the unwrapped append for its own lines.
+  installProtectedFsProbe(path.join(logDir!, 'protected-fs.jsonl'), path.join(logDir!, 'protected-fs-trace.jsonl'), {
+    app: app.getAppPath(),
+    documents: app.getPath('documents'),
+    desktop: app.getPath('desktop'),
+    downloads: app.getPath('downloads'),
+    home: app.getPath('home'),
+  });
   // This runs before app.setName, so asking for userData here could fix it at the wrong path.
   installSyncFsProbe(path.join(logDir!, 'sync-fs.jsonl'), {
     app: app.getAppPath(),
@@ -539,6 +569,13 @@ if (enabled) {
 
   app.on('web-contents-created', (_event, contents) => countSends(contents));
   app.on('browser-window-created', (_event, win: BrowserWindow) => {
+    if (tracing) {
+      const contents = win.webContents;
+      const id = contents.id;
+      contents.on('did-finish-load', () => void startRendererProfiler(contents));
+      contents.debugger.on('detach', () => stopRendererProfiler(id));
+      contents.once('destroyed', () => stopRendererProfiler(id));
+    }
     win.on('unresponsive', () => {
       lagLog({ proc: 'main', kind: 'window-unresponsive' }, true);
       requestDump({ kind: 'window-unresponsive' }, true);
@@ -602,6 +639,6 @@ export function startLagProbe(): void {
   setInterval(writeSummary, SUMMARY_EVERY_MS).unref();
   if (tracing) {
     void startTrace();
-    void mainProfiler.start();
+    if (profiling) void startMainProfiler();
   }
 }

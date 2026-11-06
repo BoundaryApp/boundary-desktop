@@ -74,7 +74,7 @@ BOUNDARY_EMULATE_NO_DOCKER=1 bun run dev
    - Quit Boundary: `compose -p boundary-assistant … down --timeout 10 --volumes --remove-orphans` with those four profiles (removes anonymous/named project volumes; host bind mounts under Boundary `userData` are preserved). A manual developer stack (`../assistant` default project) is left running.
 
    **Developing assistant + desktop together (dual-stack)**  
-   Keep your advanced stack on default ports (`make up` from a local [sovereign-agent-stack](https://github.com/kaxline/sovereign-agent-stack) / `../assistant` checkout). Boundary detects busy ports and uses `+10000` (e.g. WebUI `18787`, LightRAG `19621`). Shared LM Studio is fine if you avoid overlapping active requests. To re-simulate first launch in the app, use IPC `assistant-stack:reset-install` (wipes `userData/assistant-stack/project`).
+   Keep your advanced stack on default ports (`make up` from a local [sovereign-agent-stack](https://github.com/kaxline/sovereign-agent-stack) / `../assistant` checkout). Boundary detects busy ports and uses `+10000` (e.g. WebUI `18787`, LightRAG `19621`). If any of those is taken too, it tries `+20000`, then `+30000`, and stops with a list of the busy ports when none of the sets is free. Shared LM Studio is fine if you avoid overlapping active requests. To re-simulate first launch in the app, use IPC `assistant-stack:reset-install` (wipes `userData/assistant-stack/project`).
 
    **Manual fallback (debug only)**  
    From a local sovereign-agent-stack checkout without Boundary’s overlay:

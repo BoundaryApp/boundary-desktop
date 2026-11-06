@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { InferenceChip } from '../InferenceChip';
@@ -46,6 +46,9 @@ const bothConfigured = {
   },
 };
 
+/** The menu's "This chat tries, in order" rows, first to last. */
+const order = () => within(screen.getByRole('list', { name: 'This chat tries, in order' })).getAllByRole('listitem');
+
 describe('InferenceChip', () => {
   afterEach(() => {
     cleanup();
@@ -70,8 +73,11 @@ describe('InferenceChip', () => {
     render(<InferenceChip sessionId="s1" />);
     const trigger = await screen.findByRole('button', { name: /not private, can’t send/ });
     fireEvent.click(trigger);
-    const cloud = (await screen.findByRole('option', { name: /OpenRouter.*not private/ })) as HTMLButtonElement;
-    expect(cloud.disabled).toBe(true);
+    expect(order()[0].textContent).toMatch(/OpenRouter.*not private, can’t send/);
+    // The chat's own stack can't start on the cloud here: main refuses it (ADR 0033 §4).
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    expect(await screen.findByText('This project is private, so the first model must be Local.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Add model' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   beforeEach(() => {
@@ -147,7 +153,8 @@ describe('InferenceChip', () => {
     const chip = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
     expect(probeSlotHealth).not.toHaveBeenCalled();
     fireEvent.click(chip);
-    expect(await screen.findByRole('option', { name: /shared in your Circle/ })).toBeTruthy();
+    await screen.findByText('This chat tries, in order');
+    expect(order()[0].textContent).toMatch(/Bo's qwen3-8b.*shared in your Circle/);
   });
 
   describe('when a fallback answered', () => {
@@ -185,7 +192,10 @@ describe('InferenceChip', () => {
       expect(chip.textContent).toBe("Bo's qwen3-8bfallback");
       fireEvent.click(chip);
       expect(await screen.findByText('Answering now')).toBeTruthy();
-      expect(screen.getByRole('option', { name: /^OpenRouter · claude-sonnet-4/ }).getAttribute('aria-selected')).toBe('true');
+      expect(order().map((row) => row.textContent)).toEqual([
+        expect.stringMatching(/^1OpenRouter · claude-sonnet-4/),
+        expect.stringMatching(/^2.*qwen3-8b.*shared in your Circle/),
+      ]);
     });
 
     it('returns to the primary when a refresh finds it answered again', async () => {
@@ -221,7 +231,9 @@ describe('InferenceChip', () => {
       });
       render(<InferenceChip sessionId="s1" />);
       fireEvent.click(await screen.findByRole('button', { name: /OpenRouter · claude-sonnet-4 · fallback for Bo's qwen3-8b/ }));
-      expect(await screen.findByRole('option', { name: /Bo's qwen3-8b.*shared in your Circle/ })).toBeTruthy();
+      await screen.findByText('This chat tries, in order');
+      expect(order()[0].textContent).toMatch(/Bo's qwen3-8b.*shared in your Circle/);
+      expect(order()[1].textContent).toMatch(/OpenRouter · claude-sonnet-4/);
     });
 
     it('keeps a private fallback in a private project, and never names a cloud one there', async () => {
@@ -285,19 +297,23 @@ describe('InferenceChip', () => {
     );
     expect(chip.textContent).toContain('unreachable');
     fireEvent.click(chip);
-    expect(await screen.findByRole('option', { name: /OpenRouter · claude-sonnet-4.*unreachable/ })).toBeTruthy();
+    await screen.findByText('This chat tries, in order');
+    expect(order()[0].textContent).toMatch(/OpenRouter · claude-sonnet-4.*unreachable/);
     await act(async () => pushStatus.current?.(bothConfigured));
   });
 
-  it('leaves the app default unlabelled and lists both providers', async () => {
+  it('leaves the app default unlabelled and lists the stack it inherits', async () => {
     render(<InferenceChip sessionId="s1" />);
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
     });
     expect(screen.queryByText('from app default')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    expect(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Use default' })).toBeTruthy();
+    expect(order().map((row) => row.textContent)).toEqual(['1Local · qwen3:14bon this machine']);
+    expect(screen.getByText('From the Chat stack')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit stack' })).toBeTruthy();
+    // Only a chat with its own stack can go back to the one it inherits.
+    expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
   });
 
   function resolvedLocal(provenance: string, fallbacks: Array<{ slot: string }>) {
@@ -318,23 +334,37 @@ describe('InferenceChip', () => {
     };
   }
 
-  it("shows the supplying level's fallback as on, and says where it comes from", async () => {
+  it("lists the supplying level's fallbacks in order, and says where the stack comes from", async () => {
     getSessionInference.mockResolvedValue(resolvedLocal('project-default', [{ slot: 'openrouter' }]));
     render(<InferenceChip sessionId="s1" />);
     fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    const toggle = await screen.findByRole('switch', { name: /OpenRouter · claude-sonnet-4/ });
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
-    expect(toggle.textContent).toContain('tried next · from project default');
+    expect(order().map((row) => row.textContent)).toEqual([
+      '1Local · qwen3:14bon this machine',
+      '2OpenRouter · claude-sonnet-4cloud · sees what the agent reads',
+    ]);
+    expect(screen.getByText('From this project’s stack')).toBeTruthy();
   });
 
-  it("turning the fallback on writes this chat's own override with the current model (ADR 0033 §1)", async () => {
+  it('says a fallback that is no longer connected is skipped', async () => {
+    getStatus.mockResolvedValue({
+      ...bothConfigured,
+      slots: { ...bothConfigured.slots, openrouter: { configured: false } },
+    });
+    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', [{ slot: 'openrouter' }]));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    await waitFor(() => expect(order()[1].textContent).toMatch(/OpenRouter.*not connected, skipped/));
+    expect(screen.getByText('This chat’s own stack')).toBeTruthy();
+  });
+
+  it("Edit stack saves this chat's own stack with the current model first (ADR 0033 §1)", async () => {
     getSessionInference.mockResolvedValue(resolvedLocal('app-default', []));
     render(<InferenceChip sessionId="s1" />);
     fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    const toggle = await screen.findByRole('switch', { name: /OpenRouter · claude-sonnet-4/ });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
-    expect(toggle.textContent).toContain('off · the chat stops and asks');
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this chat' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Add model' }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Add' }));
     await waitFor(() => {
       expect(setSessionInference).toHaveBeenCalledWith({
         sessionId: 's1',
@@ -343,61 +373,80 @@ describe('InferenceChip', () => {
         fallbacks: [{ slot: 'openrouter' }],
       });
     });
-  });
+    expect(await within(sheet).findByText('Saved. It applies to your next message.')).toBeTruthy();
 
-  it('turning it off keeps the menu open and says a fallback that is no longer connected is skipped', async () => {
-    getStatus.mockResolvedValue({
-      ...bothConfigured,
-      slots: { ...bothConfigured.slots, openrouter: { configured: false } },
-    });
-    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', [{ slot: 'openrouter' }]));
-    render(<InferenceChip sessionId="s1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    const toggle = await screen.findByRole('switch', { name: /OpenRouter/ });
-    expect(toggle.textContent).toContain('not connected, skipped');
-    fireEvent.click(toggle);
+    // Moving the cloud up makes it first: the chat switches provider and keeps Local after it.
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Move OpenRouter · claude-sonnet-4 up' }));
     await waitFor(() => {
-      expect(setSessionInference).toHaveBeenCalledWith(expect.objectContaining({ fallbacks: [] }));
-    });
-    expect(screen.getByRole('switch', { name: /OpenRouter/ })).toBeTruthy();
-  });
-
-  it('offers no fallback while the other provider is not connected', async () => {
-    getStatus.mockResolvedValue({
-      ...bothConfigured,
-      slots: { ...bothConfigured.slots, openrouter: { configured: false } },
-    });
-    render(<InferenceChip sessionId="s1" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    expect(screen.queryByText("If it doesn't answer")).toBeNull();
-  });
-
-  it('writes an override when the other provider is chosen', async () => {
-    render(<InferenceChip sessionId="s1" />);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    fireEvent.click(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4/ }));
-    await waitFor(() => {
-      expect(setSessionInference).toHaveBeenCalledWith({
+      expect(setSessionInference).toHaveBeenLastCalledWith({
         sessionId: 's1',
         provider: 'openrouter',
         modelId: 'anthropic/claude-sonnet-4',
+        fallbacks: [{ slot: 'local', modelId: 'qwen3:14b' }],
       });
     });
   });
 
-  it('clears the override from Use default', async () => {
+  it('keeps the list as it was and says why when main refuses the stack', async () => {
+    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', [{ slot: 'openrouter' }]));
+    setSessionInference.mockResolvedValue({ success: false, override: null, resolved: null, marks: [], error: 'That provider is not connected.' });
     render(<InferenceChip sessionId="s1" />);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this chat' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Move Local · qwen3:14b down' }));
+    expect(await within(sheet).findByText('That provider is not connected.')).toBeTruthy();
+    const rungs = within(within(sheet).getByRole('list', { name: 'Model stack, first to last' })).getAllByRole('listitem');
+    expect(rungs[0].textContent).toMatch(/Local · qwen3:14b/);
+  });
+
+  it('lets a shared model follow a provider in the chat’s stack, but not come first', async () => {
+    const peer = { circleId: 'c1', providerId: 'p1' };
+    getSessionInference.mockResolvedValue({
+      ...resolvedLocal('app-default', []),
+      resolved: {
+        slot: 'peer',
+        peer,
+        modelId: 'qwen3-8b',
+        providerDisplayName: "Bo's qwen3-8b",
+        provenance: 'app-default',
+        configured: true,
+        needsRestart: false,
+        fallbacks: [{ slot: 'local' }],
+      },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Inference · Local · qwen3:14b/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Use default' }));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Bo's qwen3-8b/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this chat' });
+    expect(within(sheet).getByText(/A shared model can follow Local or OpenRouter here, but can’t come first/)).toBeTruthy();
+    expect((within(sheet).getByRole('button', { name: /^Move .*qwen3-8b up$/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Move Local · qwen3:14b up' }));
+    await waitFor(() => {
+      expect(setSessionInference).toHaveBeenCalledWith({
+        sessionId: 's1',
+        provider: 'local',
+        modelId: 'qwen3:14b',
+        fallbacks: [{ slot: 'peer', modelId: 'qwen3-8b', peer }],
+      });
+    });
+  });
+
+  it('goes back to the Chat stack from a chat with its own', async () => {
+    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', []));
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Chat stack' }));
     await waitFor(() => {
       expect(clearSessionInference).toHaveBeenCalledWith({ sessionId: 's1' });
     });
+  });
+
+  it('names the project’s stack as the one to go back to in a pinned project', async () => {
+    getSessionInference.mockResolvedValue(resolvedLocal('chat-override', []));
+    render(<InferenceChip sessionId="s1" projectInferenceKey="p1:local:qwen3:14b:false" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    expect(screen.getByRole('button', { name: 'Back to project stack' })).toBeTruthy();
   });
 
   it('shows from project default provenance', async () => {
@@ -421,12 +470,6 @@ describe('InferenceChip', () => {
     });
   });
 
-  it('says a cloud slot sees what the agent reads, not that it runs on this machine', async () => {
-    render(<InferenceChip sessionId="s1" />);
-    const chip = await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ });
-    fireEvent.click(chip);
-    expect(screen.getByText('cloud · sees what the agent reads')).toBeTruthy();
-  });
   it('with no session yet, shows what main resolves for a new chat, project pin included', async () => {
     getSessionInference.mockResolvedValue({
       success: false,

@@ -3,7 +3,6 @@ import {
   formatInferenceChipTitle,
   formatInferenceProvenance,
   inferenceMarkLabel,
-  isVisibleChatProvider,
   servingFallback,
 } from '../../../shared/inferenceDisplay';
 import type {
@@ -11,13 +10,39 @@ import type {
   ResolvedSessionInference,
   SessionInferenceMark,
 } from '../../../shared/types/hermesChat';
+import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { CLOUD_INFERENCE_SHORT } from '../cloudInferenceCopy';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
-import { FallbackSwitch, fallbackSlotFor, toggledFallbacks } from './FallbackSwitch';
+import { useCirclesState } from '../circles/useCircles';
+import { describeChainEntry, entryIsPrivate, entryKey, type ChainContext } from '../inference/entries';
+import { LevelStackSheet } from '../inference/LevelStackSheet';
 
-/** The providers a chat can pick, in menu order; see isVisibleChatProvider. */
-const CHAT_PROVIDERS: ChatInferenceProvider[] = ['local', 'openrouter'];
+/** The stack a chat resolves to, first to last: the supplying level's, never merged (ADR 0033 §1). */
+function resolvedStack(resolved: ResolvedSessionInference | null): InferenceChainEntry[] {
+  if (!resolved?.configured) return [];
+  const first: InferenceChainEntry = {
+    slot: resolved.slot,
+    modelId: resolved.modelId,
+    ...(resolved.peer ? { peer: resolved.peer } : {}),
+  };
+  const seen = new Set([entryKey(first)]);
+  return [
+    first,
+    ...(resolved.fallbacks ?? []).filter((entry) => {
+      const key = entryKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }),
+  ];
+}
+
+const STACK_SOURCE: Record<ResolvedSessionInference['provenance'], string> = {
+  'chat-override': 'This chat’s own stack',
+  'project-default': 'From this project’s stack',
+  'app-default': 'From the Chat stack',
+};
 
 export interface InferenceChipProps {
   sessionId: string | null;
@@ -99,63 +124,11 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
 
   const close = useCallback(() => setOpen(false), []);
 
-  const options = useMemo(() => {
-    if (!status) return [];
-    return CHAT_PROVIDERS.flatMap((slot) => {
-      const slotStatus = status.slots[slot];
-      if (!slotStatus?.configured || !slotStatus.modelId) return [];
-      return [
-        {
-          slot,
-          modelId: slotStatus.modelId,
-          label: formatInferenceChipTitle(slot, slotStatus.modelId),
-        },
-      ];
-    });
-  }, [status]);
-
-  // The fallback of whichever level supplied the model (ADR 0033 §1). Shown when it is on, or
-  // when the other provider is connected and could be turned on.
-  const fallbackSlot = resolved?.configured ? fallbackSlotFor(resolved.slot) : null;
-  const fallbackStatus = fallbackSlot ? status?.slots[fallbackSlot] : undefined;
-  const fallbackOn = Boolean(fallbackSlot && resolved?.fallbacks?.some((entry) => entry.slot === fallbackSlot));
-  const fallbackReady = Boolean(fallbackStatus?.configured && fallbackStatus.modelId);
-  const fallbackDetail = !fallbackReady
-    ? 'not connected, skipped'
-    : !fallbackOn
-      ? 'off · the chat stops and asks'
-      : resolved?.provenance === 'chat-override'
-        ? 'tried next in this chat'
-        : `tried next · ${formatInferenceProvenance(resolved!.provenance)}`;
+  const circles = useCirclesState();
+  const [editing, setEditing] = useState(false);
   const privacyLocked = resolved?.privacyLocked === true;
   const privacyRefused = resolved?.privacyRefused === true;
-
-  // A chat that inherits gets its own override: levels are not merged (ADR 0033 §1).
-  const toggleFallback = async () => {
-    if (!sessionId || !resolved || !fallbackSlot || !isVisibleChatProvider(resolved.slot)) return;
-    try {
-      await window.electronAPI.hermesChat.setSessionInference({
-        sessionId,
-        provider: resolved.slot,
-        modelId: resolved.modelId,
-        fallbacks: toggledFallbacks(resolved.fallbacks, fallbackSlot, !fallbackOn),
-      });
-    } catch {
-      // The refresh below shows what main kept.
-    }
-    await refresh();
-  };
-
-  const pick = async (slot: ChatInferenceProvider, modelId: string) => {
-    if (!sessionId) return;
-    try {
-      await window.electronAPI.hermesChat.setSessionInference({ sessionId, provider: slot, modelId });
-    } catch {
-      // The refresh below shows what main kept.
-    }
-    close();
-    await refresh();
-  };
+  const stack = useMemo(() => resolvedStack(resolved), [resolved]);
 
   const reset = async () => {
     if (!sessionId) return;
@@ -202,6 +175,46 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
 
   const writable = Boolean(sessionId) && !disabled && !applying;
 
+  // Each entry as the menu lists it. A private project's request stops at the first entry that
+  // isn't private (ADR 0033 §4); the rest stay listed so the user sees why they aren't used.
+  const ctx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const cut = privacyLocked ? stack.findIndex((entry) => !entryIsPrivate(entry, ctx)) : -1;
+  const rows = stack.map((entry, index) => {
+    const view = describeChainEntry(entry, ctx, index === 0 ? 'first' : 'fallback');
+    const label = index === 0 ? primaryTitle : view.label;
+    const kind =
+      entry.slot === 'peer' ? 'shared in your Circle' : entry.slot === 'local' ? 'on this machine' : CLOUD_INFERENCE_SHORT;
+    const detail =
+      index === 0 && privacyRefused
+        ? 'not private, can’t send'
+        : cut >= 0 && index >= cut
+          ? 'not used · this project is private'
+          : index === 0
+            ? unreachable
+              ? 'unreachable'
+              : kind
+            : entry.slot !== 'peer' && view.skipped
+              ? 'not connected, skipped'
+              : kind;
+    return { key: entryKey(entry), label, detail };
+  });
+  const pinnedProject = Boolean(projectInferenceKey && projectInferenceKey.split(':')[1] !== 'inherit');
+
+  // Saving gives the chat its own stack: levels are not merged (ADR 0033 §1). Main keeps a
+  // chat's first entry as a provider, so a shared model can only follow it.
+  const saveChatStack = async (list: InferenceChainEntry[]): Promise<string | null> => {
+    const [first, ...fallbacks] = list;
+    if (!sessionId || !first || first.slot === 'peer') return 'A chat’s stack starts with Local or OpenRouter.';
+    const result = await window.electronAPI.hermesChat.setSessionInference({
+      sessionId,
+      provider: first.slot as ChatInferenceProvider,
+      modelId: first.modelId?.trim() || status?.slots[first.slot]?.modelId || '',
+      fallbacks,
+    });
+    await refresh();
+    return result.success ? null : (result.error ?? 'Unable to save the stack.');
+  };
+
   return (
     <div className="wb-inf-picker">
       <Popover
@@ -216,7 +229,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
           <button
             type="button"
             className={`wb-chip wb-chip--inference${open ? ' is-on' : ''}${fallback ? ' is-fallback' : ''}`}
-            aria-haspopup="listbox"
+            aria-haspopup="dialog"
             aria-expanded={open}
             aria-label={`Inference · ${title} · ${provenance}`}
             disabled={!writable}
@@ -226,78 +239,69 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
             {note ? <span>{note}</span> : null}
           </button>
         </PopoverTrigger>
-        <PopoverContent
-          className="wb-inf-menu"
-          role="listbox"
-          aria-label="This chat"
-          side="top"
-          align="start"
-        >
+        <PopoverContent className="wb-inf-menu" role="dialog" aria-label="This chat" side="top" align="start">
           {fallback ? (
             <>
               <div className="wb-inf-kicker">Answering now</div>
-              <button type="button" role="option" aria-selected={false} className="wb-inf-opt" disabled>
+              <div className="wb-inf-opt">
                 {title}
                 <small>{`fallback for ${primaryTitle} · the next send tries it first`}</small>
-              </button>
+              </div>
             </>
           ) : null}
-          <div className="wb-inf-kicker">This chat</div>
-          {resolved?.slot === 'peer' ? (
-            <button type="button" role="option" aria-selected className="wb-inf-opt is-on" disabled>
-              {resolved.providerDisplayName}
-              <small>from app default · shared in your Circle</small>
+          <div className="wb-inf-kicker" id="inference-chip-order">
+            This chat tries, in order
+          </div>
+          {rows.length ? (
+            <ol className="wb-inf-order" aria-labelledby="inference-chip-order">
+              {rows.map((row, index) => (
+                <li key={row.key} className={`wb-inf-opt${index === 0 ? ' is-on' : ''}`}>
+                  <span className="wb-inf-order-num" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span>
+                    {row.label}
+                    <small>{row.detail}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="wb-inf-opt">
+              No model
+              <small>Connect one in Inference.</small>
+            </p>
+          )}
+          {resolved ? <p className="wb-inf-source">{STACK_SOURCE[resolved.provenance]}</p> : null}
+          <button
+            type="button"
+            className="wb-inf-reset"
+            onClick={() => {
+              close();
+              setEditing(true);
+            }}
+          >
+            Edit stack
+          </button>
+          {resolved?.provenance === 'chat-override' ? (
+            <button type="button" className="wb-inf-reset" onClick={() => void reset()}>
+              {pinnedProject ? 'Back to project stack' : 'Back to Chat stack'}
             </button>
           ) : null}
-          {options.map((option) => {
-            const selected = resolved?.slot === option.slot;
-            const blocked = privacyLocked && option.slot !== 'local';
-            const detail = blocked
-              ? 'not private'
-              : selected && unreachable
-                ? 'unreachable'
-                : selected && resolved.provenance === 'chat-override'
-                  ? 'overridden for this chat'
-                  : selected && resolved.provenance === 'project-default'
-                    ? 'from project default'
-                    : option.slot === status?.appDefault
-                      ? 'from app default'
-                      : option.slot === 'local'
-                        ? 'on this machine'
-                        : CLOUD_INFERENCE_SHORT;
-            return (
-              <button
-                key={option.slot}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                className={`wb-inf-opt${selected ? ' is-on' : ''}`}
-                disabled={blocked}
-                onClick={() => void pick(option.slot, option.modelId)}
-              >
-                {option.label}
-                <small>{detail}</small>
-              </button>
-            );
-          })}
-          {fallbackSlot && (fallbackOn || fallbackReady) ? (
-            <>
-              <div className="wb-inf-kicker wb-inf-kicker--then">If it doesn't answer</div>
-              <FallbackSwitch
-                slot={fallbackSlot}
-                modelId={fallbackStatus?.modelId}
-                on={fallbackOn}
-                disabled={privacyLocked}
-                detail={privacyLocked ? 'not used · this project is private' : fallbackDetail}
-                onToggle={() => void toggleFallback()}
-              />
-            </>
-          ) : null}
-          <button type="button" className="wb-inf-reset" onClick={() => void reset()}>
-            Use default
-          </button>
         </PopoverContent>
       </Popover>
+      {editing ? (
+        <LevelStackSheet
+          titleId="inference-chat-stack"
+          kicker="This chat"
+          title="Stack for this chat"
+          lede={`Applies to this chat only. ${pinnedProject ? 'The project’s stack' : 'The Chat stack'} stays as it is.`}
+          initial={stack}
+          privacyLocked={privacyLocked}
+          save={saveChatStack}
+          onClose={() => setEditing(false)}
+        />
+      ) : null}
     </div>
   );
 };

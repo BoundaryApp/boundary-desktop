@@ -40,6 +40,8 @@ export interface CircleSecrets {
   encryptionKey?: string;
   /** Last known name, for showing a Circle before its view loads. */
   name?: string;
+  /** This user left and an admin hasn't confirmed it yet. Main keeps this apart from the secrets. */
+  leaving?: boolean;
 }
 
 export type { CircleSnapshot, CirclesSnapshot } from '../../../shared/types/circles';
@@ -171,4 +173,5 @@ export type NetworkToMain =
   | { type: 'chat-update'; update: CircleChatUpdate }
   /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
   | { type: 'circle-paired'; secrets: CircleSecrets }
-  | { type: 'circle-removed'; key: string };
+  | { type: 'circle-removed'; key: string }
+  | { type: 'member-left'; key: string; circle: string; name: string };

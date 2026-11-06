@@ -120,7 +120,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
   it('says what to do when the first entry’s Circle is gone and nothing else can serve', async () => {
     circles.joined = false;
     const ready = await ensureResolvedInferenceReady('s1');
-    expect(ready).toMatchObject({ ok: false, error: expect.stringMatching(/no longer in the Circle.*pick another model in Settings/) });
+    expect(ready).toMatchObject({ ok: false, error: expect.stringMatching(/no longer in the Circle.*pick another model in Inference/) });
     expect(applyLlmConnectionToHermes).not.toHaveBeenCalled();
   });
 
@@ -128,7 +128,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
     dropAppEntries(() => true, () => false);
     expect(await ensureResolvedInferenceReady('s1')).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/No model is chosen.*Connect a provider or choose a shared model in Settings/),
+      error: expect.stringMatching(/No model is chosen.*Choose one in Inference/),
     });
   });
 

@@ -16,6 +16,18 @@ const isBoundaryOwnedAssistantRoot = vi.fn();
 const httpOk = vi.fn();
 const removeIncompleteHermesProfiles = vi.fn();
 const writeProjectsOverlay = vi.fn();
+const n8n = vi.hoisted(() => ({ enabled: false }));
+/** The stored LightRAG setting; undefined until something writes it. */
+const rag = vi.hoisted(() => ({ setting: undefined as boolean | undefined }));
+const ragStore = vi.hoisted(() => ({
+  isLightragEnabled: () => rag.setting === true,
+  isLightragSettingUnset: () => rag.setting === undefined,
+  setLightragEnabled: (enabled: boolean) => {
+    rag.setting = enabled;
+  },
+}));
+/** What `config --services` lists for Boundary's profiles in these tests. */
+const COMPOSE_SERVICES = ['hermes', 'gpt-researcher', 'gptr-mcp', 'n8n-import', 'n8n'];
 
 vi.mock('../../containerRuntime', async () => {
   const actual = await vi.importActual<typeof import('../../containerRuntime')>(
@@ -36,6 +48,7 @@ vi.mock('../resolveAssistantRoot', () => ({
     error: undefined,
   }),
   resolveAssistantRoot: () => '/tmp/boundary-project',
+  resolveActiveAssistantRoot: () => '/tmp/boundary-project',
 }));
 
 vi.mock('../assistantPaths', () => ({
@@ -90,6 +103,8 @@ vi.mock('../AssistantStackStore', async () => {
     ...actual,
     getAssistantRootOverride: () => null,
     isAssistantStackSetupComplete: () => false,
+    isN8nEnabled: () => n8n.enabled,
+    ...ragStore,
   };
 });
 
@@ -137,7 +152,12 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       version: { cli: '1', compose: '2' },
     });
     runComposeStreaming.mockResolvedValue({ stdout: '', stderr: '', code: 0 });
-    runCompose.mockResolvedValue({ stdout: '[]', stderr: '' });
+    n8n.enabled = false;
+    rag.setting = false;
+    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => ({
+      stdout: args.includes('config') ? `${COMPOSE_SERVICES.join('\n')}\n` : '[]',
+      stderr: '',
+    }));
     runCli.mockResolvedValue({ stdout: '', stderr: '' });
     ensureSovereignProjectProvisioned.mockResolvedValue('/tmp/boundary-project');
     markHostSetupComplete.mockResolvedValue(undefined);
@@ -369,6 +389,29 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       expect(markImagesBuilt).toHaveBeenCalledTimes(1);
     });
 
+    it('start passes --profile crm when Twenty is installed', async () => {
+      const { setAddonInstalled } = await import('../AssistantStackStore');
+      const root = '/tmp/boundary-project';
+      setAddonInstalled(root, 'twenty', true);
+      isHostSetupComplete.mockReturnValue(true);
+      stackComesUpOnCompose();
+      const { ensureAssistantStackRunning, __test } = await import('../AssistantStackService');
+      __test.resetLifecycle();
+
+      try {
+        await ensureAssistantStackRunning();
+        expect((upArgs() ?? []).join(' ')).toContain('--profile crm');
+        const env = runComposeStreaming.mock.calls.find(([, args]) =>
+          (args as string[]).includes('up')
+        )?.[2]?.env as Record<string, string>;
+        expect(env.TWENTY_LOCAL_ENABLED).toBe('1');
+        expect(env.TWENTY_MCP_ENABLED).toBe('1');
+        expect(env.COMPOSE_PROFILES.split(',')).toContain('crm');
+      } finally {
+        setAddonInstalled(root, 'twenty', false);
+      }
+    });
+
     it('starts without building when the images match the tree', async () => {
       isHostSetupComplete.mockReturnValue(true);
       stackComesUpOnCompose();
@@ -379,6 +422,167 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       expect(upArgs()).toBeDefined();
       expect(upArgs()).not.toContain('--build');
       expect(markImagesBuilt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('n8n', () => {
+    function upArgs(): string[] {
+      const call = runComposeStreaming.mock.calls.find(([, args]) =>
+        (args as string[]).includes('up')
+      );
+      expect(call).toBeDefined();
+      return call![1] as string[];
+    }
+
+    async function start(): Promise<void> {
+      // An earlier test's doUnmock drops the file-level store mock, so register it here.
+      vi.doMock('../AssistantStackStore', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('../AssistantStackStore')>()),
+        getAssistantRootOverride: () => null,
+        isAssistantStackSetupComplete: () => false,
+        isN8nEnabled: () => n8n.enabled,
+        ...ragStore,
+      }));
+      isHostSetupComplete.mockReturnValue(true);
+      let up = false;
+      runComposeStreaming.mockImplementation(async () => {
+        up = true;
+        return { stdout: '', stderr: '', code: 0 };
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: up })) as unknown as typeof fetch);
+      const { ensureAssistantStackRunning, __test } = await import('../AssistantStackService');
+      __test.resetLifecycle();
+      expect((await ensureAssistantStackRunning()).success).toBe(true);
+    }
+
+    it('names every service but n8n’s when n8n is off, keeping the automation profile', async () => {
+      await start();
+      const args = upArgs();
+      expect(args).toEqual(expect.arrayContaining(['--profile', 'automation']));
+      expect(args.slice(args.indexOf('-d') + 1)).toEqual(['hermes', 'gptr-mcp']);
+    });
+
+    it('lists services with the crm profile when Twenty is installed and n8n is off', async () => {
+      const { setAddonInstalled } = await import('../AssistantStackStore');
+      const root = '/tmp/boundary-project';
+      setAddonInstalled(root, 'twenty', true);
+      try {
+        await start();
+        const config = runCompose.mock.calls.find(([, a]) => (a as string[]).includes('config'));
+        expect((config?.[1] as string[]).join(' ')).toContain('--profile crm');
+        expect(upArgs().join(' ')).toContain('--profile crm');
+      } finally {
+        setAddonInstalled(root, 'twenty', false);
+      }
+    });
+
+    it('names no services when n8n is on, so `up` starts the whole profiles', async () => {
+      n8n.enabled = true;
+      await start();
+      const args = upArgs();
+      expect(args[args.length - 1]).toBe('-d');
+      expect(runCompose.mock.calls.some(([, a]) => (a as string[]).includes('config'))).toBe(false);
+    });
+
+    it('leaves n8n and the GPT Researcher API off the start-up cards while n8n is off', async () => {
+      const { setAssistantStackLifecycleCallback } = await import('../AssistantStackService');
+      const seen: AssistantStackLifecycleSnapshot[] = [];
+      setAssistantStackLifecycleCallback((snapshot) => seen.push(snapshot));
+      await start();
+      const names = seen.flatMap((snapshot) => snapshot.services.map((s) => s.containerName));
+      expect(names).toContain('boundary-hermes');
+      expect(names).toContain('boundary-gptr-mcp');
+      expect(names).not.toContain('boundary-n8n');
+      expect(names).not.toContain('boundary-gpt-researcher');
+    });
+  });
+
+  describe('LightRAG', () => {
+    function upCall(): { args: string[]; env: NodeJS.ProcessEnv } {
+      const call = runComposeStreaming.mock.calls.find(([, args]) =>
+        (args as string[]).includes('up')
+      );
+      expect(call).toBeDefined();
+      return { args: call![1] as string[], env: (call![2] as { env: NodeJS.ProcessEnv }).env };
+    }
+
+    function removals(): string[][] {
+      return runCompose.mock.calls
+        .map(([, args]) => args as string[])
+        .filter((args) => args.includes('rm'));
+    }
+
+    async function start(): Promise<AssistantStackLifecycleSnapshot[]> {
+      vi.doMock('../AssistantStackStore', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('../AssistantStackStore')>()),
+        getAssistantRootOverride: () => null,
+        isAssistantStackSetupComplete: () => false,
+        isN8nEnabled: () => n8n.enabled,
+        ...ragStore,
+      }));
+      isHostSetupComplete.mockReturnValue(true);
+      let up = false;
+      runComposeStreaming.mockImplementation(async () => {
+        up = true;
+        return { stdout: '', stderr: '', code: 0 };
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: up })) as unknown as typeof fetch);
+      const { ensureAssistantStackRunning, setAssistantStackLifecycleCallback, __test } =
+        await import('../AssistantStackService');
+      __test.resetLifecycle();
+      const seen: AssistantStackLifecycleSnapshot[] = [];
+      setAssistantStackLifecycleCallback((snapshot) => seen.push(snapshot));
+      expect((await ensureAssistantStackRunning()).success).toBe(true);
+      return seen;
+    }
+
+    it('removes the rag containers once on the first start with no setting, then records off', async () => {
+      rag.setting = undefined;
+      await start();
+      const [rm, ...more] = removals();
+      expect(more).toEqual([]);
+      expect(rm.join(' ')).toContain('--profile rag');
+      expect(rm.slice(rm.indexOf('rm'))).toEqual(['rm', '-sf', 'lightrag-mcp', 'lightrag', 'neo4j']);
+      expect(rag.setting).toBe(false);
+
+      runCompose.mockClear();
+      runComposeStreaming.mockClear();
+      await start();
+      expect(removals()).toEqual([]);
+    });
+
+    it('still starts and tries again next time when the removal fails', async () => {
+      rag.setting = undefined;
+      runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
+        if (args.includes('rm')) throw new Error('engine went away');
+        return { stdout: args.includes('config') ? `${COMPOSE_SERVICES.join('\n')}\n` : '[]', stderr: '' };
+      });
+      await start();
+      expect(rag.setting).toBeUndefined();
+    });
+
+    it('starts without the rag profile, with Hermes told LightRAG is off', async () => {
+      const seen = await start();
+      const { args, env } = upCall();
+      expect(args.join(' ')).not.toContain('--profile rag');
+      expect(env.COMPOSE_PROFILES?.split(',')).not.toContain('rag');
+      expect(env.LIGHTRAG_MCP_ENABLED).toBe('0');
+      expect(removals()).toEqual([]);
+      const names = seen.flatMap((snapshot) => snapshot.services.map((s) => s.containerName));
+      expect(names).not.toContain('boundary-lightrag');
+      expect(names).not.toContain('boundary-lightrag-neo4j');
+    });
+
+    it('starts the rag profile, with Hermes told to register LightRAG, while it is on', async () => {
+      rag.setting = true;
+      const seen = await start();
+      const { args, env } = upCall();
+      expect(args).toEqual(expect.arrayContaining(['--profile', 'rag']));
+      expect(env.COMPOSE_PROFILES?.split(',')).toContain('rag');
+      expect(env.LIGHTRAG_MCP_ENABLED).toBe('1');
+      const names = seen.flatMap((snapshot) => snapshot.services.map((s) => s.containerName));
+      expect(names).toContain('boundary-lightrag');
+      expect(names).toContain('boundary-lightrag-neo4j');
     });
   });
 

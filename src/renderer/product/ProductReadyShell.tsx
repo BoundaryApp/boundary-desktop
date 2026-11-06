@@ -8,12 +8,10 @@ import { SettingsSheet } from './SettingsSheet';
 import { UpdateCard } from './updates';
 import { ResourcesScreen } from './ResourcesScreen';
 import { CircleOfferAlerts } from './circles/CircleOfferAlerts';
-import type { CirclesSelection } from './circles/CirclesNav';
-import { useOpenCirclesRequests } from './circles/circlesNavigation';
-import { CirclesScreen } from './circles/CirclesScreen';
+import { InferenceScreen } from './inference/InferenceScreen';
+import { useOpenInferenceRequests } from './inference/inferenceNavigation';
 import { useCallCheck } from './circles/useCallCheck';
 import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
-import { useOpenCircleChatRequests } from './chat/circlePlace';
 import {
   openSettings,
   useOpenSettingsRequests,
@@ -40,7 +38,6 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
   useCallCheck();
   // Chat commands pressed elsewhere switch to Chat first, then replay there.
   const [pendingChatCommand, setPendingChatCommand] = useState<AppCommand | null>(null);
-  const [circlesSelection, setCirclesSelection] = useState<CirclesSelection>(null);
   // A request to open Settings on a tab; `seq` remounts Settings so it takes effect again.
   const [settingsRequest, setSettingsRequest] = useState<(OpenSettingsRequest & { seq: number }) | null>(
     null
@@ -69,19 +66,18 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     void window.electronAPI?.hostBridge?.reportScreen?.({ view, sheet });
   }, [view, sheet]);
 
-  useOpenCirclesRequests(({ person }) => {
-    setCirclesSelection({ kind: 'sharing', ...(person ? { person } : {}) });
-    onNavigate('circles');
+  // A link about a model: Inference, at that person's row when one is named (ADR 0043 §6).
+  const [inferencePerson, setInferencePerson] = useState<{ person?: string; seq: number }>({ seq: 0 });
+  useOpenInferenceRequests(({ person }) => {
+    setInferencePerson((was) => ({ person, seq: was.seq + 1 }));
+    onNavigate('inference');
   });
-
-  // Open chat on the Circles screen: the place is already set, so show the chat.
-  useOpenCircleChatRequests(() => onNavigate('chat'));
 
   useAppCommand((command) => {
     if (command === 'go-chat') onNavigate('chat');
+    else if (command === 'go-inference') onNavigate('inference');
     else if (command === 'go-services') onNavigate('services');
     else if (command === 'go-resources') onNavigate('resources');
-    else if (command === 'go-circles') onNavigate('circles');
     else if (command === 'go-settings') {
       setSettingsRequest(null);
       onNavigate('settings');
@@ -126,12 +122,12 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
         onBack={() => onNavigate('chat')}
       />
     );
+  } else if (view === 'inference') {
+    main = <InferenceScreen focusPerson={inferencePerson} />;
   } else if (view === 'services') {
     main = <AssistantServicesScreen />;
   } else if (view === 'resources') {
     main = <ResourcesScreen />;
-  } else if (view === 'circles') {
-    main = <CirclesScreen selection={circlesSelection} onSelect={setCirclesSelection} />;
   } else {
     main = <WorkbenchChatScreen />;
   }
@@ -142,8 +138,8 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       {/* Keep this a flex column: screens scroll by taking `flex: 1; min-height: 0` here.
           As a plain block they grow to their content and the overflow is clipped. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" inert={Boolean(sheetRequest)}>
-        {/* Chat draws its own band from the rail and thread headers; Circles' columns run to the top. */}
-        {view === 'chat' || view === 'circles' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
+        {/* Chat draws its own band from the rail and thread headers. */}
+        {view === 'chat' ? null : <div className="wb-titlebar-band" aria-hidden="true" />}
         <Profiler id={`screen:${view}`} onRender={onReactRender}>
           {main}
         </Profiler>

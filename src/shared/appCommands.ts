@@ -4,9 +4,9 @@ export const APP_MENU_COMMAND_CHANNEL = 'app:menu-command';
 export type AppCommand =
   | 'new-chat'
   | 'go-chat'
+  | 'go-inference'
   | 'go-services'
   | 'go-resources'
-  | 'go-circles'
   | 'go-settings'
   | 'prev-thread'
   | 'next-thread';
@@ -21,9 +21,10 @@ export interface AppCommandDefinition {
 export const APP_COMMANDS: AppCommandDefinition[] = [
   { id: 'new-chat', label: 'New Chat', accelerator: 'CmdOrCtrl+N' },
   { id: 'go-chat', label: 'Chat', accelerator: 'CmdOrCtrl+1' },
-  { id: 'go-services', label: 'Services', accelerator: 'CmdOrCtrl+2' },
-  { id: 'go-resources', label: 'Resources', accelerator: 'CmdOrCtrl+3' },
-  { id: 'go-circles', label: 'Circles', accelerator: 'CmdOrCtrl+4' },
+  { id: 'go-inference', label: 'Inference', accelerator: 'CmdOrCtrl+2' },
+  { id: 'go-services', label: 'Services', accelerator: 'CmdOrCtrl+3' },
+  { id: 'go-resources', label: 'Resources', accelerator: 'CmdOrCtrl+4' },
+  // Until ADR 0043 retires the Circles destination.
   { id: 'go-settings', label: 'Settings', accelerator: 'CmdOrCtrl+,' },
   { id: 'prev-thread', label: 'Previous Conversation', accelerator: 'CmdOrCtrl+[' },
   { id: 'next-thread', label: 'Next Conversation', accelerator: 'CmdOrCtrl+]' },

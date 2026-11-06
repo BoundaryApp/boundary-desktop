@@ -393,13 +393,12 @@ describe('listHermesChatThreads', () => {
   });
 
   it('runs one list at a time, and a call made during one gets a later list', async () => {
+    // The first listing's result, held until release(), whenever the listing gets to ask.
     let release: () => void = () => undefined;
-    listSessions.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = () => resolve([{ id: 'before', title: 'Before' }]);
-        })
-    );
+    const firstResult = new Promise((resolve) => {
+      release = () => resolve([{ id: 'before', title: 'Before' }]);
+    });
+    listSessions.mockImplementationOnce(() => firstResult);
     listSessions.mockResolvedValue([{ id: 'after', title: 'After' }]);
     const { listHermesChatThreads } = await import('../hermesChatSessions');
 
@@ -472,6 +471,31 @@ describe('getHermesChatHistory', () => {
       messages: [{ role: 'user', content: 'from webui' }],
       sessionId: 'web-1',
     });
+  });
+
+  const historyReads = () =>
+    persistDebugLog.mock.calls
+      .filter(([area]) => area === 'chat-history')
+      .map(([, , data]) => data as Record<string, unknown>);
+
+  it('logs which read served the transcript', async () => {
+    resumeSession.mockResolvedValue({ sessionId: 'runtime-1', messages: [{ role: 'user', content: 'hi' }] });
+    const { getHermesChatHistory } = await import('../hermesChatSessions');
+    await getHermesChatHistory('stored-1');
+    expect(historyReads()).toEqual([{ sessionId: 'stored-1', source: 'resume', messages: 1 }]);
+  });
+
+  it('logs a failed resume by code and name, never its message', async () => {
+    const refused = Object.assign(new Error('session not found: SECRET-TITLE'), { code: 4007 });
+    resumeSession.mockRejectedValue(refused);
+    getSessionHistory.mockResolvedValue([{ role: 'assistant', content: 'hello' }]);
+    const { getHermesChatHistory } = await import('../hermesChatSessions');
+    await getHermesChatHistory('stored-1');
+    expect(historyReads()).toEqual([
+      { sessionId: 'stored-1', source: 'history', messages: 1, resumeFailure: { name: 'Error', code: 4007 } },
+    ]);
+    expect(JSON.stringify(persistDebugLog.mock.calls)).not.toContain('SECRET-TITLE');
+    expect(JSON.stringify(persistDebugLog.mock.calls)).not.toContain('hello');
   });
 });
 

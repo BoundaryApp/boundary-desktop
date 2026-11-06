@@ -3,6 +3,7 @@ import type {
   InferenceChainEntry,
   InferenceChainEntryState,
   InferenceChainSlot,
+  InferenceStack,
 } from '../../../shared/types/inferenceChain';
 import type { InferenceSlotId } from '../../../shared/types/onboarding';
 import { lookupModelContextLength } from '../assistant/hermesProfileLimits';
@@ -71,13 +72,13 @@ export function sharedEntryLabel(entry: InferenceChainEntry, facts: SharedModelF
 function sharedEntryRefusal(state: InferenceChainEntryState, facts: SharedModelFacts): string {
   const label = sharedEntryLabel(state.entry, facts);
   const name = state.entry.peer ? facts.providerName(state.entry.peer) : 'That member';
-  const pickAnother = 'Your message wasn’t sent. You can pick another model in Settings.';
+  const pickAnother = 'Your message wasn’t sent. You can pick another model in Inference.';
   if (!facts.running) return `Circles aren’t connected, so ${label} can’t answer. ${pickAnother}`;
   if (state.stale === 'left-circle') {
     return `You’re no longer in the Circle that shares ${state.entry.modelId}. ${pickAnother}`;
   }
   if (state.stale === 'provider-untrusted') {
-    return `${label} needs your trust before it can run your agent. Turn on Trusted for ${name} in Circles. ${pickAnother}`;
+    return `${label} needs your trust before it can run your agent. Turn on Trusted for ${name} in Inference. ${pickAnother}`;
   }
   if (state.stale === 'model-not-offered') return `${name} no longer shares ${state.entry.modelId}. ${pickAnother}`;
   return `${name} isn’t sharing ${state.entry.modelId} right now. ${pickAnother}`;
@@ -93,15 +94,41 @@ export async function sharedModelCantServe(entry: InferenceChainEntry): Promise<
   return state.stale && state.stale !== 'provider-offline' ? sharedEntryRefusal(state, facts) : null;
 }
 
+/** Where the router reaches an entry, or null when it can't. */
+function chainUpstream(
+  connections: Map<InferenceSlotId, LlmConnection | null>,
+  circles: SharedModelFacts
+): (entry: InferenceChainEntry) => (RouterUpstream & { url: string }) | null {
+  return (entry) => {
+    if (entry.slot === 'peer') {
+      const modelId = entry.modelId?.trim();
+      if (!entry.peer || !modelId) return null;
+      return { baseUrl: '', url: PEER_UPSTREAM_URL, modelId, peer: entry.peer, label: sharedEntryLabel(entry, circles) };
+    }
+    const connection = connections.get(entry.slot);
+    if (!connection) return null;
+    return {
+      baseUrl: connection.endpointUrl,
+      url: connection.endpointUrl,
+      apiKey: connection.apiKey,
+      modelId: entry.modelId?.trim() || connection.modelId,
+    };
+  };
+}
+
+/** A chain's entries as they stand now: slots read from the store, shared models from Circles. */
+interface DescribedChain {
+  primary: ChainPrimary;
+  described: InferenceChainEntryState[];
+  connections: Map<InferenceSlotId, LlmConnection | null>;
+  circles: SharedModelFacts;
+}
+
 /**
- * Turn the resolved primary and the level's fallbacks into what the router serves. Slots are
- * read from the store, shared models from the Circles running now (ADR 0034).
+ * Read each entry's connection or offer and its context, drop entries that resolve to one
+ * already listed, and mark each stale or private (ADR 0033). Sends nothing to any model.
  */
-export async function planInferenceChain(
-  primary: ChainPrimary,
-  fallbacks: InferenceChainEntry[],
-  options: { privacyLocked?: boolean } = {}
-): Promise<ChainPlan> {
+async function describeChain(primary: ChainPrimary, fallbacks: InferenceChainEntry[]): Promise<DescribedChain> {
   const listed: InferenceChainEntry[] = [
     { slot: primary.slot, modelId: primary.modelId, ...(primary.peer ? { peer: primary.peer } : {}) },
     ...fallbacks,
@@ -127,21 +154,7 @@ export async function planInferenceChain(
     return true;
   });
   const circles = sharedModelFacts();
-  const upstreamFor = (entry: InferenceChainEntry): (RouterUpstream & { url: string }) | null => {
-    if (entry.slot === 'peer') {
-      const modelId = entry.modelId?.trim();
-      if (!entry.peer || !modelId) return null;
-      return { baseUrl: '', url: PEER_UPSTREAM_URL, modelId, peer: entry.peer, label: sharedEntryLabel(entry, circles) };
-    }
-    const connection = connections.get(entry.slot);
-    if (!connection) return null;
-    return {
-      baseUrl: connection.endpointUrl,
-      url: connection.endpointUrl,
-      apiKey: connection.apiKey,
-      modelId: entry.modelId?.trim() || connection.modelId,
-    };
-  };
+  const upstreamFor = chainUpstream(connections, circles);
 
   const contexts = new Map<string, number | undefined>();
   for (const entry of entries) {
@@ -164,6 +177,20 @@ export async function planInferenceChain(
     providerPrivate: circles.providerPrivate,
     providerTrusted: circles.providerTrusted,
   });
+  return { primary, described, connections, circles };
+}
+
+/**
+ * Turn the resolved primary and the level's fallbacks into what the router serves. Slots are
+ * read from the store, shared models from the Circles running now (ADR 0034).
+ */
+export async function planInferenceChain(
+  primary: ChainPrimary,
+  fallbacks: InferenceChainEntry[],
+  options: { privacyLocked?: boolean } = {}
+): Promise<ChainPlan> {
+  const { described, connections, circles } = await describeChain(primary, fallbacks);
+  const upstreamFor = chainUpstream(connections, circles);
   const locked = applyPrivacyLock(described, options.privacyLocked === true);
   // A shared model has no direct endpoint, so a chain that starts with one always routes (ADR 0036).
   const startsShared = primary.slot === 'peer';
@@ -220,7 +247,7 @@ export async function planInferenceChain(
     slowestUrl,
     ...(offlineLeft.length
       ? {
-          offline: `${sharedEntryLabel(offlineLeft[0].entry, circles)} is offline. Your message wasn’t sent. Try again once they’re back, or pick another model in Settings.`,
+          offline: `${sharedEntryLabel(offlineLeft[0].entry, circles)} is offline. Your message wasn’t sent. Try again once they’re back, or pick another model in Inference.`,
         }
       : {}),
   };
@@ -239,4 +266,26 @@ export async function planAppInferenceChain(): Promise<ChainPlan> {
   const connection = slot ? await getSlotLlmConnection(slot) : null;
   if (!slot || !connection) return { kind: 'direct' };
   return planInferenceChain({ slot, modelId: connection.modelId }, getAppFallbacks());
+}
+
+/**
+ * The app default's stack for Inference: each entry's status, where a private project's request
+ * stops, and the context every reply is sized for. Reads the store and Circles; sends nothing.
+ * A slot entry keeps no model of its own, so its key ends in `:` as the stored entry does.
+ */
+export async function describeAppStack(): Promise<InferenceStack> {
+  const shared = getAppSharedModel();
+  const slot = getAppDefaultSlot();
+  if (!shared && !slot) return { entries: [], noPrivate: true };
+  const primary: ChainPrimary = shared
+    ? { slot: 'peer', modelId: shared.modelId ?? '', peer: shared.peer }
+    : { slot: slot!, modelId: '' };
+  const { described } = await describeChain(primary, getAppFallbacks());
+  const locked = applyPrivacyLock(described, true);
+  const kept = locked.ok ? locked.entries : [];
+  return {
+    entries: described.map((state) => ({ ...state, privateCut: !kept.includes(state) })),
+    contextLength: chainContextLength(described),
+    noPrivate: !locked.ok,
+  };
 }

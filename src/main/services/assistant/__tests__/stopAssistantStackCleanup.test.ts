@@ -6,6 +6,8 @@ const runCompose = vi.fn();
 const runCli = vi.fn();
 const getContainerRuntime = vi.fn();
 
+const installedAddons = vi.hoisted(() => ({ ids: [] as string[] }));
+
 const { isLocalAssistantStackMode } = vi.hoisted(() => ({
   isLocalAssistantStackMode: vi.fn(() => false),
 }));
@@ -74,12 +76,14 @@ vi.mock('../AssistantStackStore', async () => {
   return {
     ...actual,
     getAssistantRootOverride: () => '/tmp/fake-assistant',
+    getInstalledAddons: () => installedAddons.ids,
   };
 });
 
 describe('stopAssistantStack cleanup', () => {
   beforeEach(() => {
     vi.resetModules();
+    installedAddons.ids = [];
     isLocalAssistantStackMode.mockReset();
     isLocalAssistantStackMode.mockReturnValue(false);
     runComposeStreaming.mockReset();
@@ -122,6 +126,18 @@ describe('stopAssistantStack cleanup', () => {
     expect(runCli).not.toHaveBeenCalled();
 
     expect(__test.getLifecycleSnapshot().phase).toBe('stopped');
+  });
+
+  it('stop passes --profile crm when Twenty is installed', async () => {
+    installedAddons.ids = ['twenty'];
+    const { stopAssistantStack, __test } = await import('../AssistantStackService');
+    __test.resetLifecycle();
+
+    await stopAssistantStack();
+
+    const args = runComposeStreaming.mock.calls[0][1] as string[];
+    expect(args).toContain('stop');
+    expect(args.join(' ')).toContain('--profile crm');
   });
 
   it('skips compose stop in local-stack mode', async () => {

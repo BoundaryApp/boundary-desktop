@@ -40,7 +40,7 @@ describe('assistantStackLifecycle', () => {
 
   it('seeds one card per Boundary container', () => {
     const services = seedServiceProgress();
-    expect(services).toHaveLength(14);
+    expect(services).toHaveLength(15);
     expect(services.map((s) => s.containerName)).toContain('boundary-hermes');
     expect(services.map((s) => s.containerName)).toContain('boundary-opencode');
     expect(services.map((s) => s.containerName)).toContain('boundary-llm-proxy');
@@ -144,6 +144,8 @@ describe('assistantStackLifecycle', () => {
     expect(resolveContainerFromProgressId('boundary-n8n')).toBe('boundary-n8n');
     expect(resolveContainerFromProgressId('hermes-webui')).toBe('boundary-hermes-webui');
     expect(resolveContainerFromProgressId('gpt-researcher')).toBe('boundary-gpt-researcher');
+    expect(resolveContainerFromProgressId('gptr-mcp')).toBe('boundary-gptr-mcp');
+    expect(resolveContainerFromProgressId('Image assistant-gptr-mcp:latest')).toBe('boundary-gptr-mcp');
     expect(resolveContainerFromProgressId('Network boundary-assistant_default')).toBeNull();
     expect(resolveContainerFromProgressId('Image gptresearcher/gpt-researcher:0.8.1')).toBe(
       'boundary-gpt-researcher'
