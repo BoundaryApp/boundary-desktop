@@ -120,6 +120,7 @@ import {
 } from './hermesReplyEndings';
 import { getLastAppliedLlm } from '../AssistantStackStore';
 import { parseRecoveryNotice } from './hermesRecoveryNotice';
+import { persistDebugLog } from '../../../persistDebugLog';
 import { logPostWithoutTurn, logTurnGate, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
 
 /**
@@ -995,7 +996,7 @@ async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult>
   const since = (from: number) => roundTenth(performance.now() - from);
   try {
     // Best-effort: project WebUI JSON chats into state.db so session.list sees them.
-    ensureHermesWebuiSyncToInsights();
+    await ensureHermesWebuiSyncToInsights();
   } catch {
     /* optional */
   }
@@ -1464,24 +1465,41 @@ async function readHermesChatHistory(sessionId: string): Promise<HermesChatHisto
     // A room is read from its record's session, even if the renderer holds an older id.
     const readId = resolveChannel(sessionId)?.sessionId ?? sessionId;
     let runtimeId = readId;
+    let resumeFailure: Record<string, unknown> | null = null;
+    // Which read served the transcript, for telling a full history from a summary-only one.
+    const logRead = (source: 'resume' | 'history' | 'webui' | 'none', count: number) =>
+      persistDebugLog('chat-history', 'history read', {
+        sessionId,
+        ...(readId !== sessionId ? { readId } : {}),
+        source,
+        messages: count,
+        ...(resumeFailure ? { resumeFailure } : {}),
+      });
     try {
       // DMs carry their budget on every resume, so DMs made before it existed get one too.
       const resumed = await gateway.resumeSession(readId, ...resumeOptsFor(readId));
       runtimeId = resumed.sessionId;
       if (resumed.messages.length > 0) {
+        logRead('resume', resumed.messages.length);
         return {
           success: true,
           messages: finishChannelHistory(sessionId, resumed.messages, runtimeId),
           sessionId: runtimeId,
         };
       }
-    } catch {
+    } catch (err) {
+      // Error code and name only: a gateway message can quote the session.
+      resumeFailure = {
+        ...(err instanceof Error ? { name: err.name } : {}),
+        ...(typeof (err as { code?: unknown })?.code === 'number' ? { code: (err as { code: number }).code } : {}),
+      };
       /* fall through to history */
     }
 
     try {
       const messages = await gateway.getSessionHistory(runtimeId);
       if (messages.length > 0) {
+        logRead('history', messages.length);
         return {
           success: true,
           messages: finishChannelHistory(sessionId, messages, runtimeId),
@@ -1494,6 +1512,7 @@ async function readHermesChatHistory(sessionId: string): Promise<HermesChatHisto
 
     const webuiMessages = await getWebuiSessionHistory(sessionId);
     if (webuiMessages.length > 0) {
+      logRead('webui', webuiMessages.length);
       webuiOnlyThreadIds.add(sessionId);
       return {
         success: true,
@@ -1502,6 +1521,7 @@ async function readHermesChatHistory(sessionId: string): Promise<HermesChatHisto
       };
     }
 
+    logRead('none', 0);
     return {
       success: true,
       messages: finishChannelHistory(sessionId, []),

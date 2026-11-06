@@ -26,11 +26,20 @@ import { TasksPane, type TasksView } from './TasksPane';
 import { clearTaskOpenRequest, useTaskOpenRequest } from './kanbanActivity';
 import { ChatRail, railOrder, type CenterMode } from './ChatRail';
 import { headKindLine } from './conversationKinds';
-import { dispatchAppCommand, useAppCommand } from '../useAppShortcuts';
+import { useAppCommand } from '../useAppShortcuts';
 import { useCirclesState } from '../circles/useCircles';
 import { circleUnread, useCircleChannels } from '../circles/useCircleChat';
-import { circleChannel, forgetCirclePlace, showCirclePlace, showMacPlace, useChatPlace } from './circlePlace';
+import {
+  circleChannel,
+  forgetCirclePlace,
+  showCirclePlace,
+  showJoiningPlace,
+  showMacPlace,
+  useChatPlace,
+} from './circlePlace';
 import { CirclePlace } from './circle/CirclePlace';
+import { JoiningPlace } from './circle/JoiningPlace';
+import { StartJoinSheets, type StartJoinSheet } from './circle/StartJoinSheets';
 import { PlaceSwitcher } from './circle/PlaceSwitcher';
 import { ShareToCircleSheet, type CircleShareDraft, type CircleShareTarget } from './circle/ShareToCircleSheet';
 import { EmptyProjectSheet } from './EmptyProjectSheet';
@@ -369,7 +378,7 @@ export const WorkbenchChatScreen: React.FC = () => {
     if (target && target !== activeThreadId) void openThread(target);
   });
 
-  // Places (ADR 0042 §10). The switcher shows once the user is in a Circle.
+  // Places (ADR 0042 §10, ADR 0043 §7 and §8).
   const circlesState = useCirclesState();
   const circles = circlesState.status === 'running' ? circlesState.snapshot.circles : [];
   const circleChannels = useCircleChannels(useMemo(() => circles.map((circle) => circle.key), [circles]));
@@ -380,6 +389,15 @@ export const WorkbenchChatScreen: React.FC = () => {
   const placeState = useChatPlace();
   const [shareDraft, setShareDraft] = useState<CircleShareDraft | null>(null);
   const [sharedTo, setSharedTo] = useState<CircleShareTarget | null>(null);
+  const [startJoin, setStartJoin] = useState<StartJoinSheet | null>(null);
+  // A new Circle can reach the state after `create` returns; switch once it's there.
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const created = createdKey !== null && circles.some((circle) => circle.key === createdKey);
+  useEffect(() => {
+    if (!created || !createdKey) return;
+    showCirclePlace(createdKey);
+    setCreatedKey(null);
+  }, [created, createdKey]);
   const shownCircle =
     placeState.place.kind === 'circle'
       ? (circles.find((circle) => circle.key === (placeState.place as { key: string }).key) ?? null)
@@ -391,6 +409,23 @@ export const WorkbenchChatScreen: React.FC = () => {
   useEffect(() => {
     if (missingCircle) forgetCirclePlace(missingCircle);
   }, [missingCircle]);
+  // A join waits in main. Once let in, someone on the waiting page moves into the Circle; once
+  // cancelled or dismissed, back to This Mac. Someone who went elsewhere stays there.
+  const join = circlesState.join ?? null;
+  const admittedTo =
+    circlesState.finishingJoin && circles.some((circle) => circle.key === circlesState.finishingJoin)
+      ? circlesState.finishingJoin
+      : null;
+  const onJoiningPage = placeState.place.kind === 'joining';
+  // The page opens before main's join state arrives, so only a join seen here can be over.
+  const sawJoin = useRef(false);
+  if (onJoiningPage && (join || circlesState.finishingJoin)) sawJoin.current = true;
+  const joinOver = onJoiningPage && sawJoin.current && !join && !circlesState.finishingJoin;
+  if (!onJoiningPage) sawJoin.current = false;
+  useEffect(() => {
+    if (onJoiningPage && admittedTo) showCirclePlace(admittedTo);
+    else if (joinOver) showMacPlace();
+  }, [onJoiningPage, admittedTo, joinOver]);
   // Opening anything of This Mac's (a chat, a task, Mentions, ⌘N) switches to This Mac. The
   // chat list's first landing on a chat at launch is not the user opening it, so it doesn't.
   const macTarget = JSON.stringify([activeThreadId, centerMode, activeTaskId, allChatsOpen.key]);
@@ -403,28 +438,54 @@ export const WorkbenchChatScreen: React.FC = () => {
     lastMacTarget.current = macTarget;
     if (opened) showMacPlace();
   }, [macTarget, ids.landed]);
-  const switcher = circles.length ? (
+  const shownPlace = shownCircle ? placeState.place : onJoiningPage && join ? placeState.place : { kind: 'mac' as const };
+  const switcher = (
     <PlaceSwitcher
-      place={shownCircle ? placeState.place : { kind: 'mac' }}
+      place={shownPlace}
       circles={circles}
       unread={unreadByCircle}
       onMac={showMacPlace}
       onCircle={(key) => showCirclePlace(key)}
-      onManage={() => dispatchAppCommand('go-circles')}
+      join={join}
+      onJoining={showJoiningPlace}
+      leaving={circlesState.status === 'running' ? circlesState.snapshot.leaving : undefined}
+      onStart={() => setStartJoin('start')}
+      onJoin={() => setStartJoin('join')}
+      problem={circlesState.status === 'failed' ? (circlesState.error ?? 'Unknown error.') : null}
     />
-  ) : null;
+  );
+  const startJoinSheets = (
+    <StartJoinSheets
+      sheet={startJoin}
+      displayName={circlesState.displayName}
+      joinWaiting={Boolean(join?.waiting || circlesState.finishingJoin)}
+      onClose={() => setStartJoin(null)}
+      onCreated={setCreatedKey}
+      onJoining={showJoiningPlace}
+    />
+  );
+
+  if (shownPlace.kind === 'joining' && join) {
+    return (
+      <div className="relative flex h-full min-h-0 w-full">
+        <JoiningPlace join={join} admitted={Boolean(circlesState.finishingJoin)} switcher={switcher} />
+        {startJoinSheets}
+      </div>
+    );
+  }
 
   if (shownCircle) {
     return (
       <div className="relative flex h-full min-h-0 w-full">
         <CirclePlace
           circle={shownCircle}
+          circles={circlesState}
           channels={circleChannels[shownCircle.key]}
           channelId={circleChannel(placeState, shownCircle.key)}
           onOpenChannel={(channelId) => showCirclePlace(shownCircle.key, channelId)}
           switcher={switcher}
-          onManage={() => dispatchAppCommand('go-circles')}
         />
+        {startJoinSheets}
       </div>
     );
   }
@@ -819,6 +880,7 @@ export const WorkbenchChatScreen: React.FC = () => {
           </button>
         </div>
       ) : null}
+      {startJoinSheets}
       <ShareToCircleSheet
         draft={shareDraft}
         circles={circles}

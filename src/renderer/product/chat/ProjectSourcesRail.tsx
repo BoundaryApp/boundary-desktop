@@ -8,7 +8,10 @@ import type {
 } from '../../../shared/types/hermesChat';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { useCirclesState } from '../circles/useCircles';
-import { ChainEditor, describeChainEntry } from './ChainEditor';
+import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
+import { describeChainEntry, entryIsPrivate, entryKey, type ChainContext } from '../inference/entries';
+import { LevelStackSheet } from '../inference/LevelStackSheet';
+import { storedStack } from '../inference/stack';
 import { displayHostPath } from './chatTelemetryFormat';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { useDismiss } from '../../components/ui/use-dismiss';
@@ -122,9 +125,12 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     setKeptWritable(false);
   }, [inspect?.projectId, inspect?.sources.map((row) => row.visibility).join(',')]);
 
+  const [editingStack, setEditingStack] = useState(false);
+
+  /** Resolves to the error main gave, or null when saved (or nothing was sent). */
   const applyPin = useCallback(
-    async (inference: ProjectInferencePin) => {
-      if (!project || connecting || patching) return;
+    async (inference: ProjectInferencePin): Promise<string | null> => {
+      if (!project || connecting || patching) return null;
       setPatchError(null);
       setPatching(true);
       try {
@@ -133,12 +139,14 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           inference,
         });
         if (!result.success) {
-          setPatchError(result.error ?? 'Could not update inference.');
-          return;
+          const error = result.error ?? 'Could not update inference.';
+          setPatchError(error);
+          return error;
         }
         if (result.projects) {
           onProjectsUpdated?.(result.projects);
         }
+        return null;
       } finally {
         setPatching(false);
       }
@@ -242,19 +250,44 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       ? formatInferenceChipTitle(appDefault, appSlot.modelId)
       : 'No app default';
   const localSlot = status?.slots.local;
-  const openrouterSlot = status?.slots.openrouter;
   const localReady = Boolean(localSlot?.configured && localSlot.modelId);
-  const openrouterReady = Boolean(openrouterSlot?.configured && openrouterSlot.modelId);
   const pinBusy = connecting || patching;
   const privateOn = project.inference?.privacyLocalOnly === true;
-  // The first entry decides: a chain that starts on a model that isn't private is refused (ADR 0033 §4).
-  const firstSlot = mode === 'inherit' ? appDefault : mode;
-  const privateBlocked = privateOn && firstSlot !== 'local';
-  // A pinned project's fallbacks; inheriting takes the app default's whole chain (ADR 0033 §1).
   const pin = project.inference;
-  // Picking another provider keeps the fallbacks; main drops one that became the pin.
-  const pinTo = (next: 'local' | 'openrouter', modelId?: string): void =>
-    void applyPin({ mode: next, modelId, ...(pin?.fallbacks ? { fallbacks: pin.fallbacks } : {}) });
+  const privacy = pin?.privacyLocalOnly !== undefined ? { privacyLocalOnly: pin.privacyLocalOnly } : {};
+  // A pinned project has its own stack; inheriting takes the Chat stack whole (ADR 0033 §1).
+  const stackCtx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const projectStack: InferenceChainEntry[] =
+    mode === 'inherit'
+      ? storedStack(status)
+      : [{ slot: mode, ...(pin?.modelId ? { modelId: pin.modelId } : {}) }, ...(pin?.fallbacks ?? [])];
+  // The first entry decides: a stack that starts on a model that isn't private is refused (ADR 0033 §4).
+  const firstEntry = projectStack[0];
+  const privateBlocked = privateOn && Boolean(firstEntry) && firstEntry.slot !== 'local';
+  const firstLabel = firstEntry ? describeChainEntry(firstEntry, stackCtx, 'first').label : appLabel;
+  const cut = privateOn ? projectStack.findIndex((entry) => !entryIsPrivate(entry, stackCtx)) : -1;
+  const stackRows = projectStack.map((entry, index) => {
+    const view = describeChainEntry(entry, stackCtx, index === 0 ? 'first' : 'fallback');
+    return {
+      key: entryKey(entry),
+      label: view.label,
+      detail: cut >= 0 && index >= cut ? 'Not used: this project is private.' : view.detail,
+    };
+  });
+  // Saving gives the project its own stack. Main keeps its first entry as a provider pin, so a
+  // shared model can only follow one (LevelStackSheet refuses that order before it gets here).
+  const saveProjectStack = async (list: InferenceChainEntry[]): Promise<string | null> => {
+    const [first, ...fallbacks] = list;
+    if (!first || (first.slot !== 'local' && first.slot !== 'openrouter')) {
+      return 'A project’s stack starts with Local or OpenRouter.';
+    }
+    return applyPin({
+      mode: first.slot,
+      modelId: first.modelId?.trim() || status?.slots[first.slot]?.modelId,
+      ...privacy,
+      ...(fallbacks.length ? { fallbacks } : {}),
+    });
+  };
 
   const allowPopover = allowOpen ? (
     <div
@@ -535,48 +568,38 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       <div className="wb-src-hed">
         <span>Inference</span>
       </div>
-      <div className="wb-inf-opt-list" role="listbox" aria-label="Project inference">
-        <button
-          type="button"
-          role="option"
-          aria-selected={mode === 'inherit'}
-          className={`wb-inf-rail-opt${mode === 'inherit' ? ' is-on' : ''}`}
-          disabled={pinBusy}
-          onClick={() => void applyPin({ mode: 'inherit' })}
-        >
-          Inherit app default
-          <small>{appLabel}</small>
+      <p className="wb-inf-source wb-inf-rail-source" id="project-stack-order">
+        {mode === 'inherit' ? 'Chats here use the Chat stack, in order' : 'This project’s stack, in order'}
+      </p>
+      {stackRows.length ? (
+        <ol className="wb-inf-order wb-inf-rail-order" aria-labelledby="project-stack-order">
+          {stackRows.map((row, index) => (
+            <li key={row.key} className={`wb-inf-opt${index === 0 ? ' is-on' : ''}`}>
+              <span className="wb-inf-order-num" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span>
+                {row.label}
+                <small>{row.detail}</small>
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="wb-inf-source wb-inf-rail-source">{appLabel}</p>
+      )}
+      <div className="wb-inf-rail-acts">
+        <button type="button" className="wb-btn-tiny" disabled={pinBusy || !status} onClick={() => setEditingStack(true)}>
+          Edit stack
         </button>
-        {localReady ? (
+        {mode !== 'inherit' ? (
           <button
             type="button"
-            role="option"
-            aria-selected={mode === 'local'}
-            className={`wb-inf-rail-opt${mode === 'local' ? ' is-on' : ''}`}
+            className="wb-btn-tiny"
             disabled={pinBusy}
-            onClick={() => pinTo('local', localSlot!.modelId)}
+            onClick={() => void applyPin({ mode: 'inherit', ...privacy })}
           >
-            {formatInferenceChipTitle('local', localSlot!.modelId!)}
-            <small>{mode === 'local' ? 'pinned for this project' : 'pin this project'}</small>
-          </button>
-        ) : null}
-        {openrouterReady ? (
-          <button
-            type="button"
-            role="option"
-            aria-selected={mode === 'openrouter'}
-            className={`wb-inf-rail-opt${mode === 'openrouter' ? ' is-on' : ''}`}
-            disabled={pinBusy || privateOn}
-            onClick={() => pinTo('openrouter', openrouterSlot!.modelId)}
-          >
-            {formatInferenceChipTitle('openrouter', openrouterSlot!.modelId!)}
-            <small>
-              {privateOn
-                ? 'not private'
-                : mode === 'openrouter'
-                  ? 'pinned for this project'
-                  : 'pin this project'}
-            </small>
+            Back to Chat stack
           </button>
         ) : null}
       </div>
@@ -593,32 +616,30 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           Private
           <small>
             {privateOn
-              ? 'Chats here use only your local model and people you marked Private in Circles. Task board and scheduled work aren’t covered.'
-              : 'Keep chats here on your local model and people you marked Private in Circles.'}
+              ? 'Chats here use only your local model and people you allowed in private projects in Inference. Task board and scheduled work aren’t covered.'
+              : 'Keep chats here on your local model and people you allowed in private projects in Inference.'}
           </small>
         </span>
       </button>
       {privateBlocked ? (
         <p className="wb-warn">
-          {mode === 'inherit' ? appLabel : 'This pin'} isn’t private, so chats here can’t send.{' '}
+          {firstLabel} isn’t private, so chats here can’t send.{' '}
           {localReady
-            ? 'Pin your local model or turn off Private.'
-            : 'Connect a local model in Settings or turn off Private.'}
+            ? 'Put your local model first in this project’s stack, or turn off Private.'
+            : 'Connect a local model in Inference or turn off Private.'}
         </p>
       ) : null}
-      {mode !== 'inherit' && status ? (
-        <div className="wb-inf-rail-fallback">
-          <div className="wb-inf-kicker">If it doesn't answer</div>
-          <ChainEditor
-            primary={{ slot: mode }}
-            fallbacks={pin?.fallbacks ?? []}
-            ctx={{ slots: status.slots, circles }}
-            disabled={pinBusy}
-            privacyLocked={privateOn}
-            emptyNote="Nothing else. Chats in this project stop and ask."
-            onChange={(next) => void applyPin({ ...pin!, mode, fallbacks: next })}
-          />
-        </div>
+      {editingStack ? (
+        <LevelStackSheet
+          titleId="inference-project-stack"
+          kicker={project.name}
+          title="Stack for this project"
+          lede="Applies to chats in this project that don’t have their own. The Chat stack stays as it is."
+          initial={projectStack}
+          privacyLocked={privateOn}
+          save={saveProjectStack}
+          onClose={() => setEditingStack(false)}
+        />
       ) : null}
       {patchError ? <p className="wb-warn">{patchError}</p> : null}
 

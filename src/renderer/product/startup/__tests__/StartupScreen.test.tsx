@@ -42,6 +42,16 @@ describe('StartupScreen', () => {
     expect(screen.getByRole('heading', { name: STARTUP_TOOLS[4].title })).toBeTruthy();
   });
 
+  it('leaves out the Automations tile and story when n8n isn’t starting', () => {
+    const withoutN8n = services.filter((s) => s.containerName !== 'boundary-n8n');
+    const { container } = render(
+      <StartupScreen variant="first-run" stage="compose" services={withoutN8n} />
+    );
+    expect(container.querySelector('[aria-label^="Automations:"]')).toBeNull();
+    expect(container.querySelector('[aria-label^="Assistant:"]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Show Automations' })).toBeNull();
+  });
+
   const startTiming = (overrides: Partial<StartTiming> = {}): StartTiming => ({
     startedAt: Date.now(),
     kind: 'relaunch',

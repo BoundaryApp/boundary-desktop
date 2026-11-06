@@ -1,10 +1,11 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../shared/types/circles';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { SharedModelSetupView } from '../../onboarding/SharedModelSetupView';
-import { ProductSettingsScreen } from '../ProductSettingsScreen';
+import { resetIpcStoresForTests } from '../../lib/ipcStore';
+import { InferenceScreen } from '../inference/InferenceScreen';
 
 const CIRCLE = 'c'.repeat(64);
 const BO = 'b'.repeat(64);
@@ -47,11 +48,13 @@ function circles(overrides: Partial<CirclesState> = {}): CirclesState {
 const nothingConnected = { configured: false, encryptionAvailable: true, appDefault: null, slots: {} };
 const usingShared = { ...nothingConnected, configured: true, appSharedModel: entry, appFallbacks: [] };
 
-function stub(state: CirclesState, status: object = nothingConnected) {
+function stub(state: CirclesState, status: object = nothingConnected, stack: object = { entries: [], noPrivate: true }) {
   const setAppSharedModel = vi.fn().mockResolvedValue({ success: true, status: usingShared });
   stubElectronAPI({
     onboarding: {
       getStatus: vi.fn().mockResolvedValue(status),
+      describeAppStack: vi.fn().mockResolvedValue(stack),
+      setAppFallbacks: vi.fn().mockResolvedValue({ success: true, status: usingShared }),
       setAppSharedModel,
       listConfiguredEndpointModels: vi.fn().mockResolvedValue({ success: true, models: [] }),
     },
@@ -60,80 +63,53 @@ function stub(state: CirclesState, status: object = nothingConnected) {
   return { setAppSharedModel };
 }
 
-/** The requests sent to open Circles while a test runs. */
-function watchOpenCircles(): unknown[] {
-  const opened: unknown[] = [];
-  const listener = (event: Event) => opened.push((event as CustomEvent).detail);
-  window.addEventListener('boundary:open-circles', listener);
-  stopWatching = () => window.removeEventListener('boundary:open-circles', listener);
-  return opened;
-}
-let stopWatching = () => undefined as void;
+afterEach(() => cleanup());
 
-afterEach(() => {
-  stopWatching();
-  cleanup();
-});
+const leftCircle = {
+  entries: [{ entry, key: `peer:${CIRCLE}:${BO}:qwen3-8b`, stale: 'left-circle', private: false, privateCut: true }],
+  noPrivate: true,
+};
 
-describe('choosing a shared model in Settings (ADR 0036)', () => {
-  it('lets a member with no provider make it the app default, and the warning goes', async () => {
+describe('choosing a shared model in Inference (ADR 0036)', () => {
+  beforeEach(() => resetIpcStoresForTests());
+
+  it('lets a member with no provider make it the first model', async () => {
     const { setAppSharedModel } = stub(circles());
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    expect(await screen.findByText(/No model provider is connected/)).toBeTruthy();
-
-    fireEvent.click(await screen.findByRole('button', { name: /Bo's qwen3-8b/ }));
-
+    render(<InferenceScreen />);
+    expect(await screen.findByText('Add your first model')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to stack' }));
     await waitFor(() => expect(setAppSharedModel).toHaveBeenCalledWith({ entry }));
-    await waitFor(() => expect(screen.queryByText(/No model provider is connected/)).toBeNull());
-    expect(await screen.findByText(/App default updated/)).toBeTruthy();
-    // Fallbacks can follow it, like any app default.
-    expect(screen.getByRole('heading', { name: /Fallbacks/ })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Add your first model')).toBeNull());
   });
 
-  it('sends a click on an untrusted provider’s model to their panel, and doesn’t pick it', async () => {
+  it('won’t add an untrusted provider’s model, and keeps their Trusted switch beside it', async () => {
     const { setAppSharedModel } = stub(circles({ providers: {} }));
-    const opened = watchOpenCircles();
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    const choice = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
-    expect(choice.textContent).toMatch(/Trust Bo in Circles to use it/);
-    fireEvent.click(choice);
-    expect(opened).toEqual([{ person: BO }]);
+    render(<InferenceScreen />);
+    const person = await screen.findByRole('region', { name: 'Bo' });
+    expect(within(person).getByRole('button', { name: 'Add to stack' })).toHaveProperty('disabled', true);
+    expect(within(person).getByRole('switch', { name: 'Trusted' })).toBeTruthy();
     expect(setAppSharedModel).not.toHaveBeenCalled();
   });
 
-  it('sends a click on a model the provider stopped sharing to Sharing, and doesn’t pick it', async () => {
-    const state = circles();
-    state.snapshot.circles[0].offers[0].available = false;
-    const { setAppSharedModel } = stub(state);
-    const opened = watchOpenCircles();
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Bo's qwen3-8b/ }));
-    expect(opened).toEqual([{}]);
-    expect(setAppSharedModel).not.toHaveBeenCalled();
+  it('says on the entry when its Circle was left, with no fix to offer', async () => {
+    stub(circles({ snapshot: { identity: 'a'.repeat(64), circles: [] } }), usingShared, leftCircle);
+    render(<InferenceScreen />);
+    expect(await screen.findByText('You left that Circle')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Trust / })).toBeNull();
   });
 
-  it('offers no link for a model from a Circle the user left, and says to choose another', async () => {
-    stub(circles({ snapshot: { identity: 'a'.repeat(64), circles: [] } }), usingShared);
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    const choice = (await screen.findByRole('button', { name: /qwen3-8b/ })) as HTMLButtonElement;
-    expect(choice.className).toContain('is-on');
-    expect(choice.disabled).toBe(true);
-    expect(choice.textContent).toMatch(/Chats can’t send until that changes\. Choose another model/);
-    expect(screen.queryByRole('button', { name: 'Open in Circles' })).toBeNull();
-  });
-
-  it('says what to do after a wipe clears the only model', async () => {
+  it('offers a first model after a wipe clears the only one', async () => {
     stub(circles({ snapshot: { identity: 'a'.repeat(64), circles: [] } }), { ...nothingConnected, appFallbacks: [] });
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    expect(await screen.findByText(/connect one below or choose a model someone shares in a Circle/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /qwen3-8b/ })).toBeNull();
+    render(<InferenceScreen />);
+    expect(await screen.findByText('Add your first model')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Model stack, first to last' })).toBeNull();
   });
 
   it('shows the error main gives when the model stopped being available', async () => {
     const { setAppSharedModel } = stub(circles());
     setAppSharedModel.mockResolvedValue({ success: false, error: 'Bo isn’t sharing it.', status: nothingConnected });
-    render(<ProductSettingsScreen onBack={() => undefined} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Bo's qwen3-8b/ }));
+    render(<InferenceScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to stack' }));
     expect(await screen.findByText('Bo isn’t sharing it.')).toBeTruthy();
   });
 });

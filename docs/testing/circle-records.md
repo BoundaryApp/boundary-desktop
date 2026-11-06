@@ -2,7 +2,7 @@
 
 Two Macs on the new build, each with Circles from an earlier build.
 
-1. Update both Macs and open Circles on each. The old Circles are gone, your display name is still there, and **Sharing** keeps its models with no Circle selected.
+1. Update both Macs. On each, the chat's place switcher lists none of the old Circles, Settings' **Circles profile** still has your display name, and Inference's **Shared from this Mac** keeps its models with no Circle turned on.
 2. Quit and reopen on one Mac. Nothing else disappears.
 3. Create a Circle on one Mac and invite the other. The invite works and both list both people.
 4. Share a model and send a message through it, to confirm a new Circle does what an old one did.

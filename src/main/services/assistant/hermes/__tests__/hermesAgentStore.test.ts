@@ -18,7 +18,10 @@ import {
   getSessionProjectId,
   setSessionProjectIds,
   setStoredSessionAlias,
+  listStoredAgents,
+  upsertStoredAgent,
 } from '../hermesAgentStore';
+import { setBuiltinAgentNameSource } from '../builtinAgentName';
 
 describe('hermesAgentStore session inference', () => {
   beforeEach(() => {
@@ -78,6 +81,57 @@ describe('hermesAgentStore built-in agent (ADR 0023)', () => {
     const builtin = getStoredAgent('assistant');
     expect(builtin?.displayName).toBe('Hermes');
     expect(builtin?.handle).toBe('Hermes');
+  });
+});
+
+describe('hermesAgentStore built-in agent name source', () => {
+  afterEach(() => setBuiltinAgentNameSource(null));
+
+  it('lists the built-in agent under the name the source gives, as name and handle', () => {
+    resetHermesAgentsStoreForTests();
+    setBuiltinAgentNameSource(() => ' Robin ');
+    expect(getStoredAgent('assistant')).toMatchObject({ displayName: 'Robin', handle: 'Robin' });
+    expect(listStoredAgents()[0]).toMatchObject({ slug: 'assistant', displayName: 'Robin' });
+  });
+
+  it('keeps the stored name when the source is blank or throws', () => {
+    resetHermesAgentsStoreForTests();
+    setBuiltinAgentNameSource(() => '   ');
+    expect(getStoredAgent('assistant')?.displayName).toBe('Hermes');
+    setBuiltinAgentNameSource(() => {
+      throw new Error('store unreadable');
+    });
+    expect(getStoredAgent('assistant')?.displayName).toBe('Hermes');
+  });
+
+  it('never writes the supplied name into the stored record', () => {
+    resetHermesAgentsStoreForTests();
+    setBuiltinAgentNameSource(() => 'Robin');
+    upsertStoredAgent({
+      slug: 'researcher',
+      displayName: 'Researcher',
+      handle: 'Researcher',
+      role: 'Finds things.',
+      builtIn: false,
+      createdAt: '2026-11-03T00:00:00.000Z',
+    });
+    setBuiltinAgentNameSource(null);
+    expect(getStoredAgent('assistant')?.displayName).toBe('Hermes');
+    expect(getStoredAgent('researcher')?.displayName).toBe('Researcher');
+  });
+
+  it('leaves other agents alone', () => {
+    resetHermesAgentsStoreForTests();
+    setBuiltinAgentNameSource(() => 'Robin');
+    upsertStoredAgent({
+      slug: 'researcher',
+      displayName: 'Researcher',
+      handle: 'Researcher',
+      role: 'Finds things.',
+      builtIn: false,
+      createdAt: '2026-11-03T00:00:00.000Z',
+    });
+    expect(getStoredAgent('researcher')?.displayName).toBe('Researcher');
   });
 });
 

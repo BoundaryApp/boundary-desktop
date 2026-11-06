@@ -40,6 +40,8 @@ vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
 }));
 vi.mock('../../windows', () => ({ broadcast: (_channel: string, payload: unknown) => broadcasts.push(payload) }));
 vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: () => undefined }));
+const notices = vi.hoisted(() => [] as Array<{ title: string; body: string }>);
+vi.mock('../../notifications', () => ({ showWindowNotification: (notice: { title: string; body: string }) => void notices.push(notice) }));
 const diagnostics = vi.hoisted(() => [] as unknown[]);
 vi.mock('../circlesDiagnostics', () => ({ diag: (...line: unknown[]) => void diagnostics.push(line), short: (key: string | null) => key?.slice(0, 8) ?? null }));
 
@@ -71,6 +73,11 @@ vi.mock('../circlesStore', () => ({
   },
   forgetCircle: (key: string) => {
     stored.circles.delete(key);
+    for (const [id, code] of stored.inviteCodes) if (code.key === key) stored.inviteCodes.delete(id);
+  },
+  markCircleLeaving: (key: string) => {
+    const secrets = stored.circles.get(key) as object | undefined;
+    if (secrets) stored.circles.set(key, { ...secrets, leaving: true });
     for (const [id, code] of stored.inviteCodes) if (code.key === key) stored.inviteCodes.delete(id);
   },
   getProviderSettings: () => stored.providers,
@@ -114,6 +121,7 @@ beforeEach(() => {
   fork.mockClear();
   lastChild = null;
   broadcasts.length = 0;
+  notices.length = 0;
   stored.served = undefined;
   stored.used = undefined;
   stored.name = '';
@@ -374,7 +382,7 @@ describe('circlesService', () => {
     expect(service.getCirclesState()).toMatchObject({ status: 'failed' });
   });
 
-  it('forgets a Circle it has left, and starts at launch only for a member', async () => {
+  it('keeps a Circle it has left until the network process closes it, and starts at launch only for a member', async () => {
     stored.name = 'Ada';
     let service = await load();
     service.startCirclesIfMember();
@@ -386,6 +394,9 @@ describe('circlesService', () => {
     // The leave waits on the launch's start rather than forking a second process.
     expect(await service.leaveCircle('c1')).toMatchObject({ success: true });
     expect(fork).toHaveBeenCalledTimes(1);
+    // Kept so the leave reaches an admin after a restart; the process opens it as leaving.
+    expect(stored.circles.get('c1')).toEqual({ namespace: 'n1', key: 'c1', leaving: true });
+    lastChild!.emit('message', { type: 'circle-removed', key: 'c1' });
     expect(stored.circles.has('c1')).toBe(false);
     await service.stopCircles();
     expect(lastChild!.postMessage).toHaveBeenLastCalledWith({ type: 'stop' });
@@ -397,6 +408,16 @@ describe('circlesService', () => {
     const service = await load();
     expect(await service.deleteCircle('c1')).toMatchObject({ success: true });
     expect(stored.circles.has('c1')).toBe(false);
+    await service.stopCircles();
+  });
+
+  it('tells an admin who left, with a notification', async () => {
+    stored.name = 'Ada';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1' });
+    const service = await load();
+    await service.ensureCirclesStarted();
+    lastChild!.emit('message', { type: 'member-left', key: 'c1', circle: 'Garden club', name: 'Bo' });
+    expect(notices).toEqual([{ title: 'Garden club', body: 'Bo left the Circle.' }]);
     await service.stopCircles();
   });
 

@@ -227,7 +227,7 @@ export async function ensureResolvedInferenceReady(
   if (!resolved?.configured) {
     return {
       ok: false,
-      error: 'No model is chosen, so your message wasn’t sent. Connect a provider or choose a shared model in Settings.',
+      error: 'No model is chosen, so your message wasn’t sent. Choose one in Inference.',
     };
   }
   const shared = resolved.slot === 'peer';
@@ -235,7 +235,7 @@ export async function ensureResolvedInferenceReady(
   if (shared && isLocalAssistantStackMode()) {
     return {
       ok: false,
-      error: 'Shared models can’t serve in local-stack mode. Pick another model in Settings.',
+      error: 'Shared models can’t serve in local-stack mode. Pick another model in Inference.',
       errorCode: 'apply-failed',
     };
   }

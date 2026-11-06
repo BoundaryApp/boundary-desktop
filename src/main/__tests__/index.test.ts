@@ -176,6 +176,7 @@ vi.mock('../services/capability/ipcHandlers', () => ({ registerCapabilityHandler
 vi.mock('../services/setup/ipcHandlers', () => ({ registerSetupHandlers: vi.fn() }));
 vi.mock('../services/assistant/ipcHandlers', () => ({ registerAssistantStackHandlers: vi.fn() }));
 vi.mock('../services/resources/ipcHandlers', () => ({ registerResourceHandlers: vi.fn() }));
+vi.mock('../services/addons/ipcHandlers', () => ({ registerAddonHandlers: vi.fn() }));
 vi.mock('../services/assistant/hermes/hermesChatIpc', () => ({ registerHermesChatHandlers: vi.fn() }));
 vi.mock('../services/assistant/hermes/hermesKanbanIpc', () => ({ registerKanbanHandlers: vi.fn() }));
 vi.mock('../services/assistant/hermes/hermesAgentsIpc', () => ({ registerAgentHandlers: vi.fn() }));

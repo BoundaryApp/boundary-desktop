@@ -5,8 +5,7 @@ import { Button } from '../../components/ui/button';
 import { InfoTip } from '../../components/ui/info-tip';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { dispatchAppCommand } from '../useAppShortcuts';
-import { Avatar, CircleButton, CirclePill, CircleSwitch } from './CircleControls';
-import { openCircles } from './circlesNavigation';
+import { CircleButton, CircleSwitch } from './CircleControls';
 import { SharingUsage } from './CircleUsage';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
@@ -24,7 +23,7 @@ interface SharingView {
   sharingAny: boolean;
   /** Why members can't use the shared models now; null when they can, or nothing is shared. */
   blocked: string | null;
-  /** The fix for `blocked` is the local model in Settings. */
+  /** The fix for `blocked` is the local model in Inference. */
   fixInSettings: boolean;
 }
 
@@ -63,28 +62,15 @@ function canShare(circles: CirclesState, status: InferenceProvidersStatus | null
   return sharing.models.length > 0 || snapshot.circles.some((circle) => sharing.circles.includes(circle.key));
 }
 
-export function useCanShare(circles: CirclesState): boolean {
-  return canShare(circles, useInferenceStatus().status);
-}
-
-/** Sharing's state for the list beside a Circle's page. */
-export function useSharingSummary(circles: CirclesState, offered: number): { label: string; dot: string } {
-  const view = sharingView(circles, useInferenceStatus().status);
-  const count = circles.sharing.models.length;
-  if (!view.sharingAny) return { label: offered ? `${offered} available` : 'Not sharing', dot: 'bg-line' };
-  if (view.blocked) return { label: circles.sharing.paused ? 'Paused' : 'Members can’t use it', dot: 'bg-warn' };
-  return { label: `Sharing ${count} ${count === 1 ? 'model' : 'models'}`, dot: 'bg-ok' };
-}
-
 /** Members can't use the user's models now, whatever screen the user is on. */
 export function useSharingAttention(): boolean {
   const view = sharingView(useCirclesState(), useInferenceStatus().status);
   return view.blocked !== null;
 }
 
-const openInferenceSettings = (): void => dispatchAppCommand('go-settings');
+const openModelSources = (): void => dispatchAppCommand('go-inference');
 
-export function formatContext(tokens: number | undefined): string {
+function formatContext(tokens: number | undefined): string {
   if (!tokens) return '';
   return tokens >= 1024 ? `${Math.round(tokens / 1024)}K context` : `${tokens} tokens`;
 }
@@ -181,8 +167,8 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
                   } while ${APP_NAME} is open.`}
             </span>
             {fixInSettings ? (
-              <CircleButton size="row" variant="outline" onClick={openInferenceSettings}>
-                Open Settings
+              <CircleButton size="row" variant="outline" onClick={openModelSources}>
+                Open Inference
               </CircleButton>
             ) : null}
             <CircleButton
@@ -202,8 +188,8 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-ui text-fg-muted">{startHint(sharing, hasLocal, sharedCircles)}</p>
           {!hasLocal ? (
-            <Button size="sm" variant="outline" onClick={openInferenceSettings}>
-              Open Settings
+            <Button size="sm" variant="outline" onClick={openModelSources}>
+              Open Inference
             </Button>
           ) : null}
         </div>
@@ -270,66 +256,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
   );
 };
 
-/** The user's own row in a Circle's shared models: the switch for this Circle, and its state. */
-export function MyShareRow({ circle, circles }: { circle: CircleSnapshot; circles: CirclesState }) {
-  const { blocked } = useSharingView(circles);
-  const action = useAction();
-  const { sharing } = circles;
-  const on = sharing.circles.includes(circle.key);
-  const shared = on && sharing.models.length > 0;
-  const name = circle.name || 'this Circle';
-  const available = shared && !blocked;
-  const detail = !on
-    ? `Members of ${name} can't use your models.`
-    : !shared
-      ? 'Choose a model in Sharing to share it here.'
-      : available
-        ? `Members of ${name} can use your models while ${APP_NAME} is open.`
-        : 'Your choices for this Circle are kept.';
-  const dot = !shared ? 'bg-line-strong' : available ? 'bg-ok' : 'bg-warn';
-  const dotLabel = !shared ? 'Not sharing' : available ? 'Sharing' : 'Unavailable to members';
-  return (
-    <li className="flex flex-col justify-center gap-1 px-2.5 py-2">
-      <div className="flex min-h-[42px] items-center gap-3">
-        <Avatar
-          name={circles.displayName || 'You'}
-          seed={circles.status === 'running' ? circles.snapshot.identity : undefined}
-          dot={dot}
-          label={dotLabel}
-        />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-ui text-fg">You</span>
-            {circle.myRole === 'admin' ? <CirclePill tone="tag">Admin</CirclePill> : null}
-            {available && sharing.away ? <CirclePill tone="tag">Away mode</CirclePill> : null}
-          </span>
-          <span className="text-xs break-words text-fg-faint">
-            {available ? sharing.models.map((model) => model.id).join(', ') : shared && blocked ? blocked : detail}
-          </span>
-        </span>
-        <span className="text-xs text-fg-muted" aria-hidden>
-          Share here
-        </span>
-        <CircleSwitch
-          label="Share here"
-          on={on}
-          disabled={action.busy || !circle.writable}
-          onToggle={() =>
-            void action.run(() =>
-              window.electronAPI.circles.setSharing({
-                ...sharing,
-                circles: on ? sharing.circles.filter((key) => key !== circle.key) : [...sharing.circles, circle.key],
-              })
-            )
-          }
-        />
-      </div>
-      {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
-    </li>
-  );
-}
-
-/** Sharing's state in Settings' Local card; the controls are on the Circles screen. */
+/** Sharing's state in the Local card; the controls are in Inference. */
 export function CircleSharingLine({ circles }: { circles: CirclesState }) {
   const { sharedCircles, sharingAny, blocked } = useSharingView(circles);
   const text = !circles.snapshot.circles.length
@@ -339,12 +266,10 @@ export function CircleSharingLine({ circles }: { circles: CirclesState }) {
       : blocked
         ? `${blocked}.`
         : `Shared with ${circleNames(sharedCircles)}${circles.sharing.away ? ', with away mode on' : ''}.`;
+  // The sharing controls sit below the model sources in Inference, so the line needs no link.
   return (
     <div className="wb-share-line">
       <p className="wb-share-status">{text}</p>
-      <button type="button" className="wb-inference-btn" onClick={() => openCircles()}>
-        Open Circles
-      </button>
     </div>
   );
 }

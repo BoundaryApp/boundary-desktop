@@ -17,9 +17,9 @@
 | 4 Invites and joining | Built; live check pending | 1 |
 | 5 Links from the rest of the app | Built; live check pending | 2, 3 |
 | 6 Usage | Built; live check pending | 3 |
-| 7 Circle tab and person drill-in | Not started | Circle chats phase 3 |
-| 8 Start and join sheets | Not started | 7 |
-| 9 Retire the destination | Not started | 7, 8, settings spec phase 3 |
+| 7 Circle tab and person drill-in | Built; live check pending | Circle chats phase 3 |
+| 8 Start and join sheets | Built; live check pending | 7 |
+| 9 Retire the destination | Built; live check pending | 7, 8, settings spec phase 3 |
 
 Phases 7 to 9 move this screen's parts into the chat and into Inference ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)): membership to the chat's Circle tab, sharing, trust and use to Inference. Decisions 1, 4, 7, 8, 10, 13, 14 and 15 change there; the rest still describe the parts, wherever they're mounted.
 
@@ -107,19 +107,19 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 
 ## Acceptance criteria
 
-- [x] **1.** A user with two Circles can switch between them from the list, and leaving the destination and coming back restores the selection.
+- [x] **1.** A user with two Circles can switch between them from the chat's place switcher, and leaving the chat and coming back restores the place.
 - [x] **2.** Someone in two Circles appears with one set of switches, and a change shows in both Circles at once.
-- [x] **3.** A member can trust a provider and make their model the default without leaving the Circles destination.
+- [x] **3.** A member can trust a provider and add their model to the Chat stack without leaving Inference.
 - [x] **4.** Use buttons stay disabled until the provider is Trusted, and main refuses the choice if the renderer is wrong.
 - [x] **5.** A paused provider's dot is amber on the Circle page and in **Sharing**, and a provider who is offline is grey.
 - [x] **6.** A user with no local model and nothing shared sees no **Shared from this Mac** and no **Share here**.
 - [x] **7.** Turning off a Circle's switch on **Sharing** turns off **Share here** in that Circle, and the reverse.
-- [x] **8.** With the local server stopped, the Circles icon shows a dot from any screen, and the banner offers **Open Settings**.
+- [x] **8.** With the local server stopped, the Inference icon shows a dot from any screen, and the panel in Inference says the server isn't responding.
 - [x] **9.** An invite's label never appears in the Circle's log or on another device.
 - [x] **10.** A join in progress survives navigating away, shows its failure on return, and can be cancelled.
 - [x] **11.** The chat's stop message for a shared model opens that person's panel.
 - [x] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
 - [x] **13.** Usage counts appear only on the provider's and that member's own Macs.
-- [ ] **14.** There is no Circles icon. Every Circle, invite, join and member is reachable from the chat's switcher, the Circle tab or a sheet.
-- [ ] **15.** No control in a Circle place changes a model setting; sharing, trust and use are only in Inference.
-- [ ] **16.** A link about a person's model opens Inference at their row without changing the chat's place.
+- [x] **14.** There is no Circles icon. Every Circle, invite, join and member is reachable from the chat's switcher, the Circle tab or a sheet.
+- [x] **15.** No control in a Circle place changes a model setting; sharing, trust and use are only in Inference.
+- [x] **16.** A link about a person's model opens Inference at their row without changing the chat's place.

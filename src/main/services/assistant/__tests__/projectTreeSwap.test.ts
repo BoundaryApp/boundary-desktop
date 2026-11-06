@@ -131,6 +131,19 @@ describe('swapProjectTreePreservingData', () => {
     );
   });
 
+  it('keeps Twenty workspace files and llm-proxy model defaults', async () => {
+    write(paths.projectRoot, 'compose/twenty/workspaces/main.env', 'TWENTY_KEY_RW=keep');
+    write(paths.projectRoot, 'compose/twenty/workspaces/.gitkeep', '');
+    write(paths.projectRoot, 'model-defaults/local.json', '{"qwen":{}}');
+    write(paths.nextRoot, 'compose/twenty/workspaces/.gitkeep', '');
+    write(paths.nextRoot, 'model-defaults/examples/qwen.json', 'example');
+    await swapProjectTreePreservingData(paths);
+    const live = paths.projectRoot;
+    expect(read(live, 'compose/twenty/workspaces/main.env')).toBe('TWENTY_KEY_RW=keep');
+    expect(read(live, 'model-defaults/local.json')).toBe('{"qwen":{}}');
+    expect(read(live, 'model-defaults/examples/qwen.json')).toBe('example');
+  });
+
   it('replaces the code kept from the previous upgrade', async () => {
     write(paths.previousRoot, 'docker-compose.yml', 'ancient compose');
     await swapProjectTreePreservingData(paths);

@@ -214,15 +214,15 @@ describe('a send refused because nothing answered', () => {
     }));
     const opened: unknown[] = [];
     const listener = (event: Event) => opened.push((event as CustomEvent).detail);
-    window.addEventListener('boundary:open-circles', listener);
+    window.addEventListener('boundary:open-inference', listener);
     render(<Chat />);
     await screen.findByRole('button', { name: 'Send message' });
     await act(async () => setValue(input(), 'hello?'));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send message' })));
 
     const note = (await screen.findByText(error)).closest('p')!;
-    fireEvent.click(within(note).getByRole('button', { name: 'Open in Circles' }));
-    window.removeEventListener('boundary:open-circles', listener);
+    fireEvent.click(within(note).getByRole('button', { name: 'Open in Inference' }));
+    window.removeEventListener('boundary:open-inference', listener);
     expect(opened).toEqual([{ person: 'b'.repeat(64) }]);
   });
 });

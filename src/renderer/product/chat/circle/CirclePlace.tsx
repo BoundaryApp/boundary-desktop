@@ -1,25 +1,19 @@
-import React, { useState } from 'react';
-import type { CircleChannel, CircleMemberView, CircleSnapshot } from '../../../../shared/types/circles';
+import React, { useCallback, useState } from 'react';
+import type { CircleChannel, CircleSnapshot, CirclesState } from '../../../../shared/types/circles';
 import { Avatar } from '../../circles/CircleControls';
+import { CircleConfirmSheet, type CircleConfirm } from '../../circles/CircleConfirmSheet';
+import { InviteSheet, useInviteHints } from '../../circles/InviteSheet';
 import { useCallCheck } from '../../circles/useCallCheck';
 import { useCircleChat } from '../../circles/useCircleChat';
 import { CallCheckSheet } from './CallCheckSheet';
 import { ChannelSheets, type ChannelSheet } from './ChannelSheets';
 import { CircleThread } from './CircleThread';
 import { CirclesMark } from './CirclesMark';
-import { CircleTile } from './PlaceSwitcher';
-import { peopleLine } from './peopleLine';
+import { CircleTab, OnlineDot, peopleInOrder } from './CircleTab';
 import './circleChat.css';
 
 /** General exists before the channels have been read. */
 const GENERAL: CircleChannel = { id: 'general', name: 'General', unread: 0 };
-
-/** Online people first, the user last (Circle chats spec decision 3). */
-function peopleInOrder(circle: CircleSnapshot): CircleMemberView[] {
-  return [...circle.members].sort(
-    (a, b) => Number(a.isMe) - Number(b.isMe) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name),
-  );
-}
 
 function PanelIcon() {
   return (
@@ -30,148 +24,25 @@ function PanelIcon() {
   );
 }
 
-const OnlineDot: React.FC<{ online: boolean }> = ({ online }) => (
-  <i className={`wb-online-dot${online ? '' : ' is-off'}`} role="img" aria-label={online ? 'Online' : 'Offline'} />
+/** A rail section's + button. */
+const SectionAdd: React.FC<{ label: string; disabled?: boolean; onClick: () => void }> = ({ label, disabled, onClick }) => (
+  <button type="button" className="wb-sect-add" title={label} aria-label={label} disabled={disabled} onClick={onClick}>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  </button>
 );
-
-function memberLine(member: CircleMemberView): string {
-  return `${member.role === 'admin' ? 'Admin · ' : ''}${member.online ? 'Online' : 'Offline'}`;
-}
-
-/** The inspector's Circle tab (ADR 0043 §3): the Circle, its channels and its people. */
-const CircleTab: React.FC<{
-  circle: CircleSnapshot;
-  channels: CircleChannel[];
-  /** The person whose details replace the tab, by identity. */
-  person: string | null;
-  onPerson: (identity: string | null) => void;
-  onClose: () => void;
-  onManage: () => void;
-  /** Admins add, rename and remove channels here. */
-  onChannelSheet: (sheet: ChannelSheet) => void;
-  /** Only while the call transport check is on. */
-  onCallCheck?: () => void;
-}> = ({ circle, channels, person, onPerson: setPerson, onClose, onManage, onChannelSheet, onCallCheck }) => {
-  const admin = circle.myRole === 'admin';
-  const member = person ? (circle.members.find((item) => item.identity === person) ?? null) : null;
-  const offer = member ? circle.offers.find((item) => item.identity === member.identity) : undefined;
-  return (
-    <aside className="wb-right wb-circle-insp" aria-label="Circle details">
-      <nav className="wb-insp-tabs" aria-label="Inspector">
-        {member ? (
-          <button type="button" className="wb-insp-tab" onClick={() => setPerson(null)}>
-            ‹ Back
-          </button>
-        ) : (
-          <span className="wb-insp-tab is-on">Circle</span>
-        )}
-        <button type="button" className="wb-act wb-circle-insp-close" aria-label="Close Circle details" onClick={onClose}>
-          ✕
-        </button>
-      </nav>
-      {member ? (
-        <div className="wb-insp-pane">
-          <div className="wb-circle-insp-ident">
-            <Avatar name={member.name} seed={member.identity} large />
-            <span>
-              <span className="who-name">{member.isMe ? `${member.name} (you)` : member.name}</span>
-              <span className="who-meta">{memberLine(member)}</span>
-            </span>
-          </div>
-          <p className="wb-circle-insp-note">
-            {offer?.models.length
-              ? `Shares ${offer.models.map((model) => model.id).join(', ')}.`
-              : 'Shares no models in this Circle.'}{' '}
-            Trust and use are on the Circles screen.
-          </p>
-          <button type="button" className="wb-btn-tiny" onClick={onManage}>
-            Open in Circles
-          </button>
-        </div>
-      ) : (
-        <div className="wb-insp-pane">
-          <div className="wb-circle-insp-ident">
-            <CircleTile circle={circle} size={34} />
-            <span>
-              <span className="who-name">{circle.name}</span>
-              <span className="who-meta">{peopleLine(circle)}</span>
-            </span>
-          </div>
-          <h3 className="wb-circle-insp-head">Channels</h3>
-          <ul className="wb-circle-insp-list">
-            {channels.map((channel) => (
-              <li key={channel.id} className="wb-circle-insp-row">
-                <CirclesMark size={14} />
-                <span className="wb-circle-insp-copy">{channel.name}</span>
-                {admin ? (
-                  <button
-                    type="button"
-                    className="wb-btn-tiny"
-                    aria-label={`Rename ${channel.name}`}
-                    onClick={() => onChannelSheet({ kind: 'rename', channel })}
-                  >
-                    Rename
-                  </button>
-                ) : null}
-                {admin && channel.id !== 'general' ? (
-                  <button
-                    type="button"
-                    className="wb-btn-tiny"
-                    aria-label={`Remove ${channel.name}`}
-                    onClick={() => onChannelSheet({ kind: 'remove', channel })}
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {admin ? (
-            <button type="button" className="wb-btn-tiny" onClick={() => onChannelSheet({ kind: 'add' })}>
-              Add a channel
-            </button>
-          ) : null}
-          <h3 className="wb-circle-insp-head">People</h3>
-          <ul className="wb-circle-insp-list">
-            {peopleInOrder(circle).map((item) => (
-              <li key={item.identity}>
-                <button type="button" className="wb-circle-insp-row" onClick={() => setPerson(item.identity)}>
-                  <Avatar name={item.name} seed={item.identity} />
-                  <span className="wb-circle-insp-copy">
-                    <span>{item.isMe ? 'You' : item.name}</span>
-                    <small>{memberLine(item)}</small>
-                  </span>
-                  <OnlineDot online={item.online} />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="wb-circle-insp-foot">
-            <button type="button" className="wb-btn-tiny" onClick={onManage}>
-              {circle.myRole === 'admin' ? 'Invite and manage…' : 'Manage…'}
-            </button>
-            {onCallCheck ? (
-              <button type="button" className="wb-btn-tiny" onClick={onCallCheck}>
-                Call check…
-              </button>
-            ) : null}
-          </div>
-        </div>
-      )}
-    </aside>
-  );
-};
 
 export interface CirclePlaceProps {
   circle: CircleSnapshot;
+  /** All of Circles' state, for invite names. */
+  circles: CirclesState;
   /** The Circle's channels with unread counts; General alone until they are read. */
   channels: CircleChannel[] | undefined;
   channelId: string;
   onOpenChannel: (channelId: string) => void;
   /** The place switcher, at the top of the rail. */
   switcher: React.ReactNode;
-  /** The Circles screen, where people, invites and sharing are managed for now. */
-  onManage: () => void;
 }
 
 /**
@@ -180,11 +51,11 @@ export interface CirclePlaceProps {
  */
 export const CirclePlace: React.FC<CirclePlaceProps> = ({
   circle,
+  circles,
   channels: read,
   channelId,
   onOpenChannel,
   switcher,
-  onManage,
 }) => {
   const channels = read?.length ? read : [GENERAL];
   const channel = channels.find((item) => item.id === channelId) ?? channels[0];
@@ -195,6 +66,20 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
   const [channelSheet, setChannelSheet] = useState<ChannelSheet | null>(null);
   const callCheck = useCallCheck();
   const [callCheckOpen, setCallCheckOpen] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [confirm, setConfirm] = useState<CircleConfirm | null>(null);
+  const hints = useInviteHints(circle.myRole === 'admin' ? circle.key : undefined, circles.inviteCodeIds);
+  // Choosing a person, from the rail, the tab or a who-line, opens the inspector at them.
+  const showPerson = useCallback((identity: string): void => {
+    setInspector(true);
+    setPerson(identity);
+  }, []);
+  // Inviting from the rail opens the inspector too, where invites are managed (ADR 0043).
+  const invite = (): void => {
+    setInspector(true);
+    setPerson(null);
+    setInviting(true);
+  };
 
   return (
     <>
@@ -206,17 +91,7 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
             <div className="wb-sect">
               <span className="wb-sect-name">Channels</span>
               {circle.myRole === 'admin' ? (
-                <button
-                  type="button"
-                  className="wb-sect-add"
-                  title="Add a channel"
-                  aria-label="Add a channel"
-                  onClick={() => setChannelSheet({ kind: 'add' })}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                </button>
+                <SectionAdd label="Add a channel" onClick={() => setChannelSheet({ kind: 'add' })} />
               ) : null}
             </div>
             {channels.map((item) => {
@@ -239,6 +114,9 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
             })}
             <div className="wb-sect">
               <span className="wb-sect-name">People</span>
+              {circle.myRole === 'admin' ? (
+                <SectionAdd label="Invite someone" disabled={!circle.writable} onClick={invite} />
+              ) : null}
             </div>
             {peopleInOrder(circle).map((member) => (
               <button
@@ -246,10 +124,7 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
                 type="button"
                 className="wb-row has-mark"
                 title={member.isMe ? 'Your details' : `${member.name}’s details`}
-                onClick={() => {
-                  setInspector(true);
-                  setPerson(member.identity);
-                }}
+                onClick={() => showPerson(member.identity)}
               >
                 <Avatar name={member.name} seed={member.identity} />
                 <span className="wb-row-title">
@@ -268,6 +143,7 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
           circle={circle}
           channel={channel}
           chat={chat}
+          onPerson={showPerson}
           headerEnd={
             <button
               type="button"
@@ -286,11 +162,14 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
       {inspector ? (
         <CircleTab
           circle={circle}
+          circles={circles}
           channels={channels}
+          hints={hints}
           person={person}
           onPerson={setPerson}
           onClose={() => setInspector(false)}
-          onManage={onManage}
+          onInvite={() => setInviting(true)}
+          onConfirm={setConfirm}
           onChannelSheet={setChannelSheet}
           onCallCheck={callCheck ? () => setCallCheckOpen(true) : undefined}
         />
@@ -299,6 +178,23 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
       {callCheck ? (
         <CallCheckSheet check={callCheck} circle={circle} open={callCheckOpen} onClose={() => setCallCheckOpen(false)} />
       ) : null}
+
+      {circle.myRole === 'admin' ? (
+        <InviteSheet
+          key={`invite-${circle.key}`}
+          circle={circle}
+          circles={circles}
+          hints={hints}
+          open={inviting}
+          onClose={() => setInviting(false)}
+        />
+      ) : null}
+      <CircleConfirmSheet
+        key={`confirm-${circle.key}`}
+        circle={circle}
+        pending={confirm}
+        onClose={() => setConfirm(null)}
+      />
 
       <ChannelSheets
         circleKey={circle.key}

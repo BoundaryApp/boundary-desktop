@@ -36,8 +36,6 @@ describe('runSovereignSetup helpers', () => {
     });
     expect(args).toEqual([
       'scripts/setup.sh',
-      '--rag',
-      '--automation',
       '--coding',
       '--db',
       '--non-interactive',

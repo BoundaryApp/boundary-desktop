@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CircleOfferView, CirclesState } from '../../../shared/types/circles';
-import { openCircles } from './circlesNavigation';
+import { openInference } from '../inference/inferenceNavigation';
 import { alertsFor, diffOffers, type OfferAlert, type OfferChange } from './offerAlerts';
 import { useCirclesState } from './useCircles';
 
@@ -87,11 +87,11 @@ const AlertToast: React.FC<{ alert: OfferAlert; onDismiss: () => void }> = ({ al
       <button
         type="button"
         onClick={() => {
-          openCircles({ person: alert.provider });
+          openInference({ person: alert.provider });
           onDismiss();
         }}
       >
-        Open Circles
+        Open Inference
       </button>
       <button type="button" aria-label="Dismiss" onClick={onDismiss}>
         ×

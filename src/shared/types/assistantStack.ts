@@ -51,8 +51,15 @@ export interface AssistantStackStatus {
   setupComplete: boolean;
   ready: boolean;
   lastError?: string;
-  /** Browser-openable UI services with resolved localhost URLs. */
+  /**
+   * Browser-openable UI services with resolved localhost URLs. n8n, LightRAG and Neo4j have
+   * cards of their own (`n8n`, `lightrag`) instead.
+   */
   uiServices: AssistantUiServiceCard[];
+  /** Whether the stack starts n8n, and whether Boundary decides that (not under dev:local-stack). */
+  n8n: { enabled: boolean; canToggle: boolean };
+  /** Whether the stack starts LightRAG and Neo4j, and whether Boundary decides that. */
+  lightrag: { enabled: boolean; canToggle: boolean };
 }
 
 export interface EnsureAssistantStackResult {

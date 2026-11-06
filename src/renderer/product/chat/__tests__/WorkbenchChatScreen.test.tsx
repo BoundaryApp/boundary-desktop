@@ -80,6 +80,7 @@ stubElectronAPI({
     countSources: ipcCalls.track((...args: unknown[]) => countProjectSources(...args)),
   },
   agents: {
+    onChanged: () => () => undefined,
     list: ipcCalls.track((...args: unknown[]) => listAgents(...args)),
     create: ipcCalls.track((...args: unknown[]) => createAgent(...args)),
     update: ipcCalls.track((...args: unknown[]) => updateAgent(...args)),

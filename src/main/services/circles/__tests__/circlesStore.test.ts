@@ -41,9 +41,12 @@ import {
   getInviteCodeIds,
   getReadPositions,
   hasCircles,
+  listCircleSecrets,
   listInviteCodeIds,
+  markCircleLeaving,
   pruneInviteCodes,
   readInviteCode,
+  saveCircleSecrets,
   saveInviteCode,
   setReadPosition,
   wipeOutdatedCircles,
@@ -111,6 +114,58 @@ describe('invite codes', () => {
     expect(listInviteCodeIds('aa')).toEqual(['i2']);
     forgetCircle('aa');
     expect(getInviteCodeIds()).toEqual(['i3']);
+  });
+});
+
+describe('a Circle this user left', () => {
+  const sealed = (value: object) => `sealed:${[...JSON.stringify(value)].reverse().join('')}`;
+  /** The fake store keeps `circles.<key>` writes as their own keys; fold them into `circles`. */
+  const fold = () => {
+    const circles = { ...(data.get('circles') as Record<string, string>) };
+    for (const [name, value] of data) {
+      if (!name.startsWith('circles.')) continue;
+      circles[name.slice(8)] = value as string;
+      data.delete(name);
+    }
+    data.set('circles', circles);
+  };
+
+  beforeEach(() => {
+    data.clear();
+    keychain.available = true;
+    data.set('circles', {
+      aa: sealed({ namespace: 'n1', key: 'aa', encryptionKey: 'e1' }),
+      bb: sealed({ namespace: 'n2', key: 'bb', encryptionKey: 'e2' }),
+    });
+  });
+
+  it('keeps its secrets, marked as leaving, and drops what only this device used', async () => {
+    await saveInviteCode('aa', 'i1', 'c', Date.now() + 60_000);
+    setReadPosition('aa', 'general', { author: 'a1', id: 'm1', at: 1 });
+    markCircleLeaving('aa');
+    const secrets = await listCircleSecrets();
+    expect(secrets).toEqual([
+      { namespace: 'n1', key: 'aa', encryptionKey: 'e1', leaving: true },
+      { namespace: 'n2', key: 'bb', encryptionKey: 'e2' },
+    ]);
+    expect(JSON.stringify(data.get('circles'))).not.toContain('leaving');
+    expect(listInviteCodeIds('aa')).toEqual([]);
+    expect(getReadPositions('aa')).toEqual({});
+  });
+
+  it('forgets the mark with the Circle, and when it is joined again', async () => {
+    markCircleLeaving('aa');
+    markCircleLeaving('bb');
+    forgetCircle('aa');
+    await saveCircleSecrets({ namespace: 'n3', key: 'bb', encryptionKey: 'e2', leaving: true });
+    fold();
+    expect(await listCircleSecrets()).toEqual([{ namespace: 'n3', key: 'bb', encryptionKey: 'e2' }]);
+    expect(data.get('leavingCircles')).toEqual([]);
+  });
+
+  it('marks nothing for a Circle it doesn’t have', () => {
+    markCircleLeaving('cc');
+    expect(data.get('leavingCircles')).toBeUndefined();
   });
 });
 

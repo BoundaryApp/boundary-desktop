@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProductReadyShell } from '../ProductReadyShell';
 import { openSettings } from '../settingsNavigation';
+import { openInference } from '../inference/inferenceNavigation';
 
 vi.mock('../chat/WorkbenchChatScreen', () => ({
   WorkbenchChatScreen: () => <div>chat-screen</div>,
@@ -29,6 +30,12 @@ vi.mock('../ProductSettingsScreen', () => ({
         back-to-chat
       </button>
     </div>
+  ),
+}));
+
+vi.mock('../inference/InferenceScreen', () => ({
+  InferenceScreen: ({ focusPerson }: { focusPerson?: { person?: string } }) => (
+    <div>inference-screen:{focusPerson?.person ?? 'none'}</div>
   ),
 }));
 
@@ -82,7 +89,6 @@ describe('ProductReadyShell navigation', () => {
     expect(chat.className).toContain('is-on');
     expect(chat.className).toContain('wb-icon-btn');
     expect(document.querySelector('.workbench')).toBeTruthy();
-    expect(document.querySelector('.wb-mark')).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText('Services'));
     expect(onNavigate).toHaveBeenCalledWith('services');
@@ -110,9 +116,26 @@ describe('ProductReadyShell navigation', () => {
     const onNavigate = vi.fn();
     render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
     fireEvent.keyDown(window, { key: '2', ctrlKey: true });
+    expect(onNavigate).toHaveBeenLastCalledWith('inference');
+    fireEvent.keyDown(window, { key: '3', ctrlKey: true });
     expect(onNavigate).toHaveBeenLastCalledWith('services');
+    fireEvent.keyDown(window, { key: '4', ctrlKey: true });
+    expect(onNavigate).toHaveBeenLastCalledWith('resources');
+    // There is no Circles destination (ADR 0043 §1), so ⌘5 goes nowhere.
+    onNavigate.mockClear();
+    fireEvent.keyDown(window, { key: '5', ctrlKey: true });
+    expect(onNavigate).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     expect(onNavigate).toHaveBeenLastCalledWith('settings');
+  });
+
+  it('opens Inference at a person from a link about their model', () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    act(() => openInference({ person: 'b'.repeat(64) }));
+    expect(onNavigate).toHaveBeenLastCalledWith('inference');
+    rerender(<ProductReadyShell view="inference" onNavigate={onNavigate} />);
+    expect(screen.getByText(`inference-screen:${'b'.repeat(64)}`)).toBeTruthy();
   });
 
   it('opens Chat first when a chat command arrives on another destination', () => {

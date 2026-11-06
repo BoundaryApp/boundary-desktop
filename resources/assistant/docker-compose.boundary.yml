@@ -21,8 +21,8 @@
 #   provider without a key (stack v0.3.0+).
 # - Healthcheck cadence. `compose up -d` waits on `service_healthy` along the dependency chain,
 #   and a service reports healthy only at a probe, so upstream's 15s and 30s intervals add up
-#   to about 135s before `up` returns however fast the services start (searxng > gptr-mcp >
-#   opencode > opencode-mcp > hermes > hermes-webui). `start_interval` would limit the faster
+#   to about 135s before `up` returns however fast the services start (searxng > search-gate >
+#   gptr-mcp > opencode > opencode-mcp > hermes > hermes-webui). `start_interval` would limit the faster
 #   probes to start-up, but Podman's compat API drops it, so `interval` is the setting that
 #   works on both engines. `retries` is raised with it, so a service gets the same seconds
 #   to recover. Neo4j stays slower because its probe starts a JVM (cypher-shell).
@@ -131,6 +131,11 @@ services:
 
   # Probe cadence only; see the header.
   searxng:
+    healthcheck:
+      interval: 5s
+      retries: 18
+
+  search-gate:
     healthcheck:
       interval: 5s
       retries: 18

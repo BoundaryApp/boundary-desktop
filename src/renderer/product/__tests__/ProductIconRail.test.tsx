@@ -36,7 +36,7 @@ describe('ProductIconRail stack badge', () => {
   });
 });
 
-describe('ProductIconRail Circles dot', () => {
+describe('ProductIconRail sharing dot', () => {
   const KEY = 'c'.repeat(64);
   const sharingState = {
     status: 'running',
@@ -65,7 +65,11 @@ describe('ProductIconRail Circles dot', () => {
     render(<ProductIconRail active="chat" />);
     await act(async () => undefined);
     await act(async () => undefined);
-    expect(screen.queryByRole('img', { name: 'Members can’t use your models' }) !== null).toBe(shown);
+    const dot = screen.queryByRole('img', { name: 'Members can’t use your models' });
+    expect(dot !== null).toBe(shown);
+    // The dot is on Inference, where the fix is (ADR 0043 §9), and there is no Circles icon.
+    if (dot) expect(dot.closest('button')?.getAttribute('aria-label')).toMatch(/^Inference/);
+    expect(screen.queryByRole('button', { name: /^Circles/ })).toBeNull();
   });
 });
 

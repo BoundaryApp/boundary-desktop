@@ -73,12 +73,6 @@ export function CircleSwitch({
   );
 }
 
-export type CirclePillTone = 'ok' | 'warn' | 'brand' | 'quiet' | 'tag';
-
-export function CirclePill({ tone = 'quiet', children }: { tone?: CirclePillTone; children: React.ReactNode }) {
-  return <span className={`wb-circle-pill${tone === 'quiet' ? '' : ` is-${tone}`}`}>{children}</span>;
-}
-
 // `text-ui` here would read as a colour to tailwind-merge and drop the variant's text colour.
 const HEIGHTS = {
   page: 'h-[34px] rounded-md px-3.5 text-[length:var(--size-ui)]',
@@ -95,7 +89,7 @@ export function CircleButton({
   return <Button {...props} size="default" className={cn(HEIGHTS[size], 'font-normal', props.variant === 'default' && 'font-medium', className)} />;
 }
 
-/** Text that acts as a button, such as **Profile** and **Manage**. */
+/** Text that acts as a button, such as an invite's **Show** and **Revoke**. */
 export function TextButton({ className, ...props }: React.ComponentProps<'button'>) {
   return <button type="button" {...props} className={cn('cursor-pointer underline underline-offset-2 disabled:opacity-50', className)} />;
 }

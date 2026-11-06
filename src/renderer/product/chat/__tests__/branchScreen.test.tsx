@@ -31,6 +31,7 @@ stubElectronAPI({
     inspectSources: vi.fn().mockResolvedValue({ success: false }),
   },
   agents: {
+    onChanged: () => () => undefined,
     list: vi.fn().mockResolvedValue({
       success: true,
       agents: [

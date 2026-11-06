@@ -19,6 +19,7 @@ import { registerOnboardingHandlers } from './services/onboarding/ipcHandlers';
 import { registerCapabilityHandlers } from './services/capability/ipcHandlers';
 import { registerSetupHandlers } from './services/setup/ipcHandlers';
 import { registerAssistantStackHandlers } from './services/assistant/ipcHandlers';
+import { registerAddonHandlers } from './services/addons/ipcHandlers';
 import { registerResourceHandlers } from './services/resources/ipcHandlers';
 import { registerHermesChatHandlers } from './services/assistant/hermes/hermesChatIpc';
 import { registerKanbanHandlers } from './services/assistant/hermes/hermesKanbanIpc';
@@ -321,6 +322,7 @@ registerCapabilityHandlers();
 registerSetupHandlers();
 registerAssistantStackHandlers();
 registerResourceHandlers();
+registerAddonHandlers();
 registerHermesChatHandlers();
 registerKanbanHandlers();
 registerAgentHandlers();
@@ -707,9 +709,9 @@ const createMenu = () => {
       label: 'Go',
       submenu: [
         commandItem('go-chat'),
+        commandItem('go-inference'),
         commandItem('go-services'),
         commandItem('go-resources'),
-        commandItem('go-circles'),
         { type: 'separator' },
         commandItem('prev-thread'),
         commandItem('next-thread'),

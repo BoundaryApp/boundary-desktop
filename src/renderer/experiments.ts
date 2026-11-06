@@ -21,6 +21,11 @@ export interface RingFigureProps {
   angle: number | null;
 }
 
+export interface BuiltinAgentMarkProps {
+  /** The mark's side in CSS pixels: 14 in section heads, 18 in rows, 24 in headers. */
+  size: 14 | 18 | 24;
+}
+
 /** A screen of its own, reached from a button in the icon rail above Settings. */
 export interface ExperimentDestination {
   /** Unique across experiments. The shell's view for it is `experiment:<id>`. */
@@ -47,6 +52,11 @@ export interface RendererExperiment {
   setupSteps?: SetupStepDefinition[];
   /** Drawn in the centre of the start-up ring in place of the face. The first one wins. */
   RingFigure?: ComponentType<RingFigureProps>;
+  /**
+   * Drawn in place of the sparkle wherever the built-in agent's chats are marked, filling the
+   * mark's square at `size` CSS pixels. The first one wins.
+   */
+  BuiltinAgentMark?: ComponentType<BuiltinAgentMarkProps>;
   /** A section in Settings → General, after Appearance. */
   SettingsSection?: ComponentType;
   /** Screens with a button in the icon rail. */

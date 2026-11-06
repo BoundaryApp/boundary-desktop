@@ -16,7 +16,7 @@ import { useAction } from './useCircles';
 
 const api = () => window.electronAPI.circles;
 
-function formatExpiry(expires: number, now = Date.now()): string {
+export function formatExpiry(expires: number, now = Date.now()): string {
   const days = Math.round((expires - now) / (24 * 60 * 60_000));
   if (days >= 2) return `Expires in ${days} days`;
   const hours = Math.max(1, Math.round((expires - now) / (60 * 60_000)));

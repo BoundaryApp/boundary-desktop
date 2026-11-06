@@ -12,8 +12,43 @@ export class AssistantRootError extends Error {
   }
 }
 
+/** A cached "the compose file is there" is checked again in the background after this long. */
+const RECHECK_AFTER_MS = 5_000;
+
+/**
+ * Compose files found, by path, with when each was last confirmed. Only finds are kept: a
+ * missing file is checked again on every call, so a stack installed a moment ago resolves at
+ * once. A kept find is rechecked without blocking, because this runs on the main thread many
+ * times a minute and a local stack sits under ~/Documents, where a blocking check can wait on
+ * a macOS permission prompt.
+ */
+const confirmedComposeFiles = new Map<string, number>();
+const recheckInFlight = new Set<string>();
+
+function recheckInBackground(composeFile: string): void {
+  if (recheckInFlight.has(composeFile)) return;
+  recheckInFlight.add(composeFile);
+  fs.promises.access(composeFile).then(
+    () => confirmedComposeFiles.set(composeFile, Date.now()),
+    () => confirmedComposeFiles.delete(composeFile)
+  ).finally(() => recheckInFlight.delete(composeFile));
+}
+
 function looksLikeAssistantRoot(candidate: string): boolean {
-  return fs.existsSync(path.join(candidate, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE));
+  const composeFile = path.join(candidate, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE);
+  const confirmedAt = confirmedComposeFiles.get(composeFile);
+  if (confirmedAt !== undefined) {
+    if (Date.now() - confirmedAt >= RECHECK_AFTER_MS) recheckInBackground(composeFile);
+    return true;
+  }
+  const found = fs.existsSync(composeFile);
+  if (found) confirmedComposeFiles.set(composeFile, Date.now());
+  return found;
+}
+
+/** Drops cached compose-file finds, so the next resolve checks the disk. */
+export function forgetAssistantRootChecks(): void {
+  confirmedComposeFiles.clear();
 }
 
 /**

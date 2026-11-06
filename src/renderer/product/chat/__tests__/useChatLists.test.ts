@@ -9,6 +9,7 @@ const listChannels = vi.fn();
 const listMentions = vi.fn();
 const markMentionsSeen = vi.fn();
 const sessionsChanged = new Set<() => void>();
+const agentsChanged = new Set<() => void>();
 
 stubElectronAPI({
   hermesChat: {
@@ -20,7 +21,13 @@ stubElectronAPI({
       return () => sessionsChanged.delete(cb);
     },
   },
-  agents: { list: (...args: unknown[]) => listAgents(...args) },
+  agents: {
+    list: (...args: unknown[]) => listAgents(...args),
+    onChanged: (cb: () => void) => {
+      agentsChanged.add(cb);
+      return () => agentsChanged.delete(cb);
+    },
+  },
   channels: { list: (...args: unknown[]) => listChannels(...args) },
 });
 
@@ -52,6 +59,7 @@ describe('useChatLists', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sessionsChanged.clear();
+    agentsChanged.clear();
     listThreads.mockReset().mockResolvedValue({ success: true, threads: [chat('t1')] });
     listAgents.mockReset().mockResolvedValue({ success: true, agents: [], standingDmByAgent: {} });
     listChannels
@@ -118,6 +126,33 @@ describe('useChatLists', () => {
     });
     await flush(500);
     expect(calls()).toEqual([2, 2, 2, 2]);
+  });
+
+  it('lists agents again, and only agents, when main says an agent was renamed', async () => {
+    const { result } = renderLists();
+    await flush();
+    const builtin = {
+      slug: 'assistant',
+      displayName: 'Hermes',
+      handle: 'Hermes',
+      role: '',
+      builtIn: true,
+      createdAt: '',
+    };
+    listAgents.mockResolvedValue({
+      success: true,
+      agents: [{ ...builtin, displayName: 'Robin', handle: 'Robin' }],
+      standingDmByAgent: {},
+    });
+
+    act(() => {
+      for (const cb of agentsChanged) cb();
+    });
+    await flush();
+
+    expect(listAgents).toHaveBeenCalledTimes(2);
+    expect(listThreads).toHaveBeenCalledTimes(1);
+    expect(result.current.lists.agents.map((a) => a.displayName)).toEqual(['Robin']);
   });
 
   it('keeps a slow fallback poll of the chat list only', async () => {

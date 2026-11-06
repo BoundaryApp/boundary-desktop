@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentProfile, HermesConversationKind } from '../../../shared/types/hermesChat';
+import { rendererExperiments } from '../../experiments';
 import { agentGlyph, agentGlyphColor } from './chatTelemetryFormat';
 
 /** 14 in section heads, 18 in rows, 24 in headers (ADR 0023). */
@@ -37,9 +38,10 @@ export const ConversationMark: React.FC<ConversationMarkProps> = ({
 }) => {
   const cls = `wb-kind-mark is-${kind} is-${size}${className ? ` ${className}` : ''}`;
   if (kind === 'hermes') {
+    const Figure = rendererExperiments.find((e) => e.BuiltinAgentMark)?.BuiltinAgentMark;
     return (
-      <span className={cls} aria-hidden="true">
-        <Sparkle />
+      <span className={Figure ? `${cls} has-figure` : cls} aria-hidden="true">
+        {Figure ? <Figure size={size} /> : <Sparkle />}
       </span>
     );
   }

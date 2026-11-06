@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import type {
@@ -92,6 +92,12 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
+/** The inspector's stack rows, first to last. */
+const stackRows = () =>
+  within(screen.getByRole('list', { name: /in order$/ }))
+    .getAllByRole('listitem')
+    .map((row) => row.textContent);
+
 describe('ProjectSourcesRail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,7 +139,7 @@ describe('ProjectSourcesRail', () => {
     expect(screen.queryByText('Opens under the hub')).toBeNull();
   });
 
-  it('shows Inference options and patches a Local pin', async () => {
+  it('lists the Chat stack it inherits, and saves its own stack from Edit stack', async () => {
     const onProjectsUpdated = vi.fn();
     render(
       <ProjectSourcesRail
@@ -152,14 +158,17 @@ describe('ProjectSourcesRail', () => {
         onProjectsUpdated={onProjectsUpdated}
       />
     );
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: /Inherit app default/ })).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole('option', { name: /Local · qwen3:14b.*pin this project/i }));
+    await waitFor(() => expect(stackRows()).toEqual(['1Local · qwen3:14bOn this Mac']));
+    expect(screen.getByText('Chats here use the Chat stack, in order')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Back to Chat stack' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this project' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Add model' }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Add' }));
     await waitFor(() => {
       expect(patchProject).toHaveBeenCalledWith({
         projectId: 'p1',
-        inference: { mode: 'local', modelId: 'qwen3:14b' },
+        inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] },
       });
     });
     expect(onProjectsUpdated).toHaveBeenCalled();
@@ -186,7 +195,7 @@ describe('ProjectSourcesRail', () => {
 
     it('turns on from a switch that keeps the pin', async () => {
       rail({ mode: 'local', modelId: 'qwen3:14b' });
-      await waitFor(() => expect(screen.getByRole('option', { name: /Local · qwen3:14b.*pinned/ })).toBeTruthy());
+      await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
       const toggle = screen.getByRole('switch', { name: /^Private/ });
       expect(toggle.getAttribute('aria-checked')).toBe('false');
       fireEvent.click(toggle);
@@ -198,11 +207,32 @@ describe('ProjectSourcesRail', () => {
       });
     });
 
-    it('disables the cloud pin and says when the project is pinned to it', async () => {
-      rail({ mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', privacyLocalOnly: true });
-      const cloud = (await screen.findByRole('option', { name: /OpenRouter.*not private/ })) as HTMLButtonElement;
-      expect(cloud.disabled).toBe(true);
-      expect(screen.getByText(/This pin isn’t private, so chats here can’t send/)).toBeTruthy();
+    it('says when the stack starts on the cloud, and lets only Local come first', async () => {
+      rail({
+        mode: 'openrouter',
+        modelId: 'anthropic/claude-sonnet-4',
+        privacyLocalOnly: true,
+        fallbacks: [{ slot: 'local' }],
+      });
+      expect(await screen.findByText(/OpenRouter · claude-sonnet-4 isn’t private, so chats here can’t send/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+      const sheet = await screen.findByRole('dialog', { name: 'Stack for this project' });
+      expect(within(sheet).getByText('This project is private, so the first model must be Local.')).toBeTruthy();
+      expect(within(sheet).getByText('No private model. Private projects can’t send.')).toBeTruthy();
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Move Local · qwen3:14b up' }));
+      // The line moves with the order, in the same render (settings spec decision 3).
+      expect(within(sheet).getByText('Private projects stop here')).toBeTruthy();
+      await waitFor(() => {
+        expect(patchProject).toHaveBeenCalledWith({
+          projectId: 'p1',
+          inference: {
+            mode: 'local',
+            modelId: 'qwen3:14b',
+            privacyLocalOnly: true,
+            fallbacks: [{ slot: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
+          },
+        });
+      });
     });
 
     it('shows a cloud fallback as not used', async () => {
@@ -217,50 +247,43 @@ describe('ProjectSourcesRail', () => {
     });
   });
 
-  it("offers a pinned project its own fallback, and keeps it when the pin moves (ADR 0033 §1)", async () => {
-    const pinned = { ...project, inference: { mode: 'local' as const, modelId: 'qwen3:14b' } };
-    const props = {
-      inspect: inspect({}),
-      onChangeFolder: noop,
-      onChooseFolder: noop,
-      onRevealHub: noop,
-      onRevealSource: noop,
-      onRefreshIndex: noop,
-      onAddFolder: noop,
-      onRemoveSource: noop,
-      connecting: false,
-      rpcAvailable: true,
-      role: null,
-    };
-    const { rerender } = render(<ProjectSourcesRail project={{ ...project }} {...props} />);
-    await screen.findByRole('option', { name: /Inherit app default/ });
-    // Inheriting takes the app default's chain, so there is nothing to set here.
-    expect(screen.queryByRole('list', { name: 'Add a fallback' })).toBeNull();
-
-    rerender(<ProjectSourcesRail project={pinned} {...props} />);
-    expect(await screen.findByText('Nothing else. Chats in this project stop and ask.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Add OpenRouter · claude-sonnet-4' }));
-    await waitFor(() => {
-      expect(patchProject).toHaveBeenCalledWith({
-        projectId: 'p1',
-        inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] },
-      });
-    });
-
-    patchProject.mockClear();
-    rerender(
+  it("reorders a pinned project's own stack, and goes back to the Chat stack (ADR 0033 §1)", async () => {
+    render(
       <ProjectSourcesRail
-        project={{ ...pinned, inference: { ...pinned.inference, fallbacks: [{ slot: 'openrouter' }] } }}
-        {...props}
+        project={{ ...project, inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] } }}
+        inspect={inspect({})}
+        onChangeFolder={noop}
+        onChooseFolder={noop}
+        onRevealHub={noop}
+        onRevealSource={noop}
+        onRefreshIndex={noop}
+        onAddFolder={noop}
+        onRemoveSource={noop}
+        connecting={false}
+        rpcAvailable
+        role={null}
       />
     );
-    expect(screen.getByRole('list', { name: 'Fallbacks' }).textContent).toContain('OpenRouter · claude-sonnet-4');
-    fireEvent.click(screen.getByRole('option', { name: /OpenRouter · claude-sonnet-4.*pin this project/i }));
+    await waitFor(() =>
+      expect(stackRows()).toEqual(['1Local · qwen3:14bOn this Mac', '2OpenRouter · claude-sonnet-4Cloud'])
+    );
+    expect(screen.getByText('This project’s stack, in order')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this project' });
+    // Outside a private project the privacy line means nothing here, so it isn't drawn.
+    expect(within(sheet).queryByText('Private projects stop here')).toBeNull();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Move OpenRouter · claude-sonnet-4 up' }));
     await waitFor(() => {
       expect(patchProject).toHaveBeenCalledWith({
         projectId: 'p1',
-        inference: { mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', fallbacks: [{ slot: 'openrouter' }] },
+        inference: { mode: 'openrouter', modelId: 'anthropic/claude-sonnet-4', fallbacks: [{ slot: 'local', modelId: 'qwen3:14b' }] },
       });
+    });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    patchProject.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Chat stack' }));
+    await waitFor(() => {
+      expect(patchProject).toHaveBeenCalledWith({ projectId: 'p1', inference: { mode: 'inherit' } });
     });
   });
 
@@ -281,13 +304,12 @@ describe('ProjectSourcesRail', () => {
         role={null}
       />
     );
-    const inherit = () => screen.getByRole('option', { name: /Inherit app default/ });
-    await waitFor(() => expect(inherit().textContent).toMatch(/Local · qwen3:14b/));
+    await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
     // Settings makes OpenRouter the app default and passes on the status main returned.
     await act(async () =>
       takeInferenceStatus({ status: { ...bothConfigured, appDefault: 'openrouter' } })
     );
-    expect(inherit().textContent).toMatch(/OpenRouter · claude-sonnet-4/);
+    expect(stackRows()[0]).toMatch(/OpenRouter · claude-sonnet-4/);
     expect(getStatus).toHaveBeenCalledTimes(1);
   });
 

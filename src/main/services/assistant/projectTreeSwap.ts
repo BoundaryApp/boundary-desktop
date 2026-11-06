@@ -18,6 +18,10 @@ const PRESERVED_PROJECT_PATHS: readonly string[] = [
   'compose/hermes/browser.env',
   'compose/hermes/worker/ssh',
   'compose/caldav-mcp/accounts',
+  // Twenty workspace files (stack v0.3.10); each holds that workspace's API keys.
+  'compose/twenty/workspaces',
+  // llm-proxy's per-model request defaults (stack v0.3.10).
+  'model-defaults/local.json',
   'opencode/opencode.local.json',
   'searxng/settings.local.yml',
   'models.local.yaml',

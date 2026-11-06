@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { BoundaryBrowserState, HostBridgeBrowserSettings } from '../../shared/types/hostBridge';
 import { InfoTip } from '../components/ui/info-tip';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { WebSearchModeSection } from './WebSearchModeSection';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
 
@@ -226,6 +227,7 @@ export const AgentBrowserPanel: React.FC = () => {
         </button>
       </div>
 
+      <WebSearchModeSection />
     </section>
   );
 };

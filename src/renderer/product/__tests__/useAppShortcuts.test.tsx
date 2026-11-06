@@ -15,7 +15,8 @@ const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
 describe('matchShortcut', () => {
   it('maps ⌘ keys on macOS and Ctrl keys elsewhere', () => {
     expect(matchShortcut(key({ key: 'n', metaKey: true }), true)).toBe('new-chat');
-    expect(matchShortcut(key({ key: '2', metaKey: true }), true)).toBe('go-services');
+    expect(matchShortcut(key({ key: '2', metaKey: true }), true)).toBe('go-inference');
+    expect(matchShortcut(key({ key: '3', metaKey: true }), true)).toBe('go-services');
     expect(matchShortcut(key({ key: ',', metaKey: true }), true)).toBe('go-settings');
     expect(matchShortcut(key({ key: ']', ctrlKey: true }), false)).toBe('next-thread');
     expect(matchShortcut(key({ key: 'n', ctrlKey: true }), true)).toBeNull();
@@ -46,6 +47,6 @@ describe('app command hooks', () => {
     render(<Probe />);
     fireEvent.keyDown(window, { key: '3', ctrlKey: true });
     dispatchAppCommand('prev-thread');
-    expect(received).toEqual(['go-resources', 'prev-thread']);
+    expect(received).toEqual(['go-services', 'prev-thread']);
   });
 });

@@ -44,6 +44,7 @@ vi.mock('../hermesAgentStore', () => ({
   ]),
   upsertStoredAgent: (...args: unknown[]) => upsertStoredAgent(...args),
   getStoredAgent: (...args: unknown[]) => getStoredAgent(...args),
+  getOrchestratorRecord: vi.fn().mockReturnValue(null),
 }));
 
 const setUpNewHermesProfile = vi.fn().mockResolvedValue(undefined);
@@ -185,6 +186,38 @@ describe('createHermesAgent', () => {
     const result = await createHermesAgent(payload);
     expect(result.success).toBe(false);
     expect(result.error).toContain('Hermes');
+  });
+
+  it('gives two agents created at once different slugs', async () => {
+    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    const { createHermesAgent } = await import('../hermesAgents');
+    const [first, second] = await Promise.all([
+      createHermesAgent({ displayName: 'Researcher', role: 'Finds sources.' }),
+      createHermesAgent({ displayName: 'Researcher', role: 'Finds more sources.' }),
+    ]);
+    expect(first.success && second.success).toBe(true);
+    expect(first.agent?.slug).not.toBe(second.agent?.slug);
+  });
+
+  it('lists agents from the registry file alongside stored ones', async () => {
+    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');
+    fs.mkdirSync(path.dirname(registry), { recursive: true });
+    fs.writeFileSync(registry, JSON.stringify({ agents: [{ name: 'scout', display_name: 'Scout', role: 'Looks ahead.' }] }));
+    const { listHermesAgents } = await import('../hermesAgents');
+    const result = await listHermesAgents();
+    expect(result.success).toBe(true);
+    expect(result.agents.map((agent) => agent.slug)).toEqual(['assistant', 'scout']);
+  });
+
+  it('lists only stored agents when the registry file is missing or unreadable', async () => {
+    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    const { listHermesAgents } = await import('../hermesAgents');
+    expect((await listHermesAgents()).agents.map((agent) => agent.slug)).toEqual(['assistant']);
+    const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');
+    fs.mkdirSync(path.dirname(registry), { recursive: true });
+    fs.writeFileSync(registry, '{ not json');
+    expect((await listHermesAgents()).agents.map((agent) => agent.slug)).toEqual(['assistant']);
   });
 
   it('sets up the new profile with what the stack bootstrap never wrote', async () => {

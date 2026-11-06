@@ -60,6 +60,11 @@ export interface CirclesSnapshot {
   /** This user's identity key; empty until the network process has started. */
   identity: string;
   circles: CircleSnapshot[];
+  /**
+   * Circles this user left that no admin has confirmed yet. This device stays connected to them,
+   * across restarts, until an admin is online to receive the leave.
+   */
+  leaving?: { key: string; name: string }[];
 }
 
 /**

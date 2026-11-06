@@ -1,21 +1,17 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
-import type { CircleMemberView, CircleProviderSettings, CircleSnapshot, CirclesState } from '../../../shared/types/circles';
+import type { CircleProviderSettings, CirclesState } from '../../../shared/types/circles';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
-import { Button } from '../../components/ui/button';
-import { Avatar, CircleButton, CircleSwitch } from './CircleControls';
+import { CircleButton, CircleSwitch } from './CircleControls';
 import { beginAppSwitch, endAppSwitch, useAppSwitch } from '../../onboarding/appSwitch';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { AppSwitchProgress } from '../AppSwitchProgress';
-import { describeChainEntry, entryKey, type ChainContext } from '../chat/ChainEditor';
-import { MemberLimit, YourUsage } from './CircleUsage';
+import { describeChainEntry, entryKey, type ChainContext } from '../inference/entries';
 import { useAction } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
- * One person, whichever Circle they're reached through: what the user accepts from them, their
- * models, and, for an admin on a Circle's page, their place in that Circle. Trust belongs to the
- * person (ADR 0034 §3), so the Circle page and setup show the same content.
+ * One person's models and what the user accepts from them, whichever Circle offers them. Trust
+ * belongs to the person (ADR 0034 §3), so Inference and setup show the same content.
  */
 
 const api = () => window.electronAPI.circles;
@@ -39,7 +35,7 @@ export function personEntries(circles: CirclesState, identity: string): Inferenc
 }
 
 /** Whether this model is already in the chain, ignoring which Circle it came through. */
-export function samePeerModel(entry: InferenceChainEntry, other: InferenceChainEntry | null | undefined): boolean {
+function samePeerModel(entry: InferenceChainEntry, other: InferenceChainEntry | null | undefined): boolean {
   return other?.slot === 'peer' && other.peer?.providerId === entry.peer?.providerId && other.modelId === entry.modelId;
 }
 
@@ -239,85 +235,5 @@ export function PersonModels({
       {appSwitch && entries.some((entry) => samePeerModel(entry, appSwitch.target)) ? <AppSwitchProgress appSwitch={appSwitch} /> : null}
       {note ? <p className={`text-xs ${note.bad ? 'text-danger' : 'text-fg-muted'}`}>{note.text}</p> : null}
     </section>
-  );
-}
-
-function CircleActions({
-  circle,
-  member,
-  onRemove,
-}: {
-  circle: CircleSnapshot;
-  member: CircleMemberView;
-  onRemove: () => void;
-}) {
-  const action = useAction();
-  return (
-    <section aria-label={`In ${circle.name}`} className="mt-auto flex flex-col gap-1.5 border-t border-line pt-3">
-      <h3 className="text-2xs font-medium text-fg-faint">In {circle.name}</h3>
-      <span className="flex gap-1.5">
-        <CircleButton
-          size="panel"
-          variant="outline"
-          className="flex-1"
-          disabled={action.busy}
-          onClick={() =>
-            void action.run(() =>
-              api().setRole({ key: circle.key, identity: member.identity, role: member.role === 'admin' ? 'member' : 'admin' })
-            )
-          }
-        >
-          {member.role === 'admin' ? 'Make member' : 'Make admin'}
-        </CircleButton>
-        <CircleButton size="panel" variant="destructive" className="flex-1" onClick={onRemove}>
-          Remove
-        </CircleButton>
-      </span>
-      {action.error ? <p className="text-xs text-danger">{action.error}</p> : null}
-    </section>
-  );
-}
-
-export function PersonPanel({
-  circles,
-  circle,
-  member,
-  onClose,
-  onRemove,
-}: {
-  circles: CirclesState;
-  /** The Circle page it opened from, for an admin's actions. Null from Sharing. */
-  circle: CircleSnapshot | null;
-  member: CircleMemberView;
-  onClose: () => void;
-  onRemove: (member: CircleMemberView) => void;
-}) {
-  const shared = circles.snapshot.circles.filter((item) => item.members.some((other) => other.identity === member.identity));
-  const hasModels = personEntries(circles, member.identity).length > 0;
-  return (
-    <aside
-      aria-label={member.name}
-      className="wb-circles-panel flex w-[320px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-line bg-surface-1"
-    >
-      <div className="flex items-center gap-2.5">
-        <Avatar name={member.name} seed={member.identity} large />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <h2 className="text-title font-medium break-words text-fg">{member.name}</h2>
-          <span className="text-xs text-fg-faint">
-            {member.online ? 'Online' : 'Offline'} · In {shared.map((item) => item.name).join(', ')}
-          </span>
-        </span>
-        <Button size="sm" variant="ghost" aria-label="Close" onClick={onClose}>
-          <X className="size-4" aria-hidden />
-        </Button>
-      </div>
-      {hasModels ? <ProviderClaims identity={member.identity} name={member.name} circles={circles} /> : null}
-      <PersonModels identity={member.identity} name={member.name} circles={circles} />
-      <YourUsage identity={member.identity} circles={circles} />
-      {circles.sharing.models.length > 0 && !member.isMe ? (
-        <MemberLimit identity={member.identity} name={member.name} circles={circles} />
-      ) : null}
-      {circle?.myRole === 'admin' ? <CircleActions circle={circle} member={member} onRemove={() => onRemove(member)} /> : null}
-    </aside>
   );
 }

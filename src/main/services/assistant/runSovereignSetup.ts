@@ -28,8 +28,6 @@ export function buildSovereignSetupArgs(options: {
 }): string[] {
   return [
     'scripts/setup.sh',
-    '--rag',
-    '--automation',
     '--coding',
     // Shared Postgres + SQL MCP: adds db to COMPOSE_PROFILES and sets SQL_MCP_ENABLED=1.
     '--db',

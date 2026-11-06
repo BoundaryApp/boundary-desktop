@@ -13,6 +13,7 @@ import {
   parsePodmanMachineMemoryBytes,
   parseWindowsProcessSample,
   sampleHostResources,
+  stackContainersMemoryBytes,
   walkDirectoryBytes,
   type HostResourceProbes,
 } from '../HostResourceAttribution';
@@ -357,5 +358,35 @@ describe('parsePodmanMachineMemoryBytes', () => {
       parsePodmanMachineMemoryBytes(JSON.stringify({ Resources: { Memory: 12288 } }))
     ).toBe(12288 * 1024 * 1024);
     expect(parsePodmanMachineMemoryBytes('not-json')).toBeNull();
+  });
+});
+
+describe('stackContainersMemoryBytes', () => {
+  const MiB = 1024 * 1024;
+  const container = (id: string, project: string, service: string) => ({
+    Id: id,
+    Names: [`/${project}-${service}-1`],
+    Labels: { 'com.docker.compose.project': project, 'com.docker.compose.service': service },
+  });
+  const usage: Record<string, number> = { a: 300 * MiB, b: 1000 * MiB, c: 200 * MiB, d: 5000 * MiB };
+  const docker = {
+    listContainers: async () => [
+      container('a', BOUNDARY_ASSISTANT_PROJECT_NAME, 'hermes'),
+      container('b', BOUNDARY_ASSISTANT_PROJECT_NAME, 'twenty-server'),
+      container('c', BOUNDARY_ASSISTANT_PROJECT_NAME, 'twenty-db'),
+      container('d', 'someone-else', 'postgres'),
+    ],
+    getContainer: (id: string) => ({ stats: async () => ({ memory_stats: { usage: usage[id] } }) }),
+  };
+  const options = { localMode: false, assistantRoot: null };
+
+  it("sums the stack's running containers", async () => {
+    expect(await stackContainersMemoryBytes(docker, options)).toBe(1500 * MiB);
+  });
+
+  it('leaves out the services it is told to', async () => {
+    expect(
+      await stackContainersMemoryBytes(docker, { ...options, excludeServices: ['twenty-server', 'twenty-db'] })
+    ).toBe(300 * MiB);
   });
 });

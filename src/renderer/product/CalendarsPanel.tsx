@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, Lock, Plus } from 'lucide-react';
 import type { AgentProfile } from '../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
+import { builtinAgent } from '../../shared/hermesAgentIdentity';
 import { useStoredAgents, useToast } from './settingsPanelHooks';
 import type {
   CalendarAccess,
@@ -164,7 +165,7 @@ export const CalendarsPanel: React.FC<{
 
   const knownAgents = agents.length
     ? agents
-    : [{ slug: BUILTIN_ASSISTANT_SLUG, displayName: 'Hermes', handle: 'Hermes', role: '', builtIn: true, createdAt: '' }];
+    : [builtinAgent(agents)];
 
   const finished = (account: CalendarAccountView | undefined, message: string, note?: string) => {
     setSheet(null);

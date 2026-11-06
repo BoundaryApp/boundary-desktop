@@ -28,13 +28,14 @@ import type { StartTiming } from '../../../shared/startupTiming';
 import { formatBytes } from '../../../shared/utils/format';
 import {
   SLOW_STAGE_MS,
-  STARTUP_TOOLS,
   slowStageHint,
   stageCopy,
   startupEstimate,
   startupProgress,
+  startupTools,
   toolFill,
   toolState,
+  type StartupTool,
   type StartupToolId,
   type StartupToolState,
   type StartupVariant,
@@ -130,7 +131,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
   const msInStage = now - (stageStartedAt ?? stageSeenAt.current.at);
   const highWater = useRef(0);
-  const toolHighWater = useRef<number[]>([]);
+  const toolHighWater = useRef<Partial<Record<StartupToolId, number>>>({});
   // Leaving the error state is a new start; main resets its progress there too (a wave
   // boundary), so the bar and the download rate start again instead of at the failed peak.
   const attempt = useRef({ failed: isError, count: 0 });
@@ -138,7 +139,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
     if (attempt.current.failed) {
       attempt.current.count += 1;
       highWater.current = 0;
-      toolHighWater.current = [];
+      toolHighWater.current = {};
     }
     attempt.current.failed = isError;
   }
@@ -147,16 +148,18 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
   const showStory =
     !isError && !isReady && (variant === 'first-run' || now - mountedAt.current >= STORY_DELAY_MS);
-  const [card, setCard] = useState(0);
+  const tools = startupTools(services);
+  const [pickedCard, setCard] = useState(0);
+  const card = pickedCard % tools.length;
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     if (!showStory || paused || prefersReducedMotion()) return;
     const timer = setInterval(
-      () => setCard((index) => (index + 1) % STARTUP_TOOLS.length),
+      () => setCard((index) => (index + 1) % tools.length),
       STORY_CARD_MS
     );
     return () => clearInterval(timer);
-  }, [showStory, paused, card]);
+  }, [showStory, paused, card, tools.length]);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   // An error opens the panel once, where it fits beside the column; it can be closed.
@@ -164,12 +167,16 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
     if (isError && panelFitsBeside()) setDetailsOpen(true);
   }, [isError]);
 
-  const states = STARTUP_TOOLS.map((tool) => toolState(tool, services));
+  const states = tools.map((tool) => toolState(tool, services));
   if (startTiming) {
-    toolHighWater.current = STARTUP_TOOLS.map((tool, index) =>
-      Math.max(toolHighWater.current[index] ?? 0, toolFill(tool, services, startTiming, now))
-    );
+    for (const tool of tools) {
+      toolHighWater.current[tool.id] = Math.max(
+        toolHighWater.current[tool.id] ?? 0,
+        toolFill(tool, services, startTiming, now)
+      );
+    }
   }
+  const fills = tools.map((tool) => toolHighWater.current[tool.id] ?? 0);
   const highlighted = showStory ? card : -1;
   const lookAt = highlighted >= 0 ? highlighted : states.findIndex((s) => s === 'working');
 
@@ -211,8 +218,9 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
       )}
       <div className="su-column">
         <ToolRing
+          tools={tools}
           states={states}
-          fills={startTiming && !isError ? toolHighWater.current : undefined}
+          fills={startTiming && !isError ? fills : undefined}
           highlighted={highlighted}
           lookAt={lookAt}
           mood={isError ? 'error' : isReady ? 'ready' : 'working'}
@@ -247,7 +255,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
           {!isError && (
             <div className="su-story-slot">
-              {showStory && <StoryCard index={card} onPick={setCard} onPause={setPaused} />}
+              {showStory && <StoryCard tools={tools} index={card} onPick={setCard} onPause={setPaused} />}
             </div>
           )}
 
@@ -438,6 +446,8 @@ const START_WORDS: Record<StartupToolState, string> = {
 };
 
 export const ToolRing: React.FC<{
+  /** The tiles, in ring order; `states` and `fills` follow it. */
+  tools: StartupTool[];
   states: StartupToolState[];
   /** Each tile's outline fill, 0 to 1. Without it a working tile shows a travelling arc. */
   fills?: number[];
@@ -447,8 +457,8 @@ export const ToolRing: React.FC<{
   onPick?: (index: number) => void;
   /** Screen-reader word for each tile state. */
   words?: Record<StartupToolState, string>;
-}> = ({ states, fills, highlighted, lookAt, mood, onPick, words = START_WORDS }) => {
-  const step = 360 / STARTUP_TOOLS.length;
+}> = ({ tools, states, fills, highlighted, lookAt, mood, onPick, words = START_WORDS }) => {
+  const step = 360 / tools.length;
   return (
     <div className="su-ring">
       <svg className="su-boundary" viewBox="0 0 300 300" aria-hidden="true">
@@ -456,7 +466,7 @@ export const ToolRing: React.FC<{
       </svg>
       <Figure mood={mood} angle={lookAt >= 0 ? lookAt * step : null} />
       <ul className="su-tiles" aria-label="Your tools">
-        {STARTUP_TOOLS.map((tool, index) => {
+        {tools.map((tool, index) => {
           const Icon = TOOL_ICONS[tool.id];
           const state = states[index];
           const label = `${tool.label}: ${words[state]}`;
@@ -557,11 +567,12 @@ const Face: React.FC<{ mood: Mood; angle: number | null }> = ({ mood, angle }) =
 };
 
 const StoryCard: React.FC<{
+  tools: StartupTool[];
   index: number;
   onPick: (index: number) => void;
   onPause: (paused: boolean) => void;
-}> = ({ index, onPick, onPause }) => {
-  const tool = STARTUP_TOOLS[index];
+}> = ({ tools, index, onPick, onPause }) => {
+  const tool = tools[index];
   const Icon = TOOL_ICONS[tool.id];
   return (
     <section
@@ -583,7 +594,7 @@ const StoryCard: React.FC<{
         </div>
       </div>
       <div className="su-dots">
-        {STARTUP_TOOLS.map((item, i) => (
+        {tools.map((item, i) => (
           <button
             key={item.id}
             type="button"

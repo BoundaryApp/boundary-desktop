@@ -38,7 +38,6 @@ function withoutExperiments(): Allowance[] {
   const reason = 'Used only by experiments, which this tree does not have.';
   return [
     { type: 'files', file: 'src/renderer/components/ui/card.tsx', reason },
-    { type: 'files', file: 'src/renderer/components/ui/progress.tsx', reason },
     { type: 'files', file: 'src/renderer/onboarding/OnboardingContext.tsx', reason },
     { type: 'exports', file: 'src/renderer/components/ui/badge.tsx', symbol: 'Badge', reason },
     { type: 'exports', file: 'src/main/services/onboarding/onboardingExtensions.ts', symbol: 'registerOnboardingExtension', reason },
@@ -47,6 +46,7 @@ function withoutExperiments(): Allowance[] {
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'setPendingProviderSetup', reason },
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'clearPendingProviderSetup', reason },
     { type: 'exports', file: 'src/shared/llmConnectionDefaults.ts', symbol: 'INFRASTRUCTURE_LLM_CAPABILITIES', reason },
+    { type: 'exports', file: 'src/main/services/assistant/hermes/builtinAgentName.ts', symbol: 'notifyBuiltinAgentNameChanged', reason },
   ];
 }
 
@@ -93,7 +93,7 @@ export default {
     // Used only by experiments; unused in a tree without them.
     ...(hasExperiments
       ? []
-      : ['@radix-ui/react-progress', 'better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
+      : ['better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
   ],
   treatConfigHintsAsErrors: true,
   preprocessor: './scripts/knip-allowances.mjs',
