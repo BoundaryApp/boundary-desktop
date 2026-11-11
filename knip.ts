@@ -95,6 +95,8 @@ export default {
       ? []
       : ['better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
   ],
+  // ffmpeg encodes the demo in screenshot:ui; the Screenshot workflow installs it with Homebrew.
+  ignoreBinaries: ['ffmpeg'],
   treatConfigHintsAsErrors: true,
   preprocessor: './scripts/knip-allowances.mjs',
   preprocessorOptions: { allow: [...allow, ...allowExperiments] },

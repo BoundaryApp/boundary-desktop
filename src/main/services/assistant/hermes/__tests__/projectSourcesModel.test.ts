@@ -191,7 +191,7 @@ describe('catalog and INDEX', () => {
     fs.writeFileSync(path.join(hub, 'notes', 'resume.md'), '# Resume\n');
     fs.writeFileSync(path.join(hub, 'drafts', 'scratch.md'), '# Scratch\n');
     fs.writeFileSync(path.join(hub, 'AGENTS.md'), 'brief');
-    fs.writeFileSync(path.join(extra, 'foo.md'), '---\ndescription: Vault note\n---\n# Foo\n');
+    fs.writeFileSync(path.join(extra, 'foo.md'), '---\ndescription: Vault note\n---\n# Vault note\n');
 
     const sources = [
       {

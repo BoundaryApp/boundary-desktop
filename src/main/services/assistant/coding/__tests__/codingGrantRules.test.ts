@@ -47,7 +47,7 @@ describe('refuseCodingGrantReason', () => {
     ['system folder', '/System/Library', 'system'],
     ['/usr', '/usr/local/src', 'system'],
     ['/private', '/private/tmp/x', 'system'],
-    ['Applications', '/Applications/Foo.app', 'system'],
+    ['Applications', '/Applications/Example.app', 'system'],
     ['stack home', '/Users/ana/stack-home/project', 'boundary-data'],
     ['sibling of the stack home', '/Users/ana/stack-parent', null],
   ] as const)('%s', (_label, candidate, expected) => {

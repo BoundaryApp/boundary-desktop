@@ -28,6 +28,7 @@
     "check:stack-archive": "node scripts/check-stack-archive.mjs",
     "check:circle-compact": "node scripts/circle-compact/check.mjs",
     "check": "bun run type-check && bun run test && bun run lint && bun run check:unused && bun run check:duplicates && bun run check:stack-archive",
+    "screenshot:ui": "node scripts/ui-screenshot/shoot.mjs",
     "test": "vitest run",
     "test:main-services": "vitest run --config src/main/vitest.main-services.config.ts",
     "test:renderer-unit": "vitest run --config src/renderer/vitest.renderer-unit.config.ts",

@@ -1,0 +1,25 @@
+/* The app's stylesheet, with Tailwind told to scan the app's source: from this folder it
+   would only find class names used in the harness. */
+@import "../../src/index.css";
+@source "../../src/renderer";
+
+/* macOS draws the traffic lights over the window at (16, 15); the app leaves room for them. */
+.ui-shot-lights {
+  position: fixed;
+  top: 15px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 1000;
+}
+
+.ui-shot-lights span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.2);
+}
+
+.ui-shot-lights span:nth-child(1) { background: #ff5f57; }
+.ui-shot-lights span:nth-child(2) { background: #febc2e; }
+.ui-shot-lights span:nth-child(3) { background: #28c840; }
