@@ -1,0 +1,85 @@
+name: Screenshot
+
+# Renders the chat screen from made-up data (scripts/ui-screenshot) and publishes it on the
+# `screenshots` branch: boundary-{dark,light}.png, and a short demo as boundary-demo-{dark,light}.mp4
+# and .gif. The website and README can link to fixed URLs such as
+# https://raw.githubusercontent.com/BoundaryApp/boundary-desktop/screenshots/boundary-dark.png
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A newer push supersedes a run still in progress; the branch only needs the latest images.
+concurrency:
+  group: ui-screenshot
+  cancel-in-progress: true
+
+jobs:
+  screenshot:
+    # The images are public, so they render only here, from the public repository, after
+    # promotion has removed everything that isn't public. Forks and other copies carry this file
+    # and may hold work that isn't public; the job skips them. shoot.mjs uses the published file
+    # names only in this repository's Actions runs and adds -local to them anywhere else.
+    if: github.repository == 'BoundaryApp/boundary-desktop'
+    # macOS, so text renders as it does in the app.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Install Chromium
+        run: bunx playwright install chromium
+
+      - name: Install ffmpeg
+        run: command -v ffmpeg || brew install ffmpeg
+
+      - name: Render screenshots
+        run: bun run screenshot:ui "$RUNNER_TEMP/shots"
+
+      - name: Publish to the screenshots branch
+        shell: bash
+        env:
+          SHOTS: ${{ runner.temp }}/shots
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          files=(boundary-dark.png boundary-light.png boundary-demo-dark.mp4 boundary-demo-light.mp4 boundary-demo-dark.gif boundary-demo-light.gif)
+          # Compare with what the branch holds now; a run that changes nothing commits nothing.
+          if git fetch --depth=1 origin screenshots 2>/dev/null; then
+            unchanged=true
+            for f in "${files[@]}"; do
+              if ! git show "FETCH_HEAD:$f" 2>/dev/null | cmp -s - "$SHOTS/$f"; then unchanged=false; fi
+            done
+            if [ "$unchanged" = true ]; then
+              echo "Screenshots unchanged."
+              exit 0
+            fi
+          fi
+          # The branch holds one commit with the current files, so old ones don't pile up in the
+          # repository's history.
+          work="$RUNNER_TEMP/screenshots-branch"
+          git init -q -b screenshots "$work"
+          for f in "${files[@]}"; do cp "$SHOTS/$f" "$work/"; done
+          cd "$work"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "${files[@]}"
+          git commit -q -m "Screenshots of ${SOURCE_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots
