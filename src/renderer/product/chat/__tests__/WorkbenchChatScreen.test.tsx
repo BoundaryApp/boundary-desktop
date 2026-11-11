@@ -843,7 +843,7 @@ describe('WorkbenchChatScreen chrome', () => {
           {
             sourceId: 'notes-vault',
             path: '/Users/ada/Notes/this-project/foo.md',
-            description: 'Foo',
+            description: 'Vault note',
             kind: 'absolute',
             visible: false,
           },
@@ -897,7 +897,7 @@ describe('WorkbenchChatScreen chrome', () => {
           {
             sourceId: 'notes-vault',
             path: '/Users/ada/Notes/this-project/foo.md',
-            description: 'Foo',
+            description: 'Vault note',
             kind: 'absolute',
             visible: true,
           },

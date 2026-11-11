@@ -89,9 +89,9 @@ describe('hermesAgentStore built-in agent name source', () => {
 
   it('lists the built-in agent under the name the source gives, as name and handle', () => {
     resetHermesAgentsStoreForTests();
-    setBuiltinAgentNameSource(() => ' Robin ');
-    expect(getStoredAgent('assistant')).toMatchObject({ displayName: 'Robin', handle: 'Robin' });
-    expect(listStoredAgents()[0]).toMatchObject({ slug: 'assistant', displayName: 'Robin' });
+    setBuiltinAgentNameSource(() => ' Marlow ');
+    expect(getStoredAgent('assistant')).toMatchObject({ displayName: 'Marlow', handle: 'Marlow' });
+    expect(listStoredAgents()[0]).toMatchObject({ slug: 'assistant', displayName: 'Marlow' });
   });
 
   it('keeps the stored name when the source is blank or throws', () => {
@@ -106,7 +106,7 @@ describe('hermesAgentStore built-in agent name source', () => {
 
   it('never writes the supplied name into the stored record', () => {
     resetHermesAgentsStoreForTests();
-    setBuiltinAgentNameSource(() => 'Robin');
+    setBuiltinAgentNameSource(() => 'Marlow');
     upsertStoredAgent({
       slug: 'researcher',
       displayName: 'Researcher',
@@ -122,7 +122,7 @@ describe('hermesAgentStore built-in agent name source', () => {
 
   it('leaves other agents alone', () => {
     resetHermesAgentsStoreForTests();
-    setBuiltinAgentNameSource(() => 'Robin');
+    setBuiltinAgentNameSource(() => 'Marlow');
     upsertStoredAgent({
       slug: 'researcher',
       displayName: 'Researcher',

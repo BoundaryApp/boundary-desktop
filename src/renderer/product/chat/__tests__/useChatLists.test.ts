@@ -141,7 +141,7 @@ describe('useChatLists', () => {
     };
     listAgents.mockResolvedValue({
       success: true,
-      agents: [{ ...builtin, displayName: 'Robin', handle: 'Robin' }],
+      agents: [{ ...builtin, displayName: 'Marlow', handle: 'Marlow' }],
       standingDmByAgent: {},
     });
 
@@ -152,7 +152,7 @@ describe('useChatLists', () => {
 
     expect(listAgents).toHaveBeenCalledTimes(2);
     expect(listThreads).toHaveBeenCalledTimes(1);
-    expect(result.current.lists.agents.map((a) => a.displayName)).toEqual(['Robin']);
+    expect(result.current.lists.agents.map((a) => a.displayName)).toEqual(['Marlow']);
   });
 
   it('keeps a slow fallback poll of the chat list only', async () => {
