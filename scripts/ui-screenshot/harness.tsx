@@ -564,23 +564,6 @@ const bridge: Record<string, Record<string, unknown>> = {
   writingCheck: {
     detectorStatus: ok({ available: false }),
   },
-  // Private experiments add rail buttons and overlays in a private checkout; answer the few
-  // calls they make on mount so the shell renders the way it does in the public repository.
-  guestAgents: {
-    offered: ok([]),
-    listGuests: ok({ success: true, guests: [] }),
-  },
-  testRuns: {
-    get: ok({
-      packages: [],
-      allowed: [],
-      current: { status: 'idle' },
-      testerRun: null,
-      reports: [],
-      testerRuns: [],
-      cards: [],
-    }),
-  },
   onboarding: {
     probeSlotHealth: ok({ health: 'reachable' }),
     getStatus: ok({
