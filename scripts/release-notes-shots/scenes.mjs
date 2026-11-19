@@ -27,6 +27,18 @@ export const SCENES = {
     view: 'whats-new',
     anchors: ['rail-whats-new'],
   },
+  'addon-store': {
+    view: 'services',
+    anchors: ['addon-search'],
+    steps: [{ click: 'addon-store' }, { wait: 400 }],
+  },
+  'writing-voices': {
+    view: 'settings',
+    anchors: ['settings-writing-voices'],
+    steps: [{ click: 'settings-writing-voices' }, { wait: 500 }],
+  },
+  // The harness's Garden club opens on General, with reactions, an @Ada and an @channel.
+  'circle-reactions': { view: 'circles', anchors: ['circle-reactions'] },
 };
 
 /** Scenes a content folder may add of its own, merged over the ones above. */

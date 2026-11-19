@@ -12,6 +12,8 @@ import { pathToFileURL } from 'node:url';
 
 const MAX_SLIDES = 6;
 const MAX_RELEASES = 10;
+/** Where this repository keeps its own release notes. */
+const DEFAULT_DIR = 'whats-new';
 
 /** Newer first: > 0 when `a` is newer than `b`. A prerelease sorts below its own release. */
 export function compareReleaseVersions(a, b) {
@@ -132,7 +134,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // Without an argument: what this build would bundle, else the folder this repo ships, so the
   // content is checked on every `bun run check` and not only in the release workflow.
   const named = process.argv[2] ?? process.env.BOUNDARY_RELEASE_NOTES_DIR;
-  const dir = named ?? null;
+  const dir = named ?? (existsSync(DEFAULT_DIR) ? DEFAULT_DIR : null);
   if (!dir) {
     console.log('No release notes folder to check.');
     process.exit(0);

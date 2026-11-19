@@ -1,0 +1,35 @@
+{
+  "slides": [
+    {
+      "title": "Reactions, mentions and direct messages",
+      "body": "Hover a Circle message to react with an emoji. Boundary notifies you about new Circle messages, marks the ones that name you, and shows the unread count on the Dock icon. Each Circle has its own notification setting. To talk to one member, message them directly.",
+      "image": "circle-reactions",
+      "anchor": "circle-reactions"
+    },
+    {
+      "title": "Call one person",
+      "body": "Call a Circle member from their person panel, the People list or your direct messages. Their Mac rings on any screen, and with Boundary in the background they get a notification with Answer and Decline."
+    },
+    {
+      "title": "Share folders with a Circle",
+      "body": "Share a folder from a Circle's rail. Members add it on their Macs, and when it's editable, what they and their agents write goes to everyone who added it. A Twenty workspace can be shared with a Circle too."
+    },
+    {
+      "title": "Writing voices",
+      "body": "Teach your agent how you write from a few samples, then pick a voice for a chat. Check a reply, a selection or a file against the voice to see which lines read unlike you.",
+      "image": "writing-voices",
+      "anchor": "settings-writing-voices"
+    },
+    {
+      "title": "An add-on store",
+      "body": "Services opens on tiles for what's built in and what you've installed. Get add-ons from the store, with search and filters. New there: Todo lists, Email and Actual Budget. Automations (n8n) and Knowledge base (LightRAG) move into the store from the Services switches.",
+      "image": "addon-store",
+      "anchor": "addon-search"
+    },
+    {
+      "title": "The agent button on your desktop",
+      "body": "Turn on Keep the agent button on the desktop in Settings, and the agent's button stays over every app, even with Boundary's window closed. The sparkle in the rail opens What's new, where every release is listed."
+    }
+  ],
+  "guides": []
+}
