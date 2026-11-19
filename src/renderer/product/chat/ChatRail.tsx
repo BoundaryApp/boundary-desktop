@@ -7,10 +7,10 @@ import type {
 } from '../../../shared/types/hermesChat';
 import { hermesSessionSourceLabel } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
-import { ConversationMark } from './ConversationMark';
+import { BuiltinAgentSectionMark, ConversationMark } from './ConversationMark';
 import { ProjectPicker } from './ProjectPicker';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
-import { WorkingDot } from './WorkingDot';
+import { RunningTurnDot, WorkingDot } from './WorkingDot';
 import { WorkingNow } from './WorkingNow';
 import {
   LIVENESS_TONE,
@@ -20,6 +20,7 @@ import {
   useKanbanSnapshot,
   useNowSeconds,
 } from './kanbanActivity';
+import { PlacedCallBar } from '../circles/calls/PlacedCallBar';
 
 function SectAddIcon() {
   return (
@@ -166,8 +167,6 @@ export interface ChatRailProps {
   onOpenRoster: () => void;
 
   error: string | null;
-  /** Above everything else: the place switcher, when the user is in a Circle (ADR 0042 §10). */
-  top?: React.ReactNode;
 }
 
 /**
@@ -210,15 +209,13 @@ export const ChatRail: React.FC<ChatRailProps> = ({
   onNewAgent,
   onOpenRoster,
   error,
-  top = null,
 }) => {
   const hermesName = builtinAgentName(agents);
   const inConversation = centerMode === 'conversation';
   const shownProject = projects.find((p) => p.id === activeProjectId) ?? null;
   const shownName = shownProject?.name ?? 'No project';
   const runningTurns = useRunningTurns();
-  const isWorking = (chatId: string | null | undefined) =>
-    Boolean(findRunningTurn(runningTurns, chatId, sameChat));
+  const turnOf = (chatId: string | null | undefined) => findRunningTurn(runningTurns, chatId, sameChat);
   const kanban = useKanbanSnapshot();
   const kanbanByAgent = runningTaskByAssignee(kanban.tasks);
   const boardCounts = taskCounts(kanban.tasks);
@@ -226,7 +223,6 @@ export const ChatRail: React.FC<ChatRailProps> = ({
   return (
     <aside className="wb-left">
       <div className="wb-titlebar-spacer" aria-hidden="true" />
-      {top}
       {projects.length === 0 ? (
         <div className="wb-proj-empty">
           Choose a folder on this Mac, or chat without one.
@@ -341,7 +337,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
 
           <div className="wb-sect">
             <span className="wb-sect-name">
-              <ConversationMark kind="hermes" size={14} />
+              <BuiltinAgentSectionMark />
               <span className="wb-sect-label" title={hermesName}>
                 {hermesName}
               </span>
@@ -384,7 +380,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                   {source && source !== 'App' ? (
                     <span className="wb-source">{source}</span>
                   ) : null}
-                  {isWorking(thread.id) ? <WorkingDot label={`${hermesName} is working`} /> : null}
+                  <RunningTurnDot turn={turnOf(thread.id)} label={`${hermesName} is working`} />
                 </button>
               );
             })
@@ -435,9 +431,10 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                   <span className="wb-row-title mono" title={channel.slug}>
                     {channel.slug}
                   </span>
-                  {isWorking(channel.sessionId) ? (
-                    <WorkingDot label={`An agent is working in #${channel.slug}`} />
-                  ) : null}
+                  <RunningTurnDot
+                    turn={turnOf(channel.sessionId)}
+                    label={`An agent is working in #${channel.slug}`}
+                  />
                 </button>
               );
             })
@@ -491,8 +488,8 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                       : agent.role}
                   </span>
                 </span>
-                {isWorking(standingId) ? (
-                  <WorkingDot label={`${agent.displayName} is working`} />
+                {turnOf(standingId) ? (
+                  <RunningTurnDot turn={turnOf(standingId)} label={`${agent.displayName} is working`} />
                 ) : boardTask ? (
                   <WorkingDot
                     label={`Working on: ${boardTask.title}`}
@@ -508,6 +505,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
         </div>
       </div>
       {error && <div className="wb-error">{error}</div>}
+      <PlacedCallBar />
     </aside>
   );
 };

@@ -42,7 +42,8 @@ async function appliedRoute(): Promise<RouteEntry[] | null> {
     serving.map(async ({ entry, key }): Promise<RouteEntry> => {
       const upstream = chain.upstreams[key];
       const modelId = upstream?.modelId ?? entry.modelId ?? '';
-      if (entry.slot === 'peer') {
+      // A pool has no endpoint here; the route check refuses it as a cloud model.
+      if (entry.slot === 'peer' || entry.slot === 'confidential') {
         return { slot: entry.slot, modelId, ...(entry.peer ? { providerId: entry.peer.providerId } : {}) };
       }
       const endpoint = upstream?.baseUrl || (await getSlotLlmConnection(entry.slot))?.endpointUrl;

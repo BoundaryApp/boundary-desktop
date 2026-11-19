@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { HOST_TOOLS } from './toolCatalog';
-import { upsertEnvLines } from '../assistant/stackEnv';
+import { removeEnvLines, upsertEnvLines } from '../assistant/stackEnv';
 
 /**
  * What Boundary writes into Hermes so it can reach the host bridge (ADR 0027 §3), in every
@@ -12,9 +12,11 @@ import { upsertEnvLines } from '../assistant/stackEnv';
  *   resolves `${BOUNDARY_BRIDGE_TOKEN}` in the MCP headers from there, so the MCP token is not
  *   in `config.yaml`, the compose environment or `docker inspect`.
  * - `config.yaml` gets an `mcp_servers.boundary` entry that points at the bridge.
- * - When the user turns the browser on, `browser.cdp_url` carries the browser token in its query
- *   string, so that token is in `config.yaml`. Hermes isn't known to expand `${…}` in `cdp_url`;
- *   `BOUNDARY_BROWSER_TOKEN` is written to `.env` for when it does.
+ * - When the user turns the browser on, `browser.cdp_url` refers to the browser token as
+ *   `${BOUNDARY_BROWSER_TOKEN}`. Hermes expands it from the profile's own `.env` each time it reads
+ *   the browser section, so the token isn't in `config.yaml` either.
+ * - `api-server` gets no `browser.cdp_url`: it's the stack's unattended identity (n8n, scripts),
+ *   and the browser is signed in to the user's sites.
  */
 
 export const HERMES_BRIDGE_SERVER_KEY = 'boundary';
@@ -79,10 +81,20 @@ const BOUNDARY_CDP_PATH = '/devtools/browser/boundary';
 /**
  * `browser.cdp_url` for Boundary's browser. The `/devtools/browser/` path makes Hermes use the URL
  * as-is (no `/json/version` discovery, which the relay doesn't serve). The token rides in the
- * query because the driver can't send headers; Hermes masks CDP query strings in its logs.
+ * query because the driver can't send headers; Hermes masks CDP query strings in its logs. The
+ * token is a reference Hermes expands from the profile's `.env` (base64url, so it needs no
+ * escaping in a URL).
  */
-export function hostBridgeCdpUrl(browserPort: number, browserToken: string): string {
-  return `ws://host.docker.internal:${browserPort}${BOUNDARY_CDP_PATH}?token=${encodeURIComponent(browserToken)}`;
+export function hostBridgeCdpUrl(browserPort: number): string {
+  return `ws://host.docker.internal:${browserPort}${BOUNDARY_CDP_PATH}?token=\${${BROWSER_TOKEN_ENV}}`;
+}
+
+/** Profiles that never get Boundary's browser: the stack's unattended identity. */
+const PROFILES_WITHOUT_BROWSER = new Set(['api-server']);
+
+/** Whether `profile` may hold Boundary's `browser.cdp_url`. */
+export function profileGetsBoundaryBrowser(profile: string): boolean {
+  return !PROFILES_WITHOUT_BROWSER.has(profile);
 }
 
 export function isBoundaryCdpUrl(value: unknown): boolean {
@@ -99,6 +111,43 @@ export async function writeHostBridgeTokensToProfiles(
   profiles: readonly string[],
   tokens: { mcp: string; browser: string }
 ): Promise<{ written: string[]; changed: boolean }> {
+  return editProfileEnvs(dataRoot, profiles, (current) =>
+    upsertEnvLines(current, { [BRIDGE_TOKEN_ENV]: tokens.mcp, [BROWSER_TOKEN_ENV]: tokens.browser })
+  );
+}
+
+/**
+ * Write `values` into each profile's `.env`, as {@link writeHostBridgeTokensToProfiles} writes the
+ * bridge's tokens. Profiles whose folder doesn't exist yet are skipped. Returns whether any file
+ * changed; nothing with values is logged.
+ */
+export async function writeEnvValuesToProfiles(
+  dataRoot: string,
+  profiles: readonly string[],
+  values: Record<string, string>
+): Promise<{ changed: boolean }> {
+  if (Object.keys(values).length === 0) return { changed: false };
+  const { changed } = await editProfileEnvs(dataRoot, profiles, (current) => upsertEnvLines(current, values));
+  return { changed };
+}
+
+/** Drop the lines that set `names` from each profile's `.env`. Returns whether any file changed. */
+export async function removeEnvValuesFromProfiles(
+  dataRoot: string,
+  profiles: readonly string[],
+  names: readonly string[]
+): Promise<{ changed: boolean }> {
+  if (names.length === 0) return { changed: false };
+  const { changed } = await editProfileEnvs(dataRoot, profiles, (current) => removeEnvLines(current, names));
+  return { changed };
+}
+
+/** Apply `edit` to each existing profile's `.env`. Returns the profiles it read and whether a file changed. */
+async function editProfileEnvs(
+  dataRoot: string,
+  profiles: readonly string[],
+  edit: (current: string) => string
+): Promise<{ written: string[]; changed: boolean }> {
   const written: string[] = [];
   let changed = false;
   for (const profile of profiles) {
@@ -110,10 +159,7 @@ export async function writeHostBridgeTokensToProfiles(
     } catch {
       /* new file */
     }
-    const next = upsertEnvLines(current, {
-      [BRIDGE_TOKEN_ENV]: tokens.mcp,
-      [BROWSER_TOKEN_ENV]: tokens.browser,
-    });
+    const next = edit(current);
     if (next !== current) {
       await fs.promises.writeFile(envPath, next, { encoding: 'utf8', mode: 0o600 });
       changed = true;

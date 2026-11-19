@@ -38,3 +38,45 @@ describe('ThreadInterrupts host-tools note', () => {
     expect(screen.getByText(/Restart Boundary to try again/)).toBeTruthy();
   });
 });
+
+describe('ThreadInterrupts in the desktop panel (ADR 0058 §14)', () => {
+  afterEach(() => cleanup());
+
+  const codingAccess = {
+    ...quiet(null),
+    codingAccess: {
+      request: {
+        id: 'c1',
+        sessionId: 's-1',
+        requestId: 'r1',
+        hostPath: '/Users/me/code/site',
+        name: 'site',
+        exists: true,
+        isGit: true,
+        projectId: null,
+        projectFolderId: null,
+      },
+      queueSize: 1,
+      resolve: vi.fn(),
+    },
+  } as unknown as ChatInterrupts;
+
+  it('shows a line that opens a folder request in the app window, since it does not fit 384 pixels', () => {
+    const open = vi.fn();
+    render(<ThreadInterrupts interrupts={codingAccess} projects={[]} onFollowUp={vi.fn()} onOpenInWindow={open} />);
+    expect(screen.getByText(/wants to work in a folder/)).toBeTruthy();
+    expect(screen.queryByText('/Users/me/code/site')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Answer in Boundary’s window' }));
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws an approval in place, since it fits', () => {
+    const approval = {
+      ...quiet(null),
+      approval: { sessionId: 's-1', command: 'ls', description: 'List files', choices: ['once', 'deny'] },
+      chatApprovals: [{}],
+    } as unknown as ChatInterrupts;
+    render(<ThreadInterrupts interrupts={approval} projects={[]} onFollowUp={vi.fn()} onOpenInWindow={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Answer in Boundary’s window' })).toBeNull();
+  });
+});

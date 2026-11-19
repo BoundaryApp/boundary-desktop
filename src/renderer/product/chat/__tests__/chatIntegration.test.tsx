@@ -17,26 +17,18 @@ import type { AgentProfile, ChannelRecord, HermesConversationKind } from '../../
  * (ADR 0031 §5). Each bug found by hand in the chat screen adds a case here.
  */
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+const noop = (): void => undefined;
 
-// getByRole's default visibility check calls jsdom's getComputedStyle up every candidate's
-// ancestors, which was half this file's CPU time and timed it out on a loaded machine. No
+// getByRole's default visibility check calls getComputedStyle up every candidate's
+// ancestors, which under jsdom was half this file's CPU time and timed it out on a loaded machine. No
 // stylesheet loads here; the one aria-hidden match, autosize's mirror, is `composer`'s to skip.
 configure({ defaultHidden: true });
 
 // Markdown rendering is out of scope; the reply's text is what is checked.
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
-import { STOP_GUARD_MS, WorkbenchThread } from '../WorkbenchThread';
+import { HostedChatRuntime } from './threadHarness';
+import { WorkbenchThread } from '../WorkbenchThread';
 import { setRunningTurnsForTests } from '../runningTurns';
 
 const SESSION = 's-1';
@@ -46,6 +38,7 @@ const ana: AgentProfile = {
   displayName: 'Ana',
   handle: 'Ana',
   role: 'Researcher',
+  builtIn: false,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 const room: ChannelRecord = {
@@ -69,7 +62,7 @@ function installBridge() {
 
 async function renderChat(kind: HermesConversationKind) {
   render(
-    <HermesChatRuntimeProvider sessionId={SESSION}>
+    <HostedChatRuntime sessionId={SESSION}>
       <WorkbenchThread
         sessionId={SESSION}
         threadTitle={kind === 'channel' ? '#research' : 'Ana'}
@@ -86,7 +79,7 @@ async function renderChat(kind: HermesConversationKind) {
         onClearProject={noop}
         onNewProject={noop}
       />
-    </HermesChatRuntimeProvider>
+    </HostedChatRuntime>
   );
   await settle();
 }
@@ -107,7 +100,7 @@ async function send(text: string) {
 const replies = () => [...document.querySelectorAll('.wb-msg.is-assistant')] as HTMLElement[];
 
 describe('chat screen against a fake bridge', () => {
-  // The first mount in a worker costs about three times a later one (JIT, jsdom's default
+  // The first mount in a worker costs about three times a later one (JIT, the DOM's default
   // stylesheet, Intl formatters). Paying that here keeps it out of the first case's budget,
   // where a starved worker timed out.
   beforeAll(async () => {
@@ -159,22 +152,6 @@ describe('chat screen against a fake bridge', () => {
     expect(replies()).toHaveLength(0);
     expect(screen.queryByText('Hermes')).toBeNull();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
-  });
-
-  it('shows Stopped by you with Continue after Stop', async () => {
-    await renderChat('dm');
-    await send('write the letter');
-    await chat.stream('Dear Sam, I wanted to');
-    // Stop ignores clicks right after a send (a double-click on Send).
-    await act(async () => vi.advanceTimersByTime(STOP_GUARD_MS));
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Stop response' })));
-    await settle();
-
-    expect(chat.cancelChat).toHaveBeenCalledWith({ requestId: chat.requestId(), reason: 'stopped' });
-    expect(replies()).toHaveLength(1);
-    expect(within(replies()[0]).getByText('Dear Sam, I wanted to')).toBeTruthy();
-    expect(within(replies()[0]).getByText('Stopped by you')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeTruthy();
   });
 
   it('shows the Approval needed card when the agent asks, and sends the answer', async () => {

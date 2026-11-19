@@ -94,6 +94,10 @@ export function buildBundledRuntimeEnv(
   };
   if (dockerHost) {
     env.DOCKER_HOST = dockerHost;
+    // Compose reads DOCKER_HOST; podman reads CONTAINER_HOST. Without it, podman uses the shared
+    // default connection, which may be another machine.
+    env.CONTAINER_HOST = dockerHost;
+    delete env.CONTAINER_CONNECTION;
   }
   return env;
 }

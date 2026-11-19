@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { HermesConversationKind } from '../../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
@@ -28,19 +28,10 @@ import { ChatRail, railOrder, type CenterMode } from './ChatRail';
 import { headKindLine } from './conversationKinds';
 import { useAppCommand } from '../useAppShortcuts';
 import { useCirclesState } from '../circles/useCircles';
-import { circleUnread, useCircleChannels } from '../circles/useCircleChat';
-import {
-  circleChannel,
-  forgetCirclePlace,
-  showCirclePlace,
-  showJoiningPlace,
-  showMacPlace,
-  useChatPlace,
-} from './circlePlace';
-import { CirclePlace } from './circle/CirclePlace';
-import { JoiningPlace } from './circle/JoiningPlace';
-import { StartJoinSheets, type StartJoinSheet } from './circle/StartJoinSheets';
-import { PlaceSwitcher } from './circle/PlaceSwitcher';
+import { useCircleChannels } from '../circles/useCircleChat';
+import { openCircle } from '../circles/circlesNavigation';
+import { clearProjectOpenRequest, useProjectOpenRequest } from './projectOpenRequest';
+import { useChatOpenRequests } from './chatOpenRequests';
 import { ShareToCircleSheet, type CircleShareDraft, type CircleShareTarget } from './circle/ShareToCircleSheet';
 import { EmptyProjectSheet } from './EmptyProjectSheet';
 import { MoveProjectSheet } from './MoveProjectSheet';
@@ -55,6 +46,7 @@ import { useConversationNav } from './useConversationNav';
 import { useAgentSheets } from './useAgentSheets';
 import { roomForChat, useRoomSheets } from './useRoomSheets';
 import { useProjects } from './useProjects';
+import { useWritingCheck } from './useWritingCheck';
 import { useProjectSources } from './useProjectSources';
 
 const MOVE_RUNNING_REASON = 'A reply is running. Stop it or wait for it to finish, then move.';
@@ -74,6 +66,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   const ids = useChatIds(cached);
   const lists = useChatLists(cached, ids);
   const { activeThreadId, sameChat } = ids;
+  const writingCheck = useWritingCheck(activeThreadId ?? '');
   const { threads, agents, channels, standingDmByAgent, orchestratorSlug, mentions } = lists;
 
   const activeThread = useMemo(
@@ -357,8 +350,6 @@ export const WorkbenchChatScreen: React.FC = () => {
   // ⌘N / ⌘[ / ⌘] from the keyboard or menu bar (useAppShortcuts).
   useAppCommand((command) => {
     if (command === 'new-chat') {
-      // A Hermes chat lives in This Mac (Circle chats spec decision 4).
-      showMacPlace();
       void newHermesChat();
       return;
     }
@@ -378,117 +369,24 @@ export const WorkbenchChatScreen: React.FC = () => {
     if (target && target !== activeThreadId) void openThread(target);
   });
 
-  // Places (ADR 0042 §10, ADR 0043 §7 and §8).
+  // Circles, for sharing a message into one (Circle chats spec decision 14).
   const circlesState = useCirclesState();
   const circles = circlesState.status === 'running' ? circlesState.snapshot.circles : [];
   const circleChannels = useCircleChannels(useMemo(() => circles.map((circle) => circle.key), [circles]));
-  const unreadByCircle = useMemo(
-    () => Object.fromEntries(circles.map((circle) => [circle.key, circleUnread(circleChannels[circle.key])])),
-    [circles, circleChannels]
-  );
-  const placeState = useChatPlace();
   const [shareDraft, setShareDraft] = useState<CircleShareDraft | null>(null);
   const [sharedTo, setSharedTo] = useState<CircleShareTarget | null>(null);
-  const [startJoin, setStartJoin] = useState<StartJoinSheet | null>(null);
-  // A new Circle can reach the state after `create` returns; switch once it's there.
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const created = createdKey !== null && circles.some((circle) => circle.key === createdKey);
-  useEffect(() => {
-    if (!created || !createdKey) return;
-    showCirclePlace(createdKey);
-    setCreatedKey(null);
-  }, [created, createdKey]);
-  const shownCircle =
-    placeState.place.kind === 'circle'
-      ? (circles.find((circle) => circle.key === (placeState.place as { key: string }).key) ?? null)
-      : null;
-  const missingCircle =
-    placeState.place.kind === 'circle' && circlesState.status === 'running' && !shownCircle
-      ? placeState.place.key
-      : null;
-  useEffect(() => {
-    if (missingCircle) forgetCirclePlace(missingCircle);
-  }, [missingCircle]);
-  // A join waits in main. Once let in, someone on the waiting page moves into the Circle; once
-  // cancelled or dismissed, back to This Mac. Someone who went elsewhere stays there.
-  const join = circlesState.join ?? null;
-  const admittedTo =
-    circlesState.finishingJoin && circles.some((circle) => circle.key === circlesState.finishingJoin)
-      ? circlesState.finishingJoin
-      : null;
-  const onJoiningPage = placeState.place.kind === 'joining';
-  // The page opens before main's join state arrives, so only a join seen here can be over.
-  const sawJoin = useRef(false);
-  if (onJoiningPage && (join || circlesState.finishingJoin)) sawJoin.current = true;
-  const joinOver = onJoiningPage && sawJoin.current && !join && !circlesState.finishingJoin;
-  if (!onJoiningPage) sawJoin.current = false;
-  useEffect(() => {
-    if (onJoiningPage && admittedTo) showCirclePlace(admittedTo);
-    else if (joinOver) showMacPlace();
-  }, [onJoiningPage, admittedTo, joinOver]);
-  // Opening anything of This Mac's (a chat, a task, Mentions, ⌘N) switches to This Mac. The
-  // chat list's first landing on a chat at launch is not the user opening it, so it doesn't.
-  const macTarget = JSON.stringify([activeThreadId, centerMode, activeTaskId, allChatsOpen.key]);
-  const lastMacTarget = useRef(macTarget);
-  const landedBefore = useRef(ids.landed);
-  useEffect(() => {
-    const opened = landedBefore.current;
-    landedBefore.current = ids.landed;
-    if (lastMacTarget.current === macTarget) return;
-    lastMacTarget.current = macTarget;
-    if (opened) showMacPlace();
-  }, [macTarget, ids.landed]);
-  const shownPlace = shownCircle ? placeState.place : onJoiningPage && join ? placeState.place : { kind: 'mac' as const };
-  const switcher = (
-    <PlaceSwitcher
-      place={shownPlace}
-      circles={circles}
-      unread={unreadByCircle}
-      onMac={showMacPlace}
-      onCircle={(key) => showCirclePlace(key)}
-      join={join}
-      onJoining={showJoiningPlace}
-      leaving={circlesState.status === 'running' ? circlesState.snapshot.leaving : undefined}
-      onStart={() => setStartJoin('start')}
-      onJoin={() => setStartJoin('join')}
-      problem={circlesState.status === 'failed' ? (circlesState.error ?? 'Unknown error.') : null}
-    />
-  );
-  const startJoinSheets = (
-    <StartJoinSheets
-      sheet={startJoin}
-      displayName={circlesState.displayName}
-      joinWaiting={Boolean(join?.waiting || circlesState.finishingJoin)}
-      onClose={() => setStartJoin(null)}
-      onCreated={setCreatedKey}
-      onJoining={showJoiningPlace}
-    />
-  );
 
-  if (shownPlace.kind === 'joining' && join) {
-    return (
-      <div className="relative flex h-full min-h-0 w-full">
-        <JoiningPlace join={join} admitted={Boolean(circlesState.finishingJoin)} switcher={switcher} />
-        {startJoinSheets}
-      </div>
-    );
-  }
+  // Another screen asked for a project, such as one a shared folder was just added as.
+  const projectOpen = useProjectOpenRequest();
+  useEffect(() => {
+    if (!projectOpen) return;
+    clearProjectOpenRequest(projectOpen.seq);
+    void projects.refreshProjects().then(() => showProject(projectOpen.projectId));
+    setCenterMode('project');
+  }, [projectOpen, projects, showProject]);
 
-  if (shownCircle) {
-    return (
-      <div className="relative flex h-full min-h-0 w-full">
-        <CirclePlace
-          circle={shownCircle}
-          circles={circlesState}
-          channels={circleChannels[shownCircle.key]}
-          channelId={circleChannel(placeState, shownCircle.key)}
-          onOpenChannel={(channelId) => showCirclePlace(shownCircle.key, channelId)}
-          switcher={switcher}
-        />
-        {startJoinSheets}
-      </div>
-    );
-  }
+  // The desktop panel's ⤢ opens its chat here (ADR 0058 §10).
+  useChatOpenRequests((chatId) => void openThread(chatId));
 
   const mentionsPaneActions = {
     onOpenInRoom: (m: Parameters<typeof nav.openMentionInRoom>[0]): void =>
@@ -542,7 +440,6 @@ export const WorkbenchChatScreen: React.FC = () => {
         onNewAgent={agentSheets.newAgent}
         onOpenRoster={() => agentSheets.roster.show('roster')}
         error={projects.projectError ?? lists.threadError}
-        top={switcher}
       />
 
       <main className="wb-center">
@@ -657,6 +554,7 @@ export const WorkbenchChatScreen: React.FC = () => {
             <WorkbenchThread
               sessionId={activeThreadId}
               sameChat={sameChat}
+              resolveChat={resolveTaskOrigin}
               threadTitle={
                 isChannel
                   ? `#${activeChannel?.slug ?? activeThread?.channelSlug ?? 'channel'}`
@@ -670,6 +568,7 @@ export const WorkbenchChatScreen: React.FC = () => {
               agents={agents}
               activeProject={conversationProject}
               projects={projects.projects}
+              onProjectsUpdated={projects.setProjects}
               activeProjectId={conversationProjectId}
               onMoveProject={activeThreadId ? () => projects.move.open([activeThreadId]) : undefined}
               moveDisabledReason={activeRunning ? MOVE_RUNNING_REASON : null}
@@ -713,6 +612,10 @@ export const WorkbenchChatScreen: React.FC = () => {
               onCreateAgentFromDraft={agentSheets.createFromDraft}
               onEditAgentDraft={agentSheets.editDraft}
               onShareToCircle={circles.length ? setShareDraft : undefined}
+              onCheckReply={writingCheck.request}
+              onCheckProjectFile={(projectId, relativePath) =>
+                void writingCheck.checkFile(projectId, relativePath)
+              }
             />
           </HermesChatRuntimeProvider>
         )}
@@ -740,12 +643,19 @@ export const WorkbenchChatScreen: React.FC = () => {
             onAddFolder: sources.addFolder.show,
             onRemoveSource: sources.removeSource,
             onProjectsUpdated: projects.setProjects,
+            onCheckFile: activeProject
+              ? () => void writingCheck.pickFile(activeProject.id)
+              : undefined,
           }}
           onMakeChannel={rooms.make.show}
           onAddToChannel={rooms.showAddTo}
           onEditAgent={agentSheets.startEdit}
           onAddMember={(channelId, slug) => void rooms.changeMember('add', channelId, slug)}
           onRemoveMember={(channelId, slug) => void rooms.changeMember('remove', channelId, slug)}
+          writingCheck={writingCheck.check}
+          onCloseCheck={writingCheck.close}
+          onShowCheckedReply={writingCheck.showReply}
+          onRecheckFile={(file) => void writingCheck.checkFile(file.projectId, file.relativePath)}
           projectRole={
             activeThreadId
               ? {
@@ -880,7 +790,6 @@ export const WorkbenchChatScreen: React.FC = () => {
           </button>
         </div>
       ) : null}
-      {startJoinSheets}
       <ShareToCircleSheet
         draft={shareDraft}
         circles={circles}
@@ -898,7 +807,7 @@ export const WorkbenchChatScreen: React.FC = () => {
             type="button"
             onClick={() => {
               setSharedTo(null);
-              showCirclePlace(sharedTo.circleKey, sharedTo.channel);
+              openCircle(sharedTo.circleKey, sharedTo.channel);
             }}
           >
             Open
@@ -925,6 +834,9 @@ export const WorkbenchChatScreen: React.FC = () => {
         managed={codingFolders.managed}
         busy={projects.newProject.busy}
         error={projects.newProject.error}
+        steps={projects.newProject.steps}
+        codingBusy={projects.newProject.codingBusy}
+        codingError={projects.newProject.codingError}
         onCreate={projects.newProject.create}
         onCancel={projects.newProject.cancel}
       />

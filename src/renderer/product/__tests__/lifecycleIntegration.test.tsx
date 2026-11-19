@@ -43,8 +43,8 @@ vi.mock('electron', () => ({
   },
   Notification: class {
     static isSupported = () => false;
-    show = () => undefined;
-    on = () => undefined;
+    show = (): void => undefined;
+    on = (): void => undefined;
   },
 }));
 
@@ -65,10 +65,10 @@ vi.mock('electron-store', () => ({
   },
 }));
 
-vi.mock('../../../main/persistDebugLog', () => ({ persistDebugLog: () => undefined }));
+vi.mock('../../../main/persistDebugLog', () => ({ persistDebugLog: (): void => undefined }));
 
 vi.mock('../../../main/services/assistant/resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project', error: undefined }),
+  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project' }),
   resolveAssistantRoot: () => '/tmp/boundary-project',
 }));
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { isVisibleChatProvider } from '../../../shared/inferenceDisplay';
+import type { TrustLevel } from '../../../shared/types/confidential';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import { Sheet } from '../../components/ui/sheet';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
@@ -8,6 +9,8 @@ import { chainCandidates, entryKey, type ChainContext } from './entries';
 import { openInference } from './inferenceNavigation';
 import { describeStackHere, levelRefuses, removeEntry } from './stack';
 import { AddModelList, buildRungs, EntryDetails, StackList } from './StackList';
+import { poolContext, usePoolPrivacy, usePoolRankings, useConfidentialState } from './useConfidentialState';
+import { Button } from '../../components/ui/button';
 
 export interface LevelStackSheetProps {
   /** Distinguishes this sheet's heading from another open one. */
@@ -20,6 +23,11 @@ export interface LevelStackSheetProps {
   initial: InferenceChainEntry[];
   /** The level belongs to a private project, so the lock cuts its stack (ADR 0033 §4). */
   privacyLocked: boolean;
+  /**
+   * The lowest provider level this private project's pools may use, as main plans it
+   * (`projectConfidentialFloor`). Pools rank with it; without it, Pool settings' private minimum.
+   */
+  projectFloor?: TrustLevel;
   /** Store the list at this level. Resolves to an error to show, or null when saved. */
   save: (list: InferenceChainEntry[]) => Promise<string | null>;
   onClose: () => void;
@@ -37,6 +45,7 @@ export const LevelStackSheet: React.FC<LevelStackSheetProps> = ({
   lede,
   initial,
   privacyLocked,
+  projectFloor,
   save,
   onClose,
 }) => {
@@ -48,7 +57,14 @@ export const LevelStackSheet: React.FC<LevelStackSheetProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const ctx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const { state: confidential } = useConfidentialState();
+  const poolModels = confidential?.enabled === true ? confidential.models.map((model) => model.id) : [];
+  const rankings = usePoolRankings(confidential, poolModels, {
+    privateProject: privacyLocked,
+    ...(privacyLocked && projectFloor ? { projectFloor } : {}),
+  });
+  const poolPrivacy = usePoolPrivacy(confidential, list, privacyLocked ? projectFloor : undefined);
+  const ctx: ChainContext = { slots: status?.slots ?? {}, circles, pools: poolContext(confidential, rankings, poolPrivacy) };
   const described = describeStackHere(list, ctx);
   const rungs = buildRungs(list, ctx, described);
   const refuses = (next: InferenceChainEntry[]) => levelRefuses(next, { privacyLocked });
@@ -82,7 +98,7 @@ export const LevelStackSheet: React.FC<LevelStackSheetProps> = ({
   };
 
   const candidates = chainCandidates(list[0] ?? null, list.slice(1), ctx).filter(
-    (view) => view.entry.slot === 'peer' || isVisibleChatProvider(view.entry.slot)
+    (view) => view.entry.slot === 'peer' || view.entry.slot === 'confidential' || isVisibleChatProvider(view.entry.slot)
   );
 
   return (
@@ -97,9 +113,9 @@ export const LevelStackSheet: React.FC<LevelStackSheetProps> = ({
       backdropClassName="wb-inf-level-backdrop"
       error={error}
       actions={
-        <button type="button" className="wb-btn-ghost" onClick={adding ? () => setAdding(false) : onClose}>
+        <Button variant="secondary" block type="button" onClick={adding ? () => setAdding(false) : onClose}>
           {adding ? 'Back' : 'Done'}
-        </button>
+        </Button>
       }
     >
       <p className="wb-sheet-help">{lede}</p>
@@ -149,6 +165,8 @@ export const LevelStackSheet: React.FC<LevelStackSheetProps> = ({
               }}
               onClose={() => setSelected(null)}
               showSources={showSources}
+              privateProject={privacyLocked}
+              projectFloor={privacyLocked ? projectFloor : undefined}
             />
           ) : null}
         </>

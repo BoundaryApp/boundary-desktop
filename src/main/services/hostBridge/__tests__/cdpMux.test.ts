@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CdpMux, type CdpClient } from '../cdpMux';
 import type { SitePolicy } from '../cdpPolicy';
 
@@ -61,7 +61,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 let chrome: FakeChrome;
 let mux: CdpMux;
 let policy: SitePolicy;
-let log: ReturnType<typeof vi.fn>;
+let log: Mock<ConstructorParameters<typeof CdpMux>[0]['log']>;
 
 beforeEach(async () => {
   chrome = new FakeChrome();
@@ -145,7 +145,7 @@ describe('CdpMux', () => {
     const a = connect();
     cmd(a, 3, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
     const sessionId = a.replyTo(3)?.result?.sessionId;
-    expect(sessionId).toBeTruthy();
+    expect(sessionId).toBe('S1');
     expect(a.events('Target.attachedToTarget')[0].params.sessionId).toBe(sessionId);
     cmd(a, 4, 'Page.enable', {}, sessionId);
     expect(a.replyTo(4)).toMatchObject({ result: {} });
@@ -156,7 +156,7 @@ describe('CdpMux', () => {
     const b = connect();
     chrome.failAttach.add('T1');
     cmd(a, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
-    expect(a.replyTo(1)?.error).toBeTruthy();
+    expect(a.replyTo(1)?.error).toEqual({ code: -32602, message: 'No target with given id found' });
     cmd(b, 1, 'Target.attachToTarget', { targetId: 'T1', flatten: true });
     const sessionId = b.replyTo(1)?.result?.sessionId;
     expect(b.events('Target.attachedToTarget').map((m) => m.params.sessionId)).toEqual([sessionId]);

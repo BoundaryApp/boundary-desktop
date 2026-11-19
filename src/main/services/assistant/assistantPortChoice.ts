@@ -66,3 +66,27 @@ function describeBusyPorts(busy: BusyPortSet[]): string {
     'Stop whatever holds one of these sets (`lsof -nP -iTCP:<port> -sTCP:LISTEN` shows it), then start again.'
   );
 }
+
+/**
+ * The stored ports, unless something other than this install's stack now holds one of them,
+ * as a developer stack started after setup can. Then the first free candidate, or every
+ * candidate's busy ports. Keeps the stored ports when the install's own stack is running
+ * (its containers hold them) or when that can't be told.
+ */
+export async function keepOrReplaceStoredPorts(
+  stored: AssistantPortSet,
+  options: {
+    candidates: AssistantPortSet[];
+    isPortFree: (port: number) => Promise<boolean>;
+    ownStackRunning: () => Promise<boolean>;
+  }
+): Promise<AssistantPortSet | AssistantPortsBusy> {
+  const free = await Promise.all(Object.values(stored.ports).map((port) => options.isPortFree(port)));
+  if (free.every(Boolean)) return stored;
+  try {
+    if (await options.ownStackRunning()) return stored;
+  } catch {
+    return stored;
+  }
+  return chooseAssistantPorts(options.candidates, options.isPortFree);
+}

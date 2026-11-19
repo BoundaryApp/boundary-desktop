@@ -9,9 +9,11 @@ import {
   resolveActiveSetupStep,
   type SetupFlowSnapshot,
 } from '../types';
+import type { CapabilityAssessment } from '../../../shared/types/capability';
+import { emptyInferenceProvidersStatus } from '../../../shared/types/onboarding';
 import type { SetupProgress } from '../../../shared/types/setupProgress';
 
-const passAssessment = {
+const passAssessment: CapabilityAssessment = {
   passed: true,
   stackAlreadyRunning: false,
   checkedAt: '2026-10-25T00:00:00.000Z',
@@ -33,7 +35,7 @@ function snapshot(setupProgress: SetupProgress | null, stackDone = false): Setup
   return {
     capabilityStatus: { acknowledged: true, lastAssessment: passAssessment },
     capabilityAssessment: passAssessment,
-    onboardingStatus: { configured: true, encryptionAvailable: true },
+    onboardingStatus: { ...emptyInferenceProvidersStatus(), configured: true },
     onboardingLoading: false,
     assistantStackStatus: stackDone
       ? ({ setupComplete: true, ready: true } as SetupFlowSnapshot['assistantStackStatus'])
@@ -51,7 +53,6 @@ describe('setupSteps() Folders step', () => {
       'Assistant',
     ]);
     expect(setupSteps().length).toBeLessThanOrEqual(5);
-    expect(setupSteps().filter((step) => step.optional).length).toBeLessThanOrEqual(2);
     expect(setupSteps().find((step) => step.id === 'folders')?.optional).toBe(true);
   });
 
@@ -92,5 +93,35 @@ describe('setupSteps() Folders step', () => {
 
   it('never holds setup when the progress record could not be read', () => {
     expect(resolveActiveSetupStep(setupSteps(), snapshot(null))?.id).toBe('assistant-stack');
+  });
+});
+
+describe('setupSteps() Model step', () => {
+  const noModel = (setupProgress: SetupProgress | null): SetupFlowSnapshot => ({
+    ...snapshot(setupProgress),
+    onboardingStatus: { configured: false, encryptionAvailable: true } as SetupFlowSnapshot['onboardingStatus'],
+  });
+
+  it('is optional with a Set up later button', () => {
+    const step = setupSteps().find((item) => item.id === 'llm-onboarding');
+    expect(step?.optional).toBe(true);
+    expect(step?.skipLabel).toBe('Set up later');
+  });
+
+  it('opens on a first run with no model connected', () => {
+    expect(resolveActiveSetupStep(setupSteps(), noModel(progress()))?.id).toBe('llm-onboarding');
+  });
+
+  it('moves on to Folders once skipped', () => {
+    const ctx = noModel(progress({ outcomes: { 'llm-onboarding': 'skipped' } }));
+    expect(resolveActiveSetupStep(setupSteps(), ctx)?.id).toBe('folders');
+  });
+
+  it('lands in chat with no model once the stack is set up', () => {
+    const ctx: SetupFlowSnapshot = {
+      ...noModel(progress({ outcomes: { 'llm-onboarding': 'skipped', folders: 'skipped' } })),
+      assistantStackStatus: { setupComplete: true, ready: true } as SetupFlowSnapshot['assistantStackStatus'],
+    };
+    expect(areAllSetupStepsComplete(setupSteps(), ctx)).toBe(true);
   });
 });

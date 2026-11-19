@@ -7,6 +7,8 @@ export interface MainExperiment {
   register?(): void;
   /** Runs after app ready and before the main window opens. A rejection stops startup. */
   startBeforeWindow?(): Promise<void>;
+  /** Runs once on quit, before Circles and the assistant stack stop. A rejection is logged and quit goes on. */
+  stop?(): Promise<void>;
 }
 
 const modules = import.meta.glob<{ default: MainExperiment }>('../experiments/*/main.ts', {
@@ -25,4 +27,9 @@ export async function startExperimentsBeforeWindow(): Promise<void> {
   for (const experiment of experiments) {
     await experiment.startBeforeWindow?.();
   }
+}
+
+/** Runs every experiment's `stop`, all at once. Never rejects. */
+export async function stopExperiments(): Promise<void> {
+  await Promise.allSettled(experiments.map(async (experiment) => experiment.stop?.()));
 }

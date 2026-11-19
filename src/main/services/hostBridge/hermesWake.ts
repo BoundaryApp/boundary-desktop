@@ -1,9 +1,10 @@
 import { HERMES_BRIDGE_SERVER_KEY } from './hermesProvision';
 
 /**
- * Ask Hermes to reconnect to the bridge now (the stack's `POST /v1/mcp/servers/{name}/reconnect`,
- * assistant docs/extending.md). Hermes gives up on the bridge while Boundary is closed and
- * otherwise only retries on a timer. The call wakes parked connections in every profile and
+ * Ask Hermes to reconnect to a server the bridge hosts now (the stack's
+ * `POST /v1/mcp/servers/{name}/reconnect`, assistant docs/extending.md): `boundary` by default, or
+ * another entry on the bridge such as `calendar-mac`. Hermes gives up on the bridge while Boundary
+ * is closed and otherwise only retries on a timer. The call wakes parked connections in every profile and
  * never restarts a connected one, so it's safe on every launch.
  *
  * `unsupported` is a 404: a stack without the endpoint, or no profile lists the server.
@@ -13,12 +14,14 @@ export type HermesWakeOutcome = 'woken' | 'unsupported' | 'no-key' | 'failed';
 export async function wakeHermesBridgeServer(options: {
   apiBaseUrl: string;
   apiKey: string | null;
+  /** The `mcp_servers` name to wake. Defaults to the bridge's own `boundary` entry. */
+  server?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Promise<{ outcome: HermesWakeOutcome; detail?: string }> {
   if (!options.apiKey) return { outcome: 'no-key' };
   const fetchImpl = options.fetchImpl ?? fetch;
-  const url = `${options.apiBaseUrl}/mcp/servers/${HERMES_BRIDGE_SERVER_KEY}/reconnect`;
+  const url = `${options.apiBaseUrl}/mcp/servers/${encodeURIComponent(options.server ?? HERMES_BRIDGE_SERVER_KEY)}/reconnect`;
   try {
     const response = await fetchImpl(url, {
       method: 'POST',

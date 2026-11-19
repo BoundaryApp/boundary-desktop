@@ -91,6 +91,18 @@ function formatRecoveryLine({ provider, retryInSec, cycle, total }: HermesRecove
   return `${who} ${when} (${cycle} of ${total})`;
 }
 
+/** A ticking counter: `45s`, `1m 05s`, `1h 02m 05s`. Seconds stay visible so it moves. */
+function formatPhaseTimer(totalSec: number): string {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (h > 0) return `${h}h ${pad(m)}m ${pad(s)}s`;
+  if (m > 0) return `${m}m ${pad(s)}s`;
+  return `${s}s`;
+}
+
 export function formatPhaseLine(opts: {
   phase: string;
   elapsedSec?: number;
@@ -109,7 +121,7 @@ export function formatPhaseLine(opts: {
         return `Your shared model isn't available. Switching to ${opts.toolName}…`;
       }
       return opts.elapsedSec != null && opts.elapsedSec > 0
-        ? `Preparing · ${opts.elapsedSec}s`
+        ? `Preparing · ${formatPhaseTimer(opts.elapsedSec)}`
         : 'Preparing…';
     case 'restarting':
       if (opts.sharedUnavailable && opts.toolName) {
@@ -118,6 +130,8 @@ export function formatPhaseLine(opts: {
       return opts.toolName
         ? `Restarting assistant to apply ${opts.toolName}…`
         : 'Restarting assistant…';
+    case 'held':
+      return 'Waiting for the local model';
     case 'tool': {
       const name = opts.toolName ?? 'tool';
       if (opts.toolTurn != null && opts.maxTurns != null) {

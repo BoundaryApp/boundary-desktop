@@ -8,7 +8,9 @@
  *   hermes 3G + hermes-webui ~0.5G + searxng/mcp ~0.5G + neo4j ~1.5–2G +
  *   lightrag ~0.5–1.5G + n8n/postgres ~1G + gptr ~0.5G + opencode ~0.5G +
  *   shared postgres + SQL MCP ~0.5G
- *   ≈ 9–12 GB containers → 16 GB host minimum with headroom.
+ *   ≈ 9–12 GB containers with every optional service on → 16 GB recommended.
+ *   The default stack (no LightRAG, Neo4j or n8n) used about 2.3 GB idle in 2026-11, so the
+ *   setup check warns below this but lets setup continue.
  *
  * Disk is images + volumes for the full UI stack (no Ollama model pulls).
  */

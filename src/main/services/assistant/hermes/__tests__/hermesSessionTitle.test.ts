@@ -98,7 +98,7 @@ describe('enableProfileToolsets', () => {
 describe('session id links and agent profiles', () => {
   it('keeps runtime → stored links in the archive, so they resolve after a restart', async () => {
     const saved = new Map<string, string>();
-    const archive = { get: (id: string) => saved.get(id) ?? null, set: (a: string, b: string) => void saved.set(a, b) };
+    const archive = { get: (id: string) => saved.get(id) ?? null, set: (a: string, b: string): void => void saved.set(a, b) };
     const first = sessionWith(async () => ({ session_id: 'r1', stored_session_id: 's1', messages: [] }));
     first.session.setStoredIdArchive(archive);
     await first.session.resumeSession('s1');

@@ -30,8 +30,9 @@ export default defineConfig({
     ],
     // The stack contract suite needs a running stack: `bun run test:stack` (vitest.stack.config.ts).
     // Circles network tests run a local DHT: `bun run test:circles` (vitest.circles.config.ts).
-    exclude: [...configDefaults.exclude, '**/*.stack.test.ts', '**/*.net.test.ts'],
-    setupFiles: ['src/main/services/__tests__/electron-mock-setup.ts'],
+    // Live tests reach outside services: `bun run test:live` (vitest.live.config.ts).
+    exclude: [...configDefaults.exclude, '**/*.stack.test.ts', '**/*.net.test.ts', '**/*.live.test.ts'],
+    setupFiles: ['src/__tests__/setupOfflineFetch.ts', 'src/main/services/__tests__/electron-mock-setup.ts'],
     server: {
       deps: {
         external: ['electron', 'electron-store', 'electron-squirrel-startup'],
@@ -42,6 +43,11 @@ export default defineConfig({
       ENVIRONMENT: 'test',
       TMPDIR: runTmpDir,
     },
+    // After each test, put back what a test changed for itself: vi.spyOn spies, vi.stubGlobal and
+    // vi.stubEnv. A file that forgets its own afterEach no longer leaks into the next test.
+    restoreMocks: true,
+    unstubGlobals: true,
+    unstubEnvs: true,
     pool: 'forks',
   },
   resolve: {

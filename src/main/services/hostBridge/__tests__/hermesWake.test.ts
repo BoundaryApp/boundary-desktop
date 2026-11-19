@@ -14,6 +14,12 @@ describe('wakeHermesBridgeServer', () => {
     expect((init?.headers as Record<string, string>).authorization).toBe('Bearer k');
   });
 
+  it('wakes another server on the bridge by name', async () => {
+    const fetchImpl = reply(202);
+    await wakeHermesBridgeServer({ apiBaseUrl: 'http://x/v1', apiKey: 'k', server: 'calendar-mac', fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://x/v1/mcp/servers/calendar-mac/reconnect');
+  });
+
   it('treats a 404 as a stack without the endpoint, and never throws', async () => {
     expect((await wakeHermesBridgeServer({ apiBaseUrl: 'http://x/v1', apiKey: 'k', fetchImpl: reply(404) })).outcome).toBe('unsupported');
     expect((await wakeHermesBridgeServer({ apiBaseUrl: 'http://x/v1', apiKey: 'k', fetchImpl: reply(401) })).outcome).toBe('failed');

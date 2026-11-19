@@ -1,214 +1,288 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, ExternalLink } from 'lucide-react';
+import { BookOpen, CalendarDays, Code, Compass, Globe, MessageSquare, Plus, Search } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
 import { Pill } from '../components/ui/badge';
 import { refreshAssistantStackStatus, useAssistantStackStatus } from './assistantStack';
-import type {
-  AssistantStackStatus,
-  AssistantUiServiceCard,
-} from '../../shared/types/assistantStack';
-import {
-  ASSISTANT_UI_SERVICES,
-  buildServiceUrl,
-  type AssistantUiServiceDefinition,
-} from '../../shared/assistantUiServices';
+import type { AssistantUiServiceCard } from '../../shared/types/assistantStack';
+import type { AddonListing } from '../../shared/types/addons';
 import { openSettings } from './settingsNavigation';
-import { useCalendarAccounts } from './useCalendarAccounts';
+import { useCalendarAccounts, useMacStatus } from './useCalendarAccounts';
+import { macCardState } from './calendar/MacCalendarSteps';
+import type { CalendarAccountView, MacStatusResult } from '../../shared/types/calendars';
 import { APP_NAME } from '../../shared/buildIdentity';
-import type { AddonId } from '../../shared/types/addons';
-import { AddonsSection } from './addons/AddonsSection';
-import { AddonCrumbs, AddonDetail } from './addons/AddonDetail';
-import { AddonInstallProgress } from './addons/AddonInstallProgress';
-import { inProgress } from './addons/addonCopy';
-import { useAddonListing, useAnyAddonInstall } from './addons/useAddons';
+import { AddonStore, type StorePage } from './addons/AddonStore';
+import { openAddon } from './addons/AddonDetail';
+import { memGB } from './addons/addonCopy';
+import { Ring, StoreTile } from './addons/StoreTile';
+import { onServicesHome, type StoreItem } from './addons/storeItems';
+import { startStoppedAddon } from './addons/useAddons';
+import { openBuiltinAddon, openServiceUrl, useStoreItems } from './addons/useStoreItems';
+import { ServiceTile, TileGrid, type TileMenuItem, type TileTone } from './services/ServiceTile';
+
+// The Services screen as a home screen (store spec decision 13): the services that ship with
+// Boundary in one row, everything installed from the store in the next, and the store itself a
+// tile and a button away.
+
+const BUILT_IN_ICONS: Record<string, React.FC<{ className?: string }>> = {
+  'hermes-webui': MessageSquare,
+  searxng: Search,
+  'gpt-researcher': BookOpen,
+  opencode: Code,
+};
+
+/** A built-in service's face: one look for all of them, apart from the add-ons' category tints. */
+const BuiltInFace: React.FC<{ icon: React.FC<{ className?: string }> }> = ({ icon: Icon }) => (
+  <span aria-hidden className="grid size-24 place-items-center rounded-[24px] bg-brand-dim text-brand">
+    <Icon className="size-10" />
+  </span>
+);
+
+const Section: React.FC<{ id: string; title: string; lead: string; aside?: React.ReactNode; children: React.ReactNode }> = ({
+  id,
+  title,
+  lead,
+  aside,
+  children,
+}) => (
+  <section aria-labelledby={id} className="flex flex-col gap-3">
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 id={id} className="font-medium text-fg">
+          {title}
+        </h2>
+        <p className="mt-0.5 text-xs text-fg-faint">{lead}</p>
+      </div>
+      {aside}
+    </header>
+    {children}
+  </section>
+);
+
+// ---------- Calendar ----------
+
+/** The helper's state for the Services line: it answered, or it stopped or is missing. */
+function helperLine(access: MacStatusResult['access']): string {
+  if (access === 'stopped') return 'Calendar helper stopped';
+  if (access === 'missing') return 'Calendar helper missing';
+  return 'Calendar helper running';
+}
+
+/** The Mac account's line and helper status, checked on mount and on window focus. */
+function useMacServiceLine(mac: CalendarAccountView | undefined) {
+  const { status } = useMacStatus(Boolean(mac));
+  if (!mac) return null;
+  const allowed = mac.allowedCalendarIds ?? [];
+  const titles =
+    status?.access === 'granted' ? status.calendars.filter((c) => allowed.includes(c.id)).map((c) => c.title) : null;
+  const count = allowed.length === 1 ? '1 calendar' : `${allowed.length} calendars`;
+  return {
+    line: `${mac.name} · ${titles?.length ? titles.join(', ') : count}`,
+    helper: status ? helperLine(status.access) : null,
+    state: macCardState(status),
+  };
+}
 
 /**
  * caldav-mcp as "Calendar" (calendar spec, Phase 3): it runs only while a calendar is connected,
- * so its status is the accounts' last sign-in checks. Setup stays in Settings → Calendars.
+ * so its status is the accounts' last sign-in checks. The Mac's calendars (Phase 7) and the
+ * calendar helper's live status are in its menu. Setup stays in Settings → Calendars.
  */
-const CalendarServiceCard: React.FC = () => {
+const CalendarTile: React.FC = () => {
   const accounts = useCalendarAccounts();
+  const mac = useMacServiceLine(accounts?.find((a) => a.provider === 'mac'));
 
   if (!accounts) return null;
   const connected = accounts.length > 0;
-  const rejected = accounts.filter((a) => a.lastCheck?.status === 'rejected');
-  const unreachable = accounts.filter((a) => a.lastCheck?.status === 'unreachable');
-  const status = !connected
-    ? null
-    : rejected.length
-      ? { variant: 'destructive' as const, label: 'Sign-in failed' }
-      : unreachable.length
-        ? { variant: 'warn' as const, label: 'Unreachable' }
-        : { variant: 'ok' as const, label: 'Connected' };
+  const caldav = accounts.filter((a) => a.provider !== 'mac');
+  // The Mac account's live state stands in for its last test once the helper has answered.
+  const checked = mac?.state ? caldav : accounts;
+  const rejected = checked.some((a) => a.lastCheck?.status === 'rejected');
+  const unreachable = checked.some((a) => a.lastCheck?.status === 'unreachable');
+  const status: { text: string; tone: TileTone } = !connected
+    ? { text: 'Off', tone: 'faint' }
+    : mac?.state?.tone === 'is-bad'
+      ? { text: mac.state.pill, tone: 'danger' }
+      : rejected
+        ? { text: 'Sign-in failed', tone: 'danger' }
+        : unreachable
+          ? { text: 'Unreachable', tone: 'warn' }
+          : { text: 'Connected', tone: 'ok' };
+  const notes = !connected
+    ? ['Starts when you connect a calendar']
+    : [
+        ...(caldav.length ? [`CalDAV bridge · ${caldav.map((a) => a.name).join(', ')}`] : []),
+        ...(mac ? [mac.line, ...(mac.helper ? [mac.helper] : [])] : []),
+      ];
+  const manage = () => openSettings({ tab: 'calendars' });
 
   return (
-    <section
-      aria-label="Calendar"
-      className="flex flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4"
-    >
-      <div className="flex w-full items-center justify-between gap-2">
-        <span className="font-medium text-fg">Calendar</span>
-        {status ? (
-          <Pill variant={status.variant} dot>
-            {status.label}
-          </Pill>
-        ) : (
-          <Pill variant="outline">Off</Pill>
-        )}
-      </div>
-      <p className="text-xs leading-relaxed text-fg-faint">
-        {connected
-          ? `CalDAV bridge · ${accounts.map((a) => a.name).join(', ')}`
-          : 'Starts when you connect a calendar'}
-      </p>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="mt-auto"
-        onClick={() => openSettings({ tab: 'calendars' })}
-      >
-        <CalendarDays className="size-4" aria-hidden />
-        {connected ? 'Manage calendars' : 'Connect calendar'}
-      </Button>
-    </section>
+    <ServiceTile
+      name="Calendar"
+      face={<BuiltInFace icon={CalendarDays} />}
+      status={status}
+      hint="Your agents’ calendars, through CalDAV and this Mac’s calendars."
+      dim={!connected}
+      onClick={manage}
+      notes={notes}
+      menu={[{ label: connected ? 'Manage calendars' : 'Connect calendar', onSelect: manage }]}
+    />
   );
 };
 
-type AddonView = { view: 'list' } | { view: 'detail' | 'install'; id: AddonId };
+// ---------- Add-ons ----------
 
-/** An add-on's detail page or install view, in place of the service list. */
-const AddonPage: React.FC<{ page: Exclude<AddonView, { view: 'list' }>; go(next: AddonView): void }> = ({
-  page,
-  go,
-}) => {
-  const listing = useAddonListing(page.id);
-  const toList = () => go({ view: 'list' });
-  const toDetail = () => go({ view: 'detail', id: page.id });
-  if (page.view === 'detail') {
-    return (
-      <AddonDetail id={page.id} onBack={toList} onInstallStarted={() => go({ view: 'install', id: page.id })} />
-    );
+/** The tile's status line for an add-on, from its store state. */
+function addonStatus(item: StoreItem): { text: React.ReactNode; tone: TileTone } {
+  const s = item.state;
+  if (item.attention) return { text: 'Needs sign-in', tone: 'warn' };
+  switch (s.kind) {
+    case 'on':
+      return { text: s.canOpen ? 'Running' : 'On', tone: 'faint' };
+    case 'restart':
+      return { text: 'Waiting for restart', tone: 'brand' };
+    case 'start':
+      return { text: 'Not running', tone: 'warn' };
+    case 'installing':
+      return {
+        text: (
+          <>
+            <Ring percent={s.percent} className="size-3.5" />
+            {`Installing ${s.percent}%`}
+          </>
+        ),
+        tone: 'brand',
+      };
+    case 'removing':
+      return { text: 'Removing…', tone: 'brand' };
+    case 'off-data':
+      return { text: 'Off · data kept', tone: 'faint' };
+    case 'view':
+      return { text: s.line, tone: s.tone === 'muted' ? 'faint' : s.tone };
+    case 'get':
+      // Not on Services: onServicesHome leaves out what's only for sale.
+      return { text: '', tone: 'faint' };
   }
-  return (
-    <div className="flex flex-col gap-5">
-      {listing ? <AddonCrumbs name={listing.entry.name} onBack={toList} /> : null}
-      <AddonInstallProgress id={page.id} onDone={toDetail} />
-    </div>
-  );
-};
+}
 
-type OptionalServiceOpen = AssistantUiServiceDefinition;
+/** What a click and the menu do for one add-on tile. */
+function addonActions(
+  item: StoreItem,
+  ctx: {
+    listing: AddonListing | null;
+    store(page: StorePage): void;
+    show(line: string | null): void;
+  }
+): { click(): void; menu: TileMenuItem[] } {
+  const s = item.state;
+  const page: StorePage = { view: 'detail', id: item.key };
+  const details: TileMenuItem = { label: 'Details', onSelect: () => ctx.store(page) };
 
-/** LightRAG's card opens its WebUI and the Neo4j browser. */
-const LIGHTRAG_OPENS = ASSISTANT_UI_SERVICES.filter(
-  (service) => service.id === 'lightrag' || service.id === 'neo4j'
-);
-
-/**
- * A service that is off unless the user turns it on here: n8n, and LightRAG with Neo4j. Turning
- * it on or off while the assistant runs starts it, or stops and removes its containers; its data
- * volumes stay.
- */
-const OptionalServiceCard: React.FC<{
-  status: AssistantStackStatus;
-  name: string;
-  setting: { enabled: boolean; canToggle: boolean };
-  /** What it does, shown while it's on. */
-  summary: string;
-  /** Shown instead of the switch under dev:local-stack. */
-  localCaption: string;
-  /** Shown under the on switch while it's off. */
-  offCaption?: string;
-  opens: OptionalServiceOpen[];
-  setEnabled: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
-  onOpen: (service: AssistantUiServiceCard) => void;
-}> = ({ status, name, setting, summary, localCaption, offCaption, opens, setEnabled, onOpen }) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { enabled, canToggle } = setting;
-
-  const toggle = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await setEnabled(!enabled);
-      if (!result.success) setError(result.error ?? `Couldn’t change ${name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      await refreshAssistantStackStatus();
-      setBusy(false);
-    }
+  const id = item.key;
+  const listing = ctx.listing;
+  const openIt = (): void => {
+    if (listing) void openAddon(listing).then(ctx.show);
   };
+  const start = (): void => {
+    if (listing) void startStoppedAddon(id, listing.entry.name);
+  };
+  // Turning a catalog add-on off or removing it asks first, on its page, which knows what
+  // agents lose.
+  const menu: TileMenuItem[] = [];
+  if (s.kind === 'on' && s.canOpen) menu.push({ label: 'Open', onSelect: openIt });
+  // LightRAG's graph store has a browser of its own.
+  if (s.kind === 'on' && id === 'lightrag') {
+    menu.push({ label: 'Open Neo4j', onSelect: () => void openBuiltinAddon('lightrag', 'Neo4j', 1).then(ctx.show) });
+  }
+  menu.push(details);
+  const click =
+    s.kind === 'on' && s.canOpen && !item.attention
+      ? openIt
+      : s.kind === 'start'
+        ? start
+        : s.kind === 'installing' || s.kind === 'removing' || s.kind === 'restart'
+          ? () => ctx.store({ view: 'install', id })
+          : details.onSelect;
+  return { click, menu };
+}
 
-  const caption = !canToggle
-    ? localCaption
-    : busy
-      ? enabled
-        ? `Stopping ${name}…`
-        : `Starting ${name}…`
-      : enabled
-        ? status.ready
-          ? summary
-          : 'Starts with your assistant.'
-        : `${summary} ${offCaption ?? 'Off until you turn it on.'}`;
+/** The installed add-ons as tiles, ending with the way into the store. */
+const AddonsRow: React.FC<{ store(page: StorePage): void; show(line: string | null): void }> = ({ store, show }) => {
+  const { items, listings } = useStoreItems();
+  if (!items.length) return null;
+  const home = items.filter(onServicesHome);
+  const more = items.length - home.length;
+  const running = home.filter((i) => ['on', 'restart', 'installing'].includes(i.state.kind));
+  const reserved = running.reduce((n, i) => n + (i.reserveMiB ?? 0), 0);
+  const listingOf = (key: string) => listings.find((l) => l.entry.id === key) ?? null;
 
   return (
-    <section
-      aria-label={name}
-      className="flex flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4"
-    >
-      <div className="flex w-full items-center justify-between gap-2">
-        <span className="font-medium text-fg">{name}</span>
-        {enabled ? (
-          <Pill variant="ok" dot>
-            On
-          </Pill>
-        ) : (
-          <Pill variant="outline">Off</Pill>
-        )}
-      </div>
-      <p className="text-xs leading-relaxed text-fg-faint">{caption}</p>
-      {error && <p className="text-xs leading-relaxed text-danger">{error}</p>}
-      <div className="mt-auto flex flex-wrap gap-2 pt-2">
-        {canToggle && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => void toggle()}
-          >
-            {enabled ? 'Turn off' : 'Turn on'}
-          </Button>
-        )}
-        {enabled &&
-          status.ready &&
-          opens.map((open) => (
-            <Button
-              key={open.id}
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                onOpen({ ...open, url: buildServiceUrl(status.ports, open.portKey, open.path) })
-              }
-            >
-              <ExternalLink className="size-4" aria-hidden />
-              {opens.length > 1 ? `Open ${open.title}` : 'Open'}
-            </Button>
-          ))}
-      </div>
-    </section>
+    <>
+      <div className="h-px bg-line" />
+      <Section
+        id="services-addons"
+        title="Add-ons"
+        lead={
+          home.length
+            ? 'Installed from the store. Right-click a tile, or use its ⋯ button, for more.'
+            : 'Give your agents a CRM, a budget or a knowledge graph.'
+        }
+        aside={
+          home.length ? (
+            <span className="flex items-center gap-3 text-xs text-fg-faint">
+              {reserved ? <span className="tabular-nums">{`${memGB(reserved)} GB engine memory reserved`}</span> : null}
+              <button type="button" className="cursor-pointer font-medium text-brand" onClick={() => store({ view: 'installed' })}>
+                See as a list
+              </button>
+            </span>
+          ) : null
+        }
+      >
+        <TileGrid label="Add-ons">
+          {home.map((item) => {
+            const actions = addonActions(item, {
+              listing: listingOf(item.key),
+              store,
+              show,
+            });
+            const k = item.state.kind;
+            return (
+              <ServiceTile
+                key={item.key}
+                name={item.name}
+                face={<StoreTile item={item} size="xl" />}
+                status={addonStatus(item)}
+                hint={item.summary}
+                dim={k === 'installing' || k === 'off-data' || k === 'start'}
+                onClick={actions.click}
+                menu={actions.menu}
+              />
+            );
+          })}
+          <ServiceTile
+            name="Get add-ons"
+            face={
+              <span
+                aria-hidden
+                className="grid size-24 place-items-center rounded-[24px] border-[1.5px] border-dashed border-line-strong text-fg-faint"
+              >
+                <Plus className="size-9" />
+              </span>
+            }
+            status={{ text: more ? `${more} more in the store` : 'Browse the store', tone: 'faint' }}
+            onClick={() => store({ view: 'discover' })}
+            menu={[]}
+          />
+        </TileGrid>
+      </Section>
+    </>
   );
 };
+
+// ---------- Screen ----------
 
 export const AssistantServicesScreen: React.FC = () => {
-  const [addonView, setAddonView] = useState<AddonView>({ view: 'list' });
-  const addonInstall = useAnyAddonInstall();
+  const [store, setStore] = useState<StorePage | null>(null);
   const assistantStackStatus = useAssistantStackStatus();
   const [openError, setOpenError] = useState<string | null>(null);
 
@@ -217,8 +291,7 @@ export const AssistantServicesScreen: React.FC = () => {
     void refreshAssistantStackStatus();
   }, []);
 
-  const services: AssistantUiServiceCard[] =
-    assistantStackStatus?.uiServices ?? [];
+  const services: AssistantUiServiceCard[] = assistantStackStatus?.uiServices ?? [];
   const ready = Boolean(assistantStackStatus?.ready);
   const offset = assistantStackStatus?.isolationMode === 'offset-ports';
 
@@ -230,139 +303,83 @@ export const AssistantServicesScreen: React.FC = () => {
     });
   }, []);
 
-  const handleOpen = useCallback(async (service: AssistantUiServiceCard) => {
-    setOpenError(null);
-    try {
-      const result = await window.electronAPI.urls.openUrl(service.url);
-      if (!result.success) {
-        setOpenError(`Could not open ${service.title}.`);
-      }
-    } catch (err) {
-      setOpenError(err instanceof Error ? err.message : String(err));
-    }
+  const handleOpen = useCallback((service: AssistantUiServiceCard): void => {
+    void openServiceUrl(service.url, service.title).then(setOpenError);
   }, []);
 
-  // A card opens the install view while that add-on's install is under way, else its detail page.
-  const openAddon = useCallback(
-    (id: AddonId) =>
-      setAddonView({
-        view: addonInstall?.id === id && inProgress(addonInstall) ? 'install' : 'detail',
-        id,
-      }),
-    [addonInstall]
-  );
+  const copyAddress = (url: string): void => {
+    void navigator.clipboard?.writeText(url).catch((): void => undefined);
+  };
 
-  if (addonView.view !== 'list') {
-    return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
-        <div className="max-w-[960px]">
-          <AddonPage page={addonView} go={setAddonView} />
-        </div>
-      </div>
-    );
+  if (store) {
+    return <AddonStore page={store} go={setStore} onServices={() => setStore(null)} />;
   }
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-7 pb-10">
-      <div className="flex max-w-[960px] flex-col gap-5">
-        <header>
-          <h1 className="text-heading font-medium text-fg">Services</h1>
-          <p className="mt-1.5 text-xs text-fg-faint">
-            Open each assistant service in your browser. They run in {APP_NAME}’s managed Compose
-            project on this machine.
-          </p>
+      <div className="flex max-w-[1040px] flex-col gap-7">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-heading font-medium text-fg">Services</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-ui text-fg-muted">
+              {ready ? (
+                <>
+                  <Pill variant="ok" dot>
+                    Assistant running
+                  </Pill>
+                  {assistantStackStatus?.apiBaseUrl && (
+                    <code
+                      className="min-w-0 max-w-full truncate font-mono text-xs text-fg-faint"
+                      title={assistantStackStatus.apiBaseUrl}
+                    >
+                      {assistantStackStatus.apiBaseUrl}
+                    </code>
+                  )}
+                  {offset && <span className="text-xs text-fg-faint">(offset ports — developer stack holds the defaults)</span>}
+                </>
+              ) : (
+                <>
+                  <Pill variant="warn" dot>
+                    Not ready
+                  </Pill>
+                  <span>Your assistant isn’t running yet.</span>
+                  <Button type="button" onClick={handleStart}>
+                    Start assistant
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+          <Button type="button" data-guide-anchor="addon-store" onClick={() => setStore({ view: 'discover' })}>
+            <Compass className="size-4" aria-hidden />
+            Add-on store
+          </Button>
         </header>
-
-        <div className="flex flex-wrap items-center gap-3 text-ui text-fg-muted">
-          {ready ? (
-            <>
-              <Pill variant="ok" dot>
-                Hermes API healthy
-              </Pill>
-              {assistantStackStatus?.apiBaseUrl && (
-                <code
-                  className="min-w-0 max-w-full truncate font-mono text-xs text-fg-faint"
-                  title={assistantStackStatus.apiBaseUrl}
-                >
-                  {assistantStackStatus.apiBaseUrl}
-                </code>
-              )}
-              {offset && (
-                <span className="text-xs text-fg-faint">
-                  (offset ports — developer stack holds the defaults)
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <Pill variant="warn" dot>
-                Not ready
-              </Pill>
-              <span>Your assistant isn’t running yet.</span>
-              <Button type="button" onClick={handleStart}>
-                Start assistant
-              </Button>
-            </>
-          )}
-        </div>
 
         {openError && <Callout variant="destructive">{openError}</Callout>}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((service) => (
-            <button
-              key={service.id}
-              type="button"
-              onClick={() => void handleOpen(service)}
-              className="group flex min-w-0 cursor-pointer flex-col items-start gap-1.5 rounded-lg border border-line bg-surface-1 p-4 text-left outline-none transition-colors duration-(--dur-fast) hover:border-fg-faint/60 hover:bg-surface-hover focus-visible:shadow-(--focus-ring)"
-            >
-              <div className="flex w-full items-center justify-between gap-2">
-                <span className="font-medium text-fg">{service.title}</span>
-                <ExternalLink
-                  className="size-4 shrink-0 text-fg-faint transition-colors duration-(--dur-fast) group-hover:text-brand"
-                  aria-hidden
-                />
-              </div>
-              <p className="text-xs leading-relaxed text-fg-faint">{service.description}</p>
-              <code
-                className="mt-auto max-w-full truncate pt-2 font-mono text-2xs text-fg-faint"
-                title={service.url}
-              >
-                {service.url}
-              </code>
-            </button>
-          ))}
-          {assistantStackStatus?.n8n && (
-            <OptionalServiceCard
-              status={assistantStackStatus}
-              name="n8n"
-              setting={assistantStackStatus.n8n}
-              summary="Workflow automation."
-              localCaption="Set by the local stack’s .env (AUTOMATION_ENABLED)."
-              opens={[
-                { id: 'n8n', title: 'n8n', description: 'Workflow automation.', portKey: 'n8n', path: '/' },
-              ]}
-              setEnabled={(enabled) => window.electronAPI.assistantStack.setN8nEnabled(enabled)}
-              onOpen={(s) => void handleOpen(s)}
-            />
-          )}
-          {assistantStackStatus?.lightrag && (
-            <OptionalServiceCard
-              status={assistantStackStatus}
-              name="LightRAG"
-              setting={assistantStackStatus.lightrag}
-              summary="Knowledge graph over your documents, stored in Neo4j."
-              localCaption="Set by the local stack’s .env (COMPOSE_PROFILES)."
-              offCaption="Off until you turn it on. Turning it on restarts your assistant."
-              opens={LIGHTRAG_OPENS}
-              setEnabled={(enabled) => window.electronAPI.assistantStack.setLightragEnabled(enabled)}
-              onOpen={(s) => void handleOpen(s)}
-            />
-          )}
-          <CalendarServiceCard />
-        </div>
+        <Section id="services-built-in" title="Built in" lead={`Part of ${APP_NAME}. They start and stop with your assistant.`}>
+          <TileGrid label="Built in">
+            {services.map((service) => (
+              <ServiceTile
+                key={service.id}
+                name={service.title}
+                face={<BuiltInFace icon={BUILT_IN_ICONS[service.id] ?? Globe} />}
+                status={{ text: ready ? 'Running' : 'Stopped', tone: 'faint' }}
+                hint={`${service.description} ${service.url}`}
+                disabled={!ready}
+                onClick={() => handleOpen(service)}
+                menu={[
+                  { label: 'Open in browser', onSelect: () => handleOpen(service) },
+                  { label: 'Copy address', onSelect: () => copyAddress(service.url) },
+                ]}
+              />
+            ))}
+            <CalendarTile />
+          </TileGrid>
+        </Section>
 
-        <AddonsSection onOpen={openAddon} />
+        <AddonsRow store={setStore} show={setOpenError} />
       </div>
     </div>
   );

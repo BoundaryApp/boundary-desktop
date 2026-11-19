@@ -1,4 +1,5 @@
 import { broadcast } from '../../windows';
+import { meetsLevel, type TrustLevel } from '../../../../shared/types/confidential';
 import type { HermesRunningTurn } from '../../../../shared/types/hermesChat';
 import { getHermesGatewaySession } from './hermesGatewaySession';
 
@@ -11,6 +12,25 @@ const running = new Map<string, HermesRunningTurn>();
 /** The tool each running turn started last, by request id (ADR 0028 §7's busy check). */
 const lastTools = new Map<string, string>();
 const stopWatching = new Map<string, () => void>();
+/**
+ * The pool floor a private chat's last send was planned at, by session. A running turn keeps the
+ * chain it was sent with, so this is its floor even if the project allows a lower one since.
+ */
+const sentPoolFloors = new Map<string, TrustLevel>();
+
+/**
+ * Note the floor a send for `sessionId` was planned at. While a turn of that session runs, its
+ * chain stays in use, so a later send (a queued prompt, say) can only raise the note, not lower it.
+ */
+export function notePoolFloorSent(sessionId: string, floor: TrustLevel): void {
+  const before = sentPoolFloors.get(sessionId);
+  const turnRunning = [...running.values()].some((turn) => turn.sessionIds.includes(sessionId));
+  sentPoolFloors.set(sessionId, before && turnRunning && meetsLevel(before, floor) ? before : floor);
+}
+
+export function poolFloorSent(sessionId: string): TrustLevel | undefined {
+  return sentPoolFloors.get(sessionId);
+}
 
 function broadcastRunning(): void {
   broadcast('hermes-chat:running', listRunningTurns());
@@ -30,6 +50,17 @@ export function beginRunningTurn(
     startedAt: new Date().toISOString(),
   });
   watchTools(requestId, ids);
+  broadcastRunning();
+}
+
+/**
+ * A turn waiting for its local model server is `held`; it becomes `running` once admitted
+ * (workload plan Phase 1a). Kept apart from an approval wait, which the run button calls held.
+ */
+export function setRunningTurnAdmission(requestId: string, admission: 'held' | 'running'): void {
+  const turn = running.get(requestId);
+  if (!turn || (turn.admission ?? 'running') === admission) return;
+  running.set(requestId, { ...turn, admission });
   broadcastRunning();
 }
 
@@ -54,6 +85,7 @@ function forgetTools(requestId: string): void {
 
 export function endRunningTurn(requestId: string): void {
   forgetTools(requestId);
+  for (const id of running.get(requestId)?.sessionIds ?? []) sentPoolFloors.delete(id);
   if (running.delete(requestId)) broadcastRunning();
 }
 
@@ -72,4 +104,5 @@ export function listRunningTurns(): HermesRunningTurn[] {
 export function resetRunningTurnsForTests(): void {
   for (const requestId of [...stopWatching.keys()]) forgetTools(requestId);
   running.clear();
+  sentPoolFloors.clear();
 }

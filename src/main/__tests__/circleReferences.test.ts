@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OAUTH_LLM_CAPABILITIES } from '../../shared/llmConnectionDefaults';
 import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import type { HermesProjectRecord } from '../../shared/types/hermesChat';
+import type { SaveLlmConnectionInput } from '../../shared/types/onboarding';
 import {
   listStoredHermesProjects,
   replaceStoredHermesProjects,
@@ -34,10 +36,12 @@ const shared = (circleId: string, modelId = 'qwen3-8b'): InferenceChainEntry => 
   peer: { circleId, providerId: BO },
 });
 
-const openRouter = {
+const openRouter: SaveLlmConnectionInput = {
   endpointUrl: 'https://openrouter.ai/api/v1',
   apiKey: 'sk-test',
   modelId: 'anthropic/claude-sonnet-4',
+  provider: 'openrouter',
+  capabilities: OAUTH_LLM_CAPABILITIES,
 };
 
 const choose = (chosen: InferenceChainEntry | null, fallbacks: InferenceChainEntry[], appDefault: 'openrouter' | null = null) =>
@@ -112,7 +116,7 @@ describe('clearing references to wiped Circles', () => {
 
   it('runs once, so a Circle left later keeps its model selected (ADR 0036 §5)', () => {
     const ran = new Set<string>();
-    const record = { has: (id: string) => ran.has(id), add: (id: string) => void ran.add(id) };
+    const record = { has: (id: string) => ran.has(id), add: (id: string): void => void ran.add(id) };
     const migration = { id: 'test', removeAfter: '0.1.0', run: () => dropWipedCircleReferences() };
     runMigrations([migration], record);
     choose(shared(JOINED), []);

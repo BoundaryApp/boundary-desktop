@@ -1,33 +1,33 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSearchModeState } from '../../../shared/webSearchMode';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
+import { replied } from '../../__tests__/mockReplies';
 import { WebSearchModeSection } from '../WebSearchModeSection';
 
 const getWebSearchMode = vi.fn<() => Promise<WebSearchModeState>>();
 const setWebSearchMode = vi.fn();
 
 function stateWith(partial: Partial<WebSearchModeState> = {}): WebSearchModeState {
-  return { mode: 'private', available: true, canChange: true, overrides: [], ...partial };
+  return { mode: 'private', canChange: true, overrides: [], ...partial };
 }
 
 beforeEach(() => {
   getWebSearchMode.mockReset().mockResolvedValue(stateWith());
   setWebSearchMode.mockReset().mockResolvedValue({ success: true });
-  Object.defineProperty(window, 'electronAPI', {
-    configurable: true,
-    value: { assistantStack: { getWebSearchMode, setWebSearchMode } },
-  });
+  stubElectronAPI({ assistantStack: { getWebSearchMode, setWebSearchMode } });
 });
 
-afterEach(cleanup);
-
 describe('WebSearchModeSection', () => {
-  it('renders nothing on a stack pin without the setting', async () => {
-    getWebSearchMode.mockResolvedValue(stateWith({ available: false }));
+  it('renders nothing until the state arrives', async () => {
+    let resolve: (state: WebSearchModeState) => void = () => {};
+    getWebSearchMode.mockReturnValue(new Promise((r) => (resolve = r)));
     const { container } = render(<WebSearchModeSection />);
-    await waitFor(() => expect(getWebSearchMode).toHaveBeenCalled());
     expect(container.innerHTML).toBe('');
+    resolve(stateWith());
+    await replied(getWebSearchMode);
+    expect(await screen.findByRole('radio', { name: /Private only/ })).toBeTruthy();
   });
 
   it('starts on Private only with no privacy note and nothing to save', async () => {

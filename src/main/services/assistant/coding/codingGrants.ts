@@ -376,6 +376,42 @@ export async function setProjectFolderCoding(
   return result();
 }
 
+/**
+ * For a new project whose folder gets coding in the same restart as its mount: why the
+ * folder can't have coding, or null when it can.
+ */
+export function projectFolderCodingRefusal(hostPath: string): string | null {
+  const reason = refuseCodingGrantReason(path.resolve(hostPath), deps.ruleOptions());
+  return reason ? codingGrantRefuseMessage(reason) : null;
+}
+
+/** True when a granted folder's mount already holds this path, so no coding restart is needed. */
+export function isCodingMounted(hostPath: string): boolean {
+  const resolved = path.resolve(hostPath);
+  return currentCodingRoots().some((root) => isPathUnder(resolved, root));
+}
+
+/**
+ * After the restart that mounted a new project's folder with coding on: check the coding
+ * agent can open it, record its state and audit the grant. Returns the message to show
+ * when it can't, or null. With `failure`, the restart failed and the project was rolled
+ * back, so this only audits that.
+ */
+export async function finishProjectFolderGrant(
+  project: Pick<HermesProjectRecord, 'id' | 'hostPath'>,
+  failure?: string
+): Promise<string | null> {
+  const hostPath = path.resolve(project.hostPath);
+  const args = { path: hostPath, projectId: project.id, origin: 'project-folder' };
+  if (failure) {
+    auditCodingChange('coding_grant', args, 'not added', failure);
+    return null;
+  }
+  setCodingGrantState(hostPath, (await deps.verify(hostPath)) ? 'ready' : 'not-visible');
+  auditCodingChange('coding_grant', args, grantStateOutcome(hostPath));
+  return getCodingGrantStates()[hostPath] === 'not-visible' ? notVisibleMessage(hostPath) : null;
+}
+
 export async function revokeCoding(payload: CodingRevokePayload): Promise<CodingFoldersResult> {
   if (deps.isLocalStack()) return unmanaged();
   if (!findCodingGrant(payload.hostPath)) return result();

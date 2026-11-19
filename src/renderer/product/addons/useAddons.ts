@@ -1,10 +1,15 @@
 import type {
+  ActualConnectInput,
   AddonId,
   AddonInstallSnapshot,
   AddonListing,
   AddonStepId,
+  TwentyAccess,
 } from '../../../shared/types/addons';
+import type { RunningWorkItem } from '../../../shared/types/updates';
+import { useEffect, useRef, useState } from 'react';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
+import { removalSteps } from './addonCopy';
 
 // The add-on catalog and the installer's snapshot, shared by the Services list, the detail
 // page and the install view. `addons:install` resolves only when the run ends, and a failed
@@ -19,8 +24,10 @@ const listings = createIpcStore<AddonListing[] | null>({
 export async function reloadAddons(): Promise<void> {
   try {
     listings.set(await window.electronAPI.addons.list());
-  } catch {
-    /* keep the last list; with none, the section stays hidden */
+  } catch (error) {
+    // Keep the last list; with none, the section stays hidden. Main logs its own failures;
+    // this covers a call that never reached it.
+    console.warn('[addons] list failed', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -75,8 +82,42 @@ const STEP_IDS: AddonStepId[] = ['check', 'download', 'start', 'answer', 'setup'
  * keeps the view from flashing empty. A refused call (another run holds the installer) shows
  * as a failed check.
  */
-export function startAddonInstall(id: AddonId): void {
-  install.set({ id, steps: STEP_IDS.map((step) => ({ id: step, status: 'pending' })), done: false });
+export function startAddonInstall(id: AddonId, access?: TwentyAccess, makeRoom = false): void {
+  // The installer writes the access choice into `crm-main` before its restart step (0023 R1).
+  // `makeRoom` lets it restart the engine at a size that fits first (ADR 0055 §3).
+  const options = { ...(access ? { access } : {}), ...(makeRoom ? { makeRoom } : {}) };
+  runInstall(id, STEP_IDS, () =>
+    Object.keys(options).length
+      ? window.electronAPI.addons.install(id, options)
+      : window.electronAPI.addons.install(id)
+  );
+}
+
+/**
+ * Connects Actual's first budget on another server while the add-on is off. Turning Actual on
+ * the first time builds its MCP images, so this runs as an install and the page shows its steps.
+ */
+export function startActualRemoteInstall(input: ActualConnectInput): void {
+  runInstall('actual', ['check', 'download', 'start', 'connect'], () =>
+    window.electronAPI.addons.install('actual', { remote: input })
+  );
+}
+
+/**
+ * Turns email on with its first account (spec decision 36). The stack's `enable` refuses
+ * without an account that has mailboxes, so the sheet saves the account first and this runs
+ * the steps the email installer reports.
+ */
+export function startEmailInstall(account: string): void {
+  runInstall('email', ['check', 'start', 'setup'], () => window.electronAPI.addons.install('email', { email: { account } }));
+}
+
+function runInstall(
+  id: AddonId,
+  steps: AddonStepId[],
+  call: () => Promise<{ success: boolean; error?: string }>
+): void {
+  install.set({ id, kind: 'install', steps: steps.map((step) => ({ id: step, status: 'pending' })), done: false });
   const refused = (message: string) => {
     const current = install.get();
     if (current?.id !== id || current.error) return;
@@ -86,7 +127,7 @@ export function startAddonInstall(id: AddonId): void {
       error: { step: 'check', message, logTail: [] },
     });
   };
-  window.electronAPI.addons.install(id).then(
+  call().then(
     (result) => {
       if (!result.success) refused(result.error ?? 'The install didn’t start.');
       void reloadAddons();
@@ -95,7 +136,185 @@ export function startAddonInstall(id: AddonId): void {
   );
 }
 
+/**
+ * Starts a removal, or resumes a failed one. As with an install, the first snapshot is ours so
+ * the view isn't empty, and a refused call (local stack, another run holds the installer)
+ * shows as a failed first step. A run that fails a step still resolves; the snapshot says so.
+ */
+export function startAddonRemoval(id: AddonId, installed: boolean, deleteImages: boolean): void {
+  const ids = removalSteps(installed, deleteImages, id);
+  install.set({ id, kind: 'remove', steps: ids.map((step) => ({ id: step, status: 'pending' })), done: false });
+  const refused = (message: string) => {
+    const current = install.get();
+    if (current?.id !== id || current.kind !== 'remove' || current.error) return;
+    install.set({
+      ...current,
+      steps: current.steps.map((s, i) => (i === 0 ? { ...s, status: 'error' } : s)),
+      error: { step: ids[0]!, message, logTail: [] },
+    });
+  };
+  window.electronAPI.addons.remove(id, { deleteImages }).then(
+    (result) => {
+      if (!result.success) refused(result.error ?? 'The removal didn’t start.');
+      void reloadAddons();
+    },
+    (error: unknown) => refused(error instanceof Error ? error.message : String(error))
+  );
+}
+
+/**
+ * Asks main to cancel the running install or removal. Resolves with an error message when main
+ * refuses, as when the run has just passed the last step that can be cancelled.
+ */
+export async function cancelAddonRun(id: AddonId): Promise<string | null> {
+  try {
+    const result = await window.electronAPI.addons.cancel(id);
+    return result.success ? null : (result.error ?? 'Couldn’t cancel.');
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 /** Main drops its snapshot after undo and turn off without sending one. */
 export function forgetAddonInstall(id: AddonId): void {
   if (install.get()?.id === id) install.set(null);
+}
+
+// An installed add-on whose server isn't running while the stack is ready (`stopped`): the
+// alert on every screen and the detail page offer Start, or Mark as not installed (Turn off).
+// Both read one action state, so a start begun in one shows in the other.
+
+export interface StoppedAction {
+  doing: 'starting' | 'marking' | null;
+  error: string | null;
+}
+
+const IDLE: StoppedAction = { doing: null, error: null };
+
+const stoppedActions = createIpcStore<Partial<Record<AddonId, StoppedAction>>>({ initial: {} });
+/** Add-ons whose alert was put off until the next launch. The detail page still offers both. */
+const later = createIpcStore<AddonId[]>({ initial: [] });
+
+/** Installed add-ons whose server isn't running, without one an install is working on. */
+export function useStoppedAddons(): AddonListing[] {
+  const all = useAddonListings();
+  const current = useIpcStore(install);
+  return (all ?? []).filter(
+    (l) => l.installed && l.stopped && !(current?.id === l.entry.id && inProgressSnapshot(current))
+  );
+}
+
+/** Stopped add-ons whose alert hasn't been put off. */
+export function useStoppedAddonAlerts(): AddonListing[] {
+  const hidden = useIpcStore(later);
+  const actions = useIpcStore(stoppedActions);
+  // One that's starting stays, so its progress and any error stay in view.
+  return useStoppedAddons().filter((l) => !hidden.includes(l.entry.id) || actions[l.entry.id]?.doing);
+}
+
+export function useStoppedAction(id: AddonId): StoppedAction {
+  return useIpcStore(stoppedActions)[id] ?? IDLE;
+}
+
+const inProgressSnapshot = (s: AddonInstallSnapshot) => !s.done;
+
+function setAction(id: AddonId, next: StoppedAction): void {
+  stoppedActions.update((all) => ({ ...all, [id]: next }));
+}
+
+async function runStoppedAction(
+  id: AddonId,
+  doing: 'starting' | 'marking',
+  call: () => Promise<{ success: boolean; error?: string }>,
+  fallback: string
+): Promise<void> {
+  if (stoppedActions.get()[id]?.doing) return;
+  setAction(id, { doing, error: null });
+  let error: string | null;
+  try {
+    const result = await call();
+    error = result.success ? null : (result.error ?? fallback);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  setAction(id, { doing: null, error });
+  await reloadAddons();
+}
+
+/** Starts a stopped add-on's containers; the assistant restarts once its server answers. */
+export function startStoppedAddon(id: AddonId, name: string): Promise<void> {
+  return runStoppedAction(id, 'starting', () => window.electronAPI.addons.start(id), `${name} didn’t start.`);
+}
+
+/** Records a stopped add-on as not installed, as Turn off does. Its data stays. */
+export function markAddonNotInstalled(id: AddonId, name: string): Promise<void> {
+  return runStoppedAction(
+    id,
+    'marking',
+    () => window.electronAPI.addons.turnOff(id),
+    `Couldn’t mark ${name} as not installed.`
+  ).then(() => forgetAddonInstall(id));
+}
+
+/** Hides the alert until the next launch. */
+export function putOffStoppedAlert(id: AddonId): void {
+  later.update((ids) => (ids.includes(id) ? ids : [...ids, id]));
+}
+
+/**
+ * Reads the catalog again each time the stack becomes ready. `stopped` is only reported once
+ * it is, so a list read during start-up would otherwise never show it.
+ */
+export function useReloadAddonsWhenReady(phase: string): void {
+  const last = useRef(phase);
+  useEffect(() => {
+    const was = last.current;
+    last.current = phase;
+    if (phase === 'ready' && was !== 'ready') void reloadAddons();
+  }, [phase]);
+}
+
+
+/** How often "Restart when the task finishes" asks whether agent work still runs. */
+const WORK_POLL_MS = 5000;
+
+/** Agent work that a restart would stop, read when `active` turns true. */
+export function useRunningWork(active: boolean): RunningWorkItem[] {
+  const [items, setItems] = useState<RunningWorkItem[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    window.electronAPI.addons
+      .runningWork()
+      .then((next) => {
+        if (alive) setItems(next);
+      })
+      .catch((): void => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+  return items;
+}
+
+/** "Restart when the task finishes": while `queued` and `waiting`, asks until no work runs, then calls `fire` once. */
+export function useRestartWhenIdle(queued: boolean, waiting: boolean, fire: () => void): void {
+  const latest = useRef(fire);
+  latest.current = fire;
+  useEffect(() => {
+    if (!queued || !waiting) return;
+    let fired = false;
+    const timer = setInterval(() => {
+      void window.electronAPI.addons
+        .runningWork()
+        .then((work) => {
+          if (fired || work.length) return;
+          fired = true;
+          clearInterval(timer);
+          latest.current();
+        })
+        .catch((): void => undefined);
+    }, WORK_POLL_MS);
+    return () => clearInterval(timer);
+  }, [queued, waiting]);
 }

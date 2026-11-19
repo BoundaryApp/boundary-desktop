@@ -6,6 +6,8 @@
 export interface SpeakerSegment {
   agentSlug: string | null;
   text: string;
+  /** The writing voice this speaker wrote in (ADR 0056 §7). */
+  writingVoiceName?: string;
 }
 
 /** Adds a streamed chunk, starting a new segment when a different agent speaks. */

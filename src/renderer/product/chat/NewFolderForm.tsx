@@ -8,6 +8,8 @@ import type { CodingChangeMode } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Callout } from '../../components/ui/alert';
+import { Button } from '../../components/ui/button';
 
 /**
  * New folder… in the add sheet (ADR 0028 §8, mock flow 1 "New folder" and "Name taken"):
@@ -153,14 +155,15 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
         <span>Location</span>
         <div className="wb-field-row">
           <div className="wb-field-static mono">{parent ? displayHostPath(parent) : '…'}</div>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             disabled={busy}
             onClick={() => void changeParent()}
           >
             Change…
-          </button>
+          </Button>
         </div>
       </div>
       {parentError ? <p className="wb-sheet-error">{parentError}</p> : null}
@@ -171,26 +174,27 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
         </div>
       ) : null}
       {taken && check ? (
-        <div className="wb-insp-banner warn is-stacked wb-sheet-banner" role="status">
+        <Callout variant="warn" layout="stacked" size="sm" className="wb-insp-callout wb-sheet-banner" role="status">
           <p>{existingFolderSummary(check)}</p>
-          <div className="wb-insp-banner-actions">
+          <div className="wb-callout-actions">
             {check.isDirectory ? (
-              <button type="button" className="wb-btn-tiny" onClick={() => onUseExisting(target)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => onUseExisting(target)}>
                 Use existing folder
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              className="wb-btn-tiny"
               onClick={() => {
                 nameInput.current?.focus();
                 nameInput.current?.select();
               }}
             >
               Pick another name
-            </button>
+            </Button>
           </div>
-        </div>
+        </Callout>
       ) : null}
       <label className={`wb-check-row${defaults && !defaults.gitAvailable ? ' is-off' : ''}`}>
         <input
@@ -244,9 +248,9 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="sheet" /> : null}
       {error ? <p className="wb-sheet-error">{error}</p> : null}
       <div className="wb-sheet-actions">
-        <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onBack}>
+        <Button variant="secondary" block type="button" disabled={busy} onClick={onBack}>
           Back
-        </button>
+        </Button>
         {agent?.busy ? (
           <CodingBusyButtons
             verb="add"
@@ -254,14 +258,15 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
             onChoose={(mode) => onCreate({ parent, name: name.trim(), initGit, access, mode })}
           />
         ) : (
-          <button
+          <Button
+            variant="primary"
+            block
             type="button"
-            className="wb-btn-solid"
             disabled={busy || !ready}
             onClick={() => void submit()}
           >
             {busy ? 'Creating…' : access === 'code' ? 'Create and add' : 'Create as reference'}
-          </button>
+          </Button>
         )}
         {access === 'code' ? (
           <span className="wb-sheet-note">Restarts the coding agent</span>

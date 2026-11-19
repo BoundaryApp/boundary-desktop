@@ -1,55 +1,44 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import type { ElectronAPI } from '../../../../preload';
+import type { FakeBridge, FakeHermesChat } from '../../../__tests__/fakeBridge';
+import type {
+  HermesChatApprovalEvent,
+  HermesChatCredentialRequestEvent,
+} from '../../../../shared/types/hermesChat';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
+import { installChatBridge, threadProps } from './threadHarness';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+let bridge: FakeBridge;
+let chat: FakeHermesChat;
+let listPendingApprovals: Mock<ElectronAPI['hermesChat']['listPendingApprovals']>;
+let listPendingCredentialRequests: Mock<ElectronAPI['hermesChat']['listPendingCredentialRequests']>;
 
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  phase: new Set<(event: Record<string, unknown>) => void>(),
-  speaker: new Set<(event: Record<string, unknown>) => void>(),
-  approval: new Set<(event: Record<string, unknown>) => void>(),
-}));
+/** Main with chats a and b; the thread runs on a local runtime and takes only events from main. */
+function installBridge() {
+  listPendingApprovals = vi.fn<ElectronAPI['hermesChat']['listPendingApprovals']>(async () => []);
+  listPendingCredentialRequests = vi.fn<ElectronAPI['hermesChat']['listPendingCredentialRequests']>(
+    async () => []
+  );
+  ({ bridge, chat } = installChatBridge('a', {
+    hermesChat: { listPendingApprovals, listPendingCredentialRequests },
+  }));
+}
 
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
+/** A promise the test resolves, standing in for a pending list main has not answered yet. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
-const api = stubElectronAPI({
-  hermesChat: {
-    listPendingApprovals: vi.fn(async () => []),
-    onChatPhase: on(ipc.phase),
-    onChatApproval: on(ipc.approval),
-    listPendingCredentialRequests: vi.fn(async () => []),
-    respondCredentialRequest: vi.fn(async () => ({ success: true })),
-    respondApproval: vi.fn(async () => ({ success: true })),
-    ackApproval: vi.fn(async () => ({ success: true })),
-    onChatSpeaker: on(ipc.speaker),
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-  },
-  onboarding: {
-    getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
-    probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
-  },
-  projects: {
-    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-  },
-});
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
 
@@ -67,31 +56,12 @@ const Harness: React.FC<{ sessionId: string | null }> = ({ sessionId }) => {
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <WorkbenchThread
-        sessionId={sessionId}
-        threadTitle="Assistant"
-        agents={agents}
-        activeProject={null}
-        projects={[]}
-        activeProjectId={null}
-        toolsEnabled
-        onToolsEnabledChange={noop}
-        onSelectProject={noop}
-        onClearProject={noop}
-        onNewProject={noop}
-        onCreateAgentFromDraft={noop}
-        onEditAgentDraft={noop}
-      />
+      <WorkbenchThread {...threadProps({ sessionId, agents })} />
     </AssistantRuntimeProvider>
   );
 };
 
-const emit = (set: Set<Listener>, event: Record<string, unknown>) =>
-  act(async () => {
-    for (const cb of [...set]) cb(event);
-  });
-
-const approvalFor = (sessionId: string) => ({
+const approvalFor = (sessionId: string): HermesChatApprovalEvent => ({
   rpcRequestId: `rpc-${sessionId}`,
   sessionId,
   approvalRequestId: `apr-${sessionId}`,
@@ -101,29 +71,37 @@ const approvalFor = (sessionId: string) => ({
 });
 
 describe('WorkbenchThread live turn belongs to the open chat', () => {
-  afterEach(() => cleanup());
+  beforeEach(installBridge);
+  afterEach(() => {
+    cleanup();
+    expect(bridge.unfaked).toEqual([]);
+  });
 
   it("ignores another chat's speaker event, so that chat's phase stays out", async () => {
     render(<Harness sessionId="b" />);
-    await emit(ipc.speaker, { requestId: 'r1', sessionId: 'a', agentSlug: 'scout' });
-    await emit(ipc.phase, { requestId: 'r1', sessionId: 'a', phase: 'preparing' });
+    await bridge.emit('hermes-chat:speaker', { requestId: 'r1', sessionId: 'a', agentSlug: 'scout' });
+    await bridge.emit('hermes-chat:phase', { requestId: 'r1', sessionId: 'a', phase: 'preparing' });
     expect(screen.queryAllByText('Preparing…')).toHaveLength(0);
   });
 
   it("shows this chat's phase after its speaker event", async () => {
     render(<Harness sessionId="b" />);
-    await emit(ipc.speaker, { requestId: 'r2', sessionId: 'b', agentSlug: 'scout' });
-    await emit(ipc.phase, { requestId: 'r2', sessionId: 'b', phase: 'preparing' });
+    await bridge.emit('hermes-chat:speaker', { requestId: 'r2', sessionId: 'b', agentSlug: 'scout' });
+    await bridge.emit('hermes-chat:phase', { requestId: 'r2', sessionId: 'b', phase: 'preparing' });
     expect(screen.queryAllByText('Preparing…').length).toBeGreaterThan(0);
   });
 });
 
 describe('WorkbenchThread approvals', () => {
-  afterEach(() => cleanup());
+  beforeEach(installBridge);
+  afterEach(() => {
+    cleanup();
+    expect(bridge.unfaked).toEqual([]);
+  });
 
   it("does not show another chat's approval or lock this composer", async () => {
     const { container } = render(<Harness sessionId="b" />);
-    await emit(ipc.approval, approvalFor('a'));
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
     expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
     expect(container.querySelector('textarea')!.getAttribute('placeholder')).not.toBe(
       'Answer the approval to continue…'
@@ -132,7 +110,7 @@ describe('WorkbenchThread approvals', () => {
 
   it("shows this chat's approval, and keeps it when the user comes back from another chat", async () => {
     const { rerender } = render(<Harness sessionId="a" />);
-    await emit(ipc.approval, approvalFor('a'));
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
     expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeNull();
     await act(async () => rerender(<Harness sessionId="b" />));
     expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
@@ -142,25 +120,25 @@ describe('WorkbenchThread approvals', () => {
 });
 
 describe('WorkbenchThread pending approvals (G07-5)', () => {
+  beforeEach(installBridge);
   afterEach(() => {
     cleanup();
-    vi.mocked(api.hermesChat.respondApproval).mockReset();
-    vi.mocked(api.hermesChat.respondApproval).mockResolvedValue({ success: true });
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it("shows the open chat's approval that main parked before this window mounted", async () => {
-    vi.mocked(api.hermesChat.listPendingApprovals).mockResolvedValueOnce([approvalFor('a')] as never);
+    listPendingApprovals.mockResolvedValueOnce([approvalFor('a')]);
     await act(async () => {
       render(<Harness sessionId="a" />);
     });
-    expect(api.hermesChat.listPendingApprovals).toHaveBeenLastCalledWith('a');
+    expect(listPendingApprovals).toHaveBeenLastCalledWith('a');
     expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeNull();
   });
 
   it('shows why an answer was not sent, and keeps the card', async () => {
     render(<Harness sessionId="a" />);
-    await emit(ipc.approval, approvalFor('a'));
-    vi.mocked(api.hermesChat.respondApproval).mockResolvedValueOnce({
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
+    chat.respondApproval.mockResolvedValueOnce({
       success: false,
       error: 'The connection to the assistant stack dropped, so that answer was not sent.',
     });
@@ -173,10 +151,11 @@ describe('WorkbenchThread pending approvals (G07-5)', () => {
 
   it('drops the card when main no longer holds the approval', async () => {
     render(<Harness sessionId="a" />);
-    await emit(ipc.approval, approvalFor('a'));
-    vi.mocked(api.hermesChat.respondApproval).mockResolvedValueOnce({
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
+    chat.respondApproval.mockResolvedValueOnce({
       success: false,
       error: 'No pending approval for that request',
+      errorCode: 'not-pending',
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
@@ -186,18 +165,67 @@ describe('WorkbenchThread pending approvals (G07-5)', () => {
 
   it('replaces a replayed approval with the live request for the same approval', async () => {
     render(<Harness sessionId="a" />);
-    await emit(ipc.approval, { ...approvalFor('a'), rpcRequestId: 'pending:apr-a' });
-    await emit(ipc.approval, approvalFor('a'));
+    await bridge.emit('hermes-chat:approval', { ...approvalFor('a'), rpcRequestId: 'pending:apr-a' });
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
     });
-    expect(api.hermesChat.respondApproval).toHaveBeenCalledWith({ rpcRequestId: 'rpc-a', choice: 'deny' });
+    expect(chat.respondApproval).toHaveBeenCalledWith({ rpcRequestId: 'rpc-a', choice: 'deny' });
     expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
   });
 });
 
+describe('WorkbenchThread pending lists that land late (BD-0008)', () => {
+  beforeEach(installBridge);
+  afterEach(() => {
+    cleanup();
+    expect(bridge.unfaked).toEqual([]);
+  });
+
+  const createLogin: HermesChatCredentialRequestEvent = {
+    rpcRequestId: 'rpc-login',
+    sessionId: 'a',
+    kind: 'vault.create_login',
+    origin: 'https://app.example.com',
+    site: 'app.example.com',
+    identifier: 'me@example.com',
+    regenerate: false,
+  };
+
+  it('does not bring back an approval answered while the pending list was loading', async () => {
+    const list = deferred<HermesChatApprovalEvent[]>();
+    listPendingApprovals.mockReturnValueOnce(list.promise);
+    render(<Harness sessionId="a" />);
+    await bridge.emit('hermes-chat:approval', approvalFor('a'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    });
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+    // Main took this snapshot before the answer reached it.
+    await act(async () => list.resolve([approvalFor('a')]));
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('keeps a prompt raised while the list was loading, and drops one a later list leaves out', async () => {
+    const list = deferred<HermesChatCredentialRequestEvent[]>();
+    listPendingCredentialRequests.mockReturnValueOnce(list.promise);
+    const { rerender } = render(<Harness sessionId="a" />);
+    await bridge.emit('hermes-chat:credential-request', createLogin);
+    // The snapshot predates the prompt, so it leaves it out.
+    await act(async () => list.resolve([]));
+    expect(screen.queryByText('New login · app.example.com')).not.toBeNull();
+    // Main dropped it (timed out) without telling this window; the next list says so.
+    await act(async () => rerender(<Harness sessionId="b" />));
+    expect(screen.queryByText('New login · app.example.com')).toBeNull();
+  });
+});
+
 describe('WorkbenchThread @ chip', () => {
-  afterEach(() => cleanup());
+  beforeEach(installBridge);
+  afterEach(() => {
+    cleanup();
+    expect(bridge.unfaked).toEqual([]);
+  });
 
   it('inserts the mention picked from the list it opens', async () => {
     const { container } = render(<Harness sessionId="b" />);

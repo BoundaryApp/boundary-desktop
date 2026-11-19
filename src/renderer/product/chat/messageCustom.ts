@@ -16,6 +16,11 @@ import type { SpeakerSegment } from './speakerSegments';
 export interface HermesMessageCustom {
   /** When the message was stored, unix seconds; null when the source has no time. */
   ts?: number | null;
+  /**
+   * When main saw a live reply's turn finish (ms). Only the final reply of a finished turn has
+   * it; history replaces it with `ts` when the chat next loads.
+   */
+  turnEndedAt?: number;
   /** Durable Hermes transcript row id; null when the row has none. */
   rowId?: number | null;
   /** Paths the turn's tools wrote. */
@@ -39,6 +44,8 @@ export interface HermesMessageCustom {
    * doesn't draw it.
    */
   roomPost?: true;
+  /** The writing voice the reply was written in (ADR 0056 §6). */
+  writingVoiceName?: string;
 }
 
 const NO_REPLY_REASONS: ReadonlySet<string> = new Set<HermesNoReplyReason>([
@@ -49,6 +56,7 @@ const NO_REPLY_REASONS: ReadonlySet<string> = new Set<HermesNoReplyReason>([
   'timeout',
   'empty',
   'unreachable',
+  'withdrawn',
   'unknown',
 ]);
 
@@ -72,7 +80,8 @@ function segmentsOf(value: unknown): SpeakerSegment[] | undefined {
     (s) =>
       isRecord(s) &&
       typeof s.text === 'string' &&
-      (s.agentSlug === null || typeof s.agentSlug === 'string')
+      (s.agentSlug === null || typeof s.agentSlug === 'string') &&
+      (s.writingVoiceName === undefined || typeof s.writingVoiceName === 'string')
   );
   return valid ? (value as SpeakerSegment[]) : undefined;
 }
@@ -89,6 +98,7 @@ function readCustom(raw: unknown): HermesMessageCustom {
   const out: HermesMessageCustom = {};
   if (typeof raw.ts === 'number') out.ts = raw.ts;
   else if (raw.ts === null) out.ts = null;
+  if (typeof raw.turnEndedAt === 'number') out.turnEndedAt = raw.turnEndedAt;
   if (typeof raw.rowId === 'number') out.rowId = raw.rowId;
   else if (raw.rowId === null) out.rowId = null;
   if (Array.isArray(raw.files)) {
@@ -102,6 +112,7 @@ function readCustom(raw: unknown): HermesMessageCustom {
   if (noReply) out.noReply = noReply;
   if (raw.localOnly === true) out.localOnly = true;
   if (typeof raw.agentSlug === 'string') out.agentSlug = raw.agentSlug;
+  if (typeof raw.writingVoiceName === 'string') out.writingVoiceName = raw.writingVoiceName;
   const segments = segmentsOf(raw.segments);
   if (segments) out.segments = segments;
   if (raw.roomPost === true) out.roomPost = true;

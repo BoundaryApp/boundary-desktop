@@ -1,5 +1,6 @@
+import { execFile } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, autoUpdater as squirrel, dialog } from 'electron';
 import Store from 'electron-store';
@@ -12,6 +13,7 @@ import { broadcast } from '../windows';
 import { runningWork } from '../runningWork';
 import { decryptFromBase64, encryptToBase64 } from '../secrets/osEncryption';
 import { removeLegacyUpdateFiles } from './legacyUpdateFiles';
+import { readShipItStatus } from './shipItStatus';
 import { compareVersions } from './updateFeed';
 import {
   UpdateService,
@@ -19,7 +21,7 @@ import {
   type UpdateStore,
   type UpdateStoreShape,
 } from './UpdateService';
-import { APP_NAME } from '../../../shared/buildIdentity';
+import { APP_ID, APP_NAME } from '../../../shared/buildIdentity';
 
 declare const __BOUNDARY_UPDATE_FEED_URL__: string | undefined;
 declare const __BOUNDARY_UPDATE_KEY_REQUIRED__: boolean | undefined;
@@ -68,10 +70,20 @@ function storedFeedKey(store: Store<UpdatesFileShape>): FeedKey {
   };
 }
 
+/** The stored update key, or null before the handlers are registered. For masking only. */
+export async function storedUpdateFeedKey(): Promise<string | null> {
+  return settings ? storedFeedKey(settings).read() : null;
+}
+
 /** Hand over to Squirrel. If it refuses, quit normally: the stack has already stopped. */
 /** The update state now; null until the handlers are registered. */
 export function currentUpdateSnapshot(): UpdateSnapshot | null {
   return service?.snapshot() ?? null;
+}
+
+/** Closes the updater's own "What's new" card, which release notes replace (ADR 0059). */
+export function closeUpdatedCard(): void {
+  service?.closeUpdated();
 }
 
 export function quitAndInstallUpdate(): void {
@@ -159,9 +171,34 @@ async function clearLegacyUpdateFiles(): Promise<void> {
   }
 }
 
+function printLaunchdJob(label: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('launchctl', ['print', `gui/${process.getuid?.() ?? ''}/${label}`], { timeout: 5_000 }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout)
+    );
+  });
+}
+
+/** Records what Squirrel's installer did last, so a failing or looping install shows in the log. */
+async function logShipItStatus(): Promise<void> {
+  if (!app.isPackaged || process.platform !== 'darwin') return;
+  try {
+    const status = await readShipItStatus({
+      bundleId: APP_ID,
+      caches: join(homedir(), 'Library', 'Caches'),
+      home: homedir(),
+      printJob: printLaunchdJob,
+    });
+    if (status) persistDebugLog('updates', 'installer status', { ...status });
+  } catch (error) {
+    persistDebugLog('updates', 'installer status unreadable', serializeError(error));
+  }
+}
+
 export async function startUpdates(): Promise<void> {
   if (!service) return;
   void clearLegacyUpdateFiles();
+  void logShipItStatus();
   if (service.snapshot().blocked === 'not-in-applications') {
     await offerMoveToApplications().catch((error: unknown) => {
       persistDebugLog('updates', 'move to Applications failed', serializeError(error));

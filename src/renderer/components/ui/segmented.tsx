@@ -60,7 +60,7 @@ function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-sm px-3 text-xs font-medium outline-none transition-colors duration-(--dur-fast) focus-visible:shadow-(--focus-ring) [&_svg]:size-3.5",
+              "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-sm px-3 text-xs font-medium outline-none control-transition focus-visible:shadow-(--focus-ring) [&_svg]:size-3.5",
               selected ? "bg-surface-hover text-fg" : "text-fg-faint hover:text-fg-muted"
             )}
           >

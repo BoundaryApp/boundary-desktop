@@ -22,9 +22,10 @@ import { ProjectGlyph } from './ProjectGlyph';
 import { isFiled } from './projectMove';
 import { ConversationMark } from './ConversationMark';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
-import { WorkingDot } from './WorkingDot';
+import { RunningTurnDot } from './WorkingDot';
 import { conversationAgent, conversationMeta, conversationTitle } from './conversationKinds';
 import { groupThreadsByRecency } from './groupThreadsByRecency';
+import { Button } from '../../components/ui/button';
 
 interface AllChatsPaneProps {
   threads: HermesChatThreadSummary[];
@@ -229,9 +230,9 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
               <p>
                 {emptyFilterMessage(filter, agents, (id) => projects.find((p) => p.id === id)?.name)}
               </p>
-              <button type="button" className="wb-btn-tiny" onClick={() => setFilter(EMPTY_ALL_CHATS_FILTER)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setFilter(EMPTY_ALL_CHATS_FILTER)}>
                 Clear filters
-              </button>
+              </Button>
             </div>
           ) : (
             groups.map((group) => (
@@ -281,15 +282,14 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                           {conversationMeta(thread, agents, findThread)}
                         </span>
                       </span>
-                      {findRunningTurn(runningTurns, thread.id, sameChat) ? (
-                        <WorkingDot
-                          label={
-                            kind === 'channel'
-                              ? 'An agent is working in this room'
-                              : `${conversationAgent(thread, agents)?.displayName ?? hermesName} is working`
-                          }
-                        />
-                      ) : null}
+                      <RunningTurnDot
+                        turn={findRunningTurn(runningTurns, thread.id, sameChat)}
+                        label={
+                          kind === 'channel'
+                            ? 'An agent is working in this room'
+                            : `${conversationAgent(thread, agents)?.displayName ?? hermesName} is working`
+                        }
+                      />
                       {showProjects ? (
                         isFiled(thread) ? (
                           <ProjectTag project={projectOf(thread)} />
@@ -316,19 +316,20 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
           {selected.size > 0 && onMove ? (
             <div className="wb-bulk-bar" role="toolbar" aria-label="Selected chats">
               <span>{selected.size} selected</span>
-              <button
+              <Button
+                variant="primary"
+                block
                 type="button"
-                className="wb-btn-solid"
                 onClick={() => {
                   onMove([...selected]);
                   setSelected(new Set());
                 }}
               >
                 Move to project…
-              </button>
-              <button type="button" className="wb-btn-ghost" onClick={() => setSelected(new Set())}>
+              </Button>
+              <Button variant="secondary" block type="button" onClick={() => setSelected(new Set())}>
                 Clear
-              </button>
+              </Button>
             </div>
           ) : null}
           {isFiltered(filter) && shown.length > 0 ? (

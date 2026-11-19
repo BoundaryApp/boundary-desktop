@@ -16,8 +16,11 @@ export const LiveTurnView: React.FC<{
   /** The chat a setup offer was made in, or null for none. */
   setupOfferChatId: string | null;
   statsRows: ReturnType<typeof formatTurnStatsLine>;
-}> = ({ phase, phaseLine, toolCards, onToggleTool, project, onNotice, setupOfferChatId, statsRows }) => (
+  /** While the turn waits for the local model: the line that says so, with Run now. */
+  heldLine?: React.ReactNode;
+}> = ({ phase, phaseLine, toolCards, onToggleTool, project, onNotice, setupOfferChatId, statsRows, heldLine }) => (
   <>
+    {phase === 'held' ? heldLine : null}
     {phase === 'preparing' || phase === 'restarting' ? (
       <div className="wb-msg">
         <div className="wb-phase-line">

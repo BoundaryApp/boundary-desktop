@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from './electronApiFake';
 import { THEME_STORAGE_KEY } from '../../shared/theme';
@@ -40,8 +40,8 @@ describe('theme preference', () => {
       configurable: true,
       value: {
         getItem: (key: string) => memory.get(key) ?? null,
-        setItem: (key: string, value: string) => void memory.set(key, value),
-        removeItem: (key: string) => void memory.delete(key),
+        setItem: (key: string, value: string): void => void memory.set(key, value),
+        removeItem: (key: string): void => void memory.delete(key),
         clear: () => memory.clear(),
       },
     });
@@ -50,7 +50,6 @@ describe('theme preference', () => {
   });
 
   afterEach(() => {
-    cleanup();
     vi.clearAllMocks();
   });
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RouterChain } from '../../inference/router/chainRouter';
 import type { LastAppliedLlm } from '../../../../shared/types/assistantStack';
+import type { UpdateSnapshot } from '../../../../shared/types/updates';
 
 const state = vi.hoisted(() => ({
   packaged: false,
@@ -30,7 +31,7 @@ vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
   getSlotLlmConnection: async (slot: string) =>
     slot === 'local' ? { endpointUrl: 'http://127.0.0.1:1234/v1', modelId: 'qwen' } : null,
 }));
-vi.mock('../../updates/ipcHandlers', () => ({ currentUpdateSnapshot: () => null }));
+vi.mock('../../updates/ipcHandlers', () => ({ currentUpdateSnapshot: (): UpdateSnapshot | null => null }));
 vi.mock('../../../persistDebugLog', () => ({ readDebugLogTail: () => ({ path: '', contents: state.log }) }));
 vi.mock('../hostBridgeService', () => ({ getHostToolsState: () => 'connected' }));
 

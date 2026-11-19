@@ -48,7 +48,7 @@ vi.mock('electron', () => ({
     getAppPath: () => path.join(os.tmpdir(), 'boundary-electron-mock', 'app'),
   },
   BrowserWindow: {
-    getAllWindows: () => [],
+    getAllWindows: (): Electron.BrowserWindow[] => [],
   },
   ipcMain: {
     handle: vi.fn(),

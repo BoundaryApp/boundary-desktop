@@ -28,6 +28,7 @@ const circle: CircleSnapshot = {
   members: [
     { identity: ME, name: 'Ada', role: 'admin', isMe: true, online: true },
     { identity: MAYA, name: 'Maya Fernández-Oyelaran', role: 'member', isMe: false, online: true },
+    { identity: SAM, name: 'Sam', role: 'member', isMe: false, online: false },
   ],
   invites: [],
   offers: [],
@@ -51,13 +52,31 @@ const message = (text: string, extra: Partial<CircleMessage> = {}): CircleMessag
   shared: null,
   call: null,
   mine: false,
+  reactions: [],
   ...extra,
 });
 
+const person = (identity: string, name: string, left = false) => ({ identity, name, left, at: AT });
+const LEFT = 'ee'.repeat(32);
+// Five emoji on one message, one of them the user's; the reactor who left shows a Left tag.
+const crowd: CircleMessage['reactions'] = [
+  { emoji: '👍', count: 3, mine: true, people: [person(ME, 'Ada'), person(MAYA, 'Maya Fernández-Oyelaran'), person(SAM, 'Sam')] },
+  { emoji: '❤️', count: 2, mine: false, people: [person(MAYA, 'Maya Fernández-Oyelaran'), person(LEFT, 'Priyanka Venkataraghavan', true)] },
+  { emoji: '😂', count: 12, mine: false, people: [person(SAM, 'Sam')] },
+  { emoji: '🎉', count: 1, mine: false, people: [person(MAYA, 'Maya Fernández-Oyelaran')] },
+  { emoji: '🙏', count: 104, mine: false, people: [person(SAM, 'Sam')] },
+];
+
 const messages = [
-  message('Chapter 3 tonight? I put the notes at https://example.com/a/very/long/link/that/does/not/break/anywhere/at/all'),
+  message('Chapter 3 tonight? I put the notes at https://example.com/a/very/long/link/that/does/not/break/anywhere/at/all', { reactions: crowd }),
   message('```\nconst plotsAssignedThisSeasonByGardener = gardeners.map((g) => g.plots.length)\n```'),
-  message('Sounds good, see you at 7. Bringing the seed catalogue and the long list.', { author: ME, name: 'Ada', mine: true, edited: true }),
+  message('Sounds good, see you at 7. Bringing the seed catalogue and the long list.', {
+    author: ME,
+    name: 'Ada',
+    mine: true,
+    edited: true,
+    reactions: [{ emoji: '🎉', count: 1, mine: true, people: [person(ME, 'Ada')] }],
+  }),
   message('Unbreakablewordthatgoesonandonandonwithoutanyspacesatallforthewholeline'),
   message('', { author: SAM, name: 'Sam', deleted: 'admin' }),
   message('Running late', { author: ME, name: 'Ada', mine: true, confirmed: false }),
@@ -74,6 +93,8 @@ const chat: CircleChatView = {
   send: async () => null,
   edit: async () => null,
   remove: async () => null,
+  react: async () => null,
+  seen: 0,
   markRead: () => undefined,
   typing: [MAYA],
   seenBy: {},

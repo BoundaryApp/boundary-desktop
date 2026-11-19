@@ -6,6 +6,8 @@ import {
   uniquePreserveOrder,
 } from '../../../shared/hermesToolPaths';
 import { FileActions, projectPathsOf } from './MessageActions';
+import { sharedToolSource } from '../addons/SharedTwenty';
+import { useSharedServices } from '../addons/useSharedServices';
 
 export type ToolCardState = HermesChatToolEvent & {
   collapsed?: boolean;
@@ -96,6 +98,7 @@ export const ToolCard: React.FC<{
     maxTurns: card.maxTurns,
   });
   const running = card.status === 'running' || card.status === 'generating';
+  const from = sharedToolSource(card.name, useSharedServices().offered);
   const paths = card.paths ?? [];
   const collapsed = card.collapsed !== false && !running;
 
@@ -110,6 +113,11 @@ export const ToolCard: React.FC<{
           <span className="dur">{card.durationSec.toFixed(1)}s</span>
         ) : null}
       </button>
+      {from ? (
+        <p className="from">
+          {from.providerName}’s {from.name} · {from.circleName}
+        </p>
+      ) : null}
       {!collapsed ? (
         <div>
           {card.summary ? <p className="summary">{card.summary}</p> : null}

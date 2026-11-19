@@ -2,13 +2,19 @@ import * as React from "react"
 
 import { cn } from "../../lib/utils"
 import { useEscapeToClose } from "./use-dismiss"
+import { Button } from './button'
 
 interface SheetBaseProps {
   open: boolean
-  /** Escape calls this, except while `busy`. Cancel buttons call it themselves. */
+  /**
+   * Escape and a click on the backdrop call this, except while `busy`. Cancel buttons
+   * call it themselves.
+   */
   onClose: () => void
-  /** An action is running: Escape does nothing (callers also disable their buttons). */
+  /** An action is running: Escape and backdrop clicks do nothing (callers also disable their buttons). */
   busy?: boolean
+  /** False keeps the sheet open on a backdrop click; Escape still closes it. */
+  closeOnBackdrop?: boolean
   /** Id of the element that names the dialog: `title`'s heading, or one in `children`. */
   titleId: string
   /** Small line above the title. */
@@ -37,12 +43,13 @@ type SheetProps = SheetBaseProps &
 
 /**
  * The workbench's modal sheet: backdrop, dialog, kicker, title, body, error line and
- * actions, closed by Escape unless busy. Content, wording and buttons stay with the caller.
+ * actions, closed by Escape or a backdrop click unless busy. Content, wording and buttons stay with the caller.
  */
 function Sheet({
   open,
   onClose,
   busy = false,
+  closeOnBackdrop = true,
   titleId,
   kicker,
   kickerClassName,
@@ -57,7 +64,20 @@ function Sheet({
   ...rest
 }: SheetProps) {
   useEscapeToClose(onClose, busy || !open)
+  // A click counts only when it both starts and ends on the backdrop, so a text selection
+  // dragged out of the dialog doesn't close it.
+  const pressedBackdrop = React.useRef(false)
   if (!open) return null
+
+  const backdropDismisses = closeOnBackdrop && !busy
+  const onBackdropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    pressedBackdrop.current = event.target === event.currentTarget
+  }
+  const onBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const pressed = pressedBackdrop.current
+    pressedBackdrop.current = false
+    if (backdropDismisses && pressed && event.target === event.currentTarget) onClose()
+  }
 
   const body = (
     <>
@@ -87,7 +107,12 @@ function Sheet({
   } as const
 
   return (
-    <div className={cn("wb-sheet-backdrop", backdropClassName)} role="presentation">
+    <div
+      className={cn("wb-sheet-backdrop", backdropClassName)}
+      role="presentation"
+      onPointerDown={onBackdropPointerDown}
+      onClick={onBackdropClick}
+    >
       {rest.as === "form" ? (
         <form {...dialogProps} onSubmit={rest.onSubmit}>
           {body}
@@ -128,17 +153,17 @@ function SheetConfirmActions({
 }: SheetConfirmActionsProps) {
   return (
     <>
-      <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+      <Button variant="secondary" type="button" disabled={busy} onClick={onCancel}>
         {cancelLabel}
-      </button>
-      <button
+      </Button>
+      <Button
+        variant={tone === "danger" ? "danger" : "primary"}
         type="button"
-        className={tone === "danger" ? "wb-btn-danger" : "wb-btn-solid"}
         disabled={busy || confirmDisabled}
         onClick={onConfirm}
       >
         {confirmLabel}
-      </button>
+      </Button>
       {children}
     </>
   )

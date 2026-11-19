@@ -43,7 +43,7 @@ describe('inference status store', () => {
     stubElectronAPI({
       onboarding: {
         getStatus,
-        onStatus: (cb: typeof push) => {
+        onStatus: (cb: typeof push): (() => void) => {
           push = cb;
           return () => undefined;
         },

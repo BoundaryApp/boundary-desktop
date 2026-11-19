@@ -1,20 +1,25 @@
 // First: the lag probe times IPC handlers, so it must patch ipcMain before any register.
 import { startLagProbe } from './perf/lagProbe';
 import { APP_ID, APP_NAME, INSTANCE_NAME } from '../shared/buildIdentity';
-import { APP_COMMANDS, APP_MENU_COMMAND_CHANNEL, type AppCommand } from '../shared/appCommands';
-import { persistDebugLog, serializeError, getDebugLogPath, fileStatForLog } from './persistDebugLog';
-import { app, BrowserWindow, Menu } from 'electron';
-import { initNativeTheme, registerAppearanceHandlers, themeWindowBackground } from './appearance';
-import { appUrlMatcher } from './appUrl';
-import { installPermissionHandlers, registerMediaHandlers } from './services/media';
-import { openHttpUrlExternally, registerUrlHandlers } from './openExternal';
-import { sendEvent } from './ipc';
+import { persistDebugLog, serializeError, getDebugLogPath } from './persistDebugLog';
+import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
-import Store from 'electron-store';
-import { dockerService } from './services/dockerService';
-import { createFileLogger, debugArgForWindow } from '../shared/utils/logger';
+import { registerAppearanceHandlers } from './appearance';
+import { registerAppBadgeHandlers, setLinuxDesktopName } from './appBadge';
+import { createAppMenu } from './appMenu';
+import { createConfigStore } from './configStore';
+import { createMainWindowFactory, saveDisplayForQuit } from './mainWindow';
+import { installUpdate, registerQuitHandlers, registerShutdownHooks, stopStackThen } from './quit';
+import { registerDesktopAgentSettingHandlers } from './services/desktopAgent/ipcHandlers';
+import { onDesktopAgentChange } from './services/desktopAgent/desktopAgentSetting';
+import { closeDesktopAgentWindows } from './services/desktopAgent/desktopAgentWindows';
+import { registerCallHandlers } from './callQuit';
+import { registerRingAlertHandlers } from './callRingAlerts';
+import { registerMediaHandlers } from './services/media';
+import { registerUrlHandlers } from './openExternal';
+import { registerBugReportHandlers } from './services/bugReport/ipcHandlers';
+import { sendEvent } from './ipc';
 import { registerOnboardingHandlers } from './services/onboarding/ipcHandlers';
 import { registerCapabilityHandlers } from './services/capability/ipcHandlers';
 import { registerSetupHandlers } from './services/setup/ipcHandlers';
@@ -27,169 +32,42 @@ import { registerAgentHandlers } from './services/assistant/hermes/hermesAgentsI
 import { registerChannelHandlers } from './services/assistant/hermes/hermesChannelsIpc';
 import { registerProjectHandlers } from './services/assistant/hermes/hermesProjectsIpc';
 import { registerCodingFolderHandlers } from './services/assistant/coding/codingIpc';
-import { installBoardWebviewGuards } from './services/assistant/hermes/hermesBoard';
+import { registerWritingVoiceHandlers } from './services/assistant/writingVoices/writingVoicesIpc';
+import { registerWritingCheckHandlers } from './services/assistant/writingCheck/writingCheckIpc';
 import { registerHermesVaultHandlers } from './services/assistant/hermes/hermesVaultIpc';
 import { registerCalendarHandlers } from './services/assistant/calendar/calendarIpc';
-import { startCalendarHealthChecks } from './services/assistant/calendar/calendarService';
-import { registerHostBridgeHandlers } from './services/hostBridge/ipcHandlers';
-import { ensureHostBridgeStarted, stopHostBridge } from './services/hostBridge/hostBridgeService';
-import { stopInferenceRouter } from './services/inference/inferenceRouterService';
-import { startCirclesNetworkSpike, stopCirclesNetworkSpike } from './services/circles/networkSpike';
-import { startCirclesIfMember, stopCircles } from './services/circles/circlesService';
-import { registerCirclesHandlers } from './services/circles/ipcHandlers';
 import {
-  announceAssistantStackStopping,
-  ensureAssistantStackOnLaunch,
-  stopAssistantStack,
-} from './services/assistant/AssistantStackService';
+  startCalendarHealthChecks,
+  syncMacCalendarTokensAtLaunch,
+} from './services/assistant/calendar/calendarService';
+import { getMacCalendarAccount } from './services/assistant/calendar/calendarStore';
+import { registerHostBridgeHandlers } from './services/hostBridge/ipcHandlers';
+import { ensureHostBridgeStarted } from './services/hostBridge/hostBridgeService';
+import { ConfidentialService } from './services/inference/confidential/confidentialService';
+import { ConfidentialStore } from './services/inference/confidential/confidentialStore';
+import { createConfidentialService } from './services/inference/confidential/createConfidentialService';
+import { confidentialPoolEnabled } from './services/inference/confidential/featureFlag';
+import { registerConfidentialHandlers } from './services/inference/confidential/ipcHandlers';
+import { broadcast, getMainWindow, setMainWindowFactory, showMainWindow } from './services/windows';
+import { setInferenceChainConfidential } from './services/inference/inferenceChainService';
+import { setInferenceRouterPoolSender } from './services/inference/inferenceRouterService';
+import { createPoolSender } from './services/inference/confidential/poolSender';
+import { SpendLog } from './services/inference/confidential/spendLog';
+import { startCirclesNetworkSpike } from './services/circles/networkSpike';
+import { startCirclesIfMember } from './services/circles/circlesService';
+import { getUsedServices } from './services/circles/usedServicesRuntime';
+import { registerCirclesHandlers } from './services/circles/ipcHandlers';
+import { ensureAssistantStackOnLaunch } from './services/assistant/AssistantStackService';
 import { startLocalLlmWatcher } from './services/onboarding/LocalLlmWatcher';
 import { registerExperiments, startExperimentsBeforeWindow } from './experiments';
 import { findRunningSibling, refuseToStart } from './siblingBuild';
 import { claimSingleInstance } from './singleInstance';
+import { failSmokeRun, isSmokeRun } from './smokeExit';
 import { runStartupMigrations } from './migrations';
-import {
-  quitAndInstallUpdate,
-  recordDataVersion,
-  registerUpdateHandlers,
-  startUpdates,
-  updateMenuItem,
-} from './services/updates/ipcHandlers';
+import { recordDataVersion, registerUpdateHandlers, startUpdates } from './services/updates/ipcHandlers';
+import { registerWhatsNewHandlers } from './services/whatsNew/ipcHandlers';
 
-declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
-declare const MAIN_WINDOW_VITE_NAME: string;
-
-const log = createFileLogger(import.meta.url);
-
-/** Directory of this main-process bundle (`.vite/build` in both forge start and packaged asar). */
-const mainProcessDir = path.dirname(fileURLToPath(import.meta.url));
-
-/** After first `before-quit` pass we defer quit until the stack stops; second pass must not preventDefault. */
-let isElectronQuitAfterShutdown = false;
-
-/** Set once the stack has stopped for an update, so the window may close. */
-let isInstallingUpdate = false;
-
-/** How long Squirrel gets to take over before Boundary exits; the update then installs on exit. */
-const UPDATE_INSTALL_DEADLINE_MS = 30_000;
-
-/** How long an uncaught exception waits for the quit teardown before exiting anyway. */
-const FATAL_TEARDOWN_DEADLINE_MS = 5_000;
-
-let quitTeardown: Promise<Record<string, number>> | null = null;
-
-/**
- * Stop the host bridge and the assistant stack, then the Docker service. Quit and an uncaught
- * exception share it, and it runs once. Resolves with milliseconds per step and never rejects.
- */
-function runQuitTeardown(): Promise<Record<string, number>> {
-  quitTeardown ??= (async () => {
-    // Milliseconds per quit step, logged on exit so a slow quit names its step.
-    const stepMs: Record<string, number> = {};
-    const timed = async (step: string, run: () => Promise<unknown>) => {
-      const startedAt = Date.now();
-      try {
-        await run();
-      } finally {
-        stepMs[step] = Date.now() - startedAt;
-      }
-    };
-    try {
-      await timed('saveDisplay', saveMacDisplayForQuit);
-      try {
-        await timed('hostBridge', stopHostBridge);
-      } catch (error) {
-        log('Error stopping host bridge during quit:', error);
-      }
-      await timed('circlesNetwork', stopCirclesNetworkSpike);
-      try {
-        await timed('circles', stopCircles);
-      } catch (error) {
-        log('Error stopping Circles during quit:', error);
-      }
-      try {
-        await timed('inferenceRouter', stopInferenceRouter);
-      } catch (error) {
-        log('Error stopping inference router during quit:', error);
-      }
-      try {
-        await timed('assistantStack', stopAssistantStack);
-      } catch (error) {
-        log('Error stopping assistant stack during quit:', error);
-      }
-    } catch (error) {
-      log('Error during pre-quit shutdown:', error);
-    } finally {
-      const destroyStartedAt = Date.now();
-      try {
-        dockerService.destroy();
-      } catch (error) {
-        console.warn('Error destroying Docker service:', error);
-      }
-      stepMs.dockerDestroy = Date.now() - destroyStartedAt;
-    }
-    return stepMs;
-  })();
-  return quitTeardown;
-}
-
-function registerMainProcessShutdownHooks(): void {
-  let fatalExitStarted = false;
-  // An unhandled rejection is logged and the app keeps running. After an uncaught exception
-  // main's state is unknown, so it stops the host bridge and the stack (bounded by a deadline)
-  // and exits.
-  const onProcessError = (kind: 'uncaughtException' | 'unhandledRejection', reason: unknown) => {
-    const error = reason instanceof Error ? reason : new Error(String(reason));
-    persistDebugLog('startup', kind, serializeError(error));
-    console.error(`Main process ${kind}:`, reason);
-    if (kind === 'unhandledRejection' || fatalExitStarted) return;
-    fatalExitStarted = true;
-    const deadline = new Promise<'deadline'>((resolve) =>
-      setTimeout(() => resolve('deadline'), FATAL_TEARDOWN_DEADLINE_MS)
-    );
-    void Promise.race([runQuitTeardown(), deadline]).then((result) => {
-      if (result === 'deadline') {
-        persistDebugLog('startup', 'teardown after uncaughtException passed its deadline', {
-          deadlineMs: FATAL_TEARDOWN_DEADLINE_MS,
-        });
-        try {
-          dockerService.destroy();
-        } catch (e) {
-          console.warn('dockerService.destroy after uncaughtException:', e);
-        }
-      } else {
-        persistDebugLog('startup', 'teardown after uncaughtException done', { stepMs: result });
-      }
-      process.exit(1);
-    });
-  };
-  process.on('uncaughtException', (err) => onProcessError('uncaughtException', err));
-  process.on('unhandledRejection', (reason) => onProcessError('unhandledRejection', reason));
-
-  if (process.platform !== 'win32') {
-    let signalShutdownStarted = false;
-    const onSignal = (signal: 'SIGINT' | 'SIGTERM') => {
-      persistDebugLog('startup', `signal ${signal}`, { appReady: app.isReady() });
-      if (signalShutdownStarted) {
-        process.exit(signal === 'SIGINT' ? 130 : 143);
-      }
-      signalShutdownStarted = true;
-      if (app.isReady()) {
-        app.quit();
-        return;
-      }
-      try {
-        dockerService.destroy();
-      } catch (e) {
-        console.warn(`dockerService.destroy after ${signal}:`, e);
-      }
-      process.exit(signal === 'SIGINT' ? 130 : 143);
-    };
-    process.on('SIGINT', () => onSignal('SIGINT'));
-    process.on('SIGTERM', () => onSignal('SIGTERM'));
-  }
-}
-
-registerMainProcessShutdownHooks();
+registerShutdownHooks();
 
 persistDebugLog('startup', 'main module boot', {
   pid: process.pid,
@@ -205,30 +83,8 @@ process.on('beforeExit', (code) => {
   persistDebugLog('startup', 'process.beforeExit', { code });
 });
 
-app.on('child-process-gone', (_event, details) => {
-  persistDebugLog('startup', 'child-process-gone', {
-    type: details.type,
-    reason: details.reason,
-    exitCode: details.exitCode,
-    name: details.name,
-    serviceName: details.serviceName,
-  });
-});
-app.on('render-process-gone', (_event, _webContents, details) => {
-  persistDebugLog('startup', 'render-process-gone', {
-    reason: details.reason,
-    exitCode: details.exitCode,
-  });
-});
-
-// Set by vite.main.config.ts.
-
-// Type declarations for global variables
-declare global {
-  var mainWindow: Electron.BrowserWindow | undefined;
-}
-
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
+// Windows: Squirrel runs the app to create or remove shortcuts on install and uninstall. That
+// run only quits; it claims no lock, registers nothing and opens no window.
 persistDebugLog('startup', 'electron-squirrel-startup', {
   started: Boolean(started),
   platform: process.platform,
@@ -237,687 +93,253 @@ persistDebugLog('startup', 'electron-squirrel-startup', {
 if (started) {
   persistDebugLog('startup', 'quitting due to squirrel startup', {});
   app.quit();
+} else {
+  boot();
 }
 
-// Too late for userData: stores read it during import. A packaged build's name reaches userData
-// through productName, which forge.config.ts sets.
-app.setName(APP_NAME);
-
-// Windows groups taskbar entries and notifications by this id.
-if (process.platform === 'win32') {
-  app.setAppUserModelId(APP_ID);
-}
-
-// macOS specific app configuration
-if (process.platform === 'darwin') {
-  // Enable macOS integration
-  app.setAsDefaultProtocolClient(INSTANCE_NAME);
-}
-
-// Packaged only, so a dev build can run beside an installed app.
-const runningSibling = app.isPackaged ? findRunningSibling() : null;
-
-const isPrimaryInstance =
-  !runningSibling &&
-  claimSingleInstance(app, () => {
-    void showMainWindow().catch((error: unknown) => {
-      persistDebugLog('startup', 'second instance could not show the window', serializeError(error));
+function boot(): void {
+  app.on('child-process-gone', (_event, details) => {
+    persistDebugLog('startup', 'child-process-gone', {
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      name: details.name,
+      serviceName: details.serviceName,
     });
   });
-
-// Check if we're in development mode
-const isDevelopment = process.env.NODE_ENV === 'development' || 
-                     process.env.ENVIRONMENT === 'dev' || 
-                     process.env.ENVIRONMENT === 'development';
-
-if (isDevelopment && process.stdin) {
-  process.stdin.on('end', () => {
-    persistDebugLog('startup', 'stdin ended; quitting in development', { appReady: app.isReady() });
-    if (app.isReady()) {
-      app.quit();
-    }
-  });
-}
-
-// Initialize electron-store for configuration
-const store = new Store({
-  name: 'boundary-config',
-  defaults: {
-    themePreference: 'system' as string, // Appearance: system | light | dark
-    windowBounds: {
-      x: undefined as number | undefined,
-      y: undefined as number | undefined,
-      width: 1800,
-      height: 1250
-    }
-  }
-});
-
-async function saveMacDisplayForQuit(): Promise<void> {
-  if (process.platform !== 'darwin') return;
-  if (!global.mainWindow || global.mainWindow.isDestroyed()) return;
-  const bounds = global.mainWindow.getBounds();
-  const { screen } = await import('electron');
-  const currentDisplay = screen.getDisplayNearestPoint(bounds);
-  if (currentDisplay) {
-    store.set('lastDisplayId', currentDisplay.id);
-    log('Saved display info for Space persistence');
-  }
-}
-
-// Note: Database initialization is now handled in the 'ready' event
-// to ensure it completes before the window is created
-
-// Before the services below read the data these change.
-if (isPrimaryInstance) {
-  runStartupMigrations();
-  recordDataVersion(store as unknown as Store<Record<string, unknown>>, app.getVersion());
-}
-
-registerAppearanceHandlers(store);
-registerMediaHandlers();
-registerUrlHandlers();
-registerOnboardingHandlers();
-registerCapabilityHandlers();
-registerSetupHandlers();
-registerAssistantStackHandlers();
-registerResourceHandlers();
-registerAddonHandlers();
-registerHermesChatHandlers();
-registerKanbanHandlers();
-registerAgentHandlers();
-registerChannelHandlers();
-registerProjectHandlers();
-registerCodingFolderHandlers();
-registerHermesVaultHandlers();
-registerCalendarHandlers();
-startCalendarHealthChecks();
-registerHostBridgeHandlers();
-registerCirclesHandlers();
-registerUpdateHandlers(() => stopStackThen(installUpdate), () => createMenu());
-startLocalLlmWatcher();
-
-registerExperiments();
-
-const createWindow = async () => {
-  // Get saved window bounds
-  const windowBounds = store.get('windowBounds', {
-    x: undefined,
-    y: undefined,
-    width: 1800,
-    height: 1250
-  }) as { x?: number; y?: number; width: number; height: number };
-
-  // Ensure window is within screen bounds
-  const { screen } = await import('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-
-  // Check if we have a saved display ID (for Space persistence)
-  const lastDisplayId = store.get('lastDisplayId') as number | undefined;
-  let targetDisplay = primaryDisplay;
-  
-  if (lastDisplayId !== undefined) {
-    const displays = screen.getAllDisplays();
-    const savedDisplay = displays.find((d) => d.id === lastDisplayId);
-    if (savedDisplay) {
-      targetDisplay = savedDisplay;
-      log('Restoring window to saved display:', savedDisplay.id);
-    }
-  }
-
-  // If window position is off-screen or not set, center it on the target display
-  if (windowBounds.x === undefined || windowBounds.y === undefined ||
-      windowBounds.x < 0 || windowBounds.y < 0 ||
-      windowBounds.x + windowBounds.width > screenWidth ||
-      windowBounds.y + windowBounds.height > screenHeight) {
-    const { x: displayX, y: displayY, width: displayWidth, height: displayHeight } = targetDisplay.workArea;
-    windowBounds.x = Math.floor(displayX + (displayWidth - windowBounds.width) / 2);
-    windowBounds.y = Math.floor(displayY + (displayHeight - windowBounds.height) / 2);
-  }
-
-  // Resolve preload/renderer from this bundle's directory — never process.cwd().
-  // Packaged launches via `open` often have cwd `/`, which broke UI loading.
-  const preloadPath = path.join(mainProcessDir, 'preload.cjs');
-  const rendererIndexPath = path.join(
-    mainProcessDir,
-    `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`
-  );
-  persistDebugLog('startup', 'createWindow paths', {
-    mainProcessDir,
-    preloadPath,
-    rendererIndexPath,
-    preload: fileStatForLog(preloadPath),
-    rendererIndex: fileStatForLog(rendererIndexPath),
-    viteName: String(MAIN_WINDOW_VITE_NAME),
-    hasDevServer: Boolean(MAIN_WINDOW_VITE_DEV_SERVER_URL),
-  });
-
-  initNativeTheme(store);
-  const macInsetChrome = process.platform === 'darwin';
-
-  // Create the browser window.
-  global.mainWindow = new BrowserWindow({
-    x: windowBounds.x,
-    y: windowBounds.y,
-    width: windowBounds.width,
-    height: windowBounds.height,
-    // Product chrome draws its own dark title area; traffic lights centre on the
-    // 42px thread header.
-    titleBarStyle: macInsetChrome ? 'hiddenInset' : 'default',
-    ...(macInsetChrome ? { trafficLightPosition: { x: 16, y: 15 } } : {}),
-    show: false, // Don't show until ready
-    alwaysOnTop: false,
-    skipTaskbar: false,
-    // Ensure proper macOS app behavior
-    autoHideMenuBar: false,
-    // Set proper window title
-    title: `${APP_NAME}`,
-    // Matches --surface-0 for the active theme so the first paint does not flash.
-    backgroundColor: themeWindowBackground(),
-    webPreferences: {
-      preload: preloadPath,
-      // Preload and renderer loggers follow main's DEBUG value (see shared/utils/logger.ts).
-      additionalArguments: [debugArgForWindow()],
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      // The Tasks pane's board view. installBoardWebviewGuards limits it to the Hermes board.
-      webviewTag: true,
-    },
-  });
-  installBoardWebviewGuards(global.mainWindow);
-  const createdWindow = global.mainWindow;
-
-  // The window shows only the app. New windows and navigation elsewhere are refused, and
-  // http(s) targets open in the system browser instead. Only the app's page gets web permissions.
-  const appUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL ?? pathToFileURL(rendererIndexPath).href);
-  const isAppUrl = appUrlMatcher(appUrl);
-  installPermissionHandlers(createdWindow.webContents.session, isAppUrl);
-  createdWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void openHttpUrlExternally(url);
-    return { action: 'deny' };
-  });
-  createdWindow.webContents.on('will-navigate', (event, url) => {
-    if (isAppUrl(url)) return;
-    event.preventDefault();
-    void openHttpUrlExternally(url);
-  });
-
-  // Show window when ready to prevent flashing
-  const readyToShowTimer = setTimeout(() => {
-    persistDebugLog('startup', 'ready-to-show not fired within 8s', {
-      destroyed: global.mainWindow?.isDestroyed() ?? true,
-      url: global.mainWindow && !global.mainWindow.isDestroyed()
-        ? global.mainWindow.webContents.getURL()
-        : null,
-    });
-  }, 8_000);
-
-  global.mainWindow!.once('ready-to-show', () => {
-    clearTimeout(readyToShowTimer);
-    persistDebugLog('startup', 'ready-to-show', {
-      title: global.mainWindow?.getTitle(),
-    });
-    // Show the window
-    global.mainWindow!.show();
-    global.mainWindow!.focus();
-    
-    // Ensure the app is properly activated
-    app.focus();
-  });
-
-  global.mainWindow!.on('closed', () => {
-    persistDebugLog('startup', 'main window closed', {});
-    // On macOS the app outlives the window; nothing should reach the destroyed one.
-    if (global.mainWindow === createdWindow) {
-      global.mainWindow = undefined;
-    }
-  });
-  global.mainWindow!.on('close', (e) => {
-    persistDebugLog('startup', 'main window close requested', {
-      isElectronQuitAfterShutdown,
-    });
-    // Keep the window alive while containers shut down so the quit overlay can render.
-    // `app.exit(0)` ends the process after cleanup without needing this close to complete.
-    // An update is different: quitAndInstall waits for every window to close.
-    if (isElectronQuitAfterShutdown && !isInstallingUpdate) {
-      e.preventDefault();
-    }
-  });
-  global.mainWindow!.on('unresponsive', () => {
-    persistDebugLog('startup', 'main window unresponsive', {});
-  });
-  global.mainWindow!.webContents.on('did-finish-load', () => {
-    persistDebugLog('startup', 'renderer did-finish-load', {
-      url: global.mainWindow?.webContents.getURL(),
-    });
-  });
-  global.mainWindow!.webContents.on('render-process-gone', (_event, details) => {
-    persistDebugLog('startup', 'window render-process-gone', {
+  app.on('render-process-gone', (_event, _webContents, details) => {
+    persistDebugLog('startup', 'render-process-gone', {
       reason: details.reason,
       exitCode: details.exitCode,
     });
   });
-  global.mainWindow!.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    persistDebugLog('startup', 'renderer did-fail-load', {
-      errorCode,
-      errorDescription,
-      validatedURL,
-    });
-    console.error('Renderer failed to load:', errorCode, errorDescription, validatedURL);
-  });
 
-  // Save window bounds when window is moved or resized
-  const saveWindowBounds = () => {
-    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-      const bounds = global.mainWindow.getBounds();
-      store.set('windowBounds', bounds);
-    }
-  };
+  // Too late for userData: stores read it during import. A packaged build's name reaches userData
+  // through productName, which forge.config.ts sets.
+  app.setName(APP_NAME);
+  setLinuxDesktopName();
 
-  // Save bounds on move and resize
-  global.mainWindow!.on('move', saveWindowBounds);
-  global.mainWindow!.on('resize', saveWindowBounds);
-  
-  // macOS Spaces handling - simplified approach
+  // Windows groups taskbar entries and notifications by this id.
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(APP_ID);
+  }
   if (process.platform === 'darwin') {
-    // Save display ID when window is moved to track which display it's on
-    global.mainWindow!.on('move', () => {
-      saveWindowBounds();
-      
-      // Save the current display ID for restoration
-      const currentDisplay = screen.getDisplayNearestPoint(global.mainWindow!.getBounds());
-      if (currentDisplay) {
-        store.set('lastDisplayId', currentDisplay.id);
-      }
-    });
-    
-    // Handle window focus to ensure proper activation
-    global.mainWindow!.on('focus', () => {
-      // Ensure window is properly focused and activated
-      app.focus();
-    });
+    app.setAsDefaultProtocolClient(INSTANCE_NAME);
   }
 
-  // Set Content Security Policy
-  global.mainWindow!.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const connectSrcExtras = isDevelopment ? ' http://127.0.0.1:*' : '';
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: http://localhost:* https://localhost:*${connectSrcExtras}; font-src 'self' data:; frame-src 'self' http://127.0.0.1:* http://localhost:* https://127.0.0.1:* https://localhost:*;`
-        ]
-      }
-    });
-  });
+  // Packaged only, so a dev build can run beside an installed app.
+  const runningSibling = app.isPackaged ? findRunningSibling() : null;
 
-  // and load the index.html of the app.
-  persistDebugLog('startup', 'loading renderer', {
-    mode: MAIN_WINDOW_VITE_DEV_SERVER_URL ? 'dev-server' : 'file',
-    url: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? rendererIndexPath,
-  });
-  // Not awaited: the window opens while the renderer loads. A failed load also emits
-  // did-fail-load, which is logged above.
-  const load = MAIN_WINDOW_VITE_DEV_SERVER_URL
-    ? global.mainWindow!.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-    : global.mainWindow!.loadFile(rendererIndexPath);
-  load.catch((error: unknown) => {
-    persistDebugLog('startup', 'renderer load rejected', serializeError(error));
-  });
-
-  // Enable context menu for development
-  if (isDevelopment) {
-    // Create context menu
-    const { Menu, MenuItem } = await import('electron');
-    
-    // Store the last context menu coordinates
-    let lastContextMenuCoords = { x: 0, y: 0 };
-    
-    const contextMenu = new Menu();
-    contextMenu.append(new MenuItem({
-      label: 'Inspect Element',
-      click: () => {
-        global.mainWindow!.webContents.inspectElement(lastContextMenuCoords.x, lastContextMenuCoords.y);
-      }
-    }));
-    
-    contextMenu.append(new MenuItem({
-      label: 'Reload',
-      click: () => {
-        global.mainWindow!.reload();
-      }
-    }));
-    
-    contextMenu.append(new MenuItem({
-      label: 'Toggle DevTools',
-      click: () => {
-        global.mainWindow!.webContents.toggleDevTools();
-      }
-    }));
-    
-    // Add context menu to webContents
-    global.mainWindow!.webContents.on('context-menu', (event, params) => {
-      // Store the coordinates where the context menu was triggered
-      lastContextMenuCoords = { x: params.x, y: params.y };
-      contextMenu.popup();
-    });
-  }
-
-  // Do not auto-open DevTools: a second Chromium renderer plus retained console
-  // output is a large share of macOS application memory. Use View → Toggle
-  // Developer Tools, or set ELECTRON_OPEN_DEVTOOLS=1.
-  if (process.env.ELECTRON_OPEN_DEVTOOLS === '1') {
-    try {
-      persistDebugLog('startup', 'opening DevTools', { reason: 'ELECTRON_OPEN_DEVTOOLS=1' });
-      global.mainWindow!.webContents.openDevTools();
-    } catch (error) {
-      persistDebugLog('startup', 'openDevTools failed', serializeError(error));
-    }
-  }
-};
-
-// Create application menu
-const createMenu = () => {
-  // App commands show their shortcut in the menu bar but leave the key press to
-  // the renderer (registerAccelerator: false), which owns focus-aware handling.
-  const sendCommand = (id: AppCommand) => () => {
-    const win = global.mainWindow;
-    if (win && !win.isDestroyed()) {
-      sendEvent(win.webContents, APP_MENU_COMMAND_CHANNEL, id);
-      return;
-    }
-    // The window was closed (macOS keeps the app running): reopen it and send once it has loaded.
-    void showMainWindow()
-      .then(() => {
-        const reopened = global.mainWindow;
-        if (!reopened || reopened.isDestroyed()) return;
-        const send = () => sendEvent(reopened.webContents, APP_MENU_COMMAND_CHANNEL, id);
-        if (reopened.webContents.isLoading()) {
-          reopened.webContents.once('did-finish-load', send);
-        } else {
-          send();
-        }
-      })
-      .catch((error) => {
-        persistDebugLog('startup', 'menu command could not reopen the window', serializeError(error));
+  const isPrimaryInstance =
+    !runningSibling &&
+    claimSingleInstance(app, () => {
+      void showMainWindow().catch((error: unknown) => {
+        persistDebugLog('startup', 'second instance could not show the window', serializeError(error));
       });
-  };
-  const commandItem = (id: AppCommand): Electron.MenuItemConstructorOptions => {
-    const def = APP_COMMANDS.find((command) => command.id === id);
-    return {
-      label: def?.label ?? id,
-      accelerator: def?.accelerator,
-      registerAccelerator: false,
-      click: sendCommand(id),
-    };
-  };
+    });
 
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: `${APP_NAME}`,
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        updateMenuItem(),
-        { type: 'separator' },
-        { ...commandItem('go-settings'), label: 'Settings…' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
-    {
-      label: 'File',
-      submenu: [commandItem('new-chat')],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
-    },
-    {
-      label: 'Go',
-      submenu: [
-        commandItem('go-chat'),
-        commandItem('go-inference'),
-        commandItem('go-services'),
-        commandItem('go-resources'),
-        { type: 'separator' },
-        commandItem('prev-thread'),
-        commandItem('next-thread'),
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'close' }
-      ]
-    }
-  ];
+  const isDevelopment =
+    process.env.NODE_ENV === 'development' ||
+    process.env.ENVIRONMENT === 'dev' ||
+    process.env.ENVIRONMENT === 'development';
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-};
-
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.on('ready', () => {
-  onAppReady().catch((error: unknown) => {
-    persistDebugLog('startup', 'ready handler threw', serializeError(error));
-    console.error('Startup failed:', error);
-  });
-});
-
-async function onAppReady(): Promise<void> {
-  if (runningSibling) return refuseToStart(app, runningSibling);
-  if (!isPrimaryInstance) return;
-  startLagProbe();
-  persistDebugLog('startup', 'app ready entered', {
-    isPackaged: app.isPackaged,
-    isDevelopment,
-    cwd: process.cwd(),
-    userData: app.getPath('userData'),
-    logs: app.getPath('logs'),
-    temp: app.getPath('temp'),
-    appPath: app.getAppPath(),
-    resourcesPath: process.resourcesPath ?? null,
-    debugLogPath: getDebugLogPath(),
-    version: app.getVersion(),
-    locale: app.getLocale(),
-  });
-  // Create the application menu
-  createMenu();
-  await startUpdates();
-  // Older builds kept these secrets in plaintext in boundary-config. Nothing reads them now.
-  const legacyStore = store as unknown as Store<Record<string, unknown>>;
-  for (const key of ['apiKey', 'secretToken', 'databaseUrl']) {
-    legacyStore.delete(key);
+  if (isDevelopment && process.stdin) {
+    process.stdin.on('end', () => {
+      persistDebugLog('startup', 'stdin ended; quitting in development', { appReady: app.isReady() });
+      if (app.isReady()) {
+        app.quit();
+      }
+    });
   }
-  
-  // Ensure proper macOS app behavior
-  if (process.platform === 'darwin') {
-    // Ensure the dock shows the app
-    if (app.dock) {
+
+  const store = createConfigStore();
+
+  // Before the services below read the data these change.
+  if (isPrimaryInstance) {
+    runStartupMigrations();
+    recordDataVersion(store, app.getVersion());
+  }
+
+  registerAppearanceHandlers(store);
+  registerDesktopAgentSettingHandlers(
+    store,
+    () => void showMainWindow(),
+    // The shortcut from any app does what ⌘J does in the page (ADR 0058 §11).
+    () => {
+      const win = getMainWindow();
+      if (win) sendEvent(win.webContents, 'app:menu-command', 'toggle-agent');
+    }
+  );
+  onDesktopAgentChange((on) => {
+    const win = getMainWindow();
+    if (win) {
+      win.webContents.setBackgroundThrottling(!on);
+      // Turned off while hidden: bring the window back before its button goes (ADR 0058 §17).
+      if (!on && !win.isVisible()) win.show();
+    }
+    if (!on) closeDesktopAgentWindows();
+  });
+  registerAppBadgeHandlers();
+  registerMediaHandlers();
+  registerCallHandlers();
+  registerRingAlertHandlers();
+  registerUrlHandlers();
+  registerBugReportHandlers();
+  registerOnboardingHandlers();
+  registerCapabilityHandlers();
+  registerSetupHandlers();
+  registerAssistantStackHandlers();
+  registerResourceHandlers();
+  registerAddonHandlers();
+  registerHermesChatHandlers();
+  registerKanbanHandlers();
+  registerAgentHandlers();
+  registerChannelHandlers();
+  registerProjectHandlers();
+  registerCodingFolderHandlers();
+  registerWritingVoiceHandlers();
+  registerWritingCheckHandlers();
+  registerHermesVaultHandlers();
+  registerCalendarHandlers();
+  startCalendarHealthChecks();
+  registerHostBridgeHandlers();
+  const confidentialService = createConfidentialServiceForApp();
+  registerConfidentialHandlers(confidentialService);
+  if (confidentialPoolEnabled(process.env, app.isPackaged)) {
+    setInferenceChainConfidential(confidentialService);
+    setInferenceRouterPoolSender(
+      createPoolSender({
+        service: confidentialService,
+        log: (message, data) => persistDebugLog('confidential', message, data),
+        recordSpend: (entry) => confidentialService.recordSpend(entry),
+      })
+    );
+  }
+  registerCirclesHandlers();
+  registerUpdateHandlers(() => stopStackThen(installUpdate), createAppMenu);
+  registerWhatsNewHandlers();
+  startLocalLlmWatcher();
+
+  registerExperiments();
+
+  const smokeDeps = {
+    exit: (code: number) => app.exit(code),
+    log: (message: string, fields: Record<string, unknown>) => {
+      persistDebugLog('startup', message, fields);
+      console.log(`[smoke] ${message}`, JSON.stringify(fields));
+    },
+  };
+
+  const createWindow = createMainWindowFactory({ store, isDevelopment, smokeDeps });
+  setMainWindowFactory(createWindow);
+
+  async function onAppReady(): Promise<void> {
+    if (runningSibling) return refuseToStart(app, runningSibling);
+    if (!isPrimaryInstance) return;
+    startLagProbe();
+    persistDebugLog('startup', 'app ready entered', {
+      isPackaged: app.isPackaged,
+      isDevelopment,
+      cwd: process.cwd(),
+      userData: app.getPath('userData'),
+      logs: app.getPath('logs'),
+      temp: app.getPath('temp'),
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath ?? null,
+      debugLogPath: getDebugLogPath(),
+      version: app.getVersion(),
+      locale: app.getLocale(),
+    });
+    createAppMenu();
+    // Not awaited: a slow provider must not hold up startup.
+    void confidentialService.refreshLive().catch((error: unknown) => {
+      persistDebugLog('confidential', 'refresh failed', { errorName: error instanceof Error ? error.name : typeof error });
+    });
+    await startUpdates();
+    // Older builds kept these secrets in plaintext in boundary-config. Nothing reads them now.
+    for (const key of ['apiKey', 'secretToken', 'databaseUrl'] as const) {
+      store.delete(key);
+    }
+
+    if (process.platform === 'darwin' && app.dock) {
       app.dock.show().catch((error: unknown) => {
         persistDebugLog('startup', 'dock show failed', serializeError(error));
       });
     }
-  }
-  
-  // Experiments finish their startup before the window opens; a failure quits, as below.
-  try {
-    await startExperimentsBeforeWindow();
 
-    await createWindow();
-    persistDebugLog('startup', 'createWindow returned', {
-      hasWindow: Boolean(global.mainWindow && !global.mainWindow.isDestroyed()),
-    });
+    // Experiments finish their startup before the window opens; a failure quits, as below.
+    try {
+      await startExperimentsBeforeWindow();
 
-    // Host bridge (ADR 0027). The stack's Hermes config step waits for it too.
-    void ensureHostBridgeStarted().catch((error) => {
-      console.warn('[host-bridge] Start failed:', error);
-    });
+      await createWindow();
+      persistDebugLog('startup', 'createWindow returned', {
+        hasWindow: Boolean(getMainWindow()),
+      });
+      // A smoke run checks only that the packaged window loads; it starts nothing that needs a
+      // container engine or the network.
+      if (isSmokeRun()) return;
 
-    void ensureAssistantStackOnLaunch().catch((error) => {
-      console.warn('[assistant-stack] Launch ensure failed:', error);
-    });
+      // Host bridge (ADR 0027). The stack's Hermes config step waits for it too.
+      void ensureHostBridgeStarted().catch((error) => {
+        persistDebugLog('startup', 'host bridge start failed at launch', serializeError(error));
+      });
+      // The Mac calendar account's agent tokens, which open the bridge's `/calendar` route. The
+      // bridge service keeps them for every launch, so a bridge started later (after Stop agent is
+      // turned off) gets them too.
+      if (getMacCalendarAccount()) void syncMacCalendarTokensAtLaunch();
 
-    // Circles plan phase 0: runs only when BOUNDARY_CIRCLES_SPIKE is set.
-    startCirclesNetworkSpike();
-    // Circles start at launch only for someone who belongs to one (ADR 0032).
-    startCirclesIfMember();
-  } catch (error) {
-    persistDebugLog('startup', 'ready try/catch quitting app (first-launch candidate)', {
-      ...serializeError(error),
-    });
-    console.error('Startup failed before the main window opened:', error);
-    app.quit();
-  }
-}
+      void ensureAssistantStackOnLaunch().catch((error) => {
+        persistDebugLog('startup', 'assistant stack launch ensure failed', serializeError(error));
+      });
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', () => {
-  persistDebugLog('startup', 'window-all-closed', {
-    platform: process.platform,
-    isDevelopment,
-    isElectronQuitAfterShutdown,
-    willQuit: process.platform !== 'darwin' || isDevelopment || isElectronQuitAfterShutdown,
-    windowCount: BrowserWindow.getAllWindows().length,
-  });
-  // In dev, quit on macOS too so electron-forge child exit releases the terminal.
-  // Also finish an in-progress Cmd+Q: preventDefault + app.quit() otherwise closes
-  // windows and leaves a Dock zombie that the next `open` activates.
-  // quitAndInstall quits by itself once the windows have closed.
-  if (isInstallingUpdate) return;
-  if (process.platform !== 'darwin' || isDevelopment || isElectronQuitAfterShutdown) {
-    app.quit();
-  }
-  // On macOS production, don't quit when all windows are closed (dock stays active).
-});
-
-/** Re-create the window if none is open, else bring the existing one forward. */
-async function showMainWindow(): Promise<void> {
-  if (!app.isReady()) return;
-  // On macOS it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) {
-    await createWindow();
-  } else {
-    // On macOS, focus the existing window instead of creating a new one
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0) {
-      const mainWindow = windows[0];
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
+      // Circles plan phase 0: runs only when BOUNDARY_CIRCLES_SPIKE is set.
+      startCirclesNetworkSpike();
+      // Circles start at launch only for someone who belongs to one (ADR 0032).
+      startCirclesIfMember();
+      // Listeners for services used from a Circle, so their workspaces answer, if only to say the
+      // provider is offline (ADR 0048 §11).
+      void getUsedServices()
+        .startAll()
+        .catch((error: unknown) => {
+          persistDebugLog('circles', 'used services did not start', { error: error instanceof Error ? error.name : 'unknown' });
+        });
+    } catch (error) {
+      persistDebugLog('startup', 'ready try/catch quitting app (first-launch candidate)', {
+        ...serializeError(error),
+      });
+      console.error('Startup failed before the main window opened:', error);
+      if (isSmokeRun()) return failSmokeRun(smokeDeps, error);
+      app.quit();
     }
   }
-  
-  // Ensure the app is properly activated
-  app.focus();
+
+  app.on('ready', () => {
+    onAppReady().catch((error: unknown) => {
+      persistDebugLog('startup', 'ready handler threw', serializeError(error));
+      console.error('Startup failed:', error);
+    });
+  });
+
+  registerQuitHandlers({ isDevelopment, saveDisplay: () => saveDisplayForQuit(store) });
+
+  app.on('activate', () => {
+    // Launching fires this too, and a refused start must not open a window.
+    if (!isPrimaryInstance) return;
+    persistDebugLog('startup', 'activate', {
+      windowCount: BrowserWindow.getAllWindows().length,
+    });
+    void showMainWindow().catch((error: unknown) => {
+      persistDebugLog('startup', 'activate could not show the window', serializeError(error));
+    });
+  });
 }
 
-app.on('activate', () => {
-  // Launching fires this too, and a refused start must not open a window.
-  if (!isPrimaryInstance) return;
-  persistDebugLog('startup', 'activate', {
-    windowCount: BrowserWindow.getAllWindows().length,
+function createConfidentialServiceForApp(): ConfidentialService {
+  return createConfidentialService({
+    enabled: confidentialPoolEnabled(process.env, app.isPackaged),
+    resourcesDir: app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'resources'),
+    makeStore: () => new ConfidentialStore(),
+    makeSpendLog: () => new SpendLog(),
+    onChange: (state) => broadcast('confidential:state', state),
   });
-  void showMainWindow().catch((error: unknown) => {
-    persistDebugLog('startup', 'activate could not show the window', serializeError(error));
-  });
-});
-
-app.on('before-quit', (e) => {
-  persistDebugLog('startup', 'before-quit', {
-    isElectronQuitAfterShutdown,
-    hasMainWindow: Boolean(global.mainWindow && !global.mainWindow.isDestroyed()),
-  });
-  if (isElectronQuitAfterShutdown) {
-    return;
-  }
-  e.preventDefault();
-  stopStackThen(() => app.exit(0));
-});
-
-function installUpdate(): void {
-  isInstallingUpdate = true;
-  setTimeout(() => {
-    persistDebugLog('updates', 'quitAndInstall did not finish, exiting', {});
-    app.exit(0);
-  }, UPDATE_INSTALL_DEADLINE_MS);
-  quitAndInstallUpdate();
 }
-
-/**
- * Show the quit screen, stop the stack, then finish. `autoUpdater.quitAndInstall()` closes the
- * windows before `before-quit` fires, so the update path calls this first and `before-quit`
- * passes through.
- */
-function stopStackThen(finish: () => void): void {
-  if (isElectronQuitAfterShutdown) return;
-  isElectronQuitAfterShutdown = true;
-
-  // Show quit overlay before any teardown so progress events have a live window.
-  try {
-    announceAssistantStackStopping();
-  } catch (error) {
-    log('Error announcing assistant stack stop:', error);
-  }
-  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-    global.mainWindow.show();
-  }
-
-  void (async () => {
-    // Brief yield so the renderer can paint the quit overlay.
-    await new Promise((r) => setTimeout(r, 150));
-    const stepMs = await runQuitTeardown();
-    persistDebugLog('startup', 'before-quit cleanup done', { stepMs });
-    // app.quit() after preventDefault can close windows without exiting on macOS.
-    finish();
-  })();
-}
-
-// Handle app quit properly
-app.on('quit', () => {
-  persistDebugLog('startup', 'quit', {});
-});
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.

@@ -92,6 +92,15 @@ describe('hermesApprovals', () => {
     expect(request.responded).toEqual([{ choice: 'deny' }]);
   });
 
+  it('reports an approval it no longer holds as not pending', async () => {
+    parkApprovalRequest(makeRequest());
+    await respondToParkedApproval({ rpcRequestId: 'rpc-1', choice: 'once' });
+    expect(await respondToParkedApproval({ rpcRequestId: 'rpc-1', choice: 'once' })).toMatchObject({
+      success: false,
+      errorCode: 'not-pending',
+    });
+  });
+
   it('rejects always when not offered', async () => {
     const request = makeRequest({
       params: {

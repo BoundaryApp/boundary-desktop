@@ -4,12 +4,15 @@ import {
   chatCountKey,
   chatMessageKey,
   CIRCLE_FORMAT,
+  chatPostProblem,
+  cleanMentions,
   CIRCLE_KEY,
   circleRecordKey,
   MAX_RECORD_VALUE_BYTES,
   lostMembership,
   memberKey,
   memberRecordKey,
+  MENTIONS_FORMAT,
   offerKey,
   type CircleHost,
   type CircleMemberIntro,
@@ -67,12 +70,18 @@ const ada = intro('a', 'Ada');
 const bo = intro('4', 'Bo');
 const cy = intro('7', 'Cy');
 
-async function run(view: CircleView, host: CircleHost, ops: Array<[CircleMemberIntro, CircleOp]>, onSkip = vi.fn()) {
+async function run(
+  view: CircleView,
+  host: CircleHost,
+  ops: Array<[CircleMemberIntro, CircleOp]>,
+  onSkip = vi.fn(),
+  options: { supportedFormat?: number } = {}
+) {
   await applyCircleNodes(
     ops.map(([author, value]) => ({ value, from: { key: Buffer.from(author.writer, 'hex') } })),
     view,
     host,
-    { verify, onSkip }
+    { verify, onSkip, ...options }
   );
   return onSkip;
 }
@@ -420,7 +429,7 @@ describe('format 2 chat', () => {
 
   it('skips a chat operation longer than 16 KB of JSON', async () => {
     const { view, host } = await chatCircle();
-    const op = { ...post('Hi'), padding: 'x'.repeat(16 * 1024) } as CircleOp;
+    const op: CircleOp = Object.assign(post('Hi'), { padding: 'x'.repeat(16 * 1024) });
     const skipped = await run(view, host, [[ada, op]]);
     expect(skipped).toHaveBeenCalledWith('chat operation too long', expect.anything());
   });
@@ -539,5 +548,222 @@ describe('lostMembership', () => {
 
   it('is false before this device has appeared in the view', () => {
     expect(lostMembership([], [ada], self)).toBe(false);
+  });
+});
+
+const run3 = (view: CircleView, host: CircleHost, ops: Array<[CircleMemberIntro, CircleOp]>) =>
+  run(view, host, ops, vi.fn(), { supportedFormat: 3 });
+
+/** A format 3 Circle with Ada (admin) and Bo (member). */
+async function chatCircle3() {
+  const view = fakeView();
+  const host = fakeHost();
+  await run3(view, host, [
+    [ada, { type: 'create', name: 'Garden club', format: 3, member: ada }],
+    [ada, invite('1')],
+    [ada, { type: 'add-member', member: bo, invite: hex('1') }],
+  ]);
+  return { view, host };
+}
+
+const withMentions = (mentions: unknown, char = 'a'): CircleOp =>
+  ({ ...post('Hi', char), mentions }) as unknown as CircleOp;
+
+describe('format 3 mentions', () => {
+  it('leaves CIRCLE_FORMAT at 2 and starts mentions at 3', () => {
+    expect(CIRCLE_FORMAT).toBe(2);
+    expect(MENTIONS_FORMAT).toBe(3);
+  });
+
+  it('stores member and channel mentions', async () => {
+    const { view, host } = await chatCircle3();
+    const skipped = await run3(view, host, [
+      [ada, withMentions({ members: [bo.identity] }, 'a')],
+      [ada, withMentions({ channel: true }, 'b')],
+      [ada, withMentions({ members: [bo.identity, ada.identity], channel: true }, 'c')],
+    ]);
+    expect(skipped).not.toHaveBeenCalled();
+    expect(messageAt(view, 0)?.mentions).toEqual({ members: [bo.identity] });
+    expect(messageAt(view, 1)?.mentions).toEqual({ channel: true });
+    expect(messageAt(view, 2)?.mentions).toEqual({ members: [bo.identity, ada.identity], channel: true });
+  });
+
+  it('skips malformed mentions as a bad message', async () => {
+    const { view, host } = await chatCircle3();
+    const bad: unknown[] = [
+      {},
+      { members: [] },
+      { members: Array.from({ length: 33 }, (_, i) => i.toString(16).padStart(64, '0')) },
+      { members: [bo.identity, bo.identity] },
+      { members: ['nothex'] },
+      { channel: false },
+      { members: 'x' },
+      null,
+      'all',
+    ];
+    const skipped = await run3(
+      view,
+      host,
+      bad.map((m, i): [CircleMemberIntro, CircleOp] => [ada, withMentions(m, i.toString(16))])
+    );
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(bad.map(() => 'bad message'));
+    expect(view.data.has(chatCountKey('general'))).toBe(false);
+  });
+
+  it('drops identities that aren’t current members instead of skipping the message', async () => {
+    const { view, host } = await chatCircle3();
+    const skipped = await run3(view, host, [
+      [ada, withMentions({ members: [hex('9'), bo.identity, hex('8')] }, 'a')],
+      [ada, withMentions({ members: [hex('9')] }, 'b')],
+      [ada, withMentions({ members: [hex('9')], channel: true }, 'c')],
+      [ada, { type: 'chat-edit', channel: 'general', id: id('a'), text: 'v2', mentions: { members: [hex('9')] } } as CircleOp],
+    ]);
+    expect(skipped).not.toHaveBeenCalled();
+    expect(messageAt(view, 1)).toMatchObject({ text: 'Hi' });
+    expect(messageAt(view, 1)).not.toHaveProperty('mentions');
+    expect(messageAt(view, 2)?.mentions).toEqual({ channel: true });
+    expect(messageAt(view, 0)).toMatchObject({ text: 'v2', edited: true });
+    expect(messageAt(view, 0)).not.toHaveProperty('mentions');
+  });
+
+  it('keeps the remaining members in order after dropping others', async () => {
+    const { view, host } = await chatCircle3();
+    await run3(view, host, [[ada, withMentions({ members: [bo.identity, hex('9'), ada.identity] })]]);
+    expect(messageAt(view, 0)?.mentions).toEqual({ members: [bo.identity, ada.identity] });
+  });
+
+  it('replaces the set on edit and removes it when the edit has none', async () => {
+    const { view, host } = await chatCircle3();
+    await run3(view, host, [
+      [bo, withMentions({ members: [ada.identity] }, 'b')],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'v2', mentions: { members: [bo.identity] } } as CircleOp],
+    ]);
+    expect(messageAt(view, 0)?.mentions).toEqual({ members: [bo.identity] });
+    const skipped = await run3(view, host, [
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'v3', mentions: { members: [] } } as CircleOp],
+      [bo, { type: 'chat-edit', channel: 'general', id: id('b'), text: 'v4' }],
+    ]);
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(['bad message']);
+    expect(messageAt(view, 0)).toMatchObject({ text: 'v4', edited: true });
+    expect(messageAt(view, 0)).not.toHaveProperty('mentions');
+  });
+
+  it('keeps a mention of someone who later leaves', async () => {
+    const { view, host } = await chatCircle3();
+    await run3(view, host, [
+      [ada, withMentions({ members: [bo.identity] })],
+      [ada, { type: 'remove-member', identity: bo.identity }],
+    ]);
+    expect(messageAt(view, 0)?.mentions).toEqual({ members: [bo.identity] });
+  });
+
+  it('drops the field in a format 2 Circle without skipping', async () => {
+    const { view, host } = await chatCircle();
+    const skipped = await run(view, host, [
+      [ada, withMentions({ members: [bo.identity] }, 'a')],
+      [ada, withMentions({ bogus: 1 }, 'b')],
+      [ada, { type: 'chat-edit', channel: 'general', id: id('a'), text: 'v2', mentions: { channel: true } } as CircleOp],
+    ]);
+    expect(skipped).not.toHaveBeenCalled();
+    expect(messageAt(view, 0)).toMatchObject({ text: 'v2' });
+    expect(messageAt(view, 0)).not.toHaveProperty('mentions');
+    expect(messageAt(view, 1)).not.toHaveProperty('mentions');
+  });
+
+  it('cleans mentions down to their known fields', () => {
+    const yes = () => true;
+    expect(cleanMentions({ channel: true, extra: 1 }, yes)).toEqual({ channel: true });
+    expect(cleanMentions({ members: [hex('1')] }, (identity) => identity === hex('1'))).toEqual({ members: [hex('1')] });
+    expect(cleanMentions({ members: [hex('1')] }, () => false)).toBeNull();
+    expect(cleanMentions([], yes)).toBeNull();
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => i.toString(16).padStart(64, '0'));
+    expect(cleanMentions({ members: ids(33) }, yes)).toBeNull();
+    expect(cleanMentions({ members: ids(32) }, yes)).not.toBeNull();
+    expect(cleanMentions({ members: ['nothex'] }, yes)).toBeNull();
+  });
+
+  it('checks only the shape in chatPostProblem, and only from format 3', () => {
+    expect(chatPostProblem(withMentions({ members: [hex('9')] }) as never, 3)).toBeNull();
+    expect(chatPostProblem(withMentions({}) as never, 3)).toBe('bad message');
+    const ids33 = Array.from({ length: 33 }, (_, i) => i.toString(16).padStart(64, '0'));
+    expect(chatPostProblem(withMentions({ members: ids33 }) as never, 3)).toBe('bad message');
+    expect(chatPostProblem(withMentions({}) as never)).toBeNull();
+  });
+});
+
+const withReply = (reply: unknown, char = 'b'): CircleOp => ({ ...post('Re', char), reply }) as unknown as CircleOp;
+
+describe('format 3 replies', () => {
+  it('stores a well-formed reply as sent', async () => {
+    const { view, host } = await chatCircle3();
+    const skipped = await run3(view, host, [
+      [ada, post('First', 'a')],
+      [ada, withReply({ author: ada.identity, id: id('a') })],
+    ]);
+    expect(skipped).not.toHaveBeenCalled();
+    expect(messageAt(view, 1)?.reply).toEqual({ author: ada.identity, id: id('a') });
+  });
+
+  it('stores a reply to a message that doesn’t exist', async () => {
+    const { view, host } = await chatCircle3();
+    await run3(view, host, [[ada, withReply({ author: bo.identity, id: id('9') })]]);
+    expect(messageAt(view, 0)?.reply).toEqual({ author: bo.identity, id: id('9') });
+  });
+
+  it('skips a post with a malformed reply', async () => {
+    const { view, host } = await chatCircle3();
+    const bad: unknown[] = [
+      null,
+      'x',
+      { author: 'short', id: id('a') },
+      { author: ada.identity, id: 'nope' },
+      { author: ada.identity, id: id('a'), extra: 1 },
+    ];
+    const skipped = await run3(
+      view,
+      host,
+      bad.map((r, i): [CircleMemberIntro, CircleOp] => [ada, withReply(r, i.toString(16))])
+    );
+    expect(skipped.mock.calls.map(([reason]) => reason)).toEqual(bad.map(() => 'bad message'));
+    expect(view.data.has(chatCountKey('general'))).toBe(false);
+  });
+
+  it('drops reply below format 3', async () => {
+    const { view, host } = await chatCircle();
+    const skipped = await run(view, host, [[ada, withReply({ author: ada.identity, id: id('a') })]], vi.fn(), { supportedFormat: 3 });
+    expect(skipped).not.toHaveBeenCalled();
+    expect(messageAt(view, 0)).toMatchObject({ text: 'Re' });
+    expect(messageAt(view, 0)).not.toHaveProperty('reply');
+  });
+
+  it('never lets chat-edit change a reply', async () => {
+    const { view, host } = await chatCircle3();
+    const edit = (char: string, extra: object): CircleOp =>
+      ({ type: 'chat-edit', channel: 'general', id: id(char), text: 'v2', ...extra }) as CircleOp;
+    await run3(view, host, [
+      [ada, withReply({ author: ada.identity, id: id('a') }, 'b')],
+      [ada, post('Plain', 'c')],
+      [ada, edit('b', { reply: { author: bo.identity, id: id('d') } })],
+      [ada, edit('c', { reply: { author: bo.identity, id: id('d') } })],
+    ]);
+    expect(messageAt(view, 0)).toMatchObject({ text: 'v2', reply: { author: ada.identity, id: id('a') } });
+    expect(messageAt(view, 1)).toMatchObject({ text: 'v2' });
+    expect(messageAt(view, 1)).not.toHaveProperty('reply');
+  });
+
+  it('keeps a reply whose target’s author is later removed', async () => {
+    const { view, host } = await chatCircle3();
+    await run3(view, host, [
+      [bo, post('Mine', 'a')],
+      [ada, withReply({ author: bo.identity, id: id('a') })],
+      [ada, { type: 'remove-member', identity: bo.identity }],
+    ]);
+    expect(messageAt(view, 1)?.reply?.author).toBe(bo.identity);
+  });
+
+  it('checks the reply shape in chatPostProblem, and only from format 3', () => {
+    expect(chatPostProblem(withReply({ author: hex('9'), id: id('a') }) as never, 3)).toBeNull();
+    expect(chatPostProblem(withReply({}) as never, 3)).toBe('bad message');
+    expect(chatPostProblem(withReply({}) as never)).toBeNull();
   });
 });

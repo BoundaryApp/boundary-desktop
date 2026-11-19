@@ -129,11 +129,11 @@ function ModelCard({
         </span>
       ) : (
         <span className="flex gap-1.5">
-          <CircleButton size="panel" variant="default" className="flex-1" disabled={busy || blocked} onClick={onDefault}>
+          <CircleButton size="panel" variant="primary" className="flex-1" disabled={busy || blocked} onClick={onDefault}>
             Use as default
           </CircleButton>
           {canAddFallback ? (
-            <CircleButton size="panel" variant="outline" className="flex-1" disabled={busy || blocked || isFallback} onClick={onFallback}>
+            <CircleButton size="panel" variant="secondary" className="flex-1" disabled={busy || blocked || isFallback} onClick={onFallback}>
               {isFallback ? 'In your fallbacks' : 'Add as fallback'}
             </CircleButton>
           ) : null}

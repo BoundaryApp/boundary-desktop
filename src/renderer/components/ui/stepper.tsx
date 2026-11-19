@@ -12,16 +12,18 @@ interface StepperProps {
   steps: StepperStep[]
   /** Id of the current step; earlier steps render as done. Null = none started. */
   currentId: string | null
+  /** Names the list for screen readers. */
+  label?: string
   className?: string
 }
 
 // Setup progress (ADR 0019): done steps check off in --ok, the current step
 // is outlined in --brand, later steps stay faint.
-function Stepper({ steps, currentId, className }: StepperProps) {
+function Stepper({ steps, currentId, label = "Setup progress", className }: StepperProps) {
   const current = currentId ? steps.findIndex((step) => step.id === currentId) : -1
 
   return (
-    <ol aria-label="Setup progress" className={cn("flex items-center gap-2 text-xs", className)}>
+    <ol aria-label={label} className={cn("flex items-center gap-2 text-xs", className)}>
       {steps.map((step, index) => {
         const done = current > index
         const active = current === index

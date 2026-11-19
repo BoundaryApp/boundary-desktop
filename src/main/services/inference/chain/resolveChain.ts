@@ -8,6 +8,7 @@ import type {
   PeerModelRef,
   PickedInferenceChain,
 } from '../../../../shared/types/inferenceChain';
+import type { PoolStatus } from '../confidential/confidentialService';
 
 /** What a Circle offer says about one shared model (ADR 0034 §1). */
 export interface PeerOfferedModel {
@@ -31,6 +32,15 @@ export interface InferenceChainFacts {
   providerPrivate(providerId: string): boolean;
   /** The user marked this provider trusted to drive their agent's tools (ADR 0034 §3). */
   providerTrusted(providerId: string): boolean;
+  /**
+   * Whether a confidential pool has a provider now, precomputed by the caller. Undefined (or no
+   * function) reads as a pool nobody serves.
+   */
+  poolStatus?(modelId: string): PoolStatus | undefined;
+}
+
+function poolStatusOf(entry: InferenceChainEntry, facts: InferenceChainFacts): PoolStatus | undefined {
+  return facts.poolStatus?.(entry.modelId?.trim() ?? '');
 }
 
 /**
@@ -56,6 +66,7 @@ function staleReason(
   entry: InferenceChainEntry,
   facts: InferenceChainFacts
 ): InferenceChainStaleReason | null {
+  if (entry.slot === 'confidential') return poolStatusOf(entry, facts)?.serves ? null : 'pool-no-provider';
   if (entry.slot !== 'peer') {
     return facts.slotConfigured(entry.slot) ? null : 'slot-not-configured';
   }
@@ -73,15 +84,20 @@ function stillInChain(state: InferenceChainEntryState): boolean {
   return !state.stale || state.stale === 'provider-offline';
 }
 
-/** Local is private; cloud slots never are; a shared model is when its provider is marked private. */
+/**
+ * Local is private and cloud slots never are. A shared model is when its provider is marked
+ * private; a confidential pool is when a provider at the private minimum serves it (ADR 0047 §8).
+ */
 function isPrivate(entry: InferenceChainEntry, facts: InferenceChainFacts): boolean {
   if (entry.slot === 'local') return true;
+  if (entry.slot === 'confidential') return poolStatusOf(entry, facts)?.servesPrivate === true;
   if (entry.slot === 'peer') return Boolean(entry.peer && facts.providerPrivate(entry.peer.providerId));
   return false;
 }
 
 function contextLength(entry: InferenceChainEntry, facts: InferenceChainFacts): number | undefined {
   const model = entry.modelId?.trim() ?? '';
+  if (entry.slot === 'confidential') return poolStatusOf(entry, facts)?.contextLength ?? undefined;
   if (entry.slot === 'peer') {
     return entry.peer ? facts.peerOffer(entry.peer)?.[model]?.contextLength : undefined;
   }

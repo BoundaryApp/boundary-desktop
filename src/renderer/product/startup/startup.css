@@ -1,4 +1,14 @@
 /* Start-up screen (ADR 0029). Full window, no app chrome. ------------------- */
+@layer theme, base, components, utilities, markdown;
+
+/* Registered at the top level, outside the layer: animates the spinner's angle (su-spin). */
+@property --su-spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@layer components {
 
 .su-root {
   position: fixed;
@@ -135,7 +145,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   /* Out along the ring, then upright again. */
   transform: translate(-50%, -22px) rotate(var(--a)) translateY(calc(-1 * var(--r)))
     rotate(calc(-1 * var(--a)));
@@ -183,7 +193,7 @@
 }
 
 .su-tile-label {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--surface-0); /* sits over the boundary line */
   font-size: var(--size-2xs);
@@ -242,12 +252,6 @@
   stroke: var(--brand);
   stroke-width: 1.5;
   transition: stroke-dasharray 700ms var(--ease);
-}
-
-@property --su-spin {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
 }
 
 @keyframes su-spin {
@@ -593,7 +597,7 @@
 }
 
 .su-card h2 {
-  margin: 0 0 2px;
+  margin: 0 0 var(--space-0-5);
   font-size: var(--size-title);
   line-height: var(--su-card-title-lh);
   font-weight: var(--weight-medium);
@@ -610,7 +614,7 @@
 
 .su-dots {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .su-dots button {
@@ -653,10 +657,10 @@
 .su-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   height: var(--su-pill-h);
   box-sizing: border-box;
-  padding: 0 var(--space-3) 0 10px;
+  padding: 0 var(--space-3) 0 var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-full);
   background: none;
@@ -878,4 +882,86 @@
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* What's new in the story slot (ADR 0059): what this version brought, while it starts. */
+
+.su-whats-new {
+  width: 440px;
+  max-width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.su-whats-new > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-4) 0;
+  font-size: var(--size-2xs);
+  color: var(--brand);
+}
+
+.su-wn-version {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+
+.su-wn-body {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2-5) var(--space-4) var(--space-3);
+}
+
+.su-wn-body h2 {
+  margin: 0 0 var(--space-0-5);
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.su-wn-body p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-meta);
+}
+
+.su-whats-new > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-4);
+}
+
+.su-wn-dots {
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.su-wn-dots button {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+
+.su-wn-dots button[aria-current='true'] {
+  width: 16px;
+  background: var(--brand);
+}
+
+.su-wn-more {
+  padding: var(--space-1) var(--space-1-5);
+  border-radius: var(--radius-sm);
+  color: var(--brand);
+}
+
+.su-wn-more:hover {
+  background: var(--brand-dim);
+}
 }

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __test,
+  announceAssistantStackStopping,
+  stopAssistantStack,
+} from '../AssistantStackService';
 import { createLifecycleSnapshot } from '../../../../shared/assistantStackLifecycle';
+import { dockerRuntime } from './stackServiceMocks';
 
-const runComposeStreaming = vi.fn();
-const runCompose = vi.fn();
-const runCli = vi.fn();
-const getContainerRuntime = vi.fn();
+const fakes = await vi.hoisted(async () => (await import('./stackServiceMocks')).createComposeFakes());
 
 const installedAddons = vi.hoisted(() => ({ ids: [] as string[] }));
 
@@ -12,60 +15,47 @@ const { isLocalAssistantStackMode } = vi.hoisted(() => ({
   isLocalAssistantStackMode: vi.fn(() => false),
 }));
 
-vi.mock('../../containerRuntime', async () => {
-  const actual = await vi.importActual<typeof import('../../containerRuntime')>(
-    '../../containerRuntime'
-  );
-  return {
-    ...actual,
-    getContainerRuntime: (...args: unknown[]) => getContainerRuntime(...args),
-    runCompose: (...args: unknown[]) => runCompose(...args),
-    runComposeStreaming: (...args: unknown[]) => runComposeStreaming(...args),
-    runCli: (...args: unknown[]) => runCli(...args),
-  };
-});
+vi.mock('../../containerRuntime', async (importOriginal) =>
+  (await import('./stackServiceMocks')).containerRuntimeMock(await importOriginal(), fakes)
+);
 
-vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({
-    root: '/tmp/fake-assistant',
-    error: undefined,
-  }),
-  resolveAssistantRoot: () => '/tmp/fake-assistant',
-}));
+vi.mock('../resolveAssistantRoot', async () =>
+  (await import('./stackServiceMocks')).resolveAssistantRootMock(() => '/tmp/fake-assistant')
+);
 
-vi.mock('../assistantPaths', () => ({
-  resolveBoundaryOverlayPath: () => '/tmp/docker-compose.boundary.yml',
+vi.mock('../assistantPaths', async () => ({
+  ...(await import('./stackServiceMocks')).composePathMocks(),
   resolveAssistantDataRoot: () => '/tmp/assistant-data',
-  resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
+  resolveAssistantUserContentRoot: () => '/tmp/assistant-data',
   resolveAssistantProjectRoot: () => '/tmp/fake-assistant',
   resolveAssistantStackHome: () => '/tmp/assistant-stack-home',
   isBoundaryOwnedAssistantRoot: () => false,
-  ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
-  ensureAssistantDataDirs: async () => undefined,
-  ensureAssistantWorkspaceDir: async () => undefined,
+  ensureAssistantDataDirs: async (): Promise<void> => undefined,
+  ensureAddonMountSources: async (): Promise<void> => undefined,
+  ensureAssistantWorkspaceDir: async (): Promise<void> => undefined,
   hermesConfigExists: () => true,
-  removeIncompleteHermesProfiles: async () => undefined,
+  removeIncompleteHermesProfiles: async (): Promise<void> => undefined,
 }));
 
 vi.mock('../provisionSovereignStack', () => ({
   ensureSovereignProjectProvisioned: async () => '/tmp/fake-assistant',
   isHostSetupComplete: () => true,
-  markHostSetupComplete: async () => undefined,
+  markHostSetupComplete: async (): Promise<void> => undefined,
   needsImageBuild: () => false,
-  markImagesBuilt: async () => undefined,
+  markImagesBuilt: async (): Promise<void> => undefined,
 }));
 
 vi.mock('../runSovereignSetup', () => ({
-  runSovereignSetup: async () => undefined,
+  runSovereignSetup: async (): Promise<void> => undefined,
 }));
 
 vi.mock('../applyLlmToProjectEnv', () => ({
-  applyLlmConnectionToProjectFiles: async () => undefined,
+  applyLlmConnectionToProjectFiles: async (): Promise<void> => undefined,
   clearLlmKeysFromProjectEnv: async () => false,
 }));
 
 vi.mock('../localStackMode', () => ({
-  isLocalAssistantStackMode: (...args: unknown[]) => isLocalAssistantStackMode(...args),
+  isLocalAssistantStackMode: () => isLocalAssistantStackMode(),
   localStackStopSkippedMessage: () => 'Local mode: leave stack running',
 }));
 
@@ -80,9 +70,11 @@ vi.mock('../AssistantStackStore', async () => {
   };
 });
 
+const { runCompose, runComposeStreaming, runCli, getContainerRuntime } = fakes;
+
 describe('stopAssistantStack cleanup', () => {
   beforeEach(() => {
-    vi.resetModules();
+    __test.resetModuleStateForTests();
     installedAddons.ids = [];
     isLocalAssistantStackMode.mockReset();
     isLocalAssistantStackMode.mockReturnValue(false);
@@ -91,15 +83,7 @@ describe('stopAssistantStack cleanup', () => {
     runCli.mockReset();
     getContainerRuntime.mockReset();
 
-    getContainerRuntime.mockResolvedValue({
-      kind: 'docker',
-      origin: 'system',
-      cliPath: 'docker',
-      composeArgv: ['compose'],
-      env: {},
-      apiEndpoint: 'unix:///var/run/docker.sock',
-      version: { cli: '1', compose: '2' },
-    });
+    getContainerRuntime.mockResolvedValue(dockerRuntime({ compose: '2' }));
 
     runComposeStreaming.mockResolvedValue({ stdout: '', stderr: '', code: 0 });
     runCompose.mockResolvedValue({ stdout: '[]', stderr: '' });
@@ -107,7 +91,6 @@ describe('stopAssistantStack cleanup', () => {
   });
 
   it('stops the containers and keeps them, their volumes and their images', async () => {
-    const { stopAssistantStack, __test } = await import('../AssistantStackService');
     __test.resetLifecycle();
 
     const result = await stopAssistantStack();
@@ -130,7 +113,6 @@ describe('stopAssistantStack cleanup', () => {
 
   it('stop passes --profile crm when Twenty is installed', async () => {
     installedAddons.ids = ['twenty'];
-    const { stopAssistantStack, __test } = await import('../AssistantStackService');
     __test.resetLifecycle();
 
     await stopAssistantStack();
@@ -142,7 +124,6 @@ describe('stopAssistantStack cleanup', () => {
 
   it('skips compose stop in local-stack mode', async () => {
     isLocalAssistantStackMode.mockReturnValue(true);
-    const { stopAssistantStack, __test } = await import('../AssistantStackService');
     __test.resetLifecycle();
 
     __test.setLifecycleSnapshot(createLifecycleSnapshot('ready'));
@@ -157,18 +138,12 @@ describe('stopAssistantStack cleanup', () => {
 
   it('announces nothing on quit in local-stack mode', async () => {
     isLocalAssistantStackMode.mockReturnValue(true);
-    const { announceAssistantStackStopping, __test } = await import(
-      '../AssistantStackService'
-    );
     __test.setLifecycleSnapshot(createLifecycleSnapshot('ready'));
     announceAssistantStackStopping();
     expect(__test.getLifecycleSnapshot().phase).toBe('ready');
   });
 
   it('announceAssistantStackStopping sets stopping phase', async () => {
-    const { announceAssistantStackStopping, __test } = await import(
-      '../AssistantStackService'
-    );
     __test.setLifecycleSnapshot(createLifecycleSnapshot('ready'));
     announceAssistantStackStopping();
     expect(__test.getLifecycleSnapshot().phase).toBe('stopping');

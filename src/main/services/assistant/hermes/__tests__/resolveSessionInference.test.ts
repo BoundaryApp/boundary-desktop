@@ -9,6 +9,7 @@ import {
   saveLlmConnection,
   saveLocalLlmEndpoint,
   setAppFallbacks,
+  setAppSharedModel,
 } from '../../../onboarding/OpenAiOnboardingStore';
 import {
   resetHermesAgentsStoreForTests,
@@ -34,6 +35,28 @@ describe('resolveSessionInference', () => {
     expect(resolved?.modelId).toBe('qwen3:14b');
     expect(resolved?.provenance).toBe('app-default');
     expect(resolved?.needsRestart).toBe(true);
+  });
+
+  it('resolves a confidential pool first in the app stack, named Confidential', async () => {
+    await saveLocalLlmEndpoint({ runtime: 'ollama', endpointUrl: 'http://127.0.0.1:11434/v1/', modelId: 'qwen3:14b' });
+    expect((await setAppSharedModel({ slot: 'confidential', modelId: ' qwen ' })).success).toBe(true);
+    expect(await setAppFallbacks([{ slot: 'local' }])).toMatchObject({ success: true });
+    expect(await resolveSessionInference('s1')).toEqual({
+      slot: 'confidential',
+      modelId: 'qwen',
+      providerDisplayName: 'Confidential',
+      provenance: 'app-default',
+      configured: true,
+      needsRestart: true,
+      fallbacks: [{ slot: 'local' }],
+    });
+    setLastAppliedLlm({
+      slot: 'confidential',
+      endpointUrl: 'https://confidential-pool.invalid',
+      modelId: 'qwen',
+      appliedAt: '2026-11-12T00:00:00.000Z',
+    });
+    expect((await resolveSessionInference('s1'))?.needsRestart).toBe(false);
   });
 
   it('prefers a configured chat override', async () => {

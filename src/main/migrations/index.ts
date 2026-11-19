@@ -9,6 +9,7 @@ import {
   movePendingChannelMessagesInEveryStore,
   renameLegacyBuiltinInEveryStore,
 } from './hermesAgentsStores';
+import { rotateHostBridgeToken } from '../services/hostBridge/hostBridgeStore';
 import { type Migration, runMigrations } from './runner';
 
 // The next minor release after the version in package.json (0.0.1) when these were moved here.
@@ -65,6 +66,14 @@ const MIGRATIONS: readonly Migration[] = [
     id: 'circles-drop-wiped-references',
     removeAfter: NEXT_MINOR,
     run: () => dropWipedCircleReferences(),
+  },
+  {
+    // Earlier versions wrote the browser token itself into each Hermes profile's config.yaml,
+    // where backups and config readers saw it. Config now refers to it, so replace the token
+    // that was exposed; the next stack start writes the new one into each profile's .env.
+    id: 'host-bridge-rotate-browser-token-out-of-config',
+    removeAfter: NEXT_MINOR,
+    run: () => rotateHostBridgeToken('browser'),
   },
 ];
 

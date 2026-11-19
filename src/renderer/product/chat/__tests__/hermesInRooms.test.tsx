@@ -8,7 +8,7 @@ stubElectronAPI({
   agents: { getSoul: vi.fn().mockResolvedValue({ success: true }), revealSoul: vi.fn() },
 });
 
-vi.mock('../ProjectSourcesRail', () => ({ ProjectSourcesRail: () => null }));
+vi.mock('../ProjectSourcesRail', () => ({ ProjectSourcesRail: (): null => null }));
 
 import { ChannelCreateSheet } from '../ChannelSheets';
 import { RightInspector } from '../RightInspector';

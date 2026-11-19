@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { CircleSharing, CircleSnapshot, CirclesState } from '../../../shared/types/circles';
 import type { InferenceProvidersStatus, ListedModel } from '../../../shared/types/onboarding';
+import { Callout } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { InfoTip } from '../../components/ui/info-tip';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
@@ -158,7 +159,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
 
       {sharingAny ? (
         <>
-          <div role={blocked ? 'alert' : undefined} className={`wb-circle-banner ${blocked ? 'is-warn' : 'is-ok'}`}>
+          <Callout variant={blocked ? 'warn' : 'ok'} layout="row" role={blocked ? 'alert' : undefined}>
             <span className="min-w-0 flex-1">
               {blocked
                 ? `${blocked}.`
@@ -167,19 +168,19 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
                   } while ${APP_NAME} is open.`}
             </span>
             {fixInSettings ? (
-              <CircleButton size="row" variant="outline" onClick={openModelSources}>
+              <CircleButton size="row" variant="secondary" onClick={openModelSources}>
                 Open Inference
               </CircleButton>
             ) : null}
             <CircleButton
               size="row"
-              variant="outline"
+              variant="secondary"
               disabled={action.busy}
               onClick={() => save({ ...sharing, paused: !sharing.paused })}
             >
               {sharing.paused ? 'Resume sharing' : 'Pause sharing'}
             </CircleButton>
-          </div>
+          </Callout>
           {sharing.paused ? (
             <p className="text-xs text-fg-faint">Your choices are kept. While paused, members&apos; chats move on to their next model.</p>
           ) : null}
@@ -188,7 +189,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-ui text-fg-muted">{startHint(sharing, hasLocal, sharedCircles)}</p>
           {!hasLocal ? (
-            <Button size="sm" variant="outline" onClick={openModelSources}>
+            <Button size="sm" variant="secondary" onClick={openModelSources}>
               Open Inference
             </Button>
           ) : null}

@@ -13,9 +13,13 @@ function isCapabilityComplete(ctx: SetupFlowSnapshot): boolean {
 }
 
 function isLlmOnboardingComplete(ctx: SetupFlowSnapshot): boolean {
-  // Finished setup stays finished: with every provider disconnected, Settings says so. Main sets
-  // setupComplete only after applying a model, so it can't skip this step on a first run.
-  return Boolean(ctx.onboardingStatus?.configured || ctx.assistantStackStatus?.setupComplete);
+  // Finished setup stays finished: with every provider disconnected, Settings says so. A skip is
+  // stored, so **Set up later** isn't asked again on the next launch.
+  return Boolean(
+    ctx.onboardingStatus?.configured ||
+      ctx.assistantStackStatus?.setupComplete ||
+      optionalStepOutcome(ctx, 'llm-onboarding') !== null
+  );
 }
 
 function isFoldersComplete(ctx: SetupFlowSnapshot): boolean {
@@ -34,8 +38,7 @@ function isAssistantStackComplete(ctx: SetupFlowSnapshot): boolean {
 
 /**
  * Ordered startup gates. Reorder / insert / remove by editing this list. At most five steps,
- * two of them optional, counting the steps experiments add; other optional setup belongs in the
- * Get started list.
+ * counting the steps experiments add; other optional setup belongs in the Get started list.
  */
 const APP_SETUP_STEPS: SetupStepDefinition[] = [
   {
@@ -53,6 +56,8 @@ const APP_SETUP_STEPS: SetupStepDefinition[] = [
     title: 'Choose a model',
     description:
       'Pick where replies come from. You can add or switch models later in Settings.',
+    optional: true,
+    skipLabel: 'Set up later',
     isComplete: isLlmOnboardingComplete,
     Component: LlmOnboardingStep,
   },

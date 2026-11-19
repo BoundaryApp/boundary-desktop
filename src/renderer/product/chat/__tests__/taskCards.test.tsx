@@ -13,7 +13,7 @@ vi.mock('@assistant-ui/store', () => ({
 stubElectronAPI({
   kanban: {
     snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onSnapshot: () => () => undefined,
+    onSnapshot: () => (): void => undefined,
   },
 });
 
@@ -39,6 +39,7 @@ const task = (over: Partial<KanbanTaskSummary> = {}): KanbanTaskSummary => ({
   lastHeartbeatAt: nowS - 4,
   claimExpires: nowS + 600,
   blockKind: null,
+  failures: 0,
   ...over,
 });
 

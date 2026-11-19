@@ -70,6 +70,22 @@ describe('projectMove (ADR 0024)', () => {
     expect(effects[3].text).toContain('OpenRouter');
   });
 
+  it('warns when a move sends the chat to an app default that is a confidential pool', () => {
+    const poolFirst: InferenceProvidersStatus = { ...status, appDefault: null, appSharedModel: { slot: 'confidential', modelId: 'qwen' } };
+    expect(effectiveInference(inherits, null, poolFirst)).toEqual({ slot: 'confidential', modelId: 'qwen', source: 'app' });
+    const effects = moveEffects({
+      agentName: 'Hermes',
+      from: local,
+      to: inherits,
+      inferenceBefore: effectiveInference(local, null, poolFirst),
+      inferenceAfter: effectiveInference(inherits, null, poolFirst),
+    });
+    expect(effects.at(-1)).toEqual({
+      kind: 'cloud',
+      text: 'Inference moves to the cloud: Confidential · qwen. The next reply sends this chat’s history, and any files Hermes reads, to a confidential provider you added.',
+    });
+  });
+
   it("keeps the chat's own override across a move, so nothing about inference changes", () => {
     const override = { provider: 'local' as const, modelId: 'qwen3-32b' };
     const effects = moveEffects({

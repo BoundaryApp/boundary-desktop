@@ -1,12 +1,14 @@
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
-const pathWithBun = [join(homedir(), '.bun', 'bin'), process.env.PATH]
+// Windows names the variable `Path`; a second `PATH` key beside it would be ambiguous for the child.
+const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+const pathWithBun = [join(homedir(), '.bun', 'bin'), process.env[pathKey]]
   .filter(Boolean)
-  .join(':');
+  .join(delimiter);
 
 execSync('bun install', {
   stdio: 'inherit',
-  env: { ...process.env, PATH: pathWithBun },
+  env: { ...process.env, [pathKey]: pathWithBun },
 });

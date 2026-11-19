@@ -56,8 +56,8 @@ const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
  * so a moved tag can't change what installs get. Read the stack's CHANGELOG.md before
  * bumping; a minor version can add services, required keys, host requirements or mounts.
  */
-export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.10';
-export const SOVEREIGN_AGENT_STACK_REF = '0ddf7b81d81928465e56bcc4dcc41d41853df25a';
+export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.15';
+export const SOVEREIGN_AGENT_STACK_REF = 'b54ee111037deb1f243fea0a390da06a578db56c';
 
 /**
  * SHA-256 of the GitHub zip for SOVEREIGN_AGENT_STACK_REF; a download that doesn't match is
@@ -65,7 +65,7 @@ export const SOVEREIGN_AGENT_STACK_REF = '0ddf7b81d81928465e56bcc4dcc41d41853df2
  *   curl -sL https://github.com/kaxline/sovereign-agent-stack/archive/<ref>.zip | shasum -a 256
  */
 export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
-  'f9c773e28b32347e43f311b7a857464c9e4b02d0b5fe2e6e1ed8cb8444c6c5cc';
+  '9393901db66b02403c29c3d5c2c17d199aa899c92727b7072086fa94f706f055';
 
 /**
  * Second-copy settings from the stack's docs/extending.md, passed in the compose
@@ -123,6 +123,7 @@ export const DEFAULT_ASSISTANT_STACK_PORTS: AssistantStackPorts = {
   gptResearcher: 8000,
   n8n: 5678,
   llmProxyAdmin: 4001,
+  detector: 8790,
 };
 
 /** Host publish ports for a given isolation mode (all keys, never a partial mix). */

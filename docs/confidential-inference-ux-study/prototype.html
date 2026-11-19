@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confidential Pools Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Boundary tokens (src/renderer/styles/tokens.css, ADR 0018). Light = Quiet Hub paper.
+   Layout: prototype controls, flow tabs, then a Boundary window (icon rail + destination). */
+:root {
+  color-scheme: light;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-read: "Iowan Old Style", "Palatino", Georgia, serif;
+  --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+  --surface-hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+  --text: #1c1b17; --text-muted: #6d6a60; --text-faint: #8a867a;
+  --brand: #5b56d6; --brand-dim: #e6e4fb; --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+  --ok: #3f7d44; --ok-dim: #e5f0e3; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+  --danger: #a83a3a; --danger-line: #e2b4b4; --danger-dim: #f8e6e4;
+  --gauge-track: #e3dfd3;
+  --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+  --page: #e9e6dc;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --dur: 160ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+    --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+    --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+    --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+    --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+    --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+    --gauge-track: #2a2a30;
+    --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+    --page: #070708;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+  --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+  --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+  --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+  --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+  --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+  --gauge-track: #2a2a30;
+  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+  --page: #070708;
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--text); font: 13px/1.45 var(--font-ui); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+
+/* ---------- Prototype controls ---------- */
+.proto { max-width: 1220px; margin: 0 auto; padding: 16px 16px 10px; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.proto .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+.proto .title { font-weight: 600; font-size: 14px; margin-right: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-1); flex-wrap: wrap; }
+.seg button { border: 0; background: none; padding: 5px 10px; cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--brand-dim); color: var(--text); font-weight: 500; }
+.ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tabs { max-width: 1220px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button { border: 1px solid transparent; border-bottom: 0; background: none; padding: 7px 14px; border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: pointer; color: var(--text-muted); }
+.tabs button[aria-selected="true"] { background: var(--surface-0); border-color: var(--line); color: var(--text); font-weight: 500; }
+.tabs .n { color: var(--text-faint); margin-right: 5px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Window ---------- */
+.window { max-width: 1220px; margin: 0 auto 24px; padding: 0 16px; }
+.frame { position: relative; display: grid; grid-template-columns: 56px 1fr; min-height: 780px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-overlay); }
+.rail { background: var(--surface-rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; }
+.rail button { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--text-faint); border: 0; background: none; cursor: pointer; }
+.rail button.active { background: var(--brand-dim); color: var(--brand); }
+.rail svg { width: 18px; height: 18px; }
+.rail .spacer { flex: 1; }
+.body { display: grid; grid-template-columns: 1fr auto; min-width: 0; }
+.main { padding: 28px 36px 48px; overflow: auto; min-width: 0; max-height: 860px; }
+.col { max-width: 760px; }
+.h-page { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.sub { color: var(--text-muted); max-width: 64ch; margin-top: 6px; font-size: 14px; }
+.sec { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; margin: 30px 0 10px; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-1); cursor: pointer; font-weight: 500; white-space: nowrap; transition: background var(--dur) var(--ease); }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.btn.primary:hover { opacity: .9; }
+.btn.danger { color: var(--danger); border-color: var(--danger-line); }
+.btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.link { background: none; border: 0; padding: 0; color: var(--brand); cursor: pointer; font-weight: 500; }
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; border: 1px solid var(--line); color: var(--text-muted); white-space: nowrap; }
+.pill.ok { color: var(--ok); background: var(--ok-dim); border-color: transparent; }
+.pill.warn { color: var(--warn); background: var(--warn-dim); border-color: var(--warn-line); }
+.pill.danger { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-line); }
+.pill.brand { color: var(--brand); background: var(--brand-dim); border-color: transparent; }
+.lvl { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; font-size: 11px; font-weight: 600; border: 1px solid var(--line-strong); color: var(--text-muted); background: var(--surface-2); flex: none; }
+.lvl.A { color: var(--ok); border-color: transparent; background: var(--ok-dim); }
+.lvl.B { color: var(--brand); border-color: transparent; background: var(--brand-dim); }
+.lvl.C { color: var(--warn); border-color: var(--warn-line); background: var(--warn-dim); }
+.note { color: var(--text-faint); font-size: 12px; }
+.muted { color: var(--text-muted); }
+.callout { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--warn-line); background: var(--warn-dim); margin: 10px 0; }
+.callout.danger { border-color: var(--danger-line); background: var(--danger-dim); }
+.callout.info { border-color: var(--line); background: var(--surface-2); }
+.callout .t { font-weight: 600; }
+.callout .acts { display: flex; gap: 6px; flex: none; }
+
+/* Stack (matches the Inference screen's spine and rungs) */
+.try { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-1); margin-bottom: 12px; }
+.try strong { font-weight: 600; }
+.try label { display: flex; gap: 6px; align-items: center; color: var(--text-muted); }
+.verdict { flex-basis: 100%; color: var(--text-muted); }
+.stack { position: relative; }
+.stack ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.spine { position: absolute; left: 21px; top: 16px; bottom: 16px; width: 2px; background: var(--line); }
+.rung { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-1); }
+.rung.sel { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.rung.answers { border-color: var(--ok); }
+.rung.passed { opacity: .7; }
+.rung .open { display: flex; gap: 10px; align-items: center; background: none; border: 0; text-align: left; cursor: pointer; padding: 0; min-width: 0; }
+.numb { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line-strong); font-size: 12px; font-weight: 600; flex: none; z-index: 1; }
+.rt { display: flex; flex-direction: column; min-width: 0; }
+.rt b { font-weight: 600; }
+.rt span { color: var(--text-muted); font-size: 12px; }
+.pool-tag { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--brand); font-weight: 600; margin-right: 6px; }
+.pline { display: flex; align-items: center; gap: 8px; color: var(--warn); font-size: 12px; margin: 2px 0 2px 40px; }
+.pline::before, .pline::after { content: ""; height: 1px; background: var(--warn-line); flex: 1; }
+.add { display: flex; gap: 10px; align-items: center; margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: none; cursor: pointer; color: var(--text-muted); width: 100%; }
+.endcap { display: flex; gap: 10px; align-items: center; margin-top: 8px; padding: 0 8px; color: var(--text-faint); font-size: 12px; }
+
+/* Source cards */
+.cards { display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; }
+.card .hed { display: flex; align-items: center; gap: 8px; }
+.card h3 { font-size: 14px; font-weight: 600; }
+.card .hed .grow { flex: 1; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--danger); }
+.card .lead { color: var(--text-muted); margin-top: 6px; max-width: 66ch; }
+.card dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; margin: 10px 0 0; }
+.card dt { color: var(--text-faint); } .card dd { margin: 0; }
+.prow { display: grid; grid-template-columns: 20px 1fr auto auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.prow:first-of-type { border-top: 0; }
+.prow .rt b { display: flex; gap: 6px; align-items: center; }
+.card .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.tradeoff { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--line); color: var(--text-muted); }
+.tradeoff b { color: var(--text); font-weight: 600; }
+
+/* Side panel */
+.side { width: 360px; border-left: 1px solid var(--line); background: var(--surface-1); padding: 22px 20px; overflow: auto; max-height: 860px; }
+.side-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.side-head h2 { font-size: 16px; font-weight: 600; }
+.x { width: 26px; height: 26px; border-radius: var(--radius-sm); border: 0; background: none; cursor: pointer; color: var(--text-faint); font-size: 16px; }
+.x:hover { background: var(--surface-hover); }
+.kick { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; margin: 18px 0 8px; }
+.kv { display: grid; grid-template-columns: 112px 1fr; gap: 6px 10px; margin: 0; }
+.kv dt { color: var(--text-faint); } .kv dd { margin: 0; }
+.rank { list-style: none; margin: 0; padding: 0; }
+.rank li { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); align-items: start; }
+.rank li:first-child { border-top: 0; }
+.rank .cost { text-align: right; font-variant-numeric: tabular-nums; }
+.rank .cost small { display: block; color: var(--text-faint); font-size: 11px; }
+.rank .why { color: var(--text-muted); font-size: 12px; }
+.rank li.out { opacity: .72; }
+.rank li.first .rt b::after { content: "Serves new chats"; margin-left: 8px; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ok); }
+
+/* Sheet */
+.scrim { position: absolute; inset: 0; background: rgb(20 18 12 / .28); display: grid; place-items: center; z-index: 20; padding: 24px; }
+.sheet { width: min(640px, 100%); max-height: 100%; overflow: auto; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-overlay); padding: 20px 22px 18px; }
+.sheet h2 { font-size: 17px; font-weight: 600; }
+.sheet .stepper { display: flex; gap: 6px; margin: 10px 0 16px; color: var(--text-faint); font-size: 12px; flex-wrap: wrap; }
+.sheet .stepper span.on { color: var(--text); font-weight: 600; }
+.sheet .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 18px; }
+.sheet .foot .r { display: flex; gap: 8px; }
+.choice { display: grid; grid-template-columns: 20px 1fr auto; gap: 10px; align-items: start; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-0); cursor: pointer; margin-bottom: 8px; }
+.choice:hover { border-color: var(--line-strong); }
+.choice[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-dim); }
+.choice[disabled] { cursor: default; opacity: .6; }
+.choice .rt span { margin-top: 2px; }
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.field label { font-weight: 500; }
+.field .hint { color: var(--text-faint); font-size: 12px; }
+.field input[type="text"], .field input[type="password"], .field select { height: 34px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-0); }
+.field .err { color: var(--danger); font-size: 12px; }
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.checks li:first-child { border-top: 0; }
+.ic { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+.ic.ok { background: var(--ok-dim); color: var(--ok); }
+.ic.warn { background: var(--warn-dim); color: var(--warn); }
+.ic.bad { background: var(--danger-dim); color: var(--danger); }
+.ic.wait { border: 1.5px solid var(--line-strong); }
+.checks .v { color: var(--text-muted); font-size: 12px; }
+.radio { display: flex; flex-direction: column; gap: 6px; }
+.radio label { display: grid; grid-template-columns: 18px 1fr; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; }
+.radio label:has(input:checked) { border-color: var(--brand); background: var(--brand-dim); }
+.radio b { font-weight: 500; display: flex; gap: 6px; align-items: center; }
+.radio label > span > span { color: var(--text-muted); font-size: 12px; }
+.switch { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.switch b { font-weight: 500; }
+.switch .v { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.tog { width: 34px; height: 20px; border-radius: 10px; background: var(--line-strong); border: 0; position: relative; cursor: pointer; }
+.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-1); transition: left var(--dur) var(--ease); }
+.tog[aria-checked="true"] { background: var(--brand); }
+.tog[aria-checked="true"]::after { left: 16px; }
+table.t { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.t th, .t td { text-align: left; padding: 7px 8px 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.t thead th { border-top: 0; color: var(--text-faint); font-weight: 500; font-size: 12px; }
+.t td.r, .t th.r { text-align: right; }
+
+/* Chat */
+.chat { display: grid; grid-template-rows: auto 1fr auto; height: 100%; min-height: 780px; }
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 14px 28px; border-bottom: 1px solid var(--line); }
+.chat-head b { font-weight: 600; }
+.transcript { padding: 24px 28px; overflow: auto; max-height: 640px; }
+.tcol { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.msg.user { align-self: flex-end; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 9px 13px; max-width: 80%; }
+.msg.agent { font: 15.5px/1.7 var(--font-read); }
+.mark { display: flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
+.mark::before, .mark::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.prov { color: var(--text-faint); font-size: 12px; margin-top: 4px; font-family: var(--font-ui); }
+.composer { padding: 12px 28px 18px; }
+.comp { max-width: 680px; margin: 0 auto; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--surface-1); padding: 10px 12px; }
+.comp .ph { color: var(--text-faint); min-height: 36px; }
+.comp .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; position: relative; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); background: var(--surface-2); cursor: pointer; font-size: 12px; }
+.chip .sub2 { color: var(--text-faint); }
+.pop { position: absolute; bottom: 34px; left: 0; width: 380px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-overlay); padding: 14px 16px; z-index: 5; }
+.stop { border: 1px solid var(--danger-line); background: var(--danger-dim); border-radius: var(--radius-lg); padding: 12px 14px; font-family: var(--font-ui); font-size: 13px; }
+.stop ul { margin: 6px 0 10px; padding-left: 18px; }
+.stop .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Help page */
+.doc { max-width: 680px; font-size: 14px; line-height: 1.6; }
+.doc h1 { font-size: 24px; margin-bottom: 12px; }
+.doc h2 { font-size: 16px; margin: 24px 0 6px; }
+.doc p { margin: 0 0 10px; }
+.doc ul { margin: 0 0 10px; padding-left: 20px; }
+
+.annot { max-width: 1220px; margin: 0 auto 32px; padding: 0 16px; color: var(--text-muted); font-size: 12px; }
+.annot b { color: var(--text); }
+@media (max-width: 900px) {
+  .body { grid-template-columns: 1fr; }
+  .side { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+  .main { padding: 20px 16px 32px; }
+}
+</style>
+</head>
+<body>
+<div class="proto" id="proto"></div>
+<div class="tabs" id="tabs" role="tablist"></div>
+<div class="window"><div class="frame" id="frame"></div></div>
+<div class="annot" id="annot"></div>
+
+<script>
+/* ---------- Data. Prices are from providers' pages read 2026-11-08; levels and precision are placeholders the catalog would set. ---------- */
+const MODELS = {
+  qwen: { name: 'Qwen 3.8 27B', id: 'qwen3.8-27b', ctx: '256K' },
+  dsflash: { name: 'DeepSeek V4.1 Flash', id: 'deepseek-v4.1-flash', ctx: '1M' },
+  glmflash: { name: 'GLM 5.3 Flash', id: 'glm-5.3-flash', ctx: '1M' },
+};
+const LEVELS = {
+  A: { name: 'Checked hardware and code', short: 'Hardware and code checked',
+       text: 'Your Mac checks the sealed hardware and the exact build running inside it against published source.' },
+  B: { name: 'Checked hardware', short: 'Hardware checked',
+       text: 'Your Mac checks the sealed hardware, but can’t yet check which build runs inside it. You trust the provider to run what it says.' },
+  C: { name: 'Not fully checked', short: 'Not fully checked',
+       text: 'Your Mac can’t check the whole path: a gateway decrypts and forwards your request to another provider, or the provider’s hardware check can’t be enforced on every request.' },
+};
+const PROVIDERS = {
+  prem: { name: 'Prem', level: 'B', where: 'Switzerland', keyUrl: 'dashboard.prem.io/api-keys', billing: 'Prepaid by card',
+    why: 'Encrypts on your Mac to the enclave. The enclave’s build isn’t pinned yet, so your Mac can’t check which code runs.',
+    note: 'New Prem accounts can send 38,000 tokens a minute, about two agent steps. Paying $5 in total raises that within minutes.',
+    models: { qwen: { in: 0.30, cache: 0.00, out: 2.40, prec: 'Not stated', precOk: 'unknown', live: true, promo: 'Cached input free until 1 Dec' },
+              dsflash: { in: 0.35, cache: 0.00, out: 1.40, prec: 'Not stated', precOk: 'unknown', live: true, promo: 'Cached input free until 1 Dec' } } },
+  near: { name: 'NEAR AI Cloud', level: 'B', where: 'Not stated', keyUrl: 'cloud.near.ai', billing: 'Prepaid credits',
+    why: 'Encrypts on your Mac to the enclave, including tool calls. No reproducible builds are published.',
+    note: 'Beta service.',
+    models: { qwen: { in: 0.04, cache: null, out: 1.35, prec: 'fp8', precOk: 'fp8', live: true },
+              dsflash: { in: 0.30, cache: null, out: 1.20, prec: 'fp8', precOk: 'fp8', live: true },
+              glmflash: { in: 0.08, cache: null, out: 0.50, prec: 'fp8', precOk: 'fp8', live: true } } },
+  chutes: { name: 'Chutes', level: 'C', where: 'Varies', keyUrl: 'chutes.ai', billing: 'Prepaid by card, crypto or bank',
+    why: 'Encrypts on your Mac to the enclave, but Chutes leaves the hardware check optional, and Boundary doesn’t enforce it yet. Some components are closed source, and the machines are run by anonymous operators.',
+    models: { qwen: { in: 0.039, cache: null, out: 1.25, prec: 'fp8', precOk: 'fp8', live: true },
+              dsflash: { in: 0.30, cache: null, out: 1.20, prec: 'fp8', precOk: 'fp8', live: true } } },
+  tinfoil: { name: 'Tinfoil', level: 'B', where: 'US', keyUrl: 'tinfoil.sh', billing: 'Prepaid by card',
+    why: 'TLS ends inside the enclave and builds are reproducible. Pinning which build runs is in beta, so it’s level B until that ships.',
+    models: { dsflash: { in: 0.75, cache: null, out: 1.60, prec: 'Not stated', precOk: 'unknown', live: false } } },
+  privatemode: { name: 'Privatemode', level: 'A', where: 'EU', keyUrl: 'privatemode.ai', billing: 'Billed monthly in euros',
+    why: 'Encrypts on your Mac; its proxy checks the hardware and the build against reproducible reference values. Audited (BSI C5, ISO 27001).',
+    models: { glmflash: { in: 0.22, cache: null, out: 0.71, prec: 'Not stated', precOk: 'unknown', live: false, eur: '€0.20 / €0.65' } } },
+  phala: { name: 'Phala', level: 'C', where: 'Varies', keyUrl: 'phala.com', billing: 'Prepaid',
+    why: 'Its gateway runs in sealed hardware, decrypts your request, then forwards it to one of several other providers.',
+    models: { qwen: { in: 0.20, cache: null, out: 2.50, prec: 'Not stated', precOk: 'unknown', live: true },
+              dsflash: { in: 0.44, cache: null, out: 1.32, prec: 'Not stated', precOk: 'unknown', live: true } } },
+};
+const ORDER = ['prem', 'near', 'chutes', 'tinfoil', 'privatemode', 'phala'];
+const PREC_RANK = { bf16: 3, fp8: 2, fp4: 1 };
+const TURN = { input: 75000, cachedShare: 0.6, output: 2500 };
+
+/* ---------- State ---------- */
+const S = {
+  tab: 'inference', theme: 'light',
+  accounts: 'two',         // none | two
+  event: 'ok',             // ok | near-limit | prem-empty | near-attest | none-left
+  catalog: 'ok',           // ok | stale | bad-sig
+  floor: 'B', privFloor: 'A', prec: 'fp8', unknownOk: true, prefer: false, threshold: 20,
+  sel: null,               // selected rung key
+  sheet: null,             // add | settings | provider:<id> | spend | addmodel
+  add: { step: 'pick', id: null, key: '', result: null },
+  tryPrivate: false, tryRun: false,
+  chipOpen: false, chatEvent: 'switch', // switch | stop
+  privAllowB: false,
+  added: ['prem', 'near'],
+};
+function added() { return S.accounts === 'none' ? [] : S.added; }
+function money(x, d) { return '$' + x.toFixed(d ?? (x < 0.1 ? 3 : 2)); }
+
+/* What stops a provider now, from the scenario control. */
+function status(id) {
+  const e = S.event;
+  if (id === 'near' && (e === 'near-limit' || e === 'none-left')) return { kind: 'warn', label: 'Rate-limited', why: 'NEAR AI is rate-limiting this account until about 14:20.' };
+  if (id === 'prem' && (e === 'prem-empty' || e === 'none-left')) return { kind: 'bad', label: 'Balance empty', why: 'Your Prem balance is $0.00. Prem refuses requests until you top up.' };
+  if (id === 'near' && e === 'near-attest') return { kind: 'bad', label: 'Check failed', why: 'NEAR AI’s hardware check failed at 14:02. It isn’t used until a check passes. Nothing was sent.' };
+  return { kind: 'ok', label: 'Ready', why: '' };
+}
+function balance(id) {
+  if (id === 'prem') return S.event === 'prem-empty' || S.event === 'none-left' ? 0 : 18.4;
+  if (id === 'near') return 2.1;
+  return 10;
+}
+function turnCost(p) {
+  const cache = p.cache ?? p.in;
+  return (TURN.input * (1 - TURN.cachedShare) * p.in + TURN.input * TURN.cachedShare * cache + TURN.output * p.out) / 1e6;
+}
+function precFits(p) {
+  if (p.precOk === 'unknown') return S.unknownOk;
+  return PREC_RANK[p.precOk] >= PREC_RANK[S.prec];
+}
+function levelFits(level, floor) { return level <= floor; } // 'A' < 'B' < 'C'
+
+/* The pool for one model: who serves, in order, and why the rest don't. */
+function pool(modelKey, opts = {}) {
+  const floor = opts.private ? (S.privAllowB ? 'B' : S.privFloor) : S.floor;
+  const inPool = [], out = [];
+  for (const id of ORDER) {
+    const pr = PROVIDERS[id], m = pr.models[modelKey];
+    if (!m) continue;
+    const row = { id, pr, m, cost: turnCost(m) };
+    if (!added().includes(id)) { out.push({ ...row, why: 'Not added. Pools only use providers you add.' }); continue; }
+    if (!levelFits(pr.level, floor)) { out.push({ ...row, why: `Level ${pr.level} is below ${opts.private ? 'this project’s' : 'your'} minimum, ${floor}.` }); continue; }
+    if (!precFits(m)) { out.push({ ...row, why: m.precOk === 'unknown' ? 'Doesn’t state its precision, and your pool only takes stated ones.' : `Runs at ${m.prec}, below your lowest precision, ${S.prec}.` }); continue; }
+    const st = status(id);
+    if (st.kind !== 'ok') { out.push({ ...row, why: st.why, now: true }); continue; }
+    inPool.push(row);
+  }
+  inPool.sort((a, b) => a.cost - b.cost);
+  return { inPool, out, floor };
+}
+const STACK = [{ key: 'pool:qwen', kind: 'pool', model: 'qwen' }, { key: 'local', kind: 'local' }];
+
+/* ---------- Prototype controls ---------- */
+function seg(label, key, opts) {
+  return `<div class="ctl"><span class="label">${label}</span><div class="seg">${opts.map(([v, t]) =>
+    `<button aria-pressed="${S[key] === v}" data-set="${key}" data-val="${v}">${t}</button>`).join('')}</div></div>`;
+}
+function renderProto() {
+  document.getElementById('proto').innerHTML =
+    `<span class="title">Confidential pools prototype</span>` +
+    seg('Accounts', 'accounts', [['none', 'None yet'], ['two', 'Prem and NEAR AI']]) +
+    seg('Now', 'event', [['ok', 'All ready'], ['near-limit', 'NEAR AI rate-limited'], ['prem-empty', 'Prem balance empty'], ['near-attest', 'NEAR AI check fails'], ['none-left', 'Neither can serve']]) +
+    seg('Provider list', 'catalog', [['ok', 'Current'], ['stale', '9 days old'], ['bad-sig', 'Signature fails']]) +
+    seg('Theme', 'theme', [['light', 'Light'], ['dark', 'Dark']]);
+  const tabs = [['inference', 'Inference'], ['add', 'Add a provider'], ['settings', 'Pool settings'], ['chat', 'In a chat'], ['private', 'Private project'], ['spend', 'Spend'], ['help', 'Help page']];
+  document.getElementById('tabs').innerHTML = tabs.map(([v, t], i) =>
+    `<button role="tab" aria-selected="${S.tab === v}" data-tab="${v}"><span class="n">${i + 1}</span>${t}</button>`).join('');
+}
+
+/* ---------- Icons ---------- */
+const ICON = {
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  inf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>',
+  proj: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h7l2 2h9v10H3z"/></svg>',
+  set: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>',
+};
+function rail(active) {
+  const b = (k, t, tab) => `<button class="${active === k ? 'active' : ''}" aria-label="${t}" data-tab="${tab}">${ICON[k]}</button>`;
+  return `<nav class="rail">${b('chat', 'Chat', 'chat')}${b('proj', 'Projects', 'private')}${b('inf', 'Inference', 'inference')}<span class="spacer"></span>${b('set', 'Settings', 'inference')}</nav>`;
+}
+
+/* ---------- Inference screen ---------- */
+function lvl(l) { return `<span class="lvl ${l}" title="Level ${l}: ${LEVELS[l].name}">${l}</span>`; }
+function poolDetail(modelKey) {
+  const p = pool(modelKey);
+  if (added().length === 0) return 'No confidential providers added yet';
+  if (!p.inPool.length) return 'No provider in this pool can serve now';
+  const first = p.inPool[0];
+  return `${p.inPool.length} provider${p.inPool.length > 1 ? 's' : ''} · New chats go to ${first.pr.name}, about ${money(first.cost)} a turn`;
+}
+function rungView(r) {
+  if (r.kind === 'pool') {
+    const p = pool(r.model);
+    const ready = p.inPool.length > 0;
+    return { label: `<span class="pool-tag">Confidential</span>${MODELS[r.model].name}`, detail: poolDetail(r.model),
+      status: added().length === 0 ? ['', 'Add a provider'] : ready ? ['ok', 'Ready'] : ['warn', 'None can serve'] };
+  }
+  return { label: 'Local · qwen3:8b', detail: 'This Mac · LM Studio', status: ['ok', 'Ready'] };
+}
+function stackHtml() {
+  const stack = added().length ? STACK : STACK.filter((r) => r.kind !== 'pool');
+  const rungs = stack.map((r, i) => {
+    const v = rungView(r);
+    let cls = S.sel === r.key ? ' sel' : '';
+    let detail = v.detail;
+    if (S.tryRun && stack.length > 1) {
+      const p = r.kind === 'pool' ? pool(r.model, { private: S.tryPrivate }) : null;
+      const can = r.kind === 'local' || (p && p.inPool.length > 0);
+      const prevCan = i > 0 && (() => { const p0 = pool(STACK[0].model, { private: S.tryPrivate }); return p0.inPool.length > 0; })();
+      if (i === 0) { cls += can ? ' answers' : ' passed'; detail = can ? `Answers now: ${p.inPool[0].pr.name}` : (S.tryPrivate ? `No provider meets level ${p.floor}, so private projects stop here` : 'Skipped: no provider can serve'); }
+      else if (S.tryPrivate && !prevCan) { cls += ' passed'; detail = 'A private project stops before this'; }
+      else { cls += prevCan ? '' : ' answers'; detail = prevCan ? 'If the one above fails' : 'Answers now'; }
+    }
+    return `<li><div class="rung${cls}"><button class="open" data-sel="${r.key}"><span class="numb">${i + 1}</span><span class="rt"><b>${v.label}</b><span>${detail}</span></span></button>
+      <span class="pill ${v.status[0]}">${v.status[1]}</span></div></li>`;
+  }).join('');
+  let verdict = '';
+  if (S.tryRun) {
+    const p = pool('qwen', { private: S.tryPrivate });
+    verdict = `<p class="verdict" role="status">${p.inPool.length ? `Answered by ${MODELS.qwen.name} at ${p.inPool[0].pr.name}, about ${money(p.inPool[0].cost)} for a typical turn. Nothing was sent.` : S.tryPrivate ? 'Nothing can answer. The chat stops and says why.' : 'Answered by Local · qwen3:8b. 1 skipped. Nothing was sent.'}</p>`;
+  }
+  return `<div class="try"><strong>Try a request</strong><label><input type="checkbox" data-toggle="tryPrivate" ${S.tryPrivate ? 'checked' : ''}> From a private project</label>
+    <button class="btn primary sm" data-act="try">Run</button>${verdict}</div>
+    <div class="stack"><div class="spine"></div><ol>${rungs}</ol>
+    <button class="add" data-sheet="addmodel"><span class="numb">+</span>Add model</button>
+    <div class="endcap"><span class="numb">–</span>If none answer, the chat stops and says why</div></div>`;
+}
+function catalogCallout() {
+  if (S.catalog === 'stale') return `<div class="callout"><div><p class="t">Boundary’s provider list is 9 days old</p><p>Prices from your providers are live where they report them. Trust levels and the other prices come from the list and may be out of date.</p></div><div class="acts"><button class="btn sm">Check now</button></div></div>`;
+  if (S.catalog === 'bad-sig') return `<div class="callout danger"><div><p class="t">The new provider list failed its signature check</p><p>Pools keep using the last list that passed, from 3 November. Nothing in it changed.</p></div><div class="acts"><button class="btn sm">Check again</button></div></div>`;
+  return '';
+}
+function providerRows() {
+  return added().map((id) => {
+    const pr = PROVIDERS[id], st = status(id), bal = balance(id);
+    const low = bal > 0 && bal < 5;
+    return `<div class="prow">${lvl(pr.level)}<span class="rt"><b>${pr.name}</b><span>${Object.keys(pr.models).map((k) => MODELS[k].name).join(', ')} · Balance ${money(bal, 2)}${low ? ' · low' : ''}</span></span>
+      <span class="pill ${st.kind === 'ok' ? (low ? 'warn' : 'ok') : st.kind === 'warn' ? 'warn' : 'danger'}">${st.kind === 'ok' ? (low ? 'Low balance' : 'Ready') : st.label}</span>
+      <button class="btn sm" data-sheet="provider:${id}">Details</button></div>`;
+  }).join('');
+}
+function confidentialCard() {
+  const none = added().length === 0;
+  const issues = added().map((id) => ({ id, st: status(id) })).filter((x) => x.st.kind !== 'ok');
+  return `<article class="card" id="conf-card"><div class="hed"><span class="dot ${none ? '' : issues.length ? 'warn' : 'ok'}"></span><h3>Confidential providers</h3><span class="grow"></span>
+    ${none ? '<span class="pill">Not set</span>' : `<span class="pill ok">${added().length} added</span>`}</div>
+    <p class="lead">Providers that run models in sealed hardware, so they can’t read your prompts. You bring an account at each. When a chat starts, Boundary sends it to the cheapest one that meets your settings and keeps it there.</p>
+    ${catalogCallout()}
+    ${issues.map(({ id, st }) => `<div class="callout ${st.kind === 'bad' ? 'danger' : ''}"><div><p>${st.why}</p></div><div class="acts">${st.label === 'Balance empty' ? `<button class="btn sm">Top up at ${PROVIDERS[id].name}</button>` : st.label === 'Check failed' ? '<button class="btn sm">Check again</button>' : ''}</div></div>`).join('')}
+    ${none ? '' : `<div style="margin-top:6px">${providerRows()}</div>`}
+    <div class="tradeoff"><b>What each provider sees.</b> When you send, how long your messages are, and which model you use. Not what you wrote. Each provider you add is one more company that sees this. <button class="link" data-tab="help">How pools work</button></div>
+    <div class="bar"><button class="btn ${none ? 'primary' : ''}" data-sheet="add">Add a provider</button>${none ? '' : '<button class="btn" data-sheet="settings">Pool settings</button><button class="btn" data-sheet="spend">Spend</button>'}</div></article>`;
+}
+function sourcesHtml() {
+  return `<div class="cards">
+    <article class="card"><div class="hed"><span class="dot ok"></span><h3>Local</h3><span class="grow"></span><span class="pill ok">Connected</span></div>
+      <dl><dt>Runtime</dt><dd>LM Studio</dd><dt>Endpoint</dt><dd class="mono">http://127.0.0.1:1234</dd></dl></article>
+    ${confidentialCard()}
+    <article class="card"><div class="hed"><span class="dot"></span><h3>OpenRouter</h3><span class="grow"></span><span class="pill">Not set</span></div>
+      <p class="lead">Cloud models from many providers. The provider that serves a request can read it.</p><div class="bar"><button class="btn">Connect OpenRouter</button></div></article></div>`;
+}
+function poolSide(modelKey, opts = {}) {
+  const p = pool(modelKey, opts);
+  const li = (r, i, isOut) => `<li class="${isOut ? 'out' : i === 0 ? 'first' : ''}">${lvl(r.pr.level)}<span class="rt"><b>${r.pr.name}</b><span class="why">${isOut ? r.why : `${money(r.m.in, 3)} in · ${money(r.m.out, 2)} out per million${r.m.cache !== null && r.m.cache !== undefined ? ` · cached ${money(r.m.cache, 2)}` : ''}${r.m.promo ? ` · ${r.m.promo}` : ''}${r.m.live ? '' : ' · price from Boundary’s list'}`}</span></span>
+    <span class="cost">${money(r.cost)}<small>a turn</small></span></li>`;
+  const preferLine = S.prefer && p.inPool.length ? `<p class="note" style="margin-top:8px">Prefer one provider is on. Chats stay on ${p.inPool[0].pr.name} unless it fails or another is more than ${S.threshold}% cheaper.</p>` : '';
+  return `<p class="muted">${MODELS[modelKey].name} · <span class="mono">${MODELS[modelKey].id}</span> · ${MODELS[modelKey].ctx} context</p>
+    <p class="kick">Who serves, cheapest first</p>
+    ${p.inPool.length ? `<ol class="rank">${p.inPool.map((r, i) => li(r, i)).join('')}</ol>` : `<p class="muted">No provider in this pool can serve now.</p>`}
+    ${preferLine}
+    <p class="note" style="margin-top:8px">A turn is an estimate: 75,000 tokens in, 60% of them cached, and 2,500 out. A chat stays on its provider, so its cache isn’t lost; new chats go to whoever is first then.</p>
+    ${p.out.length ? `<p class="kick">Not used</p><ol class="rank">${p.out.map((r, i) => li(r, i, true)).join('')}</ol>` : ''}
+    <p class="kick">Settings this pool follows</p>
+    <dl class="kv"><dt>Lowest level</dt><dd>${p.floor} · ${LEVELS[p.floor].short}</dd><dt>Lowest precision</dt><dd>${S.prec}${S.unknownOk ? ', or not stated' : ''}</dd><dt>Private projects</dt><dd>Level ${S.privFloor} or better</dd></dl>
+    <div class="bar" style="display:flex;gap:8px;margin-top:14px"><button class="btn sm" data-sheet="settings">Pool settings</button><button class="btn sm danger">Remove from stack</button></div>`;
+}
+function inferenceView() {
+  const side = S.sel === 'pool:qwen'
+    ? `<aside class="side"><div class="side-head"><h2>Confidential pool</h2><button class="x" data-sel="">×</button></div>${poolSide('qwen')}</aside>`
+    : S.sel === 'local' ? `<aside class="side"><div class="side-head"><h2>Local · qwen3:8b</h2><button class="x" data-sel="">×</button></div><dl class="kv"><dt>Source</dt><dd>This Mac</dd><dt>Context</dt><dd>32K</dd><dt>Private projects</dt><dd>Can use it</dd></dl></aside>` : '';
+  return `<div class="body"><main class="main"><div class="col">
+    <h1 class="h-page">Inference</h1><p class="sub">What answers your chats, what this Mac shares, and what your Circles offer.</p>
+    <p class="sec">Chat stack</p>${stackHtml()}
+    <p class="sec" id="sources">Model sources</p>${sourcesHtml()}
+  </div></main>${side}</div>`;
+}
+
+/* ---------- Sheets ---------- */
+function addSheet() {
+  const a = S.add;
+  const steps = [['pick', 'Choose'], ['agree', 'What it sees'], ['key', 'Key'], ['check', 'Check']];
+  const stepper = `<div class="stepper">${steps.map(([k, t], i) => `<span class="${a.step === k ? 'on' : ''}">${i + 1}. ${t}</span>`).join('<span>›</span>')}</div>`;
+  const pr = a.id ? PROVIDERS[a.id] : null;
+  let body = '', foot = '';
+  if (a.step === 'pick') {
+    body = ORDER.map((id) => {
+      const p = PROVIDERS[id], have = added().includes(id);
+      const cheapest = Object.entries(p.models).map(([k, m]) => `${MODELS[k].name} ${money(turnCost(m))}`).join(' · ');
+      return `<button class="choice" data-pick="${id}" aria-pressed="${a.id === id}" ${have ? 'disabled' : ''}>${lvl(p.level)}<span class="rt"><b>${p.name}${have ? ' · added' : ''}</b><span>${LEVELS[p.level].short}. ${p.why}</span><span class="note">${cheapest} a turn · ${p.billing}</span></span>
+        ${levelFits(p.level, S.floor) ? '' : `<span class="pill warn">Below your minimum</span>`}</button>`;
+    }).join('') + `<p class="note">Boundary’s provider list sets each level and says why. Adding a provider is the only way it joins your pools.</p>`;
+    foot = `<span></span><span class="r"><button class="btn" data-close>Cancel</button><button class="btn primary" data-add-step="agree" ${a.id ? '' : 'disabled'}>Next</button></span>`;
+  } else if (a.step === 'agree') {
+    body = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">${lvl(pr.level)}<b>${pr.name} · Level ${pr.level}, ${LEVELS[pr.level].name.toLowerCase()}</b></div>
+      <p class="muted" style="margin-bottom:12px">${LEVELS[pr.level].text} ${pr.why}</p>
+      <ul class="checks">
+        <li><span class="ic ok">✓</span><span><b>Can’t read</b><span class="v"><br>What you write, what the model replies, or files and tool results in a chat.</span></span></li>
+        <li><span class="ic warn">!</span><span><b>Sees</b><span class="v"><br>When you send, how long each request and reply is, which model you use, and your account. Each provider you add sees this for the chats it serves.</span></span></li>
+        <li><span class="ic warn">!</span><span><b>Bills you</b><span class="v"><br>${pr.billing}, at ${pr.name}. Boundary doesn’t bill you or see your payment details.</span></span></li>
+        <li><span class="ic ok">✓</span><span><b>Joins your pools</b><span class="v"><br>${pr.name} serves any pool for a model it carries, when it’s cheapest and meets your settings. New models it adds join too. Remove it here to stop that.</span></span></li>
+      </ul>`;
+    foot = `<button class="btn" data-add-step="pick">Back</button><span class="r"><button class="btn" data-close>Cancel</button><button class="btn primary" data-add-step="key">Add ${pr.name}</button></span>`;
+  } else if (a.step === 'key') {
+    body = `<p class="muted" style="margin-bottom:14px">Create an account and an API key at <span class="mono">${pr.keyUrl}</span>, and add some balance there. Boundary stores the key on this Mac with your Mac’s keychain and never sends it anywhere but ${pr.name}.</p>
+      <div class="field"><label for="k">API key</label><input id="k" type="password" placeholder="Paste the key" data-key value="${a.key}">${a.result === 'bad-key' ? `<span class="err">${pr.name} didn’t accept this key. Check you copied all of it.</span>` : '<span class="hint">Boundary also makes an encryption key for this Mac. It never leaves this Mac.</span>'}</div>
+      ${pr.note ? `<div class="callout info"><p>${pr.note}</p></div>` : ''}
+      <p class="note">Prototype: type <span class="mono">bad</span> to see a refused key, <span class="mono">notools</span> for a provider that can’t run tools, or <span class="mono">fail</span> for a failed hardware check.</p>`;
+    foot = `<button class="btn" data-add-step="agree">Back</button><span class="r"><button class="btn" data-close>Cancel</button><button class="btn primary" data-add-step="check" ${a.key ? '' : 'disabled'}>Check and add</button></span>`;
+  } else {
+    const r = a.result;
+    const row = (state, title, v) => `<li><span class="ic ${state}">${state === 'ok' ? '✓' : state === 'bad' ? '×' : state === 'warn' ? '!' : ''}</span><span><b>${title}</b><span class="v"><br>${v}</span></span></li>`;
+    body = `<ul class="checks">
+      ${row('ok', 'Key accepted', `Balance ${money(10, 2)}.`)}
+      ${r === 'fail' ? row('bad', 'Hardware check failed', `${pr.name}’s enclave didn’t pass. ${pr.name} isn’t added. Nothing was sent.`) : row('ok', 'Hardware checked', `${LEVELS[pr.level].short}, matching level ${pr.level}.`)}
+      ${r === 'fail' ? '' : row('ok', 'Models listed', Object.keys(pr.models).map((k) => MODELS[k].name).join(', ') + '.')}
+      ${r === 'fail' ? '' : r === 'notools' ? row('warn', 'Tools don’t run', `A test tool call didn’t come back. ${pr.name} can answer plain questions but can’t serve agent turns, so pools skip it for chats that use tools.`) : row('ok', 'Tools run', 'A test tool call came back. Nothing you wrote was sent.')}
+    </ul>`;
+    foot = r === 'fail'
+      ? `<button class="btn" data-add-step="key">Back</button><span class="r"><button class="btn" data-close>Close</button><button class="btn primary" data-add-step="check">Check again</button></span>`
+      : `<span></span><span class="r"><button class="btn primary" data-finish-add>Done</button></span>`;
+  }
+  return `<div class="sheet" role="dialog" aria-label="Add a provider"><h2>Add a confidential provider</h2>${stepper}${body}<div class="foot">${foot}</div></div>`;
+}
+function settingsSheet() {
+  const lvlRadio = (name, key) => ['A', 'B', 'C'].map((l) => `<label><input type="radio" name="${name}" data-radio="${key}" value="${l}" ${S[key] === l ? 'checked' : ''}><span><b>${lvl(l)} ${l === 'C' ? 'Any level' : l === 'B' ? 'Level B or better' : 'Level A only'}</b><span>${LEVELS[l].text}</span></span></label>`).join('');
+  return `<div class="sheet" role="dialog" aria-label="Pool settings"><h2>Pool settings</h2><p class="muted" style="margin:6px 0 14px">These apply to every confidential pool.</p>
+    <p class="kick" style="margin-top:0">Lowest trust level for chats</p><div class="radio">${lvlRadio('floor', 'floor')}</div>
+    <p class="kick">Lowest trust level for private projects</p><div class="radio">${lvlRadio('pfloor', 'privFloor')}</div>
+    <p class="note" style="margin-top:6px">A project can allow a lower level in its own settings.</p>
+    <p class="kick">Lowest precision</p>
+    <div class="field" style="margin-bottom:6px"><select data-select="prec"><option value="bf16" ${S.prec === 'bf16' ? 'selected' : ''}>bf16, full precision</option><option value="fp8" ${S.prec === 'fp8' ? 'selected' : ''}>fp8, near full quality</option><option value="fp4" ${S.prec === 'fp4' ? 'selected' : ''}>fp4, cheapest, lower quality</option></select>
+      <span class="hint">Some providers run smaller copies of a model to cut cost. A pool only uses copies at this precision or higher.</span></div>
+    <div class="switch"><span><b>Use providers that don’t state their precision</b><p class="v">Prem doesn’t say, for example. Off means those providers are skipped.</p></span><button class="tog" role="switch" aria-checked="${S.unknownOk}" data-toggle="unknownOk"></button></div>
+    <div class="switch"><span><b>Prefer one provider</b><p class="v">Keeps your chats on one provider, so fewer companies see when and how much you send. It moves only if that provider fails, or another is cheaper by more than:</p>
+      ${S.prefer ? `<div class="field" style="margin:8px 0 0;max-width:160px"><select data-select="threshold">${[10, 20, 50].map((t) => `<option value="${t}" ${S.threshold === t ? 'selected' : ''}>${t}%</option>`).join('')}</select></div>` : ''}</span>
+      <button class="tog" role="switch" aria-checked="${S.prefer}" data-toggle="prefer"></button></div>
+    <div class="foot"><button class="link" data-tab="help">How pools work</button><span class="r"><button class="btn primary" data-close>Done</button></span></div></div>`;
+}
+function providerSheet(id) {
+  const pr = PROVIDERS[id], st = status(id), bal = balance(id);
+  return `<div class="sheet" role="dialog" aria-label="${pr.name}"><div class="side-head"><h2>${pr.name}</h2><button class="x" data-close>×</button></div>
+    ${st.kind !== 'ok' ? `<div class="callout ${st.kind === 'bad' ? 'danger' : ''}"><p>${st.why}</p></div>` : ''}
+    <dl class="kv"><dt>Trust level</dt><dd>${lvl(pr.level)} ${LEVELS[pr.level].name}</dd><dt>Why</dt><dd>${pr.why}</dd><dt>Runs in</dt><dd>${pr.where}</dd>
+      <dt>Balance</dt><dd>${money(bal, 2)} · <button class="link">Top up at ${pr.name}</button></dd><dt>Key</dt><dd class="mono">sk-…4f2a</dd><dt>Last check</dt><dd>${st.label === 'Check failed' ? 'Failed at 14:02' : 'Passed at 14:02'}</dd></dl>
+    ${pr.note ? `<div class="callout info"><p>${pr.note}</p></div>` : ''}
+    <p class="kick">Models and prices, per million tokens</p>
+    <table class="t"><thead><tr><th>Model</th><th>Precision</th><th class="r">In</th><th class="r">Cached</th><th class="r">Out</th><th class="r">A turn</th></tr></thead><tbody>
+      ${Object.entries(pr.models).map(([k, m]) => `<tr><td>${MODELS[k].name}${m.promo ? `<br><span class="note">${m.promo}</span>` : ''}</td><td>${m.prec}</td><td class="r">${money(m.in, 3)}</td><td class="r">${m.cache === null ? '—' : money(m.cache, 2)}</td><td class="r">${money(m.out, 2)}</td><td class="r">${money(turnCost(m))}</td></tr>`).join('')}
+    </tbody></table>
+    <p class="note" style="margin-top:6px">${S.catalog === 'stale' ? 'Live from Prem at 14:02. Precision from Boundary’s list, 9 days old.' : `Live from ${pr.name} at 14:02. Precision from Boundary’s list.`}</p>
+    <p class="kick">Last 30 days</p><p>${id === 'prem' ? '41 turns · about $0.61' : '312 turns · about $1.98'}. <button class="link" data-sheet="spend">All spend</button></p>
+    <div class="foot"><button class="btn danger">Remove ${pr.name}</button><span class="r"><button class="btn primary" data-close>Done</button></span></div></div>`;
+}
+function spendBody() {
+  const rows = [['near', 312, 1.98], ['prem', 41, 0.61]].filter(([id]) => added().includes(id));
+  const total = rows.reduce((s, r) => s + r[2], 0);
+  return `<table class="t"><thead><tr><th>Provider</th><th class="r">Turns</th><th class="r">Tokens in</th><th class="r">Tokens out</th><th class="r">Estimated cost</th><th class="r">Balance</th></tr></thead><tbody>
+    ${rows.map(([id, t, c]) => `<tr><td>${lvl(PROVIDERS[id].level)} ${PROVIDERS[id].name}</td><td class="r">${t}</td><td class="r">${(t * 0.075).toFixed(1)}M</td><td class="r">${(t * 2.5).toLocaleString()}K</td><td class="r">${money(c, 2)}</td><td class="r">${money(balance(id), 2)}</td></tr>`).join('')}
+    <tr><td><b>Total</b></td><td class="r">${rows.reduce((s, r) => s + r[1], 0)}</td><td></td><td></td><td class="r"><b>${money(total, 2)}</b></td><td></td></tr></tbody></table>
+    <p class="note" style="margin-top:8px">Boundary counts the tokens each reply reports and multiplies by the prices it knew then. Your providers’ invoices are what you pay; they may differ. Boundary keeps these counts on this Mac, without any chat content.</p>`;
+}
+function addModelSheet() {
+  return `<div class="sheet" role="dialog" aria-label="Add a model"><h2>Add a model</h2>
+    <p class="kick">Confidential pools</p>
+    ${Object.keys(MODELS).map((k) => { const p = pool(k); return `<button class="choice" ${k === 'qwen' ? 'disabled' : ''}><span class="lvl B">${p.inPool.length}</span><span class="rt"><b>${MODELS[k].name}${k === 'qwen' ? ' · in your stack' : ''}</b><span>${p.inPool.length ? `${p.inPool.map((r) => r.pr.name).join(', ')} · from ${money(p.inPool[0].cost)} a turn` : 'None of your providers can serve it'}</span></span></button>`; }).join('')}
+    <p class="note">The number is how many of your providers can serve each model now.</p>
+    <p class="kick">Other models</p><button class="choice" disabled><span></span><span class="rt"><b>Local · qwen3:8b · in your stack</b><span>This Mac</span></span></button>
+    <div class="foot"><span></span><span class="r"><button class="btn" data-close>Close</button></span></div></div>`;
+}
+function sheetHtml() {
+  if (!S.sheet) return '';
+  let inner = '';
+  if (S.sheet === 'add') inner = addSheet();
+  else if (S.sheet === 'settings') inner = settingsSheet();
+  else if (S.sheet === 'spend') inner = `<div class="sheet" role="dialog" aria-label="Spend"><div class="side-head"><h2>Spend, last 30 days</h2><button class="x" data-close>×</button></div>${spendBody()}</div>`;
+  else if (S.sheet === 'addmodel') inner = addModelSheet();
+  else if (S.sheet.startsWith('provider:')) inner = providerSheet(S.sheet.split(':')[1]);
+  return `<div class="scrim" data-scrim>${inner}</div>`;
+}
+
+/* ---------- Chat ---------- */
+function chatView(privateProject) {
+  const p = pool('qwen', { private: privateProject });
+  const serving = p.inPool[0];
+  const none = !serving;
+  const chipLabel = none ? `${MODELS.qwen.name} · none can serve` : `${MODELS.qwen.name} · ${serving.pr.name}`;
+  const pop = S.chipOpen ? `<div class="pop"><p class="kick" style="margin-top:0">This chat’s stack</p>
+      <ol class="rank"><li class="${none ? 'out' : ''}"><span class="numb" style="width:20px;height:20px;font-size:11px">1</span><span class="rt"><b>Confidential · ${MODELS.qwen.name}</b><span class="why">${none ? 'No provider can serve now' : `${serving.pr.name} serves this chat. It stays there until ${serving.pr.name} fails.`}</span></span><span></span></li>
+      <li class="${privateProject ? 'out' : ''}"><span class="numb" style="width:20px;height:20px;font-size:11px">2</span><span class="rt"><b>Local · qwen3:8b</b><span class="why">If the one above fails</span></span><span></span></li></ol>
+      ${none ? '' : `<p class="note" style="margin-top:8px">${serving.pr.name} sees when you send and how long each message is. It can’t read them.</p>`}
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn sm" data-tab="inference">Edit in Inference</button></div></div>` : '';
+  let tail;
+  if (privateProject) {
+    tail = none
+      ? `<div class="stop"><b>This private project can’t send to the confidential pool</b>
+          <ul>${p.out.filter((r) => added().includes(r.id)).map((r) => `<li>${r.pr.name}: ${r.why}</li>`).join('') || `<li>You haven’t added a provider that carries ${MODELS.qwen.name}.</li>`}</ul>
+          <p style="margin-bottom:10px">Nothing was sent.</p>
+          <div class="acts"><button class="btn sm primary" data-act="allowB">Allow level B for this project</button><button class="btn sm" data-tab="add">Add a level A provider</button><button class="btn sm">Use Local for this chat</button></div></div>`
+      : `<div class="msg agent">The summary of the board minutes is ready in <span class="mono">notes/minutes.md</span>.<p class="prov">${MODELS.qwen.name} · ${serving.pr.name} · level ${serving.pr.level}${S.privAllowB ? ' · this project allows level B' : ''}</p></div>`;
+  } else if (none) {
+    tail = `<div class="mark">Now answered by Local · qwen3:8b. No confidential provider can serve.</div>
+      <div class="callout"><div><ul style="margin:0;padding-left:18px">${p.out.filter((r) => r.now).map((r) => `<li>${r.why}</li>`).join('') || '<li>Your providers don’t meet your pool settings.</li>'}</ul></div>
+      <div class="acts">${S.event === 'none-left' || S.event === 'prem-empty' ? '<button class="btn sm">Top up at Prem</button>' : ''}</div></div>
+      <div class="msg agent">Two direct flights fit: TAP on Tuesday at 07:10 and easyJet on Wednesday at 13:45. Both are in the table now.<p class="prov">Local · qwen3:8b · fallback for Confidential · ${MODELS.qwen.name}</p></div>`;
+  } else {
+    const moved = S.event !== 'ok';
+    tail = `${moved ? `<div class="mark">Now answered by ${serving.pr.name}. ${S.event === 'near-limit' ? 'NEAR AI is rate-limited.' : S.event === 'near-attest' ? 'NEAR AI’s hardware check failed.' : 'Prem’s balance is empty.'}</div>` : ''}
+      <div class="msg agent">The three cheapest flights leave Tuesday morning. I’ve put them in a table in <span class="mono">trips/lisbon.md</span>, with the fares and layovers.<p class="prov">${MODELS.qwen.name} · ${serving.pr.name} · level ${serving.pr.level} · about ${money(serving.cost)}</p></div>`;
+  }
+  const first = !privateProject && S.event !== 'ok' && !none ? 'NEAR AI' : serving ? serving.pr.name : 'NEAR AI';
+  return `<div class="body"><main class="chat" style="min-width:0">
+    <div class="chat-head"><b>${privateProject ? 'Board minutes' : 'Lisbon trip'}</b>${privateProject ? '<span class="pill brand">Private project</span>' : ''}</div>
+    <div class="transcript"><div class="tcol">
+      <div class="msg user">${privateProject ? 'Summarise the board minutes in this folder.' : 'Find me flights to Lisbon next week, under €300.'}</div>
+      ${privateProject ? '' : `<div class="msg agent">Searching three airlines now. I’ll compare fares once they’re back.<p class="prov">${MODELS.qwen.name} · ${S.event === 'ok' ? (serving ? serving.pr.name : '') : 'NEAR AI'} · level B</p></div>
+      <div class="msg user">Only direct flights, please.</div>`}
+      ${tail}
+    </div></div>
+    <div class="composer"><div class="comp"><div class="ph">Message</div><div class="row"><button class="chip" data-act="chip">${lvl(serving ? serving.pr.level : 'B')}${chipLabel}<span class="sub2">▾</span></button>${pop}<button class="btn sm primary">Send</button></div></div></div>
+  </main>${privateProject ? `<aside class="side"><div class="side-head"><h2>Board minutes</h2></div>
+    <dl class="kv"><dt>Private</dt><dd>On</dd><dt>Stack</dt><dd>App default</dd><dt>Lowest level</dt><dd>${S.privAllowB ? 'B, allowed for this project' : `${S.privFloor}, from Pool settings`}</dd></dl>
+    <p class="kick">What private means here</p><p class="muted">Chats in this project only go to models that can’t read them: your local model, and confidential providers at level ${S.privAllowB ? 'B' : S.privFloor} or better.</p>
+    ${S.privAllowB ? `<div class="callout info"><p>Level B providers check the hardware but not the code inside it. You allowed it for this project.</p></div><button class="btn sm" data-act="disallowB">Require level ${S.privFloor} again</button>` : ''}
+    <p class="kick">This project’s stack</p>${poolSide('qwen', { private: true }).split('<p class="kick">Settings this pool follows</p>')[0]}</aside>` : ''}</div>`;
+}
+
+/* ---------- Help page ---------- */
+function helpView() {
+  return `<div class="body"><main class="main"><article class="doc">
+    <h1>Confidential pools</h1>
+    <p>A confidential provider runs models inside sealed hardware: a processor and GPU that encrypt their memory and can prove to your Mac what they are. Your Mac encrypts each request so that only that hardware can open it. The provider’s staff, its cloud host and Boundary can’t read what you write or what the model replies.</p>
+    <p>A pool is one model, such as Qwen 3.8 27B, served by every provider you’ve added that carries it. When a chat starts, Boundary sends it to the cheapest provider in the pool that meets your settings, and keeps the chat there.</p>
+    <h2>What providers still see</h2>
+    <p>Each provider sees when you send, how long each request and reply is, which model you use, and your account with them. It doesn’t see the content. The more providers you add, the more companies see this for some of your chats. <b>Prefer one provider</b> in Pool settings keeps your chats on one provider unless it fails or another is cheaper by more than the amount you set.</p>
+    <h2>Trust levels</h2>
+    <ul><li><b>Level A, checked hardware and code.</b> ${LEVELS.A.text}</li><li><b>Level B, checked hardware.</b> ${LEVELS.B.text}</li><li><b>Level C, not fully checked.</b> ${LEVELS.C.text}</li></ul>
+    <p>Boundary’s provider list sets each provider’s level and gives the reason, which you can read under the provider’s details. The list is signed; if a new list fails its check, Boundary keeps the last one that passed. By default chats use level B or better, and private projects use level A.</p>
+    <h2>Which provider answers</h2>
+    <p>The cheapest provider changes as prices change, so two chats with the same model can go to different providers. Each reply’s line under it names the provider that wrote it. Boundary compares cost for a whole turn, including cached input, because a chat that stays on one provider reuses its cache. A provider is skipped while it’s rate-limiting you, has no balance, fails its hardware check, or runs the model at a lower precision than you allow.</p>
+    <h2>Accounts and billing</h2>
+    <p>You sign up and pay at each provider yourself, and each has its own balance to keep topped up. Boundary stores your keys on this Mac and doesn’t bill you. The spend Boundary shows is an estimate from the tokens each reply reports; your providers’ invoices are what you pay.</p>
+    <h2>When Boundary is closed</h2>
+    <p>Confidential pools need Boundary running, because the encryption happens in the app. Scheduled jobs and messaging gateways that run while Boundary is closed can’t use them.</p>
+  </article></main></div>`;
+}
+
+/* ---------- Render ---------- */
+const ANNOT = {
+  inference: '<b>Inference.</b> The pool is a rung in the existing Chat stack. Click it for who serves and why the rest don’t. The Confidential providers card sits under Model sources with the tradeoff stated on the card. Use the Now control to see a provider drop out and Try a request to dry-run it.',
+  add: '<b>Add a provider.</b> Four steps: choose (with each level and its reason), what it sees (the consent step), key, and checks. Type bad, notools or fail in the key field for the failure states.',
+  settings: '<b>Pool settings.</b> Trust floors for chats and private projects, the precision floor, and Prefer one provider. Change them and open the pool on the Inference tab to see providers move in and out.',
+  chat: '<b>In a chat.</b> The chip names the provider serving this chat; the line under each reply does too. Set Now to a failure to see the one-time marker when the chat moves to another provider, or to Neither can serve to see it fall back to Local.',
+  private: '<b>Private project.</b> The default floor for private projects is level A, and none of the added providers reach it, so the send stops with three ways forward. Allow level B is per project and stated in the inspector.',
+  spend: '<b>Spend.</b> Metadata-only counts per provider over 30 days, with balances. The note says what the estimate is and isn’t.',
+  help: '<b>Help page.</b> The user doc decision 10 of ADR 0047 asks for. Every tradeoff on it also appears next to the control it affects.',
+};
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  renderProto();
+  let view, active = 'inf';
+  if (S.tab === 'chat') { view = chatView(false); active = 'chat'; }
+  else if (S.tab === 'private') { view = chatView(true); active = 'proj'; }
+  else if (S.tab === 'help') view = helpView();
+  else if (S.tab === 'spend') view = `<div class="body"><main class="main"><div class="col"><h1 class="h-page">Spend</h1><p class="sub">Confidential providers, last 30 days.</p><div style="margin-top:20px">${spendBody()}</div></div></main></div>`;
+  else view = inferenceView();
+  document.getElementById('frame').innerHTML = rail(active) + view + sheetHtml();
+  document.getElementById('annot').innerHTML = ANNOT[S.tab];
+}
+
+/* ---------- Events ---------- */
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('button, [data-scrim]');
+  if (!t) return;
+  if (t.matches('[data-scrim]') && ev.target !== t) return;
+  const d = t.dataset;
+  if (d.set) { S[d.set] = d.val; if (d.set === 'accounts' && d.val === 'two') S.added = ['prem', 'near']; S.tryRun = false; }
+  else if (d.tab) {
+    S.sheet = null; S.chipOpen = false; S.tab = d.tab;
+    if (d.tab === 'add') { S.tab = 'inference'; S.sheet = 'add'; S.add = { step: 'pick', id: null, key: '', result: null }; }
+    if (d.tab === 'settings') { S.tab = 'inference'; S.sheet = 'settings'; }
+  }
+  else if (d.sel !== undefined) S.sel = d.sel || null;
+  else if (d.sheet) { S.sheet = d.sheet; if (d.sheet === 'add') S.add = { step: 'pick', id: null, key: '', result: null }; }
+  else if (d.close !== undefined || d.scrim !== undefined) S.sheet = null;
+  else if (d.pick) S.add.id = d.pick;
+  else if (d.addStep) {
+    if (d.addStep === 'check') { const k = S.add.key.toLowerCase(); S.add.result = k.includes('bad') ? 'bad-key' : k.includes('fail') ? 'fail' : k.includes('notools') ? 'notools' : 'ok'; S.add.step = S.add.result === 'bad-key' ? 'key' : 'check'; }
+    else S.add.step = d.addStep;
+  }
+  else if (d.finishAdd !== undefined) { if (S.accounts === 'none') { S.accounts = 'two'; S.added = []; } S.added = [...new Set([...S.added, S.add.id])]; S.sheet = null; }
+  else if (d.toggle) { S[d.toggle] = !S[d.toggle]; if (d.toggle === 'tryPrivate') S.tryRun = false; }
+  else if (d.act === 'try') S.tryRun = true;
+  else if (d.act === 'chip') S.chipOpen = !S.chipOpen;
+  else if (d.act === 'allowB') S.privAllowB = true;
+  else if (d.act === 'disallowB') S.privAllowB = false;
+  else return;
+  render();
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.dataset.radio) S[t.dataset.radio] = t.value;
+  else if (t.dataset.select) S[t.dataset.select] = t.dataset.select === 'threshold' ? Number(t.value) : t.value;
+  else if (t.dataset.toggle) { S[t.dataset.toggle] = t.checked; S.tryRun = false; }
+  else return;
+  render();
+});
+document.addEventListener('input', (ev) => {
+  if (ev.target.dataset.key !== undefined) {
+    S.add.key = ev.target.value;
+    const btn = document.querySelector('[data-add-step="check"]');
+    if (btn) btn.disabled = !S.add.key;
+  }
+});
+render();
+</script>
+</body>
+</html>

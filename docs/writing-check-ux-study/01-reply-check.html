@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reply check — Boundary writing check study</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17171a; --rail: #1d1d21; --line: #2c2c32; --hover: #26262b;
+      --text: #ececf0; --muted: #a4a4ad; --faint: #73737c;
+      --warn: #e3b25a; --warn-dim: rgba(227, 178, 90, 0.16); --warn-line: rgba(227, 178, 90, 0.45);
+      --font-ui: -apple-system, "IBM Plex Sans", system-ui, sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, serif;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #fbfbf9; --rail: #f3f3f0; --line: #e1e1dc; --hover: #ebebe6;
+        --text: #1d1d1f; --muted: #5d5d63; --faint: #8b8b91;
+        --warn: #9a6408; --warn-dim: rgba(196, 132, 20, 0.14); --warn-line: rgba(154, 100, 8, 0.4);
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 var(--font-ui); }
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+    .study { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
+    .study b { color: var(--text); }
+    .frame { display: grid; grid-template-columns: 1fr 320px; min-height: 640px; }
+    .chat { padding: 28px 40px; }
+    .who { font-weight: 600; margin-bottom: 6px; }
+    .prose { font: 15.5px/1.7 var(--font-prose); max-width: 640px; }
+    .prose p { margin: 0 0 12px; }
+    .acts { display: flex; gap: 2px; align-items: center; margin-top: 4px; }
+    .act { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); }
+    .act:hover, .act.is-on { background: var(--hover); color: var(--text); }
+    .acts .time { margin-left: auto; color: var(--faint); font-size: 12px; }
+    .tip { position: relative; }
+    .tip::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--text); color: var(--bg); font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+
+    aside { border-left: 1px solid var(--line); background: var(--rail); display: flex; flex-direction: column; }
+    .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+    .tab { padding: 11px 10px 10px; color: var(--faint); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+    .tab.is-on { color: var(--text); border-bottom-color: var(--text); }
+    .pane { padding: 14px 16px 24px; overflow: auto; }
+    .head { display: flex; align-items: flex-start; gap: 8px; }
+    .head .name { font-weight: 650; letter-spacing: -0.02em; display: block; }
+    .head .meta { color: var(--muted); font-size: 12px; }
+    .head .close { margin-left: auto; color: var(--faint); width: 22px; height: 22px; border-radius: 5px; }
+    .link { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; font-size: 12px; }
+    .count { margin: 14px 0 2px; font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+    .density { color: var(--muted); font-size: 12px; }
+    .note { color: var(--muted); font-size: 12px; margin: 10px 0 12px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+    .chip[aria-pressed="true"] { color: var(--text); border-color: var(--muted); }
+    .chip[aria-pressed="false"] { opacity: 0.55; }
+    .detail { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 12px; min-height: 52px; }
+    .detail b { display: block; font-size: 12.5px; }
+    .detail span { color: var(--muted); }
+    .checked { font: 13.5px/1.6 var(--font-prose); }
+    .checked p, .checked li, .checked h4 { margin: 0 0 8px; }
+    .checked h4 { font: 600 13px/1.4 var(--font-ui); }
+    .checked ul { margin: 0 0 8px; padding-left: 18px; }
+    mark { background: var(--warn-dim); color: inherit; border-bottom: 1px solid var(--warn-line); border-radius: 2px; cursor: help; }
+    mark.is-active { background: var(--warn-line); }
+    .empty { color: var(--muted); margin-top: 14px; }
+    .states { display: grid; grid-template-columns: repeat(2, 320px); gap: 24px; padding: 24px 40px 40px; border-top: 1px solid var(--line); }
+    .states aside { border: 1px solid var(--line); border-radius: 10px; }
+    .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="study"><b>Writing check · phase 2.</b> Check sits in a reply's action row after Copy. The result opens as a Check tab in the inspector and stays until closed or the chat changes.</div>
+
+  <div class="frame">
+    <main class="chat">
+      <div class="who">Marlow</div>
+      <div class="prose">
+        <p>Great question! Remote work has become a pivotal part of the modern business landscape, and it's important to note that its impact is multifaceted.</p>
+        <p>It's not just about working from home — it's about rethinking how we collaborate. Experts believe this shift is here to stay.</p>
+        <p>I hope this helps! Let me know if you'd like me to expand on any section.</p>
+      </div>
+      <div class="acts">
+        <button class="act" aria-label="Copy">⧉</button>
+        <button class="act is-on tip" aria-label="Check writing" data-tip="Check writing">✓̲</button>
+        <button class="act" aria-label="Retry">↻</button>
+        <button class="act" aria-label="More">⋯</button>
+        <span class="time">11:42</span>
+      </div>
+    </main>
+
+    <aside>
+      <nav class="tabs"><button class="tab">Agent</button><button class="tab">Project</button><button class="tab is-on">Check</button></nav>
+      <div class="pane">
+        <div class="head">
+          <span><span class="name">Writing check</span><span class="meta">Reply · Today 11:42 · <button class="link">Show in chat</button></span></span>
+          <button class="close" aria-label="Close check">×</button>
+        </div>
+        <div class="count">9 flags</div>
+        <div class="density">13.4 per 100 words · 67 words</div>
+        <p class="note">Flags mark patterns common in model output. They don't say who wrote the text: careful human writing trips some, and edited model text can pass. Code and quotes aren't checked.</p>
+        <div class="chips" role="group" aria-label="Show categories">
+          <button class="chip" aria-pressed="true">Words 5</button>
+          <button class="chip" aria-pressed="true">Shapes 1</button>
+          <button class="chip" aria-pressed="true">Framing 3</button>
+        </div>
+        <div class="detail" aria-live="polite"><b>Model vocabulary · pattern 7</b><span>A word that shows up far more often in model output than in human writing.</span></div>
+        <div class="checked">
+          <p><mark>Great question</mark>! Remote work has become a <mark class="is-active">pivotal</mark> part of the modern business <mark>landscape</mark>, and <mark>it's important to note that</mark> its impact is <mark>multifaceted</mark>.</p>
+          <p><mark>It's not just about working from home — it's</mark> about rethinking how we collaborate. <mark>Experts believe</mark> this shift is here to stay.</p>
+          <p><mark>I hope this helps</mark>! <mark>Let me know if</mark> you'd like me to expand on any section.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="states">
+    <div>
+      <p class="label">No flags</p>
+      <aside>
+        <div class="pane">
+          <div class="head"><span><span class="name">Writing check</span><span class="meta">Reply · Today 11:50 · <button class="link">Show in chat</button></span></span><button class="close">×</button></div>
+          <div class="count">No flags</div>
+          <div class="density">0 per 100 words · 118 words</div>
+          <p class="note">Flags mark patterns common in model output. They don't say who wrote the text: careful human writing trips some, and edited model text can pass. Code and quotes aren't checked.</p>
+        </div>
+      </aside>
+    </div>
+    <div>
+      <p class="label">Under 50 words</p>
+      <aside>
+        <div class="pane">
+          <div class="head"><span><span class="name">Writing check</span><span class="meta">Reply · Today 11:53 · <button class="link">Show in chat</button></span></span><button class="close">×</button></div>
+          <div class="count">1 flag</div>
+          <div class="density">Too short for a rate · 12 words</div>
+          <p class="note">Flags mark patterns common in model output. They don't say who wrote the text: careful human writing trips some, and edited model text can pass. Code and quotes aren't checked.</p>
+          <div class="detail"><b>Chatbot phrasing · pattern 20</b><span>Correspondence with the reader (praise, offers, sign-offs) left in the text.</span></div>
+          <div class="checked"><p>The build passed. <mark class="is-active">I hope this helps</mark>!</p></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

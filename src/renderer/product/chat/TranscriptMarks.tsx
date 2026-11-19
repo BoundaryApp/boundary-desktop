@@ -39,18 +39,23 @@ export function messageTimesKey(messages: readonly TimedMessage[]): string {
     .join('\n');
 }
 
-/** Puts each mark before the first message newer than it (messages as `messageTimesKey` lists them). */
-export function placeTranscriptMarks(
-  marks: readonly TranscriptMark[],
-  messageTimes: string
-): PlacedMarks {
-  const timed = messageTimes
+/** Each message's time and id, from a `messageTimesKey` string. */
+export function parseMessageTimes(messageTimes: string): { ms: number; id: string }[] {
+  return messageTimes
     .split('\n')
     .filter(Boolean)
     .map((line) => {
       const space = line.indexOf(' ');
       return { ms: Number(line.slice(0, space)), id: line.slice(space + 1) };
     });
+}
+
+/** Puts each mark before the first message newer than it (messages as `messageTimesKey` lists them). */
+export function placeTranscriptMarks(
+  marks: readonly TranscriptMark[],
+  messageTimes: string
+): PlacedMarks {
+  const timed = parseMessageTimes(messageTimes);
   const before = new Map<string, TranscriptMark[]>();
   const atEnd: TranscriptMark[] = [];
   const dated = marks
@@ -68,6 +73,14 @@ export function placeTranscriptMarks(
     before.set(next.id, list);
   }
   return { before, atEnd };
+}
+
+/** Two placements as one: each message's marks from `a`, then from `b`. */
+export function mergePlacedMarks(a: PlacedMarks, b: PlacedMarks): PlacedMarks {
+  if (!b.before.size && !b.atEnd.length) return a;
+  const before = new Map(a.before);
+  for (const [id, marks] of b.before) before.set(id, [...(before.get(id) ?? []), ...marks]);
+  return { before, atEnd: [...a.atEnd, ...b.atEnd] };
 }
 
 export const TranscriptMarksContext = createContext<PlacedMarks>(NO_MARKS);

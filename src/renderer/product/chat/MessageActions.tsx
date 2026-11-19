@@ -12,19 +12,24 @@ import {
 } from '@assistant-ui/react';
 import { useAui, useAuiState } from '@assistant-ui/store';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { isElement, useCopyText, useOwnerDocument } from '../../components/ui/ownerDocument';
 import type { HermesChatMessage, HermesProjectRecord } from '../../../shared/types/hermesChat';
 import { projectRelativePath, uniquePreserveOrder } from '../../../shared/hermesToolPaths';
 import {
+  formatDayAndTime,
   formatDayLabel,
   formatMessageTime,
   formatMessageTimeFull,
   localDayKey,
 } from '../../../shared/messageTime';
 import { markdownToPlainText } from '../../../shared/markdownText';
+import { isPreviewablePath, previewablePathsOf, PROJECTS_CONTAINER_ROOT } from '../../../shared/htmlPreview';
+import { isCheckableFile } from '../../../shared/types/writingCheck';
 import { messageTimeMs, needsDayDivider } from './messageMeta';
 import { messageCustom } from './messageCustom';
 import { useServerPath } from './HermesChatRuntimeProvider';
 import { CONTINUE_RUN_CONFIG } from './hermesChatModelAdapter';
+import { isReplyInterrupted } from './runInterrupts';
 
 // Hover row and day dividers for transcript messages (message-actions spec, Phase 1).
 // The row is always mounted and revealed with CSS on hover or focus-within, so Tab
@@ -58,7 +63,7 @@ function CheckIcon() {
   );
 }
 
-function Icon({ children }: { children: React.ReactNode }) {
+export function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg
       className="wb-act-icon"
@@ -75,7 +80,7 @@ function Icon({ children }: { children: React.ReactNode }) {
   );
 }
 
-const EditIcon = () => (
+export const EditIcon = () => (
   <Icon>
     <path d="M10.5 2.5l3 3L6 13H3v-3z" />
     <path d="M9 4l3 3" />
@@ -192,6 +197,8 @@ export interface ReplyExtras {
   saveTo?: { projectName: string; onSave: (markdown: string) => void };
   /** Present when the user is in a Circle: opens the share sheet with this message (ADR 0042 §9). */
   onShare?: (share: { text: string; role: 'user' | 'assistant' }) => void;
+  /** Present when the screen can show a writing check: sends the reply to the inspector. */
+  onCheck?: (check: { messageId: string; markdown: string; source: string }) => void;
 }
 
 export const ReplyExtrasContext = createContext<ReplyExtras | null>(null);
@@ -203,6 +210,7 @@ const MoreAction: React.FC = () => {
   const isUser = useAuiState((s) => s.message.role === 'user');
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyText = useCopyText();
 
   useEffect(() => {
     if (!copied) return undefined;
@@ -240,10 +248,9 @@ const MoreAction: React.FC = () => {
                 type="button"
                 role="menuitem"
                 onClick={pick(() => {
-                  void navigator.clipboard
-                    ?.writeText(markdownToPlainText(replyText()))
-                    .then(() => setCopied(true))
-                    .catch((): void => undefined);
+                  void copyText(markdownToPlainText(replyText())).then((done) => {
+                    if (done) setCopied(true);
+                  });
                 })}
               >
                 Copy as plain text
@@ -280,45 +287,111 @@ const MoreAction: React.FC = () => {
   );
 };
 
+/** Message text a selection may start or end in: a reply's prose or a prompt's bubble. */
+const CHECKABLE_TEXT = '.wb-msg.is-assistant .wb-prose, .wb-msg.is-user .wb-bubble';
+
+const elementOf = (node: Node) => (isElement(node) ? node : node.parentElement);
+
+/** "Selection from a reply", "… from your message" or "… across 3 messages". */
+function selectionSource(messages: Element[]): string {
+  if (messages.length > 1) return `Selection across ${messages.length} messages`;
+  return messages[0]?.classList.contains('is-user')
+    ? 'Selection from your message'
+    : 'Selection from a reply';
+}
+
+/** The part of `range` inside `element`, as text. */
+function selectedPart(range: Range, element: Element): string {
+  const part = element.ownerDocument.createRange();
+  part.selectNodeContents(element);
+  if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) {
+    part.setStart(range.startContainer, range.startOffset);
+  }
+  if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) {
+    part.setEnd(range.endContainer, range.endOffset);
+  }
+  return part.toString().trim();
+}
+
+interface TextSelection {
+  text: string;
+  /** Only the selected message text, one paragraph per message: no names, times or buttons. */
+  checkText: string;
+  x: number;
+  y: number;
+  /** Inside one reply's prose: Quote applies. */
+  quotable: boolean;
+  /** The first selected message, for Show in chat. */
+  messageId: string;
+  source: string;
+}
+
 /**
  * Selecting text in a reply offers Quote and Copy just above the selection. Quote hands
- * the text to the composer, which sends it as a blockquote above what you type.
+ * the text to the composer, which sends it as a blockquote above what you type. With
+ * `onCheck`, the popover also offers Check, on replies, prompts and selections across
+ * messages (writing check spec, phase 3).
  */
-export const SelectionQuote: React.FC<{ onQuote: (text: string) => void }> = ({ onQuote }) => {
-  const [selection, setSelection] = useState<{ text: string; x: number; y: number } | null>(
-    null
-  );
+export const SelectionQuote: React.FC<{
+  onQuote: (text: string) => void;
+  onCheck?: (check: { messageId: string; markdown: string; source: string }) => void;
+}> = ({ onQuote, onCheck }) => {
+  const [selection, setSelection] = useState<TextSelection | null>(null);
+  const checkable = Boolean(onCheck);
+  const doc = useOwnerDocument();
+  const copyText = useCopyText();
 
   useEffect(() => {
     const update = () => {
-      const current = window.getSelection();
+      const current = doc.getSelection();
       if (!current || current.isCollapsed || current.rangeCount === 0) {
         setSelection(null);
         return;
       }
       const range = current.getRangeAt(0);
-      const node = range.commonAncestorContainer;
-      const element = node instanceof Element ? node : node.parentElement;
       const text = current.toString().trim();
-      if (!text || !element?.closest('.wb-msg.is-assistant .wb-prose')) {
+      const quotable = Boolean(
+        elementOf(range.commonAncestorContainer)?.closest('.wb-msg.is-assistant .wb-prose')
+      );
+      const endsInMessages =
+        Boolean(elementOf(range.startContainer)?.closest(CHECKABLE_TEXT)) &&
+        Boolean(elementOf(range.endContainer)?.closest(CHECKABLE_TEXT));
+      if (!text || !(quotable || (checkable && endsInMessages))) {
         setSelection(null);
         return;
       }
+      const messages = [...doc.querySelectorAll('.wb-msg[data-message-id]')].filter((el) =>
+        range.intersectsNode(el)
+      );
+      const checkText = [...doc.querySelectorAll(CHECKABLE_TEXT)]
+        .filter((el) => range.intersectsNode(el))
+        .map((el) => selectedPart(range, el))
+        .filter(Boolean)
+        .join('\n\n');
       const rect = range.getBoundingClientRect();
-      setSelection({ text, x: rect.left + rect.width / 2, y: rect.top });
+      setSelection({
+        text,
+        checkText,
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+        quotable,
+        messageId: messages[0]?.getAttribute('data-message-id') ?? '',
+        source: selectionSource(messages),
+      });
     };
     const hide = () => setSelection(null);
-    document.addEventListener('selectionchange', update);
-    window.addEventListener('scroll', hide, true);
+    const win = doc.defaultView ?? window;
+    doc.addEventListener('selectionchange', update);
+    win.addEventListener('scroll', hide, true);
     return () => {
-      document.removeEventListener('selectionchange', update);
-      window.removeEventListener('scroll', hide, true);
+      doc.removeEventListener('selectionchange', update);
+      win.removeEventListener('scroll', hide, true);
     };
-  }, []);
+  }, [checkable, doc]);
 
   if (!selection) return null;
   const finish = () => {
-    window.getSelection()?.removeAllRanges();
+    doc.getSelection()?.removeAllRanges();
     setSelection(null);
   };
   return (
@@ -328,24 +401,41 @@ export const SelectionQuote: React.FC<{ onQuote: (text: string) => void }> = ({ 
       // Keep the selection alive while the pointer is on the popover.
       onMouseDown={(event) => event.preventDefault()}
     >
+      {selection.quotable ? (
+        <button
+          type="button"
+          onClick={() => {
+            onQuote(selection.text);
+            finish();
+          }}
+        >
+          Quote
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => {
-          onQuote(selection.text);
-          finish();
-        }}
-      >
-        Quote
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          void navigator.clipboard?.writeText(selection.text).catch((): void => undefined);
+          void copyText(selection.text);
           finish();
         }}
       >
         Copy
       </button>
+      {onCheck ? (
+        <button
+          type="button"
+          onClick={() => {
+            onCheck({
+              messageId: selection.messageId,
+              markdown: selection.checkText,
+              source: selection.source,
+            });
+            finish();
+          }}
+        >
+          Check
+        </button>
+      ) : null}
     </div>
   );
 };
@@ -354,19 +444,32 @@ export const SelectionQuote: React.FC<{ onQuote: (text: string) => void }> = ({ 
 export interface ProjectFiles {
   project: HermesProjectRecord | null;
   onNotice: (text: string) => void;
+  /** Sends a project file to the inspector's Check tab; absent hides Check. */
+  onCheckFile?: (projectId: string, relativePath: string) => void;
+  /** Opens an agent-written page in the preview sheet; absent hides Preview. */
+  onPreview?: (containerPath: string) => void;
 }
 
 export const ProjectFilesContext = createContext<ProjectFiles | null>(null);
 
-/** Reveal in Finder (main keeps it inside the project folder) and Copy the host path. */
+/** Preview for a page, Reveal in Finder (main keeps it inside the project folder) and Copy the host path. */
 export const FileActions: React.FC<{
   project: HermesProjectRecord;
   relativePath: string;
   onNotice: (text: string) => void;
-}> = ({ project, relativePath, onNotice }) => {
+  onCheckFile?: (projectId: string, relativePath: string) => void;
+  onPreview?: (containerPath: string) => void;
+}> = ({ project, relativePath, onNotice, onCheckFile, onPreview }) => {
   const hostPath = `${project.hostPath.replace(/\/+$/, '')}/${relativePath}`;
+  const containerPath = `${project.containerPath.replace(/\/+$/, '')}/${relativePath}`;
+  const copyText = useCopyText();
   return (
     <span className="wb-file-acts">
+      {onPreview && isPreviewablePath(relativePath) ? (
+        <button type="button" className="wb-act" onClick={() => onPreview(containerPath)}>
+          Preview
+        </button>
+      ) : null}
       <button
         type="button"
         className="wb-act"
@@ -384,14 +487,18 @@ export const FileActions: React.FC<{
         type="button"
         className="wb-act"
         onClick={() => {
-          void navigator.clipboard
-            ?.writeText(hostPath)
-            .then(() => onNotice('Path copied'))
-            .catch((): void => undefined);
+          void copyText(hostPath).then((done) => {
+            if (done) onNotice('Path copied');
+          });
         }}
       >
         Copy path
       </button>
+      {onCheckFile && isCheckableFile(relativePath) ? (
+        <button type="button" className="wb-act" onClick={() => onCheckFile(project.id, relativePath)}>
+          Check
+        </button>
+      ) : null}
     </span>
   );
 };
@@ -407,42 +514,83 @@ export function projectPathsOf(paths: string[], containerPath?: string | null): 
   );
 }
 
-/**
- * Under a finished reply: the files that turn wrote inside the project, with Reveal and
- * Copy path. Tool cards stay progress (ADR 0006); this is where written files live after
- * the turn (spec decision 4c). Hermes history carries the tool rows, so it survives reloads.
- */
-export const ReplyFiles: React.FC = () => {
-  const context = useContext(ProjectFilesContext);
-  const running = useAuiState((s) => s.message.status?.type === 'running');
-  const raw = useAuiState((s) => (messageCustom(s.message).files ?? []).join('\n'));
+/** The "Wrote" strip: rows of a label and actions, four shown and the rest behind "+N more". */
+const WroteList: React.FC<{ rows: { key: string; actions: React.ReactNode }[] }> = ({ rows }) => {
   const [expanded, setExpanded] = useState(false);
-  const project = context?.project ?? null;
-  if (!context || !project || running || !raw) return null;
-  const files = projectPathsOf(raw.split('\n'), project.containerPath);
-  if (files.length === 0) return null;
-  const shown = expanded ? files : files.slice(0, FILES_SHOWN);
+  const shown = expanded ? rows : rows.slice(0, FILES_SHOWN);
   return (
     <div className="wb-files" aria-label="Files written">
       <span className="wb-files-label">Wrote</span>
       <ul>
-        {shown.map((file) => (
-          <li key={file} className="wb-file">
-            <span className="mono" title={file}>
-              {file}
+        {shown.map((row) => (
+          <li key={row.key} className="wb-file">
+            <span className="mono" title={row.key}>
+              {row.key}
             </span>
-            <FileActions project={project} relativePath={file} onNotice={context.onNotice} />
+            {row.actions}
           </li>
         ))}
-        {files.length > shown.length ? (
+        {rows.length > shown.length ? (
           <li>
             <button type="button" className="wb-link" onClick={() => setExpanded(true)}>
-              +{files.length - shown.length} more
+              +{rows.length - shown.length} more
             </button>
           </li>
         ) : null}
       </ul>
     </div>
+  );
+};
+
+/**
+ * Under a finished reply: the files that turn wrote inside the project, with Preview (pages),
+ * Reveal and Copy path. Without a project, only pages under the projects mount, with Preview.
+ * Tool cards stay progress (ADR 0006); this is where written files live after the turn
+ * (spec decision 4c). Hermes history carries the tool rows, so it survives reloads.
+ */
+export const ReplyFiles: React.FC = () => {
+  const context = useContext(ProjectFilesContext);
+  const running = useAuiState((s) => s.message.status?.type === 'running');
+  const raw = useAuiState((s) => (messageCustom(s.message).files ?? []).join('\n'));
+  const project = context?.project ?? null;
+  if (!context || running || !raw) return null;
+  const paths = raw.split('\n');
+  if (project) {
+    const files = projectPathsOf(paths, project.containerPath);
+    if (files.length === 0) return null;
+    return (
+      <WroteList
+        rows={files.map((file) => ({
+          key: file,
+          actions: (
+            <FileActions
+              project={project}
+              relativePath={file}
+              onNotice={context.onNotice}
+              onCheckFile={context.onCheckFile}
+              onPreview={context.onPreview}
+            />
+          ),
+        }))}
+      />
+    );
+  }
+  const onPreview = context.onPreview;
+  const pages = onPreview ? previewablePathsOf(paths) : [];
+  if (!onPreview || pages.length === 0) return null;
+  return (
+    <WroteList
+      rows={pages.map((page) => ({
+        key: page.slice(PROJECTS_CONTAINER_ROOT.length + 1),
+        actions: (
+          <span className="wb-file-acts">
+            <button type="button" className="wb-act" onClick={() => onPreview(page)}>
+              Preview
+            </button>
+          </span>
+        ),
+      }))}
+    />
   );
 };
 
@@ -555,7 +703,42 @@ export const DayDivider: React.FC = () => {
   );
 };
 
-const CopyAction: React.FC = () => (
+const CheckWritingIcon = () => (
+  <Icon>
+    <path d="M3 4.5h10M3 8h6" />
+    <path d="M3 12c1-1 1.7-1 2.5 0s1.5 1 2.5 0 1.5-1 2.5 0" />
+  </Icon>
+);
+
+/** Reply row: sends this reply's text to the inspector's Check tab (writing check spec, phase 2). */
+const CheckAction: React.FC = () => {
+  const extras = useContext(ReplyExtrasContext);
+  const aui = useAui();
+  const ms = useMessageTimeMs();
+  if (!extras?.onCheck) return null;
+  const check = () => {
+    const message = aui.message.getState();
+    extras.onCheck?.({
+      messageId: message.id,
+      markdown: textOf(message),
+      source: ms == null ? 'Reply' : `Reply · ${formatDayAndTime(ms)}`,
+    });
+  };
+  return (
+    <button
+      type="button"
+      className="wb-act"
+      aria-label="Check writing"
+      data-tip="Check writing"
+      data-guide-anchor="check-writing"
+      onClick={check}
+    >
+      <CheckWritingIcon />
+    </button>
+  );
+};
+
+export const CopyAction: React.FC = () => (
   <ActionBarPrimitive.Copy
     className="wb-act"
     copiedDuration={1400}
@@ -656,8 +839,8 @@ const ContinueIcon = () => (
 export type ReplyEndingKind = 'stopped' | 'stopped-empty' | 'interrupted';
 
 /**
- * How a cut-short reply ended (run-control spec 1.5–1.6): Boundary's saved note on a
- * hydrated reply, or the live run's cancelled status.
+ * How a cut-short reply ended (run-control spec 1.5–1.6, 2.3): Boundary's saved note on a
+ * hydrated reply, or the live run's cancelled status and whether Send now caused it.
  */
 export function useReplyEnding(): ReplyEndingKind | null {
   return useAuiState((s) => {
@@ -665,6 +848,8 @@ export function useReplyEnding(): ReplyEndingKind | null {
     if (saved) return saved;
     const status = s.message.status;
     if (status?.type !== 'incomplete' || status.reason !== 'cancelled') return null;
+    // Sent over with Send now: the conversation moved on, so no Continue (spec 2.3).
+    if (isReplyInterrupted(s.message.id)) return 'interrupted';
     const hasText = s.message.content.some(
       (part) => part.type === 'text' && part.text.trim().length > 0
     );
@@ -722,11 +907,13 @@ export const AssistantMessageActions: React.FC = () => {
   // Only when the count is known: unknown turns (copied branch history, WebUI-only
   // chats) show nothing rather than a wrong claim.
   const noTools = useAuiState((s) => messageCustom(s.message).toolCount === 0);
+  const voiceName = useAuiState((s) => messageCustom(s.message).writingVoiceName ?? null);
   if (running) return null;
   return (
     <ActionBarPrimitive.Root className={`wb-acts${isLast ? ' is-pinned' : ''}`}>
       <Versions />
       <CopyAction />
+      <CheckAction />
       {canRewind ? (
         <ActionBarPrimitive.Reload className="wb-act" aria-label="Retry" data-tip="Retry">
           <RetryIcon />
@@ -743,6 +930,7 @@ export const AssistantMessageActions: React.FC = () => {
         </span>
       ) : null}
       <span className="wb-acts-end">
+        {voiceName ? <span className="wb-reply-voice">In {voiceName} voice</span> : null}
         <MessageTime />
       </span>
     </ActionBarPrimitive.Root>

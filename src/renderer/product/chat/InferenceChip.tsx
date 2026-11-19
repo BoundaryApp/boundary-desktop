@@ -1,22 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   formatInferenceChipTitle,
   formatInferenceProvenance,
   inferenceMarkLabel,
   servingFallback,
+  servingPoolTurn,
 } from '../../../shared/inferenceDisplay';
 import type {
   ChatInferenceProvider,
+  PoolServedTurn,
   ResolvedSessionInference,
   SessionInferenceMark,
 } from '../../../shared/types/hermesChat';
-import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
-import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { isConfidentialEntry, type InferenceChainEntry } from '../../../shared/types/inferenceChain';
+import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { CLOUD_INFERENCE_SHORT } from '../cloudInferenceCopy';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { useCirclesState } from '../circles/useCircles';
 import { describeChainEntry, entryIsPrivate, entryKey, type ChainContext } from '../inference/entries';
+import { CONFIDENTIAL_COPY } from '../inference/confidentialCopy';
+import { LevelBadge } from '../inference/LevelBadge';
 import { LevelStackSheet } from '../inference/LevelStackSheet';
+import { poolContext, poolModelName, useConfidentialState, usePoolPrivacy } from '../inference/useConfidentialState';
 
 /** The stack a chat resolves to, first to last: the supplying level's, never merged (ADR 0033 §1). */
 function resolvedStack(resolved: ResolvedSessionInference | null): InferenceChainEntry[] {
@@ -48,12 +53,15 @@ export interface InferenceChipProps {
   sessionId: string | null;
   disabled?: boolean;
   applying?: boolean;
-  /** Fingerprint of active project pin so the chip re-resolves after patch. */
+  /** Fingerprint of the active project's pin, to name the stack a chat falls back to. */
   projectInferenceKey?: string | null;
-  /** Change it to re-resolve after main's state changed outside the chip (the offline prompt). */
-  refreshKey?: number;
-  onResolvedChange?: (resolved: ResolvedSessionInference | null) => void;
-  onMarksChange?: (marks: SessionInferenceMark[]) => void;
+  /** What main resolves for this chat (`useSessionInference`). */
+  resolved: ResolvedSessionInference | null;
+  marks: SessionInferenceMark[];
+  /** Turns a confidential pool answered, to name the provider serving the chat. */
+  poolTurns: PoolServedTurn[];
+  /** Asks main again: on opening the menu and after the chip changes the chat's stack. */
+  refresh: () => Promise<void>;
 }
 
 export const InferenceChip: React.FC<InferenceChipProps> = ({
@@ -61,74 +69,25 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   disabled = false,
   applying = false,
   projectInferenceKey = null,
-  refreshKey = 0,
-  onResolvedChange,
-  onMarksChange,
+  resolved,
+  marks,
+  poolTurns,
+  refresh,
 }) => {
   const [open, setOpen] = useState(false);
   const { status } = useInferenceStatus();
-  const [resolved, setResolved] = useState<ResolvedSessionInference | null>(null);
-  const [marks, setMarks] = useState<SessionInferenceMark[]>([]);
-
-  const onResolvedChangeRef = useRef(onResolvedChange);
-  onResolvedChangeRef.current = onResolvedChange;
-  const onMarksChangeRef = useRef(onMarksChange);
-  onMarksChangeRef.current = onMarksChange;
-
-  // Only the latest refresh may publish: a slow answer for the previous chat is dropped.
-  const latest = useRef(0);
-  const refresh = useCallback(async () => {
-    const mine = ++latest.current;
-    const publish = (next: ResolvedSessionInference | null, marks?: SessionInferenceMark[]) => {
-      if (mine !== latest.current) return;
-      setResolved(next);
-      onResolvedChangeRef.current?.(next);
-      if (marks) {
-        setMarks(marks);
-        onMarksChangeRef.current?.(marks);
-      }
-    };
-    try {
-      // With no session yet main answers for a new chat: the rail project's pin, else the app
-      // default, which is what the first turn will use.
-      const snapshot = await window.electronAPI.hermesChat.getSessionInference({
-        sessionId: sessionId ?? '',
-      });
-      publish(snapshot.resolved, snapshot.marks);
-      if (snapshot.resolved?.slot !== 'local' || mine !== latest.current) return;
-      const probed = await window.electronAPI.onboarding.probeSlotHealth({ slot: 'local' });
-      if (probed.status) void takeInferenceStatus(probed);
-      publish({ ...snapshot.resolved, health: probed.health });
-    } catch {
-      publish(null, []);
-    }
-    // projectInferenceKey and refreshKey change what main answers, not what this asks.
-  }, [sessionId, projectInferenceKey, refreshKey]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  // Main pushes the local model's health when it changes; a chat on Local takes it, so the
-  // offline prompt shows (or clears) without a send or a reopened menu.
-  const localHealth = status?.slots.local?.health;
-  const resolvedRef = useRef(resolved);
-  resolvedRef.current = resolved;
-  useEffect(() => {
-    const current = resolvedRef.current;
-    if (!localHealth || current?.slot !== 'local' || current.health === localHealth) return;
-    const next = { ...current, health: localHealth };
-    setResolved(next);
-    onResolvedChangeRef.current?.(next);
-  }, [localHealth]);
 
   const close = useCallback(() => setOpen(false), []);
 
   const circles = useCirclesState();
+  const { state: confidential } = useConfidentialState();
   const [editing, setEditing] = useState(false);
   const privacyLocked = resolved?.privacyLocked === true;
   const privacyRefused = resolved?.privacyRefused === true;
   const stack = useMemo(() => resolvedStack(resolved), [resolved]);
+  // Main sends the floor it plans this chat's pools at, so the menu ranks them the same way.
+  const projectFloor = privacyLocked ? resolved?.projectFloor : undefined;
+  const poolPrivacy = usePoolPrivacy(confidential, stack, projectFloor);
 
   const reset = async () => {
     if (!sessionId) return;
@@ -156,7 +115,13 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   const unreachable = primaryHealth === 'unreachable';
   // A restart or a refused send says more about the next turn than the last one's fallback does.
   const fallback = applying || privacyRefused ? null : servingFallback(resolved, marks);
-  const title = fallback ? inferenceMarkLabel(fallback) : primaryTitle;
+  // A pool names the provider serving this chat and its level (spec decision 9).
+  const poolTurn = applying || privacyRefused || fallback ? null : servingPoolTurn(resolved, poolTurns);
+  const title = fallback
+    ? inferenceMarkLabel(fallback)
+    : poolTurn
+      ? CONFIDENTIAL_COPY.servedBy(poolModelName(confidential, poolTurn.modelId), poolTurn.providerName)
+      : primaryTitle;
   const provenance = privacyRefused
     ? 'not private, can’t send'
     : fallback
@@ -177,13 +142,19 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
 
   // Each entry as the menu lists it. A private project's request stops at the first entry that
   // isn't private (ADR 0033 §4); the rest stay listed so the user sees why they aren't used.
-  const ctx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const ctx: ChainContext = { slots: status?.slots ?? {}, circles, pools: poolContext(confidential, undefined, poolPrivacy) };
   const cut = privacyLocked ? stack.findIndex((entry) => !entryIsPrivate(entry, ctx)) : -1;
   const rows = stack.map((entry, index) => {
     const view = describeChainEntry(entry, ctx, index === 0 ? 'first' : 'fallback');
     const label = index === 0 ? primaryTitle : view.label;
     const kind =
-      entry.slot === 'peer' ? 'shared in your Circle' : entry.slot === 'local' ? 'on this machine' : CLOUD_INFERENCE_SHORT;
+      entry.slot === 'peer'
+        ? 'shared in your Circle'
+        : entry.slot === 'local'
+          ? 'on this machine'
+          : entry.slot === 'confidential'
+            ? 'confidential'
+            : CLOUD_INFERENCE_SHORT;
     const detail =
       index === 0 && privacyRefused
         ? 'not private, can’t send'
@@ -193,9 +164,11 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
             ? unreachable
               ? 'unreachable'
               : kind
-            : entry.slot !== 'peer' && view.skipped
-              ? 'not connected, skipped'
-              : kind;
+            : isConfidentialEntry(entry) && view.skipped
+              ? 'no provider serves it now, skipped'
+              : entry.slot !== 'peer' && view.skipped
+                ? 'not connected, skipped'
+                : kind;
     return { key: entryKey(entry), label, detail };
   });
   const pinnedProject = Boolean(projectInferenceKey && projectInferenceKey.split(':')[1] !== 'inherit');
@@ -204,7 +177,9 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
   // chat's first entry as a provider, so a shared model can only follow it.
   const saveChatStack = async (list: InferenceChainEntry[]): Promise<string | null> => {
     const [first, ...fallbacks] = list;
-    if (!sessionId || !first || first.slot === 'peer') return 'A chat’s stack starts with Local or OpenRouter.';
+    if (!sessionId || !first || first.slot === 'peer' || first.slot === 'confidential') {
+      return 'A chat’s stack starts with Local or OpenRouter.';
+    }
     const result = await window.electronAPI.hermesChat.setSessionInference({
       sessionId,
       provider: first.slot as ChatInferenceProvider,
@@ -235,6 +210,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
             disabled={!writable}
             title={`${title} · ${provenance}`}
           >
+            {poolTurn ? <LevelBadge level={poolTurn.level} /> : null}
             <b>{title}</b>
             {note ? <span>{note}</span> : null}
           </button>
@@ -298,6 +274,7 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
           lede={`Applies to this chat only. ${pinnedProject ? 'The project’s stack' : 'The Chat stack'} stays as it is.`}
           initial={stack}
           privacyLocked={privacyLocked}
+          projectFloor={projectFloor}
           save={saveChatStack}
           onClose={() => setEditing(false)}
         />

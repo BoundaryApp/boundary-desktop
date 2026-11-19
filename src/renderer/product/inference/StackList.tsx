@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
+import type { TrustLevel } from '../../../shared/types/confidential';
 import type { InferenceChainEntry, InferenceStack, InferenceStackEntry } from '../../../shared/types/inferenceChain';
 import type { CirclesState } from '../../../shared/types/circles';
 import type { LlmSlotStatus } from '../../../shared/types/onboarding';
 import { Sheet } from '../../components/ui/sheet';
 import { ProviderClaims } from '../circles/PersonPanel';
 import { describeChainEntry, entryKey, type ChainContext, type ChainEntryView } from './entries';
+import { PoolDetails } from './PoolDetails';
 import { entryState, moveEntry, skipReason, type DryRunStep } from './stack';
+import { Button } from '../../components/ui/button';
 import './inference.css';
 
 /**
@@ -22,6 +25,7 @@ export function formatContext(tokens: number): string {
 function providerName(entry: InferenceChainEntry, circles: CirclesState): string {
   if (entry.slot === 'local') return 'Your local model';
   if (entry.slot === 'openrouter') return 'OpenRouter';
+  if (entry.slot === 'confidential') return 'Confidential';
   const identity = entry.peer?.providerId;
   for (const circle of circles.snapshot.circles) {
     const named =
@@ -45,7 +49,7 @@ export function buildRungs(entries: InferenceChainEntry[], ctx: ChainContext, de
   return entries.map((entry, index) => {
     const view = describeChainEntry(entry, ctx, index === 0 ? 'first' : 'fallback');
     const state = entryState(described, entry);
-    const slot = entry.slot === 'peer' ? undefined : ctx.slots[entry.slot];
+    const slot = entry.slot === 'peer' || entry.slot === 'confidential' ? undefined : ctx.slots[entry.slot];
     return { entry, view, state, slot, reason: skipReason(state, slot, providerName(entry, ctx.circles)) };
   });
 }
@@ -130,10 +134,18 @@ export const StackList: React.FC<StackListProps> = ({
 }) => {
   const lastPrivate = rungs.reduce((at, rung, index) => (rung.state && !rung.state.privateCut ? index : at), -1);
   const showCut = (index: number) => privacyLine && index === lastPrivate && index < rungs.length - 1;
-  const canMove = (index: number, delta: -1 | 1) => {
+  /** Why a move is refused, or null when it's allowed or there's nowhere to move. */
+  const moveRefusal = (index: number, delta: -1 | 1) => {
     const next = moveEntry(list, index, delta);
-    return next !== list && refuses(next) === null;
+    return next === list ? null : refuses(next);
   };
+  const canMove = (index: number, delta: -1 | 1) => moveEntry(list, index, delta) !== list && moveRefusal(index, delta) === null;
+  // A disabled arrow says why under the list. A list the level already refuses is explained by
+  // the level itself, so it isn't repeated here.
+  const blocked =
+    list.length && refuses(list) === null
+      ? [...new Set(list.flatMap((_, index) => [moveRefusal(index, -1), moveRefusal(index, 1)]).filter(Boolean))]
+      : [];
   return (
     <div className="wb-inf-stack">
       <div className="wb-inf-spine" aria-hidden="true" />
@@ -156,9 +168,9 @@ export const StackList: React.FC<StackListProps> = ({
                   </span>
                 </button>
                 {fix ? (
-                  <button type="button" className="wb-btn-ghost wb-inf-fix" onClick={fix.run}>
+                  <Button variant="secondary" block type="button" className="wb-inf-fix" onClick={fix.run}>
                     {fix.label}
-                  </button>
+                  </Button>
                 ) : (
                   <span className={`wb-inf-status${rung.reason ? ' is-warn' : ' is-ok'}`}>{rung.reason ?? 'Ready'}</span>
                 )}
@@ -167,6 +179,7 @@ export const StackList: React.FC<StackListProps> = ({
                     type="button"
                     className="wb-inf-ico"
                     aria-label={`Move ${rung.view.label} up`}
+                    title={moveRefusal(index, -1) ?? undefined}
                     disabled={locked || !canMove(index, -1)}
                     onClick={() => onChange(moveEntry(list, index, -1))}
                   >
@@ -176,6 +189,7 @@ export const StackList: React.FC<StackListProps> = ({
                     type="button"
                     className="wb-inf-ico"
                     aria-label={`Move ${rung.view.label} down`}
+                    title={moveRefusal(index, 1) ?? undefined}
                     disabled={locked || !canMove(index, 1)}
                     onClick={() => onChange(moveEntry(list, index, 1))}
                   >
@@ -198,11 +212,19 @@ export const StackList: React.FC<StackListProps> = ({
         </span>
         If none answer, the chat stops and says why
       </div>
+      {blocked.map((reason) => (
+        <p key={reason} className="wb-inf-note">
+          {reason}
+        </p>
+      ))}
     </div>
   );
 };
 
-/** The details of one entry (settings spec decision 9): beside the stack, or under it in a sheet. */
+/**
+ * The details of one entry (settings spec decision 9): beside the stack, or under it in a sheet.
+ * A pool shows who serves it instead (confidential inference spec decision 4).
+ */
 export function EntryDetails({
   rung,
   circles,
@@ -210,6 +232,8 @@ export function EntryDetails({
   onRemove,
   onClose,
   showSources,
+  privateProject = false,
+  projectFloor,
 }: {
   rung: Rung;
   circles: CirclesState;
@@ -217,13 +241,25 @@ export function EntryDetails({
   onRemove: () => void;
   onClose: () => void;
   showSources: () => void;
+  /** The level belongs to a private project, so a pool ranks with that project's minimum level. */
+  privateProject?: boolean;
+  /** That project's own minimum level, when it allows lower than Pool settings' private one. */
+  projectFloor?: TrustLevel;
 }) {
   const { entry, view, state, slot, reason } = rung;
   const [test, setTest] = useState<{ busy: boolean; result: string | null }>({ busy: false, result: null });
   const source =
-    entry.slot === 'local' ? 'This Mac' : entry.slot === 'openrouter' ? 'OpenRouter, in the cloud' : view.detail.split('.')[0];
+    entry.slot === 'local'
+      ? 'This Mac'
+      : entry.slot === 'openrouter'
+        ? 'OpenRouter, in the cloud'
+        : entry.slot === 'confidential'
+          ? 'Confidential pool'
+          : view.detail.split('.')[0];
+  // Shared models and pools have no slot of their own to test.
+  const slotEntry = entry.slot !== 'peer' && entry.slot !== 'confidential';
   const runTest = async () => {
-    if (entry.slot === 'peer') return;
+    if (entry.slot === 'peer' || entry.slot === 'confidential') return;
     setTest({ busy: true, result: null });
     const started = performance.now();
     const result = await window.electronAPI.onboarding
@@ -232,14 +268,35 @@ export function EntryDetails({
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     setTest({ busy: false, result: result.success ? `Replied in ${seconds}s` : (result.error ?? 'Test failed.') });
   };
+  const head = (
+    <div className="wb-inf-side-head">
+      <h2>{view.label}</h2>
+      <button type="button" className="wb-inf-ico" aria-label="Close details" onClick={onClose}>
+        ×
+      </button>
+    </div>
+  );
+  const removeButton = (
+    <Button variant="danger" block type="button" disabled={!canRemove} onClick={onRemove}>
+      Remove from stack
+    </Button>
+  );
+  if (entry.slot === 'confidential') {
+    return (
+      <aside className="wb-inf-side" aria-label="Model details">
+        {head}
+        <dl className="wb-inf-kv">
+          <dt>Status</dt>
+          <dd>{reason ?? 'Ready'}</dd>
+        </dl>
+        <PoolDetails modelId={entry.modelId?.trim() ?? ''} privateProject={privateProject} projectFloor={projectFloor} />
+        <div className="wb-inf-bar">{removeButton}</div>
+      </aside>
+    );
+  }
   return (
     <aside className="wb-inf-side" aria-label="Model details">
-      <div className="wb-inf-side-head">
-        <h2>{view.label}</h2>
-        <button type="button" className="wb-inf-ico" aria-label="Close details" onClick={onClose}>
-          ×
-        </button>
-      </div>
+      {head}
       <dl className="wb-inf-kv">
         <dt>Source</dt>
         <dd>{source}</dd>
@@ -251,29 +308,27 @@ export function EntryDetails({
         <dd>{state?.private ? 'Can use it' : 'Never sent here'}</dd>
       </dl>
       <div className="wb-inf-bar">
-        {entry.slot !== 'peer' ? (
-          <button type="button" className="wb-btn-ghost" disabled={test.busy || !slot?.configured} onClick={() => void runTest()}>
+        {slotEntry ? (
+          <Button variant="secondary" block type="button" disabled={test.busy || !slot?.configured} onClick={() => void runTest()}>
             {test.busy ? 'Testing…' : 'Test'}
-          </button>
+          </Button>
         ) : null}
-        <button type="button" className="wb-btn-ghost is-danger" disabled={!canRemove} onClick={onRemove}>
-          Remove from stack
-        </button>
+        {removeButton}
       </div>
       {test.result ? (
         <p className="wb-inf-note" role="status">
           {test.result}
         </p>
       ) : null}
-      {entry.slot !== 'peer' ? (
+      {slotEntry ? (
         <>
           <p className="wb-inf-kick">{entry.slot === 'local' ? 'Model and runtime' : 'Account'}</p>
           <p className="wb-inf-note">
             {entry.slot === 'local' ? (slot?.modelId ?? 'No model chosen') : slot?.configured ? 'Signed in' : 'Not connected'}
           </p>
-          <button type="button" className="wb-btn-ghost" onClick={showSources}>
+          <Button variant="secondary" block type="button" onClick={showSources}>
             Manage
-          </button>
+          </Button>
         </>
       ) : entry.peer ? (
         <div className="wb-inf-claims">
@@ -307,9 +362,9 @@ export function AddModelList({
             <b>{view.label}</b>
             <span>{view.detail}</span>
           </span>
-          <button type="button" className="wb-btn-ghost" onClick={() => onAdd(view.entry)}>
+          <Button variant="secondary" block type="button" onClick={() => onAdd(view.entry)}>
             Add
-          </button>
+          </Button>
         </li>
       ))}
     </ul>
@@ -326,7 +381,17 @@ export function AddModelSheet({
   onClose: () => void;
 }) {
   return (
-    <Sheet open onClose={onClose} titleId="inference-add" title="Add a model">
+    <Sheet
+      open
+      onClose={onClose}
+      titleId="inference-add"
+      title="Add a model"
+      actions={
+        <Button variant="secondary" block type="button" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
       <AddModelList candidates={candidates} onAdd={onAdd} />
     </Sheet>
   );

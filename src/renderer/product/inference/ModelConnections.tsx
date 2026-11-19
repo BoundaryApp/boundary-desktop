@@ -13,6 +13,10 @@ import { useAppSwitch } from '../../onboarding/appSwitch';
 import { cloudInferenceNotice, cloudKeyLimitTip } from '../cloudInferenceCopy';
 import { CircleSharingLine } from '../circles/CircleSharingPanel';
 import { useCirclesState } from '../circles/useCircles';
+import { Callout } from '../../components/ui/alert';
+import { ConfidentialProviders } from './ConfidentialProviders';
+import { RepliesAtOnceRow } from './RepliesAtOnce';
+import { Button } from '../../components/ui/button';
 
 function formatLastSeen(iso?: string): string | null {
   if (!iso) return null;
@@ -61,7 +65,10 @@ function dotClass(slot: LlmSlotStatus | undefined, kind: 'local' | 'openrouter')
  * Where models come from: a runtime on this Mac and OpenRouter, each connected, tested, given its
  * model and disconnected here (settings spec phase 3). Order and fallbacks are the stack's.
  */
-export const ModelConnections: React.FC = () => {
+export const ModelConnections: React.FC<{
+  /** Passed to the Confidential providers card: a new value opens its add sheet. */
+  addProviderRequest?: number;
+}> = ({ addProviderRequest }) => {
   const [localModels, setLocalModels] = useState<ListedModel[]>([]);
   const [openRouterModels, setOpenRouterModels] = useState<ListedModel[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredLocalLlm[]>([]);
@@ -369,35 +376,35 @@ export const ModelConnections: React.FC = () => {
   return (
     <section className="wb-inf-connections" aria-label="Model sources">
           {local && localHealth === 'unreachable' && (
-            <div className="wb-inference-banner is-warn">
+            <Callout variant="warn" layout="row" size="sm" className="wb-inference-callout" role={undefined}>
               <p>
                 {local.providerDisplayName ?? 'Local'} isn’t reachable
                 {local.endpointUrl ? ` at ${local.endpointUrl}` : ''}.
               </p>
-              <button type="button" className="wb-inference-btn" onClick={() => void probe('local')}>
+              <Button variant="secondary" type="button" onClick={() => void probe('local')}>
                 Retry
-              </button>
-            </div>
+              </Button>
+            </Callout>
           )}
           {openrouter && openRouterHealth === 'unauthorized' && (
-            <div className="wb-inference-banner is-bad">
+            <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role={undefined}>
               <p>OpenRouter no longer accepts the saved key.</p>
-              <button
+              <Button
+                variant="secondary"
                 type="button"
-                className="wb-inference-btn"
                 onClick={() => void handleConnectOpenRouter()}
               >
                 Sign in again
-              </button>
-            </div>
+              </Button>
+            </Callout>
           )}
           {openRouterSigningIn && (
-            <div className="wb-inference-banner" role="status">
+            <Callout layout="row" size="sm" className="wb-inference-callout" role="status">
               <p>Waiting for OpenRouter sign-in to finish in your browser.</p>
-              <button type="button" className="wb-inference-btn" onClick={handleCancelOpenRouterSignIn}>
+              <Button variant="secondary" type="button" onClick={handleCancelOpenRouterSignIn}>
                 Cancel
-              </button>
-            </div>
+              </Button>
+            </Callout>
           )}
 
           {loading ? (
@@ -416,14 +423,14 @@ export const ModelConnections: React.FC = () => {
                     <div className="wb-inference-empty">
                       <p>Finds Ollama and LM Studio on this Mac.</p>
                       <div className="wb-inference-actions">
-                        <button
+                        <Button
+                          variant={openrouter ? 'secondary' : 'primary'}
                           type="button"
-                          className={`wb-inference-btn ${openrouter ? '' : 'is-solid'}`}
                           disabled={busy}
                           onClick={() => void handleScan()}
                         >
                           Scan this machine
-                        </button>
+                        </Button>
                       </div>
                       {discovered.map((endpoint) => (
                         <div key={`${endpoint.runtime}:${endpoint.baseUrl}`} className="mt-3">
@@ -431,17 +438,20 @@ export const ModelConnections: React.FC = () => {
                             {endpoint.displayName} · <span className="mono">{endpoint.baseUrl}</span>
                           </p>
                           {endpoint.models.map((model) => (
-                            <button
+                            <Button
+                              variant="secondary"
                               key={model.id}
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy}
                               title={model.id}
+                              className="max-w-full"
                               onClick={() => void handleAdoptLocal(endpoint, model.id)}
                             >
-                              Use {model.id}
-                              {model.loaded ? ' (loaded)' : ' (not loaded)'}
-                            </button>
+                              <span className="truncate">
+                                Use {model.id}
+                                {model.loaded ? ' (loaded)' : ' (not loaded)'}
+                              </span>
+                            </Button>
                           ))}
                         </div>
                       ))}
@@ -461,6 +471,9 @@ export const ModelConnections: React.FC = () => {
                           <dt>Selected</dt>
                           <dd>{local.modelId ?? 'None'}</dd>
                         </div>
+                        {localHealth !== 'unreachable' ? (
+                          <RepliesAtOnceRow endpointUrl={local.endpointUrl} modelId={local.modelId} />
+                        ) : null}
                       </dl>
                       {localHealth === 'unreachable' && (
                         <p className="wb-inference-empty" style={{ marginTop: 10 }}>
@@ -483,52 +496,54 @@ export const ModelConnections: React.FC = () => {
                             label="Local model"
                           />
                           <div className="wb-inference-actions">
-                            <button
+                            <Button
+                              variant="secondary"
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy || selectedLocalModel === local.modelId}
                               onClick={() => void handleSaveModel('local', selectedLocalModel)}
                             >
                               Save model
-                            </button>
+                            </Button>
                           </div>
                           {renderModelSaveFeedback('local')}
                         </div>
                       )}
                       <div className="wb-inference-actions">
                         {localHealth === 'unreachable' ? (
-                          <button
+                          <Button
+                            variant="secondary"
                             type="button"
-                            className="wb-inference-btn"
                             disabled={busy}
                             onClick={() => void probe('local')}
                           >
                             Retry
-                          </button>
+                          </Button>
                         ) : (
-                          <button
+                          <Button
+                            variant="secondary"
                             type="button"
-                            className="wb-inference-btn"
                             disabled={busy}
                             onClick={() => void handleTest('local')}
                           >
                             Test
-                          </button>
+                          </Button>
                         )}
-                        <button
+                        <Button
+                          variant="secondary"
                           type="button"
-                          className="wb-inference-btn"
                           disabled={busy}
                           onClick={() => void handleDisconnect('local')}
                         >
                           Disconnect
-                        </button>
+                        </Button>
                       </div>
                       {testBySlot.local && <p className="wb-inference-note">{testBySlot.local}</p>}
                       <CircleSharingLine circles={circles} />
                     </>
                   )}
                 </article>
+
+                <ConfidentialProviders addRequest={addProviderRequest} />
 
                 <article className="wb-inference-card">
                   <div className="hed">
@@ -557,40 +572,40 @@ export const ModelConnections: React.FC = () => {
                       <div className="wb-inference-actions">
                         {savedOpenRouterKey ? (
                           <>
-                            <button
+                            <Button
+                              variant="primary"
                               type="button"
-                              className="wb-inference-btn is-solid"
                               disabled={busy}
                               onClick={() => void handleReconnectSavedKey()}
                             >
                               Reconnect
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="secondary"
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy}
                               onClick={() => void handleConnectOpenRouter()}
                             >
                               Sign in again
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="secondary"
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy}
                               onClick={() => void handleForgetSavedKey()}
                             >
                               Remove saved key
-                            </button>
+                            </Button>
                           </>
                         ) : (
-                          <button
+                          <Button
+                            variant={local ? 'secondary' : 'primary'}
                             type="button"
-                            className={`wb-inference-btn ${local ? '' : 'is-solid'}`}
                             disabled={busy}
                             onClick={() => void handleConnectOpenRouter()}
                           >
                             Connect OpenRouter
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -633,16 +648,16 @@ export const ModelConnections: React.FC = () => {
                                 modelSaveFeedback?.slot === 'openrouter' ? (
                                   <>
                                     {selectedOpenRouterModel !== openrouter.modelId && (
-                                      <button
+                                      <Button
+                                        variant="primary"
                                         type="button"
-                                        className="wb-inference-btn is-solid"
                                         disabled={busy}
                                         onClick={() =>
                                           void handleSaveModel('openrouter', selectedOpenRouterModel)
                                         }
                                       >
                                         {busy ? 'Checking model…' : 'Save model'}
-                                      </button>
+                                      </Button>
                                     )}
                                     {renderModelSaveFeedback('openrouter')}
                                   </>
@@ -653,42 +668,42 @@ export const ModelConnections: React.FC = () => {
                         )}
                       <div className="wb-inference-actions">
                         {openRouterHealth === 'unauthorized' ? (
-                          <button
+                          <Button
+                            variant="primary"
                             type="button"
-                            className="wb-inference-btn is-solid"
                             disabled={busy}
                             onClick={() => void handleConnectOpenRouter()}
                           >
                             Reconnect OpenRouter
-                          </button>
+                          </Button>
                         ) : (
                           <>
-                            <button
+                            <Button
+                              variant="secondary"
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy}
                               onClick={() => void handleTest('openrouter')}
                             >
                               Test
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="secondary"
                               type="button"
-                              className="wb-inference-btn"
                               disabled={busy}
                               onClick={() => void handleConnectOpenRouter()}
                             >
                               Reconnect
-                            </button>
+                            </Button>
                           </>
                         )}
-                        <button
+                        <Button
+                          variant="secondary"
                           type="button"
-                          className="wb-inference-btn"
                           disabled={busy}
                           onClick={() => void handleDisconnect('openrouter')}
                         >
                           Disconnect
-                        </button>
+                        </Button>
                       </div>
                       {testBySlot.openrouter && (
                         <p className="wb-inference-note">{testBySlot.openrouter}</p>
@@ -706,9 +721,9 @@ export const ModelConnections: React.FC = () => {
                 )}
           {notice && <p className="wb-inference-note">{notice}</p>}
           {(error ?? statusError) && (
-            <div className="wb-inference-banner is-bad" style={{ marginTop: 16 }}>
+            <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout is-after" role={undefined}>
               <p>{error ?? statusError}</p>
-            </div>
+            </Callout>
           )}
     </section>
   );

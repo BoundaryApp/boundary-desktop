@@ -55,7 +55,7 @@ function finish(mine: ActiveSwitch, error?: string): void {
 async function isApplied({ appDefault, shared }: AppInferenceChoice): Promise<boolean> {
   const last = getLastAppliedLlm();
   if (!last) return false;
-  if (shared) return last.slot === 'peer' && last.modelId === shared.modelId;
+  if (shared) return last.slot === shared.slot && last.modelId === shared.modelId?.trim();
   if (!appDefault || last.slot !== appDefault) return false;
   return (await getSlotLlmConnection(appDefault))?.modelId === last.modelId;
 }

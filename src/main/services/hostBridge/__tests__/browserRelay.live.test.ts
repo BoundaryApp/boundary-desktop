@@ -12,7 +12,7 @@ import { DEFAULT_BLOCKED_SITES } from '../cdpPolicy';
 /**
  * The relay against the real Google Chrome, driven by Playwright and a raw CDP client at the
  * same time (Hermes's driver plus its dialog supervisor). Opens a Chrome window for a few
- * seconds and loads only data: pages. Opt in: BOUNDARY_LIVE_CHROME=1.
+ * seconds and loads only data: pages. Opt in: `BOUNDARY_LIVE_CHROME=1 bun run test:live`.
  */
 
 const chromePath = findGoogleChrome();

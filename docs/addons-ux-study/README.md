@@ -9,4 +9,4 @@ A click-through for installing the stack's optional services from Boundary: Serv
 
 Open `prototype.html` in a browser. The controls along the top set how full this Mac is (room to spare, tight, won't fit), whether the install fails during first-time setup, whether an agent task is running at restart time, and the theme.
 
-Engine memory (12 GiB) and disk (100 GiB) are Boundary's Podman machine defaults. Twenty's figures come from the stack's replies to 0020; the Local models and Signal figures are placeholders. The decisions the mock shows are in [spec.md](spec.md).
+Engine memory (12 GiB, the largest size) and disk (100 GiB) are Boundary's Podman machine defaults. A new machine gets half the Mac's memory, between 4 and 12 GiB. Twenty's figures come from the stack's replies to 0020; the Local models and Signal figures are placeholders. The decisions the mock shows are in [spec.md](spec.md).

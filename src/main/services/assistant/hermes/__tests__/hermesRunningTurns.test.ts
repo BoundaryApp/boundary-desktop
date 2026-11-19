@@ -10,21 +10,10 @@ vi.mock('electron', () => ({
   },
 }));
 
-type ToolHandler = (event: { session_id?: string; payload?: unknown }) => void;
-const toolHandlers = new Set<ToolHandler>();
-const emitToolStart = (event: { session_id?: string; payload?: unknown }) => {
-  for (const handler of [...toolHandlers]) handler(event);
-};
+const gw = await vi.hoisted(async () => (await import('./fakeGatewaySession')).fakeGatewaySession({}));
+const emitToolStart = (event: { session_id?: string; payload?: unknown }) => gw.emit('tool.start', event);
 
-vi.mock('../hermesGatewaySession', () => ({
-  getHermesGatewaySession: () => ({
-    on: (name: string, handler: ToolHandler) => {
-      if (name !== 'tool.start') return () => undefined;
-      toolHandlers.add(handler);
-      return () => toolHandlers.delete(handler);
-    },
-  }),
-}));
+vi.mock('../hermesGatewaySession', () => ({ getHermesGatewaySession: () => gw.session }));
 
 describe('hermesRunningTurns', () => {
   beforeEach(async () => {
@@ -69,6 +58,6 @@ describe('hermesRunningTurns', () => {
     endRunningTurn('r1');
     expect(runningTurnToolNames()).toEqual(['read_file']);
     endRunningTurn('r2');
-    expect(toolHandlers.size).toBe(0);
+    expect(gw.listenerCount('tool.start')).toBe(0);
   });
 });

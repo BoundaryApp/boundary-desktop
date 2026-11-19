@@ -7,6 +7,9 @@
 // Packages limited to one OS or CPU (prebuilt binaries such as esbuild's) are left out so the
 // output is the same on every machine. Packages without a licence file are listed with the
 // licence named in their package.json.
+//
+// A package that ships no licence file can get one from resources/licenses/package-licenses/,
+// listed in LICENSE_FILES below with the source it was copied from.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +17,12 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outFile = path.join(root, 'resources/licenses/THIRD_PARTY_NOTICES.md');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+
+// @premai/reticle@0.6.2 ships no licence file or `license` field. Its source repository,
+// github.com/prem-research/reticle, is MIT (LICENSE at the 0.6.2 version bump, commit cc426a8).
+const LICENSE_FILES = {
+  '@premai/reticle': { license: 'MIT', file: 'premai-reticle.txt' }
+};
 
 function findPackageJson(name, fromDir) {
   for (let dir = fromDir; ; dir = path.dirname(dir)) {
@@ -47,7 +56,15 @@ function walk(name, fromDir) {
   if (packages.has(id)) return;
   const dir = path.dirname(file);
   const platformOnly = Boolean(json.os || json.cpu);
-  packages.set(id, platformOnly ? null : { id, license: licenseName(json), text: licenseText(dir) });
+  const extra = LICENSE_FILES[json.name];
+  const entry = extra
+    ? {
+        id,
+        license: extra.license,
+        text: fs.readFileSync(path.join(root, 'resources/licenses/package-licenses', extra.file), 'utf8').trim()
+      }
+    : { id, license: licenseName(json), text: licenseText(dir) };
+  packages.set(id, platformOnly ? null : entry);
   for (const dep of Object.keys({ ...json.dependencies, ...json.optionalDependencies })) walk(dep, dir);
 }
 for (const dep of Object.keys(pkg.dependencies ?? {})) walk(dep, root);

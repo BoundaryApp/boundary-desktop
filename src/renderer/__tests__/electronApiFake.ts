@@ -25,7 +25,9 @@ export type ElectronAPIStubs = {
 const isSubscription = (leaf: string) => /^(on|subscribe)[A-Z]/.test(leaf);
 
 function defaultLeaf(leaf: string): Mock {
-  return isSubscription(leaf) ? vi.fn(() => () => undefined) : vi.fn(() => new Promise(() => undefined));
+  return isSubscription(leaf)
+    ? vi.fn<() => () => void>(() => () => undefined)
+    : vi.fn<() => Promise<never>>(() => new Promise<never>(() => undefined));
 }
 
 function fakeNamespace(): Record<string, unknown> {

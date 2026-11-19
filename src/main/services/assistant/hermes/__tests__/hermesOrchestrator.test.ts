@@ -43,6 +43,7 @@ vi.mock('../hermesGatewaySession', () => ({
 
 vi.mock('../hermesSessionsChanged', () => ({
   broadcastSessionsChanged: () => broadcastSessionsChanged(),
+  broadcastInferenceNoted: vi.fn(),
 }));
 
 import {

@@ -1,7 +1,7 @@
 # 0021 · The SSH worker key is owned by uid 1000 whatever `HERMES_UID` is
 
 **Serves:** the agent's terminal and file tools on every install (`terminal.backend: ssh`).
-**Status:** Open
+**Status:** R1–R2 done (v0.3.11), Boundary pins it
 
 ## Background
 

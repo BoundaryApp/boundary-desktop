@@ -45,10 +45,19 @@ import { syncProjectsFromGateway, type HermesProjectsListPayload } from './herme
 import {
   areProjectFoldersMounted,
   enqueueFolderRemount,
+  isFolderRemountBusy,
   recordMountedProjectFolders,
 } from './projectMountState';
+import { ProjectCreateSteps } from './projectCreateSteps';
+import type { ProjectCreateStepId } from '../../../../shared/types/projectCreate';
 import { samePath } from '../../hostPaths';
-import { scheduleCodingRemount } from '../coding/codingGrants';
+import {
+  codingFoldersBusy,
+  finishProjectFolderGrant,
+  isCodingMounted,
+  projectFolderCodingRefusal,
+  scheduleCodingRemount,
+} from '../coding/codingGrants';
 import { persistCodingStackEnv } from '../coding/codingMounts';
 import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
 import { APP_NAME } from '../../../../shared/buildIdentity';
@@ -106,6 +115,10 @@ export interface ProjectRemountOptions {
   prepare?: () => readonly string[] | void;
   /** Undo `prepare` when the recreate fails, so the failing bind isn't kept (G09-7). */
   rollback?: () => void;
+  /** Recreate the coding agent too, for a folder that gets coding in the same change. */
+  codingAgent?: boolean;
+  /** Called when the containers are up and the health wait starts. */
+  onHealthWait?: () => void;
 }
 
 function undoProjectRemount(options: ProjectRemountOptions | undefined): void {
@@ -136,7 +149,10 @@ async function remountProjectsNow(
     'the selected folder';
   connecting = true;
   try {
-    const result = await recreateHermesForProjectMounts();
+    const result = await recreateHermesForProjectMounts({
+      codingAgent: options?.codingAgent,
+      onHealthWait: options?.onHealthWait,
+    });
     if (!result.success) {
       undoProjectRemount(options);
       return {
@@ -285,7 +301,8 @@ export async function pickHermesProjectFolder(): Promise<{
 function hostFolderRecord(
   hostPath: string,
   name?: string,
-  inference?: ProjectInferencePin
+  inference?: ProjectInferencePin,
+  coding = false
 ): HermesProjectRecord {
   const projectName = (name?.trim() || defaultProjectNameFromHostPath(hostPath)).trim();
   const slug = uniqueProjectSlug(projectName, listStoredHermesProjects());
@@ -299,9 +316,19 @@ function hostFolderRecord(
     kind: 'host-folder',
     hermesProjectId: `fs:${containerPathForSlug(slug)}`,
     inference: inference ?? { mode: 'inherit' },
+    ...(coding ? { codingEnabled: true } : {}),
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/** How often a create that waits for a coding task asks whether it has finished. */
+export const CODING_TASK_POLL_MS = 5_000;
+
+async function waitForCodingTask(): Promise<void> {
+  while ((await codingFoldersBusy()).busy) {
+    await new Promise((resolve) => setTimeout(resolve, CODING_TASK_POLL_MS));
+  }
 }
 
 export async function createHostFolderHermesProject(
@@ -315,17 +342,64 @@ export async function createHostFolderHermesProject(
     return { success: false, error: `Folder not found: ${hostPath}` };
   }
 
+  const coding = Boolean(payload.coding) && !isLocalAssistantStackMode();
+  if (coding) {
+    const refusal = projectFolderCodingRefusal(hostPath);
+    if (refusal) return { success: false, error: refusal };
+  }
+  // The coding agent restarts only when no granted folder's mount already holds this one,
+  // and only that restart stops a running coding task.
+  const codingAgent = coding && !isCodingMounted(hostPath);
+  let waitForTask = false;
+  if (codingAgent) {
+    const busy = await codingFoldersBusy();
+    if (busy.busy) {
+      if (!payload.whenCodingBusy) {
+        return {
+          success: false,
+          error: 'A coding task is running.',
+          codingBusy: busy,
+          projects: listStoredHermesProjects(),
+          activeId: getActiveHermesProjectId(),
+        };
+      }
+      waitForTask = payload.whenCodingBusy === 'wait';
+    }
+  }
+
+  const ids: ProjectCreateStepId[] = [];
+  if (waitForTask) ids.push('task');
+  if (waitForTask || isFolderRemountBusy()) ids.push('queue');
+  ids.push('mount', 'health');
+  if (coding) ids.push('check');
+  ids.push('open');
+  const steps = new ProjectCreateSteps(payload.runId, ids);
+
+  if (waitForTask) {
+    steps.wait('task');
+    await waitForCodingTask();
+    steps.done('task');
+  }
+  if (steps.has('queue')) steps.wait('queue');
+
   // The record is made when the remount's turn starts, so its slug sees projects saved by
   // remounts queued ahead of it.
   let project: HermesProjectRecord | null = null;
   let previousActiveId: string | null = null;
   const mount = await syncOverlayAndRecreate({
     mountLabel: hostPath,
+    codingAgent,
     prepare: () => {
+      steps.done('queue');
+      steps.start('mount');
       previousActiveId = getActiveHermesProjectId();
-      project = hostFolderRecord(hostPath, payload.name, payload.inference);
+      project = hostFolderRecord(hostPath, payload.name, payload.inference, coding);
       upsertStoredHermesProject(project);
       setActiveHermesProjectId(project.id);
+    },
+    onHealthWait: () => {
+      steps.done('mount');
+      steps.start('health');
     },
     rollback: () => {
       if (!project) return;
@@ -334,6 +408,8 @@ export async function createHostFolderHermesProject(
     },
   });
   if (!mount.success || !project) {
+    steps.fail();
+    if (coding && project) await finishProjectFolderGrant(project, mount.error ?? 'failed');
     return {
       success: false,
       error: mount.error,
@@ -342,21 +418,36 @@ export async function createHostFolderHermesProject(
       connecting: false,
     };
   }
+  // TS loses the narrowing made inside the callbacks.
+  const created: HermesProjectRecord = project;
+  steps.done('mount');
+  steps.done('health');
 
-  const rpc = await activateOnGateway(project);
-  if (rpc.hermesProjectId) {
-    project.hermesProjectId = rpc.hermesProjectId;
-    project.updatedAt = new Date().toISOString();
-    upsertStoredHermesProject(project);
+  let codingError: string | undefined;
+  if (coding) {
+    steps.start('check');
+    codingError = (await finishProjectFolderGrant(created)) ?? undefined;
+    if (codingError) steps.failStep('check');
+    else steps.done('check');
   }
+
+  steps.start('open');
+  const rpc = await activateOnGateway(created);
+  if (rpc.hermesProjectId) {
+    created.hermesProjectId = rpc.hermesProjectId;
+    created.updatedAt = new Date().toISOString();
+    upsertStoredHermesProject(created);
+  }
+  steps.done('open');
 
   return {
     success: true,
-    project,
+    project: created,
     projects: listStoredHermesProjects(),
-    activeId: project.id,
+    activeId: created.id,
     connecting: false,
     rpcAvailable: rpc.rpcAvailable,
+    ...(codingError ? { codingError } : {}),
   };
 }
 
@@ -543,6 +634,16 @@ export async function selectHermesProject(
   };
 }
 
+/** The pin's privacy settings, carried wherever the pin is rebuilt. */
+function privacyFields(
+  pin: ProjectInferencePin
+): Pick<ProjectInferencePin, 'privacyLocalOnly' | 'allowConfidentialLevelB'> {
+  return {
+    ...(pin.privacyLocalOnly !== undefined ? { privacyLocalOnly: pin.privacyLocalOnly } : {}),
+    ...(pin.allowConfidentialLevelB !== undefined ? { allowConfidentialLevelB: pin.allowConfidentialLevelB } : {}),
+  };
+}
+
 async function normalizeProjectInference(
   pin: ProjectInferencePin
 ): Promise<{ ok: true; inference: ProjectInferencePin } | { ok: false; error: string }> {
@@ -551,9 +652,7 @@ async function normalizeProjectInference(
       ok: true,
       inference: {
         mode: 'inherit',
-        ...(pin.privacyLocalOnly !== undefined
-          ? { privacyLocalOnly: pin.privacyLocalOnly }
-          : {}),
+        ...privacyFields(pin),
       },
     };
   }
@@ -575,9 +674,7 @@ async function normalizeProjectInference(
     inference: {
       mode: pin.mode,
       modelId,
-      ...(pin.privacyLocalOnly !== undefined
-        ? { privacyLocalOnly: pin.privacyLocalOnly }
-        : {}),
+      ...privacyFields(pin),
       ...(kept.fallbacks.length ? { fallbacks: kept.fallbacks } : {}),
     },
   };
@@ -611,7 +708,16 @@ export async function patchHermesProject(
       activeId: getActiveHermesProjectId(),
     };
   }
-  const normalized = await normalizeProjectInference({ ...payload.inference, privacyLocalOnly });
+  // Allow level B belongs to a private project: leaving it out keeps it, and Private off clears it.
+  const allowConfidentialLevelB =
+    privacyLocalOnly === true
+      ? (payload.inference.allowConfidentialLevelB ?? project.inference?.allowConfidentialLevelB)
+      : undefined;
+  const normalized = await normalizeProjectInference({
+    ...payload.inference,
+    privacyLocalOnly,
+    allowConfidentialLevelB,
+  });
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.
   if (normalized.ok === false) {
     return {
@@ -646,9 +752,7 @@ export function clearProjectInferenceForProvider(
       ...project,
       inference: {
         mode: 'inherit' as const,
-        ...(project.inference.privacyLocalOnly !== undefined
-          ? { privacyLocalOnly: project.inference.privacyLocalOnly }
-          : {}),
+        ...privacyFields(project.inference),
       },
       updatedAt: new Date().toISOString(),
     };

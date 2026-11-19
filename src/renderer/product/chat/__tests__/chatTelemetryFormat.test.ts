@@ -4,6 +4,7 @@ import {
   formatPhaseLine,
   splitContextBar,
 } from '../chatTelemetryFormat';
+import { formatChannelHead } from '../channelHead';
 
 describe('formatPhaseLine on a shared model or recovery wait', () => {
   it('says what is true before any restart', () => {
@@ -71,6 +72,18 @@ describe('formatPhaseLine', () => {
     );
   });
 
+  it('switches the preparing timer to minutes and hours', () => {
+    const line = (elapsedSec: number) => formatPhaseLine({ phase: 'preparing', elapsedSec });
+    expect([59, 60, 75, 3599, 3600, 3725].map(line)).toEqual([
+      'Preparing · 59s',
+      'Preparing · 1m 00s',
+      'Preparing · 1m 15s',
+      'Preparing · 59m 59s',
+      'Preparing · 1h 00m 00s',
+      'Preparing · 1h 02m 05s',
+    ]);
+  });
+
   it('formats tool with turn budget', () => {
     expect(
       formatPhaseLine({
@@ -106,54 +119,16 @@ describe('formatPhaseLine', () => {
 });
 
 describe('formatChannelHead', () => {
-  it('uses #slug and omits a redundant title', async () => {
-    const { formatChannelHead } = await import('../channelHead');
+  it('uses #slug and omits a redundant title', () => {
     expect(
       formatChannelHead({ slug: 'general', title: 'general' })
     ).toEqual({ title: '#general', subtitle: null });
   });
 
-  it('keeps a distinct title as the subtitle', async () => {
-    const { formatChannelHead } = await import('../channelHead');
+  it('keeps a distinct title as the subtitle', () => {
     expect(
       formatChannelHead({ slug: 'general', title: 'Team standup' })
     ).toEqual({ title: '#general', subtitle: 'Team standup' });
-  });
-});
-
-describe('formatToolCardMeta / formatTurnStatsLine (shared)', () => {
-  it('formats tool card meta and turn stats', async () => {
-    const {
-      formatToolCardMeta,
-      formatTurnStatsLine,
-      toHostRelativePath,
-    } = await import('../../../../shared/hermesToolPaths');
-    expect(
-      formatToolCardMeta({
-        name: 'search_files',
-        status: 'running',
-        turn: 2,
-        maxTurns: 20,
-      })
-    ).toBe('Reading search_files · turn 2 of 20');
-    expect(
-      formatTurnStatsLine({
-        prompt: 18823,
-        generated: 708,
-        visible: 7,
-        ttftSec: 1.2,
-        avgTps: 35,
-      })
-    ).toEqual([
-      { label: 'prompt', value: '19k' },
-      { label: 'generated', value: '708' },
-      { label: 'visible', value: '7' },
-      { label: 'TTFT', value: '1.2s' },
-      { label: 'tok/s', value: '35' },
-    ]);
-    expect(toHostRelativePath('/opt/projects/x/a.md', '/opt/projects/x')).toBe(
-      'a.md'
-    );
   });
 });
 

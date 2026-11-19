@@ -65,6 +65,8 @@ await build({
   root,
   configFile: false,
   logLevel: 'warn',
+  // The harness bundles no release notes; the alias still has to resolve (ADR 0059).
+  resolve: { alias: { '@release-notes': path.resolve(root, '..', '..', 'src', 'release-notes-empty') } },
   plugins: [react(), tailwindcss()],
   define: { __BOUNDARY_APP_NAME__: '"Boundary"', __BOUNDARY_INSTANCE__: '""', global: 'globalThis' },
   // Unminified, so a page error names the function that threw.

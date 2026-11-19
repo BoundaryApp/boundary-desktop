@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CircleChannel,
   CircleChatUpdate,
@@ -6,16 +6,41 @@ import type {
   CircleMessageRef,
   CirclesResult,
 } from '../../../shared/types/circles';
+import { usePerCircle } from './usePerCircle';
+
+/** A person chosen from the @ menu. */
+export interface MentionPick {
+  identity: string;
+  name: string;
+}
+
+/** The mention fields of a post or edit, left out when there is nothing to carry. */
+const mentionFields = (picked?: MentionPick[], mentionChannel?: boolean) => ({
+  ...(picked ? { picked } : {}),
+  ...(mentionChannel === undefined ? {} : { mentionChannel }),
+});
 
 /** Messages a channel opens with, and each page of older ones. */
 const PAGE = 50;
 /** The most a refresh of the newest messages reads back. */
 const MAX_TAIL = 200;
-/** Unread counts follow chat events after this pause, so a burst costs one read. */
-const COUNT_REFRESH_MS = 300;
 /** "Maya is typing…" goes this long after her last typing signal (Circle chats spec decision 12). */
 const TYPING_SHOWN_MS = 6_000;
 const READ_EVENT = 'boundary:circle-read';
+/** Fired with `{ circleKey }` after this device's notification preferences for a Circle are saved. */
+const NOTIFY_PREFS_EVENT = 'boundary:circle-notify-prefs';
+
+/** Tells open views that a Circle's notification preferences changed, so its mention marks are read again. */
+export function announceNotifyPrefs(circleKey: string): void {
+  window.dispatchEvent(new CustomEvent(NOTIFY_PREFS_EVENT, { detail: { circleKey } }));
+}
+
+/** Calls `listener` with the Circle key each time `announceNotifyPrefs` runs; returns a remover. */
+export function onNotifyPrefs(listener: (circleKey: string) => void): () => void {
+  const handle = (event: Event): void => listener((event as CustomEvent<{ circleKey: string }>).detail.circleKey);
+  window.addEventListener(NOTIFY_PREFS_EVENT, handle);
+  return () => window.removeEventListener(NOTIFY_PREFS_EVENT, handle);
+}
 
 const api = () => window.electronAPI.circles;
 const sameRef = (a: CircleMessageRef, b: CircleMessageRef): boolean => a.author === b.author && a.id === b.id;
@@ -54,6 +79,21 @@ export function applyChatUpdate(loaded: CircleMessage[], update: CircleChatUpdat
   return added.length ? [...next, ...added] : next;
 }
 
+/**
+ * The latest time another member reacted to one of the user's own messages in `messages`; 0 when
+ * none. Own messages carry the user's identity as `author`, so reactions by that identity are skipped.
+ */
+function latestReactionSeen(messages: CircleMessage[]): number {
+  let seen = 0;
+  for (const message of messages) {
+    if (!message.mine || message.deleted) continue;
+    for (const reaction of message.reactions) {
+      for (const person of reaction.people) if (person.identity !== message.author && person.at > seen) seen = person.at;
+    }
+  }
+  return seen;
+}
+
 export interface CircleChatView {
   /** Oldest first. */
   messages: CircleMessage[];
@@ -64,9 +104,18 @@ export interface CircleChatView {
   /** How many messages disappeared when their order settled since the channel opened. */
   goneCount: number;
   loadOlder: () => Promise<void>;
-  send: (text: string) => Promise<string | null>;
-  edit: (id: string, text: string) => Promise<string | null>;
+  /** `picked` and `mentionChannel` are the @ menu's picks; main keeps those whose `@Name` is still in `text`. */
+  send: (text: string, picked?: MentionPick[], mentionChannel?: boolean, reply?: CircleMessageRef) => Promise<string | null>;
+  /** An edit that carries no picks clears the message's mentions, so pass the ones to keep. */
+  edit: (id: string, text: string, picked?: MentionPick[], mentionChannel?: boolean) => Promise<string | null>;
   remove: (ref: CircleMessageRef) => Promise<string | null>;
+  /** Add (`on`) or take back the user's `emoji` on a message. */
+  react: (ref: CircleMessageRef, emoji: string, on: boolean) => Promise<string | null>;
+  /**
+   * Latest time another member reacted to the user's own messages, loaded or reported in a chat
+   * event since the channel opened; 0 when none. A change means the channel has new reactions to mark read.
+   */
+  seen: number;
   /** Mark the channel read up to `message` on this device, and tell members online. */
   markRead: (message: CircleMessage) => void;
   /** Identities typing in the channel now, from signals; may include the user's other devices. */
@@ -89,6 +138,14 @@ export function useCircleChat(circleKey: string, channel: string): CircleChatVie
   const [goneCount, setGoneCount] = useState(0);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  // Main counts reactions on all of the user's messages in the channel, loaded or not, and reports
+  // a reacted message as changed in a chat event. Taking `seen` from those reports as well lets a
+  // reaction to an older message that isn't loaded still re-mark the open channel read.
+  const [reportedSeen, setReportedSeen] = useState(0);
+  const loadedSeen = useMemo(() => latestReactionSeen(messages), [messages]);
+  const seen = Math.max(loadedSeen, reportedSeen);
+  const seenRef = useRef(seen);
+  seenRef.current = seen;
   const readRef = useRef<string | null>(null);
   const [typing, setTyping] = useState<string[]>([]);
   const [seenBy, setSeenBy] = useState<Record<string, CircleMessageRef>>({});
@@ -117,6 +174,7 @@ export function useCircleChat(circleKey: string, channel: string): CircleChatVie
     setGoneCount(0);
     setLoading(true);
     readRef.current = null;
+    setReportedSeen(0);
     setTyping([]);
     setSeenBy({});
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -143,6 +201,8 @@ export function useCircleChat(circleKey: string, channel: string): CircleChatVie
       // Someone whose message just arrived has stopped typing it.
       for (const message of update.added) if (typingTimers.has(message.author)) stopTyping(message.author);
       if (update.gone.length) setGoneCount((n) => n + update.gone.length);
+      const reported = latestReactionSeen([...update.added, ...update.changed]);
+      if (reported) setReportedSeen((now) => Math.max(now, reported));
       const next = applyChatUpdate(messagesRef.current, update);
       if (next) setMessages(next);
       else void readTail(Math.min(MAX_TAIL, Math.max(PAGE, messagesRef.current.length)), isLive);
@@ -173,20 +233,27 @@ export function useCircleChat(circleKey: string, channel: string): CircleChatVie
   }, [circleKey, channel]);
 
   const send = useCallback(
-    async (text: string) => errorOf(await api().chatPost({ key: circleKey, channel, text })),
+    async (text: string, picked?: MentionPick[], mentionChannel?: boolean, reply?: CircleMessageRef) =>
+      errorOf(await api().chatPost({ key: circleKey, channel, text, ...mentionFields(picked, mentionChannel), ...(reply ? { reply } : {}) })),
     [circleKey, channel]
   );
   const edit = useCallback(
-    async (id: string, text: string) => errorOf(await api().chatEdit({ key: circleKey, channel, id, text })),
+    async (id: string, text: string, picked?: MentionPick[], mentionChannel?: boolean) =>
+      errorOf(await api().chatEdit({ key: circleKey, channel, id, text, ...mentionFields(picked, mentionChannel) })),
     [circleKey, channel]
   );
   const remove = useCallback(
     async (ref: CircleMessageRef) => errorOf(await api().chatDelete({ key: circleKey, channel, ...ref })),
     [circleKey, channel]
   );
+  const react = useCallback(
+    async (ref: CircleMessageRef, emoji: string, on: boolean) =>
+      errorOf(await api().chatReact({ key: circleKey, channel, ...ref, emoji, on })),
+    [circleKey, channel]
+  );
   const markRead = useCallback(
     (message: CircleMessage) => {
-      const key = `${message.author}/${message.id}`;
+      const key = `${message.author}/${message.id}|${seenRef.current}`;
       if (readRef.current === key) return;
       readRef.current = key;
       void api()
@@ -200,50 +267,44 @@ export function useCircleChat(circleKey: string, channel: string): CircleChatVie
     void api().chatTyping({ key: circleKey, channel });
   }, [circleKey, channel]);
 
-  return { messages, loading, more, error, goneCount, loadOlder, send, edit, remove, markRead, typing, seenBy, notifyTyping };
+  return { messages, loading, more, error, goneCount, loadOlder, send, edit, remove, react, seen, markRead, typing, seenBy, notifyTyping };
 }
 
 /**
- * Each Circle's channels with unread counts, by Circle key. Reads again after chat events and
- * reads, once a burst has passed. Only pass Circles the user belongs to: a read starts Circles.
+ * Each Circle's channels with unread counts, by Circle key. Reads again after chat events, reads
+ * and notification preference changes, once a burst has passed. Only pass Circles the user belongs to: a read starts Circles.
  */
 export function useCircleChannels(circleKeys: string[]): Record<string, CircleChannel[]> {
-  const [channels, setChannels] = useState<Record<string, CircleChannel[]>>({});
-  const keysKey = circleKeys.join(',');
-  useEffect(() => {
-    const keys = keysKey ? keysKey.split(',') : [];
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const read = async () => {
-      const entries = await Promise.all(
-        keys.map(async (key) => {
-          const result = await api().chatChannels({ key });
-          return [key, result.success === false ? [] : result.channels] as const;
-        })
-      );
-      if (live) setChannels(Object.fromEntries(entries));
-    };
-    const soon = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void read(), COUNT_REFRESH_MS);
-    };
-    void read();
-    const off = api().onChatEvent((update) => {
-      if (keys.includes(update.circleKey)) soon();
-    });
-    window.addEventListener(READ_EVENT, soon);
-    const offChannels = api().onChannelsChanged(({ circleKey }) => {
-      if (keys.includes(circleKey)) soon();
-    });
-    return () => {
-      live = false;
-      if (timer) clearTimeout(timer);
-      off();
-      offChannels();
-      window.removeEventListener(READ_EVENT, soon);
-    };
-  }, [keysKey]);
-  return channels;
+  return usePerCircle(
+    circleKeys,
+    async (key) => {
+      const result = await api().chatChannels({ key });
+      return result.success === false ? [] : result.channels;
+    },
+    (keys, soon) => {
+      const off = api().onChatEvent((update) => {
+        if (keys.includes(update.circleKey)) soon();
+      });
+      window.addEventListener(READ_EVENT, soon);
+      const offPrefs = onNotifyPrefs((circleKey) => {
+        if (keys.includes(circleKey)) soon();
+      });
+      const offChannels = api().onChannelsChanged(({ circleKey }) => {
+        if (keys.includes(circleKey)) soon();
+      });
+      return () => {
+        off();
+        offChannels();
+        offPrefs();
+        window.removeEventListener(READ_EVENT, soon);
+      };
+    }
+  );
+}
+
+/** Whether any channel holds an unread mention of the user. */
+export function circleMentioned(channels: CircleChannel[] | undefined): boolean {
+  return (channels ?? []).some((channel) => channel.mentioned && channel.unread > 0);
 }
 
 /** Unread messages across a Circle's channels. */

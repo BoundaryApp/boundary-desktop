@@ -71,11 +71,32 @@ export async function ensureHostBridgeToken(kind: HostBridgeTokenKind): Promise<
   return token;
 }
 
+/** The tokens that exist now, without creating any. For masking only. */
+export async function storedHostBridgeTokens(): Promise<string[]> {
+  const tokens: string[] = Object.values(sessionTokens).filter((t): t is string => Boolean(t));
+  for (const encrypted of Object.values(store.get('tokens') ?? {})) {
+    const token = encrypted ? await tryDecryptFromBase64(encrypted) : null;
+    if (token) tokens.push(token);
+  }
+  return tokens;
+}
+
 /** Forget both tokens; the next launch provisions new ones into Hermes. */
 export function rotateHostBridgeTokens(): void {
   store.set('tokens', {});
   delete sessionTokens.mcp;
   delete sessionTokens.browser;
+}
+
+/**
+ * Forget one token; the next launch provisions a new one into Hermes. For a token that leaked
+ * without the other one: an earlier Boundary wrote the browser token into `config.yaml`.
+ */
+export function rotateHostBridgeToken(kind: HostBridgeTokenKind): void {
+  const tokens = { ...store.get('tokens') };
+  delete tokens[kind];
+  store.set('tokens', tokens);
+  delete sessionTokens[kind];
 }
 
 export function getHostBridgePorts(): HostBridgeState['ports'] {

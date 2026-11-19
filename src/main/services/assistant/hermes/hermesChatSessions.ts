@@ -25,14 +25,30 @@ import type {
   HermesOpenAgentDmResult,
   HermesChatUsageSnapshot,
   HermesNoReply,
+  ResolvedSessionInference,
 } from '../../../../shared/types/hermesChat';
 import type { MessageCompletePayload } from './vendor/gateway-contract.generated';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../../shared/types/hermesChat';
 import { BOUNDARY_SESSION_SOURCE, getHermesGatewaySession } from './hermesGatewaySession';
+import { isWritingVoiceCalibrationSession } from '../writingVoices/writingVoiceStore';
+import {
+  resolveSessionWritingVoice,
+  setChatWritingVoice,
+  writingVoiceRoomPart,
+  writingVoiceTurnContext,
+} from '../writingVoices/agentWritingVoices';
 import { mapUsageSnapshot } from './hermesUsageMap';
 import { extractPathsFromToolArgs } from '../../../../shared/hermesToolPaths';
 import { ensureHermesWebuiSyncToInsights } from './hermesWebuiSync';
-import { beginRunningTurn, endRunningTurn } from './hermesRunningTurns';
+import { beginRunningTurn, endRunningTurn, setRunningTurnAdmission } from './hermesRunningTurns';
+import {
+  heldTurnRequestIds,
+  requestTurnSlot,
+  runHeldTurnNow,
+  setHeldTurnQuitWithdraw,
+  type TurnSlot,
+} from './workloadScheduler';
+import { localTurnServer } from './workloadLimits';
 import { buildCodingAccessRequest } from '../coding/codingAccessRequests';
 import {
   applyConversationFolder,
@@ -62,6 +78,10 @@ import {
   consumeUnconsumedPosted,
   listChannelPosts,
   getSessionAgentSlug,
+  getFailedTurnWritingVoice,
+  getPromptWritingVoice,
+  getSessionWritingVoice,
+  moveSessionWritingVoice,
   getSessionSpeakers,
   getStoredAgent,
   listStoredAgents,
@@ -78,6 +98,7 @@ import {
   getOrchestratorRecord,
   getRoomSoulSent,
   setRoomSoulSent,
+  setRoomVoiceSent,
   upsertStoredChannel,
   addFailedTurn,
   deleteFailedChat,
@@ -99,11 +120,17 @@ import {
 import { parseMemberMentions } from '../../../../shared/hermesMentions';
 import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
 import { newestFirst } from '../../../../shared/utils/sort';
-import { ensureResolvedInferenceReady, noteFallbackServed, setSessionInferenceOverride } from './sessionInference';
+import {
+  ensureResolvedInferenceReady,
+  noteFallbackServed,
+  noteTurnEnded,
+  noteTurnStarted,
+  setSessionInferenceOverride,
+} from './sessionInference';
 import { lagLog } from '../../../perf/lagLog';
 import { sendEvent as send } from '../../../ipc';
 import { roundTenth } from '../../../../shared/lagProbe';
-import { broadcastSessionsChanged, onHermesSessionsChanged } from './hermesSessionsChanged';
+import { broadcastInferenceNoted, broadcastSessionsChanged, onHermesSessionsChanged } from './hermesSessionsChanged';
 import {
   describeRewindError,
   planRewind,
@@ -113,6 +140,8 @@ import {
 import {
   CONTINUE_PROMPT,
   recordNoReply,
+  recordReplyWritingVoice,
+  recordRoomReplyWritingVoices,
   sessionSettled,
   settleInterruptedTurn,
   withFailedTurns,
@@ -120,14 +149,30 @@ import {
 } from './hermesReplyEndings';
 import { getLastAppliedLlm } from '../AssistantStackStore';
 import { parseRecoveryNotice } from './hermesRecoveryNotice';
+import { createStreamCadence } from './streamCadence';
 import { persistDebugLog } from '../../../persistDebugLog';
 import { logPostWithoutTurn, logTurnGate, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
+
+/** Hermes's Bitwarden plugin tool for a login the agent can't reach (stack addons/bitwarden/addon.json). */
+const BITWARDEN_REQUEST_TOOL = 'bitwarden_request_access';
 
 /**
  * Running turns by request id, with the chat ids each covers. Not tied to a window: a turn
  * finishes when the window that started it closes (decision D4), and any window can stop it.
+ * `endedAt` is the time a finished turn's end event carried, which also ends its turn window.
  */
-const activeStreams = new Map<string, { controller: AbortController; sessionIds: string[] }>();
+const activeStreams = new Map<string, { controller: AbortController; sessionIds: string[]; endedAt?: number }>();
+
+/**
+ * The time a finished turn's end event carries. Kept on the turn's stream too, so its window ends
+ * at the same instant and a reply stamped with it falls inside that window.
+ */
+function stampTurnEnd(requestId: string): number {
+  const endedAt = Date.now();
+  const stream = activeStreams.get(requestId);
+  if (stream) stream.endedAt = endedAt;
+  return endedAt;
+}
 
 const CONTINUE_UNSUPPORTED_MESSAGE =
   'Continue needs the local assistant stack, and is not available in channels.';
@@ -216,7 +261,7 @@ async function gateResolvedInference(
   sender: WebContents,
   requestId: string,
   sessionId: string | undefined
-): Promise<{ blocked: HermesChatStartResult | null; restarted: boolean }> {
+): Promise<{ blocked: HermesChatStartResult | null; restarted: boolean; resolved?: ResolvedSessionInference }> {
   const gateStartedAt = Date.now();
   let restarted = false;
   let sharedWasUnavailable = false;
@@ -241,7 +286,7 @@ async function gateResolvedInference(
     sharedUnavailable: sharedWasUnavailable,
     blocked: !ready.ok,
   });
-  if (ready.ok === true) return { blocked: null, restarted };
+  if (ready.ok === true) return { blocked: null, restarted, resolved: ready.resolved };
   return {
     restarted,
     blocked: {
@@ -255,6 +300,30 @@ async function gateResolvedInference(
     },
   };
 }
+
+/** Held turns' background tasks, so quitting can wait for their messages to be kept. */
+const heldTurnTasks = new Map<string, Promise<void>>();
+
+/** **Run now** on a held turn: it starts over its server's limit. */
+export function runHermesHeldTurnNow(payload: { requestId: string }): { success: boolean } {
+  return { success: runHeldTurnNow(payload.requestId) };
+}
+
+/**
+ * Quitting with held turns (Phase 1a step 6): each is withdrawn, so its message is kept as an
+ * unsent one and its provenance window closes, before the stack stops. Phase 1 keeps them instead.
+ */
+export async function withdrawHeldTurnsForQuit(): Promise<number> {
+  const ids = heldTurnRequestIds();
+  for (const requestId of ids) {
+    const stream = activeStreams.get(requestId);
+    stream?.controller.abort('quit');
+    activeStreams.delete(requestId);
+  }
+  await Promise.all(ids.map((id) => heldTurnTasks.get(id)).filter(Boolean));
+  return ids.length;
+}
+setHeldTurnQuitWithdraw(withdrawHeldTurnsForQuit);
 
 /** Hermes events the turn log tracks. Their payloads are never logged. */
 const TURN_LOGGED_EVENTS = [
@@ -280,6 +349,10 @@ const TURN_QUIET_CHECK_FAILURES = 2;
 
 /** `prompt.submit` with `context` while a turn runs (stack v0.3.3 client-context overlay). */
 const CONTEXT_TURN_RUNNING = 4082;
+/** The stack refused client context as invalid (CR 0010 R1). */
+const CONTEXT_INVALID = 4080;
+/** The stack's cap on client context (client_context.py MAX_CONTEXT_CHARS). */
+const ROOM_CONTEXT_MAX_CHARS = 16_000;
 
 async function runJsonRpcTurn(
   sender: WebContents,
@@ -297,8 +370,16 @@ async function runJsonRpcTurn(
     truncate?: { rowId: number; confirmEmpty: boolean };
     /** Continue: the prompt is Boundary's instruction, stored hidden. */
     displayKind?: 'hidden';
+    /**
+     * Sent from the desktop's queue (run-control spec 2.4). If the session is still busy,
+     * Hermes holds the prompt and runs it once the current turn releases; until this turn's
+     * own `message.start`, the events on the session belong to the turn ahead of it.
+     */
+    queued?: boolean;
     /** Where to record who spoke; a room's stored id rather than the runtime id. */
     speakerKey?: string;
+    /** The writing voice the speaker writes in, for the speaker event (a room member). */
+    speakerVoiceName?: string | null;
     /**
      * Turn context for the model (a room's header), sent as `prompt.submit`'s `context`.
      * Put above the message text only when Hermes refuses it because a turn is running (4082).
@@ -307,7 +388,7 @@ async function runJsonRpcTurn(
     /** What the turn's debug-log lines say about it. */
     log?: TurnLogFields;
   }
-): Promise<{ assistantText: string; noReply?: HermesNoReply }> {
+): Promise<{ assistantText: string; noReply?: HermesNoReply; submitted: boolean }> {
   const gateway = getHermesGatewaySession();
   await gateway.ensureConnected();
   // A turn stopped just before this one may still be winding down on Hermes; a submit
@@ -337,10 +418,13 @@ async function runJsonRpcTurn(
   let lastEvent: string | null = null;
   let lastEventAt: number | null = null;
   let hermesErrors = 0;
+  const cadence = createStreamCadence();
   // Hermes's recovery ladder: which rung, and when it tries the provider again.
   let recovery: { cycle: number; total: number; until: number; provider?: string } | null = null;
   const emitEnd = opts?.emitEnd !== false;
   const profile = opts?.profile ?? null;
+  // Cleared by this turn's message.start, or when Hermes says it ran the prompt right away.
+  let waitingForDrain = opts?.queued === true;
   const agentSlug = opts?.agentSlug ?? null;
 
   try {
@@ -384,6 +468,7 @@ async function runJsonRpcTurn(
     if (finishReason !== 'stop') sendPhase(sender, { requestId, sessionId, phase: 'done' });
     const ttftSec =
       firstEventAt != null ? (firstEventAt - startedAt) / 1000 : null;
+    const applied = getLastAppliedLlm();
     turnLog.end({
       ...turnOutcome(finishReason, complete, signal),
       firstEventAt,
@@ -392,6 +477,9 @@ async function runJsonRpcTurn(
       lastEvent,
       lastEventMsAgo: lastEventAt != null ? Date.now() - lastEventAt : null,
       hermesErrors,
+      cadence: cadence.summary(),
+      inferenceSlot: applied?.slot ?? null,
+      ...(applied ? { routed: Boolean(applied.routed) } : {}),
     });
     sendTurnStats(sender, {
       requestId,
@@ -408,6 +496,7 @@ async function runJsonRpcTurn(
         sessionId,
         finishReason,
         ...(noReply ? { noReply } : {}),
+        ...(finishReason === 'stop' ? { endedAt: stampTurnEnd(requestId) } : {}),
       });
     }
     resolveTurn?.();
@@ -461,7 +550,7 @@ async function runJsonRpcTurn(
   // would never fire for a signal that has already aborted.
   if (signal.aborted) {
     endOnce('cancel');
-    return { assistantText, ...(noReply ? { noReply } : {}) };
+    return { assistantText, ...(noReply ? { noReply } : {}), submitted: false };
   }
 
   // Which Hermes event a turn saw last, so a stuck turn's log says where it stopped.
@@ -482,6 +571,7 @@ async function runJsonRpcTurn(
       requestId,
       sessionId,
       agentSlug,
+      ...(opts?.speakerVoiceName ? { writingVoiceName: opts.speakerVoiceName } : {}),
     });
   }
 
@@ -493,18 +583,31 @@ async function runJsonRpcTurn(
     maxTurns: maxTurns ?? undefined,
   });
 
+  const unsubStart = gateway.on('message.start', (event) => {
+    if (!waitingForDrain || (event.session_id && event.session_id !== sessionId)) return;
+    waitingForDrain = false;
+    turnLog.note('queued turn started', {});
+  });
+
+  const takeText = (delta: string): void => {
+    recovery = null;
+    markFirstEvent();
+    assistantText += delta;
+    cadence.add(delta.length, Date.now());
+    visibleTokens += delta.length > 0 ? Math.max(1, Math.ceil(delta.length / 4)) : 0;
+    send(sender, 'hermes-chat:chunk', { requestId, delta, agentSlug });
+  };
+
   const unsubDelta = gateway.on('message.delta', (event) => {
+    // A queued send: these belong to the turn still running ahead of it.
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
     const payload = event.payload as { text?: string } | undefined;
     const delta = payload?.text ?? '';
     if (!delta) return;
-    recovery = null;
-    markFirstEvent();
-    assistantText += delta;
-    visibleTokens += delta.length > 0 ? Math.max(1, Math.ceil(delta.length / 4)) : 0;
-    send(sender, 'hermes-chat:chunk', { requestId, delta, agentSlug });
+    takeText(delta);
     sendPhase(sender, {
       requestId,
       sessionId,
@@ -517,7 +620,11 @@ async function runJsonRpcTurn(
   });
 
   const unsubComplete = gateway.on('message.complete', (event) => {
+    if (waitingForDrain) return;
     if (event.session_id && event.session_id !== sessionId) return;
+    const complete = event.payload as MessageCompletePayload | undefined;
+    const finalText = unstreamedFinalText(complete);
+    if (visibleTokens === 0 && finalText && !ended && !signal.aborted) takeText(finalText);
     sendPhase(sender, {
       requestId,
       sessionId,
@@ -527,10 +634,11 @@ async function runJsonRpcTurn(
       maxTurns: maxTurns ?? undefined,
       usage: latestUsage,
     });
-    endOnce('stop', event.payload as MessageCompletePayload | undefined);
+    endOnce('stop', complete);
   });
 
   const unsubUsage = gateway.on('session.usage', (event) => {
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
@@ -552,6 +660,7 @@ async function runJsonRpcTurn(
   });
 
   const unsubStatus = gateway.on('status.update', (event) => {
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
@@ -580,6 +689,7 @@ async function runJsonRpcTurn(
 
   // The model is answering after a wait; its thinking comes before any text.
   const unsubReasoning = gateway.on('reasoning.delta', (event) => {
+    if (waitingForDrain) return;
     if (event.session_id && event.session_id !== sessionId) return;
     recovery = null;
   });
@@ -592,6 +702,7 @@ async function runJsonRpcTurn(
   });
 
   const unsubToolStart = gateway.on('tool.start', (event) => {
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
@@ -631,6 +742,7 @@ async function runJsonRpcTurn(
   });
 
   const unsubToolGenerating = gateway.on('tool.generating', (event) => {
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
@@ -647,6 +759,7 @@ async function runJsonRpcTurn(
   });
 
   const unsubToolComplete = gateway.on('tool.complete', (event) => {
+    if (waitingForDrain) return;
     if (signal.aborted || ended) return;
     if (event.session_id && event.session_id !== sessionId) return;
     armQuiet();
@@ -687,6 +800,10 @@ async function runJsonRpcTurn(
       projectId: conversationProjectId(sessionId),
     });
     if (access) send(sender, 'coding-folders:access-request', access);
+    // The agent asked for a Bitwarden login: show the request on Bitwarden's page (decision 30).
+    if (name === BITWARDEN_REQUEST_TOOL) {
+      void import('../../addons/bitwardenRuntime').then((m): void => m.noteChatToolCall(name)).catch((): void => undefined);
+    }
   });
 
   const onAbort = () => {
@@ -721,19 +838,24 @@ async function runJsonRpcTurn(
     const submitOpts = {
       truncate: opts?.truncate,
       ...(opts?.displayKind ? { displayKind: opts.displayKind } : {}),
+      ...(opts?.queued ? { queued: true } : {}),
     };
     const context = opts?.context;
+    let submitted: { status: string | null };
     if (context) {
       try {
-        await gateway.submitPrompt(sessionId, userText, { ...submitOpts, context });
+        submitted = await gateway.submitPrompt(sessionId, userText, { ...submitOpts, context });
       } catch (err) {
         // 4082: a turn is still running, and context can't be queued. Send it inline instead.
         if ((err as { code?: unknown })?.code !== CONTEXT_TURN_RUNNING) throw err;
-        await gateway.submitPrompt(sessionId, `${context}\n\n${userText}`, submitOpts);
+        submitted = await gateway.submitPrompt(sessionId, `${context}\n\n${userText}`, submitOpts);
       }
     } else {
-      await gateway.submitPrompt(sessionId, userText, submitOpts);
+      submitted = await gateway.submitPrompt(sessionId, userText, submitOpts);
     }
+    // Ran at once (the session was idle): nothing ahead of this turn to wait out.
+    if (waitingForDrain && submitted.status !== 'queued') waitingForDrain = false;
+    if (opts?.queued) turnLog.note('queued submit', { status: submitted.status });
     if (!ended && !signal.aborted) {
       await turnDone;
     }
@@ -745,6 +867,7 @@ async function runJsonRpcTurn(
     clearInterval(preparingTicker);
     signal.removeEventListener('abort', onAbort);
     for (const unsub of unsubSeen) unsub();
+    unsubStart();
     unsubDelta();
     unsubComplete();
     unsubUsage();
@@ -760,7 +883,20 @@ async function runJsonRpcTurn(
     appendSessionSpeaker(opts?.speakerKey ?? sessionId, agentSlug);
   }
 
-  return { assistantText, ...(noReply ? { noReply } : {}) };
+  return { assistantText, ...(noReply ? { noReply } : {}), submitted: true };
+}
+
+/**
+ * The reply Hermes put only in `message.complete`: a completed turn's `text` when nothing streamed
+ * it. A tool-loop guardrail halt (`agent/turn_tool_round.py`) writes its explanation as the final
+ * response and streams it only while the stream isn't held, and `tui_gateway/prompt_turn.py` sends
+ * `final_response` as the completion's `text`. Error turns keep their own line (`noReplyFor`), and
+ * a reply already shown as interim commentary (`response_previewed`) isn't repeated.
+ */
+export function unstreamedFinalText(complete: MessageCompletePayload | undefined): string | null {
+  if (!complete || complete.status !== 'complete' || complete.response_previewed) return null;
+  const text = typeof complete.text === 'string' ? complete.text : '';
+  return text.trim() ? text : null;
 }
 
 /** Why a turn that streamed no text ended, from how it ended and Hermes's completion. */
@@ -816,8 +952,12 @@ async function runChannelWakeTurns(
   wakeSlugs: string[],
   /** The room's stored id: posts and speakers are kept there, not under the runtime id. */
   roomKey: string = sessionId,
-  channelSlug: string = 'room'
-): Promise<void> {
+  channelSlug: string = 'room',
+  /** The message's voice chip and the room's kept voice (ADR 0056 §7). */
+  voices: { chipVoiceId: string | null; keptVoiceId: string | null } = { chipVoiceId: null, keptVoiceId: null }
+): Promise<Array<string | null>> {
+  /** Each submitted member's writing voice, in order, for the reply notes. */
+  const voiceNames: Array<string | null> = [];
   const agents = listStoredAgents();
   const members = agents.filter((a) => memberSlugs.includes(a.slug));
   const backlog = consumeUnconsumedPosted(roomKey);
@@ -844,13 +984,24 @@ async function runChannelWakeTurns(
     const soul = readAgentSoul(slug);
     const soulHash = soul ? createHash('sha256').update(soul).digest('hex').slice(0, 16) : null;
     const soulIsNew = soulHash !== null && getRoomSoulSent(roomKey, slug) !== soulHash;
-    const context = [
+    const base = [
       header,
       ...(soul ? [buildMemberSoulContext(speaker, soulIsNew ? soul : null)] : []),
       ...(getOrchestratorRecord()?.slug === slug ? [buildOrchestratorRoomNote(speaker)] : []),
     ].join('\n\n');
+    // The member's voice gets what is left under the stack's cap (16,000, client_context.py).
+    const voice = await writingVoiceRoomPart({
+      roomKey,
+      memberSlug: slug,
+      memberName: display,
+      chipVoiceId: voices.chipVoiceId,
+      keptVoiceId: voices.keptVoiceId,
+      budget: ROOM_CONTEXT_MAX_CHARS - base.length - 2,
+    });
+    const context = voice.text ? `${base}\n\n${voice.text}` : base;
+    voiceNames.push(voice.voiceName);
 
-    const { assistantText } = await runJsonRpcTurn(
+    const { assistantText, submitted } = await runJsonRpcTurn(
       sender,
       requestId,
       sessionId,
@@ -865,6 +1016,7 @@ async function runChannelWakeTurns(
         emitEnd: false,
         // Chunks carry agentSlug; the renderer starts a new speaker's section from it.
         speakerKey: roomKey,
+        speakerVoiceName: voice.voiceName,
         context,
         log: {
           kind: 'channel',
@@ -872,10 +1024,13 @@ async function runChannelWakeTurns(
           agent: slug,
           profile: null,
           speaker: slug,
+          ...(voice.log ? { voice: voice.log } : {}),
         },
       }
     );
-    if (soulIsNew && soulHash) setRoomSoulSent(roomKey, slug, soulHash);
+    // Only a turn that reached Hermes saw the soul and guide; a stop during set-up didn't.
+    if (submitted && soulIsNew && soulHash) setRoomSoulSent(roomKey, slug, soulHash);
+    if (submitted && voice.sentHash) setRoomVoiceSent(roomKey, slug, voice.sentHash);
 
     lastSpeaker = speaker;
     // Chain-wake: parse reply for other members (not the speaker).
@@ -885,7 +1040,8 @@ async function runChannelWakeTurns(
     queue.push(...next);
   }
 
-  send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'stop' });
+  send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'stop', endedAt: stampTurnEnd(requestId) });
+  return voiceNames;
 }
 
 /**
@@ -1035,7 +1191,13 @@ async function listHermesChatThreadsOnce(): Promise<HermesChatListThreadsResult>
     const merged = performance.now();
     const storedIdOf = (id: string) => gateway.storedSessionId(id);
     const sessions = withFailedChats(
-      withUnlistedNewChats(mergeHermesThreadLists(gatewaySessions, webuiSessions), storedIdOf),
+      withUnlistedNewChats(
+        // Writing voice calibrations run on hidden sessions; WebUI's list may not honour that.
+        mergeHermesThreadLists(gatewaySessions, webuiSessions).filter(
+          (t) => !isWritingVoiceCalibrationSession(storedIdOf(t.id)) && !isWritingVoiceCalibrationSession(t.id)
+        ),
+        storedIdOf
+      ),
       storedIdOf
     );
     const onlyWebui = webuiOnlySessionIds(gatewaySessions, webuiSessions);
@@ -1345,7 +1507,13 @@ function moveToResumedSession(fromId: string, toId: string, agentSlug: string): 
  * The live session after a restart, which ends every session Hermes holds. Hermes stores a session
  * on its first prompt, so one that has had no turn can't be resumed and starts again.
  */
-async function reviveSession(sessionId: string, agentSlug: string, profile: string | null): Promise<string> {
+async function reviveSession(
+  sessionId: string,
+  agentSlug: string,
+  profile: string | null,
+  /** Session context lives on Hermes's live session, so a restart loses it (ADR 0056 §7). */
+  voice: { context?: string | null } = {}
+): Promise<string> {
   const gateway = getHermesGatewaySession();
   await gateway.ensureConnected();
   let revived: string;
@@ -1353,11 +1521,12 @@ async function reviveSession(sessionId: string, agentSlug: string, profile: stri
     const resumed = await gateway.resumeSession(gateway.storedSessionId(sessionId), {
       ...resumeOptsFor(sessionId)[0],
       omitMessages: true,
+      ...voice,
     });
     revived = resumed.sessionId;
   } catch (err) {
     if (resolveChannel(sessionId) || !isSessionNotFound(err)) throw err;
-    revived = await gateway.createSessionWithSeed(newSessionOpts(agentSlug, profile, sessionId));
+    revived = await gateway.createSessionWithSeed({ ...newSessionOpts(agentSlug, profile, sessionId), ...voice });
     const projectId = getSessionProjectId(sessionId);
     if (projectId !== undefined) setConversationProjectId([revived], projectId);
     claimNewSession(agentSlug, revived, sessionId);
@@ -1441,7 +1610,6 @@ export async function getHermesChatHistory(
   return branch ? { ...result, branch } : result;
 }
 
-/** Resume options for a session: a DM's history budget (CR 0002 R1), else nothing. */
 /**
  * Options for resuming a session: a DM's history budget, and the agent profile that stores it
  * (Hermes looks only in the shared db otherwise, so an agent's session would not be found).
@@ -1556,6 +1724,17 @@ function lastUserText(payload: HermesChatStartPayload): string {
   return [...payload.messages].reverse().find((m) => m.role === 'user')?.content?.trim() ?? '';
 }
 
+/** The voice chip a failed send was kept with, found by the chat's id and the message text. */
+function failedSendVoice(payload: HermesChatStartPayload, sessionId: string | undefined): string | null {
+  const text = lastUserText(payload);
+  if (!text) return null;
+  for (const id of new Set([payload.sessionId, sessionId])) {
+    const voiceId = id ? getFailedTurnWritingVoice(id, text) : null;
+    if (voiceId) return voiceId;
+  }
+  return null;
+}
+
 /**
  * A send failed and Hermes holds nothing for it: keep the message and error in the app's local
  * store, so the chat stays listed and reopens as it looked. Returns the chat's id, a new local
@@ -1597,6 +1776,7 @@ async function keepFailedSend(
       if (payload.inference) await setSessionInferenceOverride({ sessionId: id, ...payload.inference });
     }
     const known = localThreads.get(id)?.title;
+    const writingVoiceId = payload.writingVoiceId ?? (retrying ? failedSendVoice(payload, sessionId) : null);
     addFailedTurn(
       id,
       {
@@ -1604,7 +1784,12 @@ async function keepFailedSend(
         agentSlug,
         ...(!sessionId || dmPlaceholderIds.has(id) ? { local: true as const } : {}),
       },
-      { text, ...failure, at: new Date().toISOString() }
+      {
+        text,
+        ...failure,
+        at: new Date().toISOString(),
+        ...(writingVoiceId ? { writingVoiceId } : {}),
+      }
     );
     broadcastSessionsChanged();
     return id;
@@ -1651,6 +1836,8 @@ async function startChatTurn(
 ): Promise<HermesChatStartResult> {
   const requestId = payload.requestId ?? randomUUID();
   const key = requestId;
+  // When the send reached main: it bounds the pool turn before it, even if it never gets a reply.
+  const sentAt = Date.now();
   const toolsEnabled = payload.toolsEnabled !== false;
 
   const existing = activeStreams.get(key);
@@ -1660,7 +1847,10 @@ async function startChatTurn(
   }
 
   const controller = new AbortController();
-  const stream = { controller, sessionIds: payload.sessionId ? [payload.sessionId] : [] };
+  const stream: { controller: AbortController; sessionIds: string[]; endedAt?: number } = {
+    controller,
+    sessionIds: payload.sessionId ? [payload.sessionId] : [],
+  };
   activeStreams.set(key, stream);
 
   // Continue sends Boundary's hidden instruction rather than the user's last turn.
@@ -1701,13 +1891,39 @@ async function startChatTurn(
     };
   }
 
+  // The id the turn's window was opened under, once it is.
+  let windowSessionId: string | null = null;
+  // A send that returns before its turn runs ends its window at its start, then tells the chip.
+  const endWindowUnrun = (): void => {
+    if (!windowSessionId) return;
+    const ids = [...new Set([payload.sessionId, sessionId, windowSessionId].filter((id): id is string => Boolean(id)))];
+    noteTurnEnded(ids, sentAt, sentAt);
+    broadcastInferenceNoted(ids);
+  };
+
   try {
     const gateway = getHermesGatewaySession();
     await gateway.ensureConnected();
+    // The agent's writing voices as session context (ADR 0056 §7). Rooms share one session
+    // across agents, so they get none here; null clears what an earlier send set.
+    // A chat's kept voice replaces the agent's (§6); a new chat brings it in the payload.
+    // Kept voices live under the stored id, which outlasts a stack restart; one still under
+    // a runtime id moves there first.
+    let keptVoiceId: string | null = null;
+    if (!channelEarly && sessionId) {
+      const storedId = gateway.storedSessionId(sessionId);
+      moveSessionWritingVoice(sessionId, storedId);
+      keptVoiceId = getSessionWritingVoice(storedId);
+    } else if (!channelEarly) {
+      keptVoiceId = payload.keptWritingVoiceId ?? null;
+    }
+    const sessionVoice = channelEarly ? null : await resolveSessionWritingVoice(agentSlug, { keptVoiceId });
+    const voice = sessionVoice ? { context: sessionVoice.text } : {};
 
     if (!sessionId) {
-      sessionId = await gateway.createSessionWithSeed(newSessionOpts(agentSlug, profile));
+      sessionId = await gateway.createSessionWithSeed({ ...newSessionOpts(agentSlug, profile), ...voice });
       setSessionAgentSlug(sessionId, agentSlug);
+      if (keptVoiceId) await setChatWritingVoice(gateway.storedSessionId(sessionId), keptVoiceId);
       // An empty composer's first send: the chat starts in the project it was sent from.
       setConversationProjectId(
         [sessionId],
@@ -1729,9 +1945,10 @@ async function startChatTurn(
       const previousId = sessionId;
       dmPlaceholderIds.delete(sessionId);
       localThreads.delete(sessionId);
-      sessionId = await gateway.createSessionWithSeed(
-        newSessionOpts(agentSlug, profile, previousId)
-      );
+      sessionId = await gateway.createSessionWithSeed({
+        ...newSessionOpts(agentSlug, profile, previousId),
+        ...voice,
+      });
       setSessionAgentSlug(sessionId, agentSlug);
       migrateSessionInference(previousId, sessionId);
       const kind = claimNewSession(agentSlug, sessionId, previousId);
@@ -1753,9 +1970,13 @@ async function startChatTurn(
       try {
         // Hermes resumes by stored id and answers "not found" for a runtime id, even a live one.
         // The send needs only the live session, not the transcript resume would return.
-        const resumed = await gateway.resumeSession(gateway.storedSessionId(sessionId), {
-          ...resumeOptsFor(sessionId)[0],
-          omitMessages: true,
+        const resumeOpts = { ...resumeOptsFor(sessionId)[0], omitMessages: true };
+        const storedId = gateway.storedSessionId(sessionId);
+        const resumed = await gateway.resumeSession(storedId, { ...resumeOpts, ...voice }).catch((err: unknown) => {
+          // 4080: the stack refused the context. A voice must never stop a send.
+          if ((err as { code?: unknown })?.code !== CONTEXT_INVALID || !('context' in voice)) throw err;
+          persistDebugLog('writing-voices', 'context refused', { agentSlug });
+          return gateway.resumeSession(storedId, resumeOpts);
         });
         resumedOk = true;
         if (resumed.sessionId !== sessionId) {
@@ -1805,6 +2026,7 @@ async function startChatTurn(
             title,
             messages: prior,
             profile,
+            ...voice,
           });
           webuiOnlyThreadIds.delete(sessionId);
           localThreads.delete(sessionId);
@@ -1830,9 +2052,10 @@ async function startChatTurn(
           const previousId = sessionId;
           localThreads.delete(previousId);
           dropUnlistedChat(previousId);
-          sessionId = await gateway.createSessionWithSeed(
-            newSessionOpts(agentSlug, profile, previousId)
-          );
+          sessionId = await gateway.createSessionWithSeed({
+            ...newSessionOpts(agentSlug, profile, previousId),
+            ...voice,
+          });
           setSessionAgentSlug(sessionId, agentSlug);
           migrateSessionInference(previousId, sessionId);
           const kind = claimNewSession(agentSlug, sessionId, previousId);
@@ -1875,20 +2098,28 @@ async function startChatTurn(
         truncate = { rowId: plan.rowId, confirmEmpty: plan.confirmEmpty };
       }
     }
+    // Retry (or a rewind main sends as a plain send) of a send Hermes never received.
+    const retryingFailedSend = !truncate && Boolean(payload.retry || payload.rewind);
 
-    const { blocked, restarted } = await gateResolvedInference(sender, requestId, sessionId);
+    if (sessionId) {
+      windowSessionId = sessionId;
+      noteTurnStarted(sessionId, sentAt);
+    }
+    const { blocked, restarted, resolved } = await gateResolvedInference(sender, requestId, sessionId);
     if (blocked) {
       activeStreams.delete(key);
+      endWindowUnrun();
       return blocked;
     }
     // Stop can land during the restart above, which runs before the turn exists.
     if (controller.signal.aborted) {
       activeStreams.delete(key);
+      endWindowUnrun();
       sendPhase(sender, { requestId, sessionId, phase: 'done' });
       send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'cancel' });
       return { success: true, requestId, sessionId };
     }
-    if (restarted && sessionId) sessionId = await reviveSession(sessionId, agentSlug, profile);
+    if (restarted && sessionId) sessionId = await reviveSession(sessionId, agentSlug, profile, voice);
 
     // A turn runs in its own project's folder.
     await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
@@ -1896,10 +2127,59 @@ async function startChatTurn(
     stream.sessionIds = turnSessionIds.filter((id): id is string => Boolean(id));
     const turnStartedAt = Date.now();
     let replied = false;
+    let roomVoiceNotes: { startedAt: number; names: Array<string | null> } | null = null;
+    // A voice chip covers this message's whole reply as turn context (§6–§7); rooms are phase 5.
+    // Retry and Edit cut back to a message and keep the chip it was sent with.
+    // A failed send Hermes never held keeps its chip on Boundary's record of it.
+    const chipVoiceId =
+      payload.writingVoiceId ??
+      (truncate && sessionId
+        ? getPromptWritingVoice(gateway.storedSessionId(sessionId), truncate.rowId)
+        : retryingFailedSend
+          ? failedSendVoice(payload, sessionId)
+          : null);
+    const messageVoice =
+      !isChannel && !continuing && chipVoiceId ? await writingVoiceTurnContext(chipVoiceId) : null;
+    const writingVoiceName = messageVoice?.voiceName ?? sessionVoice?.voiceName ?? undefined;
+    const turnVoiceLog = messageVoice?.log ?? sessionVoice?.log ?? null;
     beginRunningTurn(requestId, turnSessionIds, isChannel ? null : agentSlug);
+    // Set once the turn waits for its local model server and is stopped there (Phase 1a).
+    let withdrawn = false;
+    let slot: TurnSlot | null = null;
 
-    void (async () => {
+    const task = (async () => {
       try {
+        const server = await localTurnServer(resolved);
+        if (server) {
+          slot = await requestTurnSlot({
+            requestId,
+            sessionIds: stream.sessionIds,
+            server: server.server,
+            limit: server.limit,
+            signal: controller.signal,
+            onHeld: (held) => {
+              heldTurnTasks.set(requestId, task);
+              setRunningTurnAdmission(requestId, 'held');
+              sendPhase(sender, { requestId, sessionId, phase: 'held', held });
+            },
+          });
+          if (slot.kind === 'withdrawn') {
+            withdrawn = true;
+            // Nothing reached Hermes: the message stays as an unsent one, with Retry and Edit.
+            if (isChannel && channel) {
+              appendChannelPost(resolveChannel(sessionId)?.sessionId ?? channel.sessionId, {
+                content: userText,
+                delivery: 'posted',
+              });
+            } else {
+              await keepFailedSend(payload, sessionId, { reason: 'withdrawn' });
+            }
+            sendPhase(sender, { requestId, sessionId, phase: 'done' });
+            send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'cancel' });
+            return;
+          }
+          setRunningTurnAdmission(requestId, 'running');
+        }
         if (isChannel && channel) {
           const roomKey = resolveChannel(sessionId)?.sessionId ?? channel.sessionId;
           const wakePost = appendChannelPost(roomKey, {
@@ -1907,7 +2187,10 @@ async function startChatTurn(
             delivery: 'woke',
           });
           const speakerStart = getSessionSpeakers(roomKey).length;
-          await runChannelWakeTurns(
+          // A room's kept voice lives under its stored id (ADR 0056 §6).
+          moveSessionWritingVoice(getHermesGatewaySession().storedSessionId(sessionId!), roomKey);
+          const wakeStartedAt = Date.now();
+          const voiceNames = await runChannelWakeTurns(
             sender,
             requestId,
             sessionId!,
@@ -1917,8 +2200,13 @@ async function startChatTurn(
             channel.memberSlugs,
             wakeSlugs,
             roomKey,
-            channel.slug
+            channel.slug,
+            {
+              chipVoiceId: continuing ? null : (payload.writingVoiceId ?? null),
+              keptVoiceId: getSessionWritingVoice(roomKey),
+            }
           );
+          roomVoiceNotes = { startedAt: wakeStartedAt, names: voiceNames };
           setChannelPostAssistantCount(
             roomKey,
             wakePost.id,
@@ -1941,6 +2229,8 @@ async function startChatTurn(
             emitEnd: true,
             truncate,
             ...(continuing ? { displayKind: 'hidden' as const } : {}),
+            ...(payload.queued === true && !continuing && !truncate ? { queued: true } : {}),
+            ...(messageVoice ? { context: messageVoice.text } : {}),
             log: {
               kind: conversationKindFor(sessionId!, agentSlug),
               trigger: 'sent',
@@ -1948,6 +2238,8 @@ async function startChatTurn(
               profile,
               continued: continuing,
               rewind: Boolean(truncate),
+              ...(payload.via ? { via: payload.via } : {}),
+              ...(turnVoiceLog ? { voice: turnVoiceLog } : {}),
             },
           }
         );
@@ -1971,14 +2263,42 @@ async function startChatTurn(
         send(sender, 'hermes-chat:error', { requestId, error });
       } finally {
         activeStreams.delete(key);
+        heldTurnTasks.delete(requestId);
+        if (slot?.kind === 'admitted') slot.release();
         endRunningTurn(requestId);
-        if (sessionId) noteFallbackServed(sessionId, turnStartedAt, replied);
+        if (withdrawn) {
+          // No turn ran, so its window ends at its start, as a refused send's does.
+          endWindowUnrun();
+        } else {
+          if (sessionId) noteFallbackServed(sessionId, turnStartedAt, replied, windowSessionId ? sentAt : null);
+          if (windowSessionId) {
+            const ids = [...new Set([sessionId, windowSessionId].filter((id): id is string => Boolean(id)))];
+            noteTurnEnded(ids, sentAt, stream.endedAt ?? Date.now());
+          }
+          // After the record is written and the window ended, so a refresh it prompts finds both.
+          if (sessionId) broadcastInferenceNoted(stream.sessionIds);
+          // After the turn has ended, so a voiced reply never holds up the next send.
+          if (sessionId && replied && writingVoiceName) {
+            void recordReplyWritingVoice(
+              sessionId,
+              writingVoiceName,
+              turnStartedAt,
+              messageVoice ? chipVoiceId : null
+            ).catch((): boolean => false);
+          }
+          if (sessionId && roomVoiceNotes?.names.some(Boolean)) {
+            void recordRoomReplyWritingVoices(sessionId, roomVoiceNotes.startedAt, roomVoiceNotes.names).catch(
+              (): number => 0
+            );
+          }
+        }
       }
     })();
 
-    return { success: true, requestId, sessionId };
+    return { success: true, requestId, sessionId, ...(writingVoiceName ? { writingVoiceName } : {}) };
   } catch (err) {
     activeStreams.delete(key);
+    endWindowUnrun();
     return {
       success: false,
       requestId,
@@ -1993,6 +2313,11 @@ async function startChatTurn(
 
 /** Stop a turn by its request id, or every turn of a chat when `sessionId` is given. */
 export function handleHermesChatCancel(payload: HermesChatCancelPayload): { success: boolean } {
+  persistDebugLog('chat-turn', 'turn cancel', {
+    requestId: payload.requestId,
+    reason: payload.reason ?? 'stopped',
+    ...(payload.via ? { via: payload.via } : {}),
+  });
   for (const [key, stream] of activeStreams) {
     const sessionId = payload.sessionId;
     if (key !== payload.requestId && !(sessionId && stream.sessionIds.includes(sessionId))) continue;
@@ -2001,4 +2326,23 @@ export function handleHermesChatCancel(payload: HermesChatCancelPayload): { succ
     activeStreams.delete(key);
   }
   return { success: true };
+}
+
+/**
+ * Empties every module-level map, set and cache above, as a fresh import would leave them.
+ * Running turns are dropped without aborting them, the same as discarding the module.
+ */
+export function resetHermesChatSessionsForTests(): void {
+  activeStreams.clear();
+  heldTurnTasks.clear();
+  localThreads.clear();
+  dmPlaceholderIds.clear();
+  webuiOnlyThreadIds.clear();
+  unlistedNewChats.clear();
+  lastGatewaySessions = null;
+  webuiCache = null;
+  webuiChanged = false;
+  webuiFetch = null;
+  listing = null;
+  queuedListing = null;
 }

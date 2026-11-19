@@ -181,7 +181,7 @@ export function InviteSheet({
       title={`Invite to ${circle.name}`}
       error={action.error}
       actions={
-        <Button variant="outline" onClick={close}>
+        <Button variant="secondary" onClick={close}>
           Done
         </Button>
       }
@@ -212,7 +212,7 @@ export function InviteSheet({
               placeholder="Optional. Only you see this."
               onChange={(event) => setLabel(event.target.value)}
             />
-            <CircleButton type="submit" variant="default" disabled={action.busy}>
+            <CircleButton type="submit" variant="primary" disabled={action.busy}>
               Create code
             </CircleButton>
           </div>
@@ -226,7 +226,7 @@ export function InviteSheet({
               </code>
               <CircleButton
                 size="row"
-                variant="default"
+                variant="primary"
                 aria-label="Copy invite code"
                 onClick={() => void navigator.clipboard.writeText(shownCode.code).then(() => setCopied(true))}
               >

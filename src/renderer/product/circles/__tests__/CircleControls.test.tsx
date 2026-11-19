@@ -1,18 +1,16 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import { Avatar, CircleButton, initials, keyHue } from '../CircleControls';
 
-afterEach(() => cleanup());
-
 describe('CircleButton', () => {
-  it.each(['page', 'row'] as const)('keeps a solid button’s text colour at size %s', (size) => {
+  it.each(['page', 'row'] as const)('renders a solid button with the solid look at size %s', (size) => {
     render(
-      <CircleButton variant="default" size={size}>
+      <CircleButton variant="primary" size={size}>
         Invite someone
       </CircleButton>
     );
-    expect(screen.getByRole('button', { name: 'Invite someone' }).className).toContain('text-solid-fg');
+    expect(screen.getByRole('button', { name: 'Invite someone' }).className).toContain('wb-btn-solid');
   });
 });
 

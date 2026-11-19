@@ -28,7 +28,7 @@ export const ChoiceRow: React.FC<ChoiceRowProps> = ({
   children,
 }) => {
   const frame = cn(
-    'w-full rounded-lg border bg-surface-1 px-4 py-3 text-left transition-colors duration-(--dur-fast)',
+    'w-full rounded-lg border bg-surface-1 px-4 py-3 text-left control-transition',
     recommended ? 'border-brand/55' : 'border-line'
   );
   const header = (

@@ -3,10 +3,11 @@ import type { ServerEntry, ServerPath } from './serverPath';
 import { writtenPathsOf } from '../../../shared/hermesToolPaths';
 import { filedTaskOf } from '../../../shared/hermesKanbanFiled';
 import type { KanbanFiledTask } from '../../../shared/types/hermesKanban';
-import type { HermesNoReply, SessionInferenceOverride } from '../../../shared/types/hermesChat';
+import type { HermesNoReply, HermesRunControl, SessionInferenceOverride } from '../../../shared/types/hermesChat';
 import { ownRunningTurn, releaseRunningTurn } from './runningTurns';
 import { appendSpeakerChunk, joinSpeakerSegments, type SpeakerSegment } from './speakerSegments';
 import type { HermesMessageCustom } from './messageCustom';
+import { markReplyInterrupted, takeAbortReason } from './runInterrupts';
 
 export const DIVERGED_MESSAGE =
   'This is an earlier version, and Hermes only keeps the latest one. Switch back with ‹ › to continue.';
@@ -18,6 +19,12 @@ export const CONTINUE_LATEST_ONLY_MESSAGE = 'Only the latest reply can be contin
  * parent is that reply, and the adapter asks Hermes to pick up from its saved partial.
  */
 export const CONTINUE_RUN_CONFIG = { custom: { continue: true } } as const;
+
+/**
+ * Run config for a message sent from the queue (run-control spec 2.4): main asks Hermes to
+ * hold it if the reply ahead of it is still releasing, instead of redirecting that reply.
+ */
+export const QUEUED_RUN_CONFIG = { custom: { queued: true } } as const;
 
 /**
  * assistant-ui aborts with `detach: true` when the runtime unmounts, and `detach: false`
@@ -79,6 +86,8 @@ export function createHermesChatModelAdapter(
      * replaces (Edit / Retry). A getter, because each runtime mount has its own.
      */
     getServerPath?: () => ServerPath | null;
+    /** A writing voice kept for a chat with no session yet (ADR 0056 §6); taken by its first send. */
+    takeNewChatWritingVoice?: () => string | null;
   }
 ): ChatModelAdapter {
   return {
@@ -87,6 +96,10 @@ export function createHermesChatModelAdapter(
       const path = messages.map(toServerEntry);
       const plan = serverPath?.plan(path) ?? { kind: 'append' as const };
       const continuing = runConfig?.custom?.continue === true;
+      const queued = runConfig?.custom?.queued === true;
+      const via = runConfig?.custom?.via as HermesRunControl | undefined;
+      const writingVoiceId =
+        typeof runConfig?.custom?.writingVoiceId === 'string' ? runConfig.custom.writingVoiceId : null;
       if (continuing && plan.kind !== 'continue') {
         throw new Error(CONTINUE_LATEST_ONLY_MESSAGE);
       }
@@ -128,11 +141,23 @@ export function createHermesChatModelAdapter(
       let text = '';
       // A room wake streams several agents; each gets its own section (ADR 0010 §1).
       const segments: SpeakerSegment[] = [];
+      // Each room speaker's writing voice, from the speaker event (ADR 0056 §7).
+      const voiceBySpeaker = new Map<string, string>();
       const speakers = () => {
         const first = segments[0]?.agentSlug;
+        const voiceOf = (slug: string | null) => (slug ? voiceBySpeaker.get(slug) : undefined);
+        const firstVoice = segments.length === 1 ? voiceOf(segments[0].agentSlug) : undefined;
         return {
           ...(first ? { agentSlug: first } : {}),
-          ...(segments.length > 1 ? { segments: segments.map((s) => ({ ...s })) } : {}),
+          ...(segments.length > 1
+            ? {
+                segments: segments.map((s) => {
+                  const voice = voiceOf(s.agentSlug);
+                  return { ...s, ...(voice ? { writingVoiceName: voice } : {}) };
+                }),
+              }
+            : {}),
+          ...(firstVoice ? { writingVoiceName: firstVoice } : {}),
         };
       };
       // Files this turn's write tools touched (the Files line under the reply), and how
@@ -144,6 +169,8 @@ export function createHermesChatModelAdapter(
       let finished = false;
       let error: string | null = null;
       let noReply: HermesNoReply | null = null;
+      // When main saw the turn finish, for the reply's pool line before history reloads.
+      let endedAt: number | null = null;
       // This screen shows the turn; a list of running turns must not reload it on end.
       ownRunningTurn(requestId);
 
@@ -155,6 +182,10 @@ export function createHermesChatModelAdapter(
       };
 
       const unsubs = [
+        window.electronAPI.hermesChat.onChatSpeaker((event) => {
+          if (event.requestId !== requestId || !event.writingVoiceName) return;
+          voiceBySpeaker.set(event.agentSlug, event.writingVoiceName);
+        }),
         window.electronAPI.hermesChat.onChatTool((event) => {
           if (event.requestId !== requestId || event.status !== 'done') return;
           toolsRun.add(event.toolId);
@@ -174,6 +205,7 @@ export function createHermesChatModelAdapter(
         window.electronAPI.hermesChat.onChatEnd((event) => {
           if (event.requestId !== requestId) return;
           noReply = event.noReply ?? null;
+          endedAt = typeof event.endedAt === 'number' ? event.endedAt : null;
           finished = true;
           wake();
         }),
@@ -194,6 +226,7 @@ export function createHermesChatModelAdapter(
 
       const sessionId = getSessionId();
       const inference = sessionId ? null : (opts?.takeNewChatInference?.() ?? null);
+      const keptWritingVoiceId = sessionId ? null : (opts?.takeNewChatWritingVoice?.() ?? null);
       let start: Awaited<ReturnType<typeof window.electronAPI.hermesChat.startChat>>;
       try {
         start = await window.electronAPI.hermesChat.startChat({
@@ -205,7 +238,11 @@ export function createHermesChatModelAdapter(
           ...(plan.kind === 'rewind' ? { rewind: plan.request } : {}),
           ...(plan.kind === 'continue' ? { continue: true } : {}),
           ...(plan.kind === 'append' && plan.retry ? { retry: true } : {}),
+          ...(queued && plan.kind === 'append' ? { queued: true } : {}),
+          ...(via ? { via } : {}),
           ...(inference ? { inference } : {}),
+          ...(writingVoiceId && plan.kind === 'append' ? { writingVoiceId } : {}),
+          ...(keptWritingVoiceId ? { keptWritingVoiceId } : {}),
         });
       } catch (err) {
         stopListening();
@@ -263,6 +300,7 @@ export function createHermesChatModelAdapter(
             ...(files.length > 0 ? { files: [...files] } : {}),
             ...(tasksFiled.length > 0 ? { tasksFiled: [...tasksFiled] } : {}),
             toolCount: toolsRun.size,
+            ...(start.writingVoiceName ? { writingVoiceName: start.writingVoiceName } : {}),
           } satisfies HermesMessageCustom,
         },
       });
@@ -275,7 +313,12 @@ export function createHermesChatModelAdapter(
           // Whichever screen shows this chat next reloads it when the turn ends.
           releaseRunningTurn(requestId);
         } else {
-          void window.electronAPI.hermesChat.cancelChat({ requestId, reason: 'stopped' });
+          // Stop, or Send now (spec 2.3): main notes which once Hermes confirms the stop.
+          const { reason, via: cancelVia } = takeAbortReason();
+          if (reason === 'interrupted' && unstable_assistantMessageId) {
+            markReplyInterrupted(unstable_assistantMessageId);
+          }
+          void window.electronAPI.hermesChat.cancelChat({ requestId, reason, via: cancelVia });
         }
         finished = true;
         wake();
@@ -315,7 +358,9 @@ export function createHermesChatModelAdapter(
           content: [{ type: 'text' as const, text }],
           ...(noReply && !text.trim()
             ? { metadata: { custom: { ...meta.metadata.custom, noReply } } }
-            : meta),
+            : endedAt !== null
+              ? { metadata: { custom: { ...meta.metadata.custom, turnEndedAt: endedAt } } }
+              : meta),
         };
       } finally {
         abortSignal.removeEventListener('abort', onAbort);

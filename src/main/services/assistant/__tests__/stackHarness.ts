@@ -41,7 +41,7 @@ function quietExec(file: string, args: string[]): string | null {
 }
 
 /** `assistant` beside the main checkout, found from git so a worktree resolves it too. */
-function defaultStackRoot(): string | null {
+export function defaultStackRoot(): string | null {
   const common = quietExec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'])?.trim();
   return common ? path.resolve(path.dirname(common), '..', 'assistant') : null;
 }
@@ -89,7 +89,7 @@ export function resolveStackTarget(): StackProbe {
 /** The resolved stack, once its dashboard answers HTTP. Says why when it isn't reachable. */
 export async function probeStack(): Promise<StackProbe> {
   const probe = await reachStack();
-  if (!probe.ok) console.warn(`[test:stack] skipping: ${probe.reason}`);
+  if (probe.ok === false) console.warn(`[test:stack] skipping: ${probe.reason}`);
   return probe;
 }
 
@@ -107,7 +107,7 @@ async function reachStack(): Promise<StackProbe> {
 
 /** Title suffix that says why a file's checks were skipped. */
 export function skipNote(probe: StackProbe): string {
-  return probe.ok ? '' : ` (skipped: ${probe.reason})`;
+  return probe.ok === false ? ` (skipped: ${probe.reason})` : '';
 }
 
 export interface ExecResult {

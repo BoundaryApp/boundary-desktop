@@ -1,7 +1,13 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppSwitchEvent } from '../../../../shared/types/onboarding';
+import type { CirclesState } from '../../../../shared/types/circles';
+import type {
+  AppSwitchEvent,
+  InferenceProvidersStatus,
+  SetAppFallbacksInput,
+} from '../../../../shared/types/onboarding';
+import { BO, CIRCLE_KEY as CIRCLE, circleOffer, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 import { endAppSwitch } from '../../../onboarding/appSwitch';
@@ -13,48 +19,19 @@ const slot = (modelId: string) => ({
   modelId,
   health: 'reachable' as const,
 });
-const CIRCLE = 'c'.repeat(64);
-const BO = 'b'.repeat(64);
 const sharedEntry = { slot: 'peer' as const, modelId: 'qwen3-8b', peer: { circleId: CIRCLE, providerId: BO } };
-const onLocal = {
+const onLocal: InferenceProvidersStatus = {
   configured: true,
   encryptionAvailable: true,
   appDefault: 'local' as const,
   slots: { local: slot('qwen3:14b'), openrouter: slot('openai/gpt-4o') },
   appFallbacks: [{ slot: 'openrouter' as const }, sharedEntry],
 };
-const onOpenRouter = { ...onLocal, appDefault: 'openrouter' as const, appFallbacks: [{ slot: 'local' as const }, sharedEntry] };
-const circleState = {
-  status: 'running',
-  displayName: 'Ada',
+const onOpenRouter: InferenceProvidersStatus = { ...onLocal, appDefault: 'openrouter' as const, appFallbacks: [{ slot: 'local' as const }, sharedEntry] };
+const circleState: CirclesState = runningCircles({
   providers: { [BO]: { private: false, trusted: true } },
-  sharing: { models: [], circles: [], paused: false, away: false },
-  snapshot: {
-    identity: 'a'.repeat(64),
-    circles: [
-      {
-        key: CIRCLE,
-        name: 'Workshop',
-        myRole: 'member',
-        writable: true,
-        needsUpdate: false,
-        members: [],
-        invites: [],
-        offers: [
-          {
-            identity: BO,
-            name: 'Bo',
-            isMine: false,
-            models: [{ id: 'qwen3-8b', tools: true, contextLength: 16_384 }],
-            available: true,
-            away: false,
-            online: true,
-          },
-        ],
-      },
-    ],
-  },
-};
+  circles: [circleSnapshot({ name: 'Workshop', offers: [circleOffer({ models: [{ id: 'qwen3-8b', tools: true, contextLength: 16_384 }] })] })],
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -64,7 +41,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-let current: typeof onLocal | typeof onOpenRouter = onLocal;
+let current: InferenceProvidersStatus = onLocal;
 
 function mount() {
   current = onLocal;
@@ -74,7 +51,7 @@ function mount() {
   const cancelAppSwitch = deferred<object>();
   const cancel = vi.fn(() => cancelAppSwitch.promise);
   const keep = (result: object) => {
-    const status = (result as { status?: typeof current }).status;
+    const status = (result as { status?: InferenceProvidersStatus }).status;
     if (status) current = status;
     return result;
   };
@@ -85,13 +62,13 @@ function mount() {
       getAppSwitch: vi.fn().mockResolvedValue({ appSwitch: null }),
       onAppSwitch: vi.fn((listener: (event: AppSwitchEvent) => void) => {
         push = listener;
-        return () => undefined;
+        return (): void => undefined;
       }),
       setAppDefault: vi.fn(() => setAppDefault.promise.then(keep)),
       setAppSharedModel: vi.fn(() => setAppSharedModel.promise.then(keep)),
       // Saves what it's given, so a second move starts from the first one's result.
-      setAppFallbacks: vi.fn(async ({ fallbacks }: { fallbacks: unknown[] }) => {
-        current = { ...current, appFallbacks: fallbacks as typeof current.appFallbacks };
+      setAppFallbacks: vi.fn(async ({ fallbacks }: SetAppFallbacksInput) => {
+        current = { ...current, appFallbacks: fallbacks };
         return { success: true, status: current };
       }),
       cancelAppSwitch: cancel,
@@ -119,7 +96,6 @@ const stageEvent = (stage: 'applying' | 'restarting' | 'starting') => ({
 beforeEach(() => resetIpcStoresForTests());
 afterEach(() => {
   endAppSwitch();
-  cleanup();
 });
 
 describe('changing the first model in Inference', () => {

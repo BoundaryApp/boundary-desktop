@@ -24,6 +24,14 @@ export function emitHermesSessionsChanged(): void {
   }
 }
 
+/**
+ * Tell every window a turn's end was noted for the chat (its fallback mark, its pool provider),
+ * so a chip or transcript showing it fetches the snapshot after the record exists.
+ */
+export function broadcastInferenceNoted(sessionIds: string[]): void {
+  broadcast('hermes-chat:inference-noted', { sessionIds });
+}
+
 /** Tell every window to list sessions again. */
 export function broadcastSessionsChanged(): void {
   broadcast('hermes-chat:sessions-changed');

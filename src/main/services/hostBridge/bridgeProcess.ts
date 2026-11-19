@@ -8,7 +8,7 @@ import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessag
 import { BrowserRelay } from './browserRelay';
 import { LiveHermesSessions } from './hermesSessions';
 import type { ToolCallResult } from './mcpProtocol';
-import { listedHostTools } from './toolCatalog';
+import { listedHostTools, type HostToolDefinition } from './toolCatalog';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 const port = process.parentPort;
@@ -19,6 +19,9 @@ let listing: HostToolListing = { offerCalendarSetup: false, agentAppAccess: fals
 let hermesSessions: LiveHermesSessions | null = null;
 let sweepTimer: NodeJS.Timeout | null = null;
 const pendingCalls = new Map<number, (result: ToolCallResult) => void>();
+const pendingCalendarLists = new Map<number, (tools: HostToolDefinition[]) => void>();
+/** Calendar token → agent slug. Main sends the whole map whenever it changes. */
+let calendarTokens: Record<string, string> = {};
 
 function post(message: BridgeToMain): void {
   port.postMessage(message);
@@ -34,7 +37,8 @@ function log(message: string, data?: Record<string, unknown>): void {
  */
 const TOOL_CALL_TIMEOUT_MS = 150_000;
 
-function callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+/** Send a call to main and wait for its `tool-result`. */
+function askMain(message: (id: number) => BridgeToMain): Promise<ToolCallResult> {
   const id = nextCallId++;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -45,7 +49,31 @@ function callTool(name: string, args: Record<string, unknown>): Promise<ToolCall
       clearTimeout(timer);
       resolve(result);
     });
-    post({ type: 'tool-call', id, name, args });
+    post(message(id));
+  });
+}
+
+function callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+  return askMain((id) => ({ type: 'tool-call', id, name, args }));
+}
+
+function callCalendarTool(agent: string, name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+  return askMain((id) => ({ type: 'calendar-tool-call', id, agent, name, args }));
+}
+
+/** Main lists the tools from the agent's access; no answer in time lists none. */
+function listCalendarTools(agent: string): Promise<HostToolDefinition[]> {
+  const id = nextCallId++;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingCalendarLists.delete(id);
+      resolve([]);
+    }, TOOL_CALL_TIMEOUT_MS);
+    pendingCalendarLists.set(id, (tools) => {
+      clearTimeout(timer);
+      resolve(tools);
+    });
+    post({ type: 'calendar-tool-list', id, agent });
   });
 }
 
@@ -59,6 +87,8 @@ async function stop(reason = `${APP_NAME} is shutting down.`): Promise<void> {
     resolve({ content: [{ type: 'text', text: reason }], isError: true });
   }
   pendingCalls.clear();
+  for (const resolve of pendingCalendarLists.values()) resolve([]);
+  pendingCalendarLists.clear();
   // Let those answers reach Hermes before the connections close.
   await new Promise((resolve) => setImmediate(resolve));
   await Promise.all([servers?.close(), relay?.close()]);
@@ -92,6 +122,7 @@ port.on('message', (event: { data: MainToBridge }) => {
         // usable there. Its keepalive pings keep the session counted.
         onMcpMethod: (method, sessionId) => postHermesClients(hermesSessions?.seen(method, sessionId)),
         onSessionClosed: (sessionId) => postHermesClients(hermesSessions?.closed(sessionId)),
+        calendar: { tokens: () => calendarTokens, callTool: callCalendarTool, listTools: listCalendarTools },
       })
         .then((started) => {
           servers = started;
@@ -105,6 +136,15 @@ port.on('message', (event: { data: MainToBridge }) => {
       const resolve = pendingCalls.get(message.id);
       pendingCalls.delete(message.id);
       resolve?.(message.result);
+      return;
+    }
+    case 'calendar-tokens':
+      calendarTokens = message.tokens;
+      return;
+    case 'calendar-tool-list-result': {
+      const resolve = pendingCalendarLists.get(message.id);
+      pendingCalendarLists.delete(message.id);
+      resolve?.(message.tools);
       return;
     }
     case 'browser-config':

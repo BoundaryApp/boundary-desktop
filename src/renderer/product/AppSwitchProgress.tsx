@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AppSwitchStage, AppSwitchState } from '../../shared/types/onboarding';
 import { cancelAppSwitch } from '../onboarding/appSwitch';
+import { Button } from '../components/ui/button';
 
 const STAGES: Array<{ stage: AppSwitchStage; label: string }> = [
   { stage: 'preparing', label: 'Checking the model…' },
@@ -41,9 +42,9 @@ export const AppSwitchProgress: React.FC<{ appSwitch: AppSwitchState }> = ({ app
       <div className="wb-switch-line">
         <p role="status">{text}</p>
         {!reverting && (
-          <button type="button" className="wb-inference-btn" onClick={() => void cancelAppSwitch()}>
+          <Button variant="secondary" type="button" onClick={() => void cancelAppSwitch()}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </div>

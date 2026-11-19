@@ -199,6 +199,29 @@ describe('createHermesAgent', () => {
     expect(first.agent?.slug).not.toBe(second.agent?.slug);
   });
 
+  it('keeps every row when a create and an update write the registry at once', async () => {
+    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    const { createHermesAgent, updateHermesAgent } = await import('../hermesAgents');
+    const first = await createHermesAgent({ displayName: 'Researcher', role: 'Finds sources.' });
+    getStoredAgent.mockImplementation((slug: string) =>
+      slug === first.agent!.slug ? first.agent : null
+    );
+    const [, updated] = await Promise.all([
+      createHermesAgent({ displayName: 'Scout', role: 'Looks ahead.' }),
+      updateHermesAgent({ slug: first.agent!.slug, displayName: 'Reader', role: 'Reads sources.' }),
+    ]);
+    getStoredAgent.mockReset();
+    expect(updated.success).toBe(true);
+    const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');
+    const rows = (JSON.parse(fs.readFileSync(registry, 'utf8')) as {
+      agents: Array<{ name: string; display_name: string }>;
+    }).agents;
+    expect(rows.map((r) => [r.name, r.display_name])).toEqual([
+      [first.agent!.slug, 'Reader'],
+      ['scout', 'Scout'],
+    ]);
+  });
+
   it('lists agents from the registry file alongside stored ones', async () => {
     dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
     const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');

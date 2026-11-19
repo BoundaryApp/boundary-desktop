@@ -5,9 +5,12 @@
  */
 import type Hyperbee from 'hyperbee';
 import type { HyperbeeEntry } from 'hyperbee';
-import type { CircleChatUpdate, CircleMessage, CircleMessageRef, CircleReadPosition } from '../../../shared/types/circles';
+import { MENTIONS_FORMAT, mentionsMe } from '../../../shared/circleMentions';
+import type { CircleChatUpdate, CircleMentions, CircleMessage, CircleMessageRef, CircleReadPosition } from '../../../shared/types/circles';
+import { repliesToMe } from '../../../shared/circleReplies';
 import { chatCountKey, chatIndexKey, chatMessageKey, type CircleMessageRecord } from './circleOps';
 import type { CircleRecordEntry } from './networkMessages';
+import { reactionsFor, unreadReactionCandidates, type ReactionIndex } from './circleReactions';
 
 /** Every Circle has this channel with no record (Circle chats spec, the public seam). */
 const DEFAULT_CHANNEL = 'general';
@@ -27,6 +30,10 @@ export interface ChatReader {
   me: string;
   /** View blocks below this are confirmed. */
   signedLength: number;
+  /** Every member's reactions, from the last record scan. */
+  reactions: ReactionIndex;
+  /** Identities of the current members; a reactor outside it shows as having left. */
+  members: ReadonlySet<string>;
 }
 
 const refKey = (ref: CircleMessageRef): string => `${ref.author}/${ref.id}`;
@@ -53,7 +60,12 @@ export function chatChannels(records: Iterable<CircleRecordEntry>): Map<string, 
   return channels;
 }
 
-function toMessage(entry: HyperbeeEntry, reader: ChatReader): CircleMessage {
+/** A record's stored mentions in the shape messages carry: both fields present, null when none. */
+function mentionsOf(record: CircleMessageRecord): CircleMentions | null {
+  return record.mentions ? { members: record.mentions.members ?? [], channel: record.mentions.channel === true } : null;
+}
+
+export function toMessage(entry: HyperbeeEntry, reader: ChatReader): CircleMessage {
   const record = entry.value as CircleMessageRecord;
   return {
     circleKey: reader.circleKey,
@@ -69,6 +81,9 @@ function toMessage(entry: HyperbeeEntry, reader: ChatReader): CircleMessage {
     deleted: record.deleted,
     shared: record.shared ?? null,
     call: record.call ?? null,
+    mentions: mentionsOf(record),
+    reply: record.reply ?? null,
+    reactions: reactionsFor(reader.reactions, record.channel, { author: record.author, id: record.id }, reader.me, reader.members),
     mine: record.author === reader.me,
   };
 }
@@ -112,7 +127,7 @@ export async function readChatMessages(
  * Messages after a read position. When the read message disappeared as its order settled, the
  * count falls back to messages after its time, which can be off by a few.
  */
-export async function unreadCount(bee: Hyperbee, channel: string, read: CircleReadPosition | undefined): Promise<number> {
+async function unreadCount(bee: Hyperbee, channel: string, read: CircleReadPosition | undefined): Promise<number> {
   const count = (await bee.get(chatCountKey(channel)))?.value;
   const total = typeof count === 'number' ? count : 0;
   if (!read) return total;
@@ -124,6 +139,77 @@ export async function unreadCount(bee: Hyperbee, channel: string, read: CircleRe
     unread++;
   }
   return unread;
+}
+
+/**
+ * Whether an unread message from someone else mentions `me`. Reads "unread" as `unreadCount`
+ * does: after the read message's position, or after its time when it is gone, and looks at no
+ * more than `MAX_UNREAD_SCAN` records.
+ */
+export async function unreadMentioned(
+  bee: Hyperbee,
+  channel: string,
+  read: CircleReadPosition | undefined,
+  me: string,
+  channelMentions: boolean
+): Promise<boolean> {
+  const readPosition = read ? (await bee.get(chatIndexKey(channel, read.author, read.id)))?.value : undefined;
+  for await (const { value } of bee.createReadStream({ ...messagesRange(channel), reverse: true, limit: MAX_UNREAD_SCAN })) {
+    const record = value as CircleMessageRecord;
+    if (read) {
+      if (typeof readPosition === 'number' ? record.position <= readPosition : record.at <= read.at) break;
+    }
+    if (record.deleted || record.author === me) continue;
+    if (mentionsMe(mentionsOf(record), me, channelMentions) || repliesToMe({ reply: record.reply ?? null, author: record.author }, me)) return true;
+  }
+  return false;
+}
+
+/**
+ * Others' reactions, newer than the read position's `reactionsAt`, to `me`'s messages that this
+ * view still holds and that aren't deleted. A position without `reactionsAt` counts none.
+ */
+async function unreadReactions(
+  bee: Hyperbee,
+  channel: string,
+  read: CircleReadPosition | undefined,
+  me: string,
+  reactions: ReactionIndex,
+  now: number
+): Promise<number> {
+  if (read?.reactionsAt === undefined) return 0;
+  // Only the record's deleted flag is read, so the reader's other fields are placeholders.
+  const reader: ChatReader = { circleKey: '', me, signedLength: 0, reactions, members: new Set() };
+  let total = 0;
+  for (const { ref, count } of unreadReactionCandidates(reactions, channel, me, read.reactionsAt, now)) {
+    const message = await findChatMessage(bee, channel, ref, reader);
+    if (message && !message.deleted) total += count;
+  }
+  return total;
+}
+
+/**
+ * A channel's unread count (messages plus others' reactions to `me`'s messages), and whether an
+ * unread message mentions `me`. The mention scan runs only when a message is unread and the
+ * Circle is at `MENTIONS_FORMAT` or later, since no record below it holds mentions. Reactions
+ * never set `mentioned`.
+ */
+export async function channelUnread(
+  bee: Hyperbee,
+  channel: string,
+  read: CircleReadPosition | undefined,
+  {
+    format,
+    me,
+    channelMentions,
+    reactions,
+    now,
+  }: { format: number; me: string; channelMentions: boolean; reactions: ReactionIndex; now: number }
+): Promise<{ unread: number; mentioned: boolean }> {
+  const messages = await unreadCount(bee, channel, read);
+  const unread = messages + (await unreadReactions(bee, channel, read, me, reactions, now));
+  if (messages === 0 || format < MENTIONS_FORMAT) return { unread, mentioned: false };
+  return { unread, mentioned: await unreadMentioned(bee, channel, read, me, channelMentions) };
 }
 
 const sameMessage = (a: CircleMessage, b: CircleMessage): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -146,7 +232,12 @@ export class ChatScan {
    * sets the baseline: messages already in the view when a Circle opens aren't new. A message
    * that was reported gone and comes back after another reorder is reported as changed.
    */
-  async scan(bee: Hyperbee, channels: ReadonlySet<string>, reader: ChatReader): Promise<CircleChatUpdate[]> {
+  async scan(
+    bee: Hyperbee,
+    channels: ReadonlySet<string>,
+    reader: ChatReader,
+    reactionRefs: { channel: string; author: string; id: string }[] = []
+  ): Promise<CircleChatUpdate[]> {
     const first = this.signed === null;
     const from = Math.min(this.signed ?? reader.signedLength, reader.signedLength);
     const updates = new Map<string, CircleChatUpdate>();
@@ -179,6 +270,18 @@ export class ChatScan {
         update(message.channel).added.push(message);
       } else if (!before || !sameMessage(before, message)) {
         update(message.channel).changed.push(message);
+      }
+    }
+    // A reaction doesn't touch the message's block, so the diff doesn't see it. The first scan
+    // only sets the baseline; a message already in this scan's update isn't reported twice.
+    if (!first) {
+      for (const { channel, author, id } of reactionRefs) {
+        if (!channels.has(channel)) continue;
+        const reported = updates.get(channel);
+        const same = (m: CircleMessage) => m.author === author && m.id === id;
+        if (reported?.added.some(same) || reported?.changed.some(same)) continue;
+        const message = await findChatMessage(bee, channel, { author, id }, reader);
+        if (message) update(channel).changed.push(message);
       }
     }
     for (const [ref, message] of this.unconfirmed) {

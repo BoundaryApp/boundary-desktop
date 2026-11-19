@@ -85,6 +85,7 @@ describe('useChatLists', () => {
       mentions: [],
       projects: [],
       activeProjectId: null,
+      orchestratorSlug: null,
     };
     const { result } = renderLists(cached);
     await flush();

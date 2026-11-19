@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useOwnerWindow } from '../components/ui/ownerDocument';
 import type { AppCommand } from '../../shared/appCommands';
 
 const COMMAND_EVENT = 'boundary:command';
@@ -8,10 +9,12 @@ export const isMacPlatform = (): boolean =>
 
 const KEY_TO_COMMAND: Record<string, AppCommand> = {
   n: 'new-chat',
+  j: 'toggle-agent',
   '1': 'go-chat',
-  '2': 'go-inference',
-  '3': 'go-services',
-  '4': 'go-resources',
+  '2': 'go-circles',
+  '3': 'go-inference',
+  '4': 'go-services',
+  '5': 'go-resources',
   ',': 'go-settings',
   '[': 'prev-thread',
   ']': 'next-thread',
@@ -41,23 +44,32 @@ export function useAppCommand(handler: (command: AppCommand) => void): void {
 }
 
 /**
+ * Turns shortcut keys pressed in the window this is drawn in into app commands. The ready shell
+ * mounts it through `useAppShortcuts`; a second window the page draws in mounts its own, passing
+ * `only` the commands that make sense there.
+ */
+export function useShortcutKeys(only?: readonly AppCommand[]): void {
+  const win = useOwnerWindow();
+  const onlyKey = only?.join(',') ?? null;
+  useEffect(() => {
+    const allowed = onlyKey === null ? null : onlyKey.split(',');
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const command = matchShortcut(event);
+      if (!command || (allowed && !allowed.includes(command))) return;
+      event.preventDefault();
+      dispatchAppCommand(command);
+    };
+    win.addEventListener('keydown', onKeyDown);
+    return () => win.removeEventListener('keydown', onKeyDown);
+  }, [win, onlyKey]);
+}
+
+/**
  * Mount once in the ready shell: turns shortcut keys and menu-bar clicks into
  * app commands for `useAppCommand` subscribers.
  */
 export function useAppShortcuts(): void {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      const command = matchShortcut(event);
-      if (!command) return;
-      event.preventDefault();
-      dispatchAppCommand(command);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    const offMenu = window.electronAPI.appMenu.onCommand(dispatchAppCommand);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      offMenu();
-    };
-  }, []);
+  useShortcutKeys();
+  useEffect(() => window.electronAPI.appMenu.onCommand(dispatchAppCommand), []);
 }

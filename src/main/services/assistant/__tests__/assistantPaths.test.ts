@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ensureAddonMountSources,
   removeIncompleteHermesProfiles,
   resolveAssistantDataRoot,
   resolveAssistantUserContentRoot,
@@ -137,5 +138,45 @@ describe('removeIncompleteHermesProfiles', () => {
 
     await expect(removeIncompleteHermesProfiles(dataRoot, { retryDelayMs: 0 })).resolves.toEqual([]);
     expect(rm).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ensureAddonMountSources', () => {
+  it('creates the add-on folders the core bootstraps mount, owner-only, and keeps what is there', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-mounts-'));
+    try {
+      fs.mkdirSync(path.join(root, 'addons', 'twenty', 'instances'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'addons', 'twenty', 'instances', 'main.json'), '{}');
+      await ensureAddonMountSources(root);
+      for (const sub of [
+        'addons/twenty/secrets',
+        'addons/actual/instances',
+        'addons/actual/secrets',
+        'addons/email/config',
+        'addons/email/instances',
+        'addons/email/secrets',
+        // Stack v0.3.15 mounts addons/caldav on both bootstraps.
+        'addons/caldav',
+        'addons/caldav/instances',
+        'addons/caldav/secrets',
+      ]) {
+        expect(fs.statSync(path.join(root, sub)).mode & 0o777).toBe(0o700);
+      }
+      expect(fs.readFileSync(path.join(root, 'addons', 'twenty', 'instances', 'main.json'), 'utf8')).toBe('{}');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ensureAddonMountSources creates the email folders at 0700', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-mounts-email-'));
+    try {
+      await ensureAddonMountSources(root);
+      for (const sub of ['config', 'instances', 'secrets']) {
+        expect(fs.statSync(path.join(root, 'addons', 'email', sub)).mode & 0o777).toBe(0o700);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

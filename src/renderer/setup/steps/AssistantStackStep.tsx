@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { SetupShell } from '../SetupShell';
+import { useOptionalSetup } from '../SetupContext';
 import { setupSteps } from './index';
 import { Button } from '../../components/ui/button';
 import { StartupScreen } from '../../product/startup/StartupScreen';
@@ -13,7 +14,11 @@ import {
 import type { SetupStepProps } from '../types';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
-export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, description }) => {
+export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, description: withModel }) => {
+  const setup = useOptionalSetup();
+  const description = setup?.snapshot.onboardingStatus?.configured
+    ? withModel
+    : `${APP_NAME} starts its assistant services on this machine. Connect a model in Settings to get replies.`;
   const assistantStackStatus = useAssistantStackStatus();
   const lifecycle = useAssistantStackLifecycle();
   const { start, running, error } = useStackStart();
@@ -88,7 +93,7 @@ export const AssistantStackStep: React.FC<SetupStepProps> = ({ title, descriptio
 /** Implementation detail kept one click away (ADR 0019). */
 const StackDetails: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <details className="group text-xs text-fg-faint">
-    <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm transition-colors duration-(--dur-fast) hover:text-fg-muted focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+    <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm hover:text-fg-muted focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
       <ChevronRight
         aria-hidden="true"
         className="size-3.5 transition-transform duration-(--dur-fast) group-open:rotate-90"

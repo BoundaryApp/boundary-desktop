@@ -1,107 +1,45 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import type { FakeBridge, FakeHermesChat } from '../../../__tests__/fakeBridge';
+import type { CalendarAccountView } from '../../../../shared/types/calendars';
+import { HostedChatRuntime, installChatBridge, threadProps } from './threadHarness';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
-
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  chunk: new Set<(e: Record<string, unknown>) => void>(),
-  end: new Set<(e: Record<string, unknown>) => void>(),
-  tool: new Set<(e: Record<string, unknown>) => void>(),
-  phase: new Set<(e: Record<string, unknown>) => void>(),
-  active: null as string | null,
-  startChat: null as unknown as ReturnType<typeof vi.fn>,
-}));
-
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
+let bridge: FakeBridge;
+let chat: FakeHermesChat;
+/** The request id main gave the open run. */
+let active = '';
 let n = 0;
-// Runs stay open until a test replies to them (`reply`).
-ipc.startChat = vi.fn(async () => {
-  n += 1;
-  ipc.active = `req-${n}`;
-  return { success: true, requestId: ipc.active, sessionId: 's1' };
-});
+let accounts: CalendarAccountView[] = [];
 
-stubElectronAPI({
-  hermesChat: {
-    getHistory: ipcCalls.track(vi.fn().mockResolvedValue({
-      success: true,
-      sessionId: 's1',
-      messages: [],
-    })),
-    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-    cancelChat: vi.fn(),
-    onChatChunk: on(ipc.chunk as Set<Listener>),
-    onChatEnd: on(ipc.end as Set<Listener>),
-    onChatTool: on(ipc.tool as Set<Listener>),
-    onChatPhase: on(ipc.phase as Set<Listener>),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-  },
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
-  },
-  projects: {
-    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-  },
-});
+function installBridge() {
+  ({ bridge, chat } = installChatBridge('s1', {
+    calendars: { list: async () => ({ success: true, accounts }) },
+  }));
+  // Runs stay open until a test replies to them (`ask`), on the request id the renderer made.
+  chat.startChat.mockImplementation(async (payload) => {
+    n += 1;
+    active = payload.requestId ?? `req-${n}`;
+    return { success: true, requestId: active, sessionId: 's1' };
+  });
+}
 
-const calendars = vi.hoisted(() => ({ accounts: [] as unknown[] }));
-stubElectronAPI({
-  calendars: {
-    list: ipcCalls.track(async () => ({ success: true, accounts: calendars.accounts })),
-    onChanged: () => () => undefined,
-  },
-});
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
-
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
+import { setValue } from '../../../__tests__/formInput';
 
 const Chat: React.FC = () => (
-  <HermesChatRuntimeProvider sessionId="s1">
-    <WorkbenchThread
-      sessionId="s1"
-      threadTitle="Assistant"
-      activeProject={null}
-      projects={[]}
-      activeProjectId={null}
-      toolsEnabled
-      onToolsEnabledChange={noop}
-      onSelectProject={noop}
-      onClearProject={noop}
-      onNewProject={noop}
-      onCreateAgentFromDraft={noop}
-      onEditAgentDraft={noop}
-    />
-  </HermesChatRuntimeProvider>
+  <HostedChatRuntime sessionId="s1">
+    <WorkbenchThread {...threadProps({ sessionId: 's1' })} />
+  </HostedChatRuntime>
 );
-
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-  fireEvent.input(el);
-};
 
 /**
  * Sends `text`, then Hermes runs `tool` (if any) and replies. Hermes decides whether to call
@@ -112,17 +50,14 @@ async function ask(text: string, tool: { name: string; args?: Record<string, unk
   await act(async () => setValue(input, text));
   await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
   await ipcCalls.settle();
-  await act(async () => {
-    for (const cb of ipc.phase) cb({ requestId: ipc.active, sessionId: 's1', phase: 'preparing' });
-    if (tool) {
-      for (const cb of ipc.tool) {
-        cb({ requestId: ipc.active, sessionId: 's1', toolId: 't1', name: tool.name, status: 'running', args: tool.args });
-        cb({ requestId: ipc.active, sessionId: 's1', toolId: 't1', name: tool.name, status: 'done', args: tool.args });
-      }
+  await bridge.emit('hermes-chat:phase', { requestId: active, sessionId: 's1', phase: 'preparing' });
+  if (tool) {
+    for (const status of ['running', 'done'] as const) {
+      await bridge.emit('hermes-chat:tool', { requestId: active, sessionId: 's1', toolId: 't1', name: tool.name, status, args: tool.args });
     }
-    for (const cb of ipc.chunk) cb({ requestId: ipc.active, delta: answer });
-    for (const cb of ipc.end) cb({ requestId: ipc.active });
-  });
+  }
+  await bridge.emit('hermes-chat:chunk', { requestId: active, delta: answer });
+  await bridge.emit('hermes-chat:end', { requestId: active });
   await ipcCalls.settle();
 }
 
@@ -131,13 +66,14 @@ const OFFER = { name: 'mcp_boundary_offer_setup', args: { kind: 'calendar' } };
 
 describe('Connect a calendar card (calendar spec 3.1)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    ipc.active = null;
-    calendars.accounts = [];
+    active = '';
+    accounts = [];
+    installBridge();
   });
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('shows the card under the reply that called offer_setup', async () => {
@@ -192,7 +128,7 @@ describe('Connect a calendar card (calendar spec 3.1)', () => {
     await ipcCalls.settle();
     await ask('What do I have on Thursday?', OFFER, 'I can’t see a calendar yet.');
     cleanup();
-    calendars.accounts = [{ slug: 'personal', name: 'Personal' }];
+    accounts = [{ slug: 'personal', name: 'Personal' } as CalendarAccountView];
     render(<Chat />);
     await ipcCalls.settle();
     expect(card()).toBeNull();

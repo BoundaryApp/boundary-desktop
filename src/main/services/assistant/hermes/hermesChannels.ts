@@ -28,6 +28,7 @@ import {
 } from '../../../../shared/types/hermesChat';
 
 import { durableSessionId } from './hermesAgents';
+import { listStoredHermesProjects } from './hermesProjectStore';
 import { getHermesGatewaySession } from './hermesGatewaySession';
 import {
   clearSessionChannelId,
@@ -272,7 +273,10 @@ export function deleteHermesChannel(
   if (!channel) {
     return { success: false, error: 'Channel not found.' };
   }
-  const projectId = channel.projectId ?? null;
+  // A room whose project was removed is listed under No project (fileChannels), so file its
+  // chats there too rather than under an id the renderer can't show.
+  const known = new Set(listStoredHermesProjects().map((p) => p.id));
+  const projectId = channel.projectId && known.has(channel.projectId) ? channel.projectId : null;
   const sessionIds = [...new Set([channel.sessionId, ...listSessionsForChannel(channel.id)])];
   for (const id of sessionIds) {
     clearSessionChannelId(id);

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
-import os from 'node:os';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StoredCalendarAccount } from '../../assistant/calendar/calendarStore';
 
 /** A fake utilityProcess child that answers `start` with `ready` and exits on `stop`. */
 class FakeChild extends EventEmitter {
@@ -15,9 +16,18 @@ let lastChild: FakeChild | null = null;
 const fork = vi.fn(() => (lastChild = new FakeChild()));
 const sent: Array<[string, unknown]> = [];
 
+// This file's own app folders, so the audit log and browser profile stay out of the run's TMPDIR.
+const appDir = await vi.hoisted(async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  return mkdtempSync(join(tmpdir(), 'host-bridge-service-'));
+});
+afterAll(() => fs.rmSync(appDir, { recursive: true, force: true }));
+
 vi.mock('electron', () => {
   return {
-    app: { getPath: () => os.tmpdir() },
+    app: { getPath: () => appDir },
     // Keychain unavailable: tokens live for the test only.
     safeStorage: { isAsyncEncryptionAvailable: async () => false },
     utilityProcess: { fork },
@@ -49,6 +59,28 @@ vi.mock('../hostBridgeStore', async (importOriginal) => ({
   },
 }));
 
+const debugLog = vi.hoisted(() => vi.fn());
+vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: debugLog }));
+
+let calendarAccounts: StoredCalendarAccount[] = [];
+let calendarStoreFails = false;
+vi.mock('../../assistant/calendar/calendarStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../assistant/calendar/calendarStore')>()),
+  listCalendarAccounts: () => {
+    if (calendarStoreFails) throw new Error('store unreadable');
+    return calendarAccounts;
+  },
+  hasCalendarAccounts: () => calendarAccounts.length > 0,
+}));
+
+/** Stands in for the calendar helper: one synthetic calendar. */
+const helperRequest = vi.fn(async (op: string) =>
+  op === 'listCalendars' ? [{ id: 'cal-1', title: 'Work', color: '#336699', source: 'iCloud', kind: 'icloud', writable: true }] : []
+);
+vi.mock('../../assistant/calendar/macCalendarHelper', () => ({
+  getMacCalendarHelper: () => ({ request: helperRequest }),
+}));
+
 const provisionHermes = vi.fn(async (): Promise<{ success: boolean; error?: string }> => ({ success: true }));
 
 /** The tokens a fake child was started with. */
@@ -60,6 +92,7 @@ const startTokens = (child: FakeChild | null) => {
 
 const waitFor = async (pred: () => boolean) => {
   for (let i = 0; i < 100 && !pred(); i++) await new Promise((r) => setImmediate(r));
+  if (!pred()) throw new Error(`Still waiting after 100 turns of the event loop for ${pred.toString()}`);
 };
 
 beforeEach(() => {
@@ -70,6 +103,10 @@ beforeEach(() => {
   sent.length = 0;
   storedClients = 0;
   agentStopped = false;
+  calendarAccounts = [];
+  calendarStoreFails = false;
+  debugLog.mockClear();
+  helperRequest.mockClear();
 });
 
 describe('host bridge lifecycle', () => {
@@ -112,11 +149,13 @@ describe('host bridge lifecycle', () => {
   it('fails a pending request at once when the bridge exits', async () => {
     const service = await import('../hostBridgeService');
     await service.ensureHostBridgeStarted();
-    const started = Date.now();
     const state = service.getBoundaryBrowserState();
     lastChild?.emit('exit', 1);
-    expect((await state).running).toBe(false);
-    expect(Date.now() - started).toBeLessThan(1_000);
+    // Settled before the event loop turns once: no request timeout was involved.
+    const turn = new Promise<'pending'>((resolve) => setImmediate(() => resolve('pending')));
+    const answer = await Promise.race([state, turn]);
+    expect(answer).not.toBe('pending');
+    expect(answer).toMatchObject({ running: false });
     await service.stopHostBridge();
   });
 
@@ -359,5 +398,101 @@ describe('token rotation', () => {
     expect(await service.rotateHostBridgeAgentTokens(provisionHermes)).toEqual({ success: true });
     expect(fork).not.toHaveBeenCalled();
     expect(provisionHermes).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('calendar route', () => {
+  const macAccount = (access: StoredCalendarAccount['access']): StoredCalendarAccount => ({
+    slug: 'mac',
+    name: 'This Mac',
+    provider: 'mac',
+    url: '',
+    username: '',
+    password: '',
+    calendars: [],
+    access,
+    allowedCalendarIds: ['cal-1'],
+    createdAt: '2026-11-01T00:00:00.000Z',
+    lastCheck: null,
+  });
+  const postedOf = (type: string) =>
+    lastChild?.postMessage.mock.calls.map(([message]) => message as { type: string }).filter((m) => m.type === type) ?? [];
+
+  it('sends calendar tokens to a running bridge and to the next one it starts', async () => {
+    const service = await import('../hostBridgeService');
+    service.setCalendarTokens({ 'token-a': 'hermes' });
+    await service.ensureHostBridgeStarted();
+    expect(postedOf('calendar-tokens')).toEqual([{ type: 'calendar-tokens', tokens: { 'token-a': 'hermes' } }]);
+    service.setCalendarTokens({ 'token-b': 'work' });
+    expect(postedOf('calendar-tokens').at(-1)).toEqual({ type: 'calendar-tokens', tokens: { 'token-b': 'work' } });
+    await service.stopHostBridge();
+  });
+
+  it('answers calendar listings and calls from the Mac account as it is now', async () => {
+    const service = await import('../hostBridgeService');
+    await service.ensureHostBridgeStarted();
+    calendarAccounts = [macAccount({ hermes: 'read' })];
+
+    lastChild?.emit('message', { type: 'calendar-tool-list', id: 1, agent: 'hermes' });
+    lastChild?.emit('message', { type: 'calendar-tool-list', id: 2, agent: 'other' });
+    const lists = postedOf('calendar-tool-list-result') as unknown as Array<{ id: number; tools: Array<{ name: string }> }>;
+    expect(lists.find((m) => m.id === 1)?.tools).toHaveLength(8);
+    expect(lists.find((m) => m.id === 2)?.tools).toEqual([]);
+
+    lastChild?.emit('message', { type: 'calendar-tool-call', id: 3, agent: 'hermes', name: 'caldav_list_calendars', args: {} });
+    await waitFor(() => postedOf('tool-result').length === 1);
+    const [result] = postedOf('tool-result') as unknown as Array<{ id: number; result: { content: Array<{ text: string }>; isError?: boolean } }>;
+    expect(result.id).toBe(3);
+    expect(result.result.isError).toBeFalsy();
+    expect(JSON.parse(result.result.content[0].text).data).toEqual([{ name: 'Work', writable: true }]);
+
+    // Access is read again on every call.
+    calendarAccounts = [macAccount({ hermes: 'off' })];
+    lastChild?.emit('message', { type: 'calendar-tool-call', id: 4, agent: 'hermes', name: 'caldav_list_calendars', args: {} });
+    await waitFor(() => postedOf('tool-result').length === 2);
+    expect((postedOf('tool-result')[1] as unknown as { result: { isError: boolean } }).result.isError).toBe(true);
+    await service.stopHostBridge();
+  });
+
+  it('answers an empty tool list at once when the account can’t be read', async () => {
+    const service = await import('../hostBridgeService');
+    await service.ensureHostBridgeStarted();
+    calendarStoreFails = true;
+    lastChild?.emit('message', { type: 'calendar-tool-list', id: 5, agent: 'hermes' });
+    expect(postedOf('calendar-tool-list-result')).toEqual([{ type: 'calendar-tool-list-result', id: 5, tools: [] }]);
+    const logged = debugLog.mock.calls.find(([, message]) => message === 'calendar tool list failed');
+    expect(logged?.[2]).toEqual({ agent: 'hermes', error: 'Error' });
+    await service.stopHostBridge();
+  });
+
+  it('logs a tool name only when it is a calendar tool', async () => {
+    const service = await import('../hostBridgeService');
+    await service.ensureHostBridgeStarted();
+    calendarAccounts = [macAccount({ hermes: 'read' })];
+    const odd = 'x'.repeat(5_000);
+    lastChild?.emit('message', { type: 'calendar-tool-call', id: 6, agent: 'hermes', name: odd, args: {} });
+    lastChild?.emit('message', { type: 'calendar-tool-call', id: 7, agent: 'hermes', name: 'caldav_get_events', args: {} });
+    await waitFor(() => postedOf('tool-result').length === 2);
+    const tools = debugLog.mock.calls
+      .filter(([, message]) => message === 'calendar tool call')
+      .map(([, , data]) => (data as { tool: string }).tool);
+    expect(tools.sort()).toEqual(['caldav_get_events', 'unknown']);
+    expect(JSON.stringify(debugLog.mock.calls)).not.toContain(odd);
+    await service.stopHostBridge();
+  });
+
+  it('refuses a calendar call that reaches main after Stop agent', async () => {
+    const service = await import('../hostBridgeService');
+    await service.ensureHostBridgeStarted();
+    calendarAccounts = [macAccount({ hermes: 'read' })];
+    agentStopped = true;
+    lastChild?.emit('message', { type: 'calendar-tool-call', id: 9, agent: 'hermes', name: 'caldav_list_calendars', args: {} });
+    expect(lastChild?.postMessage).toHaveBeenCalledWith({
+      type: 'tool-result',
+      id: 9,
+      result: { content: [{ type: 'text', text: expect.stringMatching(/stopped/) }], isError: true },
+    });
+    expect(helperRequest).not.toHaveBeenCalled();
+    await service.stopHostBridge();
   });
 });

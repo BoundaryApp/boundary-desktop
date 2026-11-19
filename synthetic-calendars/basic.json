@@ -1,0 +1,101 @@
+{
+  "access": "granted",
+  "calendars": [
+    {
+      "id": "cal-icloud-home",
+      "title": "Home",
+      "color": "#1badf8",
+      "source": "iCloud",
+      "kind": "icloud",
+      "writable": true
+    },
+    {
+      "id": "cal-subscribed-home",
+      "title": "Home",
+      "color": "#63da38",
+      "source": "Other",
+      "kind": "subscribed",
+      "writable": false
+    },
+    {
+      "id": "cal-birthdays",
+      "title": "Birthdays",
+      "color": "#8e8e93",
+      "source": "Other",
+      "kind": "birthdays",
+      "writable": false
+    }
+  ],
+  "events": [
+    {
+      "id": "evt-dentist",
+      "calendarId": "cal-icloud-home",
+      "title": "Dentist",
+      "start": "2026-11-10T10:00:00-08:00",
+      "end": "2026-11-10T11:00:00-08:00",
+      "location": "Example Dental, 12 Elm Street",
+      "notes": "Bring the new insurance card"
+    },
+    {
+      "id": "evt-walk",
+      "calendarId": "cal-icloud-home",
+      "title": "Morning walk",
+      "start": "2026-11-09T07:00:00-08:00",
+      "end": "2026-11-09T07:45:00-08:00",
+      "rrule": "FREQ=DAILY;COUNT=5"
+    },
+    {
+      "id": "evt-craft-fair",
+      "calendarId": "cal-icloud-home",
+      "title": "Craft fair",
+      "start": "2026-11-14",
+      "end": "2026-11-15",
+      "allDay": true
+    },
+    {
+      "id": "evt-dinner",
+      "calendarId": "cal-icloud-home",
+      "title": "Dinner planning",
+      "start": "2026-11-12T18:30:00-08:00",
+      "end": "2026-11-12T20:00:00-08:00",
+      "url": "https://example.com/menu",
+      "attendees": [
+        { "name": "Rowan Vale", "email": "rowan@example.com", "status": "accepted" },
+        { "name": "Juniper Hale", "email": "juniper@example.com", "status": "tentative" },
+        { "email": "host@example.com", "status": "pending" }
+      ]
+    },
+    {
+      "id": "evt-plumber",
+      "calendarId": "cal-icloud-home",
+      "title": "Plumber visit",
+      "start": "2026-11-18T13:00:00-08:00",
+      "end": "2026-11-18T14:00:00-08:00",
+      "notes": "Ask about the Water Heater"
+    },
+    {
+      "id": "evt-farmers-market",
+      "calendarId": "cal-subscribed-home",
+      "title": "Farmers market",
+      "start": "2026-11-11T09:00:00-08:00",
+      "end": "2026-11-11T12:00:00-08:00",
+      "location": "Riverside Park"
+    },
+    {
+      "id": "evt-recycling",
+      "calendarId": "cal-subscribed-home",
+      "title": "Recycling pickup",
+      "start": "2026-11-13",
+      "end": "2026-11-14",
+      "allDay": true
+    },
+    {
+      "id": "evt-birthday",
+      "calendarId": "cal-birthdays",
+      "title": "Rowan Vale's birthday",
+      "start": "2026-11-11",
+      "end": "2026-11-12",
+      "allDay": true
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { ProductIconRail } from '../ProductIconRail';
 import { ProductReadyShell } from '../ProductReadyShell';
 
@@ -16,15 +16,16 @@ vi.mock('../../experiments', () => ({
   ],
 }));
 
-vi.mock('../assistantStack', () => ({ useAssistantStackStatus: () => null }));
+vi.mock('../assistantStack', () => ({
+  useAssistantStackStatus: (): null => null,
+  useAssistantStackLifecycle: () => ({ phase: 'ready' }),
+}));
 vi.mock('../chat/WorkbenchChatScreen', () => ({ WorkbenchChatScreen: () => <div>chat-screen</div> }));
 vi.mock('../AssistantServicesScreen', () => ({ AssistantServicesScreen: () => <div>services-screen</div> }));
 vi.mock('../ProductSettingsScreen', () => ({ ProductSettingsScreen: () => <div>settings-screen</div> }));
 vi.mock('../ResourcesScreen', () => ({ ResourcesScreen: () => <div>resources-screen</div> }));
 
 describe('experiment destinations', () => {
-  afterEach(cleanup);
-
   it('get a rail button with no shortcut that navigates to experiment:<id>', () => {
     const onNavigate = vi.fn();
     const { rerender } = render(<ProductIconRail active="chat" onNavigate={onNavigate} />);
@@ -44,7 +45,7 @@ describe('experiment destinations', () => {
   it('sit above Settings in the rail', () => {
     render(<ProductIconRail active="chat" />);
     const labels = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
-    expect(labels.slice(-2)).toEqual(['Demo', 'Settings']);
+    expect(labels.slice(-3)).toEqual(['Demo', 'Report a bug', 'Settings']);
   });
 
   it('render their screen in the shell, and an unknown one falls back to chat', () => {

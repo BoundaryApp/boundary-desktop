@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { OnboardingHomeScreen } from '../OnboardingHomeScreen';
 
 const openRouter = {
@@ -22,15 +22,12 @@ function renderHome(props: { oauthConnecting: boolean; onCancelSignIn?: () => vo
       onUseLocalEndpoint={vi.fn()}
       onUseExisting={vi.fn()}
       onConnectLocalManual={vi.fn()}
+      onUseSharedModel={vi.fn()}
     />
   );
 }
 
 describe('OnboardingHomeScreen', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it('offers Cancel while waiting for the browser sign-in', () => {
     const onCancelSignIn = vi.fn();
     renderHome({ oauthConnecting: true, onCancelSignIn });

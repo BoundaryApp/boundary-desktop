@@ -2,7 +2,10 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type { CodingDeleteInspect } from '../../../../shared/types/codingFolders';
+import type {
+  CodingDeleteInspect,
+  CodingFoldersResult,
+} from '../../../../shared/types/codingFolders';
 
 const inspectFolderForDelete = vi.fn();
 const deleteCodingFolder = vi.fn();
@@ -11,8 +14,8 @@ stubElectronAPI({
   codingFolders: {
     inspectForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
     deleteFolder: (...args: unknown[]) => deleteCodingFolder(...args),
-    list: async () => ({ success: true, managed: true, grants: [] }),
-    onProgress: () => () => undefined,
+    list: async (): Promise<CodingFoldersResult> => ({ success: true, managed: true, grants: [] }),
+    onProgress: () => (): void => undefined,
   },
 });
 

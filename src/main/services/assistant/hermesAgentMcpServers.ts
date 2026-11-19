@@ -29,3 +29,40 @@ export function defaultMcpServerEntries(
   }
   return out;
 }
+
+/** `${NAME}` and Cursor-style `${env:NAME}`, as Hermes's `_interpolate_env_vars` reads them. */
+const ENV_REF = /\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/**
+ * Names of the `${VAR}`s the entries reference, in order without duplicates. Hermes resolves each
+ * from the profile's own `.env` and refuses a server whose url or headers keep one unresolved
+ * (`tools/mcp_tool_config.py`, v0.22.7), so an agent's copied entry needs the values too: the
+ * stack's 0.3.15 `todos` entry sends `Bearer ${TODOS_KEY}`.
+ */
+export function mcpEnvRefs(entries: ReadonlyArray<[string, unknown]>): string[] {
+  const names = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const m of value.matchAll(ENV_REF)) names.add(m[1]!);
+    } else if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      Object.values(value).forEach(walk);
+    }
+  };
+  for (const [, value] of entries) walk(value);
+  return [...names];
+}
+
+/**
+ * The default profile's values for `names`, leaving out any it doesn't set: an agent then keeps
+ * what it has rather than getting an empty value.
+ */
+export function agentEnvValues(defaultEnv: Record<string, string>, names: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of names) {
+    const value = defaultEnv[name];
+    if (value) out[name] = value;
+  }
+  return out;
+}

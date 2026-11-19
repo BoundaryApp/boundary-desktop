@@ -57,3 +57,96 @@ describe('NewProjectSheet', () => {
     expect(container.innerHTML).toBe('');
   });
 });
+
+describe('NewProjectSheet while creating', () => {
+  const steps = [
+    { id: 'mount', status: 'done' },
+    { id: 'health', status: 'running' },
+    { id: 'check', status: 'pending' },
+    { id: 'open', status: 'pending' },
+  ] as const;
+
+  it('lists the steps in place of the form, with Create disabled', () => {
+    render(
+      <NewProjectSheet
+        folder={repo}
+        managed
+        busy
+        steps={[...steps]}
+        onCreate={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+    expect(screen.getByRole('heading', { name: 'Creating contact-api' })).toBeTruthy();
+    const rows = screen.getByRole('list', { name: 'Create steps' }).querySelectorAll('li');
+    expect([...rows].map((row) => row.getAttribute('data-look'))).toEqual(['done', 'run', 'pending', 'pending']);
+    expect(screen.getByText('Restart the assistant')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('offers Try again with what was sent after a failure', () => {
+    const onCreate = vi.fn();
+    const { rerender } = render(
+      <NewProjectSheet folder={repo} managed onCreate={onCreate} onCancel={() => undefined} />
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
+    rerender(
+      <NewProjectSheet
+        folder={repo}
+        managed
+        error="compose up failed"
+        steps={[{ id: 'mount', status: 'error' }, { id: 'health', status: 'pending' }, { id: 'open', status: 'pending' }]}
+        onCreate={onCreate}
+        onCancel={() => undefined}
+      />
+    );
+    expect(screen.getByRole('heading', { name: 'Couldn’t create contact-api' })).toBeTruthy();
+    expect(screen.getByText('compose up failed')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onCreate).toHaveBeenLastCalledWith({ name: 'contact-api', coding: false });
+  });
+
+  it('says why coding is off when the check failed, and closes', () => {
+    const onCancel = vi.fn();
+    render(
+      <NewProjectSheet
+        folder={repo}
+        managed
+        codingError="The coding agent can’t open it."
+        steps={[{ id: 'check', status: 'error' }, { id: 'open', status: 'done' }]}
+        onCreate={() => undefined}
+        onCancel={onCancel}
+      />
+    );
+    expect(screen.getByText('The coding agent can’t open it.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe('NewProjectSheet with a coding task running', () => {
+  const busy = { busy: true, sessions: ['Fix login'] };
+
+  it('warns and sends wait or stop', () => {
+    const onCreate = vi.fn();
+    render(
+      <NewProjectSheet folder={repo} managed codingBusy={busy} onCreate={onCreate} onCancel={() => undefined} />
+    );
+    expect(screen.getByText(/A coding task is running \(Fix login\)/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow when it finishes' }));
+    expect(onCreate).toHaveBeenLastCalledWith({ name: 'contact-api', coding: true, whenCodingBusy: 'wait' });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop task and allow' }));
+    expect(onCreate).toHaveBeenLastCalledWith({ name: 'contact-api', coding: true, whenCodingBusy: 'stop' });
+  });
+
+  it('shows the plain Create when coding is switched off', () => {
+    render(
+      <NewProjectSheet folder={repo} managed codingBusy={busy} onCreate={() => undefined} onCancel={() => undefined} />
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeTruthy();
+    expect(screen.queryByText(/A coding task is running/)).toBeNull();
+  });
+});

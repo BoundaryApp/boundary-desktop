@@ -1,0 +1,185 @@
+/* The sheet before a call: meter, camera switch, preview. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+.wb-join-meter {
+  height: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.wb-join-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transition: width 60ms linear;
+}
+
+.wb-join-camera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.wb-join-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.wb-join-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* The call bar. */
+
+.wb-callbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+/* Off Chat and Circles it floats at the bottom left, beside the icon rail and below the update
+   card, so it stays clear of the agent button and the ring cards at the bottom right. */
+.wb-callbar.is-floating {
+  position: fixed;
+  left: 56px;
+  bottom: var(--space-2);
+  z-index: 20;
+  max-width: calc(100vw - 72px);
+}
+
+/* At the foot of the Chat and Circles rails. */
+.wb-left > .wb-callbar {
+  flex: none;
+  flex-wrap: wrap;
+  margin: var(--space-2);
+}
+
+.wb-callbar-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+button.wb-callbar-name {
+  cursor: pointer;
+}
+
+.wb-callbar-name small {
+  color: var(--text-muted);
+}
+
+.wb-callbar-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.wb-callbar-controls {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* The call view. */
+
+.wb-callview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.wb-callview-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-callview-head h2 {
+  margin: 0;
+}
+
+.wb-callview-head small {
+  color: var(--text-muted);
+}
+
+.wb-callview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+/* Ring cards: bottom right, above the agent button at its default spot (16px in, 60px tall),
+   and above the settings sheet so a ring can be answered from it. */
+
+.wb-ring-cards {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + 60px + var(--space-3));
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(300px, calc(100vw - 2 * var(--space-4)));
+}
+
+.wb-ring-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
+}
+
+.wb-ring-card-who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+}
+
+.wb-ring-card-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wb-ring-card-copy b {
+  font-weight: var(--weight-medium);
+}
+
+.wb-ring-card-copy small {
+  color: var(--text-muted);
+}
+
+.wb-ring-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+}

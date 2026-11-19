@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type Docker from 'dockerode';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../containerRuntime', () => ({
@@ -29,7 +30,7 @@ function composeContainer(workingDir: string, labels: Record<string, string> = {
     State: 'running',
     Status: 'Up 2 minutes (unhealthy)',
     Image: 'example/web',
-    Ports: [],
+    Ports: [] as Docker.Port[],
     Labels: {
       'com.docker.compose.project': 'demo',
       'com.docker.compose.service': 'web',
@@ -156,14 +157,17 @@ describe('dockerService event refresh', () => {
     vi.useRealTimers();
   });
 
-  type EventInternals = { handleDockerEvent: (event: { Type?: string; Action?: string }) => void };
+  // handleDockerEvent is private, so the service is viewed through its public parts plus this one.
+  type EventInternals = Pick<Awaited<ReturnType<typeof connectedService>>, 'destroy' | 'on'> & {
+    handleDockerEvent: (event: { Type?: string; Action?: string }) => void;
+  };
 
   async function serviceWithListing() {
     const listContainers = vi.fn(async () => []);
     const service = await connectedService({ listContainers });
     const updates = vi.fn();
     service.on('compose-configs-updated', updates);
-    return { service: service as typeof service & EventInternals, listContainers, updates };
+    return { service: service as unknown as EventInternals, listContainers, updates };
   }
 
   it('does not refresh for health-check exec events', async () => {

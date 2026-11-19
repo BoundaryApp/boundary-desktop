@@ -73,7 +73,7 @@ export const OnboardingHomeScreen: React.FC<OnboardingHomeScreenProps> = ({
           action={
             <div className="flex shrink-0 items-center gap-2">
               {oauthConnecting && !oauthPendingContinue && onCancelSignIn ? (
-                <Button type="button" variant="outline" onClick={onCancelSignIn}>
+                <Button type="button" variant="secondary" onClick={onCancelSignIn}>
                   Cancel
                 </Button>
               ) : null}

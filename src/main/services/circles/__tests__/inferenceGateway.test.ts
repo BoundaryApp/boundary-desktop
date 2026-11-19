@@ -1,5 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-import { localDay } from '../../../../shared/circleUsage';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleOffer } from '../circleOps';
 import {
   GATEWAY_CHUNK_BYTES,
@@ -36,7 +35,7 @@ function sink() {
       result.status = status;
       result.contentType = contentType;
     },
-    chunk: (data: Buffer) => void result.chunks.push(Buffer.from(data)),
+    chunk: (data: Buffer): void => void result.chunks.push(Buffer.from(data)),
     end: (error?: string) => {
       result.error = error;
       result.ended = true;
@@ -315,7 +314,13 @@ describe('metering', () => {
     fetchImpl,
     ...extra,
   });
-  const today = () => localDay(new Date());
+  // Only Date is faked, at local noon, so the day can't change during a test.
+  const TODAY = '2026-04-01';
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 3, 1, 12));
+  });
+  afterEach(() => vi.useRealTimers());
 
   it('counts requests and tokens per member, from JSON and from a stream', async () => {
     const onUsage = vi.fn();
@@ -332,7 +337,7 @@ describe('metering', () => {
     gateway.handle(DEVICE, chat(2), second);
     await second.done;
     await flush();
-    expect(onUsage.mock.lastCall?.[0]).toEqual({ day: today(), counts: { [MEMBER]: { requests: 2, tokens: 42 } } });
+    expect(onUsage.mock.lastCall?.[0]).toEqual({ day: TODAY, counts: { [MEMBER]: { requests: 2, tokens: 42 } } });
     expect(onUsage.mock.lastCall?.[1]).toEqual({ running: null, queued: [] });
   });
 
@@ -349,7 +354,7 @@ describe('metering', () => {
 
   it('keeps today’s counts from main and ignores yesterday’s', () => {
     const gateway = new InferenceGateway(
-      deps(vi.fn() as unknown as typeof fetch, { usage: { day: today(), counts: { [MEMBER]: { requests: 3, tokens: 0 } } } })
+      deps(vi.fn() as unknown as typeof fetch, { usage: { day: TODAY, counts: { [MEMBER]: { requests: 3, tokens: 0 } } } })
     );
     gateway.setLimits({ everyone: { requestsPerDay: 3 }, members: {} });
     const over = sink();

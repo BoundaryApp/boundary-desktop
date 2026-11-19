@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isBoundaryStop, type KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
+import {
+  isBoundaryStop,
+  type KanbanTaskDetail,
+  type KanbanTaskEvent,
+  type KanbanTaskRun,
+  type KanbanTaskSummary,
+} from '../../../../shared/types/hermesKanban';
 import {
   finishedSince,
   TASK_STATUS_LABEL,
@@ -36,6 +42,7 @@ const task = (over: Partial<KanbanTaskSummary> = {}): KanbanTaskSummary => ({
   lastHeartbeatAt: NOW - 10,
   claimExpires: NOW + 600,
   blockKind: null,
+  failures: 0,
   ...over,
 });
 
@@ -75,14 +82,14 @@ describe('task wording', () => {
   });
 
   it('takes the newest run', () => {
-    const run = (id: number) => ({ id, outcome: null, endedAt: null, error: null });
+    const run = (id: number): KanbanTaskRun => ({ id, outcome: null, endedAt: null, error: null });
     expect(latestRun(null)).toBeNull();
     expect(latestRun({ task: task(), body: null, result: null, latestSummary: null, events: [], comments: [], runs: [run(1), run(2)] })?.id).toBe(2);
   });
 });
 
 describe('waitReason', () => {
-  const detail = (runError: string | null) => ({
+  const detail = (runError: string | null): KanbanTaskDetail => ({
     task: task({ status: 'blocked' }),
     body: null,
     result: null,
@@ -115,7 +122,7 @@ describe('waitReason', () => {
 
   it('trusts the newest wait event over the board row for gave-up', () => {
     const blocked = task({ status: 'blocked', failures: 2 });
-    const event = (kind: string) => ({ id: 1, kind, note: null, trigger: null, createdAt: NOW });
+    const event = (kind: string): KanbanTaskEvent => ({ id: 1, kind, note: null, trigger: null, createdAt: NOW });
     expect(waitReason(blocked, null, event('blocked'))).toBe('blocked');
     expect(waitReason(task({ status: 'blocked' }), null, event('gave_up'))).toBe('failed');
   });
@@ -170,11 +177,11 @@ describe('task page helpers', () => {
       latestSummary: null,
       runs: [],
       events: [
-        { id: 1, runId: null, kind: 'created', note: null, createdAt: 1 },
-        { id: 2, runId: 1, kind: 'heartbeat', note: null, createdAt: 2 },
-        { id: 3, runId: 1, kind: 'heartbeat', note: 'grouping', createdAt: 3 },
-        { id: 4, runId: 1, kind: 'commented', note: null, createdAt: 4 },
-        { id: 5, runId: 1, kind: 'crashed', note: null, createdAt: 6 },
+        { id: 1, kind: 'created', note: null, trigger: null, createdAt: 1 },
+        { id: 2, kind: 'heartbeat', note: null, trigger: null, createdAt: 2 },
+        { id: 3, kind: 'heartbeat', note: 'grouping', trigger: null, createdAt: 3 },
+        { id: 4, kind: 'commented', note: null, trigger: null, createdAt: 4 },
+        { id: 5, kind: 'crashed', note: null, trigger: null, createdAt: 6 },
       ],
       comments: [{ id: 9, author: 'you', body: 'Skip dev deps', createdAt: 4 }],
     });

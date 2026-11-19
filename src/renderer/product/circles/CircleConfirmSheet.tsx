@@ -9,6 +9,16 @@ const api = () => window.electronAPI.circles;
 
 export type CircleConfirm = { kind: 'remove'; member: CircleMemberView } | { kind: 'leave' } | { kind: 'delete' };
 
+/** Whether this user is a Circle's only member, so leaving it would delete it. */
+export function isAlone(circle: CircleSnapshot): boolean {
+  return circle.members.length === 1 && circle.members[0].isMe;
+}
+
+/** What leaving asks: the only member deletes the Circle instead. */
+export function leaveConfirm(circle: CircleSnapshot): CircleConfirm {
+  return { kind: isAlone(circle) ? 'delete' : 'leave' };
+}
+
 function confirmCopy(pending: CircleConfirm | null, circle: CircleSnapshot, busy: boolean) {
   if (pending?.kind === 'delete') {
     return {
@@ -21,7 +31,7 @@ function confirmCopy(pending: CircleConfirm | null, circle: CircleSnapshot, busy
     return {
       title: `Leave ${circle.name}?`,
       label: busy ? 'Leaving…' : 'Leave',
-      help: 'Its chats leave this Mac with it. Your messages stay in the Circle, and you’d need a new invite to come back. If no admin is online, the leave finishes the next time one is, while Boundary is open on this Mac.',
+      help: 'Its chats leave this Mac with it, and your direct messages in this Circle are deleted from this Mac. Your messages stay in the Circle, and you’d need a new invite to come back. If no admin is online, the leave finishes the next time one is, while Boundary is open on this Mac.',
     };
   }
   return {

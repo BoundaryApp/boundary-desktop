@@ -13,6 +13,8 @@ export type RunCliOptions = {
   cwd?: string;
   timeout?: number;
   env?: NodeJS.ProcessEnv;
+  /** Aborting it sends SIGTERM, and the call rejects with an `AbortError`. */
+  signal?: AbortSignal;
   execFile?: typeof defaultExecFileAsync;
 };
 
@@ -24,8 +26,12 @@ export type RunComposeStreamingOptions = {
   onStderrLine?: (line: string) => void;
   /** Written to stdin, which is then closed. Without it stdin is not connected. */
   input?: string;
+  /** Aborting it stops Compose as a timeout does, and the result has `cancelled: true`. */
+  signal?: AbortSignal;
   /** Injected for tests. */
   spawnFn?: typeof spawn;
+  /** Injected for tests: KILL_GRACE_MS and CLOSE_GRACE_MS by default. */
+  graceMs?: { kill: number; close: number };
 };
 
 export function composeArgv(runtime: ContainerRuntime, args: string[]): string[] {
@@ -44,6 +50,7 @@ async function execRuntime(
     timeout: options.timeout,
     env: { ...runtime.env, ...options.env },
     encoding: 'utf8',
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   return { stdout: String(stdout), stderr: String(stderr) };
 }
@@ -91,8 +98,9 @@ export async function runComposeStreaming(
   runtime: ContainerRuntime,
   args: string[],
   options: RunComposeStreamingOptions = {}
-): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
+): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean; cancelled: boolean }> {
   const spawnFn = options.spawnFn ?? spawn;
+  const graceMs = options.graceMs ?? { kill: KILL_GRACE_MS, close: CLOSE_GRACE_MS };
   const command = runtime.composeBinaryPath ?? runtime.cliPath;
   const argv = runtime.composeBinaryPath ? args : composeArgv(runtime, args);
 
@@ -113,6 +121,7 @@ export async function runComposeStreaming(
     const stderrPending = { value: '' };
     // Compose exits 130 on SIGTERM, so the code alone can't tell a timeout from an interrupt.
     let timedOut = false;
+    let cancelled = false;
 
     let settled = false;
     const settle = (): boolean => {
@@ -121,6 +130,7 @@ export async function runComposeStreaming(
       if (timer) clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
       if (closeTimer) clearTimeout(closeTimer);
+      options.signal?.removeEventListener('abort', onAbort);
       return true;
     };
     const finish = (code: number | null) => {
@@ -131,24 +141,35 @@ export async function runComposeStreaming(
       if (stderrPending.value) {
         options.onStderrLine?.(stderrPending.value.replace(/\r$/, ''));
       }
-      resolve({ stdout, stderr, code, timedOut });
+      resolve({ stdout, stderr, code, timedOut, cancelled });
     };
 
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    /** SIGTERM, then SIGKILL if Compose hasn't exited after the grace period. */
+    const stop = () => {
+      if (killTimer) return;
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        // `child.killed` only says a signal was sent; these say whether it exited.
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+        }
+      }, graceMs.kill);
+    };
     const timer =
       options.timeout != null
         ? setTimeout(() => {
             timedOut = true;
-            child.kill('SIGTERM');
-            killTimer = setTimeout(() => {
-              // `child.killed` only says a signal was sent; these say whether it exited.
-              if (child.exitCode === null && child.signalCode === null) {
-                child.kill('SIGKILL');
-              }
-            }, KILL_GRACE_MS);
+            stop();
           }, options.timeout)
         : undefined;
+    function onAbort() {
+      cancelled = true;
+      stop();
+    }
+    if (options.signal?.aborted) onAbort();
+    else options.signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout?.on('data', (buf: Buffer | string) => {
       const text = buf.toString();
@@ -164,14 +185,14 @@ export async function runComposeStreaming(
       if (settle()) reject(err);
     });
     child.on('exit', (code) => {
-      // After a timeout, a grandchild can keep stdout/stderr open and hold back
+      // After a timeout or cancel, a grandchild can keep stdout/stderr open and hold back
       // `close`, so stop waiting for it shortly after the child itself exits.
-      if (timedOut && !settled) {
+      if ((timedOut || cancelled) && !settled) {
         closeTimer = setTimeout(() => {
           child.stdout?.destroy();
           child.stderr?.destroy();
           finish(code);
-        }, CLOSE_GRACE_MS);
+        }, graceMs.close);
       }
     });
     child.on('close', (code) => finish(code));

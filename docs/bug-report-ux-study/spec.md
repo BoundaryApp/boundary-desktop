@@ -11,11 +11,12 @@
 
 | Phase | Status | Depends on |
 | --- | --- | --- |
-| 1 Report sheet and GitHub hand-off | Not started | — |
+| 1 Report sheet and GitHub hand-off | Built 8 Nov 2026; in-app check pending | — |
 | 2 Error capture and offers | Not started | 1 |
 | 3 Assistant drafting | Not started | 1 |
 | 4 Reporting from chat | Not started | 3 |
 | 5 Duplicates and file hand-off | Not started | 1 |
+| 6 Report endpoint | Not started | 1 |
 
 ## Goal
 
@@ -33,6 +34,7 @@ A user who hits a bug can file a useful GitHub issue in under a minute, from whe
 8. **The assistant asks at most one question.** The question has tap answers and **Skip**.
 9. **Offers scale with what the user can see.** See the next section. Nothing is offered for an error with no visible effect.
 10. **One sheet, every entry point.** Each entry point opens the same three steps with a different starting context: Describe, Review, Submit on GitHub.
+11. **The build chooses where reports go.** Decisions 1 to 3 describe a repository target. A build can name an endpoint instead, and then decisions 1 to 3 don't apply to it (see Report targets). A build never switches targets at runtime and never falls back to the other one.
 
 ## Entry points and offers
 
@@ -63,9 +65,32 @@ An error's signature is its name, area and top three normalised frames. A signat
 | Screenshot of this window | Off | File dragged onto the issue |
 | Text of one reply | Off, message report only | Link |
 
-GitHub answers an over-long link with 414 and publishes no limit, so Phase 1 measures a working limit. When a draft passes it, Boundary moves the errors to a file and keeps the description in the link. The file hand-off comes in Phase 5; until then the errors go to the clipboard.
+GitHub publishes no limit. On 8 Nov 2026 it answered new-issue links up to about 6,900 characters, returned 500 just over 7,000 and 414 from 12,000, so the working limit is 6,000 characters, which leaves room for a signed-in browser's larger headers. When a draft passes it, Boundary moves the errors to a file and keeps the description in the link. The file hand-off comes in Phase 5; until then the errors go to the clipboard.
 
 **Copy report** and **Save as file** cover users with no GitHub account.
+
+## Report targets
+
+Two build-time settings choose the target, read the way `BOUNDARY_UPDATE_FEED_URL` is.
+
+| Setting | Target | Default |
+| --- | --- | --- |
+| `BOUNDARY_REPORT_REPO` | Pre-filled issue link to `owner/name` | `BoundaryApp/boundary-desktop` |
+| `BOUNDARY_REPORT_URL` | `POST` to this endpoint | Empty |
+
+When `BOUNDARY_REPORT_URL` is set, it wins and the repository setting is ignored. A fork that sets neither repository nor endpoint gets **Copy report** and **Save as file** only.
+
+An endpoint build changes the sheet in five places:
+
+- **Authentication:** the request carries the build's update feed key as a bearer token. A build with an endpoint and no stored key shows **Add your update key in Settings › Updates to send reports**, and still offers copy and save.
+- **The last step:** it's **Send report** instead of **Submit on GitHub**. Review is the last check before the report leaves the Mac.
+- **Review:** it says who reads the report, where a repository target warns that the issue is public.
+- **Confirmation:** the endpoint answers with a reference, and the sheet shows it. Unlike the repository target, the endpoint target can say the report was sent. Settings lists these as **Sent**, with the reference.
+- **Files:** the full log and the screenshot go in the request as attachments, so Phase 5's drag hand-off isn't needed.
+
+The request holds the title, the body and any attachments. It doesn't add the reporter's identity, because the endpoint already has it from the key.
+
+A failed send (network, 5xx) keeps the report in a local queue, at most 20 reports, and retries on the next app start. A 401 means the key was revoked, and the report stays queued until a new key is added. A queued report can still be copied or saved, but never opened as a GitHub link.
 
 ## Assistant drafting
 
@@ -103,21 +128,26 @@ Before Review, Boundary searches open issues using the error name and area only,
 
 **Phase 5.** Duplicate search. Drag files out of the app with `webContents.startDrag`, after testing the drop on GitHub in Safari, Chrome and Firefox.
 
+**Phase 6.** `BOUNDARY_REPORT_REPO` and `BOUNDARY_REPORT_URL`, the endpoint request with the feed key, the five sheet changes, the send queue.
+
 ## Acceptance criteria
 
-- [ ] No GitHub token, cookie or browser data is read or stored.
+- [x] No GitHub token, cookie or browser data is read or stored.
 - [ ] A user without triage rights opens the link and sees the form filled in, and the submitted issue has the `bug` label.
 - [ ] A signed-out user reaches the filled-in form after signing in, or the hand-off screen says what to do instead.
-- [ ] Fixture logs holding a secret, home path, host name and chat text produce a report with none of them.
-- [ ] No code path passes session content to the collector.
-- [ ] A report can be filed with the stack stopped.
+- [x] Fixture logs holding a secret, home path, host name and chat text produce a report with none of them.
+- [x] No code path passes session content to the collector.
+- [x] A report can be filed with the stack stopped.
 - [ ] The sheet names the model before any data reaches it, and states the provider for a cloud model.
 - [ ] A signature prompts once per run, and never after **Don't ask for this error**.
 - [ ] An error with no visible effect produces no prompt.
 - [ ] A toast never appears while the user is typing, tested with fake timers.
 - [ ] A crash in the mounted runtime reaches the recovery screen, and **Reload and report** opens the sheet with the error attached.
 - [ ] An exit after `uncaughtException` shows the banner once on next launch.
-- [ ] A draft over the link limit still opens GitHub with the description intact.
-- [ ] Text the user edits in Review is the text in the link.
+- [x] A draft over the link limit still opens GitHub with the description intact.
+- [x] Text the user edits in Review is the text in the link.
 - [ ] A failed duplicate search leaves Review unchanged.
 - [ ] Every control shows `--focus-ring`, and reduced motion stops the drafting animation.
+- [ ] A build with `BOUNDARY_REPORT_URL` never opens a GitHub link, including after a failed send.
+- [ ] A failed send keeps the report queued and retries on the next start, and a 401 asks for a new key.
+- [ ] The feed key is sent only to the report endpoint and the update feed.

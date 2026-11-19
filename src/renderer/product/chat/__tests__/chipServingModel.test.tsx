@@ -3,28 +3,40 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantRuntimeProvider, useLocalRuntime, type ThreadRuntime } from '@assistant-ui/react';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import type {
+  HermesChatBreakdownResult,
+  HermesSessionInferenceResult,
+  SessionInferenceMark,
+} from '../../../../shared/types/hermesChat';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+const noop = (): void => undefined;
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 const getSessionInference = vi.fn();
+// Main's word that a turn's end was noted: its fallback mark and pool provider are written.
+const noted = { emit: (_sessionIds: string[]): void => undefined };
 
 stubElectronAPI({
   hermesChat: {
     listPendingApprovals: vi.fn(async () => []),
     listPendingCredentialRequests: vi.fn(async () => []),
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+    getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
+      success: true,
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
+    }),
     getSessionInference: (...args: unknown[]) => getSessionInference(...args),
+    onInferenceNoted: (cb: (event: { sessionIds: string[] }) => void) => {
+      noted.emit = (sessionIds) => cb({ sessionIds });
+      return noop;
+    },
   },
   onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
@@ -44,7 +56,7 @@ const adapter = {
   },
 };
 
-const snapshot = (marks: unknown[]) => ({
+const snapshot = (marks: SessionInferenceMark[]): HermesSessionInferenceResult => ({
   success: true,
   override: null,
   resolved: {
@@ -57,9 +69,11 @@ const snapshot = (marks: unknown[]) => ({
     fallbacks: [{ slot: 'peer', modelId: 'qwen3:14b', peer: { circleId: 'c1', providerId: 'p1' } }],
   },
   marks,
+  poolTurns: [],
+  turnWindows: [],
 });
 
-const fellBack = {
+const fellBack: SessionInferenceMark = {
   id: 'f1',
   at: new Date(Date.now() + 1_000).toISOString(),
   kind: 'fell-back',
@@ -67,7 +81,7 @@ const fellBack = {
   modelId: 'qwen3:14b',
   sharedBy: { person: 'Ada', circle: 'Friends' },
 };
-const recovered = {
+const recovered: SessionInferenceMark = {
   id: 'r1',
   at: new Date(Date.now() + 2_000).toISOString(),
   kind: 'recovered',
@@ -106,6 +120,8 @@ async function sendTurn(text: string) {
   });
   await waitFor(() => expect(thread.current!.getState().isRunning).toBe(true));
   await act(async () => turn.finish());
+  await waitFor(() => expect(thread.current!.getState().isRunning).toBe(false));
+  await act(async () => noted.emit(['s1']));
 }
 
 describe('the chip across a run of turns', () => {
@@ -133,5 +149,29 @@ describe('the chip across a run of turns', () => {
     const chip = await screen.findByRole('button', { name: /Inference · OpenRouter · primary/ });
     expect(chip.textContent).toBe('OpenRouter · primary');
     expect(await screen.findByText('Back on OpenRouter · primary')).toBeTruthy();
+  });
+
+  it('fetches the turn’s record when main says it is written, not when the reply ends', async () => {
+    getSessionInference.mockResolvedValue(snapshot([]));
+    render(<Harness />);
+    await screen.findByRole('button', { name: /Inference · OpenRouter · primary/ });
+    const calls = getSessionInference.mock.calls.length;
+
+    getSessionInference.mockResolvedValue(snapshot([fellBack]));
+    await act(async () => {
+      thread.current!.append('first');
+    });
+    await waitFor(() => expect(thread.current!.getState().isRunning).toBe(true));
+    await act(async () => turn.finish());
+    await waitFor(() => expect(thread.current!.getState().isRunning).toBe(false));
+    // The reply has ended, but main hasn't noted the turn yet: nothing is fetched.
+    expect(getSessionInference.mock.calls.length).toBe(calls);
+
+    // Another chat's turn doesn't refresh this one.
+    await act(async () => noted.emit(['other']));
+    expect(getSessionInference.mock.calls.length).toBe(calls);
+
+    await act(async () => noted.emit(['s1']));
+    await screen.findByRole('button', { name: /Inference · Ada's qwen3:14b · fallback for OpenRouter · primary/ });
   });
 });

@@ -23,23 +23,17 @@ import {
   LIGHTRAG_COMPOSE_PROFILE,
   LIGHTRAG_COMPOSE_SERVICES,
   N8N_COMPOSE_SERVICES,
-  SOVEREIGN_AGENT_STACK_VERSION,
   buildComposeProfileArgs,
 } from '../../../shared/assistantStackConstants';
-import {
-  WEB_SEARCH_MODE_MIN_STACK_VERSION,
-  isWebSearchMode,
-  stackVersionAtLeast,
-  type WebSearchModeState,
-} from '../../../shared/webSearchMode';
+import { isWebSearchMode, type WebSearchModeState } from '../../../shared/webSearchMode';
 import { WEB_SEARCH_MODE_ENV, findWebSearchModeOverrides } from './webSearchModeOverrides';
 import {
   addonComposeEnv,
   addonComposeProfiles,
   boundaryComposeProfileArgs,
-  lightragComposeEnv,
-  lightragComposeProfiles,
+  installedAddonsHere,
 } from '../addons/addonComposeState';
+import { moveBuiltinSwitchesToEnv } from '../addons/builtinAddons';
 import { buildAssistantUiServiceCards } from '../../../shared/assistantUiServices';
 import { summarizeDownload, tallyDownload, type DownloadTally } from '../../../shared/startupDownload';
 import {
@@ -84,9 +78,10 @@ import {
   applyLlmConnectionToProjectFiles,
   clearLlmKeysFromProjectEnv,
 } from './applyLlmToProjectEnv';
-import { parseEnv, upsertEnvLines } from './stackEnv';
+import { parseEnv, readEnvFile, upsertEnvLines } from './stackEnv';
 import { redactSecrets } from '../secrets/redact';
 import {
+  ensureAddonMountSources,
   ensureAssistantDataDirs,
   ensureAssistantWorkspaceDir,
   ensureOpenCodeConfigFile,
@@ -111,10 +106,11 @@ import {
   getStartRuns,
   recordStartRun,
   isN8nEnabled,
-  setN8nEnabled,
   isLightragEnabled,
   isLightragSettingUnset,
   setLightragEnabled,
+  builtinSwitchesMoved,
+  markBuiltinSwitchesMoved,
   getWebSearchMode,
   setWebSearchMode,
 } from './AssistantStackStore';
@@ -132,7 +128,12 @@ import {
   needsImageBuild,
 } from './provisionSovereignStack';
 import { tryResolveAssistantRoot } from './resolveAssistantRoot';
-import { chooseAssistantPorts, portSetCandidates, type AssistantPortSet } from './assistantPortChoice';
+import {
+  chooseAssistantPorts,
+  keepOrReplaceStoredPorts,
+  portSetCandidates,
+  type AssistantPortSet,
+} from './assistantPortChoice';
 import { listStoredHermesProjects } from './hermes/hermesProjectStore';
 import { ensureHermesWorkerKey } from './hermesWorkerKey';
 import {
@@ -159,7 +160,7 @@ import {
 } from './hermesProfileLimits';
 import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from './hermesPlatformHint';
 import { listStoredAgents } from './hermes/hermesAgentStore';
-import { defaultMcpServerEntries } from './hermesAgentMcpServers';
+import { agentEnvValues, defaultMcpServerEntries, mcpEnvRefs } from './hermesAgentMcpServers';
 import {
   buildHermesConfigApplyInput,
   hasHermesWrites,
@@ -171,10 +172,15 @@ import {
   type DesiredHermesProfile,
   type HermesProfileWrites,
 } from './hermesConfigApply';
-import { hasCalendarAccounts } from './calendar/calendarStore';
-import { CALENDAR_COMPOSE_PROFILE } from './calendar/calendarModel';
+import { getMacCalendarAccount, hasCalDavAccounts } from './calendar/calendarStore';
+import { CALENDAR_COMPOSE_PROFILE, MAC_CALENDAR_SERVER, macCalendarUrlSets } from './calendar/calendarModel';
 import { rewriteLlmUrlForContainer } from './rewriteLlmUrlForContainer';
-import { planAppInferenceChain, sharedModelConnection, type ChainPlan } from '../inference/inferenceChainService';
+import {
+  planAppInferenceChain,
+  poolConnection,
+  sharedModelConnection,
+  type ChainPlan,
+} from '../inference/inferenceChainService';
 import {
   ensureInferenceRouter,
   HERMES_ROUTER_PROVIDER_KEY,
@@ -190,7 +196,9 @@ import {
 } from './runSovereignSetup';
 import { syncStackImagePins } from './stackImagePins';
 import { persistDebugLog } from '../../persistDebugLog';
+import { notifyHermesReplaced, runBeforeStackUp } from './hermesLifecycle';
 import { ComposeTimeline } from './composeTimeline';
+import { upWithStaleNetworkRetry } from './staleNetworkRetry';
 import { StartTimer } from './startTimer';
 import type { StartKind } from '../../../shared/startupTiming';
 import { ensureHermesWebuiSyncToInsights } from './hermes/hermesWebuiSync';
@@ -214,8 +222,13 @@ import {
 import { wakeHermesBridgeServer } from '../hostBridge/hermesWake';
 import { resolveApiServerKey, resolveHermesStackEndpoints } from './hermes/hermesEndpoints';
 import {
+  HERMES_BRIDGE_SERVER_KEY,
   hostBridgeCdpUrl,
+  profileGetsBoundaryBrowser,
   hostBridgeHermesConfigSets,
+  hermesProfileEnvPath,
+  removeEnvValuesFromProfiles,
+  writeEnvValuesToProfiles,
   writeHostBridgeTokensToProfiles,
 } from '../hostBridge/hermesProvision';
 import {
@@ -264,6 +277,21 @@ export function announceAssistantStackStopping(): void {
     createLifecycleSnapshot('stopping', {
       message: 'Quit requested — stopping assistant containers…',
       services: seedServiceProgress('working', 'Stopping…', 0.15),
+    })
+  );
+}
+
+/**
+ * Puts the stack in its starting state while Boundary restarts the engine to make room for an
+ * add-on (ADR 0055 §3), so the start-up screen shows instead of the quit overlay.
+ */
+export function announceAssistantStackMakingRoom(message: string): void {
+  setLifecycle(
+    createLifecycleSnapshot('starting', {
+      message,
+      stage: 'provision',
+      stageStartedAt: Date.now(),
+      services: seedServiceProgress('working', message, 0.1),
     })
   );
 }
@@ -356,14 +384,15 @@ const N8N_ONLY_CONTAINERS = new Set<string>(['boundary-n8n', 'boundary-gpt-resea
 const LIGHTRAG_ONLY_CONTAINERS = new Set<string>(['boundary-lightrag', 'boundary-lightrag-neo4j']);
 
 /**
- * The lifecycle's service cards. n8n and the GPT Researcher API have one only while n8n is on,
- * LightRAG and Neo4j only while LightRAG is on.
+ * The lifecycle's service cards. n8n and the GPT Researcher API have one only while the n8n
+ * add-on is on, LightRAG and Neo4j only while the LightRAG add-on is on.
  */
 function seedServiceProgress(
   ...args: Parameters<typeof seedAllServiceProgress>
 ): AssistantStackServiceProgress[] {
-  const n8n = isN8nEnabled();
-  const lightrag = isLightragEnabled();
+  const installed = installedAddonsHere();
+  const n8n = installed.includes('n8n');
+  const lightrag = installed.includes('lightrag');
   return seedAllServiceProgress(...args).filter(
     (service) =>
       (n8n || !N8N_ONLY_CONTAINERS.has(service.containerName)) &&
@@ -426,28 +455,53 @@ async function arePortsAvailable(ports: AssistantStackPorts): Promise<boolean> {
   return checks.every(Boolean);
 }
 
+/** Whether any container of Boundary's Compose project is running (and so holds its ports). */
+async function boundaryStackRunning(): Promise<boolean> {
+  const runtime = await getContainerRuntime();
+  const { stdout } = await runCli(
+    runtime,
+    ['ps', '-q', '--filter', `label=com.docker.compose.project=${BOUNDARY_ASSISTANT_PROJECT_NAME}`],
+    { timeout: 30_000 }
+  );
+  return stdout.trim().length > 0;
+}
+
 /**
- * The stored ports once setup is complete (when asked to prefer them). Otherwise the first
+ * The stored ports once setup is complete (when asked to prefer them), unless another
+ * program now holds one of them while Boundary's own stack is stopped. Otherwise the first
  * fully free set: the defaults, then each offset in BOUNDARY_ASSISTANT_PORT_OFFSETS. Throws,
  * naming the busy ports, when no set is free.
  */
 export async function resolveAssistantPorts(options?: {
   preferStored?: boolean;
 }): Promise<AssistantPortSet> {
+  // A separate instance stays off the defaults, which the default build may claim later.
+  const candidates = portSetCandidates({ includeDefaults: !IS_SEPARATE_INSTANCE });
+  let choice: AssistantPortSet | Awaited<ReturnType<typeof chooseAssistantPorts>>;
   if (options?.preferStored && isAssistantStackSetupComplete()) {
     const isolationMode = getStoredIsolationMode();
-    return {
+    const stored: AssistantPortSet = {
       ports: getStoredAssistantPorts(),
       isolationMode,
       portOffset: isolationMode === 'offset-ports' ? getStoredPortOffset() : 0,
     };
+    // The developer stack's own ports are not Boundary's to move.
+    if (isLocalAssistantStackMode()) return stored;
+    choice = await keepOrReplaceStoredPorts(stored, {
+      candidates,
+      isPortFree: (port) => isPortFree(port),
+      ownStackRunning: boundaryStackRunning,
+    });
+    if (choice === stored) return stored;
+    if (!('busy' in choice)) {
+      persistDebugLog('assistant-stack', 'stored ports busy, moving', {
+        from: stored.portOffset,
+        to: choice.portOffset,
+      });
+    }
+  } else {
+    choice = await chooseAssistantPorts(candidates, (port) => isPortFree(port));
   }
-
-  // A separate instance stays off the defaults, which the default build may claim later.
-  const choice = await chooseAssistantPorts(
-    portSetCandidates({ includeDefaults: !IS_SEPARATE_INSTANCE }),
-    (port) => isPortFree(port)
-  );
   if ('busy' in choice) {
     persistDebugLog('assistant-stack', 'no free port set', { busy: choice.busy });
     throw new Error(choice.message);
@@ -470,6 +524,7 @@ function portsToComposeEnv(ports: AssistantStackPorts): NodeJS.ProcessEnv {
     GPTR_PORT: String(ports.gptResearcher),
     N8N_HOST_PORT: String(ports.n8n),
     LLM_PROXY_ADMIN_PORT: String(ports.llmProxyAdmin),
+    DETECTOR_PORT: String(ports.detector),
     BOUNDARY_HERMES_GATEWAY_HOST_PORT: String(ports.gateway),
     BOUNDARY_HERMES_API_HOST_PORT: String(ports.apiServer),
     BOUNDARY_HERMES_DASHBOARD_HOST_PORT: String(ports.dashboard),
@@ -587,24 +642,14 @@ export function buildAssistantStackStatus(partial?: {
     setupComplete: isAssistantStackSetupComplete(),
     ready: Boolean(partial?.ready),
     lastError: partial?.lastError,
-    // n8n and LightRAG get their own cards, with their switches.
+    // n8n, LightRAG and Neo4j open from their add-on pages.
     uiServices: buildAssistantUiServiceCards(ports).filter(
       (service) => !OWN_CARD_SERVICE_IDS.has(service.id)
     ),
-    n8n: {
-      enabled: isN8nEnabled(),
-      // dev:local-stack attaches to a `make up` whose .env decides (AUTOMATION_ENABLED).
-      canToggle: !stackMode().attachLive,
-    },
-    lightrag: {
-      enabled: isLightragEnabled(),
-      // Under dev:local-stack the checkout's .env decides (COMPOSE_PROFILES, LIGHTRAG_MCP_ENABLED).
-      canToggle: !stackMode().attachLive,
-    },
   };
 }
 
-/** UI services shown on a card of their own instead of in `uiServices`. */
+/** UI services that open from an add-on page instead of from `uiServices`. */
 const OWN_CARD_SERVICE_IDS = new Set(['n8n', 'lightrag', 'neo4j']);
 
 export async function isAssistantStackReady(): Promise<boolean> {
@@ -685,13 +730,16 @@ async function buildBoundaryComposeContext(options: {
       // profiles, never api-server. Set here rather than with setup.sh --research, which
       // stacks before the research profile refuse as an unknown option.
       GPTR_MCP_ENABLED: '1',
+      // The bootstraps register OpenCode's coding_* tools on the default and browser profiles,
+      // never api-server. setup.sh --coding writes this into .env, but compose falls back to 0
+      // without it, and from stack 0.3.15 `addon.sh disable opencode` can set it to 0 while
+      // `coding` still starts both containers.
+      OPENCODE_MCP_ENABLED: '1',
       // Routes mcp-searxng and GPT Researcher through search-gate, which COMPOSE_PROFILES
       // starts. Overrides a WEB_SEARCH_URL in the stack's .env.
       WEB_SEARCH_URL: BOUNDARY_WEB_SEARCH_URL,
-      // Overrides the LIGHTRAG_MCP_ENABLED=1 that setup.sh --rag wrote for older Boundaries.
-      ...lightragComposeEnv(),
       // Who answers Hermes's web searches and page reads. Always passed, so a line in the stack's
-      // .env doesn't decide; stacks before WEB_SEARCH_MODE_MIN_STACK_VERSION ignore it.
+      // .env doesn't decide.
       [WEB_SEARCH_MODE_ENV]: getWebSearchMode(),
       // The overlay gives this to caldav-mcp only (calendar spec, Phase 0 S7).
       BOUNDARY_CALDAV_TZ: hostTimeZone(),
@@ -709,6 +757,7 @@ async function runBoundaryCompose(
     env?: NodeJS.ProcessEnv;
     openCodeConfigFile?: string;
     workspaceRoot?: string;
+    signal?: AbortSignal;
   } = {}
 ): Promise<{ stdout: string; stderr: string }> {
   const ctx = await buildBoundaryComposeContext(options);
@@ -716,6 +765,7 @@ async function runBoundaryCompose(
     cwd: ctx.root,
     timeout: options.timeout,
     env: ctx.env,
+    signal: options.signal,
   });
 }
 
@@ -1017,6 +1067,19 @@ async function pinTerminalBackendInProjectEnv(root: string): Promise<void> {
   if (next !== contents) await fs.promises.writeFile(envPath, next, 'utf8');
 }
 
+/**
+ * Write the host ports the stack's own scripts and Boundary's add-on clients read from `.env`.
+ * Compose gets them from the process environment; `scripts/detector.sh` and the writing
+ * check's detector client read `DETECTOR_PORT` from `.env` (stack v0.3.14).
+ */
+async function pinHostPortsInProjectEnv(root: string, ports: AssistantStackPorts): Promise<void> {
+  const envPath = path.join(root, '.env');
+  if (!fs.existsSync(envPath)) return;
+  const contents = await fs.promises.readFile(envPath, 'utf8');
+  const next = upsertEnvLines(contents, { DETECTOR_PORT: String(ports.detector) });
+  if (next !== contents) await fs.promises.writeFile(envPath, next, 'utf8');
+}
+
 /** Best-effort prune of dangling volumes labeled for this Compose project. */
 async function pruneBoundaryAssistantVolumes(): Promise<void> {
   try {
@@ -1312,14 +1375,17 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
 
     emitProgress(`Preparing ${APP_NAME} assistant data directory…`);
     await ensureAssistantDataDirs(dataRoot);
+    await ensureAddonMountSources(resolveAssistantUserContentRoot(root));
     await ensureHermesWebuiSyncToInsights(dataRoot);
     const openCodeConfigFile = await ensureOpenCodeConfigFile(root, dataRoot);
 
     const preferStored = isAssistantStackSetupComplete();
     const { ports, isolationMode, portOffset } = await resolveAssistantPorts({ preferStored });
     setStoredAssistantPorts(ports, isolationMode, portOffset);
+    if (!isLocalAssistantStackMode()) await pinHostPortsInProjectEnv(root, ports);
 
     if (isLightragSettingUnset()) await removeLightragLeftovers({ openCodeConfigFile, workspaceRoot });
+    if (boundaryOwned) moveBuiltinSwitches(root);
 
     if (await isAssistantStackReady()) {
       if (proxyHasStaleKey) {
@@ -1350,6 +1416,10 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
         ? `Starting assistant services on offset ports (API ${ports.apiServer})…`
         : `Starting assistant services (${BOUNDARY_ASSISTANT_COMPOSE_PROFILES.join(', ')})…`;
 
+    // Add-ons whose compose files bind-mount host folders create them here; a rejection fails
+    // the start with its message instead of Podman's missing-bind-source error.
+    await runBeforeStackUp();
+
     await prepareHermesHome(dataRoot);
 
     // Stub profile dirs (e.g. only memories/) make hermes-api-bootstrap skip
@@ -1366,23 +1436,34 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     startTimer?.reach('prepared');
     emitStage('compose', startMessage);
     const upServices = await composeUpServices({ openCodeConfigFile, workspaceRoot });
-    await runBoundaryComposeWithProgress(
-      [
-        ...boundaryComposeProfileArgs(),
-        'up',
-        '-d',
-        ...(buildImages ? ['--build'] : []),
-        ...upServices,
-      ],
-      {
-        timeout: buildImages ? ASSISTANT_STACK_BUILD_UP_TIMEOUT_MS : ASSISTANT_STACK_UP_TIMEOUT_MS,
-        openCodeConfigFile,
-        workspaceRoot,
+    await upWithStaleNetworkRetry(
+      (extraArgs) =>
+        runBoundaryComposeWithProgress(
+          [
+            ...boundaryComposeProfileArgs(),
+            'up',
+            '-d',
+            ...(buildImages ? ['--build'] : []),
+            ...extraArgs,
+            ...upServices,
+          ],
+          {
+            timeout: buildImages ? ASSISTANT_STACK_BUILD_UP_TIMEOUT_MS : ASSISTANT_STACK_UP_TIMEOUT_MS,
+            openCodeConfigFile,
+            workspaceRoot,
+          }
+        ),
+      () => {
+        persistDebugLog('assistant-stack', 'stale network: recreating containers', {});
+        emitProgress('Reconnecting containers to the stack’s network…');
       }
     );
 
     emitStage('health', 'Waiting for Hermes health check…');
     await waitUntilAssistantHealthy(ports);
+    // After the health wait, unlike the recreates: the 'start' listener runs `vault.sh up-hook`
+    // first, which asks the running gateway to reload its plugins.
+    notifyHermesReplaced('start');
     // `up` recreates hermes and opencode-mcp whenever their coding variables changed.
     recordHermesCodingRoots(currentCodingRoots());
     if (overlayHostPaths) recordMountedProjectFolders(overlayHostPaths);
@@ -1430,7 +1511,16 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
   }
 }
 
-export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
+/**
+ * Stop the stack's containers. `quiet` leaves the lifecycle as it is, for a stop the stack
+ * starts again from (making room, ADR 0055 §3): 'stopping' and 'stopped' put up the quit overlay.
+ */
+export async function stopAssistantStack(
+  options: { quiet?: boolean } = {}
+): Promise<StopAssistantStackResult> {
+  const lifecycle = (snapshot: AssistantStackLifecycleSnapshot) => {
+    if (!options.quiet) setLifecycle(snapshot);
+  };
   try {
     if (isLocalAssistantStackMode()) {
       // Leave the lifecycle as it is: 'stopping'/'stopped' put up the quit overlay.
@@ -1440,7 +1530,7 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
 
     const { root } = tryResolveAssistantRoot();
     if (!root) {
-      setLifecycle(
+      lifecycle(
         createLifecycleSnapshot('stopped', {
           message: 'Assistant root not found; nothing to stop.',
           services: markAllServicesDone(seedServiceProgress(), 'Stopped'),
@@ -1450,7 +1540,7 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
     }
     emitProgress(`Stopping ${APP_NAME} assistant stack…`);
     stopKeepingLlmProxyUpstream();
-    setLifecycle(
+    lifecycle(
       createLifecycleSnapshot('stopping', {
         message: `Stopping ${APP_NAME} assistant stack…`,
         services: seedServiceProgress('working', 'Stopping…', 0.2),
@@ -1465,7 +1555,7 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
       { timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS }
     );
 
-    setLifecycle(
+    lifecycle(
       createLifecycleSnapshot('stopped', {
         message: 'Assistant stack stopped.',
         services: markAllServicesDone(
@@ -1479,7 +1569,7 @@ export async function stopAssistantStack(): Promise<StopAssistantStackResult> {
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setLifecycle(
+    lifecycle(
       createLifecycleSnapshot('error', {
         message,
         error: message,
@@ -1498,15 +1588,16 @@ export async function restartHermesService(): Promise<void> {
 }
 
 /**
- * The services the stack's `up` names. None while n8n is on, so `up` starts every service in the
- * profiles. Otherwise every service but n8n's, from `config --services`, since naming services is
- * the only way to start part of a profile without Compose pulling the rest.
+ * The services the stack's `up` names. None while the n8n add-on is on, so `up` starts every
+ * service in the profiles. Otherwise every service but n8n's, from `config --services`, since
+ * `automation` stays on for `gptr-mcp` and naming services is the only way to start part of a
+ * profile without Compose pulling the rest.
  */
 async function composeUpServices(options: {
   openCodeConfigFile: string;
   workspaceRoot: string;
 }): Promise<string[]> {
-  if (isN8nEnabled()) return [];
+  if (installedAddonsHere().includes('n8n')) return [];
   const { stdout } = await runBoundaryCompose(
     [...boundaryComposeProfileArgs(), 'config', '--services'],
     { timeout: 60_000, ...options }
@@ -1523,86 +1614,29 @@ async function composeUpServices(options: {
 }
 
 /**
- * Turn n8n on or off (Services → n8n). While the stack runs this starts n8n, or stops and removes
- * its containers; n8n's data volume stays. Otherwise the next start follows the setting. A failed
- * start or removal puts the setting back.
+ * Boundary's old n8n and LightRAG switches, carried into the managed stack's `.env` once, where
+ * `addon.sh` and the bootstraps read them. A failure is logged and tried on the next start.
  */
-export async function setN8nRunning(
-  enabled: boolean
-): Promise<{ success: boolean; error?: string }> {
-  if (stackMode().attachLive) {
-    return {
-      success: false,
-      error: 'The local stack’s .env decides whether n8n runs (AUTOMATION_ENABLED).',
-    };
-  }
-  const previous = isN8nEnabled();
-  setN8nEnabled(enabled);
-  if (!(await isAssistantStackReady())) return { success: true };
+function moveBuiltinSwitches(root: string): void {
   try {
-    await runBoundaryCompose(
-      [
-        ...boundaryComposeProfileArgs(),
-        ...(enabled ? ['up', '-d'] : ['rm', '-sf']),
-        ...N8N_COMPOSE_SERVICES,
-      ],
-      { timeout: enabled ? ASSISTANT_STACK_UP_TIMEOUT_MS : ASSISTANT_STACK_DOWN_TIMEOUT_MS }
-    );
-    persistDebugLog('assistant-stack', enabled ? 'n8n started' : 'n8n removed', {});
-    return { success: true };
+    const written = moveBuiltinSwitchesToEnv(root, {
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, 'utf8');
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, contents) => fs.writeFileSync(p, contents),
+      stored: () => ({ n8n: isN8nEnabled(), lightrag: isLightragEnabled() }),
+      moved: builtinSwitchesMoved,
+      markMoved: markBuiltinSwitchesMoved,
+    });
+    if (Object.keys(written).length > 0) persistDebugLog('assistant-stack', 'built-in add-on flags written', written);
   } catch (error) {
-    setN8nEnabled(previous);
-    const message = error instanceof Error ? error.message : String(error);
-    persistDebugLog('assistant-stack', 'n8n switch failed', { enabled, error: message });
-    return {
-      success: false,
-      error: enabled ? `Couldn’t start n8n. ${message}` : `Couldn’t stop n8n. ${message}`,
-    };
-  }
-}
-
-/**
- * Turn LightRAG and Neo4j on or off (Services → LightRAG). Turning it on while the stack runs
- * starts the `rag` services, then reruns the Hermes bootstraps and recreates hermes so they
- * register LightRAG's MCP server; chats pause while hermes restarts. Turning it off stops and
- * removes the containers whether or not the stack runs, keeping their data: the neo4j_data
- * volume and rag_storage under the data folder. Hermes keeps its LightRAG entry, unreachable,
- * until its bootstraps next run, and the pinned stack doesn't remove it even then (change request
- * 0022). A failed start or removal puts the setting back.
- */
-export async function setLightragRunning(
-  enabled: boolean
-): Promise<{ success: boolean; error?: string }> {
-  if (stackMode().attachLive) {
-    return {
-      success: false,
-      error: 'The local stack’s .env decides whether LightRAG runs (COMPOSE_PROFILES).',
-    };
-  }
-  const previous = isLightragEnabled();
-  setLightragEnabled(enabled);
-  try {
-    if (enabled) {
-      if (!(await isAssistantStackReady())) return { success: true };
-      await runBoundaryCompose(
-        [...boundaryComposeProfileArgs(), 'up', '-d', ...LIGHTRAG_COMPOSE_SERVICES],
-        { timeout: ASSISTANT_STACK_UP_TIMEOUT_MS }
-      );
-      const reloaded = await reloadHermesForAddons();
-      if (!reloaded.success) throw new Error(reloaded.error ?? 'Hermes didn’t restart.');
-    } else {
-      await runBoundaryCompose(lightragRemoveArgs(), { timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS });
-    }
-    persistDebugLog('assistant-stack', enabled ? 'lightrag started' : 'lightrag removed', {});
-    return { success: true };
-  } catch (error) {
-    setLightragEnabled(previous);
-    const message = error instanceof Error ? error.message : String(error);
-    persistDebugLog('assistant-stack', 'lightrag switch failed', { enabled, error: message });
-    return {
-      success: false,
-      error: enabled ? `Couldn’t start LightRAG. ${message}` : `Couldn’t stop LightRAG. ${message}`,
-    };
+    persistDebugLog('assistant-stack', 'built-in add-on flags not written', {
+      error: error instanceof Error ? error.name : 'unknown',
+    });
   }
 }
 
@@ -1618,11 +1652,6 @@ function lightragRemoveArgs(): string[] {
   ];
 }
 
-/** Whether the pinned stack's Hermes reads HERMES_WEB_SEARCH_MODE. */
-function webSearchModeAvailable(): boolean {
-  return stackVersionAtLeast(SOVEREIGN_AGENT_STACK_VERSION, WEB_SEARCH_MODE_MIN_STACK_VERSION);
-}
-
 /** Settings → Agent browser: the web search mode, and Hermes `.env` lines that override it. */
 export async function getWebSearchModeState(): Promise<WebSearchModeState> {
   const { root } = tryResolveAssistantRoot();
@@ -1631,7 +1660,6 @@ export async function getWebSearchModeState(): Promise<WebSearchModeState> {
     : [];
   return {
     mode: getWebSearchMode(),
-    available: webSearchModeAvailable(),
     canChange: !stackMode().attachLive,
     overrides,
   };
@@ -1654,12 +1682,6 @@ export async function setWebSearchModeRunning(
       error: `The local stack’s .env decides the web search mode (${WEB_SEARCH_MODE_ENV}).`,
     };
   }
-  if (!webSearchModeAvailable()) {
-    return {
-      success: false,
-      error: `The agent stack needs ${WEB_SEARCH_MODE_MIN_STACK_VERSION} or later for this setting.`,
-    };
-  }
   const previous = getWebSearchMode();
   if (mode === previous) return { success: true };
   setWebSearchMode(mode);
@@ -1669,6 +1691,8 @@ export async function setWebSearchModeRunning(
       await runBoundaryCompose([...boundaryComposeProfileArgs(), 'up', '-d', '--no-deps', 'hermes'], {
         timeout: 180_000,
       });
+      // hermes is replaced once compose returns, whether or not it gets healthy.
+      notifyHermesReplaced('web-search');
       await waitUntilAssistantHealthy(getStoredAssistantPorts(), 120_000);
     }
     persistDebugLog('assistant-stack', 'web search mode set', { mode });
@@ -1704,13 +1728,14 @@ async function removeLightragLeftovers(options: {
 }
 
 /**
- * Boundary's Compose profiles, plus `rag` while LightRAG is on and `calendar` while a calendar is
- * connected so caldav-mcp starts and stops with the rest of the stack
+ * Boundary's Compose profiles, plus `calendar` while a CalDAV calendar is connected so caldav-mcp
+ * starts and stops with the rest of the stack, and the installed add-ons' profiles. The Mac account
+ * doesn't use caldav-mcp
  * (docs/calendar-ux-study/spec.md).
  */
 function boundaryComposeProfilesCsv(): string {
-  const profiles: string[] = [...BOUNDARY_ASSISTANT_COMPOSE_PROFILES, ...lightragComposeProfiles()];
-  if (hasCalendarAccounts()) profiles.push(CALENDAR_COMPOSE_PROFILE);
+  const profiles: string[] = [...BOUNDARY_ASSISTANT_COMPOSE_PROFILES];
+  if (hasCalDavAccounts()) profiles.push(CALENDAR_COMPOSE_PROFILE);
   profiles.push(...addonComposeProfiles());
   return profiles.join(',');
 }
@@ -1735,7 +1760,7 @@ function liveLocalStackFileArgs(root: string): string[] {
 
 async function runLiveLocalStackCompose(
   args: string[],
-  options: { timeout?: number; env?: NodeJS.ProcessEnv } = {}
+  options: { timeout?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}
 ): Promise<{ stdout: string; stderr: string }> {
   const { root, error } = tryResolveAssistantRoot();
   if (!root) {
@@ -1747,15 +1772,10 @@ async function runLiveLocalStackCompose(
     cwd: root,
     timeout: options.timeout,
     env: options.env,
+    signal: options.signal,
   });
 }
 
-/**
- * Recreate Hermes (and WebUI and hermes-worker) so generated host-folder bind mounts take
- * effect. In local-stack mode, `up` the checkout's hermes and terminal service instead, so
- * the context-root binds in its override file apply. Surfaces a short connecting progress
- * message via the lifecycle callback.
- */
 /**
  * Compose against the stack this session talks to: the developer's checkout (its own files,
  * no Boundary overlay) in local-stack mode, else Boundary's project.
@@ -1764,12 +1784,32 @@ function activeStackCompose(): HermesConfigCompose {
   return isLocalAssistantStackMode() ? runLiveLocalStackCompose : runBoundaryCompose;
 }
 
-export async function recreateHermesForProjectMounts(): Promise<{
+export interface ProjectMountRecreateOptions {
+  /**
+   * Also recreate the coding agent, for a folder the coding agent gets in the same change,
+   * and wait for it to answer before returning.
+   */
+  codingAgent?: boolean;
+  /** Called when the containers are up and the health wait starts. */
+  onHealthWait?: () => void;
+}
+
+/**
+ * Recreate Hermes (and WebUI and hermes-worker) so generated host-folder bind mounts take
+ * effect. In local-stack mode, `up` the checkout's hermes and terminal service instead, so
+ * the context-root binds in its override file apply. Surfaces a short connecting progress
+ * message via the lifecycle callback.
+ */
+export async function recreateHermesForProjectMounts(
+  options: ProjectMountRecreateOptions = {}
+): Promise<{
   success: boolean;
   error?: string;
 }> {
   const aliases = currentCodingPathAliases();
   const aliasesChanged = aliases !== (getAppliedCodingAliases() ?? '');
+  // Local stacks manage coding mounts themselves.
+  const codingAgent = Boolean(options.codingAgent) && !isLocalAssistantStackMode();
   try {
     emitProgress('Connecting folder…');
     if (isLocalAssistantStackMode()) {
@@ -1796,16 +1836,21 @@ export async function recreateHermesForProjectMounts(): Promise<{
           'hermes-worker',
           // Project aliases changed (a project added, removed or moved): opencode-mcp reads
           // CODING_PATH_ALIASES at start. Otherwise leave it, so coding tasks keep running.
-          ...(aliasesChanged ? ['opencode-mcp'] : []),
+          // A new coding folder needs both coding services for its mount.
+          ...(codingAgent ? ['opencode', 'opencode-mcp'] : aliasesChanged ? ['opencode-mcp'] : []),
         ],
         { timeout: 180_000 }
       );
     }
+    // hermes is replaced once compose returns, whether or not it gets healthy.
+    notifyHermesReplaced('project-mounts');
+    options.onHealthWait?.();
     const ports = getStoredAssistantPorts();
     await waitUntilAssistantHealthy(ports, 120_000);
+    if (codingAgent) await waitUntilCodingAgentUp(ports);
     if (!isLocalAssistantStackMode()) {
       recordHermesCodingRoots(currentCodingRoots());
-      if (aliasesChanged) recordAppliedCodingAliases(aliases);
+      if (aliasesChanged || codingAgent) recordAppliedCodingAliases(aliases);
     }
     return { success: true };
   } catch (error) {
@@ -1913,25 +1958,56 @@ async function provisionHostBridgeTokens(
 }
 
 /**
- * Once Hermes serves again, ask it to reconnect to the bridge now rather than on its parked
- * timer (ADR 0027). Best effort: an older stack answers 404 and Hermes's own retry still works.
+ * Copy into each agent's `.env` the default profile's values for the `${VAR}`s that the MCP
+ * entries agents get from it reference (`todos` sends `Bearer ${TODOS_KEY}`), since Hermes
+ * resolves them from the agent's own `.env`. Names only reach the log. Never throws.
  */
-async function wakeHermesForHostBridge(): Promise<void> {
-  const result = await wakeHermesBridgeServer({
-    apiBaseUrl: resolveHermesStackEndpoints().apiBaseUrl,
-    apiKey: resolveApiServerKey(),
-  });
-  persistDebugLog('assistant-stack', 'host bridge wake', { ...result });
-  if (result.outcome === 'woken') hostBridgeWakeAccepted();
+async function copyAgentMcpEnv(dataRoot: string, agents: readonly string[]): Promise<{ changed: boolean }> {
+  if (agents.length === 0) return { changed: false };
+  try {
+    const names = mcpEnvRefs(defaultMcpServerEntries(readHermesProfileConfig(dataRoot, '')));
+    const values = agentEnvValues(readEnvFile(hermesProfileEnvPath(dataRoot, '')), names);
+    const result = await writeEnvValuesToProfiles(dataRoot, agents, values);
+    persistDebugLog('assistant-stack', 'agent MCP env', { names: Object.keys(values), changed: result.changed });
+    return result;
+  } catch (error) {
+    persistDebugLog('assistant-stack', 'agent MCP env not written', {
+      error: error instanceof Error ? error.name : 'unknown',
+    });
+    return { changed: false };
+  }
 }
 
 /**
- * Boundary's browser URL for `browser.cdp_url` when the user has it on, else '' (clear
- * Boundary's URL; a developer's own `cdp_url` is left alone).
+ * The bridge's entries to wake: `boundary` always, and `calendar-mac` while an agent has access to
+ * the Mac's calendars, since that entry also points at the bridge.
  */
-function hermesBrowserCdpUrl(bridge: HostBridgeEndpoints): string {
-  return getHostBridgeBrowserSettings().enabled
-    ? hostBridgeCdpUrl(bridge.browserPort, bridge.browserToken)
+function hostBridgeWakeServers(macProfiles: ReadonlySet<string> = macCalendarProfiles()): string[] {
+  return macProfiles.size > 0 ? [HERMES_BRIDGE_SERVER_KEY, MAC_CALENDAR_SERVER] : [HERMES_BRIDGE_SERVER_KEY];
+}
+
+/**
+ * Once Hermes serves again, ask it to reconnect to the bridge's entries now rather than on their
+ * parked timer (ADR 0027). Best effort: an older stack answers 404 and Hermes's own retry still
+ * works. Only the `boundary` entry's answer counts as the bridge's wake.
+ */
+async function wakeHermesForHostBridge(): Promise<void> {
+  const { apiBaseUrl } = resolveHermesStackEndpoints();
+  const apiKey = resolveApiServerKey();
+  for (const server of hostBridgeWakeServers()) {
+    const result = await wakeHermesBridgeServer({ apiBaseUrl, apiKey, server });
+    persistDebugLog('assistant-stack', 'host bridge wake', { server, ...result });
+    if (server === HERMES_BRIDGE_SERVER_KEY && result.outcome === 'woken') hostBridgeWakeAccepted();
+  }
+}
+
+/**
+ * Boundary's browser URL for `profile`'s `browser.cdp_url` when the user has it on, else ''
+ * (clear Boundary's URL; a developer's own `cdp_url` is left alone). `api-server` always gets ''.
+ */
+function hermesBrowserCdpUrl(bridge: HostBridgeEndpoints, profile: string): string {
+  return getHostBridgeBrowserSettings().enabled && profileGetsBoundaryBrowser(profile)
+    ? hostBridgeCdpUrl(bridge.browserPort)
     : '';
 }
 
@@ -1951,7 +2027,9 @@ function allHermesProfiles(): string[] {
  * - The platform hint: the default profile, where room turns and the built-in agent run, and
  *   every agent. Local-stack mode writes it too: Hermes reads it only for Boundary's sessions.
  * - The default profile's chosen MCP servers: every agent.
- * - The host bridge entry and Boundary's browser: every profile.
+ * - The host bridge entry: every profile. Boundary's browser: every profile but `api-server`.
+ * - The `calendar-mac` entry's url, so it follows the bridge to a new port: the profiles in
+ *   `macCalendarProfiles`, whose agents have access to the Mac's calendars and so have the entry.
  */
 function desiredHermesConfig(input: {
   profiles: readonly string[];
@@ -1967,10 +2045,11 @@ function desiredHermesConfig(input: {
    */
   routed?: boolean;
   routerEntryProfiles?: ReadonlySet<string>;
+  macCalendarProfiles?: ReadonlySet<string>;
 }): DesiredHermesProfile[] {
   const mcpEntries = defaultMcpServerEntries(input.defaultConfig);
-  const browserCdpUrl = input.bridge ? hermesBrowserCdpUrl(input.bridge) : undefined;
   return input.profiles.map((profile) => {
+    const browserCdpUrl = input.bridge ? hermesBrowserCdpUrl(input.bridge, profile) : undefined;
     const agent = input.agents.includes(profile);
     const set: Array<[string, string]> = [];
     let setIfUnset: Array<[string, string]> = [];
@@ -1997,7 +2076,10 @@ function desiredHermesConfig(input: {
     if (agent || profile === '') {
       set.push([BOUNDARY_PLATFORM_HINT_KEY, BOUNDARY_PLATFORM_HINT]);
     }
-    if (input.bridge) set.push(...hostBridgeHermesConfigSets(input.bridge.mcpPort));
+    if (input.bridge) {
+      set.push(...hostBridgeHermesConfigSets(input.bridge.mcpPort));
+      if (input.macCalendarProfiles?.has(profile)) set.push(...macCalendarUrlSets(input.bridge.mcpPort));
+    }
     const entries = agent ? [...mcpEntries] : [];
     if (input.modelId && (input.routed || input.routerEntryProfiles?.has(profile))) {
       entries.push([
@@ -2014,6 +2096,9 @@ function desiredHermesConfig(input: {
       set,
       setIfUnset,
       entries,
+      // The stack's bootstrap gives the default profile its skills folder; Boundary's own agent
+      // profiles need it for write-in-voice (ADR 0056 §9). Checked with _validate_config_key.
+      ...(agent ? { listIncludes: [['skills.external_dirs', '/opt/skills']] as Array<[string, string]> } : {}),
       ...(browserCdpUrl !== undefined ? { browserCdpUrl } : {}),
     };
   });
@@ -2084,11 +2169,12 @@ export async function applyHostBridgeBrowserToHermes(): Promise<{ success: boole
     }
     const { root } = tryResolveAssistantRoot();
     const bridge = await ensureHostBridgeStarted();
-    const browserCdpUrl = hermesBrowserCdpUrl(bridge);
     // Hermes reads `cdp_url` on every browser call, so this needs no restart.
     await writeHermesConfig(
       resolveAssistantDataRoot(root ?? undefined),
-      allHermesProfiles().map((profile): DesiredHermesProfile => ({ profile, set: [], browserCdpUrl })),
+      allHermesProfiles().map(
+        (profile): DesiredHermesProfile => ({ profile, set: [], browserCdpUrl: hermesBrowserCdpUrl(bridge, profile) })
+      ),
       { required: HERMES_CONFIG_PROFILES }
     );
     return { success: true };
@@ -2267,16 +2353,22 @@ async function applyLlmConnectionOnce(
   let apiKey: string | undefined;
   try {
     if (signal?.aborted) return { success: false, cancelled: true };
-    // A shared model has no connection of its own; the store keeps it apart from the slots.
+    // A shared model or pool has no connection of its own; the store keeps it apart from the slots.
     const appShared = connection ? null : getAppSharedModel();
-    const llm = connection ?? (appShared ? sharedModelConnection(appShared.modelId ?? '') : await getLlmConnection());
+    const llm =
+      connection ??
+      (appShared
+        ? appShared.slot === 'confidential'
+          ? poolConnection(appShared.modelId?.trim() ?? '')
+          : sharedModelConnection(appShared.modelId ?? '')
+        : await getLlmConnection());
     apiKey = llm?.apiKey;
     if (!llm?.endpointUrl || !llm.apiKey || !llm.modelId) {
       return { success: false, error: 'No configured LLM connection to apply.' };
     }
     const slot =
       connection?.slot ??
-      (appShared ? 'peer' : getAppDefaultSlot()) ??
+      (appShared ? (appShared.slot === 'confidential' ? 'confidential' : 'peer') : getAppDefaultSlot()) ??
       classifyInferenceSlot({ endpointUrl: llm.endpointUrl });
 
     if (!(await isAssistantStackReady())) {
@@ -2286,16 +2378,18 @@ async function applyLlmConnectionOnce(
     const local = isLocalAssistantStackMode();
     // A chat send passes its plan; start-up and Settings serve the app default's chain.
     const plan = connection ? (connection.plan ?? { kind: 'direct' as const }) : await planAppInferenceChain();
-    if (slot === 'peer' && (local || plan.kind !== 'routed')) {
+    // A shared model or pool is reached only through the router.
+    const routedOnly = slot === 'peer' || slot === 'confidential';
+    if (routedOnly && (local || plan.kind !== 'routed')) {
       // Nothing can serve yet. The stack is still up, and a send plans again and says why.
-      persistDebugLog('assistant-stack', 'Shared model not applied', { local, plan: plan.kind });
+      persistDebugLog('assistant-stack', 'Shared model not applied', { slot, local, plan: plan.kind });
       reportReady(local);
       return { success: true };
     }
     const routed = !local && plan.kind === 'routed' ? plan : null;
-    // An offer that doesn't say leaves nothing to ask: a shared model has no address of its own.
+    // An offer that doesn't say leaves nothing to ask: a shared model or pool has no address of its own.
     const contextLength =
-      routed?.chain.contextLength ?? (slot === 'peer' ? undefined : await lookupModelContextLength(llm));
+      routed?.chain.contextLength ?? (routedOnly ? undefined : await lookupModelContextLength(llm));
     stepDone('prepare');
     // The last point where nothing has changed yet. Everything after it changes the stack.
     if (signal?.aborted) return { success: false, cancelled: true };
@@ -2350,7 +2444,10 @@ async function applyLlmConnectionOnce(
     stage('Configuring Hermes inference endpoint…');
     const dataRoot = resolveAssistantDataRoot(root ?? undefined);
     const profiles = allHermesProfiles();
-    const { bridge, envChanged } = await provisionHostBridgeTokens(dataRoot, profiles);
+    const provisioned = await provisionHostBridgeTokens(dataRoot, profiles);
+    const { bridge } = provisioned;
+    const agentEnv = await copyAgentMcpEnv(dataRoot, agentProfileNames());
+    const envChanged = provisioned.envChanged || agentEnv.changed;
     // The developer's own stack keeps its model settings (local-stack mode); its agents'
     // profiles are Boundary's, so they still get the limits and MCP servers.
     const written = await writeHermesConfig(
@@ -2370,6 +2467,7 @@ async function applyLlmConnectionOnce(
         routerEntryProfiles: new Set(
           profiles.filter((profile) => hasHermesRouterEntry(readHermesProfileConfig(dataRoot, profile)))
         ),
+        macCalendarProfiles: macCalendarProfiles(),
       }),
       { required: local ? [] : HERMES_CONFIG_PROFILES }
     );
@@ -2394,6 +2492,7 @@ async function applyLlmConnectionOnce(
       try {
         if (local) await runLiveLocalStackCompose(['restart', 'hermes'], { timeout: 120_000 });
         else await restartHermesService();
+        notifyHermesReplaced('settings-restart');
         stepDone('restart');
         reportStage('starting');
         // A stack with many profiles and plugins can take over two minutes to serve again after
@@ -2504,6 +2603,16 @@ function hasHermesRouterEntry(config: Record<string, unknown> | null | undefined
   );
 }
 
+/** Profiles whose agent has access to the Mac's calendars, and so a `calendar-mac` entry. */
+function macCalendarProfiles(): Set<string> {
+  const access = getMacCalendarAccount()?.access ?? {};
+  return new Set(
+    listStoredAgents()
+      .filter((agent) => (access[agent.slug] ?? 'off') !== 'off')
+      .map((agent) => (agent.builtIn ? '' : agent.slug))
+  );
+}
+
 /** Profiles of the agents Boundary created (ADR 0010); the built-in one is the default profile. */
 function agentProfileNames(): string[] {
   return listStoredAgents()
@@ -2548,6 +2657,45 @@ export async function setUpNewHermesProfile(profile: string): Promise<void> {
     }),
     { required: [profile] }
   );
+  // A profile Hermes hasn't loaded yet, so it reads the new `.env` when it first serves it.
+  await copyAgentMcpEnv(dataRoot, [profile]);
+}
+
+/**
+ * After an add-on changed the default profile's MCP servers (Todo lists turned on): give every
+ * agent the chosen entries and the `.env` values they reference. Returns whether a file changed;
+ * Hermes reads both when it restarts (the add-on's restart bar). Does nothing while the stack isn't ready.
+ */
+export async function syncAgentMcpServers(): Promise<{ changed: boolean }> {
+  if (!(await isAssistantStackReady())) return { changed: false };
+  const agents = agentProfileNames();
+  if (agents.length === 0) return { changed: false };
+  const { root } = tryResolveAssistantRoot();
+  const dataRoot = resolveAssistantDataRoot(root ?? undefined);
+  const written = await writeHermesConfig(
+    dataRoot,
+    desiredHermesConfig({
+      profiles: agents,
+      agents,
+      limits: null,
+      defaultConfig: readHermesProfileConfig(dataRoot, ''),
+      bridge: null,
+    }),
+    { required: [] }
+  );
+  const env = await copyAgentMcpEnv(dataRoot, agents);
+  return { changed: written.restart || env.changed };
+}
+
+/**
+ * After an add-on stopped serving the agents (Todo lists turned off or removed): drop `names` from
+ * every agent's `.env`, so Hermes refuses the copied entry at once rather than calling a stopped
+ * server, and no token for deleted data stays behind. Returns whether a file changed.
+ */
+export async function dropAgentMcpEnv(names: readonly string[]): Promise<{ changed: boolean }> {
+  const { root } = tryResolveAssistantRoot();
+  if (!root) return { changed: false };
+  return removeEnvValuesFromProfiles(resolveAssistantDataRoot(root), agentProfileNames(), names);
 }
 
 export interface AssistantStackAccess {
@@ -2559,11 +2707,19 @@ export interface AssistantStackAccess {
     input: string,
     options?: { timeout?: number }
   ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
-  /** The same, with each stdout and stderr line passed to `onLine`. Resolves with the exit code. */
+  /**
+   * The same, with each stdout and stderr line passed to `onLine`. Resolves with the exit code;
+   * `cancelled` is true when `signal` stopped it.
+   */
   composeStreaming: (
     args: string[],
-    options: { onLine: (line: string) => void; env?: NodeJS.ProcessEnv; timeout?: number }
-  ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
+    options: {
+      onLine: (line: string) => void;
+      env?: NodeJS.ProcessEnv;
+      timeout?: number;
+      signal?: AbortSignal;
+    }
+  ) => Promise<{ stdout: string; stderr: string; code: number | null; cancelled: boolean }>;
   /**
    * Environment for a stack script run from `root`: the runtime's PATH and DOCKER_HOST, a
    * `docker` shim when only Podman is installed, and (managed mode) COMPOSE_PROJECT_NAME,
@@ -2596,11 +2752,13 @@ export function getAssistantStackAccess(): AssistantStackAccess {
       input?: string;
       env?: NodeJS.ProcessEnv;
       onLine?: (line: string) => void;
+      signal?: AbortSignal;
     }
   ) => {
     const streamOptions = {
       timeout: options.timeout,
       input: options.input,
+      signal: options.signal,
       onStdoutLine: options.onLine,
       onStderrLine: options.onLine,
     };
@@ -2696,6 +2854,8 @@ export async function reloadHermesForAddons(): Promise<{ success: boolean; error
       env,
       timeout: 180_000,
     });
+    // hermes is replaced once compose returns, whether or not it gets healthy.
+    notifyHermesReplaced('addon-reload');
     await waitUntilAssistantHealthy(getStoredAssistantPorts(), 120_000);
     return { success: true };
   } catch (error) {
@@ -2705,12 +2865,19 @@ export async function reloadHermesForAddons(): Promise<{ success: boolean; error
 }
 
 /**
- * Full setup-step path: ensure running, then sync LLM into Hermes.
+ * Full setup-step path: ensure running, then sync LLM into Hermes. With no model connected
+ * (the user chose **Set up later**), setup finishes without one: Hermes's bootstrap points it at
+ * llm-proxy, which answers 503 until a model is connected in Settings and applied.
  */
 export async function ensureAssistantStackAndApplyLlm(): Promise<EnsureAssistantStackResult> {
   const ensured = await ensureAssistantStackRunning();
   if (!ensured.success) {
     return ensured;
+  }
+  if (!getAppSharedModel() && !(await getLlmConnection())) {
+    persistDebugLog('assistant-stack', 'Setup finished with no model connected', {});
+    markAssistantStackSetupComplete();
+    return { success: true, status: buildAssistantStackStatus({ ready: true }) };
   }
 
   const applied = await applyLlmConnectionToHermes(undefined, { showProgress: true });
@@ -2754,8 +2921,11 @@ export async function ensureAssistantStackOnLaunch(): Promise<void> {
 
 /** Exported for tests */
 export const __test = {
+  boundaryComposeProfilesCsv,
   desiredHermesConfig,
+  hostBridgeWakeServers,
   portsToComposeEnv,
+  pinHostPortsInProjectEnv,
   buildProjectArgs,
   arePortsAvailable,
   buildComposeProfileArgs,
@@ -2775,5 +2945,18 @@ export const __test = {
   resetReadyForTests: () => {
     lastReady = null;
     readyCallback = null;
+  },
+  /** Puts every module-level variable back to its value at import, without stopping anything. */
+  resetModuleStateForTests: () => {
+    __test.resetLifecycle();
+    __test.resetReadyForTests();
+    lifecycleCallback = null;
+    downloadTally = {};
+    startIsFirstRun = false;
+    hermesRestarting = false;
+    hermesSettingsUnread = false;
+    applyRunning = null;
+    applyRunningListeners = [];
+    applyNext = null;
   },
 };

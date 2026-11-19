@@ -1,6 +1,9 @@
 /* Workbench chrome objects — living spec docs/chat-ux-study/01-workbench.html (0003 + 0004).
    Transcript type is a reading face, not chrome density: IBM Plex Sans at 13px on rails,
    IBM Plex Serif at 16.5px / 1.68 on assistant prose. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
 
 .workbench {
   background: var(--surface-0);
@@ -10,6 +13,7 @@
   line-height: var(--leading-ui);
   -webkit-font-smoothing: antialiased;
   font-kerning: normal;
+  --wb-hermes: var(--brand);
 }
 
 .workbench .mono {
@@ -72,6 +76,12 @@
   animation: wb-rise-in var(--dur-panel) var(--ease);
 }
 
+/* A later step of a sheet already open (store Get): it changes in place instead of rising in again. */
+.wb-sheet-backdrop.wb-sheet-still,
+.wb-sheet.wb-sheet-still {
+  animation: none;
+}
+
 .workbench :is(input, textarea, select):focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--brand) 60%, var(--line));
@@ -88,14 +98,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 0 12px;
-  gap: 4px;
+  padding: var(--space-2-5) 0 var(--space-3);
+  gap: var(--space-1);
 }
 
 /* Shown while bound to a local checkout, so dev and managed stacks are never mistaken. */
 .wb-stack-badge {
-  margin: 0 0 6px;
-  padding: 1px 4px;
+  margin: 0 0 var(--space-1-5);
+  padding: 1px var(--space-1);
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-sm);
   background: var(--warn-dim);
@@ -180,15 +190,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-icon-rail,
 .wb-thread-head,
-.wb-right-head,
 .wb-titlebar-spacer,
 .wb-titlebar-band {
   -webkit-app-region: drag;
 }
 
 .wb-icon-rail :is(button, a),
-.wb-thread-head :is(button, a, input, select, [role='button'], [role='tab']),
-.wb-right-head :is(button, a, input, select, [role='button'], [role='tab']) {
+.wb-thread-head :is(button, a, input, select, [role='button'], [role='tab']) {
   -webkit-app-region: no-drag;
 }
 
@@ -252,7 +260,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
   padding: 0;
   border: 1px solid currentColor;
   border-radius: var(--radius-full);
@@ -283,7 +291,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-infotip-pop {
   z-index: 60;
   max-width: 280px;
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-2);
@@ -302,7 +310,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-infotip-pop p + p {
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
 }
 
 /* Skeleton pulse: loading placeholders in the rails and inspector. */
@@ -313,61 +321,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   }
 }
 
-/* Buttons ---------------------------------------------------------------- */
-
-.wb-btn-solid,
-.wb-btn-ghost,
-.wb-btn-tiny {
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.wb-btn-solid,
-.wb-btn-ghost {
-  border-radius: var(--radius-md);
-  padding: 7px 9px;
-  width: 100%;
-}
-
-.wb-btn-solid {
-  background: var(--text);
-  color: var(--solid-fg);
-  font-weight: var(--weight-medium);
-  border: 0;
-}
-
-.wb-btn-solid:disabled {
-  opacity: 0.5;
-}
-
-.wb-btn-ghost {
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--text);
-}
-
-.wb-btn-ghost:hover {
-  background: var(--surface-hover);
-}
-
-.wb-btn-tiny {
-  padding: 4px 8px;
-  font-size: var(--size-xs);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.wb-btn-tiny:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.wb-btn-tiny:disabled {
-  opacity: 0.5;
-}
+/* Buttons: components/ui/button.css. */
 
 /* Left rail -------------------------------------------------------------- */
 /* Rail is ground: titles sit on --text-muted and lift to --text on
@@ -387,8 +341,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 6px 4px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-1-5) var(--space-1) var(--space-3);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -398,7 +352,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-sect:first-child,
 .wb-titlebar-spacer + .wb-sect {
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 
 .wb-sect-add {
@@ -427,7 +381,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-proj-picker {
   position: relative;
-  margin: 10px 8px 6px;
+  margin: var(--space-2-5) var(--space-2) var(--space-1-5);
 }
 
 .wb-proj-picker--chip {
@@ -439,8 +393,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-proj-trigger {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5);
   border-radius: var(--radius-lg);
   color: var(--text);
   text-align: left;
@@ -483,7 +437,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-popover);
-  padding: 6px;
+  padding: var(--space-1-5);
   max-height: min(360px, 50vh);
   overflow: hidden;
 }
@@ -496,7 +450,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-proj-menu-search {
   flex-shrink: 0;
-  padding: 4px 4px 8px;
+  padding: var(--space-1) var(--space-1) var(--space-2);
 }
 
 .wb-proj-menu-list {
@@ -511,7 +465,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-proj-menu-search input {
   width: 100%;
   box-sizing: border-box;
-  padding: 7px 10px;
+  padding: 7px var(--space-2-5);
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -523,9 +477,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-proj-menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: 100%;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   color: var(--text-muted);
   text-align: left;
@@ -556,13 +510,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-proj-menu-sep {
   height: 1px;
   background: var(--line);
-  margin: 4px 6px;
+  margin: var(--space-1) var(--space-1-5);
 }
 
 .wb-proj-menu-action {
   display: block;
   width: 100%;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   color: var(--text);
   text-align: left;
@@ -583,46 +537,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-proj-menu-empty {
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   color: var(--text-faint);
   font-size: var(--size-xs);
 }
 
 .wb-proj-empty {
-  margin: 10px 8px 6px;
-  padding: 10px 12px;
+  margin: var(--space-2-5) var(--space-2) var(--space-1-5);
+  padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px dashed var(--line);
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.4;
-}
-
-.wb-proj {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 2px 8px;
-  padding: 10px;
-  border-radius: var(--radius-lg);
-  color: var(--text-muted);
-  text-align: left;
-  width: calc(100% - 16px);
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font: inherit;
-}
-
-.wb-proj:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.wb-proj.is-on {
-  background: var(--brand-dim);
-  border-color: var(--line);
-  color: var(--text);
 }
 
 .wb-glyph {
@@ -673,7 +600,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   color: var(--text-faint);
   font-size: var(--size-2xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -682,9 +609,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-row {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  margin: 1px 8px;
-  padding: 7px 8px;
+  gap: var(--space-1-5);
+  margin: 1px var(--space-2);
+  padding: 7px var(--space-2);
   border-radius: var(--radius-md);
   color: var(--text-muted);
   text-align: left;
@@ -727,7 +654,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-empty,
 .wb-hint {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   color: var(--text-faint);
   font-size: var(--size-xs);
 }
@@ -736,7 +663,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: inline-flex;
   align-items: center;
   margin-top: var(--space-2);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: none;
@@ -804,7 +731,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-error {
   border-top: 1px solid var(--line);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--size-xs);
   color: var(--danger);
 }
@@ -830,7 +757,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--line);
   color: var(--text-muted);
   flex-shrink: 0;
@@ -844,8 +771,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-meter {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--line);
   font-size: var(--size-xs);
   color: var(--text-muted);
@@ -882,7 +809,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-key {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   flex-shrink: 0;
 }
 
@@ -891,7 +818,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   width: 8px;
   height: 8px;
   border-radius: 2px;
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 
 .wb-key .k-oh {
@@ -906,7 +833,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px var(--chat-inline) 40px;
+  padding: 28px var(--chat-inline) var(--space-10);
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -919,13 +846,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-who {
   font-size: var(--size-xs);
   color: var(--text-faint);
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2-5);
   font-weight: var(--weight-medium);
   letter-spacing: 0.01em;
 }
 
 .wb-bubble {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--surface-2);
   border: 1px solid var(--line);
@@ -980,10 +907,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   top: 100%;
   left: -6px;
   right: -6px;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .wb-acts.is-end {
@@ -1037,7 +964,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-versions .wb-act {
   min-width: 20px;
-  padding: 0 2px;
+  padding: 0 var(--space-0-5);
 }
 
 .wb-versions .wb-act:disabled {
@@ -1047,11 +974,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-versions-count {
-  padding: 0 2px;
+  padding: 0 var(--space-0-5);
 }
 
 .wb-edited {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   color: var(--text-faint);
   font-size: var(--size-2xs);
   font-style: italic;
@@ -1077,7 +1004,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   outline: 0;
   background: transparent;
   color: var(--text);
-  padding: 12px 16px 4px;
+  padding: var(--space-3) var(--space-4) var(--space-1);
   font: inherit;
   font-size: var(--size-title);
   line-height: 1.55;
@@ -1087,13 +1014,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 8px 8px 16px;
+  padding: var(--space-1-5) var(--space-2) var(--space-2) var(--space-4);
 }
 
 .wb-editor-foot :is(.wb-btn-solid, .wb-btn-ghost) {
   width: auto;
   flex: none;
-  padding: 5px 10px;
+  min-height: var(--control-height-sm);
   font-size: var(--size-xs);
 }
 
@@ -1104,7 +1031,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-editor-foot kbd {
-  margin-left: 4px;
+  margin-left: var(--space-1);
   font-family: var(--font-mono);
   font-size: var(--size-2xs);
   opacity: 0.65;
@@ -1159,7 +1086,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 8px 8px 8px 14px;
+  padding: var(--space-2) var(--space-2) var(--space-2) 14px;
   border-radius: var(--radius-md);
   background: var(--solid-bg);
   color: var(--solid-fg);
@@ -1171,7 +1098,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-toast button {
   border: 0;
-  padding: 3px 8px;
+  padding: 3px var(--space-2);
   border-radius: var(--radius-sm);
   background: none;
   color: inherit;
@@ -1208,6 +1135,69 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex: none;
 }
 
+/* Installed add-ons that aren't running: top right, on every screen, until acted on or put off. */
+.wb-addon-alerts {
+  position: fixed;
+  top: 54px;
+  right: var(--space-4);
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(360px, calc(100vw - 2 * var(--space-4)));
+}
+
+.wb-addon-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--size-ui);
+  animation: wb-rise-in var(--dur-panel) var(--ease);
+}
+
+.wb-addon-alert-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.wb-addon-alert h3 {
+  margin: 0;
+  font-size: var(--size-body);
+  font-weight: var(--weight-medium);
+}
+
+.wb-addon-alert p {
+  margin: 0;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-addon-alert .wb-addon-alert-error {
+  color: var(--danger);
+}
+
+.wb-addon-alert-later {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-addon-alert-later:hover {
+  color: var(--text);
+}
+
 /* Reply extras (spec Phase 4): ⋯ menu, selection popover, quote chip, tool-card files. */
 .wb-more {
   position: relative;
@@ -1223,7 +1213,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-menu {
   z-index: 6;
   min-width: 248px;
-  padding: 6px;
+  padding: var(--space-1-5);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -1233,7 +1223,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-menu button {
   display: block;
   width: 100%;
-  padding: 7px 8px;
+  padding: 7px var(--space-2);
   border: 0;
   border-radius: var(--radius-md);
   background: none;
@@ -1262,8 +1252,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   z-index: 20;
   transform: translate(-50%, calc(-100% - 8px));
   display: flex;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -1271,7 +1261,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-sel-pop button {
-  padding: 4px 9px;
+  padding: var(--space-1) 9px;
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
@@ -1290,7 +1280,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   align-items: flex-start;
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
-  padding: 8px 6px 8px 12px;
+  padding: var(--space-2) var(--space-1-5) var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-left: 3px solid var(--brand);
   border-radius: var(--radius-md);
@@ -1363,7 +1353,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-file-acts {
   display: inline-flex;
-  gap: 2px;
+  gap: var(--space-0-5);
   margin-left: auto;
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
@@ -1397,7 +1387,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-files-label {
   flex: none;
-  padding-top: 2px;
+  padding-top: var(--space-0-5);
   color: var(--text-faint);
 }
 
@@ -1490,7 +1480,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  padding: 4px 7px;
+  padding: var(--space-1) 7px;
   border-radius: var(--radius-sm);
   background: var(--solid-bg);
   color: var(--solid-fg);
@@ -1502,7 +1492,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-msg-time {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   color: var(--text-faint);
   font-size: var(--size-xs);
   font-variant-numeric: tabular-nums;
@@ -1510,18 +1500,24 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   cursor: default;
 }
 
+}
+
+/* Reply text. Streamdown renders markdown with its own Tailwind classes, so these rules sit in
+   the markdown layer, above utilities (index.css). */
+@layer markdown {
+/* Face, size, line height, weight and gaps come from Settings › Reply text (tokens.css). */
 .wb-prose {
   color: var(--text);
-  font-family: var(--font-prose);
+  font-family: var(--font-reply);
   font-size: var(--size-prose);
-  font-weight: var(--weight-regular);
-  line-height: 1.68;
+  font-weight: var(--weight-prose);
+  line-height: var(--leading-prose);
   font-kerning: normal;
 }
 
 .wb-prose,
 .wb-prose .wb-streamdown {
-  font-family: var(--font-prose);
+  font-family: var(--font-reply);
 }
 
 .wb-prose :is(p, li, blockquote, h1, h2, h3, h4) {
@@ -1543,14 +1539,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-prose p {
-  margin: 0 0 0.85em;
+  margin: 0 0 var(--prose-paragraph-gap);
 }
 
 .wb-prose h1,
 .wb-prose h2,
 .wb-prose h3,
 .wb-prose h4 {
-  font-family: var(--font-prose);
+  font-family: var(--font-reply);
   font-weight: var(--weight-strong);
   line-height: 1.3;
   letter-spacing: -0.015em;
@@ -1572,12 +1568,27 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-prose ul,
 .wb-prose ol {
-  margin: 0 0 0.85em;
+  margin: 0 0 var(--prose-paragraph-gap);
   padding: 0 0 0 1.2em;
+  /* Streamdown sets list-inside, which runs wrapped lines back under the bullet. */
+  list-style-position: outside;
 }
 
 .wb-prose li {
-  margin: 0.35em 0;
+  margin: var(--prose-list-gap) 0;
+  /* Streamdown adds py-1 on top of the margin above. */
+  padding: 0;
+}
+
+/* Streamdown makes paragraphs in loose list items inline, which runs a
+   multi-paragraph item together. Keep them as blocks with list spacing. */
+.wb-prose li > p {
+  display: block;
+  margin: 0 0 var(--space-1-5);
+}
+
+.wb-prose li > p:last-child {
+  margin-bottom: 0;
 }
 
 .wb-prose li ul,
@@ -1586,7 +1597,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-prose blockquote {
-  margin: 0 0 0.85em;
+  margin: 0 0 var(--prose-paragraph-gap);
   padding: 0 0 0 0.9em;
   border-left: 2px solid var(--line);
   color: var(--text-muted);
@@ -1604,8 +1615,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-prose pre {
   font-size: var(--size-ui);
   line-height: 1.55;
-  margin: 0 0 0.85em;
-  padding: 12px 14px;
+  margin: 0 0 var(--prose-paragraph-gap);
+  padding: var(--space-3) 14px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -1624,7 +1635,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-prose [data-streamdown="code-block"] {
   font-family: var(--font-mono);
-  margin: 0 0 0.85em;
+  margin: 0 0 var(--prose-paragraph-gap);
 }
 
 .wb-prose [data-streamdown="code-block"] pre {
@@ -1634,11 +1645,25 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: transparent;
 }
 
+/* Streamdown's own buttons and links take the shared control transition (Motion and focus)
+   over their transition-all, which ignores reduced motion. */
+.wb-prose :is(button, a, summary, [role='button'], [role='tab'], [role='option'], input, textarea, select) {
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+}
+
+@layer components {
+
 .wb-tool {
   background: var(--tool-bg);
   border: 1px solid var(--tool-line);
   border-radius: var(--radius-lg);
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
 }
 
 .wb-tool .meta {
@@ -1647,7 +1672,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-weight: var(--weight-medium);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   background: none;
   border: 0;
@@ -1675,13 +1700,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-tool ul {
-  margin: 8px 0 0;
-  padding: 0 0 0 16px;
+  margin: var(--space-2) 0 0;
+  padding: 0 0 0 var(--space-4);
   color: var(--text-muted);
 }
 
+.wb-tool .from {
+  margin-top: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
 .wb-tool .summary {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
@@ -1696,7 +1727,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: grid;
   grid-template-columns: repeat(4, max-content);
   gap: 18px;
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
@@ -1711,16 +1742,28 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-phase-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--wait);
   font-size: var(--size-ui);
   font-weight: var(--weight-medium);
 }
 
+.wb-held-line {
+  flex-wrap: wrap;
+}
+
+.wb-held-chat {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .wb-spin {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
   background: var(--wait);
 }
 
@@ -1765,7 +1808,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-muted);
   font: inherit;
   font-size: var(--size-xs);
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   cursor: pointer;
 }
 
@@ -1785,7 +1828,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-kbd {
   display: inline-block;
   min-width: 18px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border: 1px solid var(--line);
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
@@ -1799,7 +1842,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Composer --------------------------------------------------------------- */
 
 .wb-composer {
-  padding: 10px var(--chat-inline) 16px;
+  padding: var(--space-2-5) var(--chat-inline) var(--space-4);
   position: relative;
   flex-shrink: 0;
 }
@@ -1811,7 +1854,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 12px 14px;
+  padding: var(--space-3) 14px;
   outline: none;
   color: var(--text);
   font-family: var(--font-ui);
@@ -1834,8 +1877,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-cluster {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
   min-width: 0;
   font-size: var(--size-xs);
   color: var(--text-muted);
@@ -1854,8 +1897,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-full);
   border: 1px solid var(--line);
   background: var(--surface-0);
@@ -1918,7 +1961,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-inf-menu {
   z-index: 8;
   min-width: 240px;
-  padding: 8px;
+  padding: var(--space-2);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -1926,7 +1969,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inf-kicker {
-  padding: 4px 8px 8px;
+  padding: var(--space-1) var(--space-2) var(--space-2);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -1938,7 +1981,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -1950,7 +1993,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-inf-opt small {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   color: var(--text-muted);
   font-size: var(--size-2xs);
 }
@@ -1969,7 +2012,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-inf-order .wb-inf-opt {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: default;
 }
 
@@ -1985,16 +2028,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inf-source {
-  margin: 4px 10px 0;
+  margin: var(--space-1) var(--space-2-5) 0;
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
 
 .wb-inf-fallback-switch {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -2017,16 +2060,38 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-inf-fallback-switch small {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   color: var(--text-muted);
   font-size: var(--size-2xs);
+}
+
+/* A private project's Allow level B, under its Private switch, with the way to undo it. */
+.wb-inf-rail-levelb {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2-5);
+  font-size: var(--size-ui);
+  overflow-wrap: anywhere;
+}
+
+.wb-inf-rail-levelb small {
+  display: block;
+  margin-top: var(--space-0-5);
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+.wb-inf-rail-levelb .wb-btn-tiny {
+  flex-shrink: 0;
 }
 
 .wb-inf-reset {
   display: block;
   width: 100%;
-  margin-top: 6px;
-  padding: 8px 10px;
+  margin-top: var(--space-1-5);
+  padding: var(--space-2) var(--space-2-5);
   border: 0;
   border-top: 1px solid var(--line);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
@@ -2043,46 +2108,48 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-switch-mark {
-  margin: 14px 0 8px;
+  margin: 14px 0 var(--space-2);
   text-align: center;
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
 
 .wb-offline-prompt {
-  margin: 0 0 8px;
-  padding: 10px 12px;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-0);
 }
 
 .wb-offline-prompt p {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   color: var(--text);
   font-size: var(--size-ui);
 }
 
 .wb-offline-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
-.wb-offline-actions .wb-btn {
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--surface-0);
+.wb-pool-stop ul {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
   color: var(--text);
-  font: inherit;
-  font-size: var(--size-xs);
-  cursor: pointer;
+  font-size: var(--size-ui);
 }
 
-.wb-offline-actions .wb-btn.is-solid {
-  background: var(--text);
-  color: var(--surface-0);
-  border-color: var(--text);
+.wb-pool-stop li + li {
+  margin-top: var(--space-1);
+}
+
+.wb-pool-stop .wb-offline-actions {
+  flex-wrap: wrap;
+}
+
+.wb-offline-prompt p.wb-pool-stop-error {
+  color: var(--danger);
 }
 
 .wb-phase-slot {
@@ -2106,7 +2173,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--text-muted);
   font-size: var(--size-xs);
   cursor: pointer;
@@ -2230,7 +2297,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   position: absolute;
   right: -4px;
   bottom: calc(100% + 8px);
-  padding: 4px 7px;
+  padding: var(--space-1) 7px;
   border-radius: var(--radius-sm);
   background: var(--solid-bg);
   color: var(--solid-fg);
@@ -2251,8 +2318,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-ending {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0 0;
+  gap: var(--space-2);
+  margin: var(--space-2-5) 0 0;
   color: var(--text-faint);
   font-size: var(--size-xs);
 }
@@ -2265,12 +2332,18 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 /* An interrupted reply's last paragraph fades out: it was cut off, not finished. */
+}
+
+@layer markdown {
 .wb-msg:has(.wb-ending.is-interrupted) .wb-prose .wb-streamdown > :last-child {
   mask-image: linear-gradient(180deg, #000 30%, transparent 115%);
 }
+}
+
+@layer components {
 
 .wb-ending.is-interrupted {
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--brand);
   font-weight: var(--weight-medium);
 }
@@ -2280,7 +2353,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
@@ -2294,24 +2367,173 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text);
 }
 
+/* Enter while a reply runs (run-control spec Phase 2): a choice menu anchored above the
+   run button, and queued messages as chips above the input. */
+
+.wb-busy-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: 6;
+  width: 360px;
+  max-width: 100%;
+  padding: var(--space-1-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popover);
+}
+
+.wb-busy-menu-kicker {
+  padding: var(--space-1) var(--space-2) var(--space-1-5);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wb-busy-menu button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-busy-menu button b {
+  font-weight: var(--weight-medium);
+}
+
+.wb-busy-menu button small {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  line-height: 1.35;
+}
+
+.wb-busy-menu button kbd {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+}
+
+.wb-busy-menu button:hover,
+.wb-busy-menu button.is-active {
+  background: var(--surface-hover);
+}
+
+.wb-busy-menu button.is-now b {
+  color: var(--warn);
+}
+
+.wb-busy-menu-always {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-busy-menu-always span {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-1-5);
+  padding: 0;
+  list-style: none;
+}
+
+.wb-qchip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  font-size: var(--size-ui);
+}
+
+.wb-qchip.is-paused {
+  border-style: solid;
+  border-color: var(--warn-line);
+}
+
+.wb-qchip-label {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.wb-qchip.is-paused .wb-qchip-label {
+  color: var(--warn);
+}
+
+.wb-qchip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-qchip-act {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-qchip-act:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 .wb-mentions {
   position: absolute;
   bottom: 100%;
   left: var(--chat-inline);
   right: var(--chat-inline);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   max-height: 160px;
   overflow: auto;
   border: 1px solid var(--line);
   background: var(--surface-hover);
   border-radius: var(--radius-md);
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .wb-mentions button {
-  display: block;
   width: 100%;
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   text-align: left;
   background: none;
   border: 0;
@@ -2326,7 +2548,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-mentions .meta {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
@@ -2343,7 +2565,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-approve {
   border-top: 1px solid var(--tool-line);
   background: var(--tool-bg);
-  padding: 12px var(--chat-inline) 14px;
+  padding: var(--space-3) var(--chat-inline) 14px;
   position: relative;
 }
 
@@ -2352,10 +2574,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px var(--space-3);
+  gap: var(--space-1-5) var(--space-3);
   border-top: 1px solid var(--tool-line);
   background: var(--tool-bg);
-  padding: 10px var(--chat-inline);
+  padding: var(--space-2-5) var(--chat-inline);
   font-size: var(--size-xs);
   color: var(--text-muted);
 }
@@ -2363,7 +2585,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-host-tools-note {
   border-top: 1px solid var(--tool-line);
   background: var(--tool-bg);
-  padding: 10px var(--chat-inline);
+  padding: var(--space-2-5) var(--chat-inline);
   font-size: var(--size-xs);
   color: var(--text-muted);
 }
@@ -2396,7 +2618,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-faint);
   font-size: var(--size-ui);
   line-height: 1;
-  padding: 2px 4px;
+  padding: var(--space-0-5) var(--space-1);
   border-radius: var(--radius-sm);
 }
 
@@ -2423,7 +2645,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -2450,7 +2672,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-approve .why {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--size-ui);
   line-height: 1.5;
   max-width: 62ch;
@@ -2458,7 +2680,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Calendar writes — docs/calendar-ux-study scene 8 */
 .wb-approve-event {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   max-width: 62ch;
 }
 
@@ -2473,8 +2695,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-approve-event dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 3px 12px;
-  margin: 6px 0 0;
+  gap: 3px var(--space-3);
+  margin: var(--space-1-5) 0 0;
   font-size: var(--size-xs);
   line-height: 1.45;
 }
@@ -2491,7 +2713,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-approve .cmd-toggle {
-  margin: 10px 0 0;
+  margin: var(--space-2-5) 0 0;
   color: var(--text-muted);
   font-size: var(--size-xs);
   font-weight: var(--weight-medium);
@@ -2507,8 +2729,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-approve .cmd {
-  margin: 8px 0 0;
-  padding: 8px 10px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   background: var(--surface-0);
   border: 1px solid var(--line);
@@ -2523,8 +2745,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .wb-approve-actions .run {
@@ -2532,7 +2754,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--solid-fg);
   font-weight: var(--weight-medium);
   border-radius: var(--radius-md);
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   border: 0;
   font: inherit;
   cursor: pointer;
@@ -2546,7 +2768,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-approve-actions .run kbd {
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
   font-family: var(--font-mono);
   font-size: var(--size-2xs);
   font-weight: var(--weight-medium);
@@ -2558,7 +2780,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--danger);
   background: transparent;
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font: inherit;
   cursor: pointer;
 }
@@ -2573,7 +2795,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-muted);
   background: transparent;
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font: inherit;
   cursor: pointer;
 }
@@ -2589,7 +2811,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   background: var(--surface-1);
   border-radius: var(--radius-lg);
-  padding: 4px;
+  padding: var(--space-1);
   box-shadow: var(--shadow-overlay);
   z-index: 5;
 }
@@ -2598,7 +2820,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   color: var(--text);
   background: none;
@@ -2616,7 +2838,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-faint);
   font-style: normal;
   font-size: var(--size-2xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .wb-approve-confirm {
@@ -2627,7 +2849,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   background: var(--surface-1);
   border-radius: var(--radius-lg);
-  padding: 14px 16px 16px;
+  padding: 14px var(--space-4) var(--space-4);
   box-shadow: var(--shadow-overlay);
   z-index: 6;
 }
@@ -2640,15 +2862,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-approve-confirm p {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--text-muted);
   font-size: var(--size-ui);
   line-height: 1.5;
 }
 
 .wb-approve-confirm .cmd {
-  margin: 10px 0 0;
-  padding: 8px 10px;
+  margin: var(--space-2-5) 0 0;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   background: var(--surface-0);
   border: 1px solid var(--line);
@@ -2661,14 +2883,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-approve-confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 14px;
 }
 
 .wb-approve-confirm-actions .ghost {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   color: var(--text-muted);
   background: none;
   font: inherit;
@@ -2680,7 +2902,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--danger-line);
   color: var(--danger);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font-weight: var(--weight-medium);
   font: inherit;
   cursor: pointer;
@@ -2690,14 +2912,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-insp-tabs {
   display: flex;
-  gap: 2px;
-  padding: 0 10px;
+  gap: var(--space-0-5);
+  padding: 0 var(--space-2-5);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 
 .wb-insp-tab {
-  padding: 11px 10px 10px;
+  padding: 11px var(--space-2-5) var(--space-2-5);
   color: var(--text-faint);
   font-size: var(--size-ui);
   font-weight: var(--weight-medium);
@@ -2722,14 +2944,23 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 14px 0 24px;
+  padding: 14px 0 var(--space-6);
+}
+
+/* The empty project pane's message, on the inspector gutter. */
+.wb-insp-empty {
+  padding: var(--space-1-5) var(--inspector-gutter) var(--space-2);
+}
+
+.wb-insp-empty.is-alone {
+  padding-top: 18px;
 }
 
 .wb-insp-ident {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 0 14px 12px;
+  gap: var(--space-2-5);
+  padding: 0 var(--inspector-gutter) var(--space-3);
 }
 
 /* Name and path stay one line each; the actions menu keeps its place. */
@@ -2755,7 +2986,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   color: var(--text-muted);
   font-size: var(--size-xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .wb-insp-ident button.who-meta {
@@ -2797,7 +3028,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Placed by Radix Popover (components/ui/popover). */
 .wb-insp-menu {
   width: 168px;
-  padding: 4px;
+  padding: var(--space-1);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-rail);
@@ -2809,7 +3040,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 7px 8px;
+  padding: 7px var(--space-2);
   border-radius: var(--radius-md);
   color: var(--text);
   background: none;
@@ -2822,44 +3053,47 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-hover);
 }
 
-.wb-insp-banner {
-  margin: 6px 14px 10px;
-  padding: 9px 11px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--surface-0);
+.wb-insp-callout {
+  margin: var(--space-1-5) var(--inspector-gutter) var(--space-2-5);
+}
+
+/* Callout (components/ui/alert) takes its look from Tailwind; these are the parts its
+   children share. */
+.wb-callout > b {
+  font-weight: var(--weight-strong);
+}
+
+/* Full-width buttons size to their label inside a callout. */
+.wb-callout :is(.wb-btn-solid, .wb-btn-ghost) {
+  width: auto;
+  white-space: nowrap;
+}
+
+.wb-callout-actions {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
 }
 
-.wb-insp-banner p {
-  margin: 0;
-  flex: 1;
-  color: var(--text);
-  font-size: var(--size-xs);
-  line-height: 1.4;
+/* A callout on a Settings or Inference page keeps to the reading column. */
+.wb-inference-callout {
+  max-width: var(--reading-column);
+  margin: 0 0 var(--space-4);
 }
 
-.wb-insp-banner.warn {
-  border-color: color-mix(in srgb, var(--overhead) 50%, var(--line));
-  background: color-mix(in srgb, var(--overhead) 8%, var(--surface-1));
-}
-
-.wb-insp-banner.bad {
-  border-color: var(--danger-line);
-  background: var(--danger-dim);
+.wb-inference-callout.is-after {
+  margin-top: var(--space-4);
 }
 
 .wb-insp-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 12px 14px 0;
+  gap: var(--space-1-5);
+  padding: var(--space-3) var(--inspector-gutter) 0;
 }
 
 .wb-insp-soul {
-  margin: 0 14px 12px;
+  margin: 0 var(--inspector-gutter) var(--space-3);
 }
 
 .wb-insp-soul .kicker {
@@ -2868,7 +3102,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1-5);
 }
 
 .wb-insp-soul p {
@@ -2887,7 +3121,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-insp-note {
-  padding: 4px 14px 0;
+  padding: var(--space-1) var(--inspector-gutter) 0;
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
@@ -2896,10 +3130,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-insp-bind {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: calc(100% - 16px);
-  margin: 12px 8px 0;
-  padding: 10px;
+  margin: var(--space-3) var(--space-2) 0;
+  padding: var(--space-2-5);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-0);
@@ -2933,7 +3167,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   color: var(--text-muted);
   font-size: var(--size-2xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .wb-insp-bind .go {
@@ -2961,101 +3195,25 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   }
 }
 
-.wb-right-head {
-  padding: 14px 14px 10px;
-}
-
-.wb-right-head h2 {
-  margin: 0;
-  font-size: var(--size-title);
-  font-weight: var(--weight-strong);
-  letter-spacing: -0.02em;
-}
-
-.wb-right-head .host {
-  color: var(--text-muted);
-  font-size: var(--size-xs);
-  margin-top: 4px;
-}
-
-.wb-right-actions {
-  display: flex;
-  gap: 6px;
-  padding: 0 14px 12px;
-}
-
 .wb-right .wb-hint {
-  padding: 0 14px 12px;
+  padding: 0 var(--inspector-gutter) var(--space-3);
   color: var(--text-muted);
   font-size: var(--size-xs);
-}
-
-.wb-tree {
-  padding: 4px 8px 16px;
-  overflow: auto;
-  min-height: 0;
-  flex: 1;
-}
-
-.wb-tree button {
-  display: flex;
-  width: 100%;
-  text-align: left;
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  background: none;
-  border: 0;
-  font: inherit;
-  cursor: default;
-}
-
-.wb-tree button:hover {
-  background: var(--surface-hover);
-}
-
-.wb-tree .dir {
-  color: var(--text-muted);
 }
 
 .wb-warn {
-  padding: 0 14px 8px;
+  padding: 0 14px var(--space-2);
   color: var(--overhead);
   font-size: var(--size-xs);
 }
 
 /* 0013 — project sources inspector -------------------------------------- */
 
-.wb-right-head h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.wb-src-stale {
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  border: 1px solid color-mix(in srgb, var(--overhead) 40%, var(--line));
-  color: var(--overhead);
-  font-size: var(--size-2xs);
-  font-weight: var(--weight-strong);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.wb-src-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding-bottom: 20px;
-}
-
 .wb-src-hed {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 8px 14px 6px;
+  padding: var(--space-2) var(--inspector-gutter) var(--space-1-5);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -3087,11 +3245,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* The project inspector's stack, first to last, and its actions. */
 .wb-inf-rail-order {
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 
 .wb-inf-rail-source {
-  margin: 0 18px 4px;
+  margin: 0 18px var(--space-1);
 }
 
 .wb-inf-rail-order .wb-inf-opt {
@@ -3101,16 +3259,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-inf-rail-acts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 18px 8px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) 18px var(--space-2);
 }
 
 .wb-src {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 8px;
-  margin: 2px 8px;
-  padding: 8px 10px;
+  gap: var(--space-0-5) var(--space-2);
+  margin: var(--space-0-5) var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
 }
 
@@ -3120,7 +3278,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-src-main {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   text-align: left;
   min-width: 0;
 }
@@ -3145,12 +3303,12 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .wb-src-pill {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px var(--space-1-5);
   border-radius: var(--radius-full);
   border: 1px solid var(--line);
   font-size: var(--size-2xs);
@@ -3197,152 +3355,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text);
 }
 
-.wb-src-mode {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 2px 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  color: var(--text-faint);
-  font-size: var(--size-xs);
-}
-
-.wb-src-mode.is-live {
-  color: var(--text);
-}
-
-.wb-src-mode .soon {
-  font-size: var(--size-2xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.wb-src-add {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 6px 8px 4px;
-  padding: 7px 10px;
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--line);
-  color: var(--text);
-  text-align: left;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wb-src-add:hover {
-  background: var(--surface-hover);
-}
-
-.wb-src-next {
-  margin: 8px 14px 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--line);
-  background: var(--surface-0);
-}
-
-.wb-src-next.deny {
-  border-color: var(--danger-line);
-  background: var(--danger-dim);
-}
-
-.wb-src-next.warn {
-  border-color: color-mix(in srgb, var(--overhead) 50%, var(--line));
-  background: color-mix(in srgb, var(--overhead) 8%, var(--surface-1));
-}
-
-.wb-src-next h3 {
-  margin: 0 0 6px;
-  font-size: var(--size-ui);
-  font-weight: var(--weight-strong);
-}
-
-.wb-src-next p {
-  margin: 0 0 8px;
-  color: var(--text-muted);
-  font-size: var(--size-xs);
-  line-height: 1.45;
-}
-
-.wb-src-next pre {
-  margin: 8px 0 0;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  background: var(--surface-0);
-  border: 1px solid var(--line);
-  font-size: var(--size-2xs);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.wb-idx-group {
-  padding: 4px 14px 2px;
-  font-size: var(--size-2xs);
-  font-weight: var(--weight-strong);
-  color: var(--text-muted);
-}
-
-.wb-idx {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 1px 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  text-align: left;
-  background: none;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wb-idx:hover,
-.wb-idx.is-on {
-  background: var(--surface-hover);
-}
-
-.wb-idx .file {
-  display: block;
-  color: var(--text);
-  font-size: var(--size-xs);
-}
-
-.wb-idx .kind {
-  display: block;
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  margin-top: 2px;
-}
-
-.wb-src-opens {
-  margin: 8px 14px 0;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--surface-0);
-  font-size: var(--size-2xs);
-  color: var(--text-muted);
-}
-
-.wb-src-opens b {
-  color: var(--text);
-  font-weight: var(--weight-medium);
-}
-
-.wb-src-opens .mono {
-  margin-top: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.wb-src-scroll .wb-tree {
-  padding: 4px 8px 8px;
-  overflow: visible;
-  flex: none;
-}
-
 /* 0007 — DMs, Recent, roster, @ agents */
 
 .wb-nav-scroll {
@@ -3353,32 +3365,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   overflow: hidden;
 }
 
-.wb-recent-row {
-  align-items: center;
-  margin-top: 6px;
-  color: var(--text-muted);
-}
-
-.wb-recent-row svg {
-  flex-shrink: 0;
-  color: var(--text-faint);
-}
-
 .wb-dm-row {
   align-items: center;
-  gap: 10px;
-}
-
-.wb-mini {
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  display: grid;
-  place-items: center;
-  font-size: var(--size-2xs);
-  font-weight: var(--weight-strong);
-  color: var(--on-glyph);
-  flex-shrink: 0;
+  gap: var(--space-2-5);
 }
 
 .wb-dm-copy {
@@ -3406,8 +3395,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-link-row {
-  margin: 8px;
-  padding: 6px 8px;
+  margin: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
   border: 0;
   background: transparent;
   color: var(--text-faint);
@@ -3428,15 +3417,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-time-group {
-  padding-top: 10px;
+  padding-top: var(--space-2-5);
 }
 
 .wb-time-group:first-child {
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .wb-time {
-  padding: 4px 16px 6px;
+  padding: var(--space-1) var(--space-4) var(--space-1-5);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.06em;
@@ -3454,16 +3443,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-recent-list {
   flex: 1;
   overflow: auto;
-  padding: 8px 0 24px;
+  padding: var(--space-2) 0 var(--space-6);
 }
 
 .wb-jump {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
   width: calc(100% - 24px);
-  margin: 2px 12px;
-  padding: 10px 12px;
+  margin: var(--space-0-5) var(--space-3);
+  padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid transparent;
   background: transparent;
@@ -3488,44 +3477,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-quiet {
-  padding: 18px 16px 0;
+  padding: 18px var(--space-4) 0;
   color: var(--text-faint);
   font-size: var(--size-xs);
   line-height: 1.45;
 }
 
-.wb-role {
-  color: var(--text-faint);
-  font-weight: var(--weight-regular);
-}
-
-.wb-agent-card {
-  margin: 12px 14px 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
-
-.wb-agent-card b {
-  display: block;
-  font-size: var(--size-2xs);
-  font-weight: var(--weight-strong);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 6px;
-}
-
-.wb-agent-card p {
-  margin: 0 0 8px;
-  color: var(--text-muted);
-  font-size: var(--size-ui);
-  line-height: 1.45;
-}
-
 .wb-mention-head {
-  padding: 6px 12px 2px;
+  padding: var(--space-1-5) var(--space-3) var(--space-0-5);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.06em;
@@ -3536,7 +3495,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-mentions button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-mentions button > .mono {
@@ -3550,6 +3509,12 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-shrink: 0;
 }
 
+.wb-mentions button.is-person > .meta {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  white-space: nowrap;
+}
+
 .wb-sheet-backdrop {
   position: absolute;
   inset: 0;
@@ -3558,7 +3523,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 48px var(--space-6);
   overflow: auto;
 }
 
@@ -3567,12 +3532,33 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
-  padding: 20px 22px 22px;
+  padding: var(--space-5) 22px 22px;
   color: var(--text);
 }
 
 .wb-sheet-wide {
   width: min(640px, 100%);
+}
+
+/* Page preview: the frame takes the sheet's remaining height. */
+.wb-preview-sheet {
+  width: 90vw;
+  height: min(85vh, 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-preview-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/* For a sheet built around a table; narrower windows scroll the table (.wb-scroll-x). */
+.wb-sheet-table {
+  width: min(960px, 100%);
 }
 
 .wb-sheet-kicker {
@@ -3581,11 +3567,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .wb-sheet h2 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   font-size: var(--size-heading);
   font-weight: var(--weight-medium);
   letter-spacing: -0.02em;
@@ -3603,17 +3589,22 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   margin-bottom: 14px;
 }
 
-.wb-field span {
+/* Field (components/ui/field) uses .wb-field-label; older fields put a caption span directly
+   inside the label. Only that direct span is a caption: a span deeper in the field, such as a
+   red error in the hint or a name inside the caption, keeps its own style. */
+.wb-field > span,
+.wb-field-label {
   display: block;
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-faint);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1-5);
 }
 
 .wb-field input,
+.wb-field select,
 .wb-field textarea {
   width: 100%;
   background: var(--surface-0);
@@ -3623,6 +3614,31 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text);
   font: inherit;
   outline: none;
+}
+
+/* Fields side by side, sharing the row. */
+.wb-fields-inline {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.wb-fields-inline > .wb-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Content wider than its sheet or panel, like a table, scrolls sideways here instead of
+   spilling past the edge. */
+.wb-scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.wb-field-hint {
+  margin: var(--space-1-5) 0 0;
+  font-size: var(--size-xs);
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
 .wb-field textarea {
@@ -3635,26 +3651,28 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 .wb-sheet-starting {
   color: var(--text);
   font-size: var(--size-ui);
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2-5);
 }
 
 .wb-sheet-error {
   color: var(--overhead);
   font-size: var(--size-ui);
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2-5);
 }
 
-/* macOS order: Cancel or Back sits left of the primary, which ends the row. */
+/* macOS order: Cancel or Back sits left of the primary, which ends the row. The top margin
+   keeps the row off the content above; it collapses into that content's own bottom margin. */
 .wb-sheet-actions {
+  margin-top: var(--space-4);
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   justify-content: flex-end;
 }
@@ -3662,7 +3680,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-sheet-actions > :is(.wb-btn-solid, .wb-btn-ghost),
 .wb-popover-actions > :is(.wb-btn-solid, .wb-btn-ghost) {
   width: auto;
-  padding: 6px 12px;
+  padding-inline: var(--space-3);
   text-align: center;
 }
 
@@ -3680,14 +3698,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-agent-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-agent-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: var(--space-3);
+  padding: var(--space-3) 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-0);
@@ -3710,7 +3728,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: block;
   color: var(--text-muted);
   font-size: var(--size-xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .wb-agent-copy .role {
@@ -3725,10 +3743,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-2xs);
 }
 
-
 .wb-thread-head-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1-5);
   align-items: center;
   flex-shrink: 0;
 }
@@ -3736,15 +3753,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-members {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 0 12px 12px;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-3) var(--space-3);
 }
 
 .wb-member-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 4px;
+  gap: var(--space-2-5);
+  padding: var(--space-1-5) var(--space-1);
 }
 
 .wb-member-copy {
@@ -3766,18 +3783,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: var(--size-2xs);
 }
 
-.wb-quiet-member {
-  padding: 8px 18px 14px;
-  color: var(--text-muted);
-  font-style: italic;
-  font-size: var(--size-xs);
-}
-
 .wb-member-picks {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-1-5);
 }
 
 .wb-btn-tiny.is-on {
@@ -3787,14 +3797,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-draft-card {
   margin-top: 14px;
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-hover);
 }
 
 .wb-draft-card h3 {
-  margin: 4px 0 2px;
+  margin: var(--space-1) 0 var(--space-0-5);
   font-size: var(--size-title);
   font-weight: var(--weight-strong);
 }
@@ -3802,11 +3812,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-draft-card .handle {
   color: var(--text-muted);
   font-size: var(--size-xs);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .wb-draft-card p {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   color: var(--text);
   font-size: var(--size-ui);
   line-height: 1.45;
@@ -3815,15 +3825,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-draft-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
 }
 
 /* Connect a calendar: docs/calendar-ux-study/click-through.html, scene 1 */
 .wb-setup-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: 520px;
 }
 
@@ -3857,10 +3867,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   --leading-ui: var(--leading-body);
   font-size: var(--size-body);
   line-height: var(--leading-body);
-}
-
-.wb-reading .text-xs {
-  font-size: var(--size-small);
 }
 
 .wb-inference {
@@ -3909,7 +3915,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   margin-left: auto;
 }
 
-.wb-settings-sheet-body .wb-settings-section > h2:first-child {
+/* The sheet's head already spaces the first section; later sections keep their margin. */
+.wb-settings-sheet-body > .wb-settings-section:first-child > h2:first-child {
   margin-top: 0;
 }
 
@@ -3948,14 +3955,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inference h1 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1-5);
   font-size: var(--size-heading);
   letter-spacing: -0.03em;
 }
 
+/* Section headings sit --space-6 below the content above; rows in a section are
+   --space-2 apart (SettingsSection in components/settings). */
 .wb-settings-heading,
-.wb-settings-section h2 {
-  margin: var(--space-8) 0 var(--space-2);
+.wb-settings-section > h2 {
+  margin: var(--space-6) 0 var(--space-2);
   font-size: var(--size-title);
   font-weight: var(--weight-medium);
 }
@@ -3964,8 +3973,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   max-width: var(--reading-column);
 }
 
-.wb-settings-section h2 {
-  margin-top: var(--space-5);
+.wb-settings-rows {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* The gap spaces everything in a section's stack; its children's own margins don't. */
+.wb-settings-section .wb-settings-rows > * {
+  margin-block: 0;
+}
+
+/* A sub-heading opens a group inside the section. */
+.wb-settings-section .wb-settings-rows > h3 {
+  margin-top: var(--space-4);
 }
 
 .wb-settings-row {
@@ -3986,7 +4006,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-settings-hint {
-  margin: 2px 0 0;
+  margin: var(--space-0-5) 0 0;
   font-size: var(--size-xs);
   color: var(--text-muted);
 }
@@ -3999,6 +4019,72 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-settings-row > button {
   flex-shrink: 0;
+}
+
+/* Buttons in a row size to their label; outside rows they fill their column. */
+.wb-settings-row :is(.wb-btn-solid, .wb-btn-ghost) {
+  width: auto;
+  white-space: nowrap;
+}
+
+/* A stacked row puts its controls on their own line under the label (SettingsRow stacked). */
+/* Settings › Reply text: a slider and its value, then a transcript-width preview. */
+.wb-reply-text-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.wb-reply-text-slider input {
+  width: 180px;
+  accent-color: var(--brand);
+}
+
+.wb-reply-text-slider input:disabled {
+  opacity: 0.4;
+}
+
+.wb-reply-text-slider output {
+  min-width: 48px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.wb-reply-text-sample {
+  justify-self: start;
+}
+
+.wb-reply-text-preview {
+  display: grid;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-0);
+}
+
+.wb-settings-row.is-stacked {
+  flex-wrap: wrap;
+}
+
+.wb-settings-row.is-stacked > .wb-settings-copy {
+  flex-basis: 100%;
+}
+
+.wb-settings-field {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wb-settings-field > input {
+  flex: 1;
+  min-width: 0;
 }
 
 .wb-settings-hint.is-warn {
@@ -4015,10 +4101,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.wb-agent-browser .wb-settings-row + .wb-settings-row {
-  margin-top: var(--space-2);
 }
 
 .wb-agent-browser-h3 {
@@ -4075,7 +4157,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-settings-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: var(--space-0-5);
   width: fit-content;
   max-width: 100%;
   margin: var(--space-4) 0 var(--space-2);
@@ -4125,23 +4207,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-vault .wb-btn-ghost,
 .wb-vault .wb-btn-danger {
   width: auto;
-  padding: 6px 12px;
+  padding-inline: var(--space-3);
   text-align: center;
-}
-
-.wb-vault .wb-btn-danger {
-  font: inherit;
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--danger-line);
-  background: var(--danger-dim);
-  color: var(--danger);
-}
-
-.wb-vault-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .wb-vault-toolbar {
@@ -4170,18 +4237,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   background: var(--surface-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
-}
-
-.wb-vault-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--warn-line);
-  background: var(--warn-dim);
-  border-radius: var(--radius-lg);
+  padding: var(--space-1-5) var(--space-2-5);
 }
 
 .wb-vault-list {
@@ -4314,7 +4370,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-vault .wb-vault-more {
   display: grid;
   place-items: center;
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-1-5);
   border-color: transparent;
   color: var(--text-faint);
 }
@@ -4323,7 +4379,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-vault-menu {
   z-index: 5;
   min-width: 180px;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -4340,7 +4396,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 0;
   background: none;
   color: var(--text);
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border-radius: var(--radius-sm);
   text-align: left;
 }
@@ -4353,28 +4409,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--danger);
 }
 
-.wb-vault-confirm {
-  padding: var(--space-3) var(--space-4);
-  background: var(--danger-dim);
-  border-top: 1px solid var(--danger-line);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.wb-vault-confirm p {
-  margin: 0;
-}
-
-.wb-vault-confirm-actions,
 .wb-vault-warn-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.wb-vault-confirm-actions {
-  justify-content: flex-end;
 }
 
 .wb-vault-label {
@@ -4393,14 +4431,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   padding: 0 var(--space-4) var(--space-3) 58px;
 }
 
+/* An input on a row beside its buttons: the unlock form here, and a stacked settings row. */
 .wb-vault-unlock input,
-.wb-vault-field input {
+.wb-settings-field > input {
   font: inherit;
   color: var(--text);
   background: var(--surface-0);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 7px 10px;
+  padding: 7px var(--space-2-5);
   outline: none;
 }
 
@@ -4410,7 +4449,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-vault-unlock input:focus,
-.wb-vault-field input:focus {
+.wb-settings-field > input:focus {
   border-color: var(--brand);
 }
 
@@ -4443,31 +4482,24 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   letter-spacing: 0;
 }
 
-.wb-vault-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* The sheet's gap spaces its fields. */
+.wb-vault-sheet .wb-field {
+  margin-bottom: 0;
 }
 
-.wb-vault-field > label,
-.wb-vault-field-label {
-  font-size: var(--size-xs);
-  font-weight: var(--weight-medium);
+.wb-vault-sheet .wb-field input:disabled {
   color: var(--text-muted);
 }
 
-.wb-vault-field input {
-  width: 100%;
-}
-
-.wb-vault-field input:disabled {
-  color: var(--text-muted);
+/* The lines Passwords puts under the Site input. */
+.wb-field > :is(.wb-vault-suggest, .wb-vault-origin, .wb-vault-warn) {
+  margin-top: var(--space-1-5);
 }
 
 .wb-vault-suggest {
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  padding: var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -4482,7 +4514,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 0;
   background: none;
   color: var(--text);
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border-radius: var(--radius-sm);
   text-align: left;
 }
@@ -4507,7 +4539,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
   margin: 0;
   font-size: var(--size-xs);
   color: var(--text-faint);
@@ -4526,14 +4558,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-vault-lockline svg {
   flex: none;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .wb-vault-warn {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--warn-line);
   background: var(--warn-dim);
   border-radius: var(--radius-md);
@@ -4546,8 +4578,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-vault-seg {
   display: inline-flex;
   align-self: flex-start;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-0);
@@ -4560,7 +4592,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 0;
   background: none;
   color: var(--text-faint);
-  padding: 3px 10px;
+  padding: 3px var(--space-2-5);
   border-radius: var(--radius-sm);
 }
 
@@ -4569,15 +4601,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text);
 }
 
-.wb-vault-password {
+/* PasswordField (components/ui/password-field): the show/hide button sits inside the input. */
+.wb-password-field {
   position: relative;
 }
 
-.wb-vault-password input {
+.wb-password-field > input {
   padding-right: 36px;
 }
 
-.wb-vault-password button {
+.wb-password-field > button {
   position: absolute;
   right: 4px;
   top: 50%;
@@ -4591,12 +4624,38 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   cursor: pointer;
 }
 
-.wb-vault-password button:hover {
+.wb-password-field > button:hover {
   color: var(--text);
+}
+
+/* InlineConfirm (components/ui/inline-confirm): a remove confirm under its row or card. */
+.wb-inline-confirm {
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-dim);
+  border-top: 1px solid var(--danger-line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wb-inline-confirm p {
+  margin: 0;
+}
+
+.wb-inline-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 .wb-vault-sheet-actions {
   justify-content: flex-end;
+}
+
+/* The vault sheet is a flex column whose gap already spaces the actions. */
+.wb-vault-sheet > .wb-sheet-actions {
+  margin-top: 0;
 }
 
 .wb-vault-toast {
@@ -4605,7 +4664,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   bottom: 24px;
   transform: translateX(-50%);
   z-index: 50;
-  padding: 8px 14px;
+  padding: var(--space-2) 14px;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -4624,72 +4683,32 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   max-width: 64ch;
 }
 
-.wb-inference-banner {
-  max-width: var(--reading-column);
-  margin: 0 0 16px;
-  padding: 9px 11px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--surface-0);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.wb-inference-banner p {
-  margin: 0;
-  flex: 1;
-  font-size: var(--size-xs);
-  line-height: 1.4;
-}
-
-.wb-inference-banner.is-warn {
-  border-color: var(--warn-line);
-  background: var(--warn-dim);
-}
-
-.wb-inference-banner.is-bad {
-  border-color: var(--danger-line);
-  background: var(--danger-dim);
-}
-
 .wb-inference-cards {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: var(--reading-column);
 }
 
-.wb-inference-card,
-.wb-inference-default {
+.wb-inference-card {
   border: 1px solid var(--line);
   background: var(--surface-1);
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: var(--space-4);
   text-align: left;
 }
 
 .wb-inference-card .hed {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2-5);
 }
 
-.wb-inference-card h3,
-.wb-inference-default h3 {
+.wb-inference-card h3 {
   margin: 0;
   font-size: var(--size-title);
   font-weight: var(--weight-strong);
   letter-spacing: -0.02em;
-}
-
-.wb-inference-default {
-  max-width: var(--reading-column);
-  margin-top: 14px;
-}
-
-.wb-inference-default h3 {
-  margin-bottom: 12px;
 }
 
 /* The header row already spaces its children. */
@@ -4712,7 +4731,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-inference-pill {
   display: inline-block;
-  padding: 2px 7px;
+  padding: var(--space-0-5) 7px;
   border-radius: var(--radius-full);
   border: 1px solid var(--line);
   font-size: var(--size-2xs);
@@ -4727,13 +4746,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-inference-meta {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
+  gap: var(--space-3);
+  padding: var(--space-1-5) 0;
   font-size: var(--size-xs);
 }
 
-.wb-inference-meta dt { color: var(--text-muted); }
-.wb-inference-meta dt { flex-shrink: 0; }
+.wb-inference-meta dt {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
 .wb-inference-meta dd { margin: 0; color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; }
 
 .wb-inference-empty {
@@ -4742,46 +4763,24 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   line-height: 1.5;
 }
 
-.wb-inference-empty p { margin: 0 0 12px; }
+.wb-inference-empty p { margin: 0 0 var(--space-3); }
 
 .wb-inference-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.wb-inference-btn {
-  min-height: var(--control-height);
-  padding: 5px var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  font-size: var(--size-xs);
-  background: transparent;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-inference-btn:hover { background: var(--surface-hover); }
-.wb-inference-btn:disabled { opacity: 0.55; }
-.wb-inference-btn.is-solid {
-  background: var(--text);
-  color: var(--solid-fg);
-  border-color: var(--text);
+  gap: var(--space-1-5);
+  margin-top: var(--space-3);
 }
 
 .wb-inference-choice {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: 100%;
-  padding: 10px;
+  padding: var(--space-2-5);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
   text-align: left;
   color: var(--text);
   background: transparent;
@@ -4801,7 +4800,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   height: 14px;
   border-radius: 50%;
   border: 1.5px solid var(--text-faint);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   flex-shrink: 0;
 }
 
@@ -4810,16 +4809,12 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   box-shadow: inset 0 0 0 3px var(--brand);
 }
 
-.wb-inference-fallback-head {
-  margin-top: 16px;
-}
-
 .wb-inference-box {
   width: 14px;
   height: 14px;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--text-faint);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   flex-shrink: 0;
 }
 
@@ -4830,18 +4825,18 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-inference-choice b { display: block; font-weight: var(--weight-medium); overflow-wrap: anywhere; }
-.wb-inference-choice span { display: block; color: var(--text-muted); font-size: var(--size-xs); margin-top: 2px; }
+.wb-inference-choice span { display: block; color: var(--text-muted); font-size: var(--size-xs); margin-top: var(--space-0-5); }
 
 .wb-inference-note {
   color: var(--text-muted);
   font-size: var(--size-xs);
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
 }
 .wb-inference-note.is-bad { color: var(--danger); }
 
 .wb-switch-progress {
-  margin: 2px 0 8px;
-  padding: 0 12px;
+  margin: var(--space-0-5) 0 var(--space-2);
+  padding: 0 var(--space-3);
 }
 .wb-switch-bar {
   display: grid;
@@ -4868,8 +4863,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 6px;
+  gap: var(--space-3);
+  margin-top: var(--space-1-5);
 }
 .wb-switch-line p {
   margin: 0;
@@ -4879,10 +4874,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* 0023 — chat types: one mark per kind, typed rail sections, two-line headers ------------ */
 /* Living spec: docs/chat-types-ux-study/01-chat-types.html. */
-
-.workbench {
-  --wb-hermes: var(--brand);
-}
 
 .wb-kind-mark {
   flex-shrink: 0;
@@ -4908,29 +4899,24 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   font-size: 12px;
 }
 
+/* The bubble and the face are drawn in the brand colour with no square behind them. */
 .wb-kind-mark.is-hermes {
-  border-radius: 6px;
-  background: var(--wb-hermes);
-}
-
-.wb-kind-mark.is-hermes.is-14 {
-  border-radius: 4px;
+  color: var(--wb-hermes);
 }
 
 .wb-kind-mark.is-hermes svg {
-  width: 60%;
-  height: 60%;
-}
-
-/* A figure an experiment draws fills the square and brings its own background. */
-.wb-kind-mark.is-hermes.has-figure {
-  overflow: hidden;
-  background: transparent;
-}
-
-.wb-kind-mark.is-hermes.has-figure svg {
   width: 100%;
   height: 100%;
+}
+
+/* A figure an experiment draws fills the mark and brings its own background. */
+.wb-kind-mark.is-hermes.has-figure {
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.wb-kind-mark.is-hermes.has-figure.is-14 {
+  border-radius: 4px;
 }
 
 /* --text-muted keeps the outline above 3:1 on both panels. */
@@ -4959,7 +4945,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Rail rows that lead with a mark. */
 .wb-row.has-mark {
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-row .wb-row-title {
@@ -4971,7 +4957,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-sect-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
   white-space: nowrap;
 }
@@ -4993,13 +4979,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-rail-top {
-  padding: 2px 0 6px;
+  padding: var(--space-0-5) 0 var(--space-1-5);
   border-bottom: 1px solid var(--line);
 }
 
 .wb-rail-top .wb-row {
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-rail-top .wb-row svg {
@@ -5008,8 +4994,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-rail-empty {
-  margin: 2px 8px 4px;
-  padding: 6px 8px;
+  margin: var(--space-0-5) var(--space-2) var(--space-1);
+  padding: var(--space-1-5) var(--space-2);
   color: var(--text-faint);
   font-size: var(--size-xs);
   line-height: 1.45;
@@ -5027,14 +5013,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-link-row.is-tight {
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 /* Two-line identity head; stays 42px so it lines up with the inspector tabs. */
 .wb-thread-id {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   min-width: 0;
 }
 
@@ -5090,13 +5076,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-all-tools {
   max-width: 760px;
-  margin: 8px auto 4px;
-  padding: 0 12px;
+  margin: var(--space-2) auto var(--space-1);
+  padding: 0 var(--space-3);
 }
 
 .wb-all-search {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -5114,21 +5100,21 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin: 10px 0 6px;
+  gap: var(--space-1-5);
+  margin: var(--space-2-5) 0 var(--space-1-5);
 }
 
 .wb-all-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-all-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: var(--space-1-5);
+  padding: 3px var(--space-2-5);
   border-radius: 999px;
   border: 1px solid var(--line);
   background: none;
@@ -5152,7 +5138,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-all-sep {
   width: 1px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 var(--space-1);
   background: var(--line);
 }
 
@@ -5161,7 +5147,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 3px 8px;
+  padding: 3px var(--space-2);
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--surface-0);
@@ -5184,13 +5170,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-all-row {
   flex-direction: row;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wb-all-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
   flex: 1;
   min-width: 0;
 }
@@ -5209,18 +5195,18 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-all-empty {
-  padding: 24px 16px;
+  padding: var(--space-6) var(--space-4);
   color: var(--text-muted);
   text-align: center;
 }
 
 .wb-all-empty p {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2-5);
 }
 
 /* Rooms: each reply's speaker line carries that agent's mark (ADR 0023). */
 .wb-who .wb-kind-mark {
-  margin-right: 6px;
+  margin-right: var(--space-1-5);
   vertical-align: -2px;
 }
 
@@ -5244,8 +5230,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px 12px;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-3) var(--space-3);
 }
 
 .wb-member-add-label {
@@ -5256,7 +5242,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-member-add .wb-btn-tiny {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 /* 0023 — Mentions and the DM's In channels tab. */
@@ -5264,12 +5250,12 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-mention-list {
   max-width: 760px;
   margin: 0 auto;
-  padding: 0 12px 24px;
+  padding: 0 var(--space-3) var(--space-6);
 }
 
 .wb-mention-card {
-  margin-bottom: 10px;
-  padding: 12px 14px;
+  margin-bottom: var(--space-2-5);
+  padding: var(--space-3) 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -5278,8 +5264,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-mention-top {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: var(--space-1-5);
+  margin-bottom: var(--space-2);
   color: var(--text-faint);
   font-size: var(--size-xs);
 }
@@ -5302,7 +5288,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-mention-pill {
   margin-left: auto;
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
   border-radius: 999px;
   border: 1px solid var(--line);
   font-size: var(--size-2xs);
@@ -5326,7 +5312,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-mention-pill.is-working {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--brand);
   border-color: color-mix(in srgb, var(--brand) 50%, transparent);
 }
@@ -5336,206 +5322,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   height: 6px;
 }
 
-.wb-mention-you {
-  padding-left: 10px;
-  border-left: 2px solid var(--line-strong);
-  line-height: 1.5;
-}
-
-.wb-mention-at {
-  color: var(--brand);
-  font-weight: var(--weight-medium);
-}
-
-.wb-mention-reply {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.wb-mention-reply .wb-kind-mark {
-  margin-top: 3px;
-}
-
-.wb-mention-reply p {
-  margin: 0;
-  color: var(--text-muted);
-  font-family: var(--font-prose);
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.wb-mention-foot {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.wb-rail-count {
-  margin-left: auto;
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--text);
-  color: var(--solid-fg);
-  font-size: var(--size-2xs);
-  font-weight: var(--weight-strong);
-  text-align: center;
-}
-
-/* DM header tabs: Messages | In channels. */
-.wb-dm-tabs {
-  display: flex;
-  align-self: stretch;
-  gap: 2px;
-  margin-left: 16px;
-}
-
-.wb-dm-tab {
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--text-faint);
-  font: inherit;
-  cursor: pointer;
-}
-
-.wb-dm-tab.is-on {
-  color: var(--text);
-  border-bottom-color: var(--text);
-}
-
-.wb-dm-tab .n {
-  margin-left: 4px;
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-}
-
-/* Open in #room: the message you came for, briefly marked. */
-.wb-msg.is-user.is-focused .wb-bubble {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 70%, transparent);
-  transition: box-shadow var(--dur-panel) var(--ease);
-}
-
-.wb-thread-head .wb-grow {
-  flex: 1;
-}
-
-/* DM long-thread tools (chat types Phase 7a): Ongoing since · Jump to date · Search. */
-.wb-dm-earlier {
-  position: relative;
-  align-self: center;
-  margin: var(--space-3) 0 var(--space-2);
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  text-align: center;
-}
-
-.wb-dm-earlier .wb-link {
-  font-size: inherit;
-}
-
-/* Placed by Radix Popover (components/ui/popover). */
-.wb-dm-days {
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  min-width: 200px;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-}
-
-.wb-dm-day {
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wb-dm-day:hover,
-.wb-dm-day:focus-visible {
-  background: var(--surface-hover);
-}
-
-.wb-find {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px var(--space-4);
-  border-bottom: 1px solid var(--line);
-}
-
-.wb-find-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-}
-
-.wb-find-count {
-  min-width: 64px;
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  text-align: right;
-}
-
-::highlight(wb-find) {
-  background-color: color-mix(in srgb, var(--brand) 22%, transparent);
-}
-
-::highlight(wb-find-current) {
-  background-color: color-mix(in srgb, var(--brand) 55%, transparent);
-}
-
-/* DM context horizon (chat types Phase 7b): the stack's cut, drawn where it reports it. */
-.wb-horizon {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: var(--space-3) 0 var(--space-4);
-}
-
-.wb-horizon::before,
-.wb-horizon::after {
-  content: '';
-  flex: 1;
-  border-top: 1px dashed var(--line);
-}
-
-.wb-horizon-pill {
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  text-align: center;
-}
-
-/* Above the line: dimmed, still selectable and copyable. */
-.wb-msg.is-beyond-horizon > :not(.wb-horizon):not(.wb-day) {
-  opacity: 0.55;
-}
-
-.wb-context-chip {
-  cursor: default;
-}
-
-/* Working dot: an agent is processing a turn for this chat (any list or row that names
-   it). The core stays put; a halo breathes out from it. Static under reduced motion. */
 /* The rail's update button (ADR 0037). Ready uses an outline, because a filled button means
    the active destination. */
 .wb-update-btn {
@@ -5598,7 +5384,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   bottom: 48px;
   z-index: 20;
   width: min(328px, calc(100vw - 72px));
-  padding: var(--space-3) 14px 14px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface-2);
@@ -5629,7 +5415,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-update-card p {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   font-size: var(--size-xs);
   color: var(--text-muted);
 }
@@ -5716,23 +5502,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-update-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   margin-top: var(--space-3);
 }
 
 .wb-update-actions .wb-btn-solid,
-.wb-update-actions .wb-btn-ghost,
-.wb-update-hero .wb-btn-solid,
-.wb-update-hero .wb-btn-ghost,
-.wb-update-row-actions .wb-btn-ghost {
+.wb-update-actions .wb-btn-ghost {
   width: auto;
-  padding: 5px 11px;
   white-space: nowrap;
 }
 
 .wb-update-link {
   margin-left: auto;
-  padding: 2px 4px;
+  padding: var(--space-0-5) var(--space-1);
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
@@ -5744,10 +5526,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-update-link:hover {
   color: var(--text);
-}
-
-.wb-update-hero {
-  gap: 14px;
 }
 
 .wb-update-hero.is-warn {
@@ -5762,13 +5540,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-update-tile {
-  flex-shrink: 0 !important;
-  flex-grow: 0 !important;
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--brand-dim);
   color: var(--brand);
 }
@@ -5795,15 +5571,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-wrap: wrap;
 }
 
-.wb-update-hero.has-tasks > .wb-update-body {
-  flex: 1;
-  min-width: 0;
+/* The tile is the hero's first child, so it must undo the row's flex: 1 for a label column. */
+.wb-update-hero > .wb-update-tile {
+  flex: none;
 }
 
-.wb-update-row-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: var(--space-2);
+.wb-update-hero > .wb-update-body {
+  flex: 1;
+  min-width: 0;
 }
 
 .wb-update-version {
@@ -5814,20 +5589,17 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-update-work {
   display: grid;
-  gap: 6px;
-  margin: 0 0 var(--space-3);
-  padding: 0;
-  list-style: none;
+  gap: var(--space-1-5);
 }
 
 .wb-update-work li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: var(--space-2) 10px;
+  gap: var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-0);
+  padding: var(--space-1) 0;
 }
 
 .wb-update-work b {
@@ -5868,13 +5640,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   }
 }
 
-.wb-working-dot {
-  width: 6px;
-  height: 6px;
-}
-
 .wb-mention-you {
-  padding-left: 10px;
+  padding-left: var(--space-2-5);
   border-left: 2px solid var(--line-strong);
   line-height: 1.5;
 }
@@ -5886,8 +5653,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-mention-reply {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
 }
 
 .wb-mention-reply .wb-kind-mark {
@@ -5907,14 +5674,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-mention-foot {
   display: flex;
-  gap: 6px;
-  margin-top: 10px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-2-5);
 }
 
 .wb-rail-count {
   margin-left: auto;
   min-width: 18px;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   border-radius: 999px;
   background: var(--text);
   color: var(--solid-fg);
@@ -5923,16 +5690,31 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   text-align: center;
 }
 
+/* A count that holds an unread mention: the pill drops its solid fill so the "@" can take the
+   accent colour (the accent on the solid fill is under 3:1 in the dark theme). */
+.wb-rail-count.has-mention,
+.wb-icon-btn > .wb-icon-count.has-mention {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.wb-at-mark {
+  margin-right: var(--space-0-5);
+  color: var(--brand);
+  font-weight: var(--weight-strong);
+}
+
 /* DM header tabs: Messages | In channels. */
 .wb-dm-tabs {
   display: flex;
   align-self: stretch;
-  gap: 2px;
-  margin-left: 16px;
+  gap: var(--space-0-5);
+  margin-left: var(--space-4);
 }
 
 .wb-dm-tab {
-  padding: 0 10px;
+  padding: 0 var(--space-2-5);
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
@@ -5947,7 +5729,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-dm-tab .n {
-  margin-left: 4px;
+  margin-left: var(--space-1);
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
@@ -5984,7 +5766,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   min-width: 200px;
   max-height: 280px;
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -5992,7 +5774,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-dm-day {
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   border: 0;
   border-radius: 6px;
   background: none;
@@ -6010,15 +5792,15 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-find {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px var(--space-4);
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
 .wb-find-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   border-radius: 6px;
   background: transparent;
@@ -6071,40 +5853,20 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   cursor: default;
 }
 
-/* Working dot: an agent is processing a turn for this chat (any list or row that names
-   it). The core stays put; a halo breathes out from it. Static under reduced motion. */
-/* Static on purpose: the pulsing working dot means an agent is running. */
-.wb-update-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--brand);
-}
-
-.wb-update-notice {
-  flex-shrink: 0;
-  margin: 8px 16px;
-}
-
 .wb-update-row-actions {
   display: flex;
   flex-shrink: 0;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-update-work {
-  margin: 12px 0;
+  margin: var(--space-3) 0;
   padding: 0;
   list-style: none;
 }
 
-.wb-update-work li {
-  padding: 4px 0;
-}
-
+/* Working dot: an agent is processing a turn for this chat (any list or row that names
+   it). The core stays put; a halo breathes out from it. Static under reduced motion. */
 .wb-working-dot {
   position: relative;
   flex-shrink: 0;
@@ -6153,15 +5915,22 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-working-dot.is-needs::after,
-.wb-working-dot.is-stalled::after {
+.wb-working-dot.is-stalled::after,
+.wb-working-dot.is-held::after {
   display: none;
+}
+
+/* Held: sent, waiting in Boundary for the local model (workload plan Phase 1a). */
+.wb-working-dot.is-held {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--brand);
 }
 
 /* Rows put the dot at the trailing edge, where the eye checks status. */
 .wb-row > .wb-working-dot,
 .wb-all-row > .wb-working-dot {
   align-self: center;
-  margin: 0 2px 0 auto;
+  margin: 0 var(--space-0-5) 0 auto;
 }
 
 /* On an icon-rail button: a corner dot while another view is open. */
@@ -6184,7 +5953,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   top: 2px;
   right: 1px;
   min-width: 15px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-full);
   background: var(--brand);
   color: #fff;
@@ -6206,8 +5975,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-turn-note {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0 0;
+  gap: var(--space-2);
+  margin: var(--space-2-5) 0 0;
   color: var(--text-faint);
   font-size: var(--size-xs);
 }
@@ -6233,9 +6002,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Credential prompt (Hermes secret / vault requests) — shares the approval slot. */
 .wb-credential-fields {
   display: grid;
-  gap: 0 12px;
+  gap: 0 var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  margin-top: 12px;
+  margin-top: var(--space-3);
   max-width: 62ch;
 }
 
@@ -6244,7 +6013,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-credential-note {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
@@ -6252,13 +6021,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-credential-error {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--size-xs);
 }
 
 .wb-inference-cloud {
-  margin: 10px 0 0;
+  margin: var(--space-2-5) 0 0;
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
@@ -6268,7 +6037,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Chats belong to projects (ADR 0024) -------------------------------------- */
 
 .wb-proj-menu-title {
-  padding: 6px 10px 4px;
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -6291,10 +6060,6 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--text-faint);
 }
 
-.wb-chip .wb-glyph {
-  flex-shrink: 0;
-}
-
 /* The path gives way long before the name does. */
 .wb-chip b {
   min-width: 2ch;
@@ -6306,6 +6071,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-chip .wb-glyph {
+  flex-shrink: 0;
   color: var(--on-glyph);
 }
 
@@ -6334,7 +6100,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-crumbs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -6342,7 +6108,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-crumb-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
   padding: 1px 5px;
   margin-left: -5px;
@@ -6415,7 +6181,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-title-menu-note {
-  margin: 0 8px 6px;
+  margin: 0 var(--space-2) var(--space-1-5);
   color: var(--warn);
   font-size: var(--size-2xs);
   line-height: 1.4;
@@ -6425,7 +6191,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-switch-mark.wb-project-mark {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-switch-mark.wb-project-mark::before,
@@ -6440,7 +6206,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   width: fit-content;
   max-width: 100%;
   margin-inline: auto;
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-0);
@@ -6452,14 +6218,30 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border-color: var(--warn-line);
 }
 
+/* Under a reply a confidential pool answered: the model, provider and level badge. */
+.wb-reply-prov {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-top: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-reply-prov .wb-conf-level,
+.wb-chip--inference .wb-conf-level {
+  width: 16px;
+  height: 16px;
+}
+
 /* Move sheet */
 .wb-move-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
   max-height: 240px;
   overflow-y: auto;
-  margin: 4px -6px 0;
+  margin: var(--space-1) -6px 0;
 }
 
 .wb-move-dest:disabled {
@@ -6485,9 +6267,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-move-effects {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 12px 0 16px;
-  padding-top: 12px;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-4);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
 
@@ -6502,19 +6284,19 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-move-effect {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
 }
 
 .wb-move-effect svg {
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   color: var(--text-faint);
 }
 
 .wb-move-effect.is-warn {
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-md);
   background: var(--warn-dim);
@@ -6536,8 +6318,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-project-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 0 32px;
+  gap: var(--space-5);
+  padding: var(--space-6) 0 var(--space-8);
 }
 
 .wb-project-page > * {
@@ -6550,7 +6332,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
-  padding: 10px 10px 8px 14px;
+  padding: var(--space-2-5) var(--space-2-5) var(--space-2) 14px;
 }
 
 .wb-project-start:focus-within {
@@ -6577,7 +6359,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wb-project-start-row .wb-quiet {
@@ -6593,16 +6375,16 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-bulk-bar .wb-btn-ghost {
   width: auto;
   flex-shrink: 0;
-  padding: 6px 12px;
+  padding-inline: var(--space-3);
 }
 
 .wb-project-sect .wb-quiet {
-  padding: 4px 0 0;
+  padding: var(--space-1) 0 0;
 }
 
 .wb-project-sect .wb-jump {
   width: 100%;
-  margin: 2px 0;
+  margin: var(--space-0-5) 0;
 }
 
 .wb-project-sect-head {
@@ -6612,7 +6394,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-project-sect .wb-time .mono {
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 /* All chats: project column, selection, bulk move */
@@ -6635,7 +6417,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   flex-shrink: 0;
   width: 15px;
   height: 15px;
-  margin: 0 4px 0 12px;
+  margin: 0 var(--space-1) 0 var(--space-3);
 }
 
 .wb-all-check {
@@ -6659,7 +6441,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-all-project {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   flex-shrink: 0;
   width: 150px;
   min-width: 0;
@@ -6683,10 +6465,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: fit-content;
-  margin: 12px auto 0;
-  padding: 6px 6px 6px 14px;
+  margin: var(--space-3) auto 0;
+  padding: var(--space-1-5) var(--space-1-5) var(--space-1-5) 14px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface-2);
@@ -6700,8 +6482,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 16px 0;
+  gap: var(--space-2);
+  padding: 14px var(--inspector-gutter) 0;
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -6754,13 +6536,36 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-src-who {
   color: var(--text-muted);
   font-size: var(--size-2xs);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
+}
+
+.wb-composer-shared {
+  margin: var(--space-1) 0 0;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-src-shared {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  margin-top: var(--space-1);
+}
+
+.wb-src-pill.shared {
+  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+  color: var(--brand);
+}
+
+.wb-src-pill.ended {
+  color: var(--text-faint);
 }
 
 .wb-src-legend {
   display: grid;
-  gap: 4px;
-  margin: 8px 18px 0;
+  gap: var(--space-1);
+  margin: var(--space-2) 18px 0;
   font-size: var(--size-2xs);
   color: var(--text-faint);
 }
@@ -6768,29 +6573,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-src-legend > span {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.wb-insp-banner.code {
-  border-color: color-mix(in srgb, var(--gen) 45%, var(--line));
-  background: color-mix(in srgb, var(--gen) 8%, var(--surface-1));
-}
-
-.wb-insp-banner.is-stacked {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.wb-insp-banner.is-stacked > b {
-  font-size: var(--size-xs);
-  font-weight: var(--weight-strong);
-}
-
-.wb-insp-banner-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-checklist {
@@ -6798,14 +6581,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   font-size: var(--size-xs);
   color: var(--text-faint);
 }
 
 .wb-checklist li {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-checklist li.is-done {
@@ -6830,8 +6613,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-popover {
-  margin: 6px 12px 10px;
-  padding: 12px 14px;
+  margin: var(--space-1-5) var(--space-3) var(--space-2-5);
+  padding: var(--space-3) 14px;
   border-radius: var(--radius-lg);
   border: 1px solid color-mix(in srgb, var(--gen) 45%, var(--line));
   background: var(--surface-2);
@@ -6839,21 +6622,21 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-popover h4 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1-5);
   font-size: var(--size-ui);
   font-weight: var(--weight-strong);
 }
 
 .wb-popover p,
 .wb-popover ul {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2-5);
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.45;
 }
 
 .wb-popover ul {
-  padding-left: 16px;
+  padding-left: var(--space-4);
 }
 
 .wb-popover-warn {
@@ -6863,14 +6646,14 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-popover-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: flex-end;
 }
 
 .wb-sheet-kicker-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   white-space: nowrap;
 }
 
@@ -6903,22 +6686,22 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
   margin: 0 0 14px;
 }
 
 .wb-choices {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 14px;
 }
 
 .wb-choice {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: none;
@@ -6945,7 +6728,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-radio {
   width: 14px;
   height: 14px;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   flex-shrink: 0;
   border-radius: 50%;
   border: 1.5px solid var(--text-faint);
@@ -6975,8 +6758,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-choice-copy ul {
-  margin: 4px 0 0;
-  padding-left: 16px;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
@@ -6989,7 +6772,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 11px 13px;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2-5);
 }
 
 .wb-grant.is-quiet {
@@ -6997,7 +6780,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-grant h3 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1-5);
   font-size: var(--size-ui);
   font-weight: var(--weight-strong);
 }
@@ -7021,9 +6804,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-toggle-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: flex-start;
-  padding: 12px;
+  padding: var(--space-3);
   margin-bottom: 14px;
   border: 1px solid color-mix(in srgb, var(--gen) 45%, var(--line));
   border-radius: var(--radius-lg);
@@ -7065,7 +6848,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-field-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: stretch;
 }
 
@@ -7078,9 +6861,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-will-create {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin: -4px 0 14px;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 1px dashed var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-0);
@@ -7099,10 +6882,10 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-check-row {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2-5);
   align-items: flex-start;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  padding: var(--space-2-5) var(--space-3);
+  margin-bottom: var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -7125,7 +6908,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-check-row > span > span {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   color: var(--text-faint);
   font-size: var(--size-xs);
   line-height: 1.45;
@@ -7133,7 +6916,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-seg {
   display: flex;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -7141,7 +6924,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-seg button {
   flex: 1;
-  padding: 7px 10px;
+  padding: 7px var(--space-2-5);
   border: 0;
   background: none;
   color: var(--text-muted);
@@ -7166,24 +6949,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* Settings › Coding agent and the delete review (ADR 0028 §11) -------------------- */
 
-.wb-sheet .wb-btn-danger {
-  padding: 6px 12px;
-  font: inherit;
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--danger-line);
-  background: var(--danger-dim);
-  color: var(--danger);
-}
-
-.wb-sheet .wb-btn-danger:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .wb-inv {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 }
@@ -7191,8 +6958,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-inv > div {
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
-  gap: 10px;
-  padding: 8px 12px;
+  gap: var(--space-2-5);
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--line);
   font-size: var(--size-xs);
 }
@@ -7212,17 +6979,17 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-risk {
   list-style: none;
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-risk li {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   font-size: var(--size-xs);
@@ -7262,7 +7029,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   color: var(--ok);
 }
 
-.wb-coding-settings .wb-insp-banner {
+.wb-coding-settings .wb-insp-callout {
   margin: 0 0 14px;
 }
 
@@ -7278,7 +7045,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-coding-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--line);
@@ -7301,7 +7068,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-coding-from {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
   color: var(--text-faint);
   font-size: var(--size-xs);
@@ -7322,7 +7089,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-coding-act {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1-5);
   justify-content: flex-end;
 }
 
@@ -7337,18 +7104,18 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-coding-actions {
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
 }
 
 .wb-coding-never {
   margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-coding-never > div {
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   border: 1px dashed var(--line);
   border-radius: var(--radius-lg);
   color: var(--text-muted);
@@ -7357,7 +7124,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-coding-never b {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0-5);
   color: var(--text);
   font-weight: var(--weight-medium);
 }
@@ -7379,7 +7146,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Coding-access card (ADR 0028 §9) ------------------------------------------------ */
 
 .wb-coding-access h3 {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   font-size: var(--size-title);
   font-weight: var(--weight-medium);
   text-wrap: balance;
@@ -7388,7 +7155,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-coding-access-path {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-coding-access-path .cmd {
@@ -7401,8 +7168,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-coding-access-git {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
   font-size: var(--size-xs);
   color: var(--text-muted);
 }
@@ -7412,7 +7179,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-coding-access-list {
-  margin: 10px 0 0;
+  margin: var(--space-2-5) 0 0;
   padding-left: 18px;
   display: grid;
   gap: 3px;
@@ -7429,7 +7196,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 /* Working now: kanban tasks running or waiting on you, top of the chat rail
    (docs/kanban-activity-ux-study). Present only while something runs. */
 .wb-working-count {
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
   color: var(--brand);
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -7438,7 +7205,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-working-list {
   display: flex;
   flex-direction: column;
-  margin: 2px 8px 4px;
+  margin: var(--space-0-5) var(--space-2) var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-0);
@@ -7449,7 +7216,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 6px;
+  column-gap: var(--space-1-5);
   padding: 7px 9px;
   border: 0;
   background: transparent;
@@ -7510,7 +7277,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-working-more {
-  padding: 6px 9px;
+  padding: var(--space-1-5) 9px;
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
@@ -7534,13 +7301,13 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 28px max(24px, calc((100% - var(--chat-column, 720px)) / 2)) 40px;
+  padding: 28px max(24px, calc((100% - var(--chat-column, 720px)) / 2)) var(--space-10);
 }
 
 .wb-task-head {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-task-title {
@@ -7557,7 +7324,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 14px;
+  gap: var(--space-1-5) 14px;
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
@@ -7588,7 +7355,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-task-pill {
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--text-muted);
@@ -7614,8 +7381,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px 12px;
-  padding: 12px 14px;
+  gap: var(--space-1-5) var(--space-3);
+  padding: var(--space-3) 14px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -7642,7 +7409,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-task-strip > .wb-working-dot {
-  margin: 0 2px;
+  margin: 0 var(--space-0-5);
 }
 
 .wb-task-strip-main {
@@ -7677,20 +7444,11 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-task-now-k {
   font-family: var(--font-ui, inherit);
   color: var(--text-faint);
-  margin-right: 6px;
-}
-
-.wb-task-ask {
-  grid-column: 2 / 4;
-  margin: 2px 0 0;
-  color: var(--text);
-  font-size: var(--size-title);
-  line-height: 1.5;
-  white-space: pre-wrap;
+  margin-right: var(--space-1-5);
 }
 
 .wb-task-sect h2 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
@@ -7699,7 +7457,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-task-goal {
-  padding-left: 12px;
+  padding-left: var(--space-3);
   border-left: 2px solid var(--line-strong);
   color: var(--text-muted);
   line-height: 1.55;
@@ -7707,7 +7465,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-task-result {
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -7739,8 +7497,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 12px;
-  padding: 0 0 12px 22px;
+  gap: var(--space-1) var(--space-3);
+  padding: 0 0 var(--space-3) 22px;
   color: var(--text-muted);
   font-size: var(--size-ui);
 }
@@ -7788,7 +7546,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-task-tl-quote {
   grid-column: 1 / 3;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: var(--surface-1);
@@ -7806,8 +7564,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-task-console summary {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  gap: var(--space-2);
+  padding: 9px var(--space-3);
   color: var(--text-muted);
   font-size: var(--size-xs);
   cursor: pointer;
@@ -7827,7 +7585,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 .wb-task-log {
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   max-height: 320px;
   overflow: auto;
   border-top: 1px solid var(--line);
@@ -7843,7 +7601,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-task-counts {
   margin-left: auto;
   display: flex;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--text-faint);
   font-size: var(--size-2xs);
   font-variant-numeric: tabular-nums;
@@ -7865,7 +7623,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-tasks-head .wb-grow {
@@ -7874,7 +7632,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 
 /* The board view (task activity Phase 4): Hermes's board fills the pane edge to edge. */
 .wb-tasks-board-head {
-  padding: 14px 24px 12px;
+  padding: 14px var(--space-6) var(--space-3);
   border-bottom: 1px solid var(--line);
 }
 
@@ -7890,8 +7648,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  padding: 28px 24px;
+  gap: var(--space-2-5);
+  padding: 28px var(--space-6);
 }
 
 .wb-tasks-scope {
@@ -7902,7 +7660,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-tasks-scope button {
-  padding: 2px 10px;
+  padding: var(--space-0-5) var(--space-2-5);
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -7928,8 +7686,8 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-tasks-group h2 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 6px;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1-5);
   color: var(--text-faint);
   font-size: var(--size-2xs);
   font-weight: var(--weight-strong);
@@ -7950,9 +7708,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   width: 100%;
-  padding: 9px 10px;
+  padding: 9px var(--space-2-5);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -8025,7 +7783,7 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 }
 
 .wb-task-cards-head {
-  padding: 7px 12px;
+  padding: 7px var(--space-3);
   border-bottom: 1px solid var(--line);
   color: var(--text-faint);
   font-size: var(--size-2xs);
@@ -8037,9 +7795,9 @@ html[data-platform='darwin'] .wb-icon-rail::after {
 .wb-task-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
+  gap: var(--space-0-5) var(--space-3);
   width: 100%;
-  padding: 9px 12px;
+  padding: 9px var(--space-3);
   border: 0;
   background: transparent;
   color: inherit;
@@ -8088,7 +7846,7 @@ button.wb-task-card:hover {
   align-self: center;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -8106,7 +7864,7 @@ button.wb-task-card:hover {
 .wb-task-finished {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 0;
   color: var(--text-muted);
   font-family: var(--font-ui);
@@ -8137,7 +7895,7 @@ button.wb-task-card:hover {
 .wb-approve.wb-task-needs {
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
 }
 
 .wb-task-reply,
@@ -8145,7 +7903,7 @@ button.wb-task-card:hover {
   display: block;
   width: 100%;
   min-height: 60px;
-  margin-top: 10px;
+  margin-top: var(--space-2-5);
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -8168,7 +7926,7 @@ button.wb-task-card:hover {
 }
 
 .wb-task-error {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--size-xs);
 }
@@ -8186,8 +7944,8 @@ button.wb-task-card:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 8px;
+  gap: var(--space-2-5);
+  margin-top: var(--space-2);
 }
 
 .wb-task-composer-row .wb-task-error {
@@ -8200,7 +7958,7 @@ button.wb-task-card:hover {
 }
 
 .wb-task-composer-row .wb-btn-solid {
-  padding: 6px 12px;
+  padding-inline: var(--space-3);
   border-radius: var(--radius-md);
   font: inherit;
   cursor: pointer;
@@ -8210,11 +7968,6 @@ button.wb-task-card:hover {
 .wb-task-runmenu {
   position: relative;
   margin-left: auto;
-}
-
-.wb-task-runmenu > .wb-btn-ghost {
-  padding: 2px 10px;
-  font-size: var(--size-xs);
 }
 
 .wb-approve-confirm.wb-task-confirm {
@@ -8236,7 +7989,7 @@ button.wb-task-card:hover {
 .wb-task-strip-act {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wb-task-strip-act .wb-task-error {
@@ -8252,7 +8005,7 @@ button.wb-task-card:hover {
 
 .wb-cal-cards {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: var(--reading-column);
 }
 
@@ -8274,14 +8027,14 @@ button.wb-task-card:hover {
   color: var(--brand);
 }
 
-.wb-cal-card .wb-inference-banner {
-  margin-bottom: 10px;
+.wb-cal-card .wb-inference-callout {
+  margin-bottom: var(--space-2-5);
 }
 
 .wb-inference-meta.wb-cal-meta {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  gap: 6px 14px;
+  gap: var(--space-1-5) 14px;
   margin: 0;
   padding: 0;
 }
@@ -8294,17 +8047,17 @@ button.wb-task-card:hover {
 
 .wb-cal-meta dd .mono {
   color: var(--text-faint);
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 .wb-cal-tags {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-cal-tag {
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -8314,10 +8067,10 @@ button.wb-task-card:hover {
 
 .wb-cal-progress {
   list-style: none;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--size-ui);
   color: var(--text-faint);
 }
@@ -8325,7 +8078,7 @@ button.wb-task-card:hover {
 .wb-cal-progress li {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-cal-progress li.is-done {
@@ -8363,15 +8116,75 @@ button.wb-task-card:hover {
 
 .wb-cal-choices {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-cal-unsupported {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
   padding-left: 18px;
   color: var(--text-muted);
   font-size: var(--size-xs);
   line-height: 1.5;
+}
+
+.wb-cal-unsupported-btn {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-cal-unsupported-btn:hover .wb-cal-unsupported-hint {
+  text-decoration: underline;
+}
+
+.wb-cal-unsupported-hint {
+  color: var(--brand);
+  font-weight: var(--weight-medium);
+}
+
+.wb-cal-mac-groups {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.wb-cal-mac-group {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.wb-cal-mac-group legend {
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-cal-mac-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--size-sm);
+}
+
+.wb-cal-mac-swatch {
+  flex: none;
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.wb-cal-mac-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .wb-cal-unsupported b {
@@ -8379,24 +8192,20 @@ button.wb-task-card:hover {
   font-weight: var(--weight-medium);
 }
 
+/* A how-to is one click away (explainer-text study, rule 4). */
 .wb-cal-help {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  padding: 10px 12px;
   margin-bottom: 14px;
   font-size: var(--size-xs);
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-/* A how-to is one click away (explainer-text study, rule 4). */
-.wb-cal-help {
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
 }
 
 .wb-cal-help[open] {
-  padding-bottom: 10px;
+  padding-bottom: var(--space-2-5);
 }
 
 .wb-cal-help summary {
@@ -8406,16 +8215,99 @@ button.wb-task-card:hover {
 }
 
 .wb-cal-help ol {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   padding-left: 18px;
 }
 
 .wb-cal-help p {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
+}
+
+.wb-cal-walk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wb-cal-walk-art {
+  width: 100%;
+  height: auto;
+}
+
+.wb-cal-walk-title {
+  margin: 0;
+  font-size: var(--size-title);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+
+.wb-cal-walk-title:focus {
+  outline: none;
+}
+
+.wb-cal-walk-body {
+  margin: 0;
+  font-size: var(--size-ui);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.wb-cal-walk-body b {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.wb-cal-walk-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-cal-walk-warn {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-md);
+  background: var(--warn-dim);
+  color: var(--warn);
+}
+
+.wb-cal-walk-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wb-cal-walk-dots {
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.wb-cal-walk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+
+.wb-cal-walk-dot[data-active='true'] {
+  background: var(--brand);
+}
+
+.wb-cal-walk-count {
+  flex: 1;
+  font-size: var(--size-xs);
+  color: var(--text-faint);
+}
+
+.wb-cal-walk-mac {
+  align-self: flex-start;
 }
 
 .wb-cal-advanced {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .wb-cal-advanced summary {
@@ -8425,23 +8317,23 @@ button.wb-task-card:hover {
 }
 
 .wb-cal-advanced[open] summary {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .wb-cal-found {
   border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line));
   background: var(--ok-dim);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
-  margin-bottom: 12px;
+  padding: var(--space-2-5) var(--space-3);
+  margin-bottom: var(--space-3);
   font-size: var(--size-ui);
 }
 
 .wb-cal-found p {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 8px;
+  gap: var(--space-1-5);
+  margin: 0 0 var(--space-2);
 }
 
 .wb-cal-found svg {
@@ -8460,8 +8352,8 @@ button.wb-task-card:hover {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
 }
 
 .wb-cal-agents li + li {
@@ -8487,8 +8379,8 @@ button.wb-task-card:hover {
   white-space: nowrap;
 }
 
-.wb-cal-sheet .wb-inference-banner {
-  margin-bottom: 12px;
+.wb-cal-sheet .wb-inference-callout {
+  margin-bottom: var(--space-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8504,7 +8396,7 @@ button.wb-task-card:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
@@ -8521,3 +8413,173 @@ button.wb-task-card:hover {
   font-size: var(--size-xs);
 }
 
+/* Writing voices on an agent (ADR 0056 §5): the sheet's group and the inspector's rows. */
+.wb-voice-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.wb-voice-group legend {
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-group .wb-field,
+.wb-insp-soul .wb-field {
+  margin: 0;
+}
+
+.wb-voice-group select,
+.wb-insp-soul select {
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+  color: var(--text);
+}
+
+.wb-insp-voices {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--size-xs);
+}
+
+.wb-insp-voices dt {
+  color: var(--text-faint);
+}
+
+.wb-insp-voices dd {
+  margin: 0;
+  color: var(--text);
+}
+
+/* Writing voices in the composer (ADR 0056 §6): the / menu's extras, the chips, reply details. */
+.wb-command-empty {
+  margin: 0;
+  padding: var(--space-1-5) var(--space-3);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-command-keys {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  padding: var(--space-1-5) var(--space-3) var(--space-1);
+  border-top: 1px solid var(--line);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-command-keys kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+
+.wb-voice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-1-5) var(--space-2) 0;
+  padding: var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--brand-dim);
+  color: var(--text);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.wb-voice-chip button:hover {
+  background: var(--surface-hover);
+  color: var(--brand);
+}
+
+.wb-voice-chip svg {
+  width: 12px;
+  height: 12px;
+}
+
+.wb-kept-voice {
+  position: relative;
+  display: inline-flex;
+}
+
+.wb-kept-voice .wb-chip {
+  border-color: var(--brand);
+}
+
+.wb-kept-voice-menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-1-5));
+  left: 0;
+  z-index: 20;
+  min-width: 220px;
+  padding: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-popover);
+}
+
+.wb-kept-voice-menu button {
+  display: block;
+  width: 100%;
+  padding: var(--space-1-5) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-kept-voice-menu button:hover,
+.wb-kept-voice-menu button.is-active {
+  background: var(--surface-hover);
+}
+
+.wb-kept-voice-menu hr {
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.wb-reply-voice {
+  margin-right: var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+}
+
+/* Reading pages bump Tailwind's text-xs to the reading scale. It overrides a utility class, so
+   it sits in the utilities layer, where its extra class outranks `.text-xs`. */
+@layer utilities {
+  .wb-reading .text-xs {
+    font-size: var(--size-small);
+  }
+}

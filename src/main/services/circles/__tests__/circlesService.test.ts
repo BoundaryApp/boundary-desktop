@@ -1,12 +1,23 @@
 import { EventEmitter } from 'node:events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CirclesSnapshot } from '../../../../shared/types/circles';
+import { PassThrough } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  CircleInviteView,
+  CircleMemberView,
+  CircleMessage,
+  CircleOfferView,
+  CircleSharing,
+  CircleSnapshot,
+  CirclesSnapshot,
+} from '../../../../shared/types/circles';
+import type { CircleRecordChange } from '../networkMessages';
 
 const SNAPSHOT: CirclesSnapshot = { identity: 'ab'.repeat(32), circles: [] };
 
 /** A fake network process: answers `circles-start` with ready, and requests with `reply`. */
 class FakeChild extends EventEmitter {
   pid = 42;
+  stderr = new PassThrough();
   reply: (request: { op: string }) => Record<string, unknown> = () => ({ ok: true });
   postMessage = vi.fn((message: { type: string; id?: number; request?: { op: string } }) => {
     if (message.type === 'circles-start') setImmediate(() => this.emit('message', { type: 'circles-ready', snapshot: SNAPSHOT }));
@@ -39,13 +50,24 @@ vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
     slot === 'local' ? { endpointUrl: 'http://127.0.0.1:1234/v1', modelId: 'qwen3-8b' } : null,
 }));
 vi.mock('../../windows', () => ({ broadcast: (_channel: string, payload: unknown) => broadcasts.push(payload) }));
-vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: () => undefined }));
+const debugLog = vi.hoisted(() => [] as Array<{ message: string; data: unknown }>);
+vi.mock('../../../persistDebugLog', () => ({
+  persistDebugLog: (_area: string, message: string, data: unknown): void => void debugLog.push({ message, data }),
+}));
 const notices = vi.hoisted(() => [] as Array<{ title: string; body: string }>);
-vi.mock('../../notifications', () => ({ showWindowNotification: (notice: { title: string; body: string }) => void notices.push(notice) }));
+const noticeClicks = vi.hoisted(() => [] as Array<((win: unknown) => void) | undefined>);
+vi.mock('../../notifications', () => ({
+  showWindowNotification: (notice: { title: string; body: string }, onClick?: (win: unknown) => void): void => {
+    notices.push(notice);
+    noticeClicks.push(onClick);
+  },
+}));
+const sentEvents = vi.hoisted(() => [] as unknown[][]);
+vi.mock('../../../ipc', () => ({ sendEvent: (_contents: unknown, ...args: unknown[]): void => void sentEvents.push(args) }));
 const diagnostics = vi.hoisted(() => [] as unknown[]);
-vi.mock('../circlesDiagnostics', () => ({ diag: (...line: unknown[]) => void diagnostics.push(line), short: (key: string | null) => key?.slice(0, 8) ?? null }));
+vi.mock('../circlesDiagnostics', () => ({ diag: (...line: unknown[]): void => void diagnostics.push(line), short: (key: string | null) => key?.slice(0, 8) ?? null }));
 
-const NOT_SHARING = { models: [], circles: [], paused: false, away: false };
+const NOT_SHARING: CircleSharing = { models: [], circles: [], paused: false, away: false };
 const stored = {
   name: '',
   circles: new Map<string, unknown>(),
@@ -58,13 +80,15 @@ const stored = {
   saveSecretsFails: false,
   served: undefined as unknown,
   used: undefined as unknown,
+  servedServices: undefined as unknown,
+  serviceGrants: { grants: [], revoke: [] } as { grants: unknown[]; revoke: string[] },
   reads: {} as Record<string, Record<string, unknown>>,
 };
 vi.mock('../circlesStore', () => ({
   getCirclesDisplayName: () => stored.name,
-  setCirclesDisplayName: (name: string) => void (stored.name = name),
+  setCirclesDisplayName: (name: string): void => void (stored.name = name),
   hasCircles: () => stored.circles.size > 0,
-  wipeOutdatedCircles: (dir: string) => void stored.wiped.push(dir),
+  wipeOutdatedCircles: (dir: string): void => void stored.wiped.push(dir),
   loadCircleSeeds: async () => ({ identitySeed: '11'.repeat(32), deviceSeed: '22'.repeat(32) }),
   listCircleSecrets: async () => [...stored.circles.values()],
   saveCircleSecrets: async (secrets: { key: string }) => {
@@ -83,7 +107,7 @@ vi.mock('../circlesStore', () => ({
   getProviderSettings: () => stored.providers,
   getCircleSharing: () => stored.sharing,
   getInviteLabels: () => stored.inviteLabels,
-  setInviteLabels: (labels: Record<string, string>) => void (stored.inviteLabels = labels),
+  setInviteLabels: (labels: Record<string, string>): void => void (stored.inviteLabels = labels),
   getInviteCodeIds: () => [...stored.inviteCodes.keys()],
   listInviteCodeIds: (key: string) => [...stored.inviteCodes].filter(([, code]) => code.key === key).map(([id]) => id),
   saveInviteCode: async (key: string, id: string, code: string, expires: number) => {
@@ -91,22 +115,28 @@ vi.mock('../circlesStore', () => ({
     stored.inviteCodes.set(id, { key, code, expires });
   },
   readInviteCode: async (_key: string, id: string) => stored.inviteCodes.get(id)?.code ?? null,
-  forgetInviteCode: (_key: string, id: string) => void stored.inviteCodes.delete(id),
+  forgetInviteCode: (_key: string, id: string): void => void stored.inviteCodes.delete(id),
   pruneInviteCodes: (circles: Array<{ invites: Array<{ id: string; used: boolean; revoked: boolean }> }>) => {
     for (const invite of circles.flatMap((circle) => circle.invites)) {
       if (invite.used || invite.revoked) stored.inviteCodes.delete(invite.id);
     }
     return [...stored.inviteCodes.keys()];
   },
-  setCircleSharing: (sharing: unknown) => void (stored.sharing = sharing),
+  setCircleSharing: (sharing: unknown): void => void (stored.sharing = sharing),
+  getNotifyPrefs: () => ({ level: 'default', channelMentions: true }),
+  getNotifyGlobal: () => ({ enabled: true, showText: true }),
   getReadPositions: (key: string) => stored.reads[key] ?? {},
   setReadPosition: (key: string, channel: string, position: unknown) => {
     stored.reads = { ...stored.reads, [key]: { ...stored.reads[key], [channel]: position } };
   },
   getServedUsage: () => stored.served,
-  setServedUsage: (usage: unknown) => void (stored.served = usage),
+  setServedUsage: (usage: unknown): void => void (stored.served = usage),
   getUsedUsage: () => stored.used,
-  setUsedUsage: (usage: unknown) => void (stored.used = usage),
+  getServedServiceUsage: () => stored.servedServices,
+  setServedServiceUsage: (usage: unknown): void => void (stored.servedServices = usage),
+  loadServiceGrants: async () => stored.serviceGrants,
+  saveServiceGrants: async (state: typeof stored.serviceGrants): Promise<void> => void (stored.serviceGrants = state),
+  setUsedUsage: (usage: unknown): void => void (stored.used = usage),
   setProviderSettings: (identity: string, settings: { private: boolean; trusted: boolean }) => {
     stored.providers = { ...stored.providers, [identity]: settings };
   },
@@ -120,10 +150,15 @@ async function load() {
 beforeEach(() => {
   fork.mockClear();
   lastChild = null;
+  debugLog.length = 0;
   broadcasts.length = 0;
   notices.length = 0;
+  noticeClicks.length = 0;
+  sentEvents.length = 0;
   stored.served = undefined;
   stored.used = undefined;
+  stored.servedServices = undefined;
+  stored.serviceGrants = { grants: [], revoke: [] };
   stored.name = '';
   stored.circles.clear();
   stored.providers = {};
@@ -174,6 +209,42 @@ describe('circlesService', () => {
     );
     expect(stored.circles.get('c2')).toEqual(secrets);
     expect(service.getCirclesState()).toMatchObject({ status: 'running', snapshot: SNAPSHOT });
+  });
+
+  it('hands the gateway stored grants when Circles start, and keeps the day’s service counts', async () => {
+    stored.name = 'Ada';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1', encryptionKey: 'e1' });
+    const usage = { day: '2026-11-09', counts: { bo: { requests: 2, tokens: 0 } } };
+    stored.servedServices = usage;
+    stored.serviceGrants = {
+      grants: [{ circle: 'c1', service: 'twenty.main', identity: 'bo', level: 'read', read: { id: 'k1', token: 't1' } }],
+      revoke: [],
+    };
+    const service = await load();
+    await service.ensureCirclesStarted();
+    await flush();
+
+    const sent = lastChild!.postMessage.mock.calls.map(([message]) => message as { type: string; request?: { op: string } });
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'circles-start', serviceUsage: usage }));
+    const sharing = sent.find((message) => message.request?.op === 'service-sharing');
+    expect(sharing?.request).toMatchObject({
+      sharing: { grants: [{ circle: 'c1', service: 'twenty.main', identity: 'bo', read: 't1' }] },
+    });
+    expect(JSON.stringify(debugLog)).not.toContain('t1');
+
+    const later = { day: '2026-11-09', counts: { bo: { requests: 3, tokens: 0 } } };
+    lastChild!.emit('message', { type: 'service-usage', served: later });
+    expect(stored.servedServices).toEqual(later);
+  });
+
+  it('sends the gateway nothing at start when no one has been granted a service', async () => {
+    stored.name = 'Ada';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1', encryptionKey: 'e1' });
+    const service = await load();
+    await service.ensureCirclesStarted();
+    await flush();
+    const ops = lastChild!.postMessage.mock.calls.map(([message]) => (message as { request?: { op: string } }).request?.op);
+    expect(ops).not.toContain('service-sharing');
   });
 
   it('passes a refusal through with the state, and stores nothing', async () => {
@@ -239,10 +310,10 @@ describe('circlesService', () => {
   describe('invite codes', () => {
     const KEY = 'c'.repeat(64);
     const open = { expires: Date.now() + 60_000, revoked: false, used: false };
-    const circle = (invites: unknown[]) => ({ key: KEY, name: 'Garden', myRole: 'admin', writable: true, members: [], invites, offers: [], needsUpdate: false, writable: true });
+    const circle = (invites: CircleInviteView[]): CircleSnapshot => ({ key: KEY, name: 'Garden', myRole: 'admin', members: [], invites, offers: [], needsUpdate: false, writable: true, format: 2 });
 
     /** A running service whose process answers each `invite` request with the next id. */
-    async function running(invites: unknown[], revoke: Record<string, unknown> = { ok: true }) {
+    async function running(invites: CircleInviteView[], revoke: Record<string, unknown> = { ok: true }) {
       stored.name = 'Ada';
       const service = await load();
       let made = 0;
@@ -382,6 +453,35 @@ describe('circlesService', () => {
     expect(service.getCirclesState()).toMatchObject({ status: 'failed' });
   });
 
+  it('pipes the process’s stderr and logs its tail when the process dies unexpectedly', async () => {
+    stored.name = 'Bo';
+    const service = await load();
+    await service.ensureCirclesStarted();
+    expect(fork).toHaveBeenCalledWith(expect.any(String), [], expect.objectContaining({ stdio: ['ignore', 'inherit', 'pipe'] }));
+
+    const child = lastChild!;
+    child.stderr.end('TypeError: boom\n    at open (circlesNetwork.js:1:2)\n');
+    child.emit('exit', 1);
+    await flush();
+
+    expect(service.getCirclesState()).toMatchObject({ status: 'failed', error: 'Circles stopped unexpectedly.' });
+    expect(debugLog).toContainEqual({
+      message: 'network process stderr',
+      data: { code: 1, bytes: 52, tail: 'TypeError: boom\n    at open (circlesNetwork.js:1:2)\n' },
+    });
+  });
+
+  it('logs no stderr when the process stops because it was asked to', async () => {
+    stored.name = 'Bo';
+    const service = await load();
+    await service.ensureCirclesStarted();
+    lastChild!.stderr.end('a warning\n');
+    await service.stopCircles();
+    await flush();
+
+    expect(debugLog.find((line) => line.message === 'network process stderr')).toBeUndefined();
+  });
+
   it('keeps a Circle it has left until the network process closes it, and starts at launch only for a member', async () => {
     stored.name = 'Ada';
     let service = await load();
@@ -505,7 +605,7 @@ describe('circlesService', () => {
       const service = await load();
       await service.ensureCirclesStarted();
       await flush();
-      const circle = (writable: boolean) => ({ key: 'c'.repeat(64), name: 'G', myRole: 'member', writable: true, members: [], invites: [], offers: [], needsUpdate: false, writable });
+      const circle = (writable: boolean): CircleSnapshot => ({ key: 'c'.repeat(64), name: 'G', myRole: 'member', members: [], invites: [], offers: [], needsUpdate: false, writable, format: 2 });
       const ops = () => lastChild!.postMessage.mock.calls.flatMap(([message]) => (message.type === 'circles-request' ? [message.request!.op] : []));
       lastChild!.emit('message', { type: 'circles-snapshot', snapshot: { ...SNAPSHOT, circles: [circle(false)] } });
       await service.setCircleSharingSettings(stored.sharing as never);
@@ -735,7 +835,7 @@ describe('circlesService', () => {
     const A = 'a'.repeat(64);
     const B = 'b'.repeat(64);
     const model = { id: 'qwen3-8b', contextLength: 32768, tools: true };
-    const circle = (key: string, offers: unknown[] = []) => ({ key, name: key.slice(0, 1), myRole: 'member', writable: true, members: [], invites: [], offers });
+    const circle = (key: string, offers: CircleOfferView[] = []) => ({ key, name: key.slice(0, 1), myRole: 'member', writable: true, members: [] as CircleMemberView[], invites: [] as CircleInviteView[], offers });
 
     async function sharingService(circles: unknown[]) {
       stored.name = 'Ada';
@@ -903,7 +1003,7 @@ describe('circlesService', () => {
       return service;
     }
 
-    const message = (text: string, extra: Record<string, unknown> = {}) => ({
+    const message = (text: string, extra: Partial<CircleMessage> = {}): CircleMessage => ({
       circleKey: KEY,
       channel: 'general',
       author: ME,
@@ -917,6 +1017,9 @@ describe('circlesService', () => {
       deleted: null,
       shared: null,
       call: null,
+      mentions: null,
+      reply: null,
+      reactions: [],
       mine: true,
       ...extra,
     });
@@ -926,7 +1029,7 @@ describe('circlesService', () => {
       const channels = [{ id: 'general', name: 'General', unread: 2 }];
       const service = await running(() => ({ ok: true, chat: { channels } }));
       expect(await service.listCircleChannels(KEY)).toMatchObject({ success: true, channels });
-      expect(requests().at(-1)).toEqual({ op: 'chat-channels', key: KEY, reads: stored.reads[KEY] });
+      expect(requests().at(-1)).toEqual({ op: 'chat-channels', key: KEY, reads: stored.reads[KEY], channelMentions: true });
     });
 
     it('asks for 50 messages by default and at most 200', async () => {
@@ -963,14 +1066,57 @@ describe('circlesService', () => {
       });
     });
 
+    it('sends the mentions still in the text with a post or an edit, and none when nothing is kept', async () => {
+      const service = await running(() => ({ ok: true, chat: { id: ID } }));
+      const maya = { identity: 'c'.repeat(64), name: 'Maya' };
+      await service.postCircleMessage(KEY, 'general', 'Hi @Maya @channel', { picked: [maya], mentionChannel: true });
+      expect(requests().at(-1)).toMatchObject({ op: 'chat-post', mentions: { members: [maya.identity], channel: true } });
+      await service.postCircleMessage(KEY, 'general', 'Hi', { picked: [maya], mentionChannel: true });
+      expect(requests().at(-1)).not.toHaveProperty('mentions');
+      await service.editCircleMessage(KEY, 'general', ID, 'Hi @Maya', { picked: [maya] });
+      expect(requests().at(-1)).toMatchObject({ op: 'chat-edit', text: 'Hi @Maya', mentions: { members: [maya.identity] } });
+      await service.editCircleMessage(KEY, 'general', ID, 'Hi');
+      expect(requests().at(-1)).not.toHaveProperty('mentions');
+    });
+
+    it('sends a reply with a post and leaves it out when absent', async () => {
+      const service = await running(() => ({ ok: true, chat: { id: ID } }));
+      const reply = { author: ME, id: ID };
+      await service.postCircleMessage(KEY, 'general', 'Yes', { reply });
+      expect(requests().at(-1)).toEqual({ op: 'chat-post', key: KEY, channel: 'general', text: 'Yes', reply });
+      await service.postCircleMessage(KEY, 'general', 'No');
+      expect(requests().at(-1)).not.toHaveProperty('reply');
+    });
+
+    it('asks for one message by reference', async () => {
+      const found = { id: ID, text: 'Hello' };
+      const service = await running(() => ({ ok: true, chat: { message: found } }));
+      expect(await service.getCircleMessage(KEY, 'general', { author: ME, id: ID })).toMatchObject({ success: true, message: found });
+      expect(requests().at(-1)).toEqual({ op: 'chat-message', key: KEY, channel: 'general', ref: { author: ME, id: ID } });
+      const missing = await running(() => ({ ok: true, chat: { message: null } }));
+      expect(await missing.getCircleMessage(KEY, 'general', { author: ME, id: ID })).toMatchObject({ success: true, message: null });
+    });
+
     it('keeps a read position on this device only, and refuses one that isn’t', async () => {
       const service = await running();
       const sent = requests().length;
       expect(service.markCircleChannelRead(KEY, 'general', { author: ME, id: ID, at: 3 })).toMatchObject({ success: true });
-      expect(stored.reads[KEY]?.general).toEqual({ author: ME, id: ID, at: 3 });
+      expect(stored.reads[KEY]?.general).toEqual({ author: ME, id: ID, at: 3, reactionsAt: expect.any(Number) });
       expect(service.markCircleChannelRead(KEY, 'general', { author: ME, id: 'not-hex', at: 3 })).toMatchObject({ success: false });
       expect(service.markCircleChannelRead(KEY, 'Bad Channel', { author: ME, id: ID, at: 3 })).toMatchObject({ success: false });
       expect(requests().length).toBe(sent);
+    });
+
+    it('marking read stores reactionsAt from this device’s clock', async () => {
+      const service = await running();
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(1_700_000_000_000);
+        service.markCircleChannelRead(KEY, 'general', { author: ME, id: ID, at: 3, reactionsAt: 5 } as never);
+        expect(stored.reads[KEY]?.general).toEqual({ author: ME, id: ID, at: 3, reactionsAt: 1_700_000_000_000 });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     describe('channels', () => {
@@ -998,6 +1144,16 @@ describe('circlesService', () => {
         ]);
       });
 
+      it('cuts the id at 48 characters and falls back to channel', async () => {
+        const service = await running(reply);
+        const long = await service.addCircleChannel(KEY, `${'a'.repeat(47)} b`);
+        expect(long).toMatchObject({ success: true, id: expect.stringMatching(/^a{47}-[0-9a-f]{6}$/) });
+        const symbols = await service.addCircleChannel(KEY, '¿¡!');
+        expect(symbols).toMatchObject({ success: true, id: expect.stringMatching(/^channel-[0-9a-f]{6}$/) });
+        const accented = await service.addCircleChannel(KEY, 'Café Chat');
+        expect(accented).toMatchObject({ success: true, id: expect.stringMatching(/^caf-chat-[0-9a-f]{6}$/) });
+      });
+
       it('refuses an empty or taken name before writing', async () => {
         const service = await running(reply);
         expect(await service.addCircleChannel(KEY, '  ')).toMatchObject({ success: false, error: 'Enter a name.' });
@@ -1023,10 +1179,99 @@ describe('circlesService', () => {
       it('tells the renderer when a Circle record of the chat app changes', async () => {
         const service = await running();
         service.listenForChannelChanges();
-        const change = { circleKey: KEY, app: 'chat', scope: 'circle', identity: null, key: 'garden', value: { name: 'G' }, confirmed: false, deleted: false };
+        const change: CircleRecordChange = { circleKey: KEY, app: 'chat', scope: 'circle', identity: null, key: 'garden', value: { name: 'G' }, confirmed: false, deleted: false };
         lastChild!.emit('message', { type: 'record-changed', change });
         lastChild!.emit('message', { type: 'record-changed', change: { ...change, scope: 'member', identity: ME } });
         expect(broadcasts.filter((payload) => JSON.stringify(payload) === JSON.stringify({ circleKey: KEY }))).toHaveLength(1);
+      });
+    });
+
+    describe('notifications', () => {
+      const OTHER = 'ef'.repeat(32);
+      const member = (identity: string, name: string) => ({ identity, name });
+
+      /** A running service whose snapshot holds the Circle, with fake timers for the batch window only. */
+      async function withCircle() {
+        const service = await running(() => ({ ok: true, chat: { channels: [{ id: 'general', name: 'general', unread: 0 }] } }));
+        const circle = { key: KEY, name: 'Garden club', members: [member(ME, 'Ada'), member(OTHER, 'Bo')], invites: [] as unknown[], offers: [] as unknown[] };
+        lastChild!.emit('message', { type: 'circles-snapshot', snapshot: { identity: ME, circles: [circle] } });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        return service;
+      }
+      const settle = async (ms: number) => {
+        await vi.advanceTimersByTimeAsync(ms);
+        await flush();
+      };
+      const fromBo = () => message('Hello there', { author: OTHER, name: 'Bo', mine: false });
+
+      afterEach(() => void vi.useRealTimers());
+
+      it('notifies for another member’s message after the batch window', async () => {
+        await withCircle();
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        await settle(1_499);
+        expect(notices).toEqual([]);
+        await settle(1);
+        expect(notices).toMatchObject([{ title: 'Bo in #general · Garden club', body: 'Hello there' }]);
+      });
+
+      it('sends circles:open-message with the message when the notification is clicked', async () => {
+        await withCircle();
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        await settle(1_500);
+        noticeClicks[0]!({ webContents: {} });
+        expect(sentEvents).toEqual([['circles:open-message', { circleKey: KEY, channel: 'general', ref: { author: OTHER, id: ID } }]]);
+      });
+
+      it('stays silent when the channel is marked read inside the window', async () => {
+        const service = await withCircle();
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        service.markCircleChannelRead(KEY, 'general', { author: OTHER, id: ID, at: 1 });
+        await settle(1_500);
+        expect(notices).toEqual([]);
+      });
+
+      it('stays silent for the channel on screen with the window focused', async () => {
+        const service = await withCircle();
+        service.setCircleViewing({ circleKey: KEY, channel: 'general', focused: true });
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        await settle(1_500);
+        expect(notices).toEqual([]);
+      });
+
+      it('keeps the viewed channel silent after the network process restarts', async () => {
+        const service = await withCircle();
+        service.setCircleViewing({ circleKey: KEY, channel: 'general', focused: true });
+        lastChild!.emit('exit', 1);
+        // Real timers while the new process starts: its answers come on setImmediate.
+        vi.useRealTimers();
+        await service.ensureCirclesStarted();
+        const circle = { key: KEY, name: 'Garden club', members: [member(ME, 'Ada'), member(OTHER, 'Bo')], invites: [] as unknown[], offers: [] as unknown[] };
+        lastChild!.emit('message', { type: 'circles-snapshot', snapshot: { identity: ME, circles: [circle] } });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        await settle(1_500);
+        expect(notices).toEqual([]);
+      });
+
+      it('shows a message’s edited text, and nothing for one deleted inside the window', async () => {
+        await withCircle();
+        const kept = fromBo();
+        const doomed = message('Wrong channel', { author: OTHER, name: 'Bo', mine: false, id: 'fedcba9876543210' });
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [kept, doomed], changed: [], gone: [] } });
+        const changed = [{ ...kept, text: 'Hello there, all', edited: true }, { ...doomed, text: '', deleted: 'author' }];
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [], changed, gone: [] } });
+        await settle(1_500);
+        expect(notices).toMatchObject([{ title: 'Bo in #general · Garden club', body: 'Hello there, all' }]);
+      });
+
+      it('drops a pending batch when Circles stop', async () => {
+        const service = await withCircle();
+        lastChild!.emit('message', { type: 'chat-update', update: { circleKey: KEY, channel: 'general', added: [fromBo()], changed: [], gone: [] } });
+        const stopped = service.stopCircles();
+        await settle(1_500);
+        await stopped;
+        expect(notices).toEqual([]);
       });
     });
 

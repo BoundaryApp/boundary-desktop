@@ -9,8 +9,12 @@ import {
   getHermesChatHistory,
   handleHermesChatCancel,
   listHermesChatThreads,
+  runHermesHeldTurnNow,
   startHermesChatStream,
 } from './hermesChatSessions';
+import { getSlotLlmConnection } from '../../onboarding/OpenAiOnboardingStore';
+import { resolveRepliesAtOnce, serverOrigin, setRepliesAtOnceOverride } from './workloadLimits';
+import { readHtmlPreview } from './htmlPreviewFiles';
 import { revealProjectFile, saveReplyToProject } from './hermesReplyFiles';
 import {
   listConversationProjectMarks,
@@ -35,6 +39,7 @@ import type {
   HermesChatCredentialRespondPayload,
   HermesChatCancelPayload,
   HermesChatBranchPayload,
+  HermesHtmlPreviewPayload,
   HermesRevealProjectFilePayload,
   HermesSaveReplyPayload,
   HermesChatHistoryPayload,
@@ -93,6 +98,11 @@ export function registerHermesChatHandlers(): void {
   );
 
   handleResult(
+    'hermes-chat:read-html-preview',
+    async (_event, payload: HermesHtmlPreviewPayload) => readHtmlPreview(payload)
+  );
+
+  handleResult(
     'hermes-chat:branch',
     async (_event, payload: HermesChatBranchPayload) => branchHermesChat(payload)
   );
@@ -141,6 +151,21 @@ export function registerHermesChatHandlers(): void {
     'hermes-chat:cancel',
     async (_event, payload: HermesChatCancelPayload) => handleHermesChatCancel(payload)
   );
+
+  handle('hermes-chat:run-now', async (_event, payload: { requestId: string }) => runHermesHeldTurnNow(payload));
+
+  // Replies at once for the local model server (workload plan Phase 1a); null with no local model.
+  handle('workload:replies-at-once', async () => {
+    const llm = await getSlotLlmConnection('local');
+    return llm ? resolveRepliesAtOnce(llm) : null;
+  });
+
+  handle('workload:set-replies-at-once', async (_event, payload: { value: number | null }) => {
+    const llm = await getSlotLlmConnection('local');
+    if (!llm) return null;
+    setRepliesAtOnceOverride(serverOrigin(llm.endpointUrl), payload.value);
+    return resolveRepliesAtOnce(llm);
+  });
 
   handleResult(
     'hermes-chat:approval-respond',

@@ -6,7 +6,7 @@ import { useDismiss, useEscapeToClose } from '../use-dismiss';
 describe('useEscapeToClose', () => {
   it('closes on Escape unless disabled', () => {
     const onClose = vi.fn();
-    const Sheet = ({ disabled }: { disabled: boolean }) => {
+    const Sheet = ({ disabled }: { disabled: boolean }): null => {
       useEscapeToClose(onClose, disabled);
       return null;
     };
@@ -20,7 +20,7 @@ describe('useEscapeToClose', () => {
 
   it('ignores an Escape something else already handled', () => {
     const onClose = vi.fn();
-    const Sheet = () => {
+    const Sheet = (): null => {
       useEscapeToClose(onClose);
       return null;
     };

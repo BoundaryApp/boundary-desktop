@@ -86,10 +86,10 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
       }
     >
       <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" disabled={busy} onClick={() => void choose()}>
+        <Button type="button" variant="secondary" disabled={busy} onClick={() => void choose()}>
           Choose folder…
         </Button>
-        <Button type="button" variant="ghost" disabled={busy} onClick={() => setEmptyOpen(true)}>
+        <Button type="button" variant="quiet" disabled={busy} onClick={() => setEmptyOpen(true)}>
           Create empty project
         </Button>
       </div>
@@ -128,7 +128,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
                 </span>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="quiet"
                   size="icon"
                   aria-label={`Remove ${row.name}`}
                   disabled={busy}

@@ -37,6 +37,8 @@ export function noReplyText(reason: HermesNoReplyReason, speakerName: string): s
       return `${speakerName} couldn’t reply`;
     case 'unreachable':
       return 'Your message wasn’t sent';
+    case 'withdrawn':
+      return 'You stopped this message before it was sent';
     case 'halted':
       return `${speakerName} stopped without replying`;
     case 'timeout':

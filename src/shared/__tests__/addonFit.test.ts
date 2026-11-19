@@ -47,11 +47,19 @@ describe('assessAddonFit', () => {
     expect(fit.verdict).toBe('tight');
   });
 
-  it("doesn't fit and suggests 16 GiB on a 32 GiB Mac", () => {
+  it("doesn't fit and suggests what the stack uses plus the add-on on a 32 GiB Mac", () => {
     const fit = assessAddonFit(twenty, facts({ usedMiB: 10957 }));
     expect(fit.memory).toBe('over');
     expect(fit.verdict).toBe('over');
-    expect(fit.suggestedEngineMiB).toBe(16384);
+    // 10957 used + 2208 for Twenty + 1024, rounded up to a whole GiB.
+    expect(fit.suggestedEngineMiB).toBe(14336);
+  });
+
+  it('suggests the size with the add-on on when the stack uses less than that', () => {
+    // A 5 GiB engine on a 16 GiB Mac with nothing optional on: 4 core + 1 headroom + Twenty.
+    const fit = assessAddonFit(twenty, facts({ engineMiB: 5120, usedMiB: 3100, hostMiB: 16384, reservedMiB: 0 }));
+    expect(fit.memory).toBe('over');
+    expect(fit.suggestedEngineMiB).toBe(8192);
   });
 
   it('suggests nothing when the Mac is too small', () => {

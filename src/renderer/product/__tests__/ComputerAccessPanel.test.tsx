@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { HostBridgeGrant } from '../../../shared/types/hostBridge';
@@ -23,8 +23,6 @@ beforeEach(() => {
   };
   stubElectronAPI({ hostBridge });
 });
-
-afterEach(() => cleanup());
 
 describe('describeGrant', () => {
   it('says in plain words what each grant lets Hermes do', () => {

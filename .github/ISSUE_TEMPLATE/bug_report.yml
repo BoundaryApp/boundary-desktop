@@ -1,0 +1,17 @@
+name: Bug report
+description: Something in Boundary didn't work. Help › Report a Bug… in the app fills this in.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: What happened, what you expected, and the app details and errors Boundary added. Check it for anything personal before you submit; issues are public.
+      value: |
+        ## What happened
+
+
+        ## What I expected
+
+    validations:
+      required: true

@@ -13,6 +13,7 @@
 | 1 Optional, first-run-only setup steps | Built | — |
 | 2 Folders step | Built | 1 |
 | 3 Get started list | Not started | — |
+| 4 Model step: Set up later | Built | 1 |
 
 ## Goal
 
@@ -30,7 +31,8 @@ The step can be skipped. Chats work without a project, so a hard gate would bloc
 
 1. **Optional steps are first-run only, with one exception.** A step marked `firstRunOnly` is skipped for anyone who finished setup before the step existed. An update never shows an existing user a setup screen for something they can already do in the app. The Folders step is the exception: an upgrader who had no projects when they updated sees it once. Upgraders with projects never do.
 2. **Boundary records each optional step's outcome.** The main store keeps `{ stepId: 'done' | 'skipped' }` per optional step. `isComplete` reads it, so quitting mid-step resumes there and a skip is never asked again.
-3. **Setup keeps at most five steps.** Required steps (Machine, Model, Assistant) plus at most two optional ones. Anything else goes to the **Get started** list (Phase 3).
+3. **Setup keeps at most five steps.** Machine and Assistant are required; the rest, Model included, can be skipped. Anything else goes to the **Get started** list (Phase 3). (Revised 8 Nov 2026: the cap was two optional steps, and the Model step was required.)
+7. **The Model step can be put off.** Its skip button reads **Set up later**. With no model connected, the Assistant step starts the stack and finishes setup without applying one, and chat opens with the inference chip showing "No model". Connecting a model in Settings applies it. (8 Nov 2026)
 4. **The Folders step records choices; the stack applies them.** Creating a host-folder project recreates containers and registers the project with the gateway (`createHostFolderHermesProject`), so neither can run before the stack is up. The step saves the picked paths. Host folders are saved as project records straight away, so the overlay the first `compose up` writes already mounts them and that start needs no recreate. When the stack is ready, Boundary registers each project with the gateway (creating empty projects then) and opens the chat on the first. It recreates Hermes once only if the running container lacks the folders, as for an upgrader whose stack was already up.
 5. **Folders are added read-only.** Coding access has consequences that belong at the moment of use (ADR 0028 §2), so the existing coding-access interrupt asks the first time a coding task needs a folder. The step says this in one line.
 6. **No separate takeover for existing users.** Upgraders with no projects get the Folders step once, inside setup (decision 1); after that, the chat rail's empty state as today.

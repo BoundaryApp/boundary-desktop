@@ -1,99 +1,28 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type { HermesChatStartPayload } from '../../../../shared/types/hermesChat';
+import type { FakeBridge, FakeHermesChat } from '../../../__tests__/fakeBridge';
+import { HostedChatRuntime, installChatBridge, threadProps } from './threadHarness';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
-
-type Listener = (event: { requestId: string; delta?: string; error?: string }) => void;
-const ipc = vi.hoisted(() => ({
-  chunk: new Set<Listener>(),
-  end: new Set<Listener>(),
-  error: new Set<Listener>(),
-  active: null as string | null,
-  startChat: null as unknown as ReturnType<typeof vi.fn>,
-}));
-
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
 // Runs stay open until a test replies to them (`reply`). Main answers with the adapter's id.
-ipc.startChat = vi.fn(async ({ requestId }: { requestId: string }) => {
-  ipc.active = requestId;
-  return { success: true, requestId, sessionId: 's1' };
-});
+let bridge: FakeBridge;
+let chat: FakeHermesChat;
 
-stubElectronAPI({
-  hermesChat: {
-    getHistory: ipcCalls.track(vi.fn().mockResolvedValue({
-      success: true,
-      sessionId: 's1',
-      messages: [
-        { role: 'user', content: 'first', rowId: 10, timestamp: 1767225600 },
-        { role: 'assistant', content: 'reply one', rowId: 11, timestamp: 1767225610 },
-        { role: 'user', content: 'second', rowId: 12, timestamp: 1767225620 },
-        { role: 'assistant', content: 'reply two', rowId: 13, timestamp: 1767225630 },
-      ],
-    })),
-    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-    cancelChat: vi.fn().mockResolvedValue(undefined),
-    onChatChunk: on(ipc.chunk),
-    onChatEnd: on(ipc.end),
-    onChatError: on(ipc.error),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(async () => ({
-      success: true,
-      breakdown: { categories: [] },
-    })),
-  },
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
-  },
-  projects: {
-    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-  },
-});
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
-
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
+import { setValue } from '../../../__tests__/formInput';
 
 const Chat: React.FC<{ isChannel?: boolean }> = ({ isChannel = false }) => (
-  <HermesChatRuntimeProvider sessionId="s1">
-    <WorkbenchThread
-      sessionId="s1"
-      threadTitle="Assistant"
-      kind={isChannel ? 'channel' : null}
-      activeProject={null}
-      projects={[]}
-      activeProjectId={null}
-      toolsEnabled
-      onToolsEnabledChange={noop}
-      onSelectProject={noop}
-      onClearProject={noop}
-      onNewProject={noop}
-      onCreateAgentFromDraft={noop}
-      onEditAgentDraft={noop}
-    />
-  </HermesChatRuntimeProvider>
+  <HostedChatRuntime sessionId="s1">
+    <WorkbenchThread {...threadProps({ sessionId: 's1', kind: isChannel ? 'channel' : null })} />
+  </HostedChatRuntime>
 );
 
 /** Renders the chat once its history and the rest of its first loads are in. */
@@ -103,28 +32,27 @@ async function renderChat(props: { isChannel?: boolean } = {}) {
 }
 
 /** Hermes answers the open run with `text` and ends it. */
-const reply = (text: string) =>
-  act(async () => {
-    for (const cb of ipc.chunk) cb({ requestId: ipc.active!, delta: text });
-    for (const cb of ipc.end) cb({ requestId: ipc.active! });
-  });
+async function reply(text: string) {
+  await chat.stream(text);
+  await chat.finish();
+}
 
-const lastPayload = () =>
-  ipc.startChat.mock.calls.at(-1)?.[0] as HermesChatStartPayload | undefined;
-
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-  fireEvent.input(el);
-};
+const lastPayload = () => chat.startChat.mock.calls.at(-1)?.[0];
 
 describe('Edit and Retry', () => {
   beforeEach(() => {
-    ipc.active = null;
-    ipc.startChat.mockClear();
+    ({ bridge, chat } = installChatBridge('s1'));
+    chat.history = [
+      { role: 'user', content: 'first', rowId: 10, timestamp: 1767225600 },
+      { role: 'assistant', content: 'reply one', rowId: 11, timestamp: 1767225610 },
+      { role: 'user', content: 'second', rowId: 12, timestamp: 1767225620 },
+      { role: 'assistant', content: 'reply two', rowId: 13, timestamp: 1767225630 },
+    ];
   });
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('edits a prompt as a rewind, then retries the new reply', async () => {
@@ -168,7 +96,7 @@ describe('Edit and Retry', () => {
     await act(async () => setValue(input, 'third'));
     await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
     await ipcCalls.settle();
-    expect(ipc.startChat).toHaveBeenCalledTimes(1);
+    expect(chat.startChat).toHaveBeenCalledTimes(1);
     expect(lastPayload()?.rewind).toBeUndefined();
   });
 

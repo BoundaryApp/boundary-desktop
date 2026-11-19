@@ -1,5 +1,6 @@
 import React from 'react';
 import { Sheet } from '../../../components/ui/sheet';
+import { Button } from '../../../components/ui/button';
 
 /** A Circle sheet that is one form: Cancel and a submit button, with the call's error. */
 export const CircleFormSheet: React.FC<{
@@ -28,12 +29,12 @@ export const CircleFormSheet: React.FC<{
     }}
     actions={
       <>
-        <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onClose}>
+        <Button variant="secondary" block type="button" disabled={busy} onClick={onClose}>
           Cancel
-        </button>
-        <button type="submit" className="wb-btn-solid" disabled={busy || !canSubmit}>
+        </Button>
+        <Button variant="primary" block type="submit" disabled={busy || !canSubmit}>
           {submitLabel}
-        </button>
+        </Button>
       </>
     }
   >

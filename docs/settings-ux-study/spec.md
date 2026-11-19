@@ -23,7 +23,7 @@ A user changes a setting from the place it has an effect and sees the effect wit
 
 ## Decisions
 
-1. **Inference joins the rail, second after Chat.** Every chat, project and service depends on it. Shortcuts follow rail order: ⌘1 Chat, ⌘2 Inference, ⌘3 Services, ⌘4 Resources. Circles has no destination; it lives in the chat, and its model sharing lives here ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)). This destination was called Models until ADR 0043; the mocks still say Models. A warning dot on the icon means the Chat stack's first model isn't answering.
+1. **Inference joins the rail, second after Chat.** Every chat, project and service depends on it. Shortcuts follow rail order: ⌘1 Chat, ⌘2 Inference, ⌘3 Services, ⌘4 Resources. Circles has no destination; it lives in the chat, and its model sharing lives here ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)). This destination was called Models until ADR 0043; the mocks still say Models. [ADR 0052](../adr/0052-circles-destination-and-floating-agent.md) puts Circles back after Chat, so Inference is ⌘3, Services ⌘4 and Resources ⌘5. A warning dot on the icon means the Chat stack's first model isn't answering.
 2. **The UI says "stack"; the code keeps "chain".** A *model stack* is the chain of ADR 0033. *Fallback* and *app default* leave the UI, because position in the stack says both.
 3. **The stack draws the rules that already run.** Numbered entries sit on a spine, each with its status. The privacy cut is a dashed line, **Private projects stop here**, placed after the last private entry before the first non-private one, so it moves when the user reorders. The end cap says what happens when nothing answers. The footer names the context limit from ADR 0033 §8, because adding a small model shrinks every reply's context and nothing shows that today.
 4. **Try a request is a dry run.** It walks the stack with main's chain planning and sends nothing to any model. Each entry reports why it answered or was skipped, in the words the chat's provenance line uses.
@@ -51,6 +51,7 @@ A user changes a setting from the place it has an effect and sees the effect wit
 | Coding folders | Settings tab | Project inspector; Settings row | Settings row |
 | Stop agents, replace tokens | Settings tab | Settings, always one click from the page | Settings row |
 | Theme | General | Settings | — |
+| Reply text | — | Settings tab, with a row under Appearance | Appearance row |
 
 Settings keeps Appearance, a list of what agents can reach with a live summary on each row, and the emergency stop. Search also finds what moved and links to its new home. Experiments keep their `SettingsSection` slot on this page.
 

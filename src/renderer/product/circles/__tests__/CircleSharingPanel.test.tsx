@@ -1,7 +1,8 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CircleMemberView, CircleSharing, CirclesState } from '../../../../shared/types/circles';
+import { BO, circleMember, circleSharing, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { useAppCommand } from '../../useAppShortcuts';
 import { CircleSharingLine, CircleSharingPanel } from '../CircleSharingPanel';
@@ -18,7 +19,7 @@ stubElectronAPI({
     setSharing: (...args: unknown[]) => setSharing(...args),
     onState: (cb: (state: unknown) => void) => {
       push.current = cb;
-      return () => undefined;
+      return (): void => undefined;
     },
   },
   onboarding: {
@@ -28,21 +29,12 @@ stubElectronAPI({
 });
 
 const A = 'a'.repeat(64);
-const SHARING: CircleSharing = { models: [{ id: 'qwen3-8b', tools: true }], circles: [A], paused: false, away: false };
-const NOT_SHARING: CircleSharing = { models: [], circles: [], paused: false, away: false };
+const ADA = 'f'.repeat(64);
+const SHARING = circleSharing({ models: [{ id: 'qwen3-8b', tools: true }], circles: [A] });
+const NOT_SHARING = circleSharing();
 
-function state(sharing: CircleSharing, overrides: Partial<CirclesState> = {}): CirclesState {
-  return {
-    status: 'running',
-    displayName: 'Ada',
-    providers: {},
-    sharing,
-    snapshot: {
-      identity: 'f'.repeat(64),
-      circles: [{ key: A, name: 'Workshop', myRole: 'member', writable: true, members: [], invites: [], offers: [] }],
-    },
-    ...overrides,
-  };
+function state(sharing: CircleSharing, overrides: Partial<CirclesState> = {}, members: CircleMemberView[] = []): CirclesState {
+  return runningCircles({ identity: ADA, circles: [circleSnapshot({ key: A, name: 'Workshop', members })], sharing, ...overrides });
 }
 
 beforeEach(() => {
@@ -50,7 +42,6 @@ beforeEach(() => {
   listConfiguredEndpointModels.mockResolvedValue({ success: true, models: [{ id: 'qwen3-8b', contextLength: 32768 }, { id: 'gemma' }] });
   getStatus.mockResolvedValue({ configured: true, slots: { local: { configured: true, modelId: 'qwen3-8b', health: 'reachable' } } });
 });
-afterEach(() => cleanup());
 
 describe('CircleSharingLine', () => {
   it.each([
@@ -66,29 +57,12 @@ describe('CircleSharingLine', () => {
 });
 
 describe('Shared from this Mac', () => {
-  const SHARED: CircleSharing = { models: [{ id: 'qwen3-8b', tools: true, contextLength: 32768 }], circles: [A], paused: false, away: false };
+  const SHARED = circleSharing({ models: [{ id: 'qwen3-8b', tools: true, contextLength: 32768 }], circles: [A] });
   const local = { configured: true, endpointUrl: 'http://127.0.0.1:11434/v1', modelId: 'qwen3-8b', health: 'reachable' };
   const unreachable = { configured: true, slots: { local: { ...local, health: 'unreachable' } } };
   beforeEach(() => getStatus.mockResolvedValue({ configured: true, slots: { local } }));
-  const withBo = (sharing: CircleSharing, overrides: Partial<CirclesState> = {}): CirclesState => {
-    const base = state(sharing, overrides);
-    const [circle] = base.snapshot.circles;
-    return {
-      ...base,
-      snapshot: {
-        ...base.snapshot,
-        circles: [
-          {
-            ...circle,
-            members: [
-              { identity: 'f'.repeat(64), name: 'Ada', role: 'member', isMe: true, online: true },
-              { identity: 'b'.repeat(64), name: 'Bo', role: 'member', isMe: false, online: true },
-            ],
-          },
-        ],
-      },
-    };
-  };
+  const withBo = (sharing: CircleSharing, overrides: Partial<CirclesState> = {}): CirclesState =>
+    state(sharing, overrides, [circleMember({ identity: ADA, name: 'Ada', isMe: true }), circleMember({ identity: BO, name: 'Bo' })]);
 
   /** The panel as Inference mounts it, kept current from pushed state. */
   function Panel() {
@@ -191,7 +165,7 @@ describe('Shared from this Mac', () => {
   it('sends someone with models chosen but no local server to Inference', async () => {
     getStatus.mockResolvedValue({ configured: false, slots: {} });
     const commands: string[] = [];
-    const Listener = () => {
+    const Listener = (): null => {
       useAppCommand((command) => commands.push(command));
       return null;
     };

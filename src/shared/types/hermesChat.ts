@@ -1,5 +1,7 @@
 import { slugify } from '../utils/slug';
 import type { IpcResult } from '../ipc/result';
+import type { CodingAgentBusy } from './codingFolders';
+import type { ProjectCreateWhenBusy } from './projectCreate';
 
 /** Built-in default agent slug — no Hermes profile; today’s single chat, named. */
 export const BUILTIN_ASSISTANT_SLUG = 'assistant';
@@ -18,6 +20,10 @@ export interface AgentProfile {
   role: string;
   builtIn: boolean;
   createdAt: string;
+  /** Writing voice for chat replies (ADR 0056 §5); absent or null is No voice. */
+  chatRepliesVoiceId?: string | null;
+  /** Writing voice for drafts the agent writes for the person to use elsewhere. */
+  draftsVoiceId?: string | null;
 }
 
 /** Local-first room: shared transcript + explicit member list (0008). */
@@ -78,6 +84,8 @@ export interface HermesFailedTurn {
   errorCode?: HermesChatStartErrorCode;
   /** ISO time of the send; places the turn among Hermes's rows. */
   at: string;
+  /** The voice chip it was sent with, so its Retry keeps the voice (ADR 0056 §6). */
+  writingVoiceId?: string;
 }
 
 /** Boundary's record of a chat's failed sends, by stored session id or a local id. */
@@ -128,6 +136,13 @@ export interface HermesMoveToProjectResult {
   errorCode?: 'running' | 'not-found';
   error?: string;
 }
+
+/**
+ * The answer to a parked approval or credential prompt. `errorCode: 'not-pending'` means main no
+ * longer holds the request (answered elsewhere, withdrawn, timed out, or its socket dropped), so
+ * the card can go.
+ */
+export type HermesChatRespondResult = IpcResult<{ errorCode?: 'not-pending' }>;
 
 export interface HermesUndoProjectMovePayload {
   moves: HermesProjectMove[];
@@ -180,6 +195,13 @@ export interface HermesRevealProjectFilePayload {
 
 export type HermesRevealProjectFileResult = IpcResult;
 
+/** Read an HTML page an agent wrote, by its path inside the containers. */
+export interface HermesHtmlPreviewPayload {
+  containerPath: string;
+}
+
+export type HermesHtmlPreviewResult = IpcResult<{ html?: string; name?: string }>;
+
 export type HermesChatBranchResult = HermesChatCreateThreadResult;
 
 /** Human-facing label for a gateway session source. */
@@ -220,6 +242,8 @@ export interface HermesChatMessage {
   noReply?: HermesNoReply;
   /** A failed send from Boundary's own record: Hermes has no row for it. */
   localOnly?: boolean;
+  /** The writing voice the reply was written in (assistant rows), from Boundary's notes. */
+  writingVoiceName?: string;
 }
 
 /**
@@ -243,6 +267,8 @@ export type HermesNoReplyReason =
   | 'empty'
   /** Boundary refused the send because nothing answered its health check. Live only. */
   | 'unreachable'
+  /** The user stopped the send while it waited for the local model; it was never submitted. */
+  | 'withdrawn'
   | 'unknown';
 
 export interface HermesNoReply {
@@ -261,6 +287,35 @@ export interface HermesRunningTurn {
   agentSlug: string | null;
   /** ISO time the turn was submitted. */
   startedAt: string;
+  /**
+   * `held`: waiting in Boundary for a slot on its local model server (workload plan Phase 1a),
+   * not yet submitted. Absent or `running` otherwise.
+   */
+  admission?: 'held' | 'running';
+}
+
+/** Replies at once for the local model server (Settings → Inference, workload plan Phase 1a). */
+export interface RepliesAtOnce {
+  /** The server's origin. */
+  server: string;
+  /** What turns are held to: `override`, else `reported`, else 1. */
+  limit: number;
+  /** The parallel count the server reports for the selected model, when it reports one. */
+  reported?: number;
+  /** The user's setting, when they changed it. */
+  override?: number;
+}
+
+/** A turn waiting for its local model server, as the `held` phase reports it. Ids only. */
+export interface HermesHeldTurn {
+  /** 1 for the next turn to start. */
+  position: number;
+  /** Turns ahead of this one: those running on the server plus those waiting before it. */
+  ahead: number;
+  /** Turns the server runs at once. */
+  limit: number;
+  /** A session id for each turn running on the server, for the chat names the line links. */
+  runningSessionIds: string[];
 }
 
 /**
@@ -322,6 +377,14 @@ export interface HermesChatStartPayload {
    */
   continue?: boolean;
   /**
+   * Sent from the desktop's queue after a reply completed (run-control spec 2.4). If Hermes is
+   * still releasing that turn, it holds this prompt and runs it next instead of redirecting.
+   * Gateway DMs only; a channel wake ignores it.
+   */
+  queued?: boolean;
+  /** Which run control sent this (the queue, Send now); logged only. */
+  via?: HermesRunControl;
+  /**
    * The project for the chat when this send creates its session (an empty composer). Ignored
    * once the chat exists: its stored project applies (ADR 0024).
    */
@@ -331,6 +394,10 @@ export interface HermesChatStartPayload {
    * empty chat). Ignored once the chat exists: set it with `hermes-chat:set-session-inference`.
    */
   inference?: SessionInferenceOverride;
+  /** A voice chip on this message (ADR 0056 §6): sent as this turn's context. */
+  writingVoiceId?: string;
+  /** A voice kept for a chat that has no session yet; stored on the session this send creates. */
+  keptWritingVoiceId?: string | null;
 }
 
 /** The user turn an Edit or Retry replaces, as the renderer last saw it on the server. */
@@ -368,7 +435,22 @@ export interface HermesChatStartResult {
   provider?: string;
   /** Channel send with no member @ — persisted as a post, no model turn. */
   posted?: boolean;
+  /** The writing voice this turn's reply is written in, for its details. */
+  writingVoiceName?: string;
 }
+
+/**
+ * Which run control started a send or cut a run short, for the turn debug log only
+ * (run-control spec, Phase 2): a queue drain, Send now by ⌘↵, by the menu (Enter or a
+ * click) or on a queue chip, or Stop.
+ */
+export type HermesRunControl =
+  | 'queue-drain'
+  | 'send-now-cmd-enter'
+  | 'send-now-menu-enter'
+  | 'send-now-menu-click'
+  | 'send-now-chip'
+  | 'stop';
 
 export interface HermesChatCancelPayload {
   requestId: string;
@@ -376,6 +458,8 @@ export interface HermesChatCancelPayload {
   sessionId?: string;
   /** Why the run is being cut short; recorded on the partial reply. Defaults to `stopped`. */
   reason?: HermesReplyEnding;
+  /** Which control cut it short; logged only. */
+  via?: HermesRunControl;
 }
 
 export interface HermesChatChunkEvent {
@@ -388,6 +472,8 @@ export interface HermesChatSpeakerEvent {
   requestId: string;
   sessionId?: string;
   agentSlug: string;
+  /** The writing voice this speaker's reply is written in (a room member, ADR 0056 §7). */
+  writingVoiceName?: string;
 }
 
 export interface HermesChatEndEvent {
@@ -396,6 +482,8 @@ export interface HermesChatEndEvent {
   sessionId?: string;
   /** Set when the turn ended without any reply text. */
   noReply?: HermesNoReply;
+  /** When main saw the turn finish (ms), for a reply that finished; not on a cancel. */
+  endedAt?: number;
 }
 
 export interface HermesChatErrorEvent {
@@ -441,10 +529,6 @@ export interface HermesAgentCreatePayload {
 export interface HermesAgentCreateResult {
   success: boolean;
   agent?: AgentProfile;
-  /** New standing DM opened after create. */
-  thread?: HermesChatThreadSummary;
-  /** Honest wait while the profile gateway starts. */
-  starting?: boolean;
   error?: string;
 }
 
@@ -572,6 +656,8 @@ export type HermesChatPhase =
   | 'idle'
   | 'preparing'
   | 'restarting'
+  /** Waiting in Boundary for a slot on the local model server; `held` says where. */
+  | 'held'
   | 'tool'
   | 'generating'
   | 'done';
@@ -592,6 +678,11 @@ export interface ProjectInferencePin {
   modelId?: string;
   /** The project is private: every chat in it obeys the privacy lock (ADR 0033 §4). */
   privacyLocalOnly?: boolean;
+  /**
+   * The private project lets its pools use level B providers, below Pool settings' private
+   * minimum (confidential inference spec decision 10). Only meaningful while `privacyLocalOnly`.
+   */
+  allowConfidentialLevelB?: boolean;
   /** Tried in order when the pinned provider doesn't answer (ADR 0033). Ignored while inheriting. */
   fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
@@ -601,6 +692,23 @@ export interface SessionInferenceOverride {
   modelId: string;
   /** Tried in order when the override doesn't answer (ADR 0033). */
   fallbacks?: import('./inferenceChain').InferenceChainEntry[];
+}
+
+/** A chat's kept writing voice changed (ADR 0056 §6); the transcript shows a line for it. */
+export interface WritingVoiceMark {
+  id: string;
+  at: string;
+  kind: 'kept' | 'cleared';
+  voiceId: string | null;
+  /** The voice's name when the mark was made, so the line reads the same after a delete. */
+  voiceName: string | null;
+}
+
+/** A chat's kept writing voice, and the marks it left. */
+export interface HermesSessionWritingVoice {
+  voiceId: string | null;
+  voiceName: string | null;
+  marks: WritingVoiceMark[];
 }
 
 export interface SessionInferenceMark {
@@ -618,7 +726,43 @@ export interface SessionInferenceMark {
   sharedBy?: { person: string; circle: string };
 }
 
+/**
+ * A turn a confidential pool answered, and which provider (ADR 0047, confidential inference spec
+ * decision 9). Dated from the turn's start. Ids, names and the level only: no message text.
+ */
+export interface PoolServedTurn {
+  at: string;
+  /**
+   * The `startedAt` of the turn's `TurnWindow`, so a reply is matched to this record through its
+   * window, never by time alone. Null when the turn had no window.
+   */
+  windowStartedAt: string | null;
+  /** The pool's canonical model id. */
+  modelId: string;
+  providerId: string;
+  /** The provider's catalog name when the turn ran. */
+  providerName: string;
+  level: import('./confidential').TrustLevel;
+  /** Why the chat moved to this provider on this turn; null when it stayed. */
+  moved: import('./confidential').PoolMoveReason | null;
+  /**
+   * More than one provider answered the turn's requests (a room wake runs several agents), so
+   * the provider above is only the last request's.
+   */
+  mixedProviders: boolean;
+}
+
+/**
+ * When one of a chat's turns ran: from the send reaching main to the turn ending (ISO). Times only.
+ * `endedAt` is null while the turn runs. A send that never ran a turn ends at its start.
+ */
+export interface TurnWindow {
+  startedAt: string;
+  endedAt: string | null;
+}
+
 export interface ResolvedSessionInference {
+  /** A confidential pool only as the app default's first entry; `modelId` is then its canonical id. */
   slot: import('./inferenceChain').InferenceChainSlot;
   modelId: string;
   /** For `peer`, the shared model's own label (ADR 0036). */
@@ -635,6 +779,16 @@ export interface ResolvedSessionInference {
   privacyLocked?: boolean;
   /** The chat's project is private and its chain has no private model, so a send is refused. */
   privacyRefused?: boolean;
+  /**
+   * The lowest provider level the private project's pools may use, as main plans its chat. Set
+   * with `privacyLocked` while confidential pools are on, so the chip ranks pools the same way.
+   */
+  projectFloor?: import('./confidential').TrustLevel;
+  /**
+   * Set with `privacyRefused` when the chain lists a pool no added provider qualifies for at
+   * `projectFloor`: each one and why, for the chat's stop (confidential inference spec decision 10).
+   */
+  poolStop?: import('./confidentialState').PoolStop;
 }
 
 export interface HermesSessionInferencePayload {
@@ -654,6 +808,10 @@ export interface HermesSessionInferenceResult {
   override: SessionInferenceOverride | null;
   resolved: ResolvedSessionInference | null;
   marks: SessionInferenceMark[];
+  /** Turns a confidential pool answered, oldest first. */
+  poolTurns: PoolServedTurn[];
+  /** When each of the chat's turns ran, oldest first, whatever answered it. */
+  turnWindows: TurnWindow[];
   error?: string;
 }
 
@@ -681,6 +839,8 @@ export interface HermesChatPhaseEvent {
   sharedUnavailable?: boolean;
   /** `preparing`: Hermes is parked on its recovery ladder, waiting to try the provider again. */
   recovery?: HermesRecoveryWait;
+  /** `held`: the turn's place in line for its local model server. */
+  held?: HermesHeldTurn;
 }
 
 /** One rung of Hermes's auto-recovery ladder (`agent/turn_recovery_autorecover.py`). */
@@ -791,7 +951,9 @@ export type HermesCredentialRequestKind =
   | 'secret'
   | 'vault.unlock_prompt'
   | 'vault.save_login'
-  | 'vault.code';
+  | 'vault.code'
+  | 'vault.create_login'
+  | 'vault.capture_secret';
 
 /** Sent to the renderer. Never carries a credential value. */
 export interface HermesChatCredentialRequestEvent {
@@ -805,22 +967,39 @@ export interface HermesChatCredentialRequestEvent {
   /** vault.unlock_prompt: password manager id and display name. */
   backend?: string;
   displayName?: string;
-  /** vault.save_login / vault.code: the site the login or code is for. */
+  /** vault.save_login / vault.code / vault.create_login / vault.capture_secret: the site the login, code or key is for. */
   origin?: string;
   site?: string;
   /** vault.code: where to find the code. */
   hint?: string;
+  /** vault.create_login: the username or email the agent is signing up with. */
+  identifier?: string;
+  /** vault.create_login: replace the password of a login made earlier for this site. */
+  regenerate?: boolean;
+  /** vault.capture_secret: the environment-variable name the key is stored under. */
+  name?: string;
+  /** vault.capture_secret: `env` saves it to the agent's `.env`; `viewer` hands it to the client. */
+  destination?: 'env' | 'viewer';
+  /** vault.capture_secret: the key's last four characters, never the key. */
+  last4?: string;
+  /** vault.capture_secret: `env` would overwrite a value the agent already has. */
+  replaces?: boolean;
   replayed?: boolean;
 }
 
 /**
- * The user's answer. Omit `value` and `login` to skip.
- * `login` is only for `vault.save_login`; `value` for every other kind.
+ * The user's answer. Omit `value`, `login`, `createLogin` and `approve` to skip.
+ * `login` is only for `vault.save_login`, `createLogin` only for `vault.create_login`, `approve`
+ * only for `vault.capture_secret`, and `value` for every other kind.
  */
 export interface HermesChatCredentialRespondPayload {
   rpcRequestId: string;
   value?: string;
   login?: { identifier: string; password: string };
+  /** Approve a password Hermes generates, or one the user typed. */
+  createLogin?: { generate: true } | { password: string };
+  /** Approve storing a captured key. */
+  approve?: true;
 }
 
 export interface HermesChatTurnStats {
@@ -875,6 +1054,15 @@ export interface HermesProjectCreateHostPayload {
   name?: string;
   /** Omitted ⇒ inherit (AC 17). */
   inference?: ProjectInferencePin;
+  /** Main sends `hermes-projects:create-progress` events with this id while the create runs. */
+  runId?: string;
+  /** Let the coding agent work in the folder, in the same restart as the mount. */
+  coding?: boolean;
+  /**
+   * When `coding` is on and a coding task is running. Omitted ⇒ the create is refused with
+   * `codingBusy`, so the renderer can ask.
+   */
+  whenCodingBusy?: ProjectCreateWhenBusy;
 }
 
 export interface HermesProjectCreateEmptyPayload {
@@ -906,6 +1094,10 @@ export interface HermesProjectResult {
   connecting?: boolean;
   rpcAvailable?: boolean;
   error?: string;
+  /** Set when a create with coding was refused because a coding task is running. */
+  codingBusy?: CodingAgentBusy;
+  /** The project was made, but the coding agent can't open its folder. */
+  codingError?: string;
 }
 
 export interface HermesCompletePathPayload {

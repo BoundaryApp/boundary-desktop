@@ -19,7 +19,7 @@ stubElectronAPI({
     setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
     busy: (...args: unknown[]) => codingAgentBusy(...args),
     inspectForDelete: (...args: unknown[]) => inspectFolderForDelete(...args),
-    onProgress: () => () => undefined,
+    onProgress: () => (): void => undefined,
     showTrash: vi.fn(),
   },
   projects: {
@@ -156,7 +156,7 @@ describe('CodingFoldersPanel', () => {
     const unmanaged = {
       success: false,
       managed: false,
-      grants: [],
+      grants: [] as CodingGrantRow[],
       command: 'make coding-root-add DIR=<absolute path>',
     };
     listCodingFolders.mockResolvedValue(unmanaged);

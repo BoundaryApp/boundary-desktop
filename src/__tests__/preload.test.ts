@@ -89,10 +89,16 @@ describe('addons namespace', () => {
   it('maps its methods onto the add-on channels', () => {
     void api.addons.list();
     expect(h.invoke).toHaveBeenLastCalledWith('addons:list');
+    void api.addons.install('twenty', { access: 'read' });
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:install', 'twenty', { access: 'read' });
     void api.addons.turnOff('twenty');
     expect(h.invoke).toHaveBeenLastCalledWith('addons:turn-off', 'twenty');
-    void api.addons.removeData('twenty');
-    expect(h.invoke).toHaveBeenLastCalledWith('addons:remove-data', 'twenty');
+    void api.addons.remove('twenty', { deleteImages: true });
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:remove', 'twenty', { deleteImages: true });
+    void api.addons.twenty.open();
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:twenty-open');
+    void api.addons.twenty.copyPassword();
+    expect(h.invoke).toHaveBeenLastCalledWith('addons:twenty-copy-password');
     void api.addons.snapshot();
     expect(h.invoke).toHaveBeenLastCalledWith('addons:snapshot');
     const cb = vi.fn();

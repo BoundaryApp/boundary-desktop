@@ -9,8 +9,11 @@ import {
   getFailedChat,
   getNoReplies,
   getReplyEndings,
+  getReplyWritingVoices,
   setNoReply,
   setReplyEnding,
+  setPromptWritingVoice,
+  setReplyWritingVoice,
 } from './hermesAgentStore';
 
 // Stopped and interrupted replies (run-control spec, Phase 1). Hermes saves a stopped
@@ -112,6 +115,72 @@ export async function recordNoReply(
   return history.some((m) => m.role === 'user' && (m.timestamp == null || m.timestamp >= since));
 }
 
+/**
+ * Note the writing voice a turn's reply was written in (ADR 0056 §6), by the newest assistant
+ * row's id, as reply endings are noted. False when the newest row isn't a reply.
+ */
+export async function recordReplyWritingVoice(
+  sessionId: string,
+  voiceName: string,
+  startedAt: number,
+  /** The message's voice chip, kept by its user row so a Retry or Edit of it keeps the voice. */
+  chipVoiceId: string | null = null
+): Promise<boolean> {
+  const gateway = getHermesGatewaySession();
+  const history = await gateway.getSessionHistory(sessionId);
+  const since = startedAt / 1000 - TURN_ROW_SLACK_S;
+  // This turn's own message, then the first reply after it: a queued message may already
+  // have landed after the reply, so the newest row isn't necessarily this turn's.
+  const asked = history.findIndex(
+    (m) => m.role === 'user' && m.timestamp != null && m.timestamp >= since
+  );
+  const from = asked >= 0 ? asked + 1 : history.length - 1;
+  const reply = history.slice(Math.max(0, from)).find((m) => m.role === 'assistant' && m.rowId != null);
+  if (!reply || reply.rowId == null) return false;
+  if (reply.timestamp != null && reply.timestamp < since) return false;
+  // Under the stored id, which outlasts a stack restart (the history read joins both).
+  const storedId = gateway.storedSessionId(sessionId);
+  setReplyWritingVoice(storedId, reply.rowId, voiceName);
+  const askedRow = asked >= 0 ? history[asked].rowId : null;
+  if (chipVoiceId && askedRow != null) setPromptWritingVoice(storedId, askedRow, chipVoiceId);
+  return true;
+}
+
+/**
+ * Note each room member's reply with its voice (ADR 0056 §7). Every member's turn is its own
+ * prompt, so the i-th user row since the wake started is the i-th member's, and its reply is
+ * the first assistant row before the next user row. Returns how many were noted.
+ */
+export async function recordRoomReplyWritingVoices(
+  sessionId: string,
+  startedAt: number,
+  voiceNames: Array<string | null>
+): Promise<number> {
+  const gateway = getHermesGatewaySession();
+  const history = await gateway.getSessionHistory(sessionId);
+  const since = startedAt / 1000 - TURN_ROW_SLACK_S;
+  const storedId = gateway.storedSessionId(sessionId);
+  let member = -1;
+  let noted = 0;
+  let pending = false;
+  for (const row of history) {
+    if (row.timestamp != null && row.timestamp < since) continue;
+    if (row.role === 'user') {
+      member += 1;
+      pending = true;
+      continue;
+    }
+    if (row.role !== 'assistant' || !pending || row.rowId == null) continue;
+    pending = false;
+    const name = voiceNames[member];
+    if (name) {
+      setReplyWritingVoice(storedId, row.rowId, name);
+      noted += 1;
+    }
+  }
+  return noted;
+}
+
 /** Hydrated history with each noted reply's ending, and each unanswered turn's reason. */
 export function withReplyEndings(
   messages: HermesChatMessage[],
@@ -119,19 +188,27 @@ export function withReplyEndings(
 ): HermesChatMessage[] {
   const endings: Record<string, HermesReplyEnding> = {};
   const noReplies: Record<string, HermesNoReply> = {};
+  const voices: Record<string, string> = {};
   for (const id of new Set(sessionIds)) {
     if (!id) continue;
     Object.assign(endings, getReplyEndings(id));
     Object.assign(noReplies, getNoReplies(id));
+    Object.assign(voices, getReplyWritingVoices(id));
   }
-  if (Object.keys(endings).length === 0 && Object.keys(noReplies).length === 0) {
+  if (
+    Object.keys(endings).length === 0 &&
+    Object.keys(noReplies).length === 0 &&
+    Object.keys(voices).length === 0
+  ) {
     return messages;
   }
   return messages.map((m, i) => {
     if (m.rowId == null) return m;
     if (m.role === 'assistant') {
       const ending = endings[String(m.rowId)];
-      return ending ? { ...m, ending } : m;
+      const writingVoiceName = voices[String(m.rowId)];
+      if (!ending && !writingVoiceName) return m;
+      return { ...m, ...(ending ? { ending } : {}), ...(writingVoiceName ? { writingVoiceName } : {}) };
     }
     // A note only stands while the turn is still unanswered (a later Retry may succeed).
     const noReply = m.role === 'user' ? noReplies[String(m.rowId)] : undefined;

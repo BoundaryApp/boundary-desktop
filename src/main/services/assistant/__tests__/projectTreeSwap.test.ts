@@ -38,14 +38,14 @@ beforeEach(() => {
   write(paths.projectRoot, 'data/hermes/state.db', 'chats');
   write(paths.projectRoot, '.env', 'SECRET=keep');
   write(paths.projectRoot, 'compose/hermes/api-server.env', 'API=keep');
-  write(paths.projectRoot, 'compose/caldav-mcp/accounts/personal.env', 'CALDAV=keep');
-  write(paths.projectRoot, 'compose/caldav-mcp/accounts/.gitkeep', '');
+  write(paths.projectRoot, 'compose/hermes/worker/ssh/id_ed25519', 'WORKER_KEY=keep');
+  write(paths.projectRoot, 'compose/hermes/worker/ssh/.gitkeep', '');
   write(paths.projectRoot, 'searxng/settings.local.yml', 'searx secret');
   // The new archive: new code, tracked placeholders, no data.
   write(paths.nextRoot, 'docker-compose.yml', 'new compose');
   write(paths.nextRoot, 'scripts/setup.sh', 'new setup');
-  write(paths.nextRoot, 'compose/caldav-mcp/accounts/.gitkeep', '');
-  write(paths.nextRoot, 'compose/caldav-mcp/account.env.example', 'example');
+  write(paths.nextRoot, 'compose/hermes/worker/ssh/.gitkeep', '');
+  write(paths.nextRoot, 'compose/hermes/worker/README.md', 'example');
   write(paths.nextRoot, '.env.example', 'NEW_KEY=');
 });
 
@@ -106,8 +106,8 @@ describe('swapProjectTreePreservingData', () => {
     expect(read(live, 'data/hermes/state.db')).toBe('chats');
     expect(read(live, '.env')).toBe('SECRET=keep');
     expect(read(live, 'compose/hermes/api-server.env')).toBe('API=keep');
-    expect(read(live, 'compose/caldav-mcp/accounts/personal.env')).toBe('CALDAV=keep');
-    expect(read(live, 'compose/caldav-mcp/account.env.example')).toBe('example');
+    expect(read(live, 'compose/hermes/worker/ssh/id_ed25519')).toBe('WORKER_KEY=keep');
+    expect(read(live, 'compose/hermes/worker/README.md')).toBe('example');
     expect(read(live, 'searxng/settings.local.yml')).toBe('searx secret');
     expect(fs.existsSync(paths.journalPath)).toBe(false);
     expect(fs.existsSync(paths.nextRoot)).toBe(false);
@@ -121,25 +121,27 @@ describe('swapProjectTreePreservingData', () => {
   });
 
   it('adds files only the new tree has inside a carried-over folder', async () => {
-    write(paths.nextRoot, 'compose/caldav-mcp/accounts/README.md', 'new readme');
+    write(paths.nextRoot, 'compose/hermes/worker/ssh/README.md', 'new readme');
     await swapProjectTreePreservingData(paths);
     const live = paths.projectRoot;
-    expect(read(live, 'compose/caldav-mcp/accounts/README.md')).toBe('new readme');
-    expect(read(live, 'compose/caldav-mcp/accounts/personal.env')).toBe('CALDAV=keep');
-    expect(fs.existsSync(path.join(live, 'compose/caldav-mcp/accounts.boundary-fresh'))).toBe(
+    expect(read(live, 'compose/hermes/worker/ssh/README.md')).toBe('new readme');
+    expect(read(live, 'compose/hermes/worker/ssh/id_ed25519')).toBe('WORKER_KEY=keep');
+    expect(fs.existsSync(path.join(live, 'compose/hermes/worker/ssh.boundary-fresh'))).toBe(
       false
     );
   });
 
-  it('keeps Twenty workspace files and llm-proxy model defaults', async () => {
-    write(paths.projectRoot, 'compose/twenty/workspaces/main.env', 'TWENTY_KEY_RW=keep');
-    write(paths.projectRoot, 'compose/twenty/workspaces/.gitkeep', '');
+  it('keeps llm-proxy model defaults, and leaves unread Twenty and CalDAV account files with the old tree', async () => {
+    write(paths.projectRoot, 'compose/twenty/workspaces/main.env', 'TWENTY_KEY_RW=old');
+    write(paths.projectRoot, 'compose/caldav-mcp/accounts/personal.env', 'CALDAV_PASSWORD=old');
     write(paths.projectRoot, 'model-defaults/local.json', '{"qwen":{}}');
-    write(paths.nextRoot, 'compose/twenty/workspaces/.gitkeep', '');
     write(paths.nextRoot, 'model-defaults/examples/qwen.json', 'example');
     await swapProjectTreePreservingData(paths);
     const live = paths.projectRoot;
-    expect(read(live, 'compose/twenty/workspaces/main.env')).toBe('TWENTY_KEY_RW=keep');
+    // Stack v0.3.14 upgrade step 2: nothing reads these key files any more.
+    expect(fs.existsSync(path.join(live, 'compose/twenty/workspaces/main.env'))).toBe(false);
+    // Stack v0.3.15: CalDAV accounts moved to the caldav add-on's store; nothing reads these.
+    expect(fs.existsSync(path.join(live, 'compose/caldav-mcp/accounts/personal.env'))).toBe(false);
     expect(read(live, 'model-defaults/local.json')).toBe('{"qwen":{}}');
     expect(read(live, 'model-defaults/examples/qwen.json')).toBe('example');
   });
@@ -157,10 +159,12 @@ describe('a swap that fails part-way', () => {
     // them out of the user's folders again.
     write(paths.nextRoot, 'data/.gitkeep', '');
     write(paths.nextRoot, 'data/n8n/.gitkeep', '');
-    write(paths.nextRoot, 'compose/caldav-mcp/accounts/README.md', 'new readme');
+    write(paths.nextRoot, 'compose/hermes/worker/ssh/README.md', 'new readme');
   });
 
-  it('puts the live tree back exactly as it was, whichever step fails', async () => {
+  // Reruns the whole swap on the real filesystem once per fs call (over 20), so it takes about a
+  // second alone and several under load; the default 5 s timeout made it flaky.
+  it('puts the live tree back exactly as it was, whichever step fails', { timeout: 30_000 }, async () => {
     const before = snapshot(paths.projectRoot);
     const nextBefore = snapshot(paths.nextRoot);
     const counting = instrumentFs(null);
@@ -220,7 +224,7 @@ describe('a swap that fails part-way', () => {
     expect(read(paths.projectRoot, 'data/hermes/state.db')).toBe('chats');
     expect(read(paths.projectRoot, 'data/hermes/profiles/default/vault/vault.enc')).toBe('logins');
     expect(read(paths.projectRoot, '.env')).toBe('SECRET=keep');
-    expect(read(paths.projectRoot, 'compose/caldav-mcp/accounts/personal.env')).toBe('CALDAV=keep');
+    expect(read(paths.projectRoot, 'compose/hermes/worker/ssh/id_ed25519')).toBe('WORKER_KEY=keep');
   });
 });
 

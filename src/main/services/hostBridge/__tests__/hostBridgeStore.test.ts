@@ -5,6 +5,7 @@ import {
   hasHostBridgeGrant,
   listHostBridgeGrants,
   revokeHostBridgeGrant,
+  rotateHostBridgeToken,
   rotateHostBridgeTokens,
 } from '../hostBridgeStore';
 
@@ -25,6 +26,14 @@ describe('host-bridge tokens', () => {
     const before = await ensureHostBridgeToken('mcp');
     rotateHostBridgeTokens();
     expect(await ensureHostBridgeToken('mcp')).not.toBe(before);
+  });
+
+  it('rotates one token and keeps the other', async () => {
+    const mcp = await ensureHostBridgeToken('mcp');
+    const browser = await ensureHostBridgeToken('browser');
+    rotateHostBridgeToken('browser');
+    expect(await ensureHostBridgeToken('mcp')).toBe(mcp);
+    expect(await ensureHostBridgeToken('browser')).not.toBe(browser);
   });
 });
 

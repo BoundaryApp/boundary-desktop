@@ -1,0 +1,224 @@
+{
+  "view": {
+    "files/brief (conflict, cy 2).md": {
+      "path": "brief (conflict, Cy 2).md",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "6666666666666666666666666666666666666666666666666666666666666666",
+        "blockOffset": 4,
+        "blockLength": 1,
+        "byteOffset": 130,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "writer": "5555555555555555555555555555555555555555555555555555555555555555",
+      "at": 130,
+      "conflictOf": "brief.md"
+    },
+    "files/brief (conflict, cy).md": {
+      "path": "brief (conflict, Cy).md",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "6666666666666666666666666666666666666666666666666666666666666666",
+        "blockOffset": 1,
+        "blockLength": 1,
+        "byteOffset": 120,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "writer": "5555555555555555555555555555555555555555555555555555555555555555",
+      "at": 120,
+      "conflictOf": "brief.md"
+    },
+    "files/brief.md": {
+      "path": "brief.md",
+      "version": 2,
+      "deleted": false,
+      "blob": {
+        "core": "3333333333333333333333333333333333333333333333333333333333333333",
+        "blockOffset": 5,
+        "blockLength": 1,
+        "byteOffset": 110,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "at": 110
+    },
+    "files/covers/option-1 (conflict, bo).png": {
+      "path": "covers/option-1 (conflict, Bo).png",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "3333333333333333333333333333333333333333333333333333333333333333",
+        "blockOffset": 3,
+        "blockLength": 1,
+        "byteOffset": 150,
+        "byteLength": 18000001
+      },
+      "size": 18000001,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "at": 150,
+      "conflictOf": "covers/option-1.png"
+    },
+    "files/covers/option-1.png": {
+      "path": "covers/option-1.png",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "blockOffset": 0,
+        "blockLength": 1,
+        "byteOffset": 140,
+        "byteLength": 18000000
+      },
+      "size": 18000000,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "at": 140
+    },
+    "files/late.md": {
+      "path": "late.md",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "6666666666666666666666666666666666666666666666666666666666666666",
+        "blockOffset": 3,
+        "blockLength": 1,
+        "byteOffset": 220,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "writer": "5555555555555555555555555555555555555555555555555555555555555555",
+      "at": 220
+    },
+    "files/mine.md": {
+      "path": "mine.md",
+      "version": 3,
+      "deleted": false,
+      "blob": {
+        "core": "3333333333333333333333333333333333333333333333333333333333333333",
+        "blockOffset": 4,
+        "blockLength": 1,
+        "byteOffset": 200,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "at": 200
+    },
+    "files/résumé.md": {
+      "path": "Résumé.md",
+      "version": 1,
+      "deleted": false,
+      "blob": {
+        "core": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "blockOffset": 6,
+        "blockLength": 1,
+        "byteOffset": 160,
+        "byteLength": 10
+      },
+      "size": 10,
+      "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "at": 160
+    },
+    "folder": {
+      "name": "Cover art",
+      "format": 1,
+      "role": "editor",
+      "by": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "people/1111111111111111111111111111111111111111111111111111111111111111": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "Bo",
+      "role": "manager"
+    },
+    "people/4444444444444444444444444444444444444444444444444444444444444444": {
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "name": "Cy",
+      "role": "editor"
+    },
+    "people/7777777777777777777777777777777777777777777777777777777777777777": {
+      "identity": "7777777777777777777777777777777777777777777777777777777777777777",
+      "name": "Di",
+      "role": "reader"
+    },
+    "people/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "role": "editor"
+    },
+    "writers/2222222222222222222222222222222222222222222222222222222222222222": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "device": "1111111111111111111111111111111111111111111111111111111111111111",
+      "blobs": "3333333333333333333333333333333333333333333333333333333333333333",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "writers/5555555555555555555555555555555555555555555555555555555555555555": {
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "device": "4444444444444444444444444444444444444444444444444444444444444444",
+      "blobs": "6666666666666666666666666666666666666666666666666666666666666666",
+      "writer": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "writers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "device": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "blobs": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "writers": [
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      false
+    ],
+    [
+      "add",
+      "5555555555555555555555555555555555555555555555555555555555555555",
+      false
+    ],
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      true
+    ],
+    [
+      "add",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      false
+    ]
+  ],
+  "skipped": [
+    "bad creator intro",
+    "writer already in use",
+    "only managers add writers",
+    "readers do not write",
+    "path is never shared",
+    "bad path",
+    "bad blob",
+    "file changed since",
+    "only managers change roles",
+    "only managers change the format",
+    "only managers remove others",
+    "the last manager cannot be removed",
+    "unknown operation"
+  ]
+}

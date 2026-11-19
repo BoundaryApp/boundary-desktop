@@ -1,6 +1,7 @@
 import { persistDebugLog } from '../../../persistDebugLog';
 import type { HermesConversationKind } from '../../../../shared/types/hermesChat';
 import type { MessageCompletePayload } from './vendor/gateway-contract.generated';
+import type { StreamCadenceSummary } from './streamCadence';
 
 /**
  * Debug-log lines for chat turns (ADR 0031 §6). Metadata only: ids, slugs, counts, durations,
@@ -35,6 +36,23 @@ export interface TurnLogFields {
   continued?: boolean;
   /** Edit / Retry, which truncates history first. */
   rewind?: boolean;
+  /** The run control that sent it (the queue, Send now), when not a plain send. */
+  via?: string;
+  /** The writing voice the reply was asked to use (ADR 0056); ids and sizes only. */
+  voice?: TurnVoiceLog;
+}
+
+/** Where a turn's writing voice came from and how much of it was sent. */
+export interface TurnVoiceLog {
+  /** `message`: a chip; `kept`: the chat's or room's kept voice; `agent`: the agent's own. */
+  source: 'message' | 'kept' | 'agent';
+  /** The guide's voice; null when only the drafts line went. */
+  voiceId: string | null;
+  draftsVoiceId: string | null;
+  /** `reminder`: a room member that already has this guide gets a one-line reminder. */
+  guide: 'full' | 'reminder' | 'none';
+  /** Characters of voice context sent. */
+  chars: number;
 }
 
 export interface TurnEnd {
@@ -51,6 +69,11 @@ export interface TurnEnd {
   lastEventMsAgo?: number | null;
   /** Hermes `error` events during the turn. Boundary logs these and doesn't act on them. */
   hermesErrors?: number;
+  /** How the reply text arrived: chunk sizes and gaps, never the text. */
+  cadence?: StreamCadenceSummary | null;
+  /** The inference slot llm-proxy last applied (an enum such as `local`), and whether it routes. */
+  inferenceSlot?: string | null;
+  routed?: boolean;
 }
 
 export interface TurnLog {
@@ -89,6 +112,8 @@ export function startTurnLog(
     ...ids,
     ...(fields.continued ? { continued: true } : {}),
     ...(fields.rewind ? { rewind: true } : {}),
+    ...(fields.via ? { via: fields.via } : {}),
+    ...(fields.voice ? { voice: fields.voice } : {}),
   });
   let ended = false;
   return {
@@ -106,6 +131,9 @@ export function startTurnLog(
         ...(end.errorCode ? { errorCode: end.errorCode } : {}),
         ...(end.lastEvent !== undefined ? { lastEvent: end.lastEvent, lastEventMsAgo: end.lastEventMsAgo ?? null } : {}),
         ...(end.hermesErrors ? { hermesErrors: end.hermesErrors } : {}),
+        ...(end.cadence ? { cadence: end.cadence } : {}),
+        ...(end.inferenceSlot !== undefined ? { inferenceSlot: end.inferenceSlot } : {}),
+        ...(end.routed !== undefined ? { routed: end.routed } : {}),
       });
     },
     note(message, data) {

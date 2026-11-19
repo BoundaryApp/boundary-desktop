@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sheet } from '../../components/ui/sheet';
+import type { InferenceStatusState } from '../../onboarding/inferenceStatus';
 import { ProductReadyShell } from '../ProductReadyShell';
 import { openSettings } from '../settingsNavigation';
 
@@ -25,14 +26,16 @@ vi.mock('../chat/WorkbenchChatScreen', () => ({
 vi.mock('../ProductSettingsScreen', () => ({ ProductSettingsScreen: () => <div>settings-screen</div> }));
 vi.mock('../AssistantServicesScreen', () => ({ AssistantServicesScreen: () => <div>services-screen</div> }));
 vi.mock('../ResourcesScreen', () => ({ ResourcesScreen: () => <div>resources-screen</div> }));
-vi.mock('../../onboarding/inferenceStatus', () => ({ useInferenceStatus: () => ({ status: null, error: null }) }));
+vi.mock('../../onboarding/inferenceStatus', () => ({
+  useInferenceStatus: (): Partial<InferenceStatusState> => ({ status: null, error: null }),
+}));
 vi.mock('../PasswordsLoginsPanel', () => ({
   PasswordsLoginsPanel: ({ initialAgentSlug }: { initialAgentSlug?: string }) => <p>{`logins:${initialAgentSlug}`}</p>,
 }));
-vi.mock('../CodingFoldersPanel', () => ({ CodingFoldersPanel: () => null }));
-vi.mock('../AgentBrowserPanel', () => ({ AgentBrowserPanel: () => null }));
-vi.mock('../ComputerAccessPanel', () => ({ ComputerAccessPanel: () => null }));
-vi.mock('../UpdatesPanel', () => ({ UpdatesPanel: () => null }));
+vi.mock('../CodingFoldersPanel', () => ({ CodingFoldersPanel: (): null => null }));
+vi.mock('../AgentBrowserPanel', () => ({ AgentBrowserPanel: (): null => null }));
+vi.mock('../ComputerAccessPanel', () => ({ ComputerAccessPanel: (): null => null }));
+vi.mock('../UpdatesPanel', () => ({ UpdatesPanel: (): null => null }));
 vi.mock('../CalendarsPanel', () => ({
   CalendarsPanel: ({ onConnectFromChatClosed }: { onConnectFromChatClosed?: () => void }) => {
     const [connecting, setConnecting] = useState(Boolean(onConnectFromChatClosed));
@@ -61,10 +64,6 @@ function typeDraft(text: string) {
 describe('Settings panels over the current screen', () => {
   beforeEach(() => {
     mounts.chat = 0;
-  });
-
-  afterEach(() => {
-    cleanup();
   });
 
   it('keeps the chat, its draft and focus while a panel opens and closes', () => {
@@ -156,5 +155,23 @@ describe('Settings panels over the current screen', () => {
     expect(screen.getByRole('dialog', { name: 'Calendars' })).toBeTruthy();
     expect(screen.getByText('services-screen')).toBeTruthy();
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the heading to panels that have their own', () => {
+    render(<ProductReadyShell view="chat" onNavigate={vi.fn()} />);
+    act(() => openSettings({ tab: 'coding' }));
+    const dialog = screen.getByRole('dialog', { name: 'Coding agent' });
+    expect(dialog.querySelector('h1')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    act(() => openSettings({ tab: 'updates' }));
+    expect(screen.getByRole('heading', { name: 'Updates' })).toBeTruthy();
+  });
+
+  it('opens the Settings screen, not a sheet, for a tab that is not a panel', () => {
+    const onNavigate = vi.fn();
+    render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    act(() => openSettings({ tab: 'no-such-tab' as unknown as 'updates' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 });

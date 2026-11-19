@@ -12,6 +12,9 @@ import { tryDecryptFromBase64 } from '../../secrets/osEncryption';
  * Connected calendars. The password is encrypted with the OS keychain; Boundary keeps it so it
  * can give a newly granted agent access or rewrite a profile's `.env` without asking again.
  * Hermes holds its own copy in each granted profile's `.env`.
+ *
+ * The Mac account (provider `mac`) has no address or password: `url`, `username` and `password`
+ * are `''`. Each granted agent has its own bridge token instead, in `agentTokens`.
  */
 
 export interface StoredCalendarAccount {
@@ -28,6 +31,15 @@ export interface StoredCalendarAccount {
   lastCheck: CalendarCheck | null;
   /** Missing on accounts saved before Phase 2; see `lastWorkedAt`. */
   lastOkAt?: string;
+  /** The Mac account only: the calendars agents may see. Missing means none. */
+  allowedCalendarIds?: string[];
+  /**
+   * The Mac account only: the allowed calendars' titles when last listed, by id, so one that
+   * disappears from the Mac can be named on the card.
+   */
+  allowedCalendarTitles?: Record<string, string>;
+  /** The Mac account only: agent slug → base64 of its keychain-encrypted `/calendar` token. */
+  agentTokens?: Record<string, string>;
 }
 
 interface CalendarStoreState {
@@ -84,8 +96,18 @@ export function lastWorkedAt(account: StoredCalendarAccount): string | null {
   return account.createdAt || null;
 }
 
+/** Whether a CalDAV account is connected: those need the stack's caldav-mcp, the Mac account doesn't. */
+export function hasCalDavAccounts(): boolean {
+  return listCalendarAccounts().some((a) => a.provider !== 'mac');
+}
+
+/** The Mac account, if one is connected. There is at most one. */
+export function getMacCalendarAccount(): StoredCalendarAccount | null {
+  return listCalendarAccounts().find((a) => a.provider === 'mac') ?? null;
+}
+
 export async function toCalendarAccountView(account: StoredCalendarAccount): Promise<CalendarAccountView> {
-  const password = await decryptCalendarPassword(account);
+  const password = account.provider === 'mac' ? null : await decryptCalendarPassword(account);
   return {
     slug: account.slug,
     name: account.name,
@@ -98,5 +120,6 @@ export async function toCalendarAccountView(account: StoredCalendarAccount): Pro
     createdAt: account.createdAt,
     lastCheck: account.lastCheck,
     lastOkAt: lastWorkedAt(account),
+    ...(account.provider === 'mac' ? { allowedCalendarIds: account.allowedCalendarIds ?? [] } : {}),
   };
 }

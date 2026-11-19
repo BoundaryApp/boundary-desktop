@@ -22,7 +22,7 @@ vi.mock('../../containerRuntime', async () => {
 });
 
 vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project', error: undefined }),
+  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project', error: undefined as string | undefined }),
   resolveAssistantRoot: () => '/tmp/boundary-project',
 }));
 
@@ -63,7 +63,12 @@ import {
   inferenceRouterPushed,
   stopInferenceRouter,
 } from '../../inference/inferenceRouterService';
-import { sharedModelConnection, type ChainPlan } from '../../inference/inferenceChainService';
+import {
+  setInferenceChainConfidential,
+  sharedModelConnection,
+  type ChainPlan,
+} from '../../inference/inferenceChainService';
+import { DEFAULT_POOL_SETTINGS } from '../../../../shared/types/confidential';
 import { clearOpenAiConfig, setAppSharedModel } from '../../onboarding/OpenAiOnboardingStore';
 
 const REAL_KEY = 'sk-or-v1-real-secret';
@@ -141,8 +146,8 @@ beforeEach(() => {
   adminSequence = [];
   modelList = null;
   storedAgents = [{ slug: 'assistant', builtIn: true }];
-  delete process.env.BOUNDARY_LOCAL_STACK;
-  delete process.env.BOUNDARY_ASSISTANT_ROOT;
+  vi.stubEnv('BOUNDARY_LOCAL_STACK', undefined);
+  vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
   LLM_PROXY_PUSH_RETRY.delayMs = 0;
   runCompose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
   runComposeStreaming.mockReset().mockImplementation(async () => {
@@ -167,8 +172,6 @@ afterAll(() => {
 
 afterEach(async () => {
   await stopInferenceRouter();
-  delete process.env.BOUNDARY_LOCAL_STACK;
-  delete process.env.BOUNDARY_ASSISTANT_ROOT;
   __resetLlmProxyKeeperForTests();
   vi.unstubAllGlobals();
 });
@@ -256,14 +259,15 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
 
     const mcpWrites = plans()
       .flat()
-      .flatMap((p) => p.entries.map(([key, value]) => [p.profile, key, value]));
+      .flatMap((p) => p.entries.map(([key, value]) => [p.profile, key, value]))
+      .filter(([, key]) => String(key).startsWith('mcp_servers.'));
     expect(mcpWrites).toEqual([['orchestrator', 'mcp_servers.opencode', { url: 'http://opencode-mcp:8000/sse' }]]);
     expect(composeText()).not.toContain('mcp_servers.mail');
   });
 
   it('in local stack mode writes the limits to agent profiles only, and the platform hint to the default one too', async () => {
-    process.env.BOUNDARY_LOCAL_STACK = '1';
-    process.env.BOUNDARY_ASSISTANT_ROOT = '/tmp/boundary-project';
+    vi.stubEnv('BOUNDARY_LOCAL_STACK', '1');
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', '/tmp/boundary-project');
     storedAgents = [
       { slug: 'assistant', builtIn: true },
       { slug: 'orchestrator', builtIn: false },
@@ -375,10 +379,45 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
     });
 
     it('leaves a local stack alone: it never routes', async () => {
-      process.env.BOUNDARY_LOCAL_STACK = '1';
+      vi.stubEnv('BOUNDARY_LOCAL_STACK', '1');
       await setAppSharedModel({ slot: 'peer', modelId: 'qwen3', peer });
       expect(await applyLlmConnectionToHermes(undefined, { showProgress: true })).toEqual({ success: true });
       expect(inferenceRouterPushed()).toBe(false);
+    });
+  });
+
+  describe('with a confidential pool as the app default (ADR 0047 §8)', () => {
+    const pool = { slot: 'confidential' as const, modelId: 'qwen' };
+
+    afterEach(async () => {
+      setInferenceChainConfidential(null);
+      await clearOpenAiConfig();
+    });
+
+    it('routes at start-up with only the pool, sized from its providers', async () => {
+      setInferenceChainConfidential({
+        poolSettings: () => DEFAULT_POOL_SETTINGS,
+        poolStatus: async () => ({ serves: true, servesPrivate: false, contextLength: 8_192 }),
+      });
+      await setAppSharedModel(pool);
+      expect(await applyLlmConnectionToHermes(undefined, { showProgress: true })).toEqual({ success: true });
+      expect(inferenceRouterPushed()).toBe(true);
+      expect(configSets('')).toEqual(
+        expect.arrayContaining([
+          ['model.default', 'qwen'],
+          ['model.context_length', '8192'],
+        ])
+      );
+      expect(getLastAppliedLlm()).toMatchObject({ slot: 'confidential', routed: true, contextLength: 8_192 });
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('confidential-pool'))).toEqual([]);
+    });
+
+    it('finishes start-up with nothing applied when no provider serves it', async () => {
+      await setAppSharedModel(pool);
+      expect(await applyLlmConnectionToHermes(undefined, { showProgress: true })).toEqual({ success: true });
+      expect(getAssistantStackLifecycle().phase).toBe('ready');
+      expect(plans()).toEqual([]);
+      expect(applyLlmConnectionToProjectFiles).not.toHaveBeenCalled();
     });
   });
 

@@ -27,7 +27,7 @@ vi.mock('../../containerRuntime', async () => {
 });
 
 vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project', error: undefined }),
+  tryResolveAssistantRoot: () => ({ root: '/tmp/boundary-project', error: undefined as string | undefined }),
   resolveAssistantRoot: () => '/tmp/boundary-project',
 }));
 
@@ -63,7 +63,7 @@ const storedTokens = { mcp: 'mcp-token-1', browser: 'browser-token-1' };
 const ensureHostBridgeStarted = vi.fn(async () => bridge);
 vi.mock('../../hostBridge/hostBridgeService', () => ({
   ensureHostBridgeStarted: () => ensureHostBridgeStarted(),
-  hostBridgeWakeAccepted: () => undefined,
+  hostBridgeWakeAccepted: (): void => undefined,
 }));
 vi.mock('../../hostBridge/hostBridgeStore', () => ({
   getHostBridgeBrowserSettings: () => ({ enabled: browserEnabled }),
@@ -85,6 +85,7 @@ import {
 import { createLifecycleSnapshot } from '../../../../shared/assistantStackLifecycle';
 import { __resetLlmProxyKeeperForTests } from '../llmProxyKeyKeeper';
 import { clearLastAppliedLlm } from '../AssistantStackStore';
+import { onHermesReplaced } from '../hermesLifecycle';
 
 const AGENTS = ['researcher', 'writer', 'orchestrator'];
 const connection = {
@@ -239,8 +240,8 @@ beforeEach(() => {
   browserEnabled = true;
   agentStopped = false;
   ensureHostBridgeStarted.mockClear();
-  delete process.env.BOUNDARY_LOCAL_STACK;
-  delete process.env.BOUNDARY_ASSISTANT_ROOT;
+  vi.stubEnv('BOUNDARY_LOCAL_STACK', undefined);
+  vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
   clearLastAppliedLlm();
   runCompose.mockReset().mockImplementation(async (_runtime: unknown, args: string[], options?: { env?: NodeJS.ProcessEnv }) =>
     args.includes('config') ? fakeConfigCli(args, options?.env) : { stdout: '', stderr: '' }
@@ -400,9 +401,37 @@ describe('host bridge in every profile (G11-8)', () => {
     for (const profile of ['', 'api-server', 'browser', ...AGENTS]) {
       const config = readConfig(profile);
       expect(getPath(config, 'mcp_servers.boundary.url')).toBe('http://host.docker.internal:4100/mcp');
-      expect(getPath(config, 'browser.cdp_url')).toContain('ws://host.docker.internal:4101/devtools/browser/boundary');
-      expect(fs.readFileSync(envPath(profile), 'utf8')).toContain('BOUNDARY_BRIDGE_TOKEN=mcp-token-1');
+      const env = fs.readFileSync(envPath(profile), 'utf8');
+      expect(env).toContain('BOUNDARY_BRIDGE_TOKEN=mcp-token-1');
+      expect(env).toContain('BOUNDARY_BROWSER_TOKEN=browser-token-1');
     }
+    for (const profile of ['', 'browser', ...AGENTS]) {
+      // The token stays in `.env`; config.yaml holds the reference Hermes expands.
+      expect(getPath(readConfig(profile), 'browser.cdp_url')).toBe(
+        'ws://host.docker.internal:4101/devtools/browser/boundary?token=${BOUNDARY_BROWSER_TOKEN}'
+      );
+    }
+    // The stack's unattended identity never reaches the signed-in browser.
+    expect(getPath(readConfig('api-server'), 'browser.cdp_url')).toBeUndefined();
+  });
+
+  it('clears the URL an earlier Boundary wrote on api-server, and keeps a developer’s own', async () => {
+    writeConfig('api-server', {
+      browser: { cdp_url: 'ws://host.docker.internal:4101/devtools/browser/boundary?token=old-literal' },
+    });
+    writeConfig('browser', { browser: { cdp_url: 'http://127.0.0.1:9222' } });
+    browserEnabled = false;
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    expect(getPath(readConfig('api-server'), 'browser.cdp_url')).toBe('');
+    expect(getPath(readConfig('browser'), 'browser.cdp_url')).toBe('http://127.0.0.1:9222');
+
+    browserEnabled = true;
+    writeConfig('api-server', {
+      browser: { cdp_url: 'ws://host.docker.internal:4101/devtools/browser/boundary?token=old-literal' },
+    });
+    expect(await applyHostBridgeBrowserToHermes()).toEqual({ success: true });
+    expect(getPath(readConfig('api-server'), 'browser.cdp_url')).toBe('');
+    expect(getPath(readConfig(''), 'browser.cdp_url')).toContain('token=${BOUNDARY_BROWSER_TOKEN}');
   });
 
   it('restarts Hermes when only a bridge token changed', async () => {
@@ -459,7 +488,8 @@ describe('host bridge in every profile (G11-8)', () => {
       resetCounts();
       expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
       expect(counts().restarts).toBe(0);
-      expect(getPath(readConfig(''), 'browser.cdp_url')).toContain('token=browser-token-2');
+      expect(fs.readFileSync(envPath(''), 'utf8')).toContain('BOUNDARY_BROWSER_TOKEN=browser-token-2');
+      expect(getPath(readConfig(''), 'browser.cdp_url')).toContain('token=${BOUNDARY_BROWSER_TOKEN}');
     } finally {
       storedTokens.mcp = 'mcp-token-1';
       storedTokens.browser = 'browser-token-1';
@@ -687,5 +717,57 @@ describe('lifecycle during an apply', () => {
     const third = applyLlmConnectionToHermes(connection, { showProgress: true });
     await Promise.all([first, second, third]);
     expect(phases).toContain('starting');
+  });
+});
+
+describe('telling add-ons that Hermes restarted', () => {
+  const changed = { ...connection, modelId: 'qwen/qwen3-coder' };
+  const replaced = vi.fn();
+  let off: () => void = () => {};
+
+  beforeEach(() => {
+    replaced.mockReset();
+    off = onHermesReplaced(replaced);
+  });
+
+  afterEach(() => off());
+
+  it('notifies once with settings-restart after the managed restart', async () => {
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    replaced.mockClear();
+    expect(await applyLlmConnectionToHermes(changed)).toEqual({ success: true });
+    expect(counts().restarts).toBeGreaterThan(0);
+    expect(replaced.mock.calls).toEqual([['settings-restart']]);
+  });
+
+  it('notifies once with settings-restart after the local stack’s restart', async () => {
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', '/tmp/local-checkout');
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    replaced.mockClear();
+    expect(await applyLlmConnectionToHermes(changed)).toEqual({ success: true });
+    expect(replaced.mock.calls).toEqual([['settings-restart']]);
+  });
+
+  it('does not notify when nothing restarted', async () => {
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    replaced.mockClear();
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    expect(replaced).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when the restart fails', async () => {
+    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
+      if (args.includes('restart')) throw new Error('Compose timed out');
+      return { stdout: '', stderr: '' };
+    });
+    expect((await applyLlmConnectionToHermes(connection)).success).toBe(false);
+    expect(replaced).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds when a listener rejects', async () => {
+    off();
+    off = onHermesReplaced(() => Promise.reject(new Error('follow failed')));
+    expect(await applyLlmConnectionToHermes(connection)).toEqual({ success: true });
+    await Promise.resolve();
   });
 });

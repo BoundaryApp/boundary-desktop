@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLifecycleSnapshot, seedServiceProgress } from '../../../shared/assistantStackLifecycle';
 
@@ -45,7 +45,6 @@ vi.mock('../AssistantStackQuitOverlay', async () => {
 
 describe('ProductApp gating', () => {
   afterEach(() => {
-    cleanup();
     vi.clearAllMocks();
   });
 

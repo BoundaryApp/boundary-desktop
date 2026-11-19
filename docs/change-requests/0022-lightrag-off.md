@@ -1,7 +1,7 @@
 # 0022 · Turning LightRAG off leaves its MCP entry in Hermes
 
 **Serves:** LightRAG as an optional service (Services → LightRAG), off by default.
-**Status:** R1 built (unreleased, ships in 0.3.11) · R2 planned with 0020 R1
+**Status:** R1 done (v0.3.11), Boundary pins it · R2 built on the stack's `feat/n8n-lightrag-addons`, not released (target 0.3.13)
 
 ## Background
 
@@ -50,9 +50,10 @@ The mail, SQL, Vikunja and GPT Researcher registrations already handle this: whe
 
 **Boundary fallback:** the Services switch, which starts the profile and reruns both bootstraps.
 
-> **Stack reply (planned with 0020 R1):** accepted. LightRAG gets `addons/lightrag/addon.json`
-> with the first batch of manifests. The manifest and `scripts/addon.sh` aren't built yet. Three
-> details:
+> **Stack reply (built on `feat/n8n-lightrag-addons`, not yet released, target 0.3.13):** accepted.
+> `addons/lightrag/addon.json` exists and replaces the hand-written registration (same key
+> `lightrag`, same five tools, api-server and browser only, default left alone through
+> `mcp.unmanaged`). Live check pending after merge. Three details:
 >
 > - **Memory figures come from compose**, as for every add-on (0020 R1). `lightrag` and `neo4j`
 >   have no `deploy.resources` yet. They get them when we measure them under load (0020 R2).
@@ -62,9 +63,9 @@ The mail, SQL, Vikunja and GPT Researcher registrations already handle this: whe
 >   its memory in the fit check only when no other active profile already runs it.
 > - **No reload is needed to register.** As with Twenty (0020 R4), a new entry connects within
 >   about a second. `addon.sh disable lightrag` drops the entries, stops `lightrag` and
->   `lightrag-mcp`, and runs the reload. Until then, turning the flag and the profile off leaves
->   the running containers in place, since Compose ignores services of an inactive profile.
->   Your Services switch should keep removing them.
+>   `lightrag-mcp`, stops Neo4j unless `NEO4J_ENABLED` is on or another active profile starts
+>   it (the graph data, `rag_storage/` and `inputs/` are kept), and runs the reload. n8n's
+>   optional use of Neo4j does not keep it running on `disable lightrag`.
 >
 > **Also changing in the manifest plan:** mail, mail drafts and Messages become add-ons like the
 > rest. They'll be in the catalog, installed and disabled through `addon.sh`. Three manifest

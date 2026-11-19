@@ -61,7 +61,7 @@ function LimitFields({ name, limit, onSave, busy }: { name: string; limit: Circl
         </label>
       ))}
       </span>
-      <CircleButton size="panel" variant="outline" disabled={busy} onClick={save}>
+      <CircleButton size="panel" variant="secondary" disabled={busy} onClick={save}>
         Save limit
       </CircleButton>
     </div>
@@ -86,7 +86,7 @@ export function SharingUsage({ circles }: { circles: CirclesState }) {
   return (
     <section aria-label="Usage today" className="flex flex-col gap-3">
       {rows.length ? (
-        <div className="wb-circle-box px-3 py-2.5">
+        <div className="wb-circle-box">
         <table className="w-full text-ui text-fg">
           <thead className="text-left text-2xs text-fg-faint">
             <tr>
@@ -153,7 +153,7 @@ function MemberLimit({ identity, name, circles }: { identity: string; name: stri
       {own ? (
         <CircleButton
           size="panel"
-          variant="outline"
+          variant="secondary"
           disabled={action.busy}
           onClick={() => save(Object.fromEntries(Object.entries(limits.members).filter(([other]) => other !== identity)))}
         >
@@ -186,7 +186,7 @@ function OnePersonLimit({ circles }: { circles: CirclesState }) {
       <label className="flex flex-col gap-1.5 text-xs text-fg-faint">
         Limit for one person
         <select
-          className="h-[30px] max-w-[260px] rounded-md border border-line bg-surface-1 px-2 text-ui text-fg"
+          className="h-[30px] max-w-[260px] rounded-md border bg-surface-1 px-2 text-ui text-fg"
           value={chosen}
           onChange={(event) => setChosen(event.target.value)}
         >

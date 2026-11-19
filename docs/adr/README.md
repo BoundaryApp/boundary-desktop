@@ -13,7 +13,8 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    └── 0016 Chat inference override and honest apply
  │    │         └── 0017 Project inference pin and resolve order
  │    │              └── 0033 Inference chains and a host-side router (amends 0016 §4)
- │    │                   └── 0035 Turn admission and a model gate in the router (proposed, would amend 0033 §5–6)
+ │    │                   ├── 0035 Turn admission and a model gate in the router (proposed, would amend 0033 §5–6)
+ │    │                   └── 0047 Confidential providers in pools, routed by expected cost (proposed, would amend 0033 §2, §4–7)
  │    ├── 0003 Workbench chrome (A + B affordances + light theme)
  │    │    ├── 0013 Project sources inspector (H + I)
     │    │    └── 0028 Coding folders (L)
@@ -22,8 +23,11 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    │    ├── 0021 Right-aligned user turns and message hover rows
  │    │    │    └── 0030 Hermes's board is a view of Tasks
  │    │    └── 0018 Design tokens and primitives
- │    │         └── 0019 Onboarding in the workbench frame
- │    │              └── 0029 A full-window start-up screen (supersedes 0019 §6)
+ │    │         ├── 0019 Onboarding in the workbench frame
+ │    │         │    └── 0029 A full-window start-up screen (supersedes 0019 §6)
+ │    │         │         └── 0059 Release notes shown on an upgrade, with generated guide screenshots (proposed)
+ │    │         ├── 0060 App stylesheets in cascade layers (proposed)
+ │    │         └── 0061 One Button (proposed, amends 0018 §5)
  │    ├── 0004 Instrument composer (steal C)
  │    │    └── 0022 Run control in the composer
  │    ├── 0005 Folder-first create flow (D)
@@ -39,16 +43,28 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │         └── 0012 Host Compose inventory lives on Resources
  ├── 0026 The model key lives in the proxy's memory, not on disk
  ├── 0027 A host bridge gives Hermes the host's browser and capabilities
- │    └── 0040 Developer-only agent access to app state
+ │    ├── 0040 Developer-only agent access to app state
+ │    └── 0045 The Mac's calendars reach agents through the host bridge (proposed)
  ├── 0031 Checks on the stack contract and on drift
+ ├── 0046 Long-running actions can be cancelled or undone
+ │    └── 0055 The container engine is sized to what is turned on (proposed)
  └── 0032 Circles: invite-only groups that network peer to peer
       ├── 0034 Sharing a local model with a Circle
       │     ├── 0036 A shared model as the app default (amends 0033 §5)
       │     └── 0039 Shared models that can't serve (amends 0034 §3, 0036 §5)
       ├── 0038 Changing Circle operations after release
+      ├── 0048 Sharing a service with a Circle (proposed)
+      ├── 0049 Shared folders: a folder replicated to every member of a Circle (proposed)
       └── 0042 Circle chats: channels in the Circle's log at format 2, each Circle a place in the chat (proposed)
           ├── 0043 Circles live in the chat, models live in Inference (proposed)
-          └── 0044 Circle calls: live audio and video between members, kept nowhere (proposed)
+          ├── 0044 Circle calls: live audio and video between members, kept nowhere (proposed)
+          ├── 0050 GIFs in Circle chats: the bytes travel through the Circle (proposed)
+          ├── 0051 Notifications and mentions in Circle chats (proposed)
+          ├── 0052 A Circles destination for talking, and the built-in agent over every screen (proposed, would amend 0042 §10, 0043 §1, §7–8)
+          │   └── 0058 The agent button outside the app window (proposed, would amend 0052 §7–9)
+          ├── 0053 Replies in Circle chats: a reference stored at format 3 (proposed, would amend 0042 §3, 0051 §2, §7, §10)
+          ├── 0054 Direct messages in Circles: peer signals with an outbox (proposed, would amend 0042 §14)
+          └── 0057 Reactions in Circle chats, stored as kept member records (proposed, would amend the Circle chats spec, decision 11)
 ```
 
 | ADR | Status | Title |
@@ -97,6 +113,23 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0042](0042-circle-chats.md) | Proposed | Circle chats: channels in the Circle's log at format 2, each Circle a place in the chat |
 | [0043](0043-circles-live-in-the-chat.md) | Proposed | Circles live in the chat, models live in Inference |
 | [0044](0044-circle-calls.md) | Proposed | Circle calls: live audio and video between members, kept nowhere |
+| [0045](0045-mac-calendars-through-the-host-bridge.md) | Proposed | The Mac's calendars reach agents through the host bridge |
+| [0046](0046-cancel-or-undo-long-running-actions.md) | Accepted | Long-running actions can be cancelled or undone |
+| [0047](0047-confidential-provider-pools.md) | Proposed · would amend 0033 §2, §4–7 | Confidential providers in pools, routed by expected cost |
+| [0048](0048-sharing-a-service-with-a-circle.md) | Proposed | Sharing a service with a Circle |
+| [0049](0049-shared-folders.md) | Proposed | Shared folders: a folder replicated to every member of a Circle |
+| [0050](0050-gifs-in-circle-chats.md) | Proposed · would amend 0042 §3 | GIFs in Circle chats: the bytes travel through the Circle, not from a GIF service |
+| [0051](0051-circle-notifications-and-mentions.md) | Proposed · would amend 0042 §3, 0050 §9 | Notifications and mentions in Circle chats: decided on each device, mentions stored at format 3 |
+| [0052](0052-circles-destination-and-floating-agent.md) | Proposed · would amend 0042 §10, 0043 §1, §7–8, 0051 §5, §7 | A Circles destination for talking, and the built-in agent over every screen |
+| [0053](0053-replies-in-circle-chats.md) | Proposed · would amend 0042 §3, 0051 §2, §7, §10 | Replies in Circle chats: a reference to the earlier message, stored at format 3 |
+| [0054](0054-direct-messages-in-circles.md) | Proposed · would amend 0042 §14 | Direct messages in Circles: peer signals with an outbox, kept only on the two Macs |
+| [0055](0055-container-engine-sized-to-what-is-on.md) | Proposed | The container engine is sized to what is turned on |
+| [0056](0056-writing-voices.md) | Proposed | Writing voices: calibrated from samples, set per agent for chat replies and drafts, picked per message |
+| [0057](0057-circle-reactions.md) | Proposed · would amend the Circle chats spec, decision 11 | Reactions in Circle chats, stored as kept member records |
+| [0058](0058-agent-button-outside-the-app-window.md) | Proposed · would amend 0052 §7–9 | The agent button outside the app window |
+| [0059](0059-release-notes-on-upgrade.md) | Proposed | Release notes shown on an upgrade, with generated guide screenshots |
+| [0060](0060-css-cascade-layers.md) | Proposed | App stylesheets in cascade layers |
+| [0061](0061-one-button.md) | Proposed | One Button |
 
 ## Host bridge research
 

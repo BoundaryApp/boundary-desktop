@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle replies and DMs</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+/* Values from src/renderer/styles/tokens.css, as in ../circle-chats-ux-study/prototype.html.
+   --quote-mine and --hl are new: the quote's fill inside your own bubble, and the flash on a message a quote jumps to. */
+:root {
+  --s0:#0d0d0f; --rail:#111113; --s1:#161618; --s2:#1c1c22; --hover:#1d1d22; --line:#2a2a30; --line2:#3a3a44;
+  --tx:#f5f5f7; --mut:#c4c4cc; --fnt:#9e9ea8; --brand:#8b87f8; --brandd:#26244a; --solid:#f5f5f7; --solidfg:#111;
+  --ok:#86c089; --warn:#e8c27a; --warnd:#2a2415; --warnl:#5a4a2a; --dng:#e8a0a0; --dngl:#5a3030;
+  --bubble-mine:#24232c; --quote-mine:#1a1920; --hl:#2c2a52;
+  --pop:0 12px 32px rgb(0 0 0 / .35); --overlay:0 18px 48px rgb(0 0 0 / .45); --page:#050506; --banner:rgb(40 40 46 / .94);
+}
+:root[data-theme="light"] {
+  --s0:#f3f1ea; --rail:#ece8dc; --s1:#fffcf6; --s2:#f7f4ec; --hover:#ece8dc; --line:#e3dfd3; --line2:#cfc9b8;
+  --tx:#1c1b17; --mut:#6d6a60; --fnt:#8a867a; --brand:#5b56d6; --brandd:#e6e4fb; --solid:#1c1b17; --solidfg:#fffcf6;
+  --ok:#3f7d44; --warn:#8a6415; --warnd:#f6ecd6; --warnl:#e3cf9f; --dng:#a83a3a; --dngl:#e2b4b4;
+  --bubble-mine:#e9e5d8; --quote-mine:#ddd8c8; --hl:#e0defa;
+  --pop:0 12px 32px rgb(40 32 16 / .12); --overlay:0 18px 48px rgb(40 32 16 / .16); --page:#d9d5c8; --banner:rgb(250 248 242 / .96);
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--page); color:var(--tx); font:13px/1.45 'IBM Plex Sans',system-ui,sans-serif }
+button { font:inherit; color:inherit; cursor:pointer }
+
+.bar { position:sticky; top:0; z-index:60; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 16px; background:var(--s1); border-bottom:1px solid var(--line) }
+.bar b { font-weight:500; margin-right:4px }
+.bar .sep { width:1px; height:20px; background:var(--line); margin:0 6px }
+.chip { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:none; color:var(--mut); font-size:12px }
+.chip:hover { color:var(--tx); border-color:var(--line2) }
+.chip[aria-pressed="true"] { background:var(--brandd); border-color:var(--brand); color:var(--tx) }
+.note { width:100%; margin:4px 0 0; font-size:12px; color:var(--fnt) }
+.stage { position:relative; padding:20px 16px 40px; display:flex; justify-content:center; overflow:hidden }
+.fit { transform-origin:top left; flex-shrink:0 }
+
+.app { position:relative; width:1280px; height:800px; overflow:hidden; display:flex; background:var(--s0); border-radius:10px; box-shadow:var(--overlay) }
+.rail { width:56px; flex-shrink:0; background:var(--rail); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; gap:8px; padding-top:44px }
+.rail .ic { position:relative; width:36px; height:36px; border:0; border-radius:8px; background:none; display:flex; align-items:center; justify-content:center; color:var(--fnt) }
+.rail .ic.on { background:var(--brandd); color:var(--brand) }
+.badge { position:absolute; top:1px; right:-1px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:var(--brand); color:#fff; font-size:10px; font-weight:600; line-height:16px; text-align:center }
+
+/* Circles list (ADR 0052 §2) */
+.left { width:256px; flex-shrink:0; background:var(--s1); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:38px 0 8px; overflow:auto }
+.lhead { display:flex; align-items:center; justify-content:space-between; padding:0 16px 8px }
+.lhead span { font-size:15px; font-weight:500 }
+.add { width:26px; height:26px; border:1px solid var(--line); border-radius:6px; background:none; color:var(--mut); font-size:15px; line-height:1 }
+.search { margin:0 8px 6px; height:30px; padding:0 10px; border:1px solid var(--line); border-radius:8px; color:var(--fnt); font-size:12px; display:flex; align-items:center }
+.sect { padding:12px 16px 4px; font-size:11px; color:var(--fnt); text-transform:uppercase; letter-spacing:.04em }
+.sub { padding:8px 16px 2px 42px; font-size:11px; color:var(--fnt) }
+.r { position:relative; display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:1px 8px; padding:6px 8px; border:0; border-radius:7px; background:none; color:var(--mut); text-align:left }
+.r:hover, .r.on { background:var(--hover); color:var(--tx) }
+.r .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.r.unread .t { color:var(--tx); font-weight:500 }
+.r.in { padding-left:32px }
+.r.left-p .t { color:var(--fnt) }
+.ctile { width:22px; height:22px; flex-shrink:0; border-radius:6px; color:#fff; font-size:10px; font-weight:600; display:flex; align-items:center; justify-content:center }
+.cnt { min-width:18px; height:17px; padding:0 6px; border-radius:999px; background:var(--tx); color:var(--s0); font-size:10.5px; font-weight:600; line-height:17px; text-align:center }
+.hash { width:16px; text-align:center; color:var(--fnt) }
+.pdot { position:absolute; right:-2px; bottom:-2px; width:8px; height:8px; border-radius:50%; background:var(--ok); border:2px solid var(--s1) }
+.pdot.off { background:var(--s1); border:1.5px solid var(--fnt) }
+.out { font-size:10.5px; color:var(--fnt) }
+
+/* Main column */
+.main { flex:1; min-width:0; display:flex; flex-direction:column; position:relative }
+.head { display:flex; align-items:center; gap:10px; height:64px; padding:20px 24px 0; border-bottom:1px solid var(--line) }
+.head .ttl { flex:1; min-width:0; display:flex; flex-direction:column; padding-bottom:12px }
+.head strong { font-weight:500; font-size:14px; display:flex; align-items:center; gap:7px }
+.head strong span { color:var(--fnt); font-weight:400 }
+.head small { font-size:12px; color:var(--fnt); display:flex; align-items:center; gap:6px }
+.head .right { display:flex; align-items:center; gap:8px; padding-bottom:12px }
+.btn { height:30px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:none; color:var(--mut); font-size:12px }
+.btn:hover { border-color:var(--line2); color:var(--tx) }
+.btn.on { background:var(--hover); color:var(--tx) }
+.btn.solid { border:0; background:var(--solid); color:var(--solidfg); font-weight:500 }
+.btn.danger { border-color:var(--dngl); color:var(--dng) }
+.btn.sm { height:24px; padding:0 8px; font-size:11.5px }
+.scroll { flex:1; min-height:0; overflow:auto; padding:12px 0 8px; scroll-behavior:smooth }
+@media (prefers-reduced-motion: reduce) { .scroll { scroll-behavior:auto } }
+.col { width:100%; max-width:740px; margin:0 auto; padding:0 32px }
+.day { display:flex; align-items:center; gap:10px; margin:18px 0 8px; font-size:11px; color:var(--fnt) }
+.day::before, .day::after { content:""; flex:1; height:1px; background:var(--line) }
+.av { position:relative; width:28px; height:28px; flex-shrink:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#fff }
+.av.s { width:22px; height:22px; font-size:9px }
+.msg { position:relative; display:flex; gap:10px; padding:4px 8px; margin:12px -8px 0; border-radius:8px; transition:background .6s }
+.msg:hover { background:var(--s1) }
+.m { flex:1; min-width:0 }
+.who { display:flex; align-items:baseline; gap:8px; margin-bottom:2px; font-size:12px; color:var(--fnt); font-weight:500 }
+.who .nm { color:var(--tx) }
+.who .time { font-weight:400; font-size:11px }
+.tag { padding:0 6px; border:1px solid var(--line); border-radius:6px; font-size:10.5px; font-weight:400; color:var(--fnt) }
+.text { font-size:14px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere }
+.gone { color:var(--fnt); font-style:italic; font-size:13px }
+.meta { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--fnt) }
+.mine { position:relative; display:flex; flex-direction:column; align-items:flex-end; margin-top:12px; padding:4px 0; border-radius:8px; transition:background .6s }
+.mine .bub { width:fit-content; max-width:80%; padding:9px 14px; border-radius:14px; background:var(--bubble-mine); border:1px solid var(--line) }
+.mine .stamp { font-size:11px; color:var(--fnt); margin-top:3px; display:flex; align-items:center; gap:6px }
+.mine.waiting .bub { opacity:.7 }
+.hl { background:var(--hl) !important; transition:none }
+.acts { position:absolute; top:-14px; right:8px; display:none; gap:2px; padding:2px; border:1px solid var(--line); border-radius:8px; background:var(--s1); box-shadow:var(--pop); z-index:2 }
+.msg:hover .acts, .mine:hover .acts, .acts:focus-within { display:flex }
+.mine .acts { right:0 }
+.acts button { height:24px; padding:0 8px; border:0; border-radius:6px; background:none; color:var(--mut); font-size:12px }
+.acts button:hover { background:var(--hover); color:var(--tx) }
+.acts button.d:hover { color:var(--dng) }
+
+/* Quote strip (ADR 0053 §4, §5) */
+.quote { display:flex; flex-direction:column; align-items:flex-start; width:100%; max-width:520px; margin:2px 0 4px; padding:3px 10px 4px; border:0; border-left:2px solid var(--qc, var(--line2)); border-radius:0 6px 6px 0; background:var(--s1); text-align:left; color:var(--mut) }
+button.quote:hover { background:var(--hover) }
+.mine .quote { margin:0 0 6px; background:var(--quote-mine); max-width:none }
+.quote .qn { font-size:11.5px; font-weight:500; color:var(--tx) }
+.quote .qt { font-size:12.5px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.quote.na { font-style:italic; color:var(--fnt); font-size:12.5px; cursor:default }
+
+/* Composer */
+.foot { padding:0 0 14px }
+.status { display:flex; align-items:center; gap:6px; min-height:22px; font-size:12px; color:var(--fnt) }
+.box { border:1px solid var(--line); border-radius:12px; background:var(--s1); overflow:hidden }
+.box:focus-within { border-color:var(--line2) }
+.box.circle { border-top:2px solid var(--brand) }
+.rstrip { display:flex; align-items:flex-start; gap:10px; margin:8px 8px 0; padding:6px 8px 6px 10px; border-left:2px solid var(--qc); border-radius:0 8px 8px 0; background:var(--s2) }
+.rstrip .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.35 }
+.rstrip .l { font-size:11.5px; color:var(--fnt) } .rstrip .l b { color:var(--tx); font-weight:500 }
+.rstrip .q { font-size:12.5px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.x { width:24px; height:24px; flex-shrink:0; border:0; border-radius:6px; background:none; color:var(--fnt); font-size:15px; line-height:1 }
+.x:hover { background:var(--hover); color:var(--tx) }
+.box textarea { display:block; width:100%; resize:none; border:0; outline:0; background:none; color:var(--tx); font:inherit; font-size:14px; line-height:1.45; padding:12px 14px 4px; height:56px }
+.box .tools { display:flex; align-items:center; gap:6px; padding:6px 8px 8px 10px }
+.pill { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border-radius:7px; font-size:12px; color:var(--tx); background:var(--brandd) }
+.pill.dm { background:var(--s2); color:var(--mut); border:1px solid var(--line) }
+.left-bytes { font-size:11.5px; color:var(--fnt) } .left-bytes.over { color:var(--dng) }
+.send { margin-left:auto; width:30px; height:30px; border:0; border-radius:8px; background:var(--solid); color:var(--solidfg); display:flex; align-items:center; justify-content:center }
+.send:disabled { opacity:.35; cursor:default }
+.hint { margin-top:6px; font-size:11px; color:var(--fnt); text-align:center }
+.readonly { padding:14px; border:1px dashed var(--line2); border-radius:12px; text-align:center; color:var(--fnt) }
+.callout { display:flex; gap:10px; align-items:flex-start; margin:10px 0; padding:10px 12px; border:1px solid var(--warnl); border-radius:8px; background:var(--warnd); color:var(--warn); font-size:12px }
+
+/* Inspector: Circle tab (ADR 0043 §3) */
+.insp { width:320px; flex-shrink:0; border-left:1px solid var(--line); background:var(--s1); display:flex; flex-direction:column; min-height:0 }
+.itabs { display:flex; align-items:flex-end; gap:12px; height:64px; padding:0 12px 0 16px; border-bottom:1px solid var(--line) }
+.itab { padding:0 2px 11px; border:0; border-bottom:2px solid var(--brand); background:none; color:var(--tx); font-weight:500 }
+.itabs .x { margin-left:auto; margin-bottom:8px }
+.ibody { flex:1; min-height:0; overflow:auto; padding:16px }
+.ibody h3 { margin:0; font-size:15px; font-weight:500 }
+.isec { margin:18px 0 6px; font-size:11px; color:var(--fnt); text-transform:uppercase; letter-spacing:.04em }
+.prow { position:relative; display:flex; align-items:center; gap:10px; padding:7px 6px; margin:0 -6px; border-radius:7px }
+.prow:hover { background:var(--hover) }
+.prow .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.35 }
+.prow small { font-size:11.5px; color:var(--fnt) }
+.prow .pa { display:none; gap:4px }
+.prow:hover .pa, .prow:focus-within .pa { display:flex }
+
+/* Overlays */
+.scrim { position:absolute; inset:0; z-index:30; background:rgb(0 0 0 / .45); display:flex; align-items:center; justify-content:center }
+:root[data-theme="light"] .scrim { background:rgb(40 32 16 / .2) }
+.sheet { width:440px; max-width:calc(100% - 32px); border:1px solid var(--line); border-radius:12px; background:var(--s1); box-shadow:var(--overlay); padding:20px }
+.sheet h2 { margin:0 0 6px; font-size:16px; font-weight:500 }
+.sheet p { margin:0 0 12px; color:var(--mut) }
+.sheet ul { margin:0 0 12px; padding-left:18px; color:var(--mut) }
+.sheet .row { display:flex; justify-content:flex-end; gap:8px; margin-top:16px }
+.toast { position:absolute; z-index:40; left:50%; bottom:110px; transform:translateX(-50%); padding:8px 14px; border:1px solid var(--line); border-radius:10px; background:var(--s2); box-shadow:var(--pop); font-size:12.5px }
+.banner { position:absolute; z-index:70; top:14px; right:24px; width:340px; display:flex; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:14px; background:var(--banner); box-shadow:var(--overlay); text-align:left; color:var(--tx) }
+.banner .appi { width:32px; height:32px; border-radius:8px; background:var(--brandd); color:var(--brand); display:flex; align-items:center; justify-content:center; flex-shrink:0 }
+.banner .pt { flex:1; min-width:0 }
+.banner .t { font-weight:600; font-size:12.5px }
+.banner .b { color:var(--mut); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.banner .now { color:var(--fnt); font-size:11px }
+</style>
+</head>
+<body>
+<div class="bar" role="toolbar" aria-label="Scenes">
+  <b>Scenes</b>
+  <button class="chip" data-scene="reply">Reply in #general</button>
+  <button class="chip" data-scene="quotes">Quote states</button>
+  <button class="chip" data-scene="f2">Format 2 Circle</button>
+  <button class="chip" data-scene="dm-maya">DM, Maya online</button>
+  <button class="chip" data-scene="dm-sam">DM, Sam offline</button>
+  <button class="chip" data-scene="dm-priya">DM, Priya left</button>
+  <span class="sep"></span>
+  <b>Events</b>
+  <button class="chip" data-ev="notify-reply">Jon replies to you</button>
+  <button class="chip" data-ev="notify-dm">Maya sends a DM</button>
+  <button class="chip" data-ev="edit-orig">Maya edits a quoted message</button>
+  <button class="chip" data-ev="del-orig">Jon deletes a quoted message</button>
+  <button class="chip" data-ev="sam-online">Sam comes online</button>
+  <button class="chip" data-ev="long">Paste 3 KB into the composer</button>
+  <span class="sep"></span>
+  <button class="chip" id="theme" aria-pressed="false">Light theme</button>
+  <button class="chip" id="reset">Reset</button>
+  <p class="note" id="note"></p>
+</div>
+<div class="stage" id="stage"><div class="fit" id="fit"><div class="app" id="app"></div></div></div>
+
+<script>
+const PEOPLE = {
+  me:    { name:'You',   full:'Alex',  c:'#6a66d8', on:true },
+  maya:  { name:'Maya',  full:'Maya',  c:'#b0679a', on:true },
+  jon:   { name:'Jon',   full:'Jon',   c:'#3f8f86', on:true },
+  sam:   { name:'Sam',   full:'Sam',   c:'#5b7fc4', on:false },
+  priya: { name:'Priya', full:'Priya', c:'#a77a3c', on:false, left:true },
+};
+const NOTES = {
+  reply: 'Hover any message and choose Reply. The strip above the composer is part of the channel\'s draft: switch to #picks and back and it stays. Escape cancels. Click a quote to jump to the original.',
+  quotes: 'Four quote states (ADR 0053 §4, §5): found, edited (shows the new text), deleted, and not available. Use the Events to edit or delete an original and watch every quote of it follow.',
+  f2: 'Below format 3 there is no Reply in the toolbar. Open the Circle tab: admins see Update this Circle, which lists replies with mentions and GIFs.',
+  'dm-maya': 'Maya is online, so a DM goes Sending, then Delivered. The composer has a lock and no brand edge: one person reads this, not the Circle.',
+  'dm-sam': 'Sam is offline. A DM waits in your outbox at 70% opacity. Delete one now and it is never sent. Use "Sam comes online" to deliver.',
+  'dm-priya': 'Priya left Book Club. You keep the conversation read-only; nothing more can be sent.',
+};
+
+let S;
+function fresh() {
+  return {
+    theme: S ? S.theme : 'dark',
+    format: 3, conv: 'ch:general', insp: false, drafts: {}, replies: {}, edit: null,
+    dialog: null, toast: null, banner: null, flash: null, scene: 'reply',
+    samOnline: false,
+    convs: {
+      'ch:general': [
+        { day:'Yesterday' },
+        { a:'jon', id:'g1', at:'6:02 PM', text:'Reminder: we\'re on chapters 9 to 12 for Thursday.' },
+        { a:'maya', id:'g2', at:'6:10 PM', text:'Has anyone found the audiobook? The library copy has a three week wait.' },
+        { a:'me', id:'g3', at:'6:14 PM', text:'I can lend my paperback. It has my notes in the margins, sorry in advance.' },
+        { a:'sam', id:'g4', at:'6:20 PM', text:'Thursday at 7 still works for me.' },
+        { a:'maya', id:'g5', at:'7:41 PM', text:'Chapter 10 is where it finally clicked for me. The letters change everything.' },
+        { a:'jon', id:'g6', at:'8:03 PM', text:'Should we pick the next book now or after Thursday?' },
+        { a:'priya', id:'g7', at:'8:05 PM', text:'', deleted:'author' },
+        { a:'sam', id:'g8', at:'8:09 PM', text:'Agreed, after.', reply:{ a:'priya', id:'g7' } },
+        { day:'Today' },
+        { a:'maya', id:'g9', at:'9:12 AM', text:'Yes please! I\'ll grab it Thursday. Margin notes are a bonus.', reply:{ a:'me', id:'g3' } },
+        { a:'jon', id:'g10', at:'9:30 AM', text:'Ha, same.', reply:{ a:'sam', id:'f00dfeed00000000' } },
+        { a:'maya', id:'g11', at:'9:44 AM', text:'After. And can we try something shorter next? 300 pages max.', reply:{ a:'jon', id:'g6' } },
+        { a:'me', id:'g12', at:'10:02 AM', text:'Same here, the letters are the best part.', reply:{ a:'maya', id:'g5' } },
+        { a:'sam', id:'g13', at:'10:15 AM', text:'Anyone want to carpool from the station?' },
+      ],
+      'ch:picks': [
+        { day:'Monday' },
+        { a:'jon', id:'p1', at:'4:12 PM', text:'Shortlist so far: The Remains of the Day, Piranesi, Station Eleven.' },
+        { a:'maya', id:'p2', at:'4:30 PM', text:'Piranesi, it\'s short and strange.' },
+      ],
+      'dm:maya': [
+        { day:'Today' },
+        { a:'maya', id:'d1', at:'8:40 AM', text:'Are you bringing snacks Thursday or am I?' },
+        { a:'me', id:'d2', at:'8:52 AM', text:'I\'ll bring them. You did last time.', st:'delivered' },
+        { a:'maya', id:'d3', at:'8:53 AM', text:'Deal 🙌', reply:{ a:'me', id:'d2' } },
+      ],
+      'dm:sam': [
+        { day:'Yesterday' },
+        { a:'sam', id:'s1', at:'9:58 PM', text:'Can you send me the page numbers for Thursday?' },
+        { day:'Today' },
+        { a:'me', id:'s2', at:'7:05 AM', text:'Chapters 9 to 12, pages 180 to 262.', st:'waiting', reply:{ a:'sam', id:'s1' } },
+      ],
+      'dm:priya': [
+        { day:'Last week' },
+        { a:'priya', id:'r1', at:'Tue 5:10 PM', text:'I\'m going to step back from the club for a while. Too much on at work.' },
+        { a:'me', id:'r2', at:'Tue 5:31 PM', text:'Totally fair. Come back whenever, we\'ll keep your chair.', st:'delivered' },
+      ],
+    },
+  };
+}
+S = fresh();
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const plain = (s) => s.replace(/[*_`>#]/g, '').split('\n')[0];
+const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+const bytes = (s) => new TextEncoder().encode(s).length;
+const DM_MAX = 3072;
+const isDm = () => S.conv.startsWith('dm:');
+const dmPerson = () => S.conv.slice(3);
+const msgs = () => S.convs[S.conv];
+const find = (conv, ref) => S.convs[conv].find((m) => m.a === ref.a && m.id === ref.id) || null;
+const newId = () => Math.random().toString(16).slice(2, 18).padEnd(16, '0');
+const nowTime = () => new Date().toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+
+function avatar(p, cls = '') {
+  const P = PEOPLE[p];
+  return `<span class="av ${cls}" style="background:${P.c}" aria-hidden="true">${P.full[0]}</span>`;
+}
+const ICON = {
+  chat:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
+  circles:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none"/></svg>',
+  lock:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>',
+  send:'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>',
+  clock:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></svg>',
+  panel:'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>',
+};
+
+/* ---------- Rendering ---------- */
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  const app = document.getElementById('app');
+  app.innerHTML = rail() + list() + `<div class="main">${header()}<div class="scroll" id="scroll"><div class="col">${thread()}</div></div><div class="col foot">${composer()}</div>${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ''}</div>` + (S.insp ? inspector() : '') + overlay() + banner();
+  document.querySelectorAll('[data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === S.scene)));
+  document.getElementById('note').textContent = NOTES[S.scene] || '';
+  const ta = document.getElementById('ta');
+  if (ta && !S.dialog) { ta.value = S.drafts[S.conv] || ''; }
+  if (S.flash) {
+    const el = document.querySelector(`[data-key="${S.flash}"]`);
+    if (el) { el.scrollIntoView({ block:'center' }); }
+  } else if (!S.keepScroll) {
+    const sc = document.getElementById('scroll'); if (sc) { sc.style.scrollBehavior = 'auto'; sc.scrollTop = sc.scrollHeight; sc.style.scrollBehavior = ''; }
+  }
+  S.keepScroll = false;
+}
+
+function rail() {
+  return `<div class="rail"><button class="ic" aria-label="Chat">${ICON.chat}</button><button class="ic on" aria-label="Circles, 4 unread">${ICON.circles}<span class="badge">4</span></button></div>`;
+}
+
+function list() {
+  const ch = (id, label, n) => `<button class="r in ${S.conv === 'ch:' + id ? 'on' : ''} ${n ? 'unread' : ''}" data-open="ch:${id}"><span class="hash">#</span><span class="t">${label}</span>${n ? `<span class="cnt">${n}</span>` : ''}</button>`;
+  const dm = (p) => {
+    const P = PEOPLE[p]; const on = p === 'sam' ? S.samOnline : P.on;
+    const waiting = S.convs['dm:' + p].filter((m) => m.st === 'waiting').length;
+    return `<button class="r in ${S.conv === 'dm:' + p ? 'on' : ''} ${P.left ? 'left-p' : ''}" data-open="dm:${p}">${avatar(p, 's').replace('</span>', P.left ? '</span>' : `<span class="pdot ${on ? '' : 'off'}"></span></span>`)}<span class="t">${P.name}</span>${P.left ? '<span class="out">Left</span>' : waiting ? `<span class="out">${waiting} waiting</span>` : ''}</button>`;
+  };
+  return `<nav class="left" aria-label="Circles">
+    <div class="lhead"><span>Circles</span><button class="add" aria-label="Start or join a Circle">+</button></div>
+    <div class="search">Search Circles</div>
+    <div class="sect">Unread</div>
+    <button class="r on"><span class="ctile" style="background:#6a66d8">BC</span><span class="t" style="color:var(--tx);font-weight:500">Book Club</span><span class="cnt">2</span></button>
+    <div class="sub">Channels</div>
+    ${ch('general', 'General', 0)}${ch('picks', 'Next picks', S.conv === 'ch:picks' ? 0 : 2)}
+    <div class="sub">Direct messages</div>
+    ${dm('maya')}${dm('sam')}${dm('priya')}
+    <button class="r unread"><span class="ctile" style="background:#3f8f86">CC</span><span class="t">Climbing crew</span><span class="cnt">2</span></button>
+    <div class="sect">All Circles · 3</div>
+    <button class="r"><span class="ctile" style="background:#c4843a">FA</span><span class="t">Family</span></button>
+  </nav>`;
+}
+
+function header() {
+  const panel = `<button class="btn ${S.insp ? 'on' : ''}" data-act="insp" aria-label="Circle details" aria-pressed="${S.insp}">${ICON.panel}</button>`;
+  if (isDm()) {
+    const p = dmPerson(); const P = PEOPLE[p]; const on = p === 'sam' ? S.samOnline : P.on;
+    const state = P.left ? '<span class="tag">Left</span> Left Book Club' : `<span class="pdot" style="position:static;border:0;${on ? '' : 'background:none;border:1.5px solid var(--fnt)'}"></span>${on ? 'Online' : 'Away'}`;
+    return `<div class="head"><div class="ttl"><strong>${ICON.lock} ${P.name} <span>· Direct message in Book Club</span></strong><small>${state}</small></div><div class="right">${P.left ? '' : '<button class="btn">Call</button>'}${panel}</div></div>`;
+  }
+  const name = S.conv === 'ch:general' ? 'General' : 'Next picks';
+  return `<div class="head"><div class="ttl"><strong><span style="color:var(--brand)">${ICON.circles}</span> Book Club <span>· # ${name}</span></strong><small>Circle channel · 5 people · 3 online</small></div><div class="right"><button class="btn">Call</button>${panel}</div></div>`;
+}
+
+function quote(ref, conv, inMine) {
+  const t = find(conv, ref);
+  if (!t) return `<div class="quote na">Original message not available</div>`;
+  if (t.deleted) return `<div class="quote na" style="--qc:${PEOPLE[t.a].c}">Original message deleted</div>`;
+  const P = PEOPLE[t.a];
+  return `<button class="quote" style="--qc:${P.c}" data-goto="${t.a}/${t.id}" aria-label="Go to ${P.full}'s message"><span class="qn">${t.a === 'me' ? 'You' : P.name}</span><span class="qt">${esc(cut(plain(t.text), 120))}</span></button>`;
+}
+
+function actions(m) {
+  const mine = m.a === 'me';
+  const canReply = !m.deleted && (isDm() ? !PEOPLE[dmPerson()].left : S.format >= 3);
+  const out = [`<button data-act="copy">Copy</button>`];
+  if (canReply) out.push(`<button data-act="reply" data-ref="${m.a}/${m.id}">Reply</button>`);
+  if (mine && !m.deleted && !(isDm() && PEOPLE[dmPerson()].left)) out.push(`<button data-act="edit" data-ref="${m.a}/${m.id}">Edit</button>`, `<button class="d" data-act="delete" data-ref="${m.a}/${m.id}">Delete</button>`);
+  return `<div class="acts" role="toolbar" aria-label="Message actions">${out.join('')}</div>`;
+}
+
+function stateLine(m) {
+  if (!isDm()) return m.pending ? `<span class="meta" title="Waiting for admins to confirm. Its place in the chat can still change.">${ICON.clock}</span>` : '';
+  const P = PEOPLE[dmPerson()];
+  if (m.st === 'waiting') return `<span title="Saved on this Mac until ${P.name}'s Mac connects. If ${P.name} is online but this doesn't change, they may need to update Boundary.">Waiting for ${P.name} to come online</span>`;
+  if (m.st === 'sending') return `<span>Sending…</span>`;
+  if (m.st === 'delivered') return `<span>Delivered</span>`;
+  return '';
+}
+
+function thread() {
+  const conv = S.conv; const list = msgs(); let html = '';
+  const lastMine = [...list].reverse().find((m) => m.a === 'me' && !m.day);
+  for (const m of list) {
+    if (m.day) { html += `<div class="day">${m.day}</div>`; continue; }
+    const key = `${m.a}/${m.id}`; const P = PEOPLE[m.a];
+    const hl = S.flash === key ? 'hl' : '';
+    const body = m.deleted
+      ? `<div class="gone">${m.deleted === 'admin' ? 'Removed by an admin' : 'Deleted'}</div>`
+      : S.edit === key
+        ? `<div class="box" style="width:min(520px,100%)"><textarea id="editta" aria-label="Edit message">${esc(m.text)}</textarea><div class="tools"><span class="left-bytes">Escape to cancel</span><button class="btn sm" data-act="edit-cancel" style="margin-left:auto">Cancel</button><button class="btn sm solid" data-act="edit-save" data-ref="${key}">Save</button></div></div>`
+        : `<div class="text">${esc(m.text)}</div>`;
+    const q = m.reply && !m.deleted ? quote(m.reply, conv, m.a === 'me') : '';
+    if (m.a === 'me') {
+      const showState = isDm() ? (m.st !== 'delivered' || m === lastMine) : true;
+      html += `<div class="mine ${m.st === 'waiting' ? 'waiting' : ''} ${hl}" data-key="${key}">${actions(m)}
+        <div class="bub">${q}${body}</div>
+        <div class="stamp">${m.at}${m.edited ? ' · edited' : ''}${showState ? ' ' + stateLine(m) : ''}</div></div>`;
+    } else {
+      html += `<div class="msg ${hl}" data-key="${key}">${avatar(m.a)}<div class="m">
+        <div class="who"><span class="nm">${P.name}</span>${P.left ? '<span class="tag">Left</span>' : ''}<span class="time">${m.at}${m.edited ? ' · edited' : ''}</span>${stateLine(m)}</div>
+        ${q}${body}</div>${actions(m)}</div>`;
+    }
+  }
+  return html;
+}
+
+function composer() {
+  if (isDm()) {
+    const p = dmPerson(); const P = PEOPLE[p];
+    if (P.left) return `<div class="status"></div><div class="readonly">${P.name} left Book Club. This conversation stays on this Mac, read-only, until you leave too.</div>`;
+    const draft = S.drafts[S.conv] || ''; const left = DM_MAX - bytes(draft);
+    return `<div class="status"></div><div class="box">${replyStrip()}<textarea id="ta" aria-label="Message ${P.name}" placeholder="Message ${P.name} · only ${P.name} sees this"></textarea>
+      <div class="tools"><span class="pill dm">${ICON.lock} Only ${P.name}</span>${left < 512 ? `<span class="left-bytes ${left < 0 ? 'over' : ''}" id="bytes">${left < 0 ? `${(-left).toLocaleString()} bytes over` : `${left.toLocaleString()} bytes left`}</span>` : '<span class="left-bytes" id="bytes"></span>'}<button class="send" data-act="send" aria-label="Send" ${left < 0 ? 'disabled' : ''}>${ICON.send}</button></div></div>
+      <div class="hint">Delivered when you're both online. Nobody else in Book Club sees it.</div>`;
+  }
+  const name = S.conv === 'ch:general' ? 'General' : 'Next picks';
+  return `<div class="status"></div><div class="box circle">${replyStrip()}<textarea id="ta" aria-label="Message Book Club, #${name}" placeholder="Message Book Club · 5 people"></textarea>
+    <div class="tools"><span class="pill"><span style="color:var(--brand)">${ICON.circles}</span> Book Club · # ${name}</span><span class="left-bytes" id="bytes"></span><button class="send" data-act="send" aria-label="Send">${ICON.send}</button></div></div>
+    <div class="hint">Everyone in Book Club gets a copy</div>`;
+}
+
+function replyStrip() {
+  const ref = S.replies[S.conv]; if (!ref) return '';
+  const t = find(S.conv, ref); if (!t) return '';
+  const P = PEOPLE[t.a];
+  return `<div class="rstrip" style="--qc:${P.c}"><div class="pt"><span class="l">Replying to <b>${t.a === 'me' ? 'yourself' : P.full}</b></span><span class="q">${esc(cut(plain(t.text), 120))}</span></div><button class="x" data-act="reply-cancel" aria-label="Cancel reply">×</button></div>`;
+}
+
+function inspector() {
+  const person = (p) => {
+    const P = PEOPLE[p]; const on = p === 'sam' ? S.samOnline : P.on;
+    return `<div class="prow">${avatar(p)}<div class="pt"><span>${P.full}${p === 'jon' ? ' <span class="tag">admin</span>' : ''}</span><small>${on ? 'Online' : 'Away'}</small></div><div class="pa"><button class="btn sm" data-open="dm:${p}">Message</button><button class="btn sm">Call</button></div></div>`;
+  };
+  const update = S.format < 3
+    ? `<div class="callout"><span>This Circle is on an older format. Update it to turn on mentions, GIFs and replies.</span></div><button class="btn" data-act="update">Update this Circle…</button>`
+    : `<p style="margin:0;color:var(--fnt);font-size:12px">Format 3: mentions, GIFs and replies are on.</p>`;
+  return `<aside class="insp" aria-label="Circle details"><div class="itabs"><button class="itab">Circle</button><button class="x" data-act="insp" aria-label="Close">×</button></div>
+    <div class="ibody"><h3>Book Club</h3><div style="font-size:12px;color:var(--fnt)">5 people · you are an admin</div>
+    <div class="isec">People</div>${person('maya')}${person('jon')}${person('sam')}
+    <div class="prow">${avatar('me')}<div class="pt"><span>Alex (you) <span class="tag">admin</span></span><small>Online</small></div></div>
+    <div class="isec">Format</div>${update}</div></aside>`;
+}
+
+function overlay() {
+  const d = S.dialog; if (!d) return '';
+  if (d.kind === 'update') return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dh"><h2 id="dh">Update Book Club</h2><p>This turns on:</p><ul><li>Mentions with @</li><li>GIFs</li><li>Replies to a message</li></ul><p>Members on builds without format 3 will see the Circle stop until they update Boundary.</p><div class="row"><button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="do-update">Update</button></div></div></div>`;
+  if (d.kind === 'delete') {
+    const m = find(S.conv, d.ref);
+    let title = 'Delete this message?', body = 'It disappears from the chat. Every member\'s Mac still holds the Circle\'s history, so it isn\'t erased.';
+    if (isDm()) {
+      const P = PEOPLE[dmPerson()];
+      if (m.st === 'waiting') { title = 'Delete before it\'s sent?'; body = `It hasn't reached ${P.name} yet, so it is removed from your outbox and never sent.`; }
+      else body = `It disappears from ${P.name}'s Mac the next time you're both online. Anything ${P.name} copied stays with ${P.name}.`;
+    }
+    return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dh"><h2 id="dh">${title}</h2><p>${body}</p><div class="row"><button class="btn" data-act="close">Cancel</button><button class="btn danger" data-act="do-delete">Delete</button></div></div></div>`;
+  }
+  return '';
+}
+
+function banner() {
+  const b = S.banner; if (!b) return '';
+  return `<button class="banner" data-act="banner"><span class="appi">${ICON.circles}</span><span class="pt"><span class="t" style="display:block">${esc(b.title)}</span><span class="b" style="display:block">${esc(b.body)}</span></span><span class="now">now</span></button>`;
+}
+
+/* ---------- Actions ---------- */
+let toastTimer;
+function toast(t) { S.toast = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = null; S.keepScroll = true; render(); }, 1800); }
+function saveDraft() { const ta = document.getElementById('ta'); if (ta) S.drafts[S.conv] = ta.value; }
+function open(conv) { saveDraft(); S.conv = conv; S.edit = null; S.flash = null; render(); document.getElementById('ta')?.focus(); }
+function flashTo(key) {
+  S.flash = key; S.keepScroll = true; render();
+  setTimeout(() => { S.flash = null; S.keepScroll = true; render(); }, 2000);
+}
+
+function send() {
+  const ta = document.getElementById('ta'); if (!ta) return;
+  const text = ta.value.trim(); if (!text) return;
+  if (isDm() && bytes(text) > DM_MAX) return;
+  const m = { a:'me', id:newId(), at:nowTime(), text };
+  if (S.replies[S.conv]) m.reply = S.replies[S.conv];
+  const conv = S.conv;
+  if (isDm()) {
+    const p = dmPerson(); const on = p === 'sam' ? S.samOnline : PEOPLE[p].on;
+    m.st = on ? 'sending' : 'waiting';
+    if (on) setTimeout(() => { m.st = 'delivered'; if (S.conv === conv) { S.keepScroll = true; render(); } }, 1200);
+  } else {
+    m.pending = true;
+    setTimeout(() => { m.pending = false; if (S.conv === conv) { S.keepScroll = true; render(); } }, 3500);
+  }
+  S.convs[conv].push(m); delete S.replies[conv]; S.drafts[conv] = ''; render();
+  document.getElementById('ta')?.focus();
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.scene) return scene(t.dataset.scene);
+  if (t.dataset.ev) return event(t.dataset.ev);
+  if (t.dataset.open) return open(t.dataset.open);
+  if (t.dataset.goto) return flashTo(t.dataset.goto);
+  const act = t.dataset.act; if (!act) return;
+  const ref = t.dataset.ref ? { a:t.dataset.ref.split('/')[0], id:t.dataset.ref.split('/')[1] } : null;
+  saveDraft();
+  if (act === 'send') return send();
+  if (act === 'copy') { toast('Copied'); S.keepScroll = true; return render(); }
+  if (act === 'reply') { S.replies[S.conv] = ref; S.keepScroll = true; render(); return document.getElementById('ta')?.focus(); }
+  if (act === 'reply-cancel') { delete S.replies[S.conv]; S.keepScroll = true; render(); return document.getElementById('ta')?.focus(); }
+  if (act === 'edit') { S.edit = `${ref.a}/${ref.id}`; S.keepScroll = true; render(); return document.getElementById('editta')?.focus(); }
+  if (act === 'edit-cancel') { S.edit = null; S.keepScroll = true; return render(); }
+  if (act === 'edit-save') {
+    const m = find(S.conv, ref); const v = document.getElementById('editta').value.trim();
+    if (v && v !== m.text) { m.text = v; m.edited = true; }
+    S.edit = null; S.keepScroll = true; return render();
+  }
+  if (act === 'delete') { S.dialog = { kind:'delete', ref }; S.keepScroll = true; return render(); }
+  if (act === 'do-delete') {
+    const r = S.dialog.ref; const list = S.convs[S.conv]; const m = find(S.conv, r);
+    if (isDm() && m.st === 'waiting') { list.splice(list.indexOf(m), 1); toast('Removed from your outbox. It was never sent.'); }
+    else { m.deleted = 'author'; m.text = ''; }
+    if (S.replies[S.conv] && S.replies[S.conv].a === r.a && S.replies[S.conv].id === r.id) delete S.replies[S.conv];
+    S.dialog = null; S.keepScroll = true; return render();
+  }
+  if (act === 'close') { S.dialog = null; S.keepScroll = true; return render(); }
+  if (act === 'insp') { S.insp = !S.insp; S.keepScroll = true; return render(); }
+  if (act === 'update') { S.dialog = { kind:'update' }; S.keepScroll = true; return render(); }
+  if (act === 'do-update') { S.format = 3; S.dialog = null; toast('Book Club is on format 3. Replies are on.'); S.keepScroll = true; return render(); }
+  if (act === 'banner') { const b = S.banner; S.banner = null; saveDraft(); S.conv = b.conv; return flashTo(b.key); }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'ta') return;
+  S.drafts[S.conv] = e.target.value;
+  if (!isDm()) return;
+  const left = DM_MAX - bytes(e.target.value);
+  const el = document.getElementById('bytes'); const btn = document.querySelector('[data-act="send"]');
+  el.textContent = left < 512 ? (left < 0 ? `${(-left).toLocaleString()} bytes over` : `${left.toLocaleString()} bytes left`) : '';
+  el.classList.toggle('over', left < 0); btn.disabled = left < 0;
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (S.dialog) { S.dialog = null; S.keepScroll = true; return render(); }
+    if (S.edit) { S.edit = null; S.keepScroll = true; return render(); }
+    if (S.replies[S.conv]) { saveDraft(); delete S.replies[S.conv]; S.keepScroll = true; render(); return document.getElementById('ta')?.focus(); }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ta') { e.preventDefault(); send(); }
+  if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'editta') { e.preventDefault(); document.querySelector('[data-act="edit-save"]').click(); }
+});
+
+function scene(name) {
+  const theme = S.theme; S = fresh(); S.theme = theme; S.scene = name;
+  if (name === 'quotes') { S.conv = 'ch:general'; }
+  if (name === 'f2') { S.format = 2; S.insp = true; }
+  if (name === 'dm-maya') S.conv = 'dm:maya';
+  if (name === 'dm-sam') S.conv = 'dm:sam';
+  if (name === 'dm-priya') S.conv = 'dm:priya';
+  render();
+  if (name === 'quotes') { const sc = document.getElementById('scroll'); sc.style.scrollBehavior = 'auto'; sc.scrollTop = 300; sc.style.scrollBehavior = ''; }
+}
+
+function event(name) {
+  saveDraft();
+  if (name === 'notify-reply') {
+    const m = { a:'jon', id:newId(), at:nowTime(), text:'Your notes in the margins are half the reason to borrow it.', reply:{ a:'me', id:'g3' } };
+    S.convs['ch:general'].push(m);
+    S.banner = { title:'Jon replied to you in #general · Book Club', body:m.text, conv:'ch:general', key:`jon/${m.id}` };
+    if (S.conv === 'ch:general') S.banner = null; // ADR 0051 §5: silent while the channel is open
+    if (S.conv !== 'ch:general') toast('A banner shows because #general isn\'t open. Click it.');
+    else toast('#general is open, so no banner (ADR 0051 §5). Open another conversation and try again.');
+  }
+  if (name === 'notify-dm') {
+    const m = { a:'maya', id:newId(), at:nowTime(), text:'Running ten minutes late Thursday, start without me.' };
+    S.convs['dm:maya'].push(m);
+    if (S.conv !== 'dm:maya') S.banner = { title:'Maya · Direct message in Book Club', body:m.text, conv:'dm:maya', key:`maya/${m.id}` };
+    else toast('The DM is open, so no banner.');
+  }
+  if (name === 'edit-orig') {
+    const m = find('ch:general', { a:'maya', id:'g5' });
+    if (!m.deleted) { m.text = 'Chapter 10 is where it clicked. The letters change everything, and the last page of 12 too.'; m.edited = true; }
+    S.conv = 'ch:general'; S.scene = 'quotes'; render(); return flashTo('me/g12');
+  }
+  if (name === 'del-orig') {
+    const m = find('ch:general', { a:'jon', id:'g6' }); m.deleted = 'author'; m.text = '';
+    S.conv = 'ch:general'; S.scene = 'quotes'; render(); return flashTo('maya/g11');
+  }
+  if (name === 'sam-online') {
+    S.samOnline = true; S.conv = 'dm:sam'; S.scene = 'dm-sam';
+    const waiting = S.convs['dm:sam'].filter((m) => m.st === 'waiting');
+    waiting.forEach((m) => { m.st = 'sending'; });
+    setTimeout(() => { waiting.forEach((m) => { m.st = 'delivered'; }); if (S.conv === 'dm:sam') { S.keepScroll = true; render(); } }, 1200);
+  }
+  if (name === 'long') {
+    if (!isDm() || PEOPLE[dmPerson()].left) { S.conv = 'dm:maya'; S.scene = 'dm-maya'; }
+    S.drafts[S.conv] = 'Notes for Thursday. '.repeat(160);
+  }
+  S.keepScroll = name.startsWith('notify'); render();
+}
+
+document.getElementById('theme').addEventListener('click', (e) => {
+  S.theme = S.theme === 'dark' ? 'light' : 'dark';
+  e.currentTarget.setAttribute('aria-pressed', String(S.theme === 'light'));
+  S.keepScroll = true; render();
+});
+document.getElementById('reset').addEventListener('click', () => scene(S.scene));
+
+function fit() {
+  const avail = document.getElementById('stage').clientWidth - 32;
+  const k = Math.min(1, avail / 1280);
+  const f = document.getElementById('fit');
+  f.style.transform = `scale(${k})`; f.style.width = 1280 * k + 'px'; f.style.height = 800 * k + 'px';
+}
+addEventListener('resize', fit);
+fit(); render();
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 # 0020 · Add-ons Boundary can install from its UI
 
 **Serves:** [add-ons UX study](../addons-ux-study/README.md)
-**Status:** R1, R3, R6 planned with Boundary's additions · R2, R5 (healthchecks), R8 planned for 0.3.10 · R4 live check in the Twenty build · R5 capabilities, R7 later · R9 declined · R10 asked · R11 open
+**Status:** R1 manifests shipped for gptr, actual and bitwarden (v0.3.12); Twenty's is on stack main for 0.3.13, n8n's shipped in 0.3.13 · `addon.sh` reply items 1–8 accepted; `--json`, `hooks.init`, `connect`/`disconnect`, reload without a recreate, `remove --delete-data` and fit-check figures are on stack main for 0.3.13 (unreleased) · R2, R5 (healthchecks), R8 shipped in 0.3.10 · R4 verified live on Hermes v0.22.7 · R11 shipped in 0.3.11 · R5 capabilities, R7 later · R9 declined · R10 shipped in 0.3.13 (n8n and LightRAG manifests); Boundary uses it
 
 ## Background
 
@@ -103,6 +103,8 @@ Checked in the stack at `v0.3.9`: `scripts/sync-profiles.sh` (flag to profile ta
 
 > **Boundary reply:** thanks. Until the core services have limits, the fit check will measure them with `docker stats` and won't read Hermes's 3 GiB as all of core.
 
+> **Stack reply (Twenty's figures):** measured under load on v2.55.0, Twenty's four containers have memory limits of 1152 MiB (`twenty-server`), 1152 MiB (`twenty-worker`), 256 MiB (`twenty-db`) and 128 MiB (`twenty-redis`), 2688 MiB in all. Redis runs with `--maxmemory 96mb` and `noeviction`, under its limit. All four have healthchecks; the worker's checks that its queue process is running. `addon.sh list --json` will report these with the reservations, so count them from there rather than copying them.
+
 ## R3 · A non-interactive enable and disable step (Blocking)
 
 **Why:** turning a flag on starts containers, but many services need a first-time setup before agents can use them: Twenty needs its database, a workspace, an owner account and an API key for its MCP bridge. That setup belongs to the stack, since any other client would need it too, and Boundary needs progress from it to fill the install screen.
@@ -169,6 +171,21 @@ Running `enable` again on an enabled add-on does nothing and exits 0. A failed `
 > Your warning on the install screen is right either way. New tools are added after the existing ones, but the tool list comes before the conversation in every request, so each chat on the profile re-sends its history uncached on its first turn after the change. The background pass has the same effect, just later.
 >
 > **Release:** the live check runs during the Twenty build, since Twenty is the first add-on registered this way. The result goes in the 0.3.10 notes. `addon.sh` itself comes after 0.3.10, in a later 0.3.x patch. Its release notes will say when Boundary can drop the recreate.
+
+> **Stack reply (verified live on Hermes v0.22.7):** a new MCP server reaches open sessions without recreating Hermes, and without `reload.mcp`. The test, on a real stack with the Twenty branch:
+>
+> 1. Opened a default-profile session before Twenty existed, and ran one turn.
+> 2. Ran the stack's bootstrap against the running Hermes, without recreating it.
+> 3. `mcp.servers.status` showed `crm-main` connected 1.1 s after the bootstrap exited, before any reload call. Hermes picks up the config change right away, so the "about once a minute" in our earlier reply is only the fallback.
+> 4. The open session's next turn called `mcp__crm_main__get_tool_catalog`, which succeeded in 0.2 s.
+>
+> So you can drop the Hermes recreate once you pin a release with the bootstrap that registers Twenty, 0.3.10. Until `addon.sh` exists, run `docker compose run --rm hermes-api-bootstrap` (and `hermes-browser-bootstrap` for the browser profile) after changing add-on flags, then wait for the server in `mcp.servers.status`.
+>
+> One correction to how to read `reload.mcp`. The call with `confirm: true` and no session returned `4001 mcp_servers_unavailable` with "did not connect: boundary". Your own MCP server, `boundary`, was down at the time, and `crm-main` had already connected. The error names any configured server that is down, even when the one you added connected and nothing else changed. So don't treat 4001 as a failed install. Check the add-on's own server in `mcp.servers.status`. `addon.sh` will do the same, and will only call `reload.mcp` when the server hasn't appeared in time.
+>
+> Your install screen's prompt-cache warning still applies, because the tool list changes either way.
+>
+> The live run also turned up a bug, fixed for 0.3.10. Hermes names MCP tools `mcp__<server>__<tool>` with `-` turned into `_`. The bootstrap was pinning `mcp__crm-main__*`, which matched nothing, so the CRM tools stayed behind tool search. CalDAV's `caldav-<slug>` pins had the same bug on earlier releases. After 0.3.10 they're pinned as intended.
 
 ## R5 · Installed add-ons in `gateway.capabilities` (Wanted)
 
@@ -250,7 +267,7 @@ Running `enable` again on an enabled add-on does nothing and exits 0. A failed `
 
 > **Boundary reply:** accepted for Twenty. The fit check will count Twenty's own Postgres and Redis.
 
-## R10 · n8n as an add-on (Wanted)
+## R10 · n8n as an add-on (Shipped in 0.3.13)
 
 **Why:** Boundary now starts n8n only when the user turns it on, from a switch on its Services card, and the Add-ons page should list it beside Twenty. `AUTOMATION_ENABLED` is the switch the stack gives it, but the `automation` profile also holds `gpt-researcher` and `gptr-mcp`. At v0.3.8, `gptr-mcp` is in no other profile, and OpenCode's config uses it. Boundary keeps the profile on and names every other service for `up`, because Compose pulls images for every service in an active profile, even one scaled to 0.
 
@@ -259,6 +276,22 @@ Running `enable` again on an enabled add-on does nothing and exits 0. A failed `
 **Acceptance:** `addon.sh enable n8n --json` and `disable n8n --json` start and stop n8n and `n8n-import` only, and `gpt-researcher` and `gptr-mcp` keep running.
 
 **Boundary fallback:** n8n's switch is on its Services card. Boundary runs `up -d n8n-import n8n` to turn it on and `rm -sf n8n-import n8n` to turn it off, and keeps the volume.
+
+> **Stack reply (works with v0.3.9's flags; manifest entry planned):** the premise is from v0.3.8. Since v0.3.9, `gptr-mcp` is also in the `research` profile, switched by `GPTR_MCP_ENABLED`. It runs GPT Researcher in-process and doesn't call the `gpt-researcher` service. So with `GPTR_MCP_ENABLED=1`, which OpenCode needs anyway, `AUTOMATION_ENABLED` turns n8n on and off and `gptr-mcp` keeps running either way. Once you pin v0.3.9 you can stop naming services for `up`.
+>
+> What `automation` adds on top of `research` is `n8n`, `n8n-import` and `gpt-researcher`. `gpt-researcher` belongs to n8n: n8n waits for it to be healthy at start, and the only caller of its HTTP API is n8n's research workflow. So n8n's add-on is those three services, and the acceptance becomes: `disable n8n` stops `n8n`, `n8n-import` and `gpt-researcher`, and `gptr-mcp` keeps running.
+>
+> We won't move n8n into its own profile. Taking `gptr-mcp` out of `automation` would stop it on installs that turned on automation for research and never set `GPTR_MCP_ENABLED`. Leaving it in `automation` costs nothing when `research` is on too.
+>
+> One thing the flag doesn't do: setting `AUTOMATION_ENABLED=0` and running `up` leaves running n8n containers in place, because Compose ignores services of an inactive profile rather than removing them. `addon.sh disable n8n` stops and removes the three services. Until then, your `rm -sf` is the right step. Add `gpt-researcher` to it.
+>
+> The manifest entry (`addons/n8n/addon.json`) comes with R1:
+>
+> - `install: ["AUTOMATION_ENABLED"]`.
+> - The `services` it adds, which R1 now lists for every add-on: those three.
+> - Data in named volumes, not paths: `n8n_storage` (workflows, credentials, its SQLite database) and `gptr_outputs` (research reports). R1's `dataPaths` becomes `data` with `paths` and `volumes`.
+> - `backup.secrets: ["N8N_ENCRYPTION_KEY"]`. n8n encrypts stored credentials with it, so a restore without it loses them. `N8N_USER_MANAGEMENT_JWT_SECRET` goes under `recommended`, because a new one only signs users out.
+> - `remove --delete-data` deletes both volumes.
 
 ## R11 · First-time setup that needs nothing on the host (Blocking)
 
@@ -269,6 +302,51 @@ Running `enable` again on an enabled add-on does nothing and exits 0. A failed `
 **Acceptance:** with `python3` and `make` removed from `PATH`, `scripts/crm.sh init` (and later `addon.sh enable twenty --json`) completes on a fresh `crm` profile.
 
 **Boundary fallback:** none for release builds; Boundary develops against `crm.sh init` on a Mac that has Python, and rc.16 and labs.6 wait for this item along with 0.3.10.
+
+> **Stack reply (accepted for 0.3.11, widened):** accepted, but `crm.sh init` isn't what stops these Macs today. `scripts/setup.sh` has required a working host `python3` in its preflight since v0.2.0, and runs Python itself. Boundary's `runSovereignSetup.ts` checks for this and asks the user to install the Command Line Tools before setup runs. A Mac without them never gets far enough to install an add-on, so Twenty in 0.3.10 doesn't add a new blocker. Removing Python from `crm.sh` alone wouldn't let those users through either.
+>
+> So we'll take R11 as "the whole first run needs only bash, the container engine and what macOS ships", and do it in 0.3.11. On Boundary's path that means:
+>
+> - the two Python heredocs in `setup.sh`, and `sync-terminal-backend.sh`, which `setup.sh` runs
+> - `todo.sh init`
+> - `crm.sh init`
+> - `generate-n8n-credentials.js`, which `sync-n8n-credentials.sh` runs with host Node when `automation` is on. Since 0.3.10, `setup.sh` without `automation` no longer needs Node, so your `node` stub matters only for n8n
+>
+> Each moves into a container from an image the stack already pulls: Python from the pinned Hermes image (the stack already does this for its YAML edits), and the n8n credentials step from the n8n image. `crm.sh init` also stops calling back into the host's Docker CLI, and reaches Twenty over the `crm` network instead of `127.0.0.1`. Scripts that only run with Buzz on stay on host Python for now. Tools macOS ships in `/bin` and `/usr/bin` stay allowed, including `grep`, `sed`, `awk`, `openssl`, `ssh-keygen` and `curl`. The stack's scripts use these throughout, and `crm-add`'s key check (which `addon.sh connect` will run) and the `doctor` probes call `curl` on the host.
+>
+> `make` isn't involved: your installer runs `bash scripts/crm.sh init` directly, and `crm.sh` only prints `make` commands as next-step hints.
+>
+> **Acceptance:** with `python3`, `node` and `make` off PATH, `setup.sh --non-interactive` with Boundary's flags, then `crm.sh init` and `todo.sh init`, all complete on a fresh stack. CI builds that PATH from the base system's `/bin` and `/usr/bin` plus `docker`, with `python3`, `node` and `make` removed. After that, Boundary can drop its Command Line Tools check and the `node` stub.
+>
+> **On your release question:** 0.3.10 ships Twenty without R11, and 0.3.11 follows with it. Folding R11 into 0.3.10 would hold Twenty back without unblocking anyone, because base setup would still need Python. If your next release needs Macs without the Command Line Tools, it waits for 0.3.11 either way.
+
+## `addon.sh` as merged
+
+> **Boundary reply (the merged `addon.sh`):** we read `scripts/addon.sh` and "Add-ons: scripts/addon.sh" in `docs/extending.md` on stack `main` at 5b33ffd, unreleased. `list --json`, the settings schema and `configure` with secrets on stdin work for us, and Boundary will build its settings forms from `schema`. Several things the earlier replies agreed are missing, though, and Boundary can't move installs onto `addon.sh` until they're in. In order of how much they block:
+>
+> 1. **Progress and errors (R3).** `enable` and `disable` print nothing on success and one `error:` line on failure. Boundary's install screen is built on the JSON lines agreed in R3: pull bytes per service, each setup step as `running` then `done` or `error`, `logTail` on an error, and a final `done`. Without them a 1 GB pull shows no progress and a failure shows one line. Please add `--json` to `enable` and `disable` as agreed. Keeping `error:` on stderr is fine.
+> 2. **First-time setup (R3).** `enable` starts services and reloads Hermes but runs no setup, so Twenty's `crm.sh init` and Actual's `budget.sh init` still need a separate call. R3 agreed a per-add-on setup hook that `enable` runs once and records. If manifest `commands` with `run` is meant to replace it, please name the command each add-on needs, say whether `enable` runs it, and report it in the same JSON lines.
+> 3. **`connect` and `disconnect` (R1, and change requests 0023 and 0026).** `configure --instance` stores an instance's values but doesn't check them, and doesn't register or reload anything until `enable`. The agreed `connect` checked the credential before writing, wrote the entry and reloaded. Change request 0026 now plans `budget.sh connect` / `disconnect` with JSON lines and named errors (`login_refused`, `no_access`, `token_expired`, `timeout` and others). We'd like one `addon.sh connect <short-id> --instance <slug> --json` and `disconnect` in that shape for every add-on with instances, so Twenty workspaces and Actual budgets use one path. Until then Boundary uses `crm.sh` and `budget.sh` directly.
+> 4. **Reload without a recreate or `make` (R4, R11).** `enable` and `disable` end with `make hermes-reload`, which runs both bootstraps and then force-recreates `hermes`. The R4 live result showed the bootstrap alone connects a new server in about a second, and a recreate interrupts running chats and kanban runs, which is what R4 set out to avoid. `make` also isn't on a Mac without the Command Line Tools, which R11 removed from the first run. Please run the bootstraps directly and recreate `hermes` only when something needs it. If the Bitwarden broker's `follow-hermes` step is what needs the recreate, say so and limit it to that add-on.
+> 5. **Removal (R6).** `disable --purge` deletes `data/addons/<short-id>/` and the named volumes the manifest lists. The data of a bind-mounted add-on stays, such as `data/twenty` and `ACTUAL_DATA_DIR`, and the manifest has no field for data paths. R6 agreed `remove <id> --delete-data` covering the manifest's data paths and printing what it removed. Please either extend `--purge` to bind-mounted data paths from the manifest, or add `remove` as agreed, with JSON lines either way.
+> 6. **Figures for the fit check (R1, R2).** `list --json` has no memory reservation, memory limit, image or download size. The R1 reply said `list --json` would merge these from compose, and the fit check needs them before install. Please add them per service.
+> 7. **Who owns the flags.** `addon.sh` writes flags to `.env` and runs `docker compose` itself. Boundary's managed stack passes add-on flags in compose's environment and its own `--profile` list, which override `.env`. When Boundary moves an add-on onto `addon.sh`, it will stop passing that add-on's flags and treat `.env` as the source. Please confirm that `addon.sh`'s compose calls take `COMPOSE_PROJECT_NAME`, `COMPOSE_PROFILES` and the rest of the caller's environment unchanged, so the profiles Boundary runs stay on.
+> 8. **Twenty and n8n.** Neither has a manifest yet, and Twenty is the only add-on Boundary installs today. Please tell us when their manifests are planned. Twenty stays on `crm.sh` in Boundary until then.
+>
+> **What Boundary does meanwhile:** Twenty stays on `crm.sh` and Boundary's own installer. Actual Budget waits for `budget.sh connect` from change request 0026. Each add-on moves onto `addon.sh` once items 1 to 5 are in a release, starting with Actual. Please say in the changelog which 0.3.x patch has them.
+
+> **Stack reply (the merged `addon.sh`):** you're right on every point. We checked each one against `main` at 7a3b847, and the merged `addon.sh` is the first slice, not the R3/R6 contract. Answers in your order:
+>
+> 1. **Progress and errors.** Accepted as R3 specified. `enable` and `disable` get `--json` and print R3's lines on stdout: `pull` lines from `docker compose pull --progress json`, `setup` steps as `running` then `done` or `error`, `logTail` with the last 20 lines on every `error`, and a final `done` that carries `restart`. Every `--json` run ends with exactly one `done` or `error` line. A hook's `done` `message` passes through to that final `done` line. `error:` stays on stderr.
+> 2. **First-time setup.** Accepted. Manifests get a `hooks.init` command that `enable` runs once after the services are healthy, with `--json`. `enable` records that it finished in `data/addons/<id>/state.json`, `enable --reinit` runs it again, and `enable` and reports each step in the same JSON lines. For Actual it runs `budget.sh init`, which needs `actual-server` up and does nothing on a second run, and for Twenty `crm.sh init`'s work once Twenty has a manifest. `run` stays for commands a user triggers later.
+> 3. **`connect` and `disconnect`.** Accepted. `addon.sh connect <short-id> --instance <slug> --json` checks the credential before writing anything, writes the entry, registers the server and reloads. `disconnect` undoes it. Both use R3's JSON lines. An error line adds `error` with a named code: change request 0026's codes (`login_refused`, `no_access`, `token_expired`, `timeout` and the rest), plus `addon.sh`'s own failures: `bad_input`, `missing_settings`, `command_failed`, `compose_failed` and `busy` (another run is in progress). An add-on error that isn't declared arrives as `command_failed`, with its name in `message`. Secrets arrive as one JSON object on stdin and never in argv. `budget.sh connect` is the first one built, and `addon.sh` wraps it unchanged. Each add-on declares its extra error names in its manifest under `instances.errors`, for example Actual's `encryption_password`.
+> 4. **Reload.** Accepted. `enable` and `disable` will run the two bootstraps directly. They won't recreate `hermes` and won't call `make`. The `done` line lists, under `mcp`, every MCP server name to wait for, including names an init hook reports. Check them in `mcp.servers.status` over your gateway connection, as the R4 live check did, since Boundary already holds that connection. The recreate came from `make hermes-reload` itself. `vault.sh follow-hermes` only moves the Bitwarden broker after a recreate. No add-on recreates `hermes`, Bitwarden included. Bitwarden's login plugin is now installed on every Hermes start. After the bootstraps, `addon.sh` runs `vault.sh reload-plugins`, which asks the running gateway to reload plugins on each profile whose login backends changed. Bitwarden's tools reach new sessions only, and open sessions keep the tools they started with. The first start after upgrading to 0.3.13 recreates `hermes` once, because its environment changed. _[On main for 0.3.13. Not yet checked with a full turn on a real stack after turning Bitwarden on or off.]_
+> 5. **Removal.** We'll add `remove <id> --delete-data` as R6 agreed, with JSON lines naming each path and volume it deletes. Manifests get `data.paths` (bind mounts such as `data/twenty` and `ACTUAL_DATA_DIR`) beside `data.volumes` (for Actual, `actual_mcp_rw_cache` and `actual_mcp_ro_cache`, which hold full budget copies), as the R10 reply described. A data path is deleted only when it resolves inside the stack's data root (`./data` or `ASSISTANT_DATA_ROOT`). A path outside it, such as an `ACTUAL_DATA_DIR` you pointed elsewhere, is kept and reported as `"kept"`. `disable --purge` stays as an alias that runs `disable` then `remove --delete-data`.
+> 6. **Fit-check figures.** Accepted. `list --json` will report `memory.reservation`, `memory.limit`, `image` and `downloadSize` per service, merged from `docker compose config` and the image manifest. `downloadSize` is absent when the registry doesn't report one.
+> 7. **Who owns the flags.** `addon.sh` writes flags to `.env` and runs `sync-profiles.sh`, which writes `COMPOSE_PROFILES` to `.env`. Its compose calls inherit your environment, and the project name comes from `COMPOSE_PROJECT_NAME` in the environment first. An exported `COMPOSE_PROFILES` overrides the `.env` value, so the profiles you run stay on, and `enable` names its services explicitly so they start either way. `scripts/test-addon-cli.sh` checks this. With both variables exported, it runs `enable`, `connect`, `disconnect`, `disable --purge` and `list` against a stub `docker`. It confirms that every docker call, the bootstraps included, sees the caller's values, and that `remove` deletes volumes under the caller's project name.
+> 8. **Twenty and n8n.** n8n's manifest ships in 0.3.13 with items 1 to 6, with `data.volumes` (`n8n_storage`, `gptr_outputs`) and `backup.secrets` (`N8N_ENCRYPTION_KEY`) as the R10 reply described. It needs no first-time setup, because `n8n-import` generates its credentials before n8n starts. `gptr-mcp` stays in the `automation` profile, and `disable n8n` leaves it running. Twenty gets its manifest in the same patch. Its workspaces become generic instances, so `connect` and `disconnect` work for Twenty workspaces as they do for Actual budgets. A one-time `crm.sh migrate` converts existing workspace files.
+>
+> **Release:** items 1 to 6 ship together in 0.3.13, and its CHANGELOG entry will say that Boundary can move Actual onto `addon.sh`. Until then, keep Twenty on `crm.sh` and Actual waiting for `budget.sh connect`, as you planned.
 
 ## Question · Hermes roles and agent access
 

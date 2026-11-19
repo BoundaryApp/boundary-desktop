@@ -16,6 +16,7 @@ import {
 } from './kanbanActivity';
 import { TasksBoard } from './TasksBoard';
 import { WorkingDot } from './WorkingDot';
+import { Button } from '../../components/ui/button';
 
 const GROUP_ORDER: TaskGroupKey[] = ['needs', 'running', 'next', 'done'];
 
@@ -126,9 +127,10 @@ export const TasksPane: React.FC<{
     </div>
   );
   const openInBrowser = (
-    <button
+    <Button
+      variant="secondary"
+      block
       type="button"
-      className="wb-btn-ghost"
       onClick={() =>
         void window.electronAPI.kanban
           .openBoard(board ? (boardTaskId ?? undefined) : undefined)
@@ -136,7 +138,7 @@ export const TasksPane: React.FC<{
       }
     >
       Open in browser ↗
-    </button>
+    </Button>
   );
 
   if (board) {

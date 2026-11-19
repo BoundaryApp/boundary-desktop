@@ -1,6 +1,7 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CIRCLE_KEY, circleSharing, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 import { ModelConnections } from '../ModelConnections';
@@ -69,10 +70,6 @@ const bothStatus = {
 };
 
 describe('Model sources', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     resetIpcStoresForTests();
@@ -98,20 +95,17 @@ describe('Model sources', () => {
 
     expect(await screen.findByText('Scan this machine')).toBeTruthy();
     expect(screen.getByText('Connect OpenRouter')).toBeTruthy();
+    // With neither connected, both offers are solid.
+    expect(screen.getByRole('button', { name: 'Scan this machine' }).className).toContain('wb-btn-solid');
+    expect(screen.getByRole('button', { name: 'Connect OpenRouter' }).className).toContain('wb-btn-solid');
   });
 
   it('shows sharing as a status line beside the local model, with the controls below it', async () => {
     onboardingApi.getStatus.mockResolvedValue(localOnlyStatus);
-    const state = {
-      status: 'running',
-      displayName: 'Ada',
-      providers: {},
-      snapshot: {
-        identity: 'a'.repeat(64),
-        circles: [{ key: 'c'.repeat(64), name: 'Workshop', myRole: 'member', writable: true, members: [], invites: [], offers: [] }],
-      },
-      sharing: { models: [{ id: 'qwen3:14b', tools: true }], circles: ['c'.repeat(64)], paused: true, away: false },
-    };
+    const state = runningCircles({
+      circles: [circleSnapshot({ name: 'Workshop' })],
+      sharing: circleSharing({ models: [{ id: 'qwen3:14b', tools: true }], circles: [CIRCLE_KEY], paused: true }),
+    });
     stubElectronAPI({ onboarding: onboardingApi, circles: { getState: vi.fn().mockResolvedValue(state) } });
 
     render(<ModelConnections />);

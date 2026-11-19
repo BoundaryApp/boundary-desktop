@@ -16,7 +16,7 @@ function deps(overrides: Partial<HostToolDeps> & { outcome?: ApprovalOutcome; gr
     requestApproval: vi.fn(async () => outcome),
     showNotification: vi.fn(async () => 'shown' as const),
     openExternal: vi.fn(async () => undefined),
-    readClipboard: vi.fn(() => 'copied text'),
+    readClipboard: vi.fn(async () => 'copied text'),
     writeClipboard: vi.fn(),
     pickFiles: vi.fn(async () => ['/Users/me/data/report.csv']),
     chooseSavePath: vi.fn(async () => '/Users/me/Downloads/notes.md'),

@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +11,7 @@ const services = seedServiceProgress('pending', 'Queued…', 0.05);
 describe('StartupScreen', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
+    // Unmount while fake timers are installed; RTL's own cleanup runs after this hook.
     cleanup();
     vi.useRealTimers();
   });

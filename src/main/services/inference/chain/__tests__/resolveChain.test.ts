@@ -7,6 +7,7 @@ import {
   pickInferenceChain,
   type InferenceChainFacts,
 } from '../resolveChain';
+import type { PoolStatus } from '../../confidential/confidentialService';
 
 const dana = { circleId: 'c1', providerId: 'dana' };
 
@@ -85,6 +86,38 @@ describe('describeInferenceChain', () => {
       'provider-untrusted',
     ]);
     expect(states.every((s) => s.contextLength === undefined)).toBe(true);
+  });
+});
+
+describe('a confidential pool', () => {
+  const pool = { slot: 'confidential' as const, modelId: 'qwen' };
+  const serving = (status: Partial<PoolStatus> = {}) =>
+    facts({
+      poolStatus: (modelId) =>
+        modelId === 'qwen' ? { serves: true, servesPrivate: false, contextLength: 8_192, ...status } : undefined,
+    });
+
+  it('is stale pool-no-provider when no provider serves it, never private, and keys by its model', () => {
+    const [state] = describeInferenceChain([pool], facts());
+    expect(state).toEqual({ entry: pool, key: 'confidential:qwen', stale: 'pool-no-provider', private: false });
+    const [none] = describeInferenceChain([pool], serving({ serves: false, contextLength: null }));
+    expect(none.stale).toBe('pool-no-provider');
+  });
+
+  it('serves when a provider does, with the status’s context', () => {
+    const [state] = describeInferenceChain([pool], serving());
+    expect(state).toEqual({ entry: pool, key: 'confidential:qwen', stale: null, private: false, contextLength: 8_192 });
+  });
+
+  it('is private exactly when a provider at the private minimum serves it', () => {
+    expect(describeInferenceChain([pool], serving({ servesPrivate: true }))[0].private).toBe(true);
+    expect(describeInferenceChain([pool], serving({ servesPrivate: false }))[0].private).toBe(false);
+  });
+
+  it('sizes the chain when it serves, and leaves it alone when it doesn’t', () => {
+    const chain = [{ slot: 'local' as const }, pool];
+    expect(chainContextLength(describeInferenceChain(chain, serving()))).toBe(8_192);
+    expect(chainContextLength(describeInferenceChain(chain, facts()))).toBe(32_768);
   });
 });
 

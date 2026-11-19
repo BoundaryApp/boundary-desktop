@@ -2,6 +2,8 @@ import React from 'react';
 import type { HermesProjectRecord } from '../../../shared/types/hermesChat';
 import { ApprovalInterrupt } from './ApprovalInterrupt';
 import { CodingAccessInterrupt } from './CodingAccessInterrupt';
+import { CaptureSecretInterrupt } from './CaptureSecretInterrupt';
+import { CreateLoginInterrupt } from './CreateLoginInterrupt';
 import { CredentialInterrupt } from './CredentialInterrupt';
 import { HostBridgeApproval } from './HostBridgeApproval';
 import { InfoTip } from '../../components/ui/info-tip';
@@ -19,7 +21,12 @@ export const ThreadInterrupts: React.FC<{
   projects: HermesProjectRecord[];
   /** Sends a short follow-up turn (coding access granted). */
   onFollowUp: (text: string) => void;
-}> = ({ interrupts, projects, onFollowUp }) => {
+  /**
+   * Set in the desktop panel (ADR 0058 §14): a prompt that doesn't fit 384 pixels shows a line
+   * that opens the chat in the app window instead.
+   */
+  onOpenInWindow?: () => void;
+}> = ({ interrupts, projects, onFollowUp, onOpenInWindow }) => {
   const {
     approval,
     chatApprovals,
@@ -31,8 +38,14 @@ export const ThreadInterrupts: React.FC<{
     codingAccess,
   } = interrupts;
   if (credentialRequest) {
+    const Card =
+      credentialRequest.kind === 'vault.create_login'
+        ? CreateLoginInterrupt
+        : credentialRequest.kind === 'vault.capture_secret'
+          ? CaptureSecretInterrupt
+          : CredentialInterrupt;
     return (
-      <CredentialInterrupt
+      <Card
         request={credentialRequest}
         queueSize={credentialRequests.length + chatApprovals.length}
         busy={interrupts.credentialBusy}
@@ -60,6 +73,17 @@ export const ThreadInterrupts: React.FC<{
         busy={hostApprovals.busy}
         onRespond={(choice) => void hostApprovals.respond(choice)}
       />
+    );
+  }
+  if (codingAccess.request && onOpenInWindow) {
+    // Its folder rows and picker need the app window's width.
+    return (
+      <div className="wb-host-tools-note" role="status">
+        This chat wants to work in a folder on your Mac.{' '}
+        <button type="button" className="wb-saved-login-link" onClick={onOpenInWindow}>
+          Answer in {APP_NAME}’s window
+        </button>
+      </div>
     );
   }
   if (codingAccess.request) {

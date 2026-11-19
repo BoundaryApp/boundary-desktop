@@ -45,6 +45,13 @@ describe('circlesDiagnostics', () => {
     expect(first.run).toBe(second.run);
   });
 
+  it('keeps its own time, run, source and name when an event carries fields with those names', async () => {
+    const { diag, circlesDiagnosticsPath, diagnosticsRunId } = await load();
+    diag('call.check', { t: 10, run: '0123abcd', src: 'x', ev: 'y', ms: 412 }, 'main', Date.UTC(2026, 10, 7, 12, 0, 0));
+    const [, event] = lines(circlesDiagnosticsPath());
+    expect(event).toEqual({ t: '2026-11-07T12:00:00.000Z', ms: 412, run: diagnosticsRunId(), src: 'main', ev: 'call.check' });
+  });
+
   it('keeps going when the file can’t be written', async () => {
     const { diag } = await load();
     const append = vi.spyOn(fs, 'appendFileSync').mockImplementation(() => {

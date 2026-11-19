@@ -12,7 +12,7 @@ stubElectronAPI({
     busy: (...args: unknown[]) => codingAgentBusy(...args),
     list: (...args: unknown[]) => listCodingFolders(...args),
     grant: (...args: unknown[]) => grantCodingFolder(...args),
-    onProgress: () => () => undefined,
+    onProgress: () => (): void => undefined,
   },
   projects: {
     addSourceFolder: (...args: unknown[]) => addSourceFolder(...args),

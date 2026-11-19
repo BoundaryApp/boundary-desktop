@@ -14,24 +14,16 @@ import {
   resetHermesProjectsStoreForTests,
   upsertStoredHermesProject,
 } from '../../hermes/hermesProjectStore';
+import { fakeCodingDeps, makeFolder } from './codingDeps';
 
 let home: string;
 
 function folder(...parts: string[]): string {
-  const dir = path.join(home, ...parts);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  return makeFolder(home, ...parts);
 }
 
 function useDeps(isLocalStack = false) {
-  setCodingGrantDepsForTests({
-    isLocalStack: () => isLocalStack,
-    ruleOptions: () => ({
-      home,
-      boundaryDataPaths: [path.join(home, 'boundary')],
-      systemFolders: [],
-    }),
-  });
+  fakeCodingDeps({ home, overrides: { isLocalStack: () => isLocalStack } });
 }
 
 function needsAccess(dir: string): string {

@@ -39,13 +39,16 @@ import {
   calendarSlug,
   expectedToolCount,
   isCalendarProvider,
+  MAC_ACCOUNT_SLUG,
+  macToolsForAccess,
   normalizeCalendarUrl,
 } from './calendarModel';
+import { checkMacAccess, grantMac, revokeMac, syncMacCalendarTokens } from './macCalendarAccount';
 import {
   decryptCalendarPassword,
   deleteCalendarAccount,
   getCalendarAccount,
-  hasCalendarAccounts,
+  hasCalDavAccounts,
   listCalendarAccounts,
   saveCalendarAccount,
   lastWorkedAt,
@@ -53,6 +56,7 @@ import {
   type StoredCalendarAccount,
 } from './calendarStore';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { createSerialQueue } from '../../../../shared/utils/serialQueue';
 
 /**
  * Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). Boundary writes each calendar
@@ -76,9 +80,10 @@ const DAILY_CHECK_MS = 24 * 60 * 60_000;
 const DAILY_CHECK_TICK_MS = 60 * 60_000;
 const FIRST_DAILY_CHECK_MS = 2 * 60_000;
 
-class CalendarInputError extends Error {}
+/** A refusal whose message is shown as-is. */
+export class CalendarInputError extends Error {}
 
-function errorText(err: unknown, secrets: readonly string[] = []): string {
+export function errorText(err: unknown, secrets: readonly string[] = []): string {
   if (err instanceof CalendarInputError) return err.message;
   return gatewayErrorText(err, secrets, {
     methodMissing: 'This version of Hermes can’t manage MCP servers. Update the agent stack and try again.',
@@ -103,7 +108,7 @@ function password(value: unknown): string {
 }
 
 /** Access for known agents only, limited to the offered levels; everyone else is off. */
-function cleanAccess(value: unknown): Record<string, CalendarAccess> {
+export function cleanAccess(value: unknown): Record<string, CalendarAccess> {
   const known = new Set(listStoredAgents().map((a) => a.slug));
   const out: Record<string, CalendarAccess> = {};
   if (!value || typeof value !== 'object') return out;
@@ -116,7 +121,7 @@ function cleanAccess(value: unknown): Record<string, CalendarAccess> {
   return out;
 }
 
-function broadcastProgress(event: CalendarProgressEvent): void {
+export function broadcastProgress(event: CalendarProgressEvent): void {
   broadcast('calendars:progress', event);
 }
 
@@ -126,11 +131,19 @@ function broadcastChanged(): void {
 }
 
 /** One change at a time: two writes to the same profile files must not interleave. */
-let queue: Promise<unknown> = Promise.resolve();
-function serial<T>(work: () => Promise<T>): Promise<T> {
-  const next = queue.then(work, work);
-  queue = next.catch((): void => undefined);
-  return next;
+export const serial = createSerialQueue();
+
+/**
+ * The start-up token sync for the bridge's `/calendar` route, queued behind an access change that
+ * is already running so the two don't hand the bridge different maps. A failure is logged by
+ * error name only, since an error message could quote a token.
+ */
+export function syncMacCalendarTokensAtLaunch(sync: () => Promise<void> = syncMacCalendarTokens): Promise<void> {
+  return serial(sync).catch((error: unknown) => {
+    persistDebugLog('calendars', 'mac calendar token sync failed at launch', {
+      error: error instanceof Error ? error.name : 'unknown',
+    });
+  });
 }
 
 // ─── caldav-mcp ───────────────────────────────────────────────────────────────
@@ -138,8 +151,8 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 let preparing: Promise<CalendarPrepareResult> | null = null;
 
 /**
- * Start caldav-mcp (building it the first time). The connect sheet calls this when it opens, so
- * the build overlaps with choosing a provider and fetching an app password.
+ * Start caldav-mcp (building it the first time). The connect sheet calls this once a CalDAV
+ * provider is chosen, so the build overlaps with fetching an app password and signing in.
  */
 export function prepareCalendarService(): Promise<CalendarPrepareResult> {
   preparing ??= (async (): Promise<CalendarPrepareResult> => {
@@ -165,6 +178,11 @@ export function prepareCalendarService(): Promise<CalendarPrepareResult> {
     if (!result.success && preparing === current) preparing = null;
   });
   return current;
+}
+
+/** Forget a started calendar service, so the next prepare starts it again. Tests only. */
+export function resetCalendarServiceForTests(): void {
+  preparing = null;
 }
 
 async function runProbe(creds: { url: string; username: string; password: string }): Promise<CalendarTestResult> {
@@ -220,28 +238,35 @@ async function editProfileEnv(dataRoot: string, profile: string, edit: (current:
   return true;
 }
 
-/** Give one agent the calendar: the password in its `.env`, then the entry. */
-async function grant(account: StoredCalendarAccount, agentSlug: string, access: CalendarAccess, pw: string): Promise<void> {
+/**
+ * Give one agent a calendar entry: the secret its header names into the agent's `.env`, then the
+ * `calendar-<slug>` entry. Does nothing when the agent's profile folder is gone.
+ */
+export async function writeCalendarEntry(
+  agentSlug: string,
+  slug: string,
+  secret: { envKey: string; value: string },
+  entry: Record<string, unknown>
+): Promise<void> {
   const { compose, dataRoot } = getAssistantStackAccess();
   const profile = profileFor(agentSlug);
   const written = await editProfileEnv(dataRoot, profile, (current) =>
-    upsertEnvLines(current, { [calendarPasswordEnvKey(account.slug)]: pw })
+    upsertEnvLines(current, { [secret.envKey]: secret.value })
   );
-  if (!written) return; // The agent's profile folder is gone.
-  const entry = calendarMcpEntry({ slug: account.slug, url: account.url, username: account.username, access });
-  // The entry names the password's env key, not the value; it still goes through the environment
+  if (!written) return;
+  // The entry names the secret's env key, not the value; it still goes through the environment
   // so the username and URL stay off the command line.
   const { args, env } = buildHermesConfigSetExec(
     profile,
-    `mcp_servers.${calendarServerName(account.slug)}`,
+    `mcp_servers.${calendarServerName(slug)}`,
     JSON.stringify(entry),
     { secret: true }
   );
   await compose(args, { timeout: 60_000, env });
 }
 
-/** Take the calendar away from one agent: the entry, then the password. */
-async function revoke(slug: string, agentSlug: string): Promise<void> {
+/** Take a calendar entry away from one agent: the entry, then the secret's env key. */
+export async function removeCalendarEntry(agentSlug: string, slug: string, envKey: string): Promise<void> {
   const { dataRoot } = getAssistantStackAccess();
   const profile = profileFor(agentSlug);
   try {
@@ -254,7 +279,17 @@ async function revoke(slug: string, agentSlug: string): Promise<void> {
     if (!(error instanceof JsonRpcGatewayError) || !/not found/i.test(error.message)) throw error;
   }
   // mcp.servers.remove leaves the key behind (spec Phase 0, S5).
-  await editProfileEnv(dataRoot, profile, (current) => removeEnvLines(current, [calendarPasswordEnvKey(slug)]));
+  await editProfileEnv(dataRoot, profile, (current) => removeEnvLines(current, [envKey]));
+}
+
+/** Give one agent a CalDAV calendar: the password in its `.env`, then the entry. */
+async function grant(account: StoredCalendarAccount, agentSlug: string, access: CalendarAccess, pw: string): Promise<void> {
+  const entry = calendarMcpEntry({ slug: account.slug, url: account.url, username: account.username, access });
+  await writeCalendarEntry(agentSlug, account.slug, { envKey: calendarPasswordEnvKey(account.slug), value: pw }, entry);
+}
+
+function revoke(slug: string, agentSlug: string): Promise<void> {
+  return removeCalendarEntry(agentSlug, slug, calendarPasswordEnvKey(slug));
 }
 
 async function reloadMcp(): Promise<void> {
@@ -277,7 +312,7 @@ async function checkHermesSees(account: StoredCalendarAccount): Promise<string |
   const access = builtIn ? account.access[builtIn] : undefined;
   if (!builtIn || !access || access === 'off') return null;
   const name = calendarServerName(account.slug);
-  const want = expectedToolCount(access);
+  const want = account.provider === 'mac' ? macToolsForAccess(access).length : expectedToolCount(access);
   const deadline = Date.now() + CONNECT_CHECK_MS;
   let last: McpStatusRow | undefined;
   while (Date.now() < deadline) {
@@ -293,22 +328,39 @@ async function checkHermesSees(account: StoredCalendarAccount): Promise<string |
     : `Hermes hasn’t connected to ${account.name} yet. It will when you start a new chat.`;
 }
 
-/** Bring every agent's profile in line with `next`, then reload once. */
-async function applyAccess(
+/**
+ * Bring every agent's profile in line with `next`, then reload once. The Mac account has no
+ * password (`pw` is `''`): each granted agent gets its own token, and the bridge gets the new
+ * token map before Hermes reconnects.
+ */
+export async function applyAccess(
   account: StoredCalendarAccount,
   previous: Record<string, CalendarAccess>,
   pw: string,
   progress: (step: CalendarProgressStep) => void
 ): Promise<string | null> {
   progress('access');
+  const mac = account.provider === 'mac';
   const agents = new Set([...Object.keys(previous), ...Object.keys(account.access)]);
-  for (const agentSlug of agents) {
-    const level = account.access[agentSlug] ?? 'off';
-    if (level === 'off') {
-      if ((previous[agentSlug] ?? 'off') !== 'off') await revoke(account.slug, agentSlug);
-    } else {
-      await grant(account, agentSlug, level, pw);
+  try {
+    for (const agentSlug of agents) {
+      const level = account.access[agentSlug] ?? 'off';
+      if (level === 'off') {
+        if (mac) {
+          // A token left by an earlier failure goes too.
+          if ((previous[agentSlug] ?? 'off') !== 'off' || account.agentTokens?.[agentSlug]) await revokeMac(agentSlug);
+        } else if ((previous[agentSlug] ?? 'off') !== 'off') {
+          await revoke(account.slug, agentSlug);
+        }
+      } else if (mac) {
+        await grantMac(agentSlug, level);
+      } else {
+        await grant(account, agentSlug, level, pw);
+      }
     }
+  } finally {
+    // Also after a failed grant or revoke, so the bridge matches the tokens agents now hold.
+    if (mac) await syncMacCalendarTokens();
   }
   await reloadMcp();
   progress('checking');
@@ -337,6 +389,7 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
       const name = text(payload.name, 'a name');
       const slug = calendarSlug(name);
       if (!slug) throw new CalendarInputError('Give it a name with at least one letter or number.');
+      if (slug === MAC_ACCOUNT_SLUG) throw new CalendarInputError('That name is kept for Calendars on this Mac.');
       if (getCalendarAccount(slug)) throw new CalendarInputError(`You already have a calendar called ${name}.`);
       const url = normalizeCalendarUrl(payload.provider, typeof payload.url === 'string' ? payload.url : '');
       if (!url) throw new CalendarInputError('Enter the server address.');
@@ -377,18 +430,20 @@ export function connectCalendar(payload: CalendarConnectPayload): Promise<Calend
       });
       return { success: true, account: await toCalendarAccountView(saved), ...(warning ? { error: warning } : {}) };
     } catch (error) {
-      const message = errorText(error, [pw]);
-      if (saved) {
-        persistDebugLog('calendars', 'calendar saved but not given to every agent', { slug: saved.slug, error: message });
-        return {
-          success: false,
-          account: await toCalendarAccountView(saved),
-          error: `${saved.name} is saved, but not every agent has it yet. ${message} Use Change access to try again.`,
-        };
-      }
-      return { success: false, error: message };
+      return connectFailure(saved, errorText(error, [pw]));
     }
   });
+}
+
+/** A connect's result when it failed, saying so when the account was saved before the failure. */
+export async function connectFailure(saved: StoredCalendarAccount | null, message: string): Promise<CalendarActionResult> {
+  if (!saved) return { success: false, error: message };
+  persistDebugLog('calendars', 'calendar saved but not given to every agent', { slug: saved.slug, error: message });
+  return {
+    success: false,
+    account: await toCalendarAccountView(saved),
+    error: `${saved.name} is saved, but not every agent has it yet. ${message} Use Change access to try again.`,
+  };
 }
 
 export function setCalendarAccess(payload: CalendarAccessPayload): Promise<CalendarActionResult> {
@@ -396,8 +451,9 @@ export function setCalendarAccess(payload: CalendarAccessPayload): Promise<Calen
     try {
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
-      const pw = await decryptCalendarPassword(account);
-      if (!pw) throw new CalendarInputError(`${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.`);
+      const mac = account.provider === 'mac';
+      const pw = mac ? '' : await decryptCalendarPassword(account);
+      if (!mac && !pw) throw new CalendarInputError(`${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.`);
       const previous = account.access;
       const next: StoredCalendarAccount = { ...account, access: cleanAccess(payload.access) };
       saveCalendarAccount(next);
@@ -416,12 +472,18 @@ export function removeCalendar(payload: CalendarSlugPayload): Promise<CalendarAc
     try {
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) return { success: true };
+      const mac = account.provider === 'mac';
       // Every agent, not only those with access now: an earlier failure may have left one behind.
-      for (const agent of listStoredAgents()) await revoke(account.slug, agent.slug);
+      for (const agent of listStoredAgents()) {
+        if (mac) await revokeMac(agent.slug);
+        else await revoke(account.slug, agent.slug);
+      }
       deleteCalendarAccount(account.slug);
+      if (mac) await syncMacCalendarTokens();
       syncHostToolListing();
       await reloadMcp();
-      if (!hasCalendarAccounts()) {
+      // caldav-mcp serves CalDAV accounts only.
+      if (!mac && !hasCalDavAccounts()) {
         const { compose } = getAssistantStackAccess();
         await compose(['--profile', CALENDAR_COMPOSE_PROFILE, 'rm', '-sf', CALDAV_MCP_SERVICE], { timeout: 120_000 });
         preparing = null;
@@ -436,11 +498,19 @@ export function removeCalendar(payload: CalendarSlugPayload): Promise<CalendarAc
 
 type CheckOutcome = { account: StoredCalendarAccount } | { error: string };
 
-/** Run the sign-in test with the stored password and record the result on the account. */
+/**
+ * Run the sign-in test with the stored password and record the result on the account. For the
+ * Mac account the test is the Mac's calendar permission.
+ */
 async function checkAccount(account: StoredCalendarAccount): Promise<CheckOutcome> {
-  const pw = await decryptCalendarPassword(account);
-  if (!pw) return { error: `${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.` };
-  const probe = await runProbe({ url: account.url, username: account.username, password: pw });
+  let probe: CalendarTestResult;
+  if (account.provider === 'mac') {
+    probe = await checkMacAccess();
+  } else {
+    const pw = await decryptCalendarPassword(account);
+    if (!pw) return { error: `${APP_NAME} can’t read this calendar’s password any more. Remove it and connect it again.` };
+    probe = await runProbe({ url: account.url, username: account.username, password: pw });
+  }
   // The stack being down says nothing about the sign-in, so it isn't recorded.
   if (probe.status === 'error') return { error: probe.error };
   const current = getCalendarAccount(account.slug);
@@ -491,6 +561,8 @@ export async function runDailyCalendarCheck(now = Date.now()): Promise<void> {
   dailyRunning = true;
   try {
     const due = listCalendarAccounts().filter((a) => {
+      // The Mac account is checked when the card asks, not on a timer.
+      if (a.provider === 'mac') return false;
       const at = a.lastCheck ? Date.parse(a.lastCheck.at) : NaN;
       return !Number.isFinite(at) || now - at >= DAILY_CHECK_MS;
     });
@@ -528,6 +600,7 @@ export function replaceCalendarPassword(payload: CalendarReplacePasswordPayload)
     try {
       const account = getCalendarAccount(String(payload?.slug ?? ''));
       if (!account) throw new CalendarInputError('That calendar isn’t connected any more.');
+      if (account.provider === 'mac') throw new CalendarInputError('Calendars on this Mac have no password.');
       pw = password(payload.password);
       const progress = (step: CalendarProgressStep) => broadcastProgress({ slug: account.slug, step });
 

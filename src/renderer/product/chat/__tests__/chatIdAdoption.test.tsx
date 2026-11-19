@@ -1,77 +1,41 @@
 import React, { useCallback, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import type { ElectronAPI } from '../../../../preload';
+import type { FakeBridge, FakeHermesChat } from '../../../__tests__/fakeBridge';
+import type { HermesChatPhaseEvent } from '../../../../shared/types/hermesChat';
+import { HostedChatRuntime, installChatBridge, threadProps } from './threadHarness';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+type HermesChatAPI = ElectronAPI['hermesChat'];
+let bridge: FakeBridge;
+let chat: FakeHermesChat;
+let getHistory: Mock<HermesChatAPI['getHistory']>;
 
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  chunk: new Set<(e: Record<string, unknown>) => void>(),
-  end: new Set<(e: Record<string, unknown>) => void>(),
-  phase: new Set<(e: Record<string, unknown>) => void>(),
-  getHistory: null as unknown as ReturnType<typeof vi.fn>,
-  startChat: null as unknown as ReturnType<typeof vi.fn>,
-}));
-
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
-ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
-  success: true,
-  sessionId,
-  messages: [],
-}));
 // A DM placeholder gets its real session on the first send.
-ipc.startChat = vi.fn(async ({ requestId }: { requestId: string }) => ({
-  success: true,
-  requestId,
-  sessionId: 'real-1',
-}));
+function installBridge() {
+  // Each chat's history is empty, under the id it was asked for.
+  getHistory = vi.fn<HermesChatAPI['getHistory']>(async ({ sessionId }) => ({
+    success: true,
+    sessionId,
+    messages: [],
+  }));
+  ({ bridge, chat } = installChatBridge('real-1', { hermesChat: { getHistory } }));
+}
 
-stubElectronAPI({
-  hermesChat: {
-    getHistory: ipcCalls.track((...args: unknown[]) => ipc.getHistory(...args)),
-    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-    cancelChat: vi.fn(),
-    onChatChunk: on(ipc.chunk as Set<Listener>),
-    onChatEnd: on(ipc.end as Set<Listener>),
-    onChatPhase: on(ipc.phase as Set<Listener>),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-  },
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
-  },
-  projects: {
-    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-  },
-});
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
-
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
+import { setValue } from '../../../__tests__/formInput';
 
 /** The open chat, swapping to a resolved id the way WorkbenchChatScreen does. */
-const Chat: React.FC<{ initialId: string }> = ({ initialId }) => {
-  const [id, setId] = useState(initialId);
+const Chat: React.FC<{ initialId: string | null }> = ({ initialId }) => {
+  const [id, setId] = useState<string | null>(initialId);
   const [aliases, setAliases] = useState<Record<string, string>>({});
   const sameChat = useCallback(
     (a: string, b: string) => a === b || (aliases[a] ?? a) === (aliases[b] ?? b),
@@ -79,48 +43,27 @@ const Chat: React.FC<{ initialId: string }> = ({ initialId }) => {
   );
   const resolved = useCallback((next: string) => {
     setId((current) => {
-      if (current !== next) setAliases((prev) => ({ ...prev, [next]: prev[current] ?? current }));
+      if (current && current !== next) {
+        setAliases((prev) => ({ ...prev, [next]: prev[current] ?? current }));
+      }
       return next;
     });
   }, []);
   return (
-    <HermesChatRuntimeProvider sessionId={id} onSessionResolved={resolved} sameChat={sameChat}>
-      <WorkbenchThread
-        sessionId={id}
-        sameChat={sameChat}
-        threadTitle="Orchestrator"
-        activeProject={null}
-        projects={[]}
-        activeProjectId={null}
-        toolsEnabled
-        onToolsEnabledChange={noop}
-        onSelectProject={noop}
-        onClearProject={noop}
-        onNewProject={noop}
-        onCreateAgentFromDraft={noop}
-        onEditAgentDraft={noop}
-      />
-    </HermesChatRuntimeProvider>
+    <HostedChatRuntime sessionId={id} onSessionResolved={resolved} sameChat={sameChat}>
+      <WorkbenchThread {...threadProps({ sessionId: id, sameChat, threadTitle: 'Orchestrator' })} />
+    </HostedChatRuntime>
   );
 };
 
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-  fireEvent.input(el);
-};
-
-const phase = (event: Record<string, unknown>) =>
-  act(async () => {
-    for (const cb of ipc.phase) cb(event);
-  });
+const phase = (event: HermesChatPhaseEvent) => bridge.emit('hermes-chat:phase', event);
 
 describe('a chat that gets its session on the first send', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  beforeEach(installBridge);
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('keeps the sent prompt and the live turn when the real id comes back', async () => {
@@ -132,31 +75,53 @@ describe('a chat that gets its session on the first send', () => {
     await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
     await ipcCalls.settle();
 
-    expect(ipc.startChat).toHaveBeenCalledTimes(1);
+    expect(chat.startChat).toHaveBeenCalledTimes(1);
     // The chat adopted its real id in place: no reload that would wipe the turn.
-    expect(ipc.getHistory).toHaveBeenCalledTimes(1);
+    expect(getHistory).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Loading chat…')).toBeNull();
     expect(screen.getByText('Put a task on the board')).toBeTruthy();
 
-    const { requestId } = ipc.startChat.mock.calls[0]![0] as { requestId: string };
+    const requestId = chat.requestId();
     await phase({ requestId, sessionId: 'real-1', phase: 'preparing' });
     expect(screen.getAllByText('Preparing…').length).toBeGreaterThan(0);
 
-    await act(async () => {
-      for (const cb of ipc.chunk) cb({ requestId, delta: 'On the board.' });
-      for (const cb of ipc.end) cb({ requestId });
-    });
+    await chat.stream('On the board.');
+    await chat.finish();
     expect(screen.getByText('On the board.')).toBeTruthy();
+  });
+
+  it('keeps the first prompt of a new chat, which has no id until the send', async () => {
+    render(<Chat initialId={null} />);
+    await ipcCalls.settle();
+
+    const input = screen.getByPlaceholderText(/Message/) as HTMLTextAreaElement;
+    await act(async () => setValue(input, 'Plan the week'));
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    await ipcCalls.settle();
+
+    expect(chat.startChat).toHaveBeenCalledTimes(1);
+    // The new id is adopted in place, so Hermes' history (without the prompt yet) is never
+    // loaded over the turn.
+    expect(getHistory).not.toHaveBeenCalled();
+    expect(screen.queryByText('Loading chat…')).toBeNull();
+    expect(screen.getByText('Plan the week')).toBeTruthy();
+
+    const requestId = chat.requestId();
+    await phase({ requestId, sessionId: 'real-1', phase: 'preparing' });
+    expect(screen.getAllByText('Preparing…').length).toBeGreaterThan(0);
+
+    await chat.stream('Here is a plan.');
+    await chat.finish();
+    expect(screen.getByText('Here is a plan.')).toBeTruthy();
   });
 });
 
 describe("another chat's turn", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  beforeEach(installBridge);
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('does not show its progress in the chat that is open', async () => {

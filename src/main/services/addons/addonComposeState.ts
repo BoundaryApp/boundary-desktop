@@ -1,23 +1,48 @@
-import {
-  BOUNDARY_ASSISTANT_COMPOSE_PROFILES,
-  LIGHTRAG_COMPOSE_PROFILE,
-  buildComposeProfileArgs,
-} from '../../../shared/assistantStackConstants';
+import { BOUNDARY_ASSISTANT_COMPOSE_PROFILES, buildComposeProfileArgs } from '../../../shared/assistantStackConstants';
 import type { AddonCatalogEntry, AddonId } from '../../../shared/types/addons';
-import { getInstalledAddons, isLightragEnabled, setAddonInstalled } from '../assistant/AssistantStackStore';
+import { getInstalledAddons, setAddonInstalled } from '../assistant/AssistantStackStore';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
-import { TWENTY_ENTRY } from './addonCatalog';
+import { actualAvailable, readActualFlags } from './actualAddon';
+import { bitwardenOffered, readBitwardenEnabled } from './bitwardenAddon';
+import { emailAvailable, readEmailFlags } from './emailAddon';
+import { readVikunjaEnabled, vikunjaAvailable } from './vikunjaAddon';
+import { BUILTIN_ADDON_IDS, builtinAddonAvailable, readBuiltinEnabled } from './builtinAddons';
+import { BITWARDEN_ENTRY, LIGHTRAG_ENTRY, N8N_ENTRY, TWENTY_ENTRY, VIKUNJA_ENTRY } from './addonCatalog';
+import { hasActiveHostedWorkspaces, twentyWorkspacesDir } from './twentyWorkspaces';
 
-/** Entry per add-on id, for profiles and flags. Installed state comes from the store only. */
-const ENTRIES: Record<AddonId, AddonCatalogEntry> = { twenty: TWENTY_ENTRY };
+/** Entry per add-on id whose compose profile follows its installed state. */
+const ENTRIES: Partial<Record<AddonId, AddonCatalogEntry>> = {
+  twenty: TWENTY_ENTRY,
+  bitwarden: BITWARDEN_ENTRY,
+  vikunja: VIKUNJA_ENTRY,
+  n8n: N8N_ENTRY,
+  lightrag: LIGHTRAG_ENTRY,
+};
 
 /**
  * Installed add-ons of the stack root this session resolves (the listing resolves the same
- * one). None while no root resolves. The store leaves out ids this build doesn't know.
+ * one). None while no root resolves. Twenty comes from Boundary's store; Actual and Bitwarden from
+ * the stack's `.env`, which `addon.sh` writes (spec decision 14): Actual is installed while this
+ * Mac's server is on, Bitwarden while `BITWARDEN_ENABLED` is 1, email while `EMAIL_ENABLED` is 1, Todo lists while
+ * `VIKUNJA_MCP_ENABLED` is 1, n8n while `AUTOMATION_ENABLED` is 1 and LightRAG while
+ * `LIGHTRAG_MCP_ENABLED` is 1.
  */
 export function installedAddonsHere(): AddonId[] {
   const { root } = tryResolveAssistantRoot();
-  return root ? getInstalledAddons(root) : [];
+  return root ? installedAddonsAt(root) : [];
+}
+
+/** `installedAddonsHere` for a root the caller already resolved, such as the store's listing. */
+export function installedAddonsAt(root: string): AddonId[] {
+  const ids: AddonId[] = getInstalledAddons(root).filter(
+    (id) => id !== 'actual' && id !== 'bitwarden' && id !== 'email' && id !== 'vikunja' && id !== 'n8n' && id !== 'lightrag'
+  );
+  if (actualAvailable(root) && readActualFlags(root).local) ids.push('actual');
+  if (bitwardenOffered(root) && readBitwardenEnabled(root)) ids.push('bitwarden');
+  if (emailAvailable(root) && readEmailFlags(root).enabled) ids.push('email');
+  if (vikunjaAvailable(root) && readVikunjaEnabled(root)) ids.push('vikunja');
+  for (const id of BUILTIN_ADDON_IDS) if (builtinAddonAvailable(root, id) && readBuiltinEnabled(root, id)) ids.push(id);
+  return ids;
 }
 
 /** Records `id` as installed or off for the stack root this session resolves. */
@@ -27,32 +52,56 @@ export function setAddonInstalledHere(id: AddonId, installed: boolean): void {
   setAddonInstalled(root, id, installed);
 }
 
-/** Compose profiles of the installed add-ons. */
+/**
+ * Compose profiles of the installed add-ons. Actual's follow its two flags in the stack's
+ * `.env`: `budget` (the MCP containers) while connected budgets get tools, `budget-local` while
+ * this Mac's server runs. Bitwarden's `bitwarden` (the broker) follows `BITWARDEN_ENABLED`, Todo lists' `todo` follows
+ * `VIKUNJA_MCP_ENABLED` and LightRAG's `rag` follows `LIGHTRAG_MCP_ENABLED`. n8n's `automation` is
+ * always one of Boundary's profiles, so it isn't repeated here.
+ * Boundary's COMPOSE_PROFILES replaces the one `addon.sh` syncs into
+ * `.env`, so the managed stack needs them here.
+ */
 export function addonComposeProfiles(): string[] {
-  return installedAddonsHere().map((id) => ENTRIES[id].profile);
-}
-
-/** Every add-on flag: '1' while its add-on is installed, '0' otherwise. */
-export function addonComposeEnv(): Record<string, string> {
-  const installed = new Set(installedAddonsHere());
-  const env: Record<string, string> = {};
-  for (const entry of Object.values(ENTRIES)) {
-    for (const flag of entry.flags) env[flag] = installed.has(entry.id) ? '1' : '0';
+  const profiles = installedAddonsHere().flatMap((id) => {
+    const entry = ENTRIES[id];
+    return entry && !(BOUNDARY_ASSISTANT_COMPOSE_PROFILES as readonly string[]).includes(entry.profile) ? [entry.profile] : [];
+  });
+  const { root } = tryResolveAssistantRoot();
+  if (root && actualAvailable(root)) {
+    const flags = readActualFlags(root);
+    if (flags.enabled) profiles.push('budget');
+    if (flags.local) profiles.push('budget-local');
   }
-  return env;
-}
-
-/** `rag` while LightRAG is on (Services → LightRAG), otherwise none. */
-export function lightragComposeProfiles(): string[] {
-  return isLightragEnabled() ? [LIGHTRAG_COMPOSE_PROFILE] : [];
+  if (root && emailAvailable(root)) {
+    const flags = readEmailFlags(root);
+    if (flags.enabled) profiles.push('email');
+    if (flags.enabled && flags.drafts) profiles.push('email-drafts');
+  }
+  return profiles;
 }
 
 /**
- * The flag the Hermes bootstraps read to register LightRAG's MCP server. It overrides the one
- * in the stack's `.env`, which setup.sh set to 1 on installs from Boundaries that passed --rag.
+ * Twenty's two flags. `TWENTY_LOCAL_ENABLED` starts this Mac's Twenty and follows the installed
+ * record, and the bootstraps register the local workspace only while it is 1.
+ * `TWENTY_MCP_ENABLED` makes them register a `crm-<slug>` per stored workspace; at 0 they remove
+ * every `crm-*` entry, so it stays 1 while a hosted workspace is stored even with this Mac's
+ * Twenty off.
  */
-export function lightragComposeEnv(): Record<string, string> {
-  return { LIGHTRAG_MCP_ENABLED: isLightragEnabled() ? '1' : '0' };
+export function twentyFlags(
+  installed: boolean,
+  dir: string
+): { TWENTY_LOCAL_ENABLED: '0' | '1'; TWENTY_MCP_ENABLED: '0' | '1' } {
+  return {
+    TWENTY_LOCAL_ENABLED: installed ? '1' : '0',
+    TWENTY_MCP_ENABLED: installed || hasActiveHostedWorkspaces(dir) ? '1' : '0',
+  };
+}
+
+/** Every add-on flag for the stack root this session resolves. Both off while none resolves. */
+export function addonComposeEnv(): Record<string, string> {
+  const { root } = tryResolveAssistantRoot();
+  if (!root) return { TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' };
+  return twentyFlags(getInstalledAddons(root).includes('twenty'), twentyWorkspacesDir(root));
 }
 
 /**
@@ -60,9 +109,5 @@ export function lightragComposeEnv(): Record<string, string> {
  * through COMPOSE_PROFILES only, not through these args.
  */
 export function boundaryComposeProfileArgs(): string[] {
-  return buildComposeProfileArgs([
-    ...BOUNDARY_ASSISTANT_COMPOSE_PROFILES,
-    ...lightragComposeProfiles(),
-    ...addonComposeProfiles(),
-  ]);
+  return buildComposeProfileArgs([...BOUNDARY_ASSISTANT_COMPOSE_PROFILES, ...addonComposeProfiles()]);
 }

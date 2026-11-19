@@ -4,13 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
 const scrolled: Element[] = [];
 Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
   scrolled.push(this);
@@ -23,13 +16,11 @@ const { getContextBreakdown } = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 stubElectronAPI({
   hermesChat: {
-    listPendingCredentialRequests: async () => [],
+    listPendingCredentialRequests: async (): Promise<HermesChatCredentialRequestEvent[]> => [],
     getContextBreakdown: (...args: unknown[]) => getContextBreakdown(...args),
   },
   onboarding: {
@@ -41,11 +32,14 @@ stubElectronAPI({
   },
 });
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
-import type { AgentProfile } from '../../../../shared/types/hermesChat';
+import type {
+  AgentProfile,
+  HermesChatCredentialRequestEvent,
+} from '../../../../shared/types/hermesChat';
 import { localDayKey } from '../../../../shared/messageTime';
 
 const hermes: AgentProfile = {

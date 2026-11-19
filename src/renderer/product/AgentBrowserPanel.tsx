@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { BoundaryBrowserState, HostBridgeBrowserSettings } from '../../shared/types/hostBridge';
+import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
 import { InfoTip } from '../components/ui/info-tip';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { WebSearchModeSection } from './WebSearchModeSection';
+import { Button } from '../components/ui/button';
+import { Switch } from '../components/ui/switch';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
 
@@ -94,64 +97,61 @@ export const AgentBrowserPanel: React.FC = () => {
   const usingDefaults = settings.blocked === null;
 
   return (
-    <section className="wb-settings-section wb-agent-browser" aria-labelledby="settings-agent-browser">
-      <h2 id="settings-agent-browser">
-        {APP_NAME}’s browser
-        <InfoTip label={`${APP_NAME}’s browser`}>
-          <p>
-            A Chrome window {APP_NAME} runs on this computer, with its own profile. Sign in there to the
-            sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
-          </p>
-          <p>
-            Hermes can’t read this browser’s cookies or stored site data, or open files on your computer.
-            It can see and act on any page it opens. Sites limit automated use, so ask Hermes to go at a
-            human pace.
-          </p>
-        </InfoTip>
-      </h2>
+    <SettingsSection
+      id="settings-agent-browser"
+      className="wb-agent-browser"
+      title={
+        <>
+            {APP_NAME}’s browser
+            <InfoTip label={`${APP_NAME}’s browser`}>
+              <p>
+                A Chrome window {APP_NAME} runs on this computer, with its own profile. Sign in there to the
+                sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
+              </p>
+              <p>
+                Hermes can’t read this browser’s cookies or stored site data, or open files on your computer.
+                It can see and act on any page it opens. Sites limit automated use, so ask Hermes to go at a
+                human pace.
+              </p>
+            </InfoTip>
+        </>
+      }
+    >
       <p className="wb-inference-lead">Hermes browses here, with the logins you add.</p>
 
-      <div className="wb-settings-row">
-        <div>
-          <p className="wb-settings-label">
+      <SettingsRow
+        label={
+          <>
             Let Hermes use {APP_NAME}’s browser
             <InfoTip label="this setting">
               When off, Hermes browses in its own browser inside Docker, with no logins.
             </InfoTip>
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={settings.enabled}
-          aria-label={`Let Hermes use ${APP_NAME}’s browser`}
+          </>
+        }
+      >
+        <Switch
+          checked={settings.enabled}
+          label={`Let Hermes use ${APP_NAME}’s browser`}
           disabled={busy || !state.chromeInstalled}
-          onClick={() =>
+          onChange={(enabled) =>
             void save(
-              { ...settings, enabled: !settings.enabled },
-              settings.enabled ? 'Hermes is back on its own browser.' : `Hermes now browses in ${APP_NAME}’s browser.`
+              { ...settings, enabled },
+              enabled ? `Hermes now browses in ${APP_NAME}’s browser.` : 'Hermes is back on its own browser.'
             )
           }
-          className={`wb-switch${settings.enabled ? ' is-on' : ''}`}
-        >
-          <i />
-        </button>
-      </div>
+        />
+      </SettingsRow>
 
-      <div className="wb-settings-row">
-        <div>
-          <p className="wb-settings-label">Sign in to sites</p>
-          <p className="wb-settings-hint">{statusText(state)}</p>
-        </div>
-        <button
+      <SettingsRow label="Sign in to sites" hint={statusText(state)}>
+        <Button
+          variant="secondary"
           type="button"
-          className="wb-inference-btn"
           disabled={busy || !state.chromeInstalled}
           onClick={() => void openBrowser()}
         >
           Open browser
-        </button>
-      </div>
+        </Button>
+      </SettingsRow>
 
       {notice ? (
         <p className={`wb-agent-browser-notice is-${notice.tone}`} role="status">
@@ -180,23 +180,23 @@ export const AgentBrowserPanel: React.FC = () => {
         {usingDefaults ? `${APP_NAME}’s default list` : 'You’ve changed the default list'}
       </p>
       <div className="wb-agent-browser-actions">
-        <button
+        <Button
+          variant="secondary"
           type="button"
-          className="wb-inference-btn"
           disabled={busy}
           onClick={() => void save({ ...settings, blocked: linesToSites(blockedText) }, 'Blocked sites saved.')}
         >
           Save blocked sites
-        </button>
+        </Button>
         {!usingDefaults ? (
-          <button
+          <Button
+            variant="secondary"
             type="button"
-            className="wb-inference-btn"
             disabled={busy}
             onClick={() => void save({ ...settings, blocked: null }, 'Back to the default blocked sites.')}
           >
             Restore defaults
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -217,17 +217,17 @@ export const AgentBrowserPanel: React.FC = () => {
         placeholder="Any site that isn’t blocked"
       />
       <div className="wb-agent-browser-actions">
-        <button
+        <Button
+          variant="secondary"
           type="button"
-          className="wb-inference-btn"
           disabled={busy}
           onClick={() => void save({ ...settings, allowed: linesToSites(allowedText) }, 'Allowed sites saved.')}
         >
           Save allowed sites
-        </button>
+        </Button>
       </div>
 
       <WebSearchModeSection />
-    </section>
+    </SettingsSection>
   );
 };

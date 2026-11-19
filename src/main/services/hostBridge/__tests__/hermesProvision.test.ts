@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   hermesProfileEnvPath,
   hostBridgeCdpUrl,
+  profileGetsBoundaryBrowser,
   hostBridgeHermesConfigSets,
   isBoundaryCdpUrl,
   toolCatalogFingerprint,
+  removeEnvValuesFromProfiles,
+  writeEnvValuesToProfiles,
   writeHostBridgeTokensToProfiles,
 } from '../hermesProvision';
 
@@ -62,10 +65,48 @@ describe('writeHostBridgeTokensToProfiles', () => {
 });
 
 describe('browser.cdp_url', () => {
-  it("builds Boundary's URL so Hermes uses it as-is and masks the token", () => {
-    const url = hostBridgeCdpUrl(47002, 'tok/en');
-    expect(url).toBe('ws://host.docker.internal:47002/devtools/browser/boundary?token=tok%2Fen');
+  it("builds Boundary's URL so Hermes uses it as-is, with the token as a reference to .env", () => {
+    const url = hostBridgeCdpUrl(47002);
+    expect(url).toBe('ws://host.docker.internal:47002/devtools/browser/boundary?token=${BOUNDARY_BROWSER_TOKEN}');
     expect(isBoundaryCdpUrl(url)).toBe(true);
+    // A URL an earlier Boundary wrote with the token itself is still recognised, so it's replaced.
+    expect(isBoundaryCdpUrl('ws://host.docker.internal:47002/devtools/browser/boundary?token=abc')).toBe(true);
     expect(isBoundaryCdpUrl('http://127.0.0.1:9222')).toBe(false);
+  });
+
+  it('keeps Boundary’s browser off api-server, the stack’s unattended identity', () => {
+    expect(profileGetsBoundaryBrowser('api-server')).toBe(false);
+    for (const profile of ['', 'browser', 'orchestrator', 'researcher']) {
+      expect(profileGetsBoundaryBrowser(profile)).toBe(true);
+    }
+  });
+});
+
+describe('writeEnvValuesToProfiles', () => {
+  it('writes into existing profiles only, and reports no change the second time', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-'));
+    dirs.push(dataRoot);
+    fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'hob'), { recursive: true });
+    fs.writeFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=old\n');
+
+    const first = await writeEnvValuesToProfiles(dataRoot, ['hob', 'gone'], { TODOS_KEY: 'rw' });
+    expect(first).toEqual({ changed: true });
+    expect(fs.readFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'utf8')).toBe('BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=rw\n');
+    expect(fs.existsSync(path.join(dataRoot, 'hermes', 'profiles', 'gone'))).toBe(false);
+
+    expect(await writeEnvValuesToProfiles(dataRoot, ['hob'], { TODOS_KEY: 'rw' })).toEqual({ changed: false });
+    expect(await writeEnvValuesToProfiles(dataRoot, ['hob'], {})).toEqual({ changed: false });
+  });
+});
+
+describe('removeEnvValuesFromProfiles', () => {
+  it('drops only the named keys, and reports no change when none are set', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-drop-'));
+    dirs.push(dataRoot);
+    fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'hob'), { recursive: true });
+    fs.writeFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=rw\n');
+    expect(await removeEnvValuesFromProfiles(dataRoot, ['hob', 'gone'], ['TODOS_KEY'])).toEqual({ changed: true });
+    expect(fs.readFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'utf8')).toBe('BOUNDARY_BRIDGE_TOKEN=m\n');
+    expect(await removeEnvValuesFromProfiles(dataRoot, ['hob'], ['TODOS_KEY'])).toEqual({ changed: false });
   });
 });

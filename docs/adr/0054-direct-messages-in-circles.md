@@ -1,0 +1,43 @@
+# 0054. Direct messages in Circles: peer signals with an outbox, kept only on the two Macs
+
+- Date: 2026-11-11
+- Status: Proposed
+- Parent: [0042](0042-circle-chats.md)
+- Amends: [0042](0042-circle-chats.md) §14 (DMs over peer signals), [Circle chats spec](../circle-chats-ux-study/spec.md) decision 15 and its non-goal on DMs
+- Related: [0044](0044-circle-calls.md), [0051](0051-circle-notifications-and-mentions.md), [0052](0052-circles-destination-and-floating-agent.md), [0053](0053-replies-in-circle-chats.md), [Circle replies and DMs spec](../circle-replies-dms-ux-study/spec.md)
+
+## Context
+
+0042 §14 kept direct messages out of Circles. Every member's device replicates the whole Circle log and holds its key, so a two-person message stored in the log can be read, or at least seen to exist, by every member. It named two ways to make one private: live peer signals, or a message encrypted to its recipient.
+
+Peer signals already reach a single member. `sendSignal(circleKey, topic, payload, toIdentity)` sends only over the encrypted connection to that member's device, never through another member, and the receiver drops frames from devices that aren't current members. Signals are ordered on a connection, limited to 4 KB of JSON and 30 a second, and nothing keeps them for a peer that isn't connected. Calls with one person (0044 §4) already use them and keep nothing in the log.
+
+Encrypted operations in the log would deliver while the recipient is offline, through any member, but every member would see who wrote to whom, when and how much, for the life of the Circle, and store every DM. That record can't be withdrawn once written. The spec's comparison sets the two side by side; signals were chosen because what other members learn matters more than offline delivery, and because a signals build can later add offline delivery as an option while the reverse can't be undone.
+
+## Decision
+
+1. **A DM is a peer signal to one person, kept only on the two Macs.** Nothing about a DM enters the Circle log, at any format. Each side stores the conversation on its own Mac, encrypted at rest with the OS key as the Circles store encrypts secrets, in a store of its own per Circle rather than in the Circles store's single JSON file.
+2. **Topics.** `dm.message` carries `{ op, id, text, at, reply? }`, `dm.edit` `{ op, id, text }`, `dm.delete` `{ op, id }`, `dm.ack` `{ ids }` and `dm.typing` `{}`. `op` names one signal in the outbox, and `dm.ack` lists up to 32 of them, so a second edit to the same message isn't taken as acknowledged by the first one's acknowledgement. `op` and `id` follow the channel message pattern, `at` is the sender's clock and only shown (the receiver drops an `at` later than a JavaScript `Date` can hold and stores the rest as no later than its own clock), and `reply` names an earlier message in the same DM by sender and id, as 0053 does for channels. Receivers drop anything of the wrong shape, or from someone who isn't a member of the Circle, before the renderer sees it, and dedupe by sender and id.
+3. **The outbox.** A message, edit or delete waits in the sender's outbox, which survives restarts, until the recipient's device acknowledges it. The sender sends everything waiting when the recipient's device connects, and again every 30 seconds while it stays connected and unacknowledged. The recipient acknowledges in batches once stored. Nothing expires from the outbox on its own.
+4. **Size.** A DM's text is at most 3,072 bytes of UTF-8 counted as it is escaped in the signal's JSON (a newline or quote takes two bytes), so the whole signal stays under the 4 KB limit. Receivers also take text of up to 3,072 raw bytes that is longer once escaped, which earlier builds could send. The composer counts down near the limit and won't send past it. No splitting across signals.
+5. **Where DMs live.** On the Circles destination (0052), under the open Circle, a **Direct messages** section follows **Channels** and lists conversations by most recent message. A DM is with one person in that Circle. The same two people in two Circles have two separate conversations, since each lives with its Circle. **Message** sits in a person's panel in the Circle tab and on their row's hover, beside **Call**.
+6. **Telling it apart.** The header reads "Maya · Direct message in Book Club" with Maya's online dot. The composer reads "Message Maya · only Maya sees this", with a lock mark instead of the Circle mark and no brand-tinted edge. The footer hint reads "Delivered when you're both online. Nobody else in Book Club sees it."
+7. **Delivery states.** A sent message shows "Waiting for Maya to come online" while it's in the outbox and the recipient's device isn't connected, "Sending" while it is connected and unacknowledged, and "Delivered" once acknowledged. There are no read receipts. Typing shows as in channels (0042 §8).
+8. **Edits and deletes.** Only the sender edits or deletes. Both go through the outbox, so they reach the other Mac at its next overlap. Deleting a message still in the outbox removes it before it was ever sent, and says so. Editing a message that hasn't gone yet changes what will be sent, and neither Mac marks it edited. Deleting a delivered message says: "It disappears from Maya's Mac the next time you're both online. Anything Maya copied stays with Maya."
+9. **Message actions.** Copy, Reply, and Edit and Delete for the sender. No **Share to Circle…** target, no `@`, no agent posts and no GIFs, until agents in Circles and DM media have their own decisions.
+10. **Notifications.** A DM notifies under **All messages** and **Mentions only**, and stays silent under **Nothing** (0051 §2). The title reads "Maya · Direct message in Book Club". 0051 §5 and §6 apply, with the DM as the open conversation, and 0051 §3's text switch covers DM text too.
+11. **Leaving and removal.** A DM conversation goes with its Circle: when either person leaves or is removed, the Mac of the person who goes deletes the conversation and its outbox as it closes the Circle (0042 §7). The person who stays keeps the conversation, read-only, with the other person's **Left** tag, and their outbox to that person is dropped. A message that reaches a conversation this Mac still shows as ended isn't acknowledged, so its sender keeps it. Once this Mac has forgotten a Circle, nothing for it is stored until a later snapshot shows it gone and then back; a DM file for a Circle no longer in this Mac's Circles store is deleted at start. The leave dialog adds "Your direct messages in this Circle are deleted from this Mac."
+12. **Unread counts stay on this Mac.** Each conversation keeps the newest message this device has read, in the same encrypted DM file, and never sends it anywhere. A DM row shows how many of the other person's messages come after it, and the Circle's count in the list and the Circles icon include them. The open conversation is marked read while the window has focus, as channels are, so a DM that lands in a visible but unfocused window still counts and notifies. There are no read receipts (§7).
+13. **Logs carry metadata only.** The DM service logs counts, the first 8 hex characters of Circle keys, outbox sizes and acknowledgement timing. It never logs names, identities paired with each other, or text.
+
+## Consequences
+
+- A DM reaches someone only while both Macs are online and connected. People whose laptops are rarely open at the same time may wait hours or days, and the delivery state has to make that plain.
+- Two members whose networks keep their Macs from connecting directly can't exchange DMs, the same limit calls have. A relay would need its own decision.
+- History lives on two Macs and nowhere else. Reinstalling, or losing the Mac, loses it. A member with a second device in the same Circle, which isn't possible today, would need a sync decision.
+- Other members' disks hold nothing from DMs, and the Circle log never shows that two people talk.
+- A DM is a third of a channel message's length.
+- DMs need no format and no `apply` change, so they can ship in any build. Old builds ignore the topics, and the sender sees "Waiting for Maya to come online" for someone who is online on an old build; the delivery state's tooltip says the other person may need to update.
+- Encrypted operations in the log stay possible later as an opt-in for offline delivery, under their own ADR and format.
+- The live check is a `test:circles` testnet case: A sends to B while B is offline, B connects and receives once, an edit and a delete follow, and C, online throughout, receives nothing.
+- DMs need nothing from the agent stack, so `docs/stack-contract.md` gains no rows.

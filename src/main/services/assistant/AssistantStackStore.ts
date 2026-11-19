@@ -31,13 +31,19 @@ interface AssistantStackStoreShape {
   lastAppliedLlm?: LastAppliedLlm;
   /** Milestone offsets of the latest finished starts, newest last. Durations only. */
   startRuns?: Partial<Record<StartKind, StartOffsets[]>>;
-  /** Whether the stack starts n8n. Absent means off. */
+  /**
+   * The old Services switch for n8n. Absent means off. Read once per stack root, when it's
+   * written into the stack's `.env` (`builtinSwitchesMovedRoots`); `AUTOMATION_ENABLED` decides since.
+   */
   n8nEnabled?: boolean;
   /**
-   * Whether the stack starts LightRAG and Neo4j. Absent means off, on a stack that may still
-   * have their containers from a Boundary that always started them.
+   * The old Services switch for LightRAG and Neo4j, read once as `n8nEnabled` is
+   * (`LIGHTRAG_MCP_ENABLED`). Absent means off, on a stack that may still have their containers
+   * from a Boundary that always started them.
    */
   lightragEnabled?: boolean;
+  /** Stack roots whose `.env` got the two switches above. */
+  builtinSwitchesMovedRoots?: string[];
   /** Who answers Hermes's web searches and page reads. Absent means private. */
   webSearchMode?: string;
   /**
@@ -46,6 +52,8 @@ interface AssistantStackStoreShape {
    * active root's list. Ids can come from another build, so readers filter them.
    */
   installedAddonsByRoot?: Record<string, string[]>;
+  /** Add-on changes waiting for an assistant restart, per resolved stack root. Display text. */
+  pendingAddonChangesByRoot?: Record<string, string[]>;
 }
 
 // Read from memory: every Hermes record lookup checks the root override here.
@@ -73,6 +81,15 @@ export function setAddonInstalled(root: string, id: AddonId, installed: boolean)
   const rest = (byRoot[root] ?? []).filter((a) => a !== id);
   byRoot[root] = installed ? [...rest, id] : rest;
   store.set('installedAddonsByRoot', byRoot);
+}
+
+export function getPendingAddonChanges(root: string): string[] {
+  return store.get('pendingAddonChangesByRoot')?.[root] ?? [];
+}
+
+export function setPendingAddonChanges(root: string, list: string[]): void {
+  // The whole record is written: conf reads dots in a key as a path, and roots contain dots.
+  store.set('pendingAddonChangesByRoot', { ...store.get('pendingAddonChangesByRoot'), [root]: list });
 }
 
 export function getStartRuns(kind: StartKind): StartOffsets[] {
@@ -162,10 +179,6 @@ export function isN8nEnabled(): boolean {
   return store.get('n8nEnabled') === true;
 }
 
-export function setN8nEnabled(enabled: boolean): void {
-  store.set('n8nEnabled', enabled);
-}
-
 export function isLightragEnabled(): boolean {
   return store.get('lightragEnabled') === true;
 }
@@ -177,6 +190,16 @@ export function isLightragSettingUnset(): boolean {
 
 export function setLightragEnabled(enabled: boolean): void {
   store.set('lightragEnabled', enabled);
+}
+
+/** Whether the n8n and LightRAG switches above were written into this stack root's `.env`. */
+export function builtinSwitchesMoved(root: string): boolean {
+  return (store.get('builtinSwitchesMovedRoots') ?? []).includes(root);
+}
+
+export function markBuiltinSwitchesMoved(root: string): void {
+  const roots = store.get('builtinSwitchesMovedRoots') ?? [];
+  if (!roots.includes(root)) store.set('builtinSwitchesMovedRoots', [...roots, root]);
 }
 
 export function getWebSearchMode(): WebSearchMode {

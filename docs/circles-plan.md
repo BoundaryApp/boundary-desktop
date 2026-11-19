@@ -13,7 +13,7 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 4 Shared models | In progress: sharing from Inference with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
 | 5 Circle chats | In progress: [ADR 0042](adr/0042-circle-chats.md) and the [Circle chats spec](circle-chats-ux-study/spec.md); format 2 and the chat service (spec phases 1 and 2) are built, and Circles as places in the chat (phase 3) are in progress | 3 |
 | Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
-| Camera and microphone | Built; not yet tried in a signed build, and nothing in the app uses it yet | |
+| Camera and microphone | Built; macOS prompts and camera and microphone access confirmed in a signed build on two Macs (the call check's **Test call**, 12 Nov 2026); the denied-device steps of the checklist not yet run | |
 
 Phases 0 and 1 can run at the same time, and so can 2 and 3.
 
@@ -77,6 +77,8 @@ Short messages between the members of a Circle that nothing keeps, for typing in
 
 A connection belongs to a device, not a Circle, so each frame names its Circle. The receiver takes the sender's identity from the connection's device key and drops the frame unless that device is a current member of the Circle. Topics no listener has registered are dropped in the network process. Payloads are limited to 4 KB of JSON. Each peer may send 30 signals a second with bursts of 60, and receivers drop what goes past twice that. A member who is offline misses the signal.
 
+Calls are the one renderer path ([ADR 0044](adr/0044-circle-calls.md) §1). The renderer sends with `circles:call-send` and hears `circles:call`, and only three topics cross: `call.state`, sent every 5 seconds by a device in a call (to the whole Circle for a channel's room, to the other person only for a call with one person), `call.part`, a piece of a compressed offer, answer or goodbye sent to one member, and `call.ring`, sent to one member's identity to ring them (`ring`, `cancel`, `answering`, `decline` or `busy`). Main cleans all three before relaying them, and passes the sending device with each call event, so the renderer can open a call's tunnel to that device. The renderer also opens a call's tunnel with `circles:call-tunnel`: a UDP port on `127.0.0.1` whose packets cross the Circles connection to that member.
+
 ## Circle records
 
 Values kept in a Circle's Autobase for a feature, such as Circle settings, member profile fields and phase 5's channel settings. `setCircleRecord(circleKey, app, scope, key, value)` writes one, `deleteCircleRecord` removes it, `getCircleRecords(circleKey, app)` reads an app's records, and `onCircleRecord(app, handler)` reports changes. Main's code calls these directly, so there is no IPC.
@@ -84,6 +86,12 @@ Values kept in a Circle's Autobase for a feature, such as Circle settings, membe
 A `circle` record is one value that only admins write. A `member` record is one value per member under the author's identity, and `remove-member` deletes them unless they were set with `keep` (format 2). An admin deletes a kept record of someone who is no longer a member by passing their `identity` to `deleteCircleRecord`. `app` and `key` match `[a-z0-9][a-z0-9._-]{0,63}`, and a value is JSON up to 16 KB. `apply` checks shape, size and author and never reads the value, so a reader validates it. A device replicates every record, including apps it doesn't listen to.
 
 Each record has `confirmed`, and a change event fires when that flips. Listeners also get every record of a Circle as it opens. Until a record is confirmed it can be undone or reordered, and two admins writing one key resolve to whichever Autobase orders last.
+
+## Shared services
+
+A member shares a service, for now their local Twenty, as [ADR 0048](adr/0048-sharing-a-service-with-a-circle.md) sets out. The offer is a `member` record of app `services`, keyed by the service's id (`twenty.main` for the local workspace), whose value `parseServiceOffer` (`src/shared/serviceOffers.ts`) checks: `kind`, `name`, `levels` (`read`, or `read` and `write`), `available` and `away`. Grants are never in the log. Main keeps each member's keys encrypted with `safeStorage` (`sharedServices.ts`), and hands them with each service's address to the network process with the `service-sharing` request, which replaces what it had. Taking access away stops the gateway first and revokes the keys in Twenty after; a revoke that fails is retried when Circles next start.
+
+Calls travel on a `service` channel (`boundary/service/1`) beside `inference`, built on the same request-and-reply link (`gatewayLink.ts`). `requestService(circleKey, provider, request)` on the network asks a member's gateway; the gateway (`serviceGateway.ts`) answers only `POST /mcp`, only from a current member's device, and only for a member granted the level asked, and refuses while the offer's `available` is false.
 
 ## Circle chat
 

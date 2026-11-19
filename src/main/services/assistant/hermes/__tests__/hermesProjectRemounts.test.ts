@@ -45,6 +45,7 @@ import {
   setCodingGrantDepsForTests,
 } from '../../coding/codingGrants';
 import { resetCodingGrantStoreForTests } from '../../coding/codingGrantStore';
+import { fakeCodingDeps, makeFolder } from '../../coding/__tests__/codingDeps';
 import {
   changeHermesProjectFolder,
   createHostFolderHermesProject,
@@ -64,9 +65,7 @@ import {
 let tmp: string;
 
 function dir(...parts: string[]): string {
-  const full = path.join(tmp, ...parts);
-  fs.mkdirSync(full, { recursive: true });
-  return full;
+  return makeFolder(tmp, ...parts);
 }
 
 function hostProject(partial: Partial<HermesProjectRecord> = {}): HermesProjectRecord {
@@ -123,15 +122,7 @@ describe('folder remount queue (G09-9)', () => {
       return { success: true };
     };
     recreate.mockImplementation(hold);
-    setCodingGrantDepsForTests({
-      isLocalStack: () => false,
-      writeOverlay: () => undefined,
-      persistEnv: () => undefined,
-      recreate: hold,
-      verify: async () => true,
-      progress: () => undefined,
-      audit: () => undefined,
-    });
+    fakeCodingDeps({ home: tmp, overrides: { recreate: hold } });
 
     const all = Promise.all([
       syncOverlayAndRecreate(),

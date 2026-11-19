@@ -1,16 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InfoTip } from '../info-tip';
-
-beforeAll(() => {
-  // Radix's popper measures its anchor; jsdom has no ResizeObserver.
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-});
 
 describe('InfoTip', () => {
   beforeEach(() => vi.useFakeTimers());

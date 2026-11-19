@@ -2,6 +2,7 @@ import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
 
 import { cn } from "../../lib/utils"
+import { useOwnerDocument } from "./ownerDocument"
 
 const HOVER_OPEN_MS = 400
 const HOVER_CLOSE_MS = 150
@@ -20,6 +21,7 @@ type OpenedBy = "hover" | "press" | null
 // until Esc or a click outside. Explanations never go in a native title tooltip.
 function InfoTip({ label, children, className }: InfoTipProps) {
   const [openedBy, setOpenedBy] = React.useState<OpenedBy>(null)
+  const ownerDocument = useOwnerDocument()
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearTimer = () => {
@@ -62,7 +64,7 @@ function InfoTip({ label, children, className }: InfoTipProps) {
       >
         i
       </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Portal container={ownerDocument.body}>
         <PopoverPrimitive.Content
           role="note"
           aria-label={label}

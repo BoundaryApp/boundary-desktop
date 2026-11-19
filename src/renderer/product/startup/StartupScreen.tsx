@@ -21,6 +21,8 @@ import type {
 import { Button } from '../../components/ui/button';
 import { useDismiss, useEscapeToClose } from '../../components/ui/use-dismiss';
 import { Stepper, type StepperStep } from '../../components/ui/stepper';
+import { useWhatsNew } from '../whatsNew/state';
+import { WhatsNewCard } from './WhatsNewCard';
 import { ServiceProgressCards } from '../ServiceProgressCards';
 import { describeStartupError } from '../../../shared/startupErrors';
 import type { StartupDownload } from '../../../shared/startupDownload';
@@ -149,17 +151,21 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
   const showStory =
     !isError && !isReady && (variant === 'first-run' || now - mountedAt.current >= STORY_DELAY_MS);
   const tools = startupTools(services);
+  // An upgrade's notes take the story slot: a wait is a good moment to read what changed.
+  const whatsNew = useWhatsNew();
+  const notes =
+    whatsNew?.current && whatsNew.unseen && whatsNew.current.slides.length > 0
+      ? whatsNew.current
+      : null;
+  const cards = notes ? notes.slides.length : tools.length;
   const [pickedCard, setCard] = useState(0);
-  const card = pickedCard % tools.length;
+  const card = pickedCard % cards;
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     if (!showStory || paused || prefersReducedMotion()) return;
-    const timer = setInterval(
-      () => setCard((index) => (index + 1) % tools.length),
-      STORY_CARD_MS
-    );
+    const timer = setInterval(() => setCard((index) => (index + 1) % cards), STORY_CARD_MS);
     return () => clearInterval(timer);
-  }, [showStory, paused, card, tools.length]);
+  }, [showStory, paused, card, cards]);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   // An error opens the panel once, where it fits beside the column; it can be closed.
@@ -177,7 +183,8 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
     }
   }
   const fills = tools.map((tool) => toolHighWater.current[tool.id] ?? 0);
-  const highlighted = showStory ? card : -1;
+  // The ring highlights a tool; release notes leave it alone.
+  const highlighted = showStory && !notes ? card : -1;
   const lookAt = highlighted >= 0 ? highlighted : states.findIndex((s) => s === 'working');
 
   const failure = isError ? describeStartupError(error ?? message) : null;
@@ -224,7 +231,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
           highlighted={highlighted}
           lookAt={lookAt}
           mood={isError ? 'error' : isReady ? 'ready' : 'working'}
-          onPick={showStory ? setCard : undefined}
+          onPick={showStory && !notes ? setCard : undefined}
         />
 
         {/* Fixed height, so a hint, story card or error never moves the ring or footer. */}
@@ -255,7 +262,12 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
           {!isError && (
             <div className="su-story-slot">
-              {showStory && <StoryCard tools={tools} index={card} onPick={setCard} onPause={setPaused} />}
+              {showStory &&
+                (notes ? (
+                  <WhatsNewCard release={notes} index={card} onPick={setCard} onPause={setPaused} />
+                ) : (
+                  <StoryCard tools={tools} index={card} onPick={setCard} onPause={setPaused} />
+                ))}
             </div>
           )}
 
@@ -327,7 +339,7 @@ const RawError: React.FC<{ text: string }> = ({ text }) => {
   return (
     <div className="su-raw">
       <pre>{text}</pre>
-      <Button type="button" variant="outline" size="sm" onClick={copy}>
+      <Button type="button" variant="secondary" size="sm" onClick={copy}>
         {copied ? 'Copied' : 'Copy details'}
       </Button>
     </div>

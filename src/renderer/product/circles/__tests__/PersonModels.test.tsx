@@ -1,7 +1,10 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../../shared/types/circles';
+import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
+import type { AppSwitchEvent, InferenceSlotId } from '../../../../shared/types/onboarding';
+import { BO as bo, CIRCLE_KEY as KEY, ME, circleMember, circleOffer, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { PersonModels, ProviderClaims } from '../PersonPanel';
 import { useCirclesState } from '../useCircles';
@@ -16,21 +19,19 @@ stubElectronAPI({
   circles: {
     getState: (...args: unknown[]) => getState(...args),
     setProviderSettings: (...args: unknown[]) => setProviderSettings(...args),
-    onState: () => () => undefined,
+    onState: () => (): void => undefined,
   },
   onboarding: {
     getStatus: (...args: unknown[]) => getStatus(...args),
     setAppSharedModel: (...args: unknown[]) => setAppSharedModel(...args),
     setAppFallbacks: (...args: unknown[]) => setAppFallbacks(...args),
-    getAppSwitch: async () => ({ appSwitch: null }),
-    onAppSwitch: () => () => undefined,
+    getAppSwitch: async (): Promise<AppSwitchEvent> => ({ appSwitch: null }),
+    onAppSwitch: () => (): void => undefined,
   },
 });
 
-const KEY = 'c'.repeat(64);
 const SECOND = 'd'.repeat(64);
-const bo = 'b'.repeat(64);
-const offer = { identity: bo, name: 'Bo', isMine: false, models: [{ id: 'qwen3-8b', contextLength: 32768, tools: true }], available: true, away: false, online: true };
+const offer = circleOffer({ models: [{ id: 'qwen3-8b', contextLength: 32768, tools: true }] });
 const entry = { slot: 'peer', modelId: 'qwen3-8b', peer: { circleId: KEY, providerId: bo } };
 const localConnected = {
   configured: true,
@@ -38,31 +39,8 @@ const localConnected = {
 };
 
 function offering(overrides: Partial<CirclesState> = {}): CirclesState {
-  return {
-    status: 'running',
-    displayName: 'Ada',
-    snapshot: {
-      identity: 'a'.repeat(64),
-      circles: [
-        {
-          key: KEY,
-          name: 'Garden club',
-          myRole: 'member',
-          members: [
-            { identity: 'a'.repeat(64), name: 'Ada', role: 'member', isMe: true, online: true },
-            { identity: bo, name: 'Bo', role: 'member', isMe: false, online: true },
-          ],
-          invites: [],
-          offers: [offer],
-          needsUpdate: false,
-          writable: true,
-        },
-      ],
-    },
-    providers: {},
-    sharing: { models: [], circles: [], paused: false, away: false },
-    ...overrides,
-  };
+  const members = [circleMember({ identity: ME, name: 'Ada', isMe: true }), circleMember({ identity: bo, name: 'Bo' })];
+  return runningCircles({ circles: [circleSnapshot({ members, offers: [offer] })], ...overrides });
 }
 
 /** Bo's trust and models, as Inference and setup mount them. */
@@ -87,7 +65,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   getStatus.mockResolvedValue(localConnected);
 });
-afterEach(() => cleanup());
 
 describe('A person’s models', () => {
   it('saves what the user accepts from a provider', async () => {
@@ -107,7 +84,7 @@ describe('A person’s models', () => {
   });
 
   it('makes a trusted provider’s model the default', async () => {
-    const usingBo = { ...localConnected, appDefault: null, appSharedModel: entry, appFallbacks: [] };
+    const usingBo = { ...localConnected, appDefault: null as InferenceSlotId | null, appSharedModel: entry, appFallbacks: [] as InferenceChainEntry[] };
     setAppSharedModel.mockResolvedValue({ success: true, status: usingBo });
     const panel = await openBo(offering({ providers: { [bo]: { private: false, trusted: true } } }));
     await act(async () => fireEvent.click(await within(panel).findByRole('button', { name: 'Use as default' })));
@@ -123,7 +100,7 @@ describe('A person’s models', () => {
   });
 
   it('adds the model to the fallbacks, once', async () => {
-    const connected = { ...localConnected, appDefault: 'local', appFallbacks: [] };
+    const connected = { ...localConnected, appDefault: 'local', appFallbacks: [] as InferenceChainEntry[] };
     getStatus.mockResolvedValue(connected);
     setAppFallbacks.mockResolvedValue({ success: true, status: { ...connected, appFallbacks: [entry] } });
     const panel = await openBo(offering({ providers: { [bo]: { private: false, trusted: true } } }));

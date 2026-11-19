@@ -1,8 +1,21 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import { InferenceChip } from '../InferenceChip';
+import type {
+  HermesSessionInferenceResult,
+  InferenceProvenance,
+  PoolServedTurn,
+  ResolvedSessionInference,
+  SessionInferenceMark,
+  TurnWindow,
+} from '../../../../shared/types/hermesChat';
+import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
+import { InferenceChip as Chip } from '../InferenceChip';
+import { projectInferenceKey } from '../projectInferenceKey';
+import { useSessionInference } from '../useChatInference';
+import { EMPTY_RANKING, QWEN_RANKING, poolBridge } from '../../../__tests__/confidentialFixtures';
+import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 
 const getStatus = vi.fn();
 const probeSlotHealth = vi.fn();
@@ -18,7 +31,7 @@ stubElectronAPI({
     probeSlotHealth: (...args: unknown[]) => probeSlotHealth(...args),
     onStatus: (cb: (status: unknown) => void) => {
       pushStatus.current = cb;
-      return () => undefined;
+      return (): void => undefined;
     },
   },
   hermesChat: {
@@ -44,6 +57,26 @@ const bothConfigured = {
       health: 'reachable' as const,
     },
   },
+};
+
+/** The chip as the thread mounts it, fed by what main resolves for the chat. */
+const InferenceChip: React.FC<{
+  sessionId: string | null;
+  projectInferenceKey?: string | null;
+  applying?: boolean;
+}> = ({ sessionId, projectInferenceKey: key = null, applying }) => {
+  const inference = useSessionInference({ sessionId, projectInferenceKey: key });
+  return (
+    <Chip
+      sessionId={sessionId}
+      projectInferenceKey={key}
+      applying={applying}
+      resolved={inference.resolved}
+      marks={inference.marks}
+      poolTurns={inference.poolTurns}
+      refresh={inference.refresh}
+    />
+  );
 };
 
 /** The menu's "This chat tries, in order" rows, first to last. */
@@ -157,9 +190,191 @@ describe('InferenceChip', () => {
     expect(order()[0].textContent).toMatch(/Bo's qwen3-8b.*shared in your Circle/);
   });
 
+  describe('with a confidential pool (ADR 0047 §8)', () => {
+    const pool: InferenceChainEntry = { slot: 'confidential', modelId: 'qwen' };
+    const poolFirst = (fallbacks: InferenceChainEntry[] = []): HermesSessionInferenceResult => ({
+      success: true,
+      override: null,
+      resolved: {
+        slot: 'confidential',
+        modelId: 'qwen',
+        providerDisplayName: 'Confidential',
+        provenance: 'app-default',
+        configured: true,
+        needsRestart: false,
+        fallbacks,
+      },
+      marks: [],
+      poolTurns: [],
+      turnWindows: [],
+    });
+    const nearTurn: PoolServedTurn = {
+      at: new Date(1_000).toISOString(),
+      windowStartedAt: new Date(900).toISOString(),
+      modelId: 'qwen',
+      providerId: 'near',
+      providerName: 'NEAR AI Cloud',
+      level: 'B',
+      moved: 'new-session',
+      mixedProviders: false,
+    };
+
+    afterEach(() => {
+      stubElectronAPI({ confidential: { getState: vi.fn(() => new Promise<never>(() => undefined)) } });
+      resetIpcStoresForTests();
+    });
+
+    it('lists a chat stack that starts with a pool from the app, without probing it', async () => {
+      resetIpcStoresForTests();
+      stubElectronAPI({ confidential: poolBridge() });
+      getSessionInference.mockResolvedValue(poolFirst([{ slot: 'local' }]));
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Confidential · qwen/ }));
+      await screen.findByText('This chat tries, in order');
+      expect(order().map((row) => row.textContent)).toEqual([
+        expect.stringMatching(/Confidential · qwen.*confidential/),
+        expect.stringMatching(/Local · qwen3:14b.*on this machine/),
+      ]);
+      expect(probeSlotHealth).not.toHaveBeenCalled();
+    });
+
+    it('names the provider that answered the newest pool turn, with its level badge', async () => {
+      resetIpcStoresForTests();
+      stubElectronAPI({ confidential: poolBridge() });
+      const older: PoolServedTurn = { ...nearTurn, providerId: 'prem', providerName: 'Prem', level: 'A' };
+      getSessionInference.mockResolvedValue({ ...poolFirst(), poolTurns: [older, nearTurn] });
+      render(<InferenceChip sessionId="s1" />);
+      const chip = await screen.findByRole('button', { name: /Inference · Qwen 3\.8 27B · NEAR AI Cloud/ });
+      expect(chip.querySelector('b')?.textContent).toBe('Qwen 3.8 27B · NEAR AI Cloud');
+      const badge = chip.querySelector('.wb-conf-level');
+      expect(badge?.textContent).toBe('B');
+      expect(badge?.getAttribute('title')).toBe('Level B: Checked hardware');
+    });
+
+    it('keeps the pool’s own name when the chat starts with another model', async () => {
+      getSessionInference.mockResolvedValue({ ...resolvedLocal('app-default', [pool]), poolTurns: [nearTurn] });
+      render(<InferenceChip sessionId="s1" />);
+      const chip = await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ });
+      expect(chip.querySelector('.wb-conf-level')).toBeNull();
+    });
+
+    /** Pools ranked for a private project serve only when `levelA`; ordinary chats always find a provider. */
+    const privateBridge = (levelA: boolean) => ({
+      ...poolBridge(),
+      rank: vi.fn(({ privateProject }: { privateProject: boolean }) =>
+        Promise.resolve(privateProject && !levelA ? EMPTY_RANKING : QWEN_RANKING)
+      ),
+    });
+    const lockedWithPool = (): HermesSessionInferenceResult => ({
+      ...resolvedLocal('project-default', [pool]),
+      resolved: { ...resolvedLocal('project-default', [pool]).resolved!, privacyLocked: true },
+    });
+
+    it('in a private project, uses a pool a level A provider serves, as main does', async () => {
+      resetIpcStoresForTests();
+      const bridge = privateBridge(true);
+      stubElectronAPI({ confidential: bridge });
+      getSessionInference.mockResolvedValue(lockedWithPool());
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · Qwen 3\.8 27B.*confidential/));
+      expect(order()[1].textContent).not.toMatch(/this project is private/);
+      // Ranked as main plans a locked chat: at Pool settings' private minimum.
+      expect(bridge.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'A' });
+    });
+
+    it('in a private project that allows level B, ranks pools at the floor main plans with', async () => {
+      resetIpcStoresForTests();
+      const bridge = {
+        ...poolBridge(),
+        rank: vi.fn(({ privateProject, projectFloor }: { privateProject: boolean; projectFloor?: string }) =>
+          Promise.resolve(privateProject && projectFloor !== 'B' ? EMPTY_RANKING : QWEN_RANKING)
+        ),
+      };
+      stubElectronAPI({ confidential: bridge });
+      const locked = lockedWithPool();
+      getSessionInference.mockResolvedValue({ ...locked, resolved: { ...locked.resolved!, projectFloor: 'B' } });
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · Qwen 3\.8 27B.*confidential/));
+      expect(order()[1].textContent).not.toMatch(/this project is private/);
+      expect(bridge.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'B' });
+    });
+
+    it('asks main again after Don’t allow, so the chip stops using a level B-only pool', async () => {
+      resetIpcStoresForTests();
+      const bridge = {
+        ...poolBridge(),
+        rank: vi.fn(({ privateProject, projectFloor }: { privateProject: boolean; projectFloor?: string }) =>
+          Promise.resolve(privateProject && projectFloor !== 'B' ? EMPTY_RANKING : QWEN_RANKING)
+        ),
+      };
+      stubElectronAPI({ confidential: bridge });
+      const locked = lockedWithPool();
+      const project = {
+        id: 'p1',
+        name: 'Job Search',
+        hostPath: '/tmp/job',
+        containerPath: '/opt/projects/job',
+        slug: 'job',
+        kind: 'host-folder' as const,
+        inference: { mode: 'inherit' as const, privacyLocalOnly: true, allowConfidentialLevelB: true },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+      getSessionInference.mockResolvedValue({ ...locked, resolved: { ...locked.resolved!, projectFloor: 'B' } });
+      const { rerender } = render(<InferenceChip sessionId="s1" projectInferenceKey={projectInferenceKey(project)} />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · Qwen 3\.8 27B.*confidential/));
+      expect(order()[1].textContent).not.toMatch(/this project is private/);
+
+      // Don’t allow patches only the field: main now plans at A.
+      getSessionInference.mockResolvedValue({ ...locked, resolved: { ...locked.resolved!, projectFloor: 'A' } });
+      const asked = getSessionInference.mock.calls.length;
+      rerender(
+        <InferenceChip
+          sessionId="s1"
+          projectInferenceKey={projectInferenceKey({
+            ...project,
+            inference: { ...project.inference, allowConfidentialLevelB: false },
+          })}
+        />
+      );
+      await waitFor(() => expect(getSessionInference.mock.calls.length).toBeGreaterThan(asked));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/not used · this project is private/));
+      expect(bridge.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'A' });
+    });
+
+    it('in a private project, puts a pool only level B providers serve past the private cut', async () => {
+      resetIpcStoresForTests();
+      stubElectronAPI({ confidential: privateBridge(false) });
+      getSessionInference.mockResolvedValue(lockedWithPool());
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · Qwen 3\.8 27B/));
+      expect(order()[1].textContent).toMatch(/not used · this project is private/);
+    });
+
+    it('says a pool fallback is skipped only when no provider can serve it', async () => {
+      getSessionInference.mockResolvedValue(resolvedLocal('app-default', [pool]));
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      // Pools are off here, so nobody serves it.
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · qwen.*no provider serves it now, skipped/));
+      cleanup();
+
+      resetIpcStoresForTests();
+      stubElectronAPI({ confidential: poolBridge() });
+      render(<InferenceChip sessionId="s1" />);
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+      await waitFor(() => expect(order()[1].textContent).toMatch(/Confidential · Qwen 3\.8 27B.*confidential/));
+      expect(order()[1].textContent).not.toMatch(/skipped/);
+    });
+  });
+
   describe('when a fallback answered', () => {
     const peer = { circleId: 'c1', providerId: 'p1' };
-    const sharedMark = {
+    const sharedMark: SessionInferenceMark = {
       id: 'f1',
       at: '2026-10-31T10:00:00.000Z',
       kind: 'fell-back',
@@ -167,7 +382,10 @@ describe('InferenceChip', () => {
       modelId: 'qwen3-8b',
       sharedBy: { person: 'Bo', circle: 'Friends' },
     };
-    const onOpenRouter = (marks: unknown[], extra: Record<string, unknown> = {}) => ({
+    const onOpenRouter = (
+      marks: SessionInferenceMark[],
+      extra: Partial<ResolvedSessionInference> = {}
+    ): HermesSessionInferenceResult => ({
       success: true,
       override: null,
       resolved: {
@@ -181,6 +399,8 @@ describe('InferenceChip', () => {
         ...extra,
       },
       marks,
+      poolTurns: [],
+      turnWindows: [],
     });
 
     it('names the shared model with a marker and keeps the primary in the menu', async () => {
@@ -200,15 +420,16 @@ describe('InferenceChip', () => {
 
     it('returns to the primary when a refresh finds it answered again', async () => {
       getSessionInference.mockResolvedValue(onOpenRouter([sharedMark]));
-      const { rerender } = render(<InferenceChip sessionId="s1" refreshKey={0} />);
-      await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
+      render(<InferenceChip sessionId="s1" />);
+      const before = await screen.findByRole('button', { name: /Bo's qwen3-8b/ });
       getSessionInference.mockResolvedValue(
         onOpenRouter([
           sharedMark,
           { ...sharedMark, id: 'r1', kind: 'recovered', provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' },
         ])
       );
-      rerender(<InferenceChip sessionId="s1" refreshKey={1} />);
+      // Opening the menu asks main again.
+      fireEvent.click(before);
       const chip = await screen.findByRole('button', { name: /Inference · OpenRouter · claude-sonnet-4/ });
       expect(chip.textContent).toBe('OpenRouter · claude-sonnet-4');
     });
@@ -237,7 +458,7 @@ describe('InferenceChip', () => {
     });
 
     it('keeps a private fallback in a private project, and never names a cloud one there', async () => {
-      const locked = { privacyLocked: true, slot: 'local', modelId: 'qwen3:14b', providerDisplayName: 'Local', health: 'reachable' };
+      const locked: Partial<ResolvedSessionInference> = { privacyLocked: true, slot: 'local', modelId: 'qwen3:14b', providerDisplayName: 'Local', health: 'reachable' };
       getSessionInference.mockResolvedValue(onOpenRouter([sharedMark], locked));
       const { unmount } = render(<InferenceChip sessionId="s1" />);
       await screen.findByRole('button', { name: /Bo's qwen3-8b · fallback for Local/ });
@@ -316,7 +537,10 @@ describe('InferenceChip', () => {
     expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
   });
 
-  function resolvedLocal(provenance: string, fallbacks: Array<{ slot: string }>) {
+  function resolvedLocal(
+    provenance: InferenceProvenance,
+    fallbacks: InferenceChainEntry[]
+  ): HermesSessionInferenceResult {
     return {
       success: true,
       override: provenance === 'chat-override' ? { provider: 'local', modelId: 'qwen3:14b', fallbacks } : null,
@@ -331,6 +555,8 @@ describe('InferenceChip', () => {
         fallbacks,
       },
       marks: [],
+      poolTurns: [],
+      turnWindows: [],
     };
   }
 
@@ -432,6 +658,24 @@ describe('InferenceChip', () => {
     });
   });
 
+  it('says why a shared model behind a provider can’t move up in the chat’s stack', async () => {
+    const peer = { circleId: 'c1', providerId: 'p1' };
+    getSessionInference.mockResolvedValue(
+      resolvedLocal('app-default', [{ slot: 'peer', modelId: 'qwen3-8b', peer }])
+    );
+    render(<InferenceChip sessionId="s1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Inference · Local · qwen3:14b/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit stack' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Stack for this chat' });
+    const up = within(sheet).getByRole('button', { name: /^Move .*qwen3-8b up$/ }) as HTMLButtonElement;
+    expect(up.disabled).toBe(true);
+    expect(up.title).toMatch(/can’t come first/);
+    // Moving Local down is the same order, so it's refused for the same reason, shown once.
+    const down = within(sheet).getByRole('button', { name: 'Move Local · qwen3:14b down' }) as HTMLButtonElement;
+    expect(down.disabled).toBe(true);
+    expect(within(sheet).getAllByText(/put it first in Inference, then go back to the Chat stack here/)).toHaveLength(1);
+  });
+
   it('goes back to the Chat stack from a chat with its own', async () => {
     getSessionInference.mockResolvedValue(resolvedLocal('chat-override', []));
     render(<InferenceChip sessionId="s1" />);
@@ -485,11 +729,9 @@ describe('InferenceChip', () => {
       marks: [],
       error: 'Missing session.',
     });
-    const onResolvedChange = vi.fn();
-    render(<InferenceChip sessionId={null} onResolvedChange={onResolvedChange} />);
+    render(<InferenceChip sessionId={null} />);
     expect(await screen.findByRole('button', { name: /Inference · OpenRouter · claude-sonnet-4/ })).toBeTruthy();
     expect(getSessionInference).toHaveBeenCalledWith({ sessionId: '' });
-    expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ slot: 'openrouter' }));
     expect(probeSlotHealth).not.toHaveBeenCalled();
   });
 
@@ -534,42 +776,71 @@ describe('InferenceChip', () => {
     expect(screen.getByRole('button', { name: /Inference · OpenRouter/ })).toBeTruthy();
   });
 
-  it('falls back to no provider when main does not answer', async () => {
-    getSessionInference.mockRejectedValue(new Error('ipc closed'));
-    const onResolvedChange = vi.fn();
-    render(<InferenceChip sessionId="s1" onResolvedChange={onResolvedChange} />);
-    await waitFor(() => expect(onResolvedChange).toHaveBeenCalledWith(null));
-    expect(screen.getByRole('button', { name: /Inference · No provider/ })).toBeTruthy();
-  });
+  describe('useSessionInference', () => {
+    it('falls back to no provider when main does not answer', async () => {
+      getSessionInference.mockRejectedValue(new Error('ipc closed'));
+      render(<InferenceChip sessionId="s1" />);
+      expect(await screen.findByRole('button', { name: /Inference · No provider/ })).toBeTruthy();
+    });
 
-  it('takes the probed health without asking main again, and re-resolves on refreshKey', async () => {
-    probeSlotHealth.mockResolvedValue({ success: false, health: 'unreachable' });
-    const onResolvedChange = vi.fn();
-    const { rerender } = render(<InferenceChip sessionId="s1" refreshKey={0} onResolvedChange={onResolvedChange} />);
-    await waitFor(() =>
-      expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'unreachable' }))
-    );
-    expect(getSessionInference).toHaveBeenCalledTimes(1);
-    rerender(<InferenceChip sessionId="s1" refreshKey={1} onResolvedChange={onResolvedChange} />);
-    await waitFor(() => expect(getSessionInference).toHaveBeenCalledTimes(2));
-  });
+    it('clears what it had when a later answer fails', async () => {
+      const { result } = renderHook(() => useSessionInference({ sessionId: 's1' }));
+      await waitFor(() => expect(result.current.resolved).toEqual(expect.objectContaining({ slot: 'local' })));
+      getSessionInference.mockRejectedValue(new Error('ipc closed'));
+      await act(() => result.current.refresh());
+      expect(result.current.resolved).toBeNull();
+      expect(result.current.marks).toEqual([]);
+      expect(result.current.poolTurns).toEqual([]);
+    });
 
-  it('takes the local health main pushes, so a chat on Local learns it went unreachable', async () => {
-    const onResolvedChange = vi.fn();
-    render(<InferenceChip sessionId="s1" onResolvedChange={onResolvedChange} />);
-    await waitFor(() =>
-      expect(onResolvedChange).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'reachable' }))
-    );
+    it('takes the probed health without asking main again, and re-resolves on refresh', async () => {
+      probeSlotHealth.mockResolvedValue({ success: false, health: 'unreachable' });
+      const { result } = renderHook(() => useSessionInference({ sessionId: 's1' }));
+      await waitFor(() => expect(result.current.resolved).toEqual(expect.objectContaining({ health: 'unreachable' })));
+      expect(getSessionInference).toHaveBeenCalledTimes(1);
+      await act(() => result.current.refresh());
+      expect(getSessionInference).toHaveBeenCalledTimes(2);
+    });
 
-    await act(async () =>
-      pushStatus.current?.({
-        ...bothConfigured,
-        slots: { ...bothConfigured.slots, local: { ...bothConfigured.slots.local, health: 'unreachable' } },
-      })
-    );
-    expect(onResolvedChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ slot: 'local', health: 'unreachable' })
-    );
-    expect(getSessionInference).toHaveBeenCalledTimes(1);
+    it('re-resolves when the project pin changes', async () => {
+      const { rerender } = renderHook(({ key }) => useSessionInference({ sessionId: 's1', projectInferenceKey: key }), {
+        initialProps: { key: 'p1:local:qwen3:14b:false:false' },
+      });
+      await waitFor(() => expect(getSessionInference).toHaveBeenCalledTimes(1));
+      rerender({ key: 'p1:local:qwen3:14b:true:false' });
+      await waitFor(() => expect(getSessionInference).toHaveBeenCalledTimes(2));
+    });
+
+    it('passes on the turns a pool answered and when each turn ran', async () => {
+      const turn: PoolServedTurn = {
+        at: new Date(1_000).toISOString(),
+        windowStartedAt: new Date(900).toISOString(),
+        modelId: 'qwen',
+        providerId: 'near',
+        providerName: 'NEAR AI Cloud',
+        level: 'B',
+        moved: null,
+        mixedProviders: false,
+      };
+      const windows: TurnWindow[] = [{ startedAt: new Date(900).toISOString(), endedAt: null }];
+      getSessionInference.mockResolvedValue({ success: true, override: null, resolved: null, marks: [], poolTurns: [turn], turnWindows: windows });
+      const { result } = renderHook(() => useSessionInference({ sessionId: 's1' }));
+      await waitFor(() => expect(result.current.poolTurns).toEqual([turn]));
+      expect(result.current.turnWindows).toEqual(windows);
+    });
+
+    it('takes the local health main pushes, so a chat on Local learns it went unreachable', async () => {
+      const { result } = renderHook(() => useSessionInference({ sessionId: 's1' }));
+      await waitFor(() => expect(result.current.resolved).toEqual(expect.objectContaining({ health: 'reachable' })));
+
+      await act(async () =>
+        pushStatus.current?.({
+          ...bothConfigured,
+          slots: { ...bothConfigured.slots, local: { ...bothConfigured.slots.local, health: 'unreachable' } },
+        })
+      );
+      expect(result.current.resolved).toEqual(expect.objectContaining({ slot: 'local', health: 'unreachable' }));
+      expect(getSessionInference).toHaveBeenCalledTimes(1);
+    });
   });
 });

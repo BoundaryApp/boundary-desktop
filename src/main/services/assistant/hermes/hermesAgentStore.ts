@@ -12,7 +12,10 @@ import type {
   HermesLastOpened,
   HermesNoReply,
   HermesReplyEnding,
+  PoolServedTurn,
   SessionInferenceMark,
+  TurnWindow,
+  WritingVoiceMark,
   SessionInferenceOverride,
   SessionProjectMark,
 } from '../../../../shared/types/hermesChat';
@@ -38,6 +41,8 @@ interface SessionMeta {
    * project; absent means not filed yet, which the chat list resolves once from its cwd.
    */
   projectId?: string | null;
+  /** A writing voice kept for this chat (ADR 0056 §6); replaces the agent's voices. */
+  writingVoiceId?: string;
 }
 
 /** Assistant-message ordinal → agent that spoke it (per session). */
@@ -62,6 +67,15 @@ interface HermesAgentsStoreShape {
   channelPosts: Record<string, ChannelPostRecord[]>;
   /** Switch markers shown in the transcript without entering Hermes history. */
   sessionInferenceMarks: Record<string, SessionInferenceMark[]>;
+  /** Turns a confidential pool answered, by session, newest POOL_TURN_LIMIT kept (ADR 0047). */
+  poolServedTurns?: Record<string, PoolServedTurn[]>;
+  /**
+   * When each turn ran, by session, newest POOL_TURN_LIMIT kept, so a reply is matched to the one
+   * turn that was running when it was written, whatever served it.
+   */
+  sessionTurnWindows?: Record<string, StoredTurnWindow[]>;
+  /** Kept writing voice marks by session (ADR 0056 §6). */
+  sessionWritingVoiceMarks: Record<string, WritingVoiceMark[]>;
   /** Project moves and DM folder changes, shown in the transcript only (ADR 0024). */
   sessionProjectMarks: Record<string, SessionProjectMark[]>;
   /**
@@ -69,6 +83,10 @@ interface HermesAgentsStoreShape {
    * text but not why it stopped, so the Stopped / Interrupted markers survive a reload.
    */
   replyEndings: Record<string, Record<string, HermesReplyEnding>>;
+  /** The writing voice each reply was written in, by assistant row id (ADR 0056 §6). */
+  replyWritingVoices: Record<string, Record<string, string>>;
+  /** The voice chip a message was sent with, by user row id, so Retry and Edit keep it. */
+  promptWritingVoices: Record<string, Record<string, string>>;
   /** Why a reply never came, by session and the unanswered user row id. */
   noReplies: Record<string, Record<string, HermesNoReply>>;
   /** Failed sends Hermes holds nothing for, by stored session id or Boundary's local id. */
@@ -96,6 +114,8 @@ interface HermesAgentsStoreShape {
    * file changes. Not moved with the room: a new session hasn't seen it.
    */
   roomSoulsSent?: Record<string, Record<string, string>>;
+  /** The writing voice guide each member was last sent in full in a room, as `voiceId:hash`. */
+  roomVoicesSent?: Record<string, Record<string, string>>;
 }
 
 export interface OrchestratorRecord {
@@ -114,8 +134,11 @@ const STORE_DEFAULTS: HermesAgentsStoreShape = {
   sessionSpeakers: {},
   channelPosts: {},
   sessionInferenceMarks: {},
+  sessionWritingVoiceMarks: {},
   sessionProjectMarks: {},
   replyEndings: {},
+  replyWritingVoices: {},
+  promptWritingVoices: {},
   noReplies: {},
   mentionsSeenAt: null,
 };
@@ -180,6 +203,22 @@ export function upsertStoredAgent(agent: AgentProfile): void {
     standing[agent.slug] = null;
     store().set('standingDmByAgent', standing);
   }
+}
+
+/**
+ * Set an agent's two writing voices on its stored row (ADR 0056 §5), leaving every other field
+ * as stored, so the built-in agent's supplied name is never written. Null for an unknown slug.
+ */
+export function updateStoredAgentVoices(
+  slug: string,
+  voices: { chatRepliesVoiceId: string | null; draftsVoiceId: string | null }
+): AgentProfile | null {
+  const agents = ensureBuiltin();
+  const stored = agents.find((a) => a.slug === slug);
+  if (!stored) return null;
+  const next = { ...stored, chatRepliesVoiceId: voices.chatRepliesVoiceId, draftsVoiceId: voices.draftsVoiceId };
+  store().set('agents', agents.map((a) => (a.slug === slug ? next : a)));
+  return withBuiltinAgentName(next);
 }
 
 /** Standing DMs by personality. */
@@ -365,6 +404,67 @@ export function retargetSessionInferenceModel(
   if (changed) store().set('sessionMeta', meta);
 }
 
+export function getSessionWritingVoice(sessionId: string): string | null {
+  return store().get('sessionMeta')?.[sessionId]?.writingVoiceId ?? null;
+}
+
+/** Keep a writing voice for a chat, or clear it with null. */
+export function setSessionWritingVoice(sessionId: string, voiceId: string | null): void {
+  if (voiceId) {
+    updateSessionMeta(sessionId, { writingVoiceId: voiceId });
+    return;
+  }
+  const meta = { ...(store().get('sessionMeta') ?? {}) };
+  const prior = meta[sessionId];
+  if (!prior?.writingVoiceId) return;
+  const { writingVoiceId: _drop, ...rest } = prior;
+  meta[sessionId] = rest;
+  store().set('sessionMeta', meta);
+}
+
+/**
+ * Move a kept voice and its marks from one id to another (a runtime id to the stored id), so
+ * they outlast a stack restart. A voice already kept under `to` stays.
+ */
+export function moveSessionWritingVoice(from: string, to: string): void {
+  if (!from || !to || from === to) return;
+  const kept = getSessionWritingVoice(from);
+  if (kept) {
+    if (!getSessionWritingVoice(to)) updateSessionMeta(to, { writingVoiceId: kept });
+    setSessionWritingVoice(from, null);
+  }
+  const marks = { ...(store().get('sessionWritingVoiceMarks') ?? {}) };
+  const fromMarks = marks[from] ?? [];
+  if (fromMarks.length === 0) return;
+  const seen = new Set((marks[to] ?? []).map((m) => m.id));
+  marks[to] = [...(marks[to] ?? []), ...fromMarks.filter((m) => !seen.has(m.id))];
+  delete marks[from];
+  store().set('sessionWritingVoiceMarks', marks);
+}
+
+/** Sessions that keep `voiceId`, for a delete. */
+export function listSessionsKeepingWritingVoice(voiceId: string): string[] {
+  return Object.entries(store().get('sessionMeta') ?? {})
+    .filter(([, meta]) => meta.writingVoiceId === voiceId)
+    .map(([id]) => id);
+}
+
+export function listSessionWritingVoiceMarks(sessionId: string): WritingVoiceMark[] {
+  return [...(store().get('sessionWritingVoiceMarks')?.[sessionId] ?? [])];
+}
+
+export function appendSessionWritingVoiceMark(
+  sessionId: string,
+  input: Pick<WritingVoiceMark, 'kind' | 'voiceId' | 'voiceName'>,
+  at: Date = new Date()
+): WritingVoiceMark {
+  const mark: WritingVoiceMark = { id: randomUUID(), at: at.toISOString(), ...input };
+  const all = { ...(store().get('sessionWritingVoiceMarks') ?? {}) };
+  all[sessionId] = [...(all[sessionId] ?? []), mark];
+  store().set('sessionWritingVoiceMarks', all);
+  return mark;
+}
+
 export function listSessionInferenceMarks(sessionId: string): SessionInferenceMark[] {
   return [...(store().get('sessionInferenceMarks')?.[sessionId] ?? [])];
 }
@@ -388,6 +488,86 @@ export function appendSessionInferenceMark(
   return mark;
 }
 
+/**
+ * A turn's window as stored. `run` names the app run that opened it, so a window left open by a
+ * run that quit mid-turn can be told apart from a turn still running.
+ */
+export interface StoredTurnWindow extends TurnWindow {
+  run: string;
+}
+
+/** The most pool turns kept per session; older ones drop first. */
+const POOL_TURN_LIMIT = 200;
+/**
+ * The most chats whose pool turns and turn windows are kept. A chat deleted in Hermes is never
+ * reported as deleted (`session.list` leaves some live chats out too), so the chats with the oldest
+ * latest entry drop first; an old chat loses its provider lines rather than a live one.
+ */
+const POOL_SESSION_LIMIT = 1_000;
+
+/** `all` without its least recently active chats past `POOL_SESSION_LIMIT`, by each list's newest `at`. */
+function keepRecentSessions<T>(all: Record<string, T[]>, at: (item: T) => string): Record<string, T[]> {
+  const ids = Object.keys(all);
+  if (ids.length <= POOL_SESSION_LIMIT) return all;
+  const latest = (id: string): string => all[id].reduce((max, item) => (at(item) > max ? at(item) : max), '');
+  const newestFirst = ids.map((id) => ({ id, latest: latest(id) })).sort((a, b) => b.latest.localeCompare(a.latest));
+  return Object.fromEntries(newestFirst.slice(0, POOL_SESSION_LIMIT).map(({ id }) => [id, all[id]]));
+}
+
+export function listPoolServedTurns(sessionId: string): PoolServedTurn[] {
+  return [...(store().get('poolServedTurns')?.[sessionId] ?? [])];
+}
+
+/** Records which provider answered a pool turn. Ids, names and the level only, never message text. */
+export function appendPoolServedTurn(sessionId: string, turn: PoolServedTurn): void {
+  const record: PoolServedTurn = {
+    at: turn.at,
+    windowStartedAt: turn.windowStartedAt,
+    modelId: turn.modelId,
+    providerId: turn.providerId,
+    providerName: turn.providerName,
+    level: turn.level,
+    moved: turn.moved,
+    mixedProviders: turn.mixedProviders === true,
+  };
+  const all = { ...(store().get('poolServedTurns') ?? {}) };
+  all[sessionId] = [...(all[sessionId] ?? []), record].slice(-POOL_TURN_LIMIT);
+  store().set('poolServedTurns', keepRecentSessions(all, (t) => t.at));
+}
+
+export function listSessionTurnWindows(sessionId: string): StoredTurnWindow[] {
+  return [...(store().get('sessionTurnWindows')?.[sessionId] ?? [])];
+}
+
+/** Records that a turn began, whatever answers it. Times and the run only. */
+export function appendSessionTurnWindow(sessionId: string, window: StoredTurnWindow): void {
+  const record: StoredTurnWindow = { startedAt: window.startedAt, endedAt: window.endedAt, run: window.run };
+  const all = { ...(store().get('sessionTurnWindows') ?? {}) };
+  all[sessionId] = [...(all[sessionId] ?? []), record].slice(-POOL_TURN_LIMIT);
+  store().set('sessionTurnWindows', keepRecentSessions(all, (w) => w.startedAt));
+}
+
+/** Ends the open window that began at `startedAt`. False when the session has no such window. */
+export function closeSessionTurnWindow(sessionId: string, startedAt: string, endedAt: string): boolean {
+  const all = { ...(store().get('sessionTurnWindows') ?? {}) };
+  const windows = all[sessionId] ?? [];
+  const index = windows.findIndex((w) => w.startedAt === startedAt && w.endedAt === null);
+  if (index < 0) return false;
+  all[sessionId] = windows.map((w, i) => (i === index ? { ...w, endedAt } : w));
+  store().set('sessionTurnWindows', all);
+  return true;
+}
+
+/** Moves one session's list under another id, oldest first, keeping the newest `limit`. */
+function moveSessionList<T>(key: 'poolServedTurns' | 'sessionTurnWindows', fromId: string, toId: string, at: (item: T) => string): void {
+  const all = { ...((store().get(key) as Record<string, T[]> | undefined) ?? {}) };
+  const from = all[fromId] ?? [];
+  if (from.length === 0) return;
+  all[toId] = [...(all[toId] ?? []), ...from].sort((a, b) => at(a).localeCompare(at(b))).slice(-POOL_TURN_LIMIT);
+  delete all[fromId];
+  store().set(key, all as never);
+}
+
 export function getReplyEndings(sessionId: string): Record<string, HermesReplyEnding> {
   return { ...(store().get('replyEndings')?.[sessionId] ?? {}) };
 }
@@ -396,6 +576,26 @@ export function setReplyEnding(sessionId: string, rowId: number, ending: HermesR
   const all = { ...(store().get('replyEndings') ?? {}) };
   all[sessionId] = { ...(all[sessionId] ?? {}), [String(rowId)]: ending };
   store().set('replyEndings', all);
+}
+
+export function getReplyWritingVoices(sessionId: string): Record<string, string> {
+  return { ...(store().get('replyWritingVoices')?.[sessionId] ?? {}) };
+}
+
+export function setReplyWritingVoice(sessionId: string, rowId: number, voiceName: string): void {
+  const all = { ...(store().get('replyWritingVoices') ?? {}) };
+  all[sessionId] = { ...(all[sessionId] ?? {}), [String(rowId)]: voiceName };
+  store().set('replyWritingVoices', all);
+}
+
+export function getPromptWritingVoice(sessionId: string, userRowId: number): string | null {
+  return store().get('promptWritingVoices')?.[sessionId]?.[String(userRowId)] ?? null;
+}
+
+export function setPromptWritingVoice(sessionId: string, userRowId: number, voiceId: string): void {
+  const all = { ...(store().get('promptWritingVoices') ?? {}) };
+  all[sessionId] = { ...(all[sessionId] ?? {}), [String(userRowId)]: voiceId };
+  store().set('promptWritingVoices', all);
 }
 
 export function getNoReplies(sessionId: string): Record<string, HermesNoReply> {
@@ -422,11 +622,6 @@ export function copySessionInference(fromId: string, toId: string): void {
   if (inference) setSessionInference(toId, inference);
 }
 
-/**
- * A chat's session id changed (a resume, an offline placeholder replaced): carry what belongs
- * to the chat, not the id. That is its inference override and its project (ADR 0024), with
- * their transcript marks.
- */
 /** Runtime ids and stored ids of one session share a record. */
 function failedChatKey(sessionId: string): string {
   return store().get('sessionAliases')?.[sessionId] ?? sessionId;
@@ -477,12 +672,27 @@ export function replaceFailedTurn(
   return true;
 }
 
+/** The voice chip of the chat's latest failed send with this text, for its Retry. */
+export function getFailedTurnWritingVoice(sessionId: string, text: string): string | null {
+  const turns = getFailedChat(sessionId)?.turns ?? [];
+  return turns.findLast((t) => t.text === text)?.writingVoiceId ?? null;
+}
+
+/** Deletes a chat Boundary holds only as failed sends, with its per-session records. */
 export function deleteFailedChat(sessionId: string): void {
   const key = failedChatKey(sessionId);
   const { [key]: _deleted, ...chats } = listFailedChats();
   store().set('failedChats', chats);
   const { [key]: _meta, ...meta } = store().get('sessionMeta') ?? {};
   store().set('sessionMeta', meta);
+  // The chat's pool turns and turn windows go too, under either of its ids.
+  for (const listKey of ['poolServedTurns', 'sessionTurnWindows'] as const) {
+    const lists = { ...((store().get(listKey) as Record<string, unknown[]> | undefined) ?? {}) };
+    if (!(key in lists) && !(sessionId in lists)) continue;
+    delete lists[key];
+    delete lists[sessionId];
+    store().set(listKey, lists as never);
+  }
 }
 
 /** The session id changed: the record follows, and the chat now has a Hermes session. */
@@ -500,6 +710,11 @@ function moveFailedChat(fromId: string, toId: string): void {
   store().set('failedChats', { ...rest, [toKey]: { ...kept, ...chats[toKey], turns } });
 }
 
+/**
+ * A chat's session id changed (a resume, an offline placeholder replaced): carry what belongs
+ * to the chat, not the id. That is its inference override and its project (ADR 0024), with
+ * their transcript marks.
+ */
 export function migrateSessionInference(fromId: string, toId: string): void {
   if (!fromId || !toId || fromId === toId) return;
   moveFailedChat(fromId, toId);
@@ -507,13 +722,23 @@ export function migrateSessionInference(fromId: string, toId: string): void {
   const from = meta[fromId];
   const to = meta[toId];
   const carriesProject = Boolean(from && 'projectId' in from) && !(to && 'projectId' in to);
-  if (from?.inference || carriesProject) {
+  const carriesVoice = Boolean(from?.writingVoiceId) && !to?.writingVoiceId;
+  if (from?.inference || carriesProject || carriesVoice) {
     meta[toId] = {
       ...(to ?? { agentSlug: from!.agentSlug ?? BUILTIN_ASSISTANT_SLUG }),
       ...(from!.inference ? { inference: from!.inference } : {}),
       ...(carriesProject ? { projectId: from!.projectId ?? null } : {}),
+      ...(carriesVoice ? { writingVoiceId: from!.writingVoiceId } : {}),
     };
     store().set('sessionMeta', meta);
+  }
+  const voiceMarks = { ...(store().get('sessionWritingVoiceMarks') ?? {}) };
+  const fromVoiceMarks = voiceMarks[fromId] ?? [];
+  if (fromVoiceMarks.length > 0) {
+    const seenVoice = new Set((voiceMarks[toId] ?? []).map((m) => m.id));
+    voiceMarks[toId] = [...(voiceMarks[toId] ?? []), ...fromVoiceMarks.filter((m) => !seenVoice.has(m.id))];
+    delete voiceMarks[fromId];
+    store().set('sessionWritingVoiceMarks', voiceMarks);
   }
   const projectMarks = { ...(store().get('sessionProjectMarks') ?? {}) };
   const fromProjectMarks = projectMarks[fromId] ?? [];
@@ -526,6 +751,8 @@ export function migrateSessionInference(fromId: string, toId: string): void {
     delete projectMarks[fromId];
     store().set('sessionProjectMarks', projectMarks);
   }
+  moveSessionList<PoolServedTurn>('poolServedTurns', fromId, toId, (turn) => turn.at);
+  moveSessionList<StoredTurnWindow>('sessionTurnWindows', fromId, toId, (w) => w.startedAt);
   const marks = { ...(store().get('sessionInferenceMarks') ?? {}) };
   const fromMarks = marks[fromId] ?? [];
   if (fromMarks.length === 0) return;
@@ -716,6 +943,16 @@ export function setRoomSoulSent(roomKey: string, agentSlug: string, hash: string
   store().set('roomSoulsSent', all);
 }
 
+export function getRoomVoiceSent(roomKey: string, agentSlug: string): string | null {
+  return store().get('roomVoicesSent')?.[roomKey]?.[agentSlug] ?? null;
+}
+
+export function setRoomVoiceSent(roomKey: string, agentSlug: string, hash: string): void {
+  const all = { ...(store().get('roomVoicesSent') ?? {}) };
+  all[roomKey] = { ...(all[roomKey] ?? {}), [agentSlug]: hash };
+  store().set('roomVoicesSent', all);
+}
+
 /** Test helper — wipe store state. */
 export function resetHermesAgentsStoreForTests(
   agents: AgentProfile[] = [BUILTIN_ASSISTANT],
@@ -730,10 +967,16 @@ export function resetHermesAgentsStoreForTests(
   store().set('sessionSpeakers', {});
   store().set('channelPosts', {});
   store().set('sessionInferenceMarks', {});
+  store().delete('poolServedTurns');
+  store().delete('sessionTurnWindows');
+  store().set('sessionWritingVoiceMarks', {});
   store().set('sessionProjectMarks', {});
   store().set('replyEndings', {});
+  store().set('replyWritingVoices', {});
+  store().set('promptWritingVoices', {});
   store().set('noReplies', {});
   store().set('mentionsSeenAt', null);
   store().delete('webuiRefiledAt');
   store().delete('roomSoulsSent');
+  store().delete('roomVoicesSent');
 }

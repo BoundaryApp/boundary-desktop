@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/types/hermesKanban';
 import { WAIT_REASON_TEXT, type WaitReason } from './kanbanActivity';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Button } from '../../components/ui/button';
 
 // What you can do to a kanban task from its page (docs/kanban-activity-ux-study, Phase 3):
 // steer it with a note, answer it when it waits on you, and stop or retry its run. Every
@@ -278,9 +279,9 @@ export const TaskComposer: React.FC<{
         ) : (
           <span className="wb-task-composer-hint">⌘↵ to send</span>
         )}
-        <button type="submit" className="wb-btn-solid" disabled={busy || !text.trim()}>
+        <Button variant="primary" block type="submit" disabled={busy || !text.trim()}>
           {running ? 'Send to worker' : 'Comment'}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -312,16 +313,17 @@ export const RunMenu: React.FC<{
     <div className="wb-task-runmenu" ref={ref}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-ghost"
             aria-haspopup="menu"
             aria-expanded={open}
             disabled={busy}
             onClick={() => setConfirming(false)}
           >
             Run ▾
-          </button>
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           className="wb-approve-menu"

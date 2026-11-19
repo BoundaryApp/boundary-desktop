@@ -214,7 +214,9 @@ export function useRoomSheets({
         return;
       }
       const freed = new Set(result.sessionIds ?? [room.sessionId]);
-      const projectId = result.projectId ?? null;
+      // The project the rail listed the room under. Main maps a removed project to No project
+      // in its lists; an id it returns that the rail can't show would empty the rail.
+      const projectId = room.projectId ?? null;
       const nextChannels = channels.filter((c) => c.id !== room.id);
       const asHermesChat = (t: HermesChatThreadSummary): HermesChatThreadSummary => ({
         ...t,

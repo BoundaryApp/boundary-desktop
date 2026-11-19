@@ -18,18 +18,29 @@ import Hyperswarm, { type SecretStream } from 'hyperswarm';
 import z32 from 'z32';
 import {
   ChatScan,
+  channelUnread,
   chatChannels,
   findChatMessage,
   readChatMessages,
-  unreadCount,
   type ChatReader,
 } from './circleChat';
+import { REPLIES_FORMAT } from '../../../shared/circleReplies';
+import { isReactionEmoji, MAX_REACTIONS_PER_MESSAGE, REACTIONS_APP } from '../../../shared/circleReactions';
+import {
+  changedReactionRefs,
+  indexReactions,
+  parseReactionRecord,
+  reactionRecordKey,
+  type ReactionIndex,
+  type ReactionRecordValue,
+} from './circleReactions';
 import {
   applyCircleNodes,
   CHAT_FORMAT,
   chatPostProblem,
   CIRCLE_FORMAT,
   CIRCLE_KEY,
+  cleanMentions,
   deviceProofMessage,
   INVITES_PREFIX,
   introIsValid,
@@ -40,13 +51,16 @@ import {
   isMessageText,
   isRecordValue,
   lostMembership,
+  memberRecordKey,
   MEMBERS_PREFIX,
+  MENTIONS_FORMAT,
   OFFERS_PREFIX,
   RECORDS_PREFIX,
   type CircleHeader,
   type CircleInviteRecord,
   type CircleMemberIntro,
   type CircleMemberRecord,
+  type CircleMessageMentions,
   type CircleMessageShared,
   type CircleOffer,
   type CircleOfferRecord,
@@ -54,9 +68,14 @@ import {
   type CircleRecord,
   type CircleRecordScope,
   type CircleRole,
-  type CircleView,
 } from './circleOps';
+import { parseServiceOffer, SERVICES_APP } from '../../../shared/serviceOffers';
 import { addressClass } from './addressClass';
+import { beeView } from './autobaseApply';
+import { CallTunnels, tunnelSample, type CallTunnelStats } from './callTunnel';
+
+/** How often tunnels are sampled while open. */
+const TUNNEL_SAMPLE_MS = 5_000;
 import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
 import type {
   CircleChannel,
@@ -68,7 +87,7 @@ import type {
   CircleReadPosition,
   CircleServing,
 } from '../../../shared/types/circles';
-import { InferenceLink, onInferenceOpen, type SharedModelResponse } from './inferenceChannel';
+import { onInferenceOpen, openInferenceLink, type InferenceLink, type SharedModelResponse } from './inferenceChannel';
 import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
 import type {
   CirclePublicAddress,
@@ -76,10 +95,15 @@ import type {
   CircleRecordEntry,
   CircleSecrets,
   CircleSnapshot,
+  CallContext,
   CirclesSnapshot,
+  ServiceSharing,
   SharedModelCall,
 } from './networkMessages';
 import { RemovalLink } from './removalNotice';
+import { SharedFolders } from './sharedFolders';
+import { onServiceOpen, openServiceLink, type ServiceLink } from './serviceChannel';
+import { ServiceGateway, type ServiceGrantKeys, type ServiceRequest, type ServiceUpstream } from './serviceGateway';
 import { onSignalOpen, SignalLink } from './signalChannel';
 
 export interface CircleNetworkOptions {
@@ -97,6 +121,9 @@ export interface CircleNetworkOptions {
   /** What members have used of this user's models today. */
   usage?: CircleDayUsage;
   onUsage?: (served: CircleDayUsage | undefined, serving: CircleServing) => void;
+  /** What members have used of this user's services today. */
+  serviceUsage?: CircleDayUsage;
+  onServiceUsage?: (served: CircleDayUsage) => void;
   /** Called whenever what `snapshot()` returns may have changed. */
   onChange?: () => void;
   /** A peer signal on a topic passed to `setSignalTopics`, from a current member of its Circle. */
@@ -114,6 +141,8 @@ export interface CircleNetworkOptions {
   onRemoved?: (key: string) => void;
   /** As an admin, this device saw a member leave a Circle. */
   onMemberLeft?: (left: { key: string; circle: string; name: string }) => void;
+  /** A shared folder's view may have changed (ADR 0049). */
+  onFolderChange?: (key: string) => void;
   log?: (message: string, data?: Record<string, unknown>) => void;
   /**
    * Diagnostics events for a test run (metadata only: key prefixes, counts, timings, address
@@ -123,6 +152,22 @@ export interface CircleNetworkOptions {
 }
 
 const short = (key: string | null | undefined): string | null => (key ? key.slice(0, 8) : null);
+const grantKey = (circle: string, service: string, identity: string): string => `${circle}/${service}/${identity}`;
+
+/** How often a Circle's work ran, to show work that repeats without changing anything. */
+interface CircleCounts {
+  /** Autobase `update` events. */
+  updates: number;
+  /** Re-reads of the view (refreshCircle). */
+  refreshes: number;
+  /** Record and chat scans that finished. */
+  scans: number;
+  /** Scans waiting behind the one running. */
+  scansQueued: number;
+  /** Calls to apply, and the nodes they were given. Autobase reapplies unconfirmed nodes. */
+  applies: number;
+  appliedNodes: number;
+}
 
 interface OpenCircle {
   secrets: CircleSecrets;
@@ -141,12 +186,18 @@ interface OpenCircle {
   needsUpdate: boolean;
   /** Each record seen by the last scan, by view key, to tell what changed. */
   records: Map<string, CircleRecordEntry>;
+  /** Reactions from `records`. */
+  reactions: ReactionIndex;
+  /** Messages whose reactions changed since the last chat scan; the next one reports them. */
+  changedReactions: { channel: string; author: string; id: string }[];
   /** Follows the chat across updates. */
   chat: ChatScan;
   /** The scan in progress; scans run one at a time. */
   scan: Promise<void>;
   /** The last state written to diagnostics, to log changes only. */
   lastDiag: string;
+  /** Running totals since the Circle opened, for the heartbeat. */
+  counts: CircleCounts;
   /** Leaving or being removed: this device's own removal closes the Circle only once. */
   closing: boolean;
   /**
@@ -176,26 +227,23 @@ async function listPrefix(bee: Hyperbee, prefix: string): Promise<unknown[]> {
   return values;
 }
 
-function asView(bee: Hyperbee): CircleView {
-  return {
-    get: (key) => bee.get(key),
-    put: async (key, value) => {
-      await bee.put(key, value);
-    },
-    del: async (key) => {
-      await bee.del(key);
-    },
-    list: (prefix) => listPrefix(bee, prefix),
-  };
-}
+/** Thrown when a post carries a reply to a Circle still on an older format. */
+const REPLIES_NEED_UPDATE = 'Replies need this Circle to be updated first.';
+
+/** Thrown when a post or edit carries mentions to a Circle still on an older format. */
+const MENTIONS_NEED_UPDATE = 'Mentions need this Circle updated.';
 
 export class CircleNetwork {
   readonly identity: { publicKey: Buffer; secretKey: Buffer };
   readonly device: { publicKey: Buffer; secretKey: Buffer };
+  /** Shared folders, which replicate over this network's connections (ADR 0049 §2). */
+  readonly folders: SharedFolders;
   private readonly store: Corestore;
   private readonly swarm: Hyperswarm;
   private readonly pairing: BlindPairing;
   private readonly circles = new Map<string, OpenCircle>();
+  /** Per-Circle tail of queued reaction toggles; see reactMessage. */
+  private readonly reactQueues = new Map<string, Promise<void>>();
   /**
    * Connected devices, by device key: whether this side is replicating with each, and the
    * inference and signal channels, which open alongside replication.
@@ -206,6 +254,7 @@ export class CircleNetwork {
       connection: SecretStream;
       replicating: boolean;
       link: InferenceLink | null;
+      services: ServiceLink | null;
       signals: SignalLink | null;
       removal: RemovalLink | null;
       /** Circles this connection has been told it was removed from. */
@@ -219,11 +268,19 @@ export class CircleNetwork {
   private readonly gateway: InferenceGateway;
   /** This user's model server, when they share; main sets it. */
   private shareUpstream: GatewayUpstream | null = null;
+  private readonly serviceGateway: ServiceGateway;
+  /** Members' keys for this user's services, by `circle/service/identity`; main sets them. */
+  private serviceGrants = new Map<string, ServiceGrantKeys>();
+  private serviceUpstreams = new Map<string, ServiceUpstream>();
   private stopJoin: (() => void) | null = null;
   /** The signal topics main listens to; others are dropped here and never cross to main. */
   private signalTopics = new Set<string>();
   private recordApps = new Set<string>();
   private readonly signalStats = new SignalStats();
+  /** Call packets carried over peer connections, for the call check's tunnel modes. */
+  private readonly tunnels = new CallTunnels();
+  /** Samples tunnels and the process every few seconds while any tunnel is open. */
+  private tunnelSampler: NodeJS.Timeout | null = null;
   private name: string;
   private closed = false;
 
@@ -246,12 +303,30 @@ export class CircleNetwork {
     this.gateway = new InferenceGateway({
       diag: (event, data) => this.diag(event, data),
       offerFor: (key) => this.liveCircle(key)?.state.offers.find((offer) => offer.identity === this.identityHex) ?? null,
-      memberFor: (key, device) =>
-        this.liveCircle(key)?.state.members.find((member) => member.device === device)?.identity ?? null,
+      memberFor: (key, device) => this.memberOfDevice(key, device),
       upstream: () => this.shareUpstream,
       log: (message, data) => this.log(message, data),
       usage: options.usage,
       onUsage: options.onUsage,
+    });
+    this.folders = new SharedFolders({
+      store: this.store,
+      identity: this.identity,
+      device: this.device,
+      name: () => this.name,
+      ackInterval: options.ackInterval,
+      onChange: (key) => options.onFolderChange?.(key),
+      log: (message, data) => this.log(message, data),
+    });
+    this.serviceGateway = new ServiceGateway({
+      diag: (event, data) => this.diag(event, data),
+      memberFor: (key, device) => this.memberOfDevice(key, device),
+      offerFor: (key, service) => this.myServiceOffer(key, service),
+      grantFor: (key, service, identity) => this.serviceGrants.get(grantKey(key, service, identity)) ?? null,
+      upstream: (service) => this.serviceUpstreams.get(service) ?? null,
+      log: (message, data) => this.log(message, data),
+      usage: options.serviceUsage,
+      onUsage: (served) => options.onServiceUsage?.(served),
     });
   }
 
@@ -321,8 +396,10 @@ export class CircleNetwork {
         signedLength: circle.view.core.signedLength,
         indexers: circle.base.system?.indexers.length ?? 0,
         isIndexer: circle.base.isIndexer,
+        counts: { ...circle.counts },
       })),
       gateway: this.gateway.stats(),
+      serviceGateway: { ...this.serviceGateway.stats(), services: this.serviceUpstreams.size, grants: this.serviceGrants.size },
       sharing: Boolean(this.shareUpstream),
       signals: this.signalStats.summary(),
     };
@@ -347,6 +424,7 @@ export class CircleNetwork {
       connection,
       replicating: false,
       link: null,
+      services: null,
       signals: null,
       removal,
       noticed: new Set(),
@@ -362,7 +440,9 @@ export class CircleNetwork {
       peers: this.peers.size,
     });
     onInferenceOpen(connection, () => this.attachInference(device, 'remote'));
+    onServiceOpen(connection, () => this.attachService(device, 'remote'));
     onSignalOpen(connection, () => this.attachSignals(device));
+    this.tunnels.attach(device, connection);
     connection.on('error', (err: unknown) => {
       this.log('peer connection error', { error: String(err) });
       const code = (err as { code?: string } | null)?.code;
@@ -414,6 +494,7 @@ export class CircleNetwork {
           this.diag('peer.replicate', { device: short(device), known: known.has(device), joining });
         }
         this.attachInference(device, 'local');
+        this.attachService(device, 'local');
         this.attachSignals(device);
       } else if (peer.replicating) {
         // It was replicating, so it was known: it has since been removed everywhere we meet.
@@ -513,7 +594,7 @@ export class CircleNetwork {
       return;
     }
     if (peer.link && !peer.link.closed) return;
-    const link = InferenceLink.attach(
+    const link = openInferenceLink(
       peer.connection,
       device,
       this.gateway,
@@ -524,6 +605,45 @@ export class CircleNetwork {
     );
     if (link) this.diag('link.attach', { device: short(device), opener });
     peer.link = link;
+  }
+
+  /** Open the service channel with a known device, unless it is already open. */
+  private attachService(device: string, opener: 'local' | 'remote'): void {
+    const peer = this.peers.get(device);
+    if (!peer?.replicating) {
+      if (opener === 'remote') this.diag('service-link.refused-unknown', { device: short(device), connected: Boolean(peer) });
+      return;
+    }
+    if (peer.services && !peer.services.closed) return;
+    const link = openServiceLink(
+      peer.connection,
+      device,
+      this.serviceGateway,
+      () => {
+        if (peer.services === link) peer.services = null;
+      },
+      (event, data) => this.diag(event, data)
+    );
+    if (link) this.diag('service-link.attach', { device: short(device), opener });
+    peer.services = link;
+  }
+
+  /** Who a device belongs to in a Circle this device has open, or null. */
+  private memberOfDevice(key: string, device: string): string | null {
+    return this.liveCircle(key)?.state.members.find((member) => member.device === device)?.identity ?? null;
+  }
+
+  /** This user's offer of `service` in a Circle, read from the Circle's records. */
+  private myServiceOffer(key: string, service: string): { available: boolean } | null {
+    const circle = this.liveCircle(key);
+    if (!circle) return null;
+    for (const record of circle.records.values()) {
+      if (record.app !== SERVICES_APP || record.scope !== 'member' || record.key !== service) continue;
+      if (record.identity !== this.identityHex) continue;
+      const offer = parseServiceOffer(record.value);
+      return offer ? { available: offer.available } : null;
+    }
+    return null;
   }
 
   /** Open the signal channel with a known device, unless it is already open. */
@@ -552,7 +672,7 @@ export class CircleNetwork {
     if (!sender) return this.signalStats.onDropped('not-member');
     if (!this.signalTopics.has(frame.topic)) return this.signalStats.onDropped('unknown-topic');
     this.signalStats.onReceived(frame.topic, raw.length);
-    this.options.onSignal?.({ ...frame, from: sender.identity });
+    this.options.onSignal?.({ ...frame, from: sender.identity, device });
   }
 
   /** The topics to deliver through `onSignal`; replaces the previous list. */
@@ -583,6 +703,85 @@ export class CircleNetwork {
     return sent;
   }
 
+  /** Devices of one member of a Circle, other than this user. */
+  private memberDevices(key: string, identity: string): string[] {
+    if (identity === this.identityHex) throw new Error('That is you.');
+    const devices = this.circle(key)
+      .state.members.filter((member) => member.identity === identity)
+      .map((member) => member.device);
+    if (devices.length === 0) throw new Error('Not a member of that Circle.');
+    return devices;
+  }
+
+  /**
+   * Open a call tunnel to a member's connected device; resolves to the local UDP port. The
+   * caller picks `id` and sends it in its offer, and the answerer opens the same id. With
+   * `wanted`, the tunnel goes to that device, which must be one of the member's; without it, to
+   * the first of the member's devices that is connected.
+   */
+  async openCallTunnel(key: string, identity: string, id: number, wanted?: string): Promise<number> {
+    const devices = this.memberDevices(key, identity);
+    if (wanted !== undefined && !devices.includes(wanted)) throw new Error("That device isn't theirs.");
+    const device = wanted ?? devices.find((candidate) => this.peers.has(candidate));
+    if (!device || !this.peers.has(device)) throw new Error('No connection to that member.');
+    const port = await this.tunnels.open(device, id);
+    this.diag('call.tunnel-open', { device: short(device), open: this.tunnels.count() });
+    this.startTunnelSampler();
+    return port;
+  }
+
+  /**
+   * While tunnels are open, every `TUNNEL_SAMPLE_MS`: how late the timer fired, the process's CPU
+   * and memory, and per peer the Circles connection and its tunnels' counts. Metadata only.
+   */
+  private startTunnelSampler(): void {
+    if (this.tunnelSampler) return;
+    let expected = Date.now() + TUNNEL_SAMPLE_MS;
+    let cpu = process.cpuUsage();
+    this.tunnelSampler = setInterval(() => {
+      const peers = this.tunnels.summary();
+      if (peers.length === 0) {
+        if (this.tunnelSampler) clearInterval(this.tunnelSampler);
+        this.tunnelSampler = null;
+        return;
+      }
+      const now = Date.now();
+      const used = process.cpuUsage(cpu);
+      cpu = process.cpuUsage();
+      this.diag('call.tunnel-sample', tunnelSample(peers, Math.max(0, now - expected), used, process.memoryUsage(), TUNNEL_SAMPLE_MS));
+      expected = now + TUNNEL_SAMPLE_MS;
+    }, TUNNEL_SAMPLE_MS);
+    this.tunnelSampler.unref?.();
+  }
+
+  /** The DHT's view of this network and the Circles connection to one member, for a call check result. */
+  callContext(key: string, identity: string): CallContext {
+    const dht = this.swarm.dht;
+    const device = this.memberDevices(key, identity).find((candidate) => this.peers.has(candidate));
+    const peer = device ? this.peers.get(device) : undefined;
+    const raw = peer?.connection.rawStream;
+    return {
+      natFirewalled: dht.firewalled,
+      natRandomized: dht.randomized,
+      peerConnected: Boolean(peer),
+      ...(peer
+        ? {
+            peerAddr: addressClass(raw?.remoteHost),
+            peerAgeS: Math.round((Date.now() - peer.connectedAt) / 1000),
+            ...(raw ? { peerRttMs: raw.rtt, peerRetransmits: raw.retransmits, peerMtu: raw.mtu } : {}),
+          }
+        : {}),
+    };
+  }
+
+  /** A tunnel's counts, and with `close` the final ones as it closes. Null when it's gone. */
+  callTunnelStats(key: string, identity: string, id: number, { close = false } = {}): CallTunnelStats | null {
+    const devices = new Set(this.memberDevices(key, identity));
+    const device = this.tunnels.devicesWith(id).find((candidate) => devices.has(candidate));
+    if (!device) return null;
+    return close ? this.tunnels.close(device, id) : this.tunnels.stats(device, id);
+  }
+
   // ---- Circles -------------------------------------------------------------------------------
 
   /** Open a Circle this device already belongs to, or one it was just confirmed into. */
@@ -598,19 +797,23 @@ export class CircleNetwork {
   private async bootCircle(secrets: CircleSecrets): Promise<OpenCircle> {
     const namespace = this.store.namespace(secrets.namespace);
     const departures = new Map<string, boolean>();
+    const counts: CircleCounts = { updates: 0, refreshes: 0, scans: 0, scansQueued: 0, applies: 0, appliedNodes: 0 };
     const base = new Autobase(namespace, secrets.key ? Buffer.from(secrets.key, 'hex') : null, {
       encrypt: true,
       encryptionKey: secrets.encryptionKey ? Buffer.from(secrets.encryptionKey, 'hex') : undefined,
       ackInterval: this.options.ackInterval ?? 10_000,
       open: (viewStore) =>
         new Hyperbee(viewStore.get({ name: 'view' }), { keyEncoding: 'utf-8', valueEncoding: 'json', extension: false }),
-      apply: (nodes, view, host) =>
-        applyCircleNodes(nodes, asView(view), host, {
+      apply: (nodes, view, host) => {
+        counts.applies++;
+        counts.appliedNodes += nodes.length;
+        return applyCircleNodes(nodes, beeView(view), host, {
           verify: (message, signature, publicKey) => crypto.verify(message, signature, publicKey),
           supportedFormat: this.supportedFormat,
           onSkip: (reason) => this.log('circle op skipped', { reason }),
           onRemoveMember: (identity, byThemselves) => departures.set(identity, byThemselves),
-        }),
+        });
+      },
       valueEncoding: 'json',
     });
     await base.ready();
@@ -627,14 +830,20 @@ export class CircleNetwork {
       state: { name: '', format: this.supportedFormat, members: [], invites: [], offers: [] },
       needsUpdate: false,
       records: new Map(),
+      reactions: indexReactions([]),
+      changedReactions: [],
       chat: new ChatScan(),
       scan: Promise.resolve(),
       lastDiag: '',
+      counts,
       closing: false,
       leaving,
       departures,
     };
-    base.on('update', () => void this.refreshCircle(circle));
+    base.on('update', () => {
+      counts.updates++;
+      void this.refreshCircle(circle);
+    });
     base.on('writable', () => this.changed());
     base.on('unwritable', () => this.changed());
     base.on('interrupt', () => {
@@ -660,6 +869,7 @@ export class CircleNetwork {
   /** Re-read the view, start or stop admitting invitees, and refresh peers. */
   private async refreshCircle(circle: OpenCircle): Promise<void> {
     if (this.closed) return;
+    circle.counts.refreshes++;
     const view = circle.view;
     const header = (await view.get(CIRCLE_KEY))?.value as CircleHeader | undefined;
     const before = circle.state.members;
@@ -672,7 +882,16 @@ export class CircleNetwork {
     };
     this.trackRemovedDevices(circle.secrets.key!, before, circle.state.members);
     if (circle.leaving) return this.refreshLeaving(circle);
-    circle.scan = circle.scan.then(() => this.scanRecords(circle)).then(() => this.scanChat(circle));
+    circle.counts.scansQueued++;
+    circle.scan = circle.scan
+      .then(() => {
+        circle.counts.scansQueued--;
+        return this.scanRecords(circle);
+      })
+      .then(() => this.scanChat(circle))
+      .then(() => {
+        circle.counts.scans++;
+      });
     await circle.scan;
     const me = circle.state.members.find((member) => member.identity === this.identityHex);
     this.diagCircleState(circle, me?.role ?? null);
@@ -762,6 +981,9 @@ export class CircleNetwork {
     }
     const previous = circle.records;
     circle.records = records;
+    const reactions = indexReactions(records.values());
+    circle.changedReactions.push(...changedReactionRefs(circle.reactions, reactions));
+    circle.reactions = reactions;
     for (const [key, record] of records) {
       const before = previous.get(key);
       if (before && JSON.stringify(before) === JSON.stringify(record)) continue;
@@ -776,10 +998,16 @@ export class CircleNetwork {
   private async scanChat(circle: OpenCircle): Promise<void> {
     if (circle.state.format < CHAT_FORMAT) return;
     let updates: CircleChatUpdate[];
+    const refs = circle.changedReactions;
+    circle.changedReactions = [];
     try {
-      updates = await circle.chat.scan(circle.view, new Set(this.channels(circle).keys()), this.chatReader(circle));
+      updates = await circle.chat.scan(circle.view, new Set(this.channels(circle).keys()), this.chatReader(circle), refs);
     } catch (err) {
-      if (!circle.closing && !this.closed) this.log('chat scan failed', { error: err instanceof Error ? err.name : typeof err });
+      if (!circle.closing && !this.closed) {
+        // The refs were not applied; the next scan takes them again.
+        circle.changedReactions.unshift(...refs);
+        this.log('chat scan failed', { error: err instanceof Error ? err.name : typeof err });
+      }
       return;
     }
     for (const update of updates) this.options.onChat?.(update);
@@ -790,7 +1018,13 @@ export class CircleNetwork {
   }
 
   private chatReader(circle: OpenCircle): ChatReader {
-    return { circleKey: circle.secrets.key!, me: this.identityHex, signedLength: circle.view.core.signedLength };
+    return {
+      circleKey: circle.secrets.key!,
+      me: this.identityHex,
+      signedLength: circle.view.core.signedLength,
+      reactions: circle.reactions,
+      members: new Set(circle.state.members.map((member) => member.identity)),
+    };
   }
 
   private reportRecord(change: CircleRecordChange): void {
@@ -955,12 +1189,19 @@ export class CircleNetwork {
   }
 
   /** Channels with unread counts after this device's read positions. */
-  async listChannels(key: string, reads: Record<string, CircleReadPosition>): Promise<CircleChannel[]> {
+  async listChannels(key: string, reads: Record<string, CircleReadPosition>, channelMentions: boolean): Promise<CircleChannel[]> {
     const circle = this.circle(key);
     if (circle.state.format < CHAT_FORMAT) return [];
     const channels: CircleChannel[] = [];
     for (const [id, name] of this.channels(circle)) {
-      channels.push({ id, name, unread: await unreadCount(circle.view, id, reads[id]) });
+      const counts = await channelUnread(circle.view, id, reads[id], {
+        format: circle.state.format,
+        me: this.identityHex,
+        channelMentions,
+        reactions: circle.reactions,
+        now: Date.now(),
+      });
+      channels.push({ id, name, ...counts });
     }
     return channels;
   }
@@ -974,9 +1215,22 @@ export class CircleNetwork {
     return readChatMessages(circle.view, channel, options, this.chatReader(circle));
   }
 
-  /** Post as this user; returns the message's id. */
-  async postMessage(key: string, channel: string, text: string, shared?: CircleMessageShared): Promise<string> {
+  /** One message of a channel by reference, or null when this view doesn't hold it. */
+  async getMessage(key: string, channel: string, ref: CircleMessageRef): Promise<CircleMessage | null> {
     const circle = this.chatCircle(key, channel);
+    return isMessageId(ref.id) ? findChatMessage(circle.view, channel, ref, this.chatReader(circle)) : null;
+  }
+
+  /** Post as this user; returns the message's id. */
+  async postMessage(
+    key: string,
+    channel: string,
+    text: string,
+    { shared, mentions, reply }: { shared?: CircleMessageShared; mentions?: CircleMessageMentions; reply?: CircleMessageRef } = {}
+  ): Promise<string> {
+    const circle = this.chatCircle(key, channel);
+    if (mentions && circle.state.format < MENTIONS_FORMAT) throw new Error(MENTIONS_NEED_UPDATE);
+    if (reply && circle.state.format < REPLIES_FORMAT) throw new Error(REPLIES_NEED_UPDATE);
     const op = {
       type: 'chat-post' as const,
       channel,
@@ -984,8 +1238,10 @@ export class CircleNetwork {
       text,
       at: Date.now(),
       ...(shared ? { shared } : {}),
+      ...(mentions ? { mentions } : {}),
+      ...(reply ? { reply } : {}),
     };
-    const problem = chatPostProblem(op);
+    const problem = chatPostProblem(op, circle.state.format);
     if (problem === 'bad message text') throw new Error('A message needs text, up to 12 KB.');
     if (problem === 'chat operation too long') throw new Error('That message is too long.');
     if (problem) throw new Error('That message can’t be posted.');
@@ -994,14 +1250,16 @@ export class CircleNetwork {
   }
 
   /** Only the author edits. */
-  async editMessage(key: string, channel: string, id: string, text: string): Promise<void> {
+  async editMessage(key: string, channel: string, id: string, text: string, mentions?: CircleMessageMentions): Promise<void> {
     const circle = this.chatCircle(key, channel);
+    if (mentions && circle.state.format < MENTIONS_FORMAT) throw new Error(MENTIONS_NEED_UPDATE);
+    if (mentions && !cleanMentions(mentions, () => true)) throw new Error('That message can’t be posted.');
     const mine = { author: this.identityHex, id };
     const message = isMessageId(id) ? await findChatMessage(circle.view, channel, mine, this.chatReader(circle)) : null;
     if (!message) throw new Error('That message isn’t yours, or isn’t here.');
     if (message.deleted) throw new Error('That message was deleted.');
     if (!isMessageText(text, Boolean(message.call))) throw new Error('A message needs text, up to 12 KB.');
-    await this.append(circle, { type: 'chat-edit', channel, id, text });
+    await this.append(circle, { type: 'chat-edit', channel, id, text, ...(mentions ? { mentions } : {}) });
   }
 
   /** The author or an admin deletes. */
@@ -1014,6 +1272,60 @@ export class CircleNetwork {
     if (!message) throw new Error('That message isn’t here.');
     if (message.deleted) return;
     await this.append(circle, { type: 'chat-delete', channel, author, id });
+  }
+
+  /**
+   * Add or take back this user's reaction. The user's reactions to one message are one `reactions`
+   * record, so this reads the record as it is now, changes one emoji and writes it back whole.
+   */
+  async reactMessage(key: string, channel: string, ref: CircleMessageRef, emoji: string, on: boolean): Promise<void> {
+    // The network process runs requests concurrently, and `circle.records` only changes in the scan
+    // inside a write. One call at a time per Circle makes each read the previous call's result.
+    const previous = this.reactQueues.get(key) ?? Promise.resolve();
+    const run = previous.then(() => this.toggleReaction(key, channel, ref, emoji, on));
+    const tail: Promise<void> = run.catch((): void => undefined);
+    this.reactQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.reactQueues.get(key) === tail) this.reactQueues.delete(key);
+    });
+    return run;
+  }
+
+  private async toggleReaction(key: string, channel: string, ref: CircleMessageRef, emoji: string, on: boolean): Promise<void> {
+    const circle = this.chatCircle(key, channel);
+    if (!isReactionEmoji(emoji)) throw new Error('That isn’t an emoji.');
+    const message = isMessageId(ref.id) ? await findChatMessage(circle.view, channel, ref, this.chatReader(circle)) : null;
+    if (!message) throw new Error('That message isn’t in this channel.');
+    if (message.deleted) throw new Error('That message was deleted.');
+    const me = circle.state.members.find((member) => member.identity === this.identityHex);
+    if (!me) throw new Error('Not a member of that Circle.');
+    const record = reactionRecordKey(channel, ref.author, ref.id);
+    const existing = circle.records.get(memberRecordKey(this.identityHex, REACTIONS_APP, record));
+    const current = (existing ? parseReactionRecord(existing)?.emoji : undefined) ?? [];
+    const has = current.some((x) => x.e === emoji);
+    if (on === has) return;
+    if (!on) {
+      const rest = current.filter((x) => x.e !== emoji);
+      if (rest.length) await this.setReactions(key, channel, ref, record, me.name, rest);
+      else await this.deleteRecord(key, REACTIONS_APP, 'member', record);
+      return;
+    }
+    if (current.length >= MAX_REACTIONS_PER_MESSAGE) {
+      throw new Error(`You’ve used ${MAX_REACTIONS_PER_MESSAGE} reactions on this message`);
+    }
+    await this.setReactions(key, channel, ref, record, me.name, [...current, { e: emoji, at: Date.now() }]);
+  }
+
+  private setReactions(
+    key: string,
+    channel: string,
+    ref: CircleMessageRef,
+    record: string,
+    name: string,
+    emoji: { e: string; at: number }[]
+  ): Promise<void> {
+    const value: ReactionRecordValue = { channel, author: ref.author, id: ref.id, name, emoji };
+    return this.setRecord(key, REACTIONS_APP, 'member', record, value, { keep: true });
   }
 
   /** Move a Circle to a later format. Builds that can't apply it stop until they update (ADR 0038). */
@@ -1319,6 +1631,37 @@ export class CircleNetwork {
     this.diag('share.upstream', { set: Boolean(upstream), addr: host === 'localhost' ? 'loopback' : addressClass(host), port, apiKey: Boolean(upstream?.apiKey) });
   }
 
+  /** What this user's service gateway serves; replaces what it served before. */
+  setServiceSharing(sharing: ServiceSharing): void {
+    this.serviceUpstreams = new Map(Object.entries(sharing.upstreams));
+    this.serviceGrants = new Map(
+      sharing.grants.map((grant) => [
+        grantKey(grant.circle, grant.service, grant.identity),
+        { read: grant.read, ...(grant.write ? { write: grant.write } : {}) },
+      ])
+    );
+    this.diag('service.sharing', { services: this.serviceUpstreams.size, grants: this.serviceGrants.size });
+  }
+
+  /**
+   * Call a service a member shares (ADR 0048 §3). Rejects when they aren't connected; the
+   * consumer's listener says the provider is offline (§11).
+   */
+  requestService(
+    key: string,
+    provider: string,
+    request: Omit<ServiceRequest, 'id' | 'circle'>,
+    signal?: AbortSignal
+  ): Promise<SharedModelResponse> {
+    const member = this.circle(key).state.members.find((candidate) => candidate.identity === provider);
+    const link = (member ? this.peers.get(member.device) : undefined)?.services ?? null;
+    if (!link) {
+      this.diag('service-call.no-link', { circle: short(key), provider: short(provider), member: Boolean(member) });
+      return Promise.reject(new Error('The provider is not connected.'));
+    }
+    return link.request({ ...request, circle: key }, signal);
+  }
+
   /**
    * Ask a member's gateway for one of their shared models. Rejects when they aren't connected;
    * the router treats that as unreachable (ADR 0033 §6).
@@ -1377,6 +1720,7 @@ export class CircleNetwork {
         name: circle.state.name,
         myRole: mine?.role ?? null,
         needsUpdate: circle.needsUpdate,
+        format: circle.state.format,
         writable: circle.base.writable,
         members: circle.state.members.map((member) => ({
           identity: member.identity,
@@ -1416,9 +1760,13 @@ export class CircleNetwork {
     if (this.closed) return;
     this.closed = true;
     this.gateway.close();
+    this.serviceGateway.close();
+    this.tunnels.closeAll();
+    if (this.tunnelSampler) clearInterval(this.tunnelSampler);
     await this.pairing.close();
     await this.swarm.destroy();
     for (const circle of this.circles.values()) await circle.base.close();
+    await this.folders.close();
     await this.store.close();
   }
 }

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../hermesDashboardAuth', () => ({ mintDashboardWsTicket: vi.fn() }));
 
 import { HermesGatewaySession, mapHistoryWindow } from '../hermesGatewaySession';
+import type { ContextCategory } from '../vendor/gateway-contract.generated';
 import { JsonRpcGatewayError } from '../vendor/json-rpc-channel';
 
 /** What Hermes v2026.9 answers for an undeclared `history_budget`. */
@@ -88,7 +89,7 @@ describe('history budget over the gateway', () => {
   });
 
   it('reports the cut on context_breakdown only when the stack sends it', async () => {
-    const base = { categories: [], context_used: 1, context_max: 2, context_percent: 50 };
+    const base = { categories: [] as ContextCategory[], context_used: 1, context_max: 2, context_percent: 50 };
     const withCut = sessionWith(async () => ({
       ...base,
       history_budget: 8000,

@@ -1,6 +1,6 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
 
@@ -37,10 +37,6 @@ function endpointValue(): string {
 }
 
 describe('OpenAiCredentialsForm', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it('does not prefill the local form from another slot that is the app default', () => {
     onboarding.status = openRouterDefault;
     render(<OpenAiCredentialsForm variant="local" />);
@@ -120,7 +116,7 @@ describe('OpenAiCredentialsForm', () => {
     const api = window.electronAPI.onboarding;
     vi.mocked(api.listEndpointModels)
       .mockRejectedValueOnce(new Error('models request failed'))
-      .mockResolvedValueOnce({ success: true, models: [{ id: 'model-a', name: 'Model A' }] });
+      .mockResolvedValueOnce({ success: true, models: [{ id: 'model-a', displayName: 'Model A' }] });
     vi.mocked(api.saveLlmConnection).mockRejectedValueOnce(new Error('save request failed'));
     render(<OpenAiCredentialsForm variant="custom" />);
     fireEvent.change(screen.getByLabelText('Endpoint URL'), { target: { value: 'https://example.com/v1' } });

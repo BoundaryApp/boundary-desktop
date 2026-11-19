@@ -1,9 +1,12 @@
 import type { HermesApprovalMcpCall } from '../../../shared/types/hermesChat';
 
 /**
- * The calendar approval card (docs/calendar-ux-study/spec.md, Phase 2 item 2). Boundary names its
- * calendar MCP entries `calendar-<slug>`, and caldav-mcp's write tools take the arguments below.
- * Anything else, including an argument this table doesn't list, gets the generic card.
+ * The calendar approval card (docs/calendar-ux-study/spec.md, Phase 2 item 2 and Phase 7 item 1).
+ * Boundary names its calendar MCP entries `calendar-<slug>`, and caldav-mcp's write tools take the
+ * arguments below. The Mac's `calendar-mac` entry takes the same ones plus `span` on the tools
+ * that touch an existing event; `span` on any other calendar server gets the generic card, since
+ * caldav-mcp has no such argument. Anything else, including an argument this table doesn't list,
+ * gets the generic card.
  */
 
 const CALENDAR_SERVER_PREFIX = 'calendar-';
@@ -14,6 +17,8 @@ interface ToolCopy {
   once: string;
   deny: string;
   args: readonly string[];
+  /** Touches an existing event, so on `calendar-mac` it takes `span` (default "this"). */
+  span?: true;
 }
 
 const TOOLS: Record<string, ToolCopy> = {
@@ -39,18 +44,21 @@ const TOOLS: Record<string, ToolCopy> = {
     once: 'Change event',
     deny: 'Don’t change',
     args: ['uid', 'summary', 'start', 'end', 'calendar_name', 'location', 'description'],
+    span: true,
   },
   caldav_delete_event: {
     action: 'Delete an event',
     once: 'Delete event',
     deny: 'Don’t delete',
     args: ['uid', 'calendar_name'],
+    span: true,
   },
   caldav_move_event: {
     action: 'Move an event',
     once: 'Move event',
     deny: 'Don’t move',
     args: ['uid', 'target_calendar', 'source_calendar'],
+    span: true,
   },
   caldav_add_attendee: {
     action: 'Invite someone',
@@ -84,8 +92,22 @@ export function calendarSlugFromServer(server: string): string | null {
   return server.startsWith(CALENDAR_SERVER_PREFIX) ? server.slice(CALENDAR_SERVER_PREFIX.length) || null : null;
 }
 
+/** The Mac account's fixed slug and name (calendarModel.ts). */
+const MAC_SLUG = 'mac';
+const MAC_NAME = 'This Mac';
+
+/**
+ * Which occurrences of a recurring event the change touches. On `calendar-mac` update, delete and
+ * move the line always shows; a missing `span` reads as the tool's default, this occurrence.
+ */
+const SPAN_TEXT: Record<string, string> = {
+  this: 'Only this occurrence',
+  future: 'This and future occurrences',
+};
+
 /** "personal-2" → "Personal 2", for when the account list isn't loaded. */
 export function accountNameFromSlug(slug: string): string {
+  if (slug === MAC_SLUG) return MAC_NAME;
   const words = slug.split('-').filter(Boolean).join(' ');
   return words ? words[0].toUpperCase() + words.slice(1) : slug;
 }
@@ -146,13 +168,15 @@ export function calendarApprovalCopy(
   const slug = calendarSlugFromServer(mcp.server);
   const tool = TOOLS[mcp.tool];
   if (!slug || !tool || !mcp.arguments) return null;
+  const takesSpan = slug === MAC_SLUG && tool.span === true;
   const args: Record<string, string> = {};
   for (const [key, value] of Object.entries(mcp.arguments)) {
-    if (!tool.args.includes(key)) return null;
+    if (!tool.args.includes(key) && !(key === 'span' && takesSpan)) return null;
     if (value === null || value === undefined || value === '') continue;
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     args[key] = String(value).trim();
   }
+  if (args.span !== undefined && !Object.hasOwn(SPAN_TEXT, args.span)) return null;
 
   const account = accountName?.trim() || accountNameFromSlug(slug);
   const rows: CalendarApprovalRow[] = [];
@@ -172,6 +196,7 @@ export function calendarApprovalCopy(
   } else {
     add('Calendar', inAccount(args.calendar_name));
   }
+  if (takesSpan) add('Applies to', SPAN_TEXT[args.span ?? 'this']);
   add('Where', args.location);
   add(mcp.tool === 'caldav_remove_attendee' ? 'Remove' : 'Invite', args.email);
   add('Guests', args.attendees);

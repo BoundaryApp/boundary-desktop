@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared Twenty Click-through</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Boundary tokens (src/renderer/styles/tokens.css, ADR 0018), as in the add-ons study's phase4.html. */
+:root {
+  color-scheme: light;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+  --surface-hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+  --text: #1c1b17; --text-muted: #6d6a60; --text-faint: #8a867a;
+  --brand: #5b56d6; --brand-dim: #e6e4fb; --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+  --ok: #3f7d44; --ok-dim: #e5f0e3; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+  --danger: #a83a3a; --danger-line: #e2b4b4; --danger-dim: #f8e6e4;
+  --gauge-track: #e3dfd3; --gen: #3b6fd8;
+  --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+  --page: #e9e6dc;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --dur: 160ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+    --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+    --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+    --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+    --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+    --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+    --gauge-track: #2a2a30; --gen: #5b8def;
+    --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+    --page: #070708;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+  --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+  --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+  --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+  --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+  --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+  --gauge-track: #2a2a30; --gen: #5b8def;
+  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+  --page: #070708;
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--text); font: 13px/1.45 var(--font-ui); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+/* ---------- Prototype controls ---------- */
+.proto { max-width: 1180px; margin: 0 auto; padding: 16px 16px 10px; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.proto .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+.proto .title { font-weight: 600; font-size: 14px; margin-right: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-1); }
+.seg button { border: 0; background: none; padding: 5px 10px; cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--brand-dim); color: var(--text); font-weight: 500; }
+.ctl { display: flex; gap: 8px; align-items: center; }
+.tabs { max-width: 1180px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; }
+.tabs button { border: 1px solid transparent; border-bottom: 0; background: none; padding: 7px 14px; border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: pointer; color: var(--text-muted); }
+.tabs button[aria-selected="true"] { background: var(--surface-0); border-color: var(--line); color: var(--text); font-weight: 500; }
+
+/* ---------- Window ---------- */
+.window { max-width: 1180px; margin: 0 auto 24px; padding: 0 16px; }
+.frame { display: grid; grid-template-columns: 56px 1fr; min-height: 760px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-overlay); }
+.rail { background: var(--surface-rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; }
+.rail .ri { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--text-faint); position: relative; }
+.rail .ri.active { background: var(--brand-dim); color: var(--brand); }
+.rail .ri svg { width: 18px; height: 18px; }
+.rail .spacer { flex: 1; }
+.rail .badge { position: absolute; right: 3px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 2px var(--surface-rail); }
+.main { padding: 28px 36px 40px; overflow: auto; min-width: 0; }
+.crumbs { display: flex; gap: 6px; align-items: center; color: var(--text-faint); font-size: 12px; margin-bottom: 10px; }
+.crumbs button { background: none; border: 0; padding: 0; color: var(--text-muted); cursor: pointer; }
+.crumbs button:hover { color: var(--text); text-decoration: underline; }
+.h-page { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.sub { color: var(--text-muted); max-width: 64ch; margin: 6px 0 0; font-size: 14px; }
+.section-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; margin: 0 0 10px; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-1); cursor: pointer; font-weight: 500; white-space: nowrap; transition: background var(--dur) var(--ease); }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.btn.primary:hover { opacity: .9; }
+.btn.danger { color: var(--danger); border-color: var(--danger-line); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.link { background: none; border: 0; padding: 0; color: var(--brand); cursor: pointer; font-weight: 500; }
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; border: 1px solid var(--line); color: var(--text-muted); white-space: nowrap; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-dim); border-color: transparent; }
+.pill.warn { color: var(--warn); background: var(--warn-dim); border-color: var(--warn-line); }
+.pill.danger { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-line); }
+.pill.brand { color: var(--brand); background: var(--brand-dim); border-color: transparent; }
+.panel { background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; }
+.panel + .panel { margin-top: 16px; }
+.panel h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.panel .lead { color: var(--text-muted); margin: 0 0 12px; }
+.field label { font-weight: 500; }
+.field .hint { color: var(--text-faint); font-size: 12px; }
+.field input[type="text"], .field input[type="email"], .field select { height: 34px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-0); }
+.field input.invalid { border-color: var(--danger); }
+.field .err { color: var(--danger); font-size: 12px; }
+.radio { display: flex; flex-direction: column; gap: 6px; }
+.radio label { display: grid; grid-template-columns: 18px 1fr; gap: 8px; font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; }
+.radio label:has(input:checked) { border-color: var(--brand); background: var(--brand-dim); }
+.radio b { font-weight: 500; display: block; }
+.radio span span { color: var(--text-muted); font-size: 12px; }
+.gen { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px dashed var(--line-strong); color: var(--text-muted); font-size: 12px; }
+.gen div { display: flex; justify-content: space-between; gap: 8px; }
+details summary { cursor: pointer; color: var(--text-muted); font-weight: 500; margin: 4px 0 10px; }
+.note { color: var(--text-faint); font-size: 12px; margin-top: 10px; }
+.callout { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--warn-line); background: var(--warn-dim); color: var(--text); margin-top: 16px; }
+.callout.danger { border-color: var(--danger-line); background: var(--danger-dim); }
+.callout.ok { border-color: transparent; background: var(--ok-dim); }
+.scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.dialog { width: min(440px, 100%); background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-overlay); display: flex; flex-direction: column; gap: 12px; }
+.dialog h3 { font-size: 16px; }
+.dialog p { margin: 0; color: var(--text-muted); }
+.dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
+.notes { max-width: 1180px; margin: 0 auto 32px; padding: 0 16px; }
+.notes .paper { background: var(--surface-0); border: 1px solid var(--line); border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg); padding: 32px 36px; }
+.notes .paper > * { max-width: 72ch; }
+.notes h2 { font-size: 20px; margin: 28px 0 8px; }
+.notes h2:first-child { margin-top: 0; }
+.notes h3 { font-size: 15px; margin: 20px 0 6px; }
+.notes p, .notes li { font-size: 14px; line-height: 1.6; color: var(--text); }
+.notes .muted { color: var(--text-muted); }
+.notes table { border-collapse: collapse; width: 100%; max-width: 100%; font-size: 13px; }
+.notes .tw { overflow-x: auto; max-width: 100%; }
+.notes th, .notes td { text-align: left; padding: 8px 10px 8px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.notes th { color: var(--text-muted); font-weight: 500; }
+.notes code { font: 12.5px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+.prio { font-size: 11px; font-weight: 600; }
+
+
+/* Shared services */
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.rows > li:first-child { border-top: 0; padding-top: 0; }
+.rowhead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.rowname { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.agent { font: 11px var(--font-mono); color: var(--text-muted); font-weight: 400; }
+.detail { font-size: 12px; color: var(--text-faint); }
+.rowfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--text-muted); }
+.rowfoot .push { margin-left: auto; }
+.access { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-1); }
+.access button { border: 0; background: none; padding: 4px 10px; border-radius: 5px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.access button[aria-checked="true"] { background: var(--surface-hover); color: var(--text); font-weight: 500; }
+.access button[disabled] { opacity: .45; cursor: default; }
+.shared { margin: 2px 0 0; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.shared .who { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-muted); }
+.members { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.members li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px solid var(--line); }
+.members li:first-child { border-top: 0; }
+.members select { height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--surface-0); padding: 0 6px; font-size: 12px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--text); }
+.switch input { appearance: none; width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); position: relative; cursor: pointer; transition: background var(--dur) var(--ease); margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); transition: transform var(--dur) var(--ease); }
+.switch input:checked { background: var(--brand); }
+.switch input:checked::after { transform: translateX(12px); }
+.chat { max-width: 680px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { align-self: flex-end; background: var(--brand-dim); padding: 8px 12px; border-radius: var(--radius-lg); max-width: 80%; }
+.tool { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-1); padding: 8px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.tool .t { font: 12px var(--font-mono); }
+.tool .from { color: var(--text-faint); }
+.tool.err { border-color: var(--danger-line); background: var(--danger-dim); }
+.reply { line-height: 1.6; }
+.restartbar { margin-top: 16px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--brand); background: var(--brand-dim); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.restartbar .push { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="proto">
+  <span class="title">Shared Twenty: click-through for phase 4</span>
+  <span class="ctl"><span class="label">Viewing as</span><span class="seg" id="who"><button aria-pressed="true" data-who="ada">Ada (shares)</button><button aria-pressed="false" data-who="bo">Bo (uses)</button></span></span>
+  <span class="ctl"><span class="label">Ada’s Mac</span><span class="seg" id="online"><button aria-pressed="true" data-on="1">Online</button><button aria-pressed="false" data-on="0">Offline</button></span></span>
+</div>
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="page">Twenty’s page</button>
+  <button role="tab" aria-selected="false" data-tab="chat">A chat</button>
+  <button role="tab" aria-selected="false" data-tab="notes">Notes</button>
+</div>
+<div class="window" id="win"><div class="frame">
+  <nav class="rail" aria-label="App"><span class="ri active" title="Services"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg></span></nav>
+  <main class="main" id="main"></main>
+</div></div>
+<div class="notes" id="notes" hidden><div class="paper">
+  <h2>What this covers</h2>
+  <p>Phase 4 of the shared services spec, for Twenty: sharing this Mac’s Twenty with a Circle from Twenty’s page, the shared row that follows, a member turning on <b>Use in my agent</b> for a workspace shared with them, and where a tool call says whose Twenty answered. ADR 0048 holds the decisions; this mock shows where they land.</p>
+  <h2>One page for both sides</h2>
+  <p>Twenty’s page already lists every workspace the agents can reach. A shared workspace is one more of them, so both sides live there: the provider’s share settings hang off <b>On this Mac</b>, and a member’s shared workspaces get their own group, <b>From your Circles</b>, below the hosted ones. A shared workspace a member uses isn’t listed again as hosted, though the stack stores it the same way.</p>
+  <h2>Sharing</h2>
+  <p><b>Share with a Circle…</b> appears on <b>On this Mac</b> while Twenty runs. The sheet picks one Circle, what members may do by default, a choice per member that starts at that default, and whether to keep the Mac awake. Saving publishes the offer and mints keys for each member who gets access, named <code>&lt;member&gt; · &lt;Circle&gt;</code>. Members added to the Circle later get no access until the provider gives it; the row says how many have none.</p>
+  <p>Each Circle shared with gets a line under the row: who has which access, today’s calls per member, <b>Change…</b> and <b>Stop sharing</b>. Stop sharing takes the offer down and revokes every member’s keys.</p>
+  <h2>Using</h2>
+  <p>A member sees each offer in <b>From your Circles</b>, with the provider’s name, the Circle, and whether the provider is online now. <b>Use in my agent</b> is off until they turn it on, because each workspace adds tools to every turn and needs a restart. Turning it on adds a line to the restart bar, and the access switch works as it does for hosted workspaces. The provider’s grant still decides: a member who picks <b>Make changes</b> on a read grant gets a refusal on the first change, saying so.</p>
+  <h2>Offline</h2>
+  <p>Nothing is hidden while the provider is offline. The row says so, and a tool call answers with the provider’s name and that their Mac is offline. The chat shows it as a failed tool call, like any other.</p>
+  <h2>Provenance</h2>
+  <p>A tool call to a shared workspace says whose it is and through which Circle, under the tool’s name.</p>
+  <h2>Not in this mock</h2>
+  <ul>
+    <li>The Circle’s <b>Shared</b> section. The Circle view’s layout is changing; the section follows that change, built from the same data as these rows.</li>
+    <li>Private and Trusted. The person panel already sets both for a provider’s models. For a service, Trusted would register the workspace as untrusted otherwise, and the stack’s instance store has no setting for that yet, so it needs a change request before it can apply.</li>
+    <li>Revoking when a member leaves, and sharing a hosted workspace (phase 5).</li>
+  </ul>
+</div></div>
+<script>
+const state = { who: 'ada', online: true, tab: 'page', used: false, access: 'read', shared: true, sheet: false };
+const $ = (s) => document.querySelector(s);
+const press = (group, attr, value) => document.querySelectorAll(`#${group} button`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset[attr] === value)));
+
+function adaPage() {
+  const shared = state.shared ? `
+    <div class="shared">
+      <div class="rowname" style="font-size:12px">Shared with Family <span class="pill ok">Look things up by default</span></div>
+      <div class="who"><span>Bo · Make changes · 14 calls today</span><span>Cy · Look things up · 3 calls today</span><span>Dee · No access</span></div>
+      <div class="rowfoot"><button class="link" data-act="sheet">Change…</button><span>Keeps this Mac awake while Boundary is open</span><button class="link push" style="color:var(--danger)" data-act="stop">Stop sharing</button></div>
+    </div>` : '';
+  return `
+    <div class="crumbs"><button>Services</button>›<span>Twenty CRM</span></div>
+    <h1 class="h-page">Twenty CRM</h1>
+    <p class="sub">Contacts, companies and deals your agents can look up and change.</p>
+    <div class="panel" style="margin-top:22px">
+      <h3>Workspaces</h3><p class="lead">Each one is a set of tools your default and browser agents can use, named as shown.</p>
+      <ul class="rows">
+        <li>
+          <div class="rowhead"><div><div class="rowname">On this Mac <span class="agent">crm-main</span></div><div class="detail">localhost:3000 · 4 containers · data stays on this Mac</div></div>
+            <span class="access" role="radiogroup"><button aria-checked="false">look things up</button><button aria-checked="true">make changes</button></span></div>
+          <div class="rowfoot"><button class="btn sm">Open Twenty</button><span>Opens signed in as its owner</span>${state.shared ? '' : '<button class="btn sm push" data-act="sheet">Share with a Circle…</button>'}</div>
+          ${shared}
+          ${state.shared ? '<div class="rowfoot"><button class="link" data-act="sheet">Share with another Circle…</button></div>' : ''}
+        </li>
+      </ul>
+      <div class="rowfoot" style="margin-top:6px"><button class="btn sm">Connect a hosted workspace</button></div>
+    </div>
+    ${state.sheet ? shareSheet() : ''}`;
+}
+
+function shareSheet() {
+  return `<div class="scrim"><div class="dialog" style="width:min(480px,100%)" role="dialog" aria-labelledby="st">
+    <h3 id="st">Share Twenty with a Circle</h3>
+    <p>Members’ agents reach this Mac’s Twenty through you. You see what they look up and write, and each change carries the member’s name in Twenty.</p>
+    <div class="field"><label>Circle</label><select><option>Family</option><option>Studio</option></select></div>
+    <div class="field"><label>Members may</label>
+      <span class="access" role="radiogroup"><button aria-checked="true">look things up</button><button aria-checked="false">make changes</button></span>
+      <span class="hint">Allowing changes lets you give it to some members. Members who join later get no access until you give it.</span></div>
+    <div class="field"><label>Each member</label>
+      <ul class="members">
+        <li>Bo <select><option>Make changes</option><option>Look things up</option><option>No access</option></select></li>
+        <li>Cy <select><option>Look things up</option><option>Make changes</option><option>No access</option></select></li>
+        <li>Dee <select><option>No access</option><option>Look things up</option><option>Make changes</option></select></li>
+      </ul></div>
+    <label class="switch"><input type="checkbox" checked> Keep this Mac awake while Boundary is open</label>
+    <div class="row"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Share</button></div>
+  </div></div>`;
+}
+
+function boPage() {
+  const status = state.online ? '<span class="pill ok"><i class="dot"></i>Online</span>' : '<span class="pill">Offline</span>';
+  const using = state.used
+    ? `<span class="access" role="radiogroup"><button aria-checked="${state.access === 'read'}" data-access="read">look things up</button><button aria-checked="${state.access === 'write'}" data-access="write">make changes</button></span>`
+    : '';
+  return `
+    <div class="crumbs"><button>Services</button>›<span>Twenty CRM</span></div>
+    <h1 class="h-page">Twenty CRM</h1>
+    <p class="sub">Contacts, companies and deals your agents can look up and change.</p>
+    <div class="panel" style="margin-top:22px">
+      <h3>Workspaces</h3><p class="lead">Each one is a set of tools your default and browser agents can use, named as shown.</p>
+      <p class="detail">Nothing runs on this Mac.</p>
+      <div class="rowfoot" style="margin-top:6px"><button class="btn sm">Connect a hosted workspace</button><button class="btn sm">Also run Twenty on this Mac</button></div>
+    </div>
+    <div class="panel">
+      <h3>From your Circles</h3><p class="lead">Workspaces people share with you. Your agent reaches them through that person’s Mac.</p>
+      <ul class="rows"><li>
+        <div class="rowhead"><div><div class="rowname">Ada’s Twenty ${status} ${state.used ? '<span class="agent">crm-ada-family</span>' : ''}</div>
+          <div class="detail">Family · Ada lets you look things up and make changes</div></div>${using}</div>
+        <div class="rowfoot"><label class="switch"><input type="checkbox" data-act="use" ${state.used ? 'checked' : ''}> Use in my agent</label>
+          <span>${state.online ? (state.used ? 'Ada sees what your agent looks up and writes here.' : 'Adds its tools to every chat after a restart.') : 'Calls say Ada’s Mac is offline until it’s back.'}</span></div>
+      </li></ul>
+    </div>
+    ${state.used ? '<div class="restartbar"><span>Connect crm-ada-family (' + (state.access === 'read' ? 'look things up' : 'make changes') + ')</span><button class="btn sm primary push">Restart assistant</button></div>' : ''}`;
+}
+
+function chat() {
+  const call = state.online
+    ? `<div class="tool"><span class="t">crm-ada-family · execute_tool · find_people</span><span class="from">Ada’s Twenty · Family</span></div>
+       <div class="reply">Two people at Northwind: Ines Ortiz (buyer) and Sam Lee (finance). Ines was last contacted on 4 November.</div>`
+    : `<div class="tool err"><span class="t">crm-ada-family · execute_tool · find_people</span><span class="from">Ada’s Twenty · Family</span><span>Ada’s Mac is offline or not connected, so the Twenty they share can’t be reached. Try again once they’re online.</span></div>
+       <div class="reply">I can’t reach Ada’s Twenty right now: her Mac is offline. I can try again later.</div>`;
+  return `<div class="chat"><div class="bubble">Who do we know at Northwind?</div>${call}</div>`;
+}
+
+function render() {
+  $('#win').hidden = state.tab === 'notes';
+  $('#notes').hidden = state.tab !== 'notes';
+  $('#main').innerHTML = state.tab === 'chat' ? chat() : state.who === 'ada' ? adaPage() : boPage();
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button, input');
+  if (!b) return;
+  if (b.dataset.who) { state.who = b.dataset.who; press('who', 'who', state.who); }
+  if (b.dataset.on) { state.online = b.dataset.on === '1'; press('online', 'on', b.dataset.on); }
+  if (b.dataset.tab) { state.tab = b.dataset.tab; document.querySelectorAll('[role=tab]').forEach((t) => t.setAttribute('aria-selected', String(t === b))); }
+  if (b.dataset.access) state.access = b.dataset.access;
+  if (b.dataset.act === 'sheet') state.sheet = true;
+  if (b.dataset.act === 'close') state.sheet = false;
+  if (b.dataset.act === 'save') { state.sheet = false; state.shared = true; }
+  if (b.dataset.act === 'stop') state.shared = false;
+  if (b.dataset.act === 'use') state.used = b.checked;
+  render();
+});
+render();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Camera and microphone access
 
-Nothing in the app asks for media yet, so these steps call the preload API and `getUserMedia` from DevTools. Open DevTools with **View > Toggle Developer Tools**, or Option-Command-I. Run the signed steps on a Mac that hasn't answered the prompts for this build's bundle id. To start over, reset the answers with the bundle id the build uses (`com.boundary.desktop` unless `BOUNDARY_APP_ID` set another):
+The call check's **Test call** ([call transport check](call-transport.md)) asks for both devices when joining. These steps call the preload API and `getUserMedia` from DevTools, to check each status, including a denied device. Open DevTools with **View > Toggle Developer Tools**, or Option-Command-I. Run the signed steps on a Mac that hasn't answered the prompts for this build's bundle id. To start over, reset the answers with the bundle id the build uses (`com.boundary.desktop` unless `BOUNDARY_APP_ID` set another):
 
 ```bash
 tccutil reset Camera com.boundary.desktop && tccutil reset Microphone com.boundary.desktop

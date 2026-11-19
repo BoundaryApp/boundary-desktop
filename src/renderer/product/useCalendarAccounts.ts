@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CalendarAccountView } from '../../shared/types/calendars';
+import type { CalendarAccountView, MacStatusResult } from '../../shared/types/calendars';
 
 const LOAD_FAILED = 'Couldn’t load calendars.';
 
@@ -53,4 +53,64 @@ export function useCalendarAccountList(): CalendarAccountList {
 /** The connected calendars, kept current through `calendars:changed`. Null until they load. */
 export function useCalendarAccounts(): CalendarAccountView[] | null {
   return useCalendarAccountList().accounts;
+}
+
+export interface MacStatusState {
+  /** Null until the helper first answers. A failed check keeps the last answer. */
+  status: MacStatusResult | null;
+  /** Set when the last check failed, such as a helper timeout. */
+  error: string | null;
+  refresh: () => Promise<void>;
+  /** Take an answer from another call that returns one (Allow calendar access). */
+  apply: (status: MacStatusResult) => void;
+}
+
+const MAC_CHECK_FAILED = 'Couldn’t check calendar access on this Mac. Try again.';
+
+/**
+ * The Mac's calendar permission and calendars, checked on mount and again whenever the window
+ * regains focus. With `enabled` false it asks nothing, for components that show a Mac card only
+ * sometimes.
+ */
+export function useMacStatus(enabled = true): MacStatusState {
+  const [status, setStatus] = useState<MacStatusResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+  /** Only the newest check may set the state, so a slow answer can't undo a fresher one. */
+  const latest = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const mine = ++latest.current;
+    let next: MacStatusResult | null = null;
+    let failure: string | null = null;
+    try {
+      next = await window.electronAPI.calendars.macStatus();
+    } catch {
+      failure = MAC_CHECK_FAILED;
+    }
+    if (!alive.current || mine !== latest.current) return;
+    if (next) setStatus(next);
+    setError(failure);
+  }, []);
+
+  const apply = useCallback((next: MacStatusResult) => {
+    latest.current += 1;
+    if (!alive.current) return;
+    setStatus(next);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    alive.current = true;
+    void refresh();
+    const onFocus = (): void => void refresh();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive.current = false;
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refresh, enabled]);
+
+  return { status, error, refresh, apply };
 }

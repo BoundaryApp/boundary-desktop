@@ -12,7 +12,7 @@ function calendars(list: ReturnType<typeof vi.fn>) {
       list,
       onChanged: vi.fn((cb: () => void) => {
         changed = cb;
-        return () => undefined;
+        return (): void => undefined;
       }),
     },
   });

@@ -57,6 +57,34 @@ describe('the Inference stack', () => {
     expect(skipReason(state(local), { health: 'reachable' } as never, 'Local')).toBeNull();
   });
 
+  it('keeps a confidential pool’s model when it moves first, and says why it’s skipped', () => {
+    const pool: InferenceChainEntry = { slot: 'confidential', modelId: 'qwen' };
+    expect(stackChange([local, pool], [pool, local])).toEqual({ first: pool, fallbacks: [local] });
+    expect(skipReason(state(pool, { stale: 'pool-no-provider' }), undefined, 'Confidential')).toBe(
+      'No added provider serves this model now'
+    );
+  });
+
+  it('lets a pool that serves answer a dry run, and skips one nobody serves', () => {
+    const pool: InferenceChainEntry = { slot: 'confidential', modelId: 'qwen' };
+    const serving: Array<{ state: InferenceStackEntry; reason: string | null }> = [
+      { state: state(pool, { key: 'confidential:qwen' }), reason: null },
+      { state: state(local, { privateCut: false }), reason: null },
+    ];
+    expect(dryRun(serving, { privateProject: false })).toEqual({
+      steps: [{ outcome: 'answers' }, { outcome: 'unreached' }],
+      answeredBy: 0,
+    });
+    const none = [
+      { state: state(pool, { key: 'confidential:qwen', stale: 'pool-no-provider' }), reason: 'No added provider serves this model now' },
+      { state: state(local, { privateCut: false }), reason: null },
+    ];
+    expect(dryRun(none, { privateProject: false })).toEqual({
+      steps: [{ outcome: 'skipped', reason: 'No added provider serves this model now' }, { outcome: 'answers' }],
+      answeredBy: 1,
+    });
+  });
+
   it('walks the stack without sending: skips, stops for private projects, and leaves the rest unreached', () => {
     const entries = [
       { state: state(local), reason: 'Not answering' },

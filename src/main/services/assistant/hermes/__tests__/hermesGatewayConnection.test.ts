@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeGatewaySocket as FakeWS, tick } from './fakeGatewaySocket';
+import { FakeGatewaySocket as FakeWS, run, tick } from './fakeGatewaySocket';
 
 const openWindows = vi.hoisted(() => ({ count: 1 }));
 const broadcasts = vi.hoisted(() => [] as Array<{ channel: string; payload: unknown }>);
@@ -42,6 +42,8 @@ function newSession(): HermesGatewaySession {
 }
 
 beforeEach(() => {
+  // The fake socket opens, readies and answers on timers; tests move fake time with tick().
+  vi.useFakeTimers();
   (globalThis as { WebSocket: unknown }).WebSocket = FakeWS;
   FakeWS.reset();
   FakeWS.results = { 'session.list': { sessions: [] }, 'approval.pending': { approvals: [] } };
@@ -56,6 +58,7 @@ afterEach(() => {
   for (const gw of sessions.splice(0)) gw.dispose();
   resetHermesGatewaySessionForTests();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   (globalThis as { WebSocket: unknown }).WebSocket = realWS;
 });
 
@@ -67,7 +70,7 @@ describe('connection owner (G06-6, new-C-2)', () => {
     // Subscribed before any connection exists, as a turn's listeners may be.
     gw.on('message.delta', (event) => deltas.push(String((event.payload as { text?: string }).text)));
     gw.on('message.complete', completed);
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     const first = FakeWS.latest;
     first.serverEvent({ type: 'message.delta', session_id: 's1', seq: 1, payload: { text: 'hi' } });
     await tick();
@@ -93,14 +96,14 @@ describe('connection owner (G06-6, new-C-2)', () => {
 
   it('advertises client.capabilities once per connection', async () => {
     const gw = newSession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     await tick();
     expect(FakeWS.latest.methods().filter((m) => m === 'client.capabilities')).toHaveLength(1);
   });
 
   it('keeps redialing a socket that drops before the gateway is ready', async () => {
     const gw = newSession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     // The next socket closes as soon as it opens; the one after it stays up.
     const realOpen = FakeWS.prototype.dispatchEvent;
     let dropNext = true;
@@ -122,7 +125,7 @@ describe('connection owner (G06-6, new-C-2)', () => {
     const gw = newSession();
     const opened = vi.fn();
     const unsubscribe = gw.onOpen(opened);
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     expect(opened).toHaveBeenCalledTimes(1);
 
     FakeWS.latest.close();
@@ -142,13 +145,13 @@ describe('connection owner (G06-6, new-C-2)', () => {
     gw.onOpen(() => {
       throw new Error('listener broke');
     });
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     expect(gw.connectionState).toBe('open');
   });
 
   it('does not redial after dispose', async () => {
     const gw = newSession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     gw.dispose();
     await tick(40);
     expect(FakeWS.all).toHaveLength(1);
@@ -159,7 +162,7 @@ describe('connection owner (G06-6, new-C-2)', () => {
 describe('prompts before the first send (G06-16)', () => {
   it('shows credential requests and approvals from the chat list connection, in every window', async () => {
     const gw = getHermesGatewaySession();
-    await gw.listSessions();
+    await run(gw.listSessions());
     const ws = FakeWS.latest;
     await tick();
     // No approval.pending for an empty session id.
@@ -181,7 +184,7 @@ describe('prompts before the first send (G06-16)', () => {
   it('skips a credential request when no window is open to ask', async () => {
     openWindows.count = 0;
     const gw = getHermesGatewaySession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     FakeWS.latest.serverRequest('srv-1', 'secret', { session_id: 's1', env_var: 'FOO_KEY' });
     await tick();
     expect(FakeWS.latest.answerTo('srv-1')).toMatchObject({ result: { value: '' } });
@@ -193,7 +196,7 @@ describe('parked requests across a dropped socket (G07-4)', () => {
   it('clears requests the dropped socket asked, so an answer reports failure instead of vanishing', async () => {
     const gw = newSession();
     gw.setCredentialRequestNotifier(() => true);
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     const first = FakeWS.latest;
     first.serverRequest('srv-9', 'secret', { session_id: 's1', env_var: 'FOO_KEY' });
     await tick();
@@ -211,7 +214,7 @@ describe('parked requests across a dropped socket (G07-4)', () => {
     const gw = newSession();
     const notified = vi.fn();
     gw.setApprovalNotifier(notified);
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     const first = FakeWS.latest;
     first.serverRequest('srv-5', 'approval', { session_id: 's1', request_id: 'a5', command: 'ls' });
     await tick();
@@ -235,7 +238,7 @@ describe('parked requests across a dropped socket (G07-4)', () => {
 
   it('asks for approvals of running turns after a reconnect', async () => {
     const gw = newSession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     beginRunningTurn('req-1', ['runtime-1'], null);
     FakeWS.latest.close();
     await tick(40);
@@ -247,7 +250,7 @@ describe('parked requests across a dropped socket (G07-4)', () => {
   it('unparks a request Hermes withdraws with request.cancel', async () => {
     const gw = newSession();
     gw.setCredentialRequestNotifier(() => true);
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     const ws = FakeWS.latest;
     ws.serverRequest('srv-1', 'approval', { session_id: 's1', request_id: 'a1' });
     ws.serverRequest('srv-2', 'secret', { session_id: 's1', env_var: 'K' });
@@ -258,24 +261,73 @@ describe('parked requests across a dropped socket (G07-4)', () => {
     expect(listParkedApprovals()).toEqual([]);
     expect(listParkedCredentialRequests()).toEqual([]);
   });
+
+  it('answers a vault.create_login card over the socket that asked', async () => {
+    const gw = newSession();
+    const notified = vi.fn(() => true);
+    gw.setCredentialRequestNotifier(notified);
+    await run(gw.ensureConnected());
+    const ws = FakeWS.latest;
+    ws.serverRequest('srv-3', 'vault.create_login', {
+      session_id: 's1',
+      origin: 'https://app.example.com',
+      site: 'app.example.com',
+      identifier: 'me@example.com',
+      regenerate: false,
+    });
+    await tick();
+    expect(notified).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'vault.create_login', identifier: 'me@example.com' })
+    );
+    const res = await run(respondToCredentialRequest({ rpcRequestId: 'srv-3', createLogin: { generate: true } }));
+    expect(res).toEqual({ success: true });
+    const reply = ws.sent.find((f) => f.id === 'srv-3');
+    expect(reply?.result).toEqual({ value: '{"generate":true}' });
+  });
+
+  it('drops a vault.create_login card Hermes timed out, and sends nothing for a late answer', async () => {
+    const gw = newSession();
+    gw.setCredentialRequestNotifier(() => true);
+    await run(gw.ensureConnected());
+    const ws = FakeWS.latest;
+    ws.serverRequest('srv-4', 'vault.create_login', {
+      session_id: 's1',
+      origin: 'https://app.example.com',
+      site: 'app.example.com',
+      identifier: 'me@example.com',
+    });
+    await tick();
+    // Hermes's ask_viewer gives up after 180 s and publishes request.cancel with reason "timeout".
+    ws.serverEvent({
+      type: 'request.cancel',
+      payload: { id: 'srv-4', method: 'vault.create_login', reason: 'timeout' },
+    });
+    await tick();
+    expect(listParkedCredentialRequests()).toEqual([]);
+    const sentBefore = ws.sent.length;
+    const res = await run(respondToCredentialRequest({ rpcRequestId: 'srv-4', createLogin: { generate: true } }));
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('not-pending');
+    expect(ws.sent.length).toBe(sentBefore);
+  });
 });
 
 describe('answering a replayed approval (G07-6, G07-7)', () => {
   async function parkReplayed(): Promise<FakeWS> {
     const gw = newSession();
-    await gw.ensureConnected();
+    await run(gw.ensureConnected());
     FakeWS.results['approval.pending'] = {
       approvals: [{ request_id: 'a1', session_id: 's1', choices: ['once', 'deny'] }],
     };
-    await gw.replayPendingApprovals(['s1']);
+    await run(gw.replayPendingApprovals(['s1']));
     return FakeWS.latest;
   }
 
   it('sends nothing for a choice that was not offered, and keeps the approval', async () => {
     const ws = await parkReplayed();
-    const res = await respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'always' });
+    const res = await run(respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'always' }));
     expect(res.success).toBe(false);
-    const invalid = await respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'yolo' as never });
+    const invalid = await run(respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'yolo' as never }));
     expect(invalid.success).toBe(false);
     expect(ws.methods()).not.toContain('approval.respond');
     expect(listParkedApprovals().map((a) => a.rpcRequestId)).toEqual(['pending:a1']);
@@ -283,7 +335,7 @@ describe('answering a replayed approval (G07-6, G07-7)', () => {
 
   it('answers an offered choice with approval.respond and unparks it', async () => {
     const ws = await parkReplayed();
-    const res = await respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'once' });
+    const res = await run(respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'once' }));
     expect(res).toEqual({ success: true });
     expect(ws.sent.find((f) => f.method === 'approval.respond')?.params).toEqual({
       session_id: 's1',
@@ -296,8 +348,24 @@ describe('answering a replayed approval (G07-6, G07-7)', () => {
   it('reports failure and keeps the approval when approval.respond fails', async () => {
     await parkReplayed();
     FakeWS.errors['approval.respond'] = { code: 4004, message: 'no such approval' };
-    const res = await respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'once' });
+    const res = await run(respondToParkedApproval({ rpcRequestId: 'pending:a1', choice: 'once' }));
     expect(res).toEqual({ success: false, error: 'no such approval' });
     expect(listParkedApprovals().map((a) => a.rpcRequestId)).toEqual(['pending:a1']);
+  });
+});
+
+describe('session list (CR 0033)', () => {
+  it('leaves out cron sessions with no messages, keeps the rest', async () => {
+    FakeWS.results['session.list'] = {
+      sessions: [
+        { id: 'local-skipped', title: '', preview: '', source: 'cron', message_count: 0 },
+        { id: 'local-ran', title: 'Daily Journal Entry · Nov 12 03:00', source: 'cron', message_count: 2 },
+        { id: 'chat-1', title: 'Plan the launch', source: 'boundary', message_count: 4 },
+        { id: 'chat-2', title: 'Older stack', source: 'boundary' },
+      ],
+    };
+    const gw = newSession();
+    const listed = await run(gw.listSessions());
+    expect(listed.map((s) => s.id)).toEqual(['local-ran', 'chat-1', 'chat-2']);
   });
 });

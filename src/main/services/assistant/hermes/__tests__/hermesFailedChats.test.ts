@@ -1,40 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebContents } from 'electron';
 
-const createSessionWithSeed = vi.fn();
-const resumeSession = vi.fn();
-const getSessionHistory = vi.fn();
-const listSessions = vi.fn();
-const ensureConnected = vi.fn();
-const submitPrompt = vi.fn();
 const ensureResolvedInferenceReady = vi.fn();
-const storedIds = new Map<string, string>();
-type GatewayHandler = (event: { session_id?: string; payload?: unknown }) => void;
-const handlers = new Map<string, Set<GatewayHandler>>();
+const storedIds = vi.hoisted(() => new Map<string, string>());
+const gw = await vi.hoisted(async () =>
+  (await import('./fakeGatewaySession')).fakeGatewaySession(
+    {
+      ensureConnected: vi.fn(),
+      createSessionWithSeed: vi.fn(),
+      resumeSession: vi.fn(),
+      getSessionHistory: vi.fn(),
+      listSessions: vi.fn(),
+      submitPrompt: vi.fn(),
+      storedSessionId: vi.fn((id: string) => storedIds.get(id) ?? id),
+      applyToolsEnabled: vi.fn().mockResolvedValue(undefined),
+      getMaxTurns: vi.fn().mockResolvedValue(null),
+      getTurnLiveness: vi.fn().mockResolvedValue({ heartbeatS: null }),
+      cancelPrompt: vi.fn().mockResolvedValue(undefined),
+      setApprovalNotifier: vi.fn(),
+      setCredentialRequestNotifier: vi.fn(),
+    },
+    { liveHandlers: true }
+  )
+);
+const { createSessionWithSeed, resumeSession, getSessionHistory, listSessions, ensureConnected, submitPrompt } =
+  gw.fns;
 
 vi.mock('../hermesGatewaySession', () => ({
   BOUNDARY_SESSION_SOURCE: 'boundary',
-  getHermesGatewaySession: () => ({
-    ensureConnected: () => ensureConnected(),
-    createSessionWithSeed: (...args: unknown[]) => createSessionWithSeed(...args),
-    resumeSession: (...args: unknown[]) => resumeSession(...args),
-    getSessionHistory: (...args: unknown[]) => getSessionHistory(...args),
-    listSessions: (...args: unknown[]) => listSessions(...args),
-    submitPrompt: (...args: unknown[]) => submitPrompt(...args),
-    storedSessionId: (id: string) => storedIds.get(id) ?? id,
-    applyToolsEnabled: vi.fn().mockResolvedValue(undefined),
-    getMaxTurns: vi.fn().mockResolvedValue(null),
-    getTurnLiveness: vi.fn().mockResolvedValue({ heartbeatS: null }),
-    cancelPrompt: vi.fn().mockResolvedValue(undefined),
-    on: (name: string, handler: GatewayHandler) => {
-      const set = handlers.get(name) ?? new Set<GatewayHandler>();
-      set.add(handler);
-      handlers.set(name, set);
-      return () => set.delete(handler);
-    },
-    setApprovalNotifier: vi.fn(),
-    setCredentialRequestNotifier: vi.fn(),
-  }),
+  getHermesGatewaySession: () => gw.session,
 }));
 vi.mock('../hermesWebuiSync', () => ({ ensureHermesWebuiSyncToInsights: vi.fn() }));
 vi.mock('../hermesWebuiSessions', async (importOriginal) => ({
@@ -49,10 +43,23 @@ vi.mock('../hermesChatProjects', async (importOriginal) => ({
 vi.mock('../sessionInference', () => ({
   ensureResolvedInferenceReady: (...args: unknown[]) => ensureResolvedInferenceReady(...args),
   noteFallbackServed: vi.fn(),
+  noteTurnStarted: vi.fn(),
+  noteTurnEnded: vi.fn(),
   setSessionInferenceOverride: vi.fn().mockResolvedValue({ success: true }),
+}));
+vi.mock('../../writingVoices/writingVoiceStore', () => ({
+  isWritingVoiceCalibrationSession: (id: string) => id === 'calibration-run',
+}));
+const turnContext = vi.hoisted(() =>
+  vi.fn(async (id: string) => ({ text: `VOICE ${id}`, voiceName: id.toUpperCase(), log: null }))
+);
+vi.mock('../../writingVoices/agentWritingVoices', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../writingVoices/agentWritingVoices')>()),
+  writingVoiceTurnContext: (id: string) => turnContext(id),
 }));
 vi.mock('../hermesSessionsChanged', () => ({
   broadcastSessionsChanged: vi.fn(),
+  broadcastInferenceNoted: vi.fn(),
   onHermesSessionsChanged: vi.fn(),
 }));
 
@@ -81,12 +88,8 @@ const sender = {
 const send = (text: string, extra: Record<string, unknown> = {}) =>
   startHermesChatStream(sender, { messages: [{ role: 'user', content: text }], ...extra });
 const finishTurn = (sessionId: string, payload: unknown = { status: 'complete' }) => {
-  for (const handler of handlers.get('message.delta') ?? []) {
-    handler({ session_id: sessionId, payload: { text: 'Answer' } });
-  }
-  for (const handler of handlers.get('message.complete') ?? []) {
-    handler({ session_id: sessionId, payload });
-  }
+  gw.emit('message.delta', { session_id: sessionId, payload: { text: 'Answer' } });
+  gw.emit('message.complete', { session_id: sessionId, payload });
 };
 /** Lets the turn started in the background reach `submitPrompt`. */
 const turnSubmitted = () => vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
@@ -99,14 +102,14 @@ beforeEach(() => {
   resetHermesAgentsStoreForTests();
   events.length = 0;
   storedIds.clear();
-  handlers.clear();
+  gw.clearHandlers();
   ensureConnected.mockResolvedValue({});
   ensureResolvedInferenceReady.mockResolvedValue({ ok: true });
   createSessionWithSeed.mockResolvedValue('run-1');
   resumeSession.mockRejectedValue(new Error('session not found'));
   getSessionHistory.mockResolvedValue([]);
   listSessions.mockResolvedValue([]);
-  submitPrompt.mockResolvedValue(undefined);
+  submitPrompt.mockResolvedValue({ status: 'streaming' });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -243,9 +246,7 @@ describe('a send that fails before Hermes has the chat', () => {
   it('keeps a turn Hermes ended with an error when it stored no row', async () => {
     const { sessionId } = await send('No row');
     await turnSubmitted();
-    for (const handler of handlers.get('message.complete') ?? []) {
-      handler({ session_id: sessionId, payload: { status: 'error', error: 'Model refused' } });
-    }
+    gw.emit('message.complete', { session_id: sessionId, payload: { status: 'error', error: 'Model refused' } });
     await vi.waitFor(() => expect(getFailedChat(sessionId!)).not.toBeNull());
     expect(getFailedChat(sessionId!)?.turns[0]?.noReply).toEqual({
       reason: 'failed',
@@ -259,9 +260,7 @@ describe('a send that fails before Hermes has the chat', () => {
     ]);
     const { sessionId } = await send('Held');
     await turnSubmitted();
-    for (const handler of handlers.get('message.complete') ?? []) {
-      handler({ session_id: sessionId, payload: { status: 'error', error: 'Model refused' } });
-    }
+    gw.emit('message.complete', { session_id: sessionId, payload: { status: 'error', error: 'Model refused' } });
     await vi.waitFor(async () =>
       expect((await getHermesChatHistory(sessionId!)).messages[0]?.noReply?.reason).toBe('failed')
     );
@@ -333,6 +332,32 @@ describe('sending again from a failed chat', () => {
     expect(threads).toHaveLength(1);
     expect(threads[0]).toMatchObject({ id: 'run-1', title: 'Week plan' });
     expect(threads[0]?.failed).toBeUndefined();
+  });
+
+  it("keeps a chip's voice on the failed send and sends it with the Retry", async () => {
+    ensureConnected.mockRejectedValue(new Error('down'));
+    const { sessionId: id } = await send('Plan my week', { writingVoiceId: 'news' });
+    ensureConnected.mockResolvedValue({});
+    expect(getFailedChat(id!)?.turns[0]?.writingVoiceId).toBe('news');
+
+    const result = await send('Plan my week', { sessionId: id, retry: true });
+    expect(result).toMatchObject({ success: true, writingVoiceName: 'NEWS' });
+    await turnSubmitted();
+    expect(turnContext).toHaveBeenCalledWith('news');
+    expect(submitPrompt.mock.calls[0]?.[2]).toMatchObject({ context: 'VOICE news' });
+  });
+
+  it("keeps the voice when the Retry fails too, and sends no voice for another message's Retry", async () => {
+    ensureConnected.mockRejectedValue(new Error('down'));
+    const { sessionId: id } = await send('Plan my week', { writingVoiceId: 'news' });
+    await send('Plan my week', { sessionId: id, retry: true });
+    expect(getFailedChat(id!)?.turns.map((t) => t.writingVoiceId)).toEqual(['news']);
+
+    ensureConnected.mockResolvedValue({});
+    turnContext.mockClear();
+    await send('Something else', { sessionId: id, retry: true });
+    await turnSubmitted();
+    expect(turnContext).not.toHaveBeenCalled();
   });
 
   it('shows one error when a Retry fails too', async () => {
@@ -454,6 +479,24 @@ describe('a refused send in a chat made by New chat', () => {
     expect(threads.map((t) => [t.id, t.title])).toEqual([[storedId, 'Plan my week']]);
   });
 
+  it("sends a refused chip message's voice when its Retry comes as a rewind", async () => {
+    createSessionWithSeed.mockResolvedValueOnce(runtimeId);
+    storedIds.set(runtimeId, storedId);
+    setStoredSessionAlias(runtimeId, storedId);
+    resumeSession.mockImplementation(async (id: string) => {
+      if (id === storedId) return { sessionId: runtimeId, messages: [] };
+      throw new Error('session not found');
+    });
+    const { thread } = await createHermesChat();
+    ensureResolvedInferenceReady.mockResolvedValueOnce(refused);
+    await send('Plan my week', { sessionId: thread!.id, writingVoiceId: 'news' });
+
+    const rewind = { userOrdinal: 0, expectedText: 'Plan my week' };
+    await send('Plan my week', { sessionId: runtimeId, rewind });
+    await turnSubmitted();
+    expect(submitPrompt.mock.calls[0]?.[2]).toMatchObject({ context: 'VOICE news' });
+  });
+
   it('follows the session to a new runtime id when Hermes restarted before the Retry', async () => {
     await refusedChat();
     storedIds.set('e5f6a7b8', storedId);
@@ -477,5 +520,13 @@ describe('a refused send in a chat made by New chat', () => {
     const result = await send('Plan my week', { sessionId: runtimeId, retry: true });
     expect(result).toMatchObject({ sessionId: 'run-next', storedSessionId: 'stored-next' });
     expect(await rows()).toEqual([['stored-next', 'Plan my week']]);
+  });
+
+  it('leaves writing voice calibration sessions out of the list', async () => {
+    listSessions.mockResolvedValue([
+      { id: 'calibration-run', title: 'Writing voice calibration', source: 'boundary' },
+      { id: 'kept', title: 'Stored', source: 'boundary' },
+    ]);
+    expect((await listed()).map((t) => t.title)).toEqual(['Stored']);
   });
 });

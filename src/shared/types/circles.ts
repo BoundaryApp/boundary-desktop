@@ -54,6 +54,8 @@ export interface CircleSnapshot {
   needsUpdate: boolean;
   /** False from admission until this device has caught up, and read-only until then. */
   writable: boolean;
+  /** The Circle's format; mentions are stored from format 3. */
+  format: number;
 }
 
 export interface CirclesSnapshot {
@@ -174,6 +176,8 @@ export interface CircleChannel {
   name: string;
   /** Messages after this device's read position. */
   unread: number;
+  /** An unread message mentions this user (and @channel counts when this device's preference says so). */
+  mentioned: boolean;
 }
 
 /** Names a message everywhere outside the Circle's `apply`; positions change until confirmed. */
@@ -185,6 +189,16 @@ export interface CircleMessageRef {
 /** A read position: the newest message read, with its time for when that message is gone. */
 export interface CircleReadPosition extends CircleMessageRef {
   at: number;
+  /** Reactions to my messages newer than this have been seen. */
+  reactionsAt?: number;
+}
+
+/** One emoji on a message: who reacted, in the order the pill shows them (the user first). */
+export interface CircleReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  people: { identity: string; name: string; left: boolean; at: number }[];
 }
 
 /** A Circle chat message as this device sees it (Circle chats spec, the public seam). */
@@ -207,6 +221,12 @@ export interface CircleMessage extends CircleMessageRef {
   shared: { role: 'user' | 'assistant'; model?: string } | null;
   /** A call's start, and its end once known. */
   call: { id: string; ended?: number } | null;
+  /** Who the author mentioned; null when nobody. */
+  mentions: CircleMentions | null;
+  /** The message this one answers; null when it answers none. */
+  reply: CircleMessageRef | null;
+  /** Emoji reactions in first-use order; empty when none. */
+  reactions: CircleReaction[];
   mine: boolean;
 }
 
@@ -228,6 +248,29 @@ export type CircleChatMark = { channel: string } & ({ kind: 'typing' } | { kind:
 /** A member's typing or read mark, with the Circle and who sent it. */
 export type CircleChatPresence = { circleKey: string; from: string } & CircleChatMark;
 
+/** How loud a Circle is on this device. `default` follows the Circle's size (see `resolveNotifyLevel`). */
+export type CircleNotifyLevel = 'default' | 'all' | 'mentions' | 'nothing';
+
+/** This device's notification settings for one Circle. Never sent to the Circle. */
+export interface CircleNotifyPrefs {
+  level: CircleNotifyLevel;
+  /** Whether an @channel mention counts as a mention of this user. */
+  channelMentions: boolean;
+}
+
+/** Device-wide notification switches for Circle chats. */
+export interface CircleNotifyGlobal {
+  enabled: boolean;
+  /** Off: notifications say `New message` or `Mentioned you` instead of showing text. */
+  showText: boolean;
+}
+
+/** Who a message mentions: member identities (64-hex) and/or the whole channel. */
+export interface CircleMentions {
+  members: string[];
+  channel: boolean;
+}
+
 /** The DHT's view of this device's public address (ADR 0044). `host` is null until the DHT knows it. */
 export interface CirclePublicAddress {
   host: string | null;
@@ -235,3 +278,57 @@ export interface CirclePublicAddress {
   firewalled: boolean;
   randomizedNat: boolean;
 }
+
+/**
+ * Direct messages (ADR 0054): kept only on the two Macs, sent as peer signals. `delivery` is null
+ * for a message from the other person; for one of this user's, `waiting` means the other person's
+ * device isn't connected, `sending` that it is and hasn't acknowledged yet, and `undelivered`
+ * that the conversation ended before it was acknowledged.
+ */
+export type DirectDelivery = 'waiting' | 'sending' | 'delivered' | 'undelivered';
+
+export interface DirectMessage {
+  id: string;
+  author: string;
+  mine: boolean;
+  /** Empty once deleted. */
+  text: string;
+  /** The sender's clock in milliseconds; shown, never used for order. */
+  at: number;
+  reply: CircleMessageRef | null;
+  edited: boolean;
+  deleted: boolean;
+  delivery: DirectDelivery | null;
+  /** The user's message is still on this Mac only: deleting it means it is never sent. */
+  neverSent: boolean;
+}
+
+/** One person's conversation with this user in one Circle. */
+export interface DirectConversation {
+  /** The other person's identity key. */
+  peer: string;
+  name: string;
+  online: boolean;
+  /** They left or were removed: the conversation is read-only. */
+  ended: boolean;
+  last: { at: number; text: string; mine: boolean; deleted: boolean } | null;
+  /** This user's messages still in the outbox. */
+  waiting: number;
+  /** The other person's messages after this device's read position. Never leaves this Mac. */
+  unread: number;
+}
+
+export type DirectEvent =
+  /** A message from the other person arrived on this device for the first time. */
+  | { kind: 'message'; circleKey: string; peer: string; message: DirectMessage }
+  /** A message was sent, edited, deleted or delivered. */
+  | { kind: 'change'; circleKey: string; peer: string; message: DirectMessage }
+  /** One of this user's messages was deleted before it was ever sent. */
+  | { kind: 'unsent'; circleKey: string; peer: string; id: string }
+  | { kind: 'typing'; circleKey: string; peer: string }
+  /** The other person left or was removed. */
+  | { kind: 'ended'; circleKey: string; peer: string }
+  /** They are a member again, with the same identity, so the conversation carries on. */
+  | { kind: 'reopened'; circleKey: string; peer: string }
+  /** This device read the conversation up to a message, so its unread count changed. */
+  | { kind: 'read'; circleKey: string; peer: string };

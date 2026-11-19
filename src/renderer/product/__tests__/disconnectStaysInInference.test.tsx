@@ -1,7 +1,8 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { createLifecycleSnapshot } from '../../../shared/assistantStackLifecycle';
+import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { SetupProvider } from '../../setup/SetupContext';
 import { ProductApp } from '../ProductApp';
@@ -19,7 +20,7 @@ vi.mock('../ProductReadyShell', () => ({
   ProductReadyShell: () => <InferenceScreen />,
 }));
 
-const openRouterOnly = {
+const openRouterOnly: InferenceProvidersStatus = {
   configured: true,
   encryptionAvailable: true,
   appDefault: 'openrouter' as const,
@@ -42,7 +43,7 @@ const openRouterOnly = {
   },
 };
 
-const nothingConnected = {
+const nothingConnected: InferenceProvidersStatus = {
   configured: false,
   encryptionAvailable: true,
   appDefault: null,
@@ -83,8 +84,6 @@ function stubApp() {
 }
 
 describe('disconnecting the last provider', () => {
-  afterEach(() => cleanup());
-
   it('stays on Inference, offers a first model, and reconnects with the saved key', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     const onboarding = stubApp();

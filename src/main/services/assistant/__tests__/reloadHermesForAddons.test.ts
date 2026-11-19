@@ -4,37 +4,24 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BOUNDARY_ASSISTANT_PROJECT_NAME } from '../../../../shared/assistantStackConstants';
 
-const runCompose = vi.fn();
-const runComposeStreaming = vi.fn();
-const getContainerRuntime = vi.fn();
+const fakes = await vi.hoisted(async () => (await import('./stackServiceMocks')).createComposeFakes());
 const { local, checkout, installed } = vi.hoisted(() => ({
   local: { on: false },
   checkout: { root: '' },
   installed: { ids: [] as string[] },
 }));
 
-vi.mock('../../containerRuntime', async () => {
-  const actual = await vi.importActual<typeof import('../../containerRuntime')>(
-    '../../containerRuntime'
-  );
-  return {
-    ...actual,
-    getContainerRuntime: (...args: unknown[]) => getContainerRuntime(...args),
-    runCompose: (...args: unknown[]) => runCompose(...args),
-    runComposeStreaming: (...args: unknown[]) => runComposeStreaming(...args),
-  };
-});
+vi.mock('../../containerRuntime', async (importOriginal) =>
+  (await import('./stackServiceMocks')).containerRuntimeMock(await importOriginal(), fakes)
+);
 
-vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: checkout.root, error: undefined }),
-  resolveAssistantRoot: () => checkout.root,
-}));
+vi.mock('../resolveAssistantRoot', async () =>
+  (await import('./stackServiceMocks')).resolveAssistantRootMock(() => checkout.root)
+);
 
 vi.mock('../assistantPaths', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../assistantPaths')>()),
-  resolveBoundaryOverlayPath: () => '/tmp/docker-compose.boundary.yml',
-  resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
-  ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
+  ...(await import('./stackServiceMocks')).composePathMocks(),
 }));
 
 vi.mock('../localStackMode', async (importOriginal) => ({
@@ -54,16 +41,13 @@ vi.mock('../AssistantStackStore', async (importOriginal) => ({
 }));
 
 import { getAssistantStackAccess, reloadHermesForAddons } from '../AssistantStackService';
+import { onHermesReplaced } from '../hermesLifecycle';
+import { composeCalls as parseComposeCalls, dockerRuntime } from './stackServiceMocks';
 
-function composeCalls(): Array<{ args: string[]; env: NodeJS.ProcessEnv }> {
-  return runCompose.mock.calls.map((c) => ({ args: c[1] as string[], env: (c[2] as { env: NodeJS.ProcessEnv }).env }));
-}
-
-/** The arguments after the compose file and project flags. */
-function command(args: string[]): string[] {
-  const at = args.findIndex((a) => a === 'run' || a === 'up');
-  return args.slice(at);
-}
+const { runCompose, runComposeStreaming, getContainerRuntime } = fakes;
+const composeCalls = () => parseComposeCalls(runCompose);
+const runtime = () =>
+  dockerRuntime({ env: { PATH: '/usr/local/bin:/usr/bin', DOCKER_HOST: 'unix:///var/run/docker.sock' } });
 
 describe('reloadHermesForAddons', () => {
   beforeEach(() => {
@@ -72,15 +56,7 @@ describe('reloadHermesForAddons', () => {
     local.on = false;
     runCompose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
     runComposeStreaming.mockReset();
-    getContainerRuntime.mockResolvedValue({
-      kind: 'docker',
-      origin: 'system',
-      cliPath: 'docker',
-      composeArgv: ['compose'],
-      env: { PATH: '/usr/local/bin:/usr/bin', DOCKER_HOST: 'unix:///var/run/docker.sock' },
-      apiEndpoint: 'unix:///var/run/docker.sock',
-      version: { cli: '1', compose: '2.38.2' },
-    });
+    getContainerRuntime.mockResolvedValue(runtime());
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })) as unknown as typeof fetch);
   });
 
@@ -91,7 +67,7 @@ describe('reloadHermesForAddons', () => {
 
   it('runs both bootstraps forced, then recreates hermes, as make hermes-reload does', async () => {
     expect(await reloadHermesForAddons()).toEqual({ success: true });
-    expect(composeCalls().map((c) => command(c.args))).toEqual([
+    expect(composeCalls().map((c) => c.command)).toEqual([
       ['run', '--rm', '-e', 'HERMES_BOOTSTRAP_FORCE=1', 'hermes-api-bootstrap'],
       ['run', '--rm', '--no-deps', '-e', 'HERMES_BOOTSTRAP_FORCE=1', 'hermes-browser-bootstrap'],
       ['up', '-d', '--no-deps', '--force-recreate', 'hermes'],
@@ -120,21 +96,71 @@ describe('reloadHermesForAddons', () => {
   });
 });
 
+describe('reloadHermesForAddons telling add-ons', () => {
+  const replaced = vi.fn();
+  let off: () => void = () => {};
+
+  beforeEach(() => {
+    checkout.root = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-addon-reload-'));
+    installed.ids = [];
+    local.on = false;
+    runCompose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
+    getContainerRuntime.mockResolvedValue(runtime());
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })) as unknown as typeof fetch);
+    replaced.mockReset();
+    off = onHermesReplaced(replaced);
+  });
+
+  afterEach(() => {
+    off();
+    fs.rmSync(checkout.root, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  it('notifies addon-reload once after hermes is recreated', async () => {
+    expect(await reloadHermesForAddons()).toEqual({ success: true });
+    expect(replaced.mock.calls).toEqual([['addon-reload']]);
+  });
+
+  it('notifies addon-reload as soon as compose recreates hermes, even when the health wait then fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })) as unknown as typeof fetch);
+    vi.useFakeTimers();
+    try {
+      const pending = reloadHermesForAddons();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replaced.mock.calls).toEqual([['addon-reload']]);
+      await vi.advanceTimersByTimeAsync(130_000);
+      expect((await pending).success).toBe(false);
+      expect(replaced.mock.calls).toEqual([['addon-reload']]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('notifies nobody when the recreate fails', async () => {
+    runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => {
+      if (args.includes('--force-recreate')) throw new Error('up failed');
+      return { stdout: '', stderr: '' };
+    });
+    expect((await reloadHermesForAddons()).success).toBe(false);
+    expect(replaced).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds when a listener rejects', async () => {
+    off();
+    off = onHermesReplaced(() => Promise.reject(new Error('follow failed')));
+    expect(await reloadHermesForAddons()).toEqual({ success: true });
+    await Promise.resolve();
+  });
+});
+
 describe('getAssistantStackAccess for add-ons', () => {
   beforeEach(() => {
     checkout.root = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-addon-access-'));
     installed.ids = [];
     local.on = false;
     runComposeStreaming.mockReset().mockResolvedValue({ stdout: '', stderr: '', code: 0, timedOut: false });
-    getContainerRuntime.mockResolvedValue({
-      kind: 'docker',
-      origin: 'system',
-      cliPath: 'docker',
-      composeArgv: ['compose'],
-      env: { PATH: '/usr/local/bin:/usr/bin', DOCKER_HOST: 'unix:///var/run/docker.sock' },
-      apiEndpoint: 'unix:///var/run/docker.sock',
-      version: { cli: '1', compose: '2.38.2' },
-    });
+    getContainerRuntime.mockResolvedValue(runtime());
   });
 
   afterEach(() => {

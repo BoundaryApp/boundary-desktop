@@ -1,19 +1,21 @@
 import React from 'react';
 import type { CircleChannel, CircleMemberView, CircleSnapshot, CirclesState } from '../../../../shared/types/circles';
 import { Avatar } from '../../circles/CircleControls';
-import type { CircleConfirm } from '../../circles/CircleConfirmSheet';
+import { isAlone, leaveConfirm, type CircleConfirm } from '../../circles/CircleConfirmSheet';
 import { formatExpiry, inviteName, openInvites } from '../../circles/InviteSheet';
 import { useAction } from '../../circles/useCircles';
 import { openInference } from '../../inference/inferenceNavigation';
 import type { ChannelSheet } from './ChannelSheets';
 import { CirclesMark } from './CirclesMark';
-import { CircleTile } from './PlaceSwitcher';
+import { CircleTile } from '../../circles/CirclesDock';
 import { peopleLine } from './peopleLine';
+import { CircleNotifySection } from '../../circles/CircleNotifySection';
+import { Button } from '../../../components/ui/button';
 
 const api = () => window.electronAPI.circles;
 
 /** Online people first, the user last (Circle chats spec decision 3). */
-export function peopleInOrder(circle: CircleSnapshot): CircleMemberView[] {
+function peopleInOrder(circle: CircleSnapshot): CircleMemberView[] {
   return [...circle.members].sort(
     (a, b) => Number(a.isMe) - Number(b.isMe) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name),
   );
@@ -22,6 +24,11 @@ export function peopleInOrder(circle: CircleSnapshot): CircleMemberView[] {
 export const OnlineDot: React.FC<{ online: boolean }> = ({ online }) => (
   <i className={`wb-online-dot${online ? '' : ' is-off'}`} role="img" aria-label={online ? 'Online' : 'Offline'} />
 );
+
+/** Calls go to people other than this user who are online now. */
+/** Online, not you, and not the person this window is already in a call with. */
+const canCall = (member: CircleMemberView, callWith: string | null | undefined): boolean =>
+  !member.isMe && member.online && member.identity !== callWith;
 
 function memberLine(member: CircleMemberView): string {
   return `${member.role === 'admin' ? 'Admin · ' : ''}${member.online ? 'Online' : 'Offline'}`;
@@ -35,7 +42,10 @@ const PersonView: React.FC<{
   circle: CircleSnapshot;
   member: CircleMemberView;
   onConfirm: (confirm: CircleConfirm) => void;
-}> = ({ circle, member, onConfirm }) => {
+  onMessage?: (identity: string) => void;
+  onCall?: (identity: string) => void;
+  callWith?: string | null;
+}> = ({ circle, member, onConfirm, onMessage, onCall, callWith }) => {
   const role = useAction();
   const offer = member.isMe ? undefined : circle.offers.find((item) => item.identity === member.identity);
   const models = offer?.models.map((model) => model.id) ?? [];
@@ -52,13 +62,23 @@ const PersonView: React.FC<{
           </span>
         </span>
       </div>
+      {onMessage && !member.isMe ? (
+        <Button variant="secondary" size="sm" type="button" className="wb-circle-insp-action" onClick={() => onMessage(member.identity)}>
+          Message
+        </Button>
+      ) : null}
+      {onCall && canCall(member, callWith) ? (
+        <Button variant="secondary" size="sm" type="button" className="wb-circle-insp-action" onClick={() => onCall(member.identity)}>
+          Call {member.name}
+        </Button>
+      ) : null}
       {member.isMe ? (
         <>
           <h3 className="wb-circle-insp-head">Shares</h3>
           <p className="wb-circle-insp-note">What this Mac shares, and with which Circles, is in Inference.</p>
-          <button type="button" className="wb-btn-tiny wb-circle-insp-action" onClick={() => openInference()}>
+          <Button variant="secondary" size="sm" type="button" className="wb-circle-insp-action" onClick={() => openInference()}>
             Open in Inference
-          </button>
+          </Button>
         </>
       ) : models.length ? (
         <>
@@ -68,9 +88,9 @@ const PersonView: React.FC<{
               <span className="wb-circle-insp-mono">{models.join(', ')}</span>
               <small>Trust and use are in Inference.</small>
             </span>
-            <button type="button" className="wb-btn-tiny" onClick={() => openInference({ person: member.identity })}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => openInference({ person: member.identity })}>
               Open in Inference
-            </button>
+            </Button>
           </div>
         </>
       ) : (
@@ -80,9 +100,10 @@ const PersonView: React.FC<{
         <>
           <h3 className="wb-circle-insp-head">In {circle.name}</h3>
           <div className="wb-circle-insp-actions">
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              className="wb-btn-tiny"
               disabled={role.busy || !circle.writable}
               onClick={() =>
                 void role.run(() =>
@@ -91,15 +112,16 @@ const PersonView: React.FC<{
               }
             >
               {member.role === 'admin' ? 'Make member' : 'Make admin'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
               type="button"
-              className="wb-btn-tiny is-danger"
               disabled={!circle.writable}
               onClick={() => onConfirm({ kind: 'remove', member })}
             >
               Remove from {circle.name}
-            </button>
+            </Button>
           </div>
           {role.error ? <p className="wb-circle-insp-error">{role.error}</p> : null}
         </>
@@ -125,13 +147,21 @@ export const CircleTab: React.FC<{
   onChannelSheet: (sheet: ChannelSheet) => void;
   /** Only while the call transport check is on. */
   onCallCheck?: () => void;
-}> = ({ circle, circles, channels, hints, person, onPerson, onClose, onInvite, onConfirm, onChannelSheet, onCallCheck }) => {
+  /** Admins put the open channel into select mode to remove messages. */
+  onRemoveMessages?: () => void;
+  /** Opens a direct conversation with a person (ADR 0054 §5). */
+  onMessage?: (identity: string) => void;
+  /** Call one person; offered for online people other than this user. */
+  onCall?: (identity: string) => void;
+  /** Who this window's call is with; they get no **Call**. */
+  callWith?: string | null;
+}> = ({ circle, circles, channels, hints, person, onPerson, onClose, onInvite, onConfirm, onChannelSheet, onCallCheck, onRemoveMessages, onMessage, onCall, callWith }) => {
   const admin = circle.myRole === 'admin';
   // Someone who has left the Circle closes their view.
   const member = person ? (circle.members.find((item) => item.identity === person) ?? null) : null;
   const now = Date.now();
   const invites = admin ? openInvites(circle, now) : [];
-  const alone = circle.members.length === 1 && circle.members[0].isMe;
+  const alone = isAlone(circle);
   return (
     <aside className="wb-right wb-circle-insp" aria-label={member ? member.name : 'Circle details'}>
       <nav className="wb-insp-tabs" aria-label="Inspector">
@@ -147,7 +177,7 @@ export const CircleTab: React.FC<{
         </button>
       </nav>
       {member ? (
-        <PersonView circle={circle} member={member} onConfirm={onConfirm} />
+        <PersonView circle={circle} member={member} onConfirm={onConfirm} onMessage={onMessage} onCall={onCall} callWith={callWith} />
       ) : (
         <div className="wb-insp-pane">
           <div className="wb-circle-insp-ident">
@@ -158,9 +188,9 @@ export const CircleTab: React.FC<{
             </span>
           </div>
           {admin ? (
-            <button type="button" className="wb-btn-solid wb-circle-insp-invite" disabled={!circle.writable} onClick={onInvite}>
+            <Button variant="primary" block type="button" className="wb-circle-insp-invite" disabled={!circle.writable} onClick={onInvite}>
               Invite someone
-            </button>
+            </Button>
           ) : null}
           <h3 className="wb-circle-insp-head">Channels</h3>
           <ul className="wb-circle-insp-list">
@@ -169,37 +199,51 @@ export const CircleTab: React.FC<{
                 <CirclesMark size={14} />
                 <span className="wb-circle-insp-copy">{channel.name}</span>
                 {admin ? (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    className="wb-btn-tiny"
                     aria-label={`Rename ${channel.name}`}
                     onClick={() => onChannelSheet({ kind: 'rename', channel })}
                   >
                     Rename
-                  </button>
+                  </Button>
                 ) : null}
                 {admin && channel.id !== 'general' ? (
-                  <button
+                  <Button
+                    variant="danger"
+                    size="sm"
                     type="button"
-                    className="wb-btn-tiny is-danger"
                     aria-label={`Remove ${channel.name}`}
                     onClick={() => onChannelSheet({ kind: 'remove', channel })}
                   >
                     Remove
-                  </button>
+                  </Button>
                 ) : null}
               </li>
             ))}
           </ul>
           {admin ? (
-            <button type="button" className="wb-btn-tiny wb-circle-insp-action" onClick={() => onChannelSheet({ kind: 'add' })}>
+            <Button variant="secondary" size="sm" type="button" className="wb-circle-insp-action" onClick={() => onChannelSheet({ kind: 'add' })}>
               Add a channel
-            </button>
+            </Button>
+          ) : null}
+          {admin && onRemoveMessages ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              className="wb-circle-insp-action"
+              disabled={!circle.writable}
+              onClick={onRemoveMessages}
+            >
+              Remove messages
+            </Button>
           ) : null}
           <h3 className="wb-circle-insp-head">People</h3>
           <ul className="wb-circle-insp-list">
             {peopleInOrder(circle).map((item) => (
-              <li key={item.identity}>
+              <li key={item.identity} className="wb-circle-insp-person">
                 <button type="button" className="wb-circle-insp-row" onClick={() => onPerson(item.identity)}>
                   <Avatar name={item.name} seed={item.identity} />
                   <span className="wb-circle-insp-copy">
@@ -208,9 +252,31 @@ export const CircleTab: React.FC<{
                   </span>
                   <OnlineDot online={item.online} />
                 </button>
+                {(onMessage && !item.isMe) || (onCall && canCall(item, callWith)) ? (
+                  <span className="wb-person-row-actions">
+                    {onMessage && !item.isMe ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        type="button"
+                        className="wb-direct-message-btn"
+                        aria-label={`Message ${item.name}`}
+                        onClick={() => onMessage(item.identity)}
+                      >
+                        Message
+                      </Button>
+                    ) : null}
+                    {onCall && canCall(item, callWith) ? (
+                      <Button variant="secondary" size="sm" type="button" aria-label={`Call ${item.name}`} onClick={() => onCall(item.identity)}>
+                        Call
+                      </Button>
+                    ) : null}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
+          <CircleNotifySection circle={circle} />
           {invites.length ? (
             <>
               <h3 className="wb-circle-insp-head">Open invites</h3>
@@ -229,18 +295,19 @@ export const CircleTab: React.FC<{
             </>
           ) : null}
           <div className="wb-circle-insp-foot">
-            <button
+            <Button
+              variant="danger"
+              size="sm"
               type="button"
-              className="wb-btn-tiny is-danger"
               disabled={!circle.writable}
-              onClick={() => onConfirm({ kind: alone ? 'delete' : 'leave' })}
+              onClick={() => onConfirm(leaveConfirm(circle))}
             >
               {alone ? `Delete ${circle.name}` : `Leave ${circle.name}`}
-            </button>
+            </Button>
             {onCallCheck ? (
-              <button type="button" className="wb-btn-tiny" onClick={onCallCheck}>
+              <Button variant="secondary" size="sm" type="button" onClick={onCallCheck}>
                 Call check…
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>

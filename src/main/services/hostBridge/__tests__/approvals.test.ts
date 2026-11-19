@@ -15,7 +15,9 @@ let sent: Array<[string, unknown]>;
 
 beforeEach(() => {
   sent = [];
-  setHostBridgeApprovalSender((channel, payload) => sent.push([channel, payload]));
+  setHostBridgeApprovalSender((channel, ...args) => {
+    sent.push([channel, args[0]]);
+  });
 });
 
 afterEach(() => {

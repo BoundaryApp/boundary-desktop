@@ -378,7 +378,7 @@ describe('stackContainersMemoryBytes', () => {
     ],
     getContainer: (id: string) => ({ stats: async () => ({ memory_stats: { usage: usage[id] } }) }),
   };
-  const options = { localMode: false, assistantRoot: null };
+  const options = { localMode: false, assistantRoot: null as string | null };
 
   it("sums the stack's running containers", async () => {
     expect(await stackContainersMemoryBytes(docker, options)).toBe(1500 * MiB);
@@ -388,5 +388,24 @@ describe('stackContainersMemoryBytes', () => {
     expect(
       await stackContainersMemoryBytes(docker, { ...options, excludeServices: ['twenty-server', 'twenty-db'] })
     ).toBe(300 * MiB);
+  });
+
+  it('asks for a one-shot sample, so Docker skips its second CPU sample', async () => {
+    const seen: unknown[] = [];
+    const recording = {
+      ...docker,
+      getContainer: (id: string) => ({
+        stats: async (opts: unknown) => {
+          seen.push(opts);
+          return { memory_stats: { usage: usage[id] } };
+        },
+      }),
+    };
+    await stackContainersMemoryBytes(recording, options);
+    expect(seen).toEqual([
+      { stream: false, 'one-shot': true },
+      { stream: false, 'one-shot': true },
+      { stream: false, 'one-shot': true },
+    ]);
   });
 });

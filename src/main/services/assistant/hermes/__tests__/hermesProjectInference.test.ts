@@ -56,6 +56,57 @@ describe('patchHermesProject', () => {
     expect(getStoredHermesProject('p1')?.inference?.privacyLocalOnly).toBe(false);
   });
 
+  describe('Allow level B', () => {
+    const allowB = () => getStoredHermesProject('p1')?.inference?.allowConfidentialLevelB;
+
+    beforeEach(async () => {
+      await saveLocalLlmEndpoint({
+        runtime: 'ollama',
+        endpointUrl: 'http://127.0.0.1:11434/v1/',
+        modelId: 'qwen3:14b',
+      });
+      await patchHermesProject({
+        projectId: 'p1',
+        inference: { mode: 'inherit', privacyLocalOnly: true, allowConfidentialLevelB: true },
+      });
+    });
+
+    it('survives a pin change that leaves it out, and only an explicit false turns it off', async () => {
+      expect(allowB()).toBe(true);
+      await patchHermesProject({ projectId: 'p1', inference: { mode: 'local' } });
+      expect(getStoredHermesProject('p1')?.inference).toEqual({
+        mode: 'local',
+        modelId: 'qwen3:14b',
+        privacyLocalOnly: true,
+        allowConfidentialLevelB: true,
+      });
+      await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit' } });
+      expect(allowB()).toBe(true);
+      await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit', allowConfidentialLevelB: false } });
+      expect(allowB()).toBe(false);
+    });
+
+    it('is cleared when Private turns off', async () => {
+      await patchHermesProject({ projectId: 'p1', inference: { mode: 'inherit', privacyLocalOnly: false } });
+      expect(getStoredHermesProject('p1')?.inference).toEqual({ mode: 'inherit', privacyLocalOnly: false });
+    });
+
+    it('survives a reset for a disconnected provider and a retarget to a new model', async () => {
+      await patchHermesProject({ projectId: 'p1', inference: { mode: 'local' } });
+      retargetProjectInferenceModel('local', 'qwen3:32b');
+      expect(getStoredHermesProject('p1')?.inference).toMatchObject({
+        modelId: 'qwen3:32b',
+        allowConfidentialLevelB: true,
+      });
+      clearProjectInferenceForProvider('local');
+      expect(getStoredHermesProject('p1')?.inference).toEqual({
+        mode: 'inherit',
+        privacyLocalOnly: true,
+        allowConfidentialLevelB: true,
+      });
+    });
+  });
+
   it('refuses to turn on Private while a reply in the project runs', async () => {
     setConversationProjectId(['s1'], 'p1');
     beginRunningTurn('r1', ['s1'], null);

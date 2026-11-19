@@ -1,79 +1,56 @@
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { networkProcessHarness, type Posted } from './networkProcessHarness';
 
-/** The real network entry running Circles with no bootstrap nodes, as networkProcess.test.ts does. */
+/**
+ * The real network entry running Circles as Ada with no bootstrap nodes, as networkProcess.test.ts
+ * does. Both describes share one started process and one Circle.
+ */
 
-type Posted = Record<string, unknown>;
-const posted: Posted[] = [];
-const postedEvents = new EventEmitter();
-const parentPort = Object.assign(new EventEmitter(), {
-  postMessage: (m: Posted) => {
-    posted.push(m);
-    postedEvents.emit('posted', m);
-  },
-});
-
-const postedWhere = (matches: (m: Posted) => boolean) =>
-  new Promise<Posted>((resolve) => {
-    const found = posted.find(matches);
-    if (found) return resolve(found);
-    const onPosted = (m: Posted) => {
-      if (!matches(m)) return;
-      postedEvents.off('posted', onPosted);
-      resolve(m);
-    };
-    postedEvents.on('posted', onPosted);
-  });
+const { posted, send, postedWhere, postedType, load, restore } = networkProcessHarness();
 
 let nextId = 1;
 async function request(body: Record<string, unknown>): Promise<Posted> {
   const id = nextId++;
-  parentPort.emit('message', { data: { type: 'circles-request', id, request: body } });
-  return postedWhere((m) => m.type === 'circles-reply' && m.id === id);
+  send({ type: 'circles-request', id, request: body });
+  return postedWhere(`circles-reply to request ${id} (${String(body.op)})`, (m) => m.type === 'circles-reply' && m.id === id);
 }
 
+let storageDir = '';
+let key = '';
+
+beforeAll(async () => {
+  storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'circles-chat-'));
+  await load();
+  send({
+    type: 'circles-start',
+    storageDir,
+    identitySeed: 'a'.repeat(64),
+    deviceSeed: 'b'.repeat(64),
+    name: 'Ada',
+    circles: [],
+    bootstrap: [],
+  });
+  await postedType('circles-ready');
+  const created = await request({ op: 'create', name: 'Allotment' });
+  key = (created.secrets as { key: string }).key;
+});
+
+afterAll(async () => {
+  send({ type: 'stop' });
+  await postedType('stopped');
+  await restore();
+  fs.rmSync(storageDir, { recursive: true, force: true });
+});
+
 describe('Circle chat in the network process', () => {
-  const realExit = process.exit;
-  let storageDir = '';
-  let key = '';
-
-  beforeAll(async () => {
-    storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'circles-chat-'));
-    (process as unknown as { parentPort: unknown }).parentPort = parentPort;
-    (process as unknown as { exit: unknown }).exit = () => undefined;
-    await import('../networkProcess');
-    parentPort.emit('message', {
-      data: {
-        type: 'circles-start',
-        storageDir,
-        identitySeed: 'a'.repeat(64),
-        deviceSeed: 'b'.repeat(64),
-        name: 'Ada',
-        circles: [],
-        bootstrap: [],
-      },
-    });
-    await postedWhere((m) => m.type === 'circles-ready');
-    const created = await request({ op: 'create', name: 'Allotment' });
-    key = (created.secrets as { key: string }).key;
-  });
-
-  afterAll(async () => {
-    parentPort.emit('message', { data: { type: 'stop' } });
-    await postedWhere((m) => m.type === 'stopped');
-    await new Promise((resolve) => setImmediate(resolve));
-    process.exit = realExit;
-    fs.rmSync(storageDir, { recursive: true, force: true });
-  });
-
   it('answers posts, reads and channels under `chat`, and sends the update', async () => {
     const reply = await request({ op: 'chat-post', key, channel: 'general', text: 'Hello' });
     const { id } = reply.chat as { id: string };
     expect(reply).toMatchObject({ ok: true, chat: { id: expect.stringMatching(/^[0-9a-f]{32}$/) } });
-    const update = await postedWhere((m) => m.type === 'chat-update');
+    const update = await postedType('chat-update');
     expect(update.update).toMatchObject({ channel: 'general', added: [{ id, text: 'Hello', mine: true, name: 'Ada' }] });
 
     const read = await request({ op: 'chat-messages', key, channel: 'general', limit: 10 });
@@ -87,5 +64,60 @@ describe('Circle chat in the network process', () => {
   it('answers a refusal with its error', async () => {
     const reply = await request({ op: 'chat-post', key, channel: 'nowhere', text: 'Hello' });
     expect(reply).toMatchObject({ ok: false, error: 'That channel isn’t in this Circle.' });
+  });
+
+  it('routes chat-react to reactMessage with its fields', async () => {
+    const { id } = (await request({ op: 'chat-post', key, channel: 'general', text: 'React to me' })).chat as { id: string };
+    const read = await request({ op: 'chat-messages', key, channel: 'general', limit: 50 });
+    const messages = (read.chat as { messages: { id: string; author: string }[] }).messages;
+    const { author } = messages.find((m) => m.id === id)!;
+    const on = await request({ op: 'chat-react', key, channel: 'general', author, id, emoji: '👍', on: true });
+    expect(on).toEqual({ type: 'circles-reply', id: expect.any(Number), ok: true });
+    const after = await request({ op: 'chat-messages', key, channel: 'general', limit: 50 });
+    const shown = (after.chat as { messages: { id: string; reactions: unknown[] }[] }).messages;
+    expect(shown.find((m) => m.id === id)?.reactions).toMatchObject([{ emoji: '👍', count: 1, mine: true }]);
+    const bad = await request({ op: 'chat-react', key, channel: 'general', author, id, emoji: 'x', on: true });
+    expect(bad).toMatchObject({ ok: false, error: 'That isn’t an emoji.' });
+  });
+
+  it('refuses mentions on a post or edit in a Circle below format 3', async () => {
+    const mentions = { channel: true };
+    const post = await request({ op: 'chat-post', key, channel: 'general', text: 'Hi @channel', mentions });
+    expect(post).toMatchObject({ ok: false, error: 'Mentions need this Circle updated.' });
+    const { id } = (await request({ op: 'chat-post', key, channel: 'general', text: 'Plain' })).chat as { id: string };
+    const edit = await request({ op: 'chat-edit', key, channel: 'general', id, text: 'Hi @channel', mentions });
+    expect(edit).toMatchObject({ ok: false, error: 'Mentions need this Circle updated.' });
+  });
+});
+
+describe('replies in the network process', () => {
+  it('refuses a reply below format 3', async () => {
+    const reply = { author: 'a'.repeat(64), id: 'b'.repeat(32) };
+    const post = await request({ op: 'chat-post', key, channel: 'general', text: 'Yes', reply });
+    expect(post).toMatchObject({ ok: false, error: 'Replies need this Circle to be updated first.' });
+  });
+
+  it('answers chat-message with the message, or null when it isn’t there', async () => {
+    const { id } = (await request({ op: 'chat-post', key, channel: 'general', text: 'Find me' })).chat as { id: string };
+    const read = await request({ op: 'chat-messages', key, channel: 'general', limit: 50 });
+    const { author } = (read.chat as { messages: { id: string; author: string }[] }).messages.find((m) => m.id === id)!;
+    const found = await request({ op: 'chat-message', key, channel: 'general', ref: { author, id } });
+    expect(found).toMatchObject({ ok: true, chat: { message: { id, text: 'Find me', reply: null } } });
+    const none = await request({ op: 'chat-message', key, channel: 'general', ref: { author, id: 'c'.repeat(32) } });
+    expect(none).toMatchObject({ ok: true, chat: { message: null } });
+  });
+});
+
+describe('peer signals in the network process', () => {
+  it('logs a signal it can’t send and keeps running', async () => {
+    send({ type: 'signal-topics', topics: ['typing'] });
+    send({ type: 'signal-send', key: 'c'.repeat(64), topic: 'typing', payload: 'private text' });
+    await postedWhere('signal not sent log', (m) => m.type === 'log' && m.message === 'signal not sent');
+    expect(posted.find((m) => m.message === 'signal not sent')).toEqual({
+      type: 'log',
+      message: 'signal not sent',
+      data: { error: 'Not a member of that Circle.' },
+    });
+    expect(JSON.stringify(posted)).not.toContain('private text');
   });
 });

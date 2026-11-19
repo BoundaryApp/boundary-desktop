@@ -8,13 +8,6 @@ export type DarwinRuntimeArch = 'arm64' | 'x64';
 
 export const BOUNDARY_MACHINE_NAME = INSTANCE_NAME;
 
-/**
- * Memory for the bundled `boundary` Podman machine (MiB).
- * Podman's default is 2048 — far too small for neo4j (~1.5G) plus the rest of
- * the assistant stack (~9–12G containers). See ASSISTANT_STACK_REQUIREMENTS.
- */
-export const BOUNDARY_MACHINE_MEMORY_MIB = 12_288;
-
 /** Disk for the bundled machine (GiB). Matches podman default. */
 export const BOUNDARY_MACHINE_DISK_GIB = 100;
 
