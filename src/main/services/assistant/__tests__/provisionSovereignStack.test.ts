@@ -3,36 +3,45 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { resolveAssistantProjectRoot, resolveAssistantStackHome } from '../assistantPaths';
+import {
+  __test,
+  ensureSovereignProjectProvisioned,
+  markHostSetupComplete,
+  markImagesBuilt,
+  needsImageBuild,
+  readProvisionMarker,
+  writeProvisionMarker,
+} from '../provisionSovereignStack';
 import {
   BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE,
   SOVEREIGN_AGENT_STACK_REF,
 } from '../../../../shared/assistantStackConstants';
 
 describe('provisionSovereignStack', () => {
-  let zipFixture: string | null = null;
+  /** The fixture archive's bytes, zipped once for the file. No test writes to them. */
+  let zipBytes: Buffer<ArrayBuffer>;
+  let zipDir: string;
 
-  beforeEach(() => {
-    vi.resetModules();
+  beforeAll(() => {
+    zipDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sas-fixture-'));
+    zipBytes = fs.readFileSync(buildFixtureZip(zipDir));
   });
 
-  afterEach(() => {
-    if (zipFixture) {
-      fs.rmSync(path.dirname(zipFixture), { recursive: true, force: true });
-      zipFixture = null;
-    }
+  afterAll(() => {
+    fs.rmSync(zipDir, { recursive: true, force: true });
   });
 
   /** Empty the userData stack home so each test provisions from scratch. */
   async function resetStackHome(): Promise<void> {
-    const { resolveAssistantStackHome } = await import('../assistantPaths');
     const home = resolveAssistantStackHome();
     await fs.promises.rm(home, { recursive: true, force: true });
     await fs.promises.mkdir(home, { recursive: true });
   }
 
-  function buildFixtureZip(): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sas-fixture-'));
+  /** Zip a minimal stack tree (base compose file and setup.sh) into `dir`. */
+  function buildFixtureZip(dir: string): string {
     const tree = path.join(dir, 'sovereign-agent-stack-fixture');
     fs.mkdirSync(path.join(tree, 'scripts'), { recursive: true });
     fs.writeFileSync(path.join(tree, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
@@ -41,17 +50,10 @@ describe('provisionSovereignStack', () => {
     });
     const zipPath = path.join(dir, 'stack.zip');
     execFileSync('zip', ['-qr', zipPath, 'sovereign-agent-stack-fixture'], { cwd: dir });
-    zipFixture = zipPath;
     return zipPath;
   }
 
   it('asks for an image build once per tree', async () => {
-    const {
-      markHostSetupComplete,
-      markImagesBuilt,
-      needsImageBuild,
-      writeProvisionMarker,
-    } = await import('../provisionSovereignStack');
     await resetStackHome();
     expect(needsImageBuild()).toBe(false);
 
@@ -69,21 +71,14 @@ describe('provisionSovereignStack', () => {
   });
 
   it('extracts archive into project and writes provision marker', async () => {
-    const zipPath = buildFixtureZip();
-    const zipBytes = fs.readFileSync(zipPath);
 
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
       return new Response(zipBytes, {
         status: 200,
         headers: { 'Content-Type': 'application/zip' },
       });
-    }) as unknown as typeof fetch;
+    });
 
-    const {
-      ensureSovereignProjectProvisioned,
-      readProvisionMarker,
-    } = await import('../provisionSovereignStack');
-    const { resolveAssistantProjectRoot } = await import('../assistantPaths');
 
     await resetStackHome();
 
@@ -111,14 +106,9 @@ describe('provisionSovereignStack', () => {
   });
 
   it('refuses an archive that does not match the pinned checksum', async () => {
-    const zipBytes = fs.readFileSync(buildFixtureZip());
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200 })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned } = await import(
-      '../provisionSovereignStack'
-    );
-    const { resolveAssistantProjectRoot } = await import('../assistantPaths');
     await resetStackHome();
 
     // The pinned ref defaults to the pinned hash, which the fixture can't match.
@@ -129,12 +119,9 @@ describe('provisionSovereignStack', () => {
   });
 
   it('moving to a new ref stops the stack and keeps data and secrets', async () => {
-    const zipBytes = fs.readFileSync(buildFixtureZip());
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200, headers: { 'Content-Type': 'application/zip' } })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
-      await import('../provisionSovereignStack');
 
     await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
@@ -152,12 +139,9 @@ describe('provisionSovereignStack', () => {
   });
 
   it('leaves everything in place when the stack can’t be stopped', async () => {
-    const zipBytes = fs.readFileSync(buildFixtureZip());
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200, headers: { 'Content-Type': 'application/zip' } })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
-      await import('../provisionSovereignStack');
 
     await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
@@ -178,13 +162,9 @@ describe('provisionSovereignStack', () => {
   });
 
   it('puts the old tree and its data back when the upgrade fails part-way', async () => {
-    const zipBytes = fs.readFileSync(buildFixtureZip());
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200 })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
-      await import('../provisionSovereignStack');
-    const { resolveAssistantStackHome } = await import('../assistantPaths');
 
     await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
@@ -215,13 +195,9 @@ describe('provisionSovereignStack', () => {
   });
 
   it('keeps the new tree for the next launch when a failed upgrade can’t be undone', async () => {
-    const zipBytes = fs.readFileSync(buildFixtureZip());
     const fetchImpl = vi.fn(
       async () => new Response(zipBytes, { status: 200 })
     ) as unknown as typeof fetch;
-    const { ensureSovereignProjectProvisioned, readProvisionMarker } =
-      await import('../provisionSovereignStack');
-    const { resolveAssistantStackHome } = await import('../assistantPaths');
 
     await resetStackHome();
     const root = await ensureSovereignProjectProvisioned({ ref: 'old-ref', fetchImpl });
@@ -257,21 +233,20 @@ describe('provisionSovereignStack', () => {
   });
 
   it('reports download percent when Content-Length is present', async () => {
-    const zipPath = buildFixtureZip();
-    const zipBytes = fs.readFileSync(zipPath);
     const half = Math.ceil(zipBytes.length / 2);
     const messages: string[] = [];
 
-    const { __test } = await import('../provisionSovereignStack');
     const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sas-dl-')), 'out.zip');
 
-    // Like global fetch: the body is a web ReadableStream. The pause lets the 250 ms
-    // progress throttle pass between chunks.
+    // Like global fetch: the body is a web ReadableStream. Moving the clock 300 ms between
+    // chunks lets the 250 ms progress throttle pass.
     const fetchImpl = vi.fn(async () => {
       const body = new ReadableStream<Uint8Array>({
         async start(controller) {
           controller.enqueue(zipBytes.subarray(0, half));
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          // Let the first chunk reach the counter before the clock moves.
+          await new Promise((resolve) => setImmediate(resolve));
+          vi.setSystemTime(Date.now() + 300);
           controller.enqueue(zipBytes.subarray(half));
           controller.close();
         },
@@ -282,13 +257,24 @@ describe('provisionSovereignStack', () => {
       });
     }) as unknown as typeof fetch;
 
-    await __test.downloadArchive('https://example.test/stack.zip', dest, fetchImpl, (m) =>
-      messages.push(m)
-    );
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await __test.downloadArchive('https://example.test/stack.zip', dest, fetchImpl, (m) =>
+        messages.push(m)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(fs.readFileSync(dest).equals(zipBytes)).toBe(true);
-    expect(messages.some((m) => /Downloading archive (?!100%)\d+%/.test(m))).toBe(true);
-    expect(messages.at(-1)).toBe('Downloading archive 100%');
+    // The first chunk reports at once; the second, 300 ms later, passes the throttle and caps
+    // at 99% until the file is written.
+    const firstPercent = Math.round((half / zipBytes.length) * 100);
+    expect(messages).toEqual([
+      `Downloading archive ${firstPercent}%`,
+      'Downloading archive 99%',
+      'Downloading archive 100%',
+    ]);
     fs.rmSync(path.dirname(dest), { recursive: true, force: true });
   });
 });

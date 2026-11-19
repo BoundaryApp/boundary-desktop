@@ -1,52 +1,26 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../shared/types/circles';
+import type { InferenceProvidersStatus } from '../../../shared/types/onboarding';
+import { BO, CIRCLE_KEY as CIRCLE, circleOffer, circleSnapshot, runningCircles } from '../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { SharedModelSetupView } from '../../onboarding/SharedModelSetupView';
 import { resetIpcStoresForTests } from '../../lib/ipcStore';
 import { InferenceScreen } from '../inference/InferenceScreen';
 
-const CIRCLE = 'c'.repeat(64);
-const BO = 'b'.repeat(64);
 const entry = { slot: 'peer' as const, modelId: 'qwen3-8b', peer: { circleId: CIRCLE, providerId: BO } };
 
 function circles(overrides: Partial<CirclesState> = {}): CirclesState {
-  return {
-    status: 'running',
-    displayName: 'Ada',
+  return runningCircles({
     providers: { [BO]: { private: false, trusted: true } },
-    sharing: { models: [], circles: [], paused: false, away: false },
-    snapshot: {
-      identity: 'a'.repeat(64),
-      circles: [
-        {
-          key: CIRCLE,
-          name: 'Workshop',
-          myRole: 'member',
-          writable: true,
-          members: [],
-          invites: [],
-          offers: [
-            {
-              identity: BO,
-              name: 'Bo',
-              isMine: false,
-              models: [{ id: 'qwen3-8b', tools: true, contextLength: 16_384 }],
-              available: true,
-              away: false,
-              online: true,
-            },
-          ],
-        },
-      ],
-    },
+    circles: [circleSnapshot({ name: 'Workshop', offers: [circleOffer({ models: [{ id: 'qwen3-8b', tools: true, contextLength: 16_384 }] })] })],
     ...overrides,
-  };
+  });
 }
 
-const nothingConnected = { configured: false, encryptionAvailable: true, appDefault: null, slots: {} };
-const usingShared = { ...nothingConnected, configured: true, appSharedModel: entry, appFallbacks: [] };
+const nothingConnected: InferenceProvidersStatus = { configured: false, encryptionAvailable: true, appDefault: null, slots: {} };
+const usingShared: InferenceProvidersStatus = { ...nothingConnected, configured: true, appSharedModel: entry, appFallbacks: [] };
 
 function stub(state: CirclesState, status: object = nothingConnected, stack: object = { entries: [], noPrivate: true }) {
   const setAppSharedModel = vi.fn().mockResolvedValue({ success: true, status: usingShared });
@@ -62,8 +36,6 @@ function stub(state: CirclesState, status: object = nothingConnected, stack: obj
   });
   return { setAppSharedModel };
 }
-
-afterEach(() => cleanup());
 
 const leftCircle = {
   entries: [{ entry, key: `peer:${CIRCLE}:${BO}:qwen3-8b`, stale: 'left-circle', private: false, privateCut: true }],

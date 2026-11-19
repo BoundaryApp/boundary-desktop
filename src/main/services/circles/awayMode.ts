@@ -7,16 +7,22 @@ import { diag } from './circlesDiagnostics';
  */
 
 let blockerId: number | null = null;
+/** What wants the Mac awake: shared models (ADR 0034 §4) and shared services (ADR 0048 §8). */
+const reasons = new Set<AwayReason>();
 
-/** Start or stop the blocker; calling it again with the same answer does nothing. */
-export function setAwayBlocker(on: boolean): void {
-  if (on && blockerId === null) {
+export type AwayReason = 'models' | 'services';
+
+/** Start or stop the blocker for one reason; it runs while any reason wants it. */
+export function setAwayBlocker(on: boolean, reason: AwayReason = 'models'): void {
+  if (on) reasons.add(reason);
+  else reasons.delete(reason);
+  const want = reasons.size > 0;
+  if (want && blockerId === null) {
     blockerId = powerSaveBlocker.start('prevent-app-suspension');
-    diag('main.away-blocker', { on: true, started: powerSaveBlocker.isStarted(blockerId) });
-  } else if (!on && blockerId !== null) {
+    diag('main.away-blocker', { on: true, reason, started: powerSaveBlocker.isStarted(blockerId) });
+  } else if (!want && blockerId !== null) {
     powerSaveBlocker.stop(blockerId);
     blockerId = null;
-    diag('main.away-blocker', { on: false });
+    diag('main.away-blocker', { on: false, reason });
   }
 }
-

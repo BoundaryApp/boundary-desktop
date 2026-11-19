@@ -5,7 +5,6 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   BOUNDARY_MACHINE_DISK_GIB,
-  BOUNDARY_MACHINE_MEMORY_MIB,
   BOUNDARY_MACHINE_NAME,
   type BundledRuntimePaths,
 } from './bundledPaths';
@@ -13,6 +12,7 @@ import { writeMachineProviderConf } from './containersConf';
 import { ContainerRuntimeUnavailableError } from './types';
 import { persistDebugLog, serializeError, truncateForLog } from '../../persistDebugLog';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { engineSizeMiB } from '../../../shared/engineSizing';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -34,6 +34,11 @@ export type PodmanMachineDeps = {
   podmanPath: string;
   machineName?: string;
   machineImagePath?: string | null;
+  /**
+   * The machine's size in MiB (ADR 0055 §1). Defaults to the size with nothing optional on.
+   * A new machine gets it; an existing one is resized to it before it starts.
+   */
+  memoryMiB?: number;
 };
 
 export type EnsureRunningResult = {
@@ -109,10 +114,12 @@ export function findMachineHelperPids(psOutput: string, machineName: string): nu
 export class PodmanMachineService {
   private readonly machineName: string;
   private readonly deps: PodmanMachineDeps;
+  private readonly memoryMiB: number;
 
   constructor(deps: PodmanMachineDeps) {
     this.deps = deps;
     this.machineName = deps.machineName ?? BOUNDARY_MACHINE_NAME;
+    this.memoryMiB = deps.memoryMiB ?? engineSizeMiB(Math.floor(os.totalmem() / 1024 ** 2), 0);
   }
 
   private async run(
@@ -146,6 +153,28 @@ export class PodmanMachineService {
         `podman ${args.join(' ')} failed: ${detail || String(error)}`
       );
     }
+  }
+
+  /**
+   * How many processes the VM's kernel has killed for lack of memory since the VM booted
+   * (`oom_kill` in `/proc/vmstat`). Null when it can't be read; the failure is logged by `run`.
+   */
+  async oomKillCount(): Promise<number | null> {
+    try {
+      const { stdout } = await this.run(
+        ['machine', 'ssh', this.machineName, 'grep', '^oom_kill ', '/proc/vmstat'],
+        { timeout: 10_000 }
+      );
+      const match = /^oom_kill\s+(\d+)/m.exec(stdout);
+      return match ? Number(match[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** `podman machine stop`. Quit passes a short timeout so an update install isn't held up. */
+  async stop(timeoutMs = 20_000): Promise<void> {
+    await this.run(['machine', 'stop', this.machineName], { timeout: timeoutMs });
   }
 
   async status(): Promise<MachineStatus> {
@@ -344,7 +373,7 @@ export class PodmanMachineService {
       '--rootful',
       '--now',
       '--memory',
-      String(BOUNDARY_MACHINE_MEMORY_MIB),
+      String(this.memoryMiB),
       '--disk-size',
       String(BOUNDARY_MACHINE_DISK_GIB),
     ];
@@ -433,8 +462,10 @@ export class PodmanMachineService {
   }
 
   /**
-   * Resize an undersized machine (Podman default is 2048 MiB) so neo4j and the
-   * assistant stack are not OOM-killed. Requires a stopped VM.
+   * Resize the machine to its size before it starts (ADR 0055 §2). The machine is stopped at
+   * launch, since quit stops it, so this costs no restart. A running machine is only grown
+   * (Podman's default is 2048 MiB), which stops it: shrinking a running one would restart the
+   * stack for nothing, so it waits for the next start.
    */
   private async ensureAdequateMemory(
     report: (msg: string) => void,
@@ -442,17 +473,25 @@ export class PodmanMachineService {
   ): Promise<'running' | 'stopped'> {
     const info = await this.inspectMachine(running ? 'running memory check' : 'stopped memory check');
     const currentMiB = info?.memoryMiB ?? null;
-    if (currentMiB == null || currentMiB >= BOUNDARY_MACHINE_MEMORY_MIB) {
-      return running ? 'running' : 'stopped';
+    const unchanged = running ? 'running' : 'stopped';
+    if (currentMiB == null || Math.abs(currentMiB - this.memoryMiB) < 1024) return unchanged;
+    const growing = currentMiB < this.memoryMiB;
+    if (running && !growing) {
+      persistDebugLog('podman', 'machine larger than needed; shrinks at its next start', {
+        machineName: this.machineName,
+        currentMiB,
+        targetMiB: this.memoryMiB,
+      });
+      return unchanged;
     }
     persistDebugLog('podman', 'resizing machine memory', {
       machineName: this.machineName,
       currentMiB,
-      targetMiB: BOUNDARY_MACHINE_MEMORY_MIB,
+      targetMiB: this.memoryMiB,
       wasRunning: running,
     });
     report(
-      `Increasing container engine memory (${currentMiB} → ${BOUNDARY_MACHINE_MEMORY_MIB} MiB)…`
+      `${growing ? 'Increasing' : 'Reducing'} container engine memory (${currentMiB} → ${this.memoryMiB} MiB)…`
     );
     if (running) {
       await this.run(['machine', 'stop', this.machineName], { timeout: 120_000 });
@@ -462,7 +501,7 @@ export class PodmanMachineService {
         'machine',
         'set',
         '--memory',
-        String(BOUNDARY_MACHINE_MEMORY_MIB),
+        String(this.memoryMiB),
         this.machineName,
       ],
       { timeout: 60_000 }
@@ -618,8 +657,10 @@ export class PodmanMachineService {
           lastError = new Error('no time left to run podman info');
           break;
         }
-        // Confirm the machine answers
-        await this.run(['info', '--format', '{{.Host.RemoteSocket.Path}}'], {
+        // Confirm this machine answers. `--url` names it: without it podman uses the shared
+        // default connection, which can belong to another machine (an older Boundary build,
+        // Podman Desktop) that is stopped.
+        await this.run(['--url', endpoints.apiEndpoint, 'info', '--format', '{{.Host.RemoteSocket.Path}}'], {
           timeout: infoTimeout,
         });
         return endpoints;
@@ -640,12 +681,14 @@ export class PodmanMachineService {
 export function createPodmanMachineService(
   paths: BundledRuntimePaths,
   env: NodeJS.ProcessEnv,
-  execFileFn: typeof defaultExecFileAsync = defaultExecFileAsync
+  execFileFn: typeof defaultExecFileAsync = defaultExecFileAsync,
+  memoryMiB?: number
 ): PodmanMachineService {
   return new PodmanMachineService({
     execFile: execFileFn,
     env,
     podmanPath: paths.podmanPath,
     machineImagePath: paths.machineImagePath,
+    memoryMiB,
   });
 }

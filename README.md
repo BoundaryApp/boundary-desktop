@@ -40,7 +40,8 @@ covers running both stacks side by side.
 
 ```bash
 bun run test          # main-process and renderer unit suites
-bun run type-check
+bun run test:shuffle  # the same suites in random order; prints the seed that repeats it
+bun run type-check    # app code, then test files and their fakes (tsconfig.test.json)
 ```
 
 ## Packaging

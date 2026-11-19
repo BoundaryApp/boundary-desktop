@@ -76,6 +76,17 @@ describe('containersConf', () => {
     expect(env.CONTAINERS_LOG_LEVEL).toBeUndefined();
     expect(env.CONTAINERS_MACHINE_PROVIDER).toMatch(/^(libkrun|applehv)$/);
   });
+
+  it('points podman at the machine Boundary started, whatever the shared default is', () => {
+    const paths = fakePaths('/rt');
+    const env = buildBundledRuntimeEnv(
+      paths,
+      { PATH: '/usr/bin', CONTAINER_CONNECTION: 'podman-machine-default', CONTAINER_HOST: 'ssh://elsewhere' },
+      'unix:///tmp/boundary-api.sock'
+    );
+    expect(env.CONTAINER_HOST).toBe('unix:///tmp/boundary-api.sock');
+    expect(env.CONTAINER_CONNECTION).toBeUndefined();
+  });
 });
 
 describe('runCompose with composeBinaryPath', () => {

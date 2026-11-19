@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { fireEvent, render } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import type { AppCommand } from '../../../shared/appCommands';
 import { formatShortcut } from '../../../shared/appCommands';
 import {
@@ -15,8 +15,9 @@ const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
 describe('matchShortcut', () => {
   it('maps ⌘ keys on macOS and Ctrl keys elsewhere', () => {
     expect(matchShortcut(key({ key: 'n', metaKey: true }), true)).toBe('new-chat');
-    expect(matchShortcut(key({ key: '2', metaKey: true }), true)).toBe('go-inference');
-    expect(matchShortcut(key({ key: '3', metaKey: true }), true)).toBe('go-services');
+    expect(matchShortcut(key({ key: '2', metaKey: true }), true)).toBe('go-circles');
+    expect(matchShortcut(key({ key: '3', metaKey: true }), true)).toBe('go-inference');
+    expect(matchShortcut(key({ key: '5', metaKey: true }), true)).toBe('go-resources');
     expect(matchShortcut(key({ key: ',', metaKey: true }), true)).toBe('go-settings');
     expect(matchShortcut(key({ key: ']', ctrlKey: true }), false)).toBe('next-thread');
     expect(matchShortcut(key({ key: 'n', ctrlKey: true }), true)).toBeNull();
@@ -35,11 +36,9 @@ describe('matchShortcut', () => {
 });
 
 describe('app command hooks', () => {
-  afterEach(() => cleanup());
-
   it('delivers keyboard shortcuts and dispatched commands to subscribers', () => {
     const received: AppCommand[] = [];
-    const Probe = () => {
+    const Probe = (): null => {
       useAppShortcuts();
       useAppCommand((command) => received.push(command));
       return null;
@@ -47,6 +46,6 @@ describe('app command hooks', () => {
     render(<Probe />);
     fireEvent.keyDown(window, { key: '3', ctrlKey: true });
     dispatchAppCommand('prev-thread');
-    expect(received).toEqual(['go-services', 'prev-thread']);
+    expect(received).toEqual(['go-inference', 'prev-thread']);
   });
 });

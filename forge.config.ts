@@ -9,6 +9,7 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -25,6 +26,8 @@ const VITE_EXTERNAL_PACKAGE_ROOTS = [
   'better-sqlite3',
   'dockerode',
   'ssh2',
+  // Prem's attestation verifier; loads reticle_bg.wasm from its own folder.
+  '@premai/reticle',
   // The Circles network process (vite.circlesNetwork.config.ts).
   'autobase',
   'blind-pairing',
@@ -160,14 +163,46 @@ const shouldSign = Boolean(
     canNotarize
 );
 
+const appBundleId = process.env.BOUNDARY_APP_ID || 'com.boundary.desktop';
 const appIcon = process.env.BOUNDARY_APP_ICON || 'src/assets/icon.icns';
 const appDisplayName = process.env.BOUNDARY_APP_NAME || 'Boundary';
+// macOS shows this when the calendar helper asks for access. The helper's embedded Info.plist
+// carries the same text. The 13 floor is Electron's own (LSMinimumSystemVersion in its Info.plist),
+// so the pre-14 NSCalendarsUsageDescription key is set as well.
+const calendarUsageText = `${appDisplayName} lets the agents you choose read your calendars and, when you approve, change them.`;
+
+/**
+ * Builds the Swift calendar helper into resources/calendar-helper (the same script as
+ * `bun run build:calendar-helper`) and copies it next to the app's other extra resources.
+ * Only darwin builds carry it; other platforms skip it.
+ */
+function copyCalendarHelper(buildPath: string, platform: string): void {
+  if (platform !== 'darwin') return;
+  execFileSync(
+    process.execPath,
+    [
+      path.join(projectRoot, 'scripts', 'build-calendar-helper.mjs'),
+      '--universal',
+      '--app-id',
+      appBundleId,
+      '--usage-text',
+      calendarUsageText,
+    ],
+    { stdio: 'inherit', cwd: projectRoot }
+  );
+  fs.cpSync(
+    path.join(projectRoot, 'resources', 'calendar-helper'),
+    path.join(buildPath, '..', 'calendar-helper'),
+    { recursive: true, preserveTimestamps: true }
+  );
+}
 
 const config: ForgeConfig = {
   hooks: {
     packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
       await copyViteExternalPackages(buildPath, platform, arch);
       await copyExperimentResources(buildPath);
+      copyCalendarHelper(buildPath, platform);
     },
     // Electron names the app from productName before any JS runs. That name sets userData, which
     // stores read during import, ahead of app.setName. After prune because the Vite plugin rewrites
@@ -216,7 +251,7 @@ const config: ForgeConfig = {
       unpack: '**/*.{node,dylib,dll,so}',
     },
     // macOS app metadata
-    appBundleId: process.env.BOUNDARY_APP_ID || 'com.boundary.desktop',
+    appBundleId,
     // A build with its own id and name installs beside this one, with its own data.
     ...(process.env.BOUNDARY_APP_NAME ? { name: process.env.BOUNDARY_APP_NAME } : {}),
     appCategoryType: 'public.app-category.developer-tools',
@@ -230,22 +265,32 @@ const config: ForgeConfig = {
     extendInfo: {
       NSCameraUsageDescription: `${appDisplayName} uses the camera for video calls you start or join.`,
       NSMicrophoneUsageDescription: `${appDisplayName} uses the microphone for calls you start or join.`,
+      NSCalendarsFullAccessUsageDescription: calendarUsageText,
+      NSCalendarsUsageDescription: calendarUsageText,
     },
     // Podman/compose helpers must live outside the asar (executable + notarization).
     // Populate via ./scripts/fetch-container-runtime.sh before packaging.
     // Assistant compose overlay ships beside container-runtime for stack ownership.
     // Third-party licence texts ship in Resources/licenses.
-    extraResource: ['./resources/container-runtime', './resources/assistant', './resources/licenses'],
+    extraResource: ['./resources/container-runtime', './resources/assistant', './resources/licenses', './resources/confidential'],
     ...(shouldSign
       ? {
           // CSC_NAME selects a specific identity; otherwise osx-sign auto-selects Developer ID.
           osxSign: {
             ...(process.env.CSC_NAME ? { identity: process.env.CSC_NAME } : {}),
+            // Packager defaults this to true and, with Forge's quiet output, drops the
+            // error, leaving an ad-hoc signed app that only fails later at notarization.
+            continueOnError: false,
             // krunkit/vfkit need hypervisor + virtualization. Signing them with
             // the Electron-only entitlements causes Hardened Runtime abort trap.
             optionsForFile: (filePath: string) => {
               const isContainerHelper = filePath.includes(
                 `${path.sep}container-runtime${path.sep}`
+              );
+              // The calendar helper is the process that asks for calendar access, so it gets only
+              // that entitlement.
+              const isCalendarHelper = filePath.includes(
+                `${path.sep}calendar-helper${path.sep}`
               );
               return {
                 entitlements: isContainerHelper
@@ -253,7 +298,12 @@ const config: ForgeConfig = {
                       projectRoot,
                       'build/entitlements.mac.container-helper.plist'
                     )
-                  : path.join(projectRoot, 'build/entitlements.mac.plist'),
+                  : isCalendarHelper
+                    ? path.join(
+                        projectRoot,
+                        'build/entitlements.mac.calendar-helper.plist'
+                      )
+                    : path.join(projectRoot, 'build/entitlements.mac.plist'),
                 hardenedRuntime: true,
               };
             },
@@ -284,8 +334,10 @@ const config: ForgeConfig = {
     new MakerZIP({}, ['darwin']),
     // The mounted disk image shows the app icon instead of a generic drive.
     new MakerDMG({ icon: appIcon }, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    // Packager names the Linux executable after productName; the installers default to the
+    // package name, so they're told. executableName would rename the macOS binary too.
+    new MakerRpm({ options: { bin: appDisplayName, icon: 'src/assets/icon.png' } }),
+    new MakerDeb({ options: { bin: appDisplayName, icon: 'src/assets/icon.png' } }),
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),

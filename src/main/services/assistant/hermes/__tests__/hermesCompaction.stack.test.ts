@@ -64,7 +64,7 @@ describe.skipIf(!probe.ok)(`Hermes compaction and history reads${skipNote(probe)
   afterAll(async () => {
     try {
       // Hermes refuses to delete an open session.
-      if (runtimeId) await client.request('session.close', { session_id: runtimeId }).catch(() => undefined);
+      if (runtimeId) await client.request('session.close', { session_id: runtimeId }).catch((): void => undefined);
       if (storedId) await client.request('session.delete', { session_id: storedId });
     } finally {
       session.dispose();

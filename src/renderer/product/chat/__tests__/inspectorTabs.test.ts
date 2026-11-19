@@ -3,17 +3,19 @@ import {
   conversationInspectorKey,
   defaultInspectorTab,
   inspectorTabsFor,
+  type InspectorContext,
+  type InspectorTab,
 } from '../inspectorTabs';
 
 describe('inspectorTabs (ADR 0023)', () => {
   it('gives each kind its tabs and default', () => {
-    const cases = [
+    const cases: Array<[InspectorContext, InspectorTab[], InspectorTab]> = [
       [{ kind: 'channel', hasAgent: false }, ['room', 'project'], 'room'],
       [{ kind: 'hermes', hasAgent: true }, ['session', 'project'], 'project'],
       [{ kind: 'dm', hasAgent: true }, ['agent', 'project'], 'agent'],
       [{ kind: 'side', hasAgent: true }, ['agent', 'project'], 'agent'],
       [{ kind: null, hasAgent: false }, ['project'], 'project'],
-    ] as const;
+    ];
     for (const [ctx, tabs, def] of cases) {
       expect(inspectorTabsFor(ctx)).toEqual(tabs);
       expect(defaultInspectorTab(ctx)).toBe(def);

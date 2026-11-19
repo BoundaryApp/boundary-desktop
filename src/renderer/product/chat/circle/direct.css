@@ -1,0 +1,184 @@
+/* Direct messages in a Circle (ADR 0054 §5–§9). Rows, toolbar and composer come from
+   circleChat.css; these are the differences. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+.wb-direct-lock {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* One person reads this, not the Circle, so the composer drops the brand edge (§6). */
+.wb-direct-composer .wb-input-box {
+  border-top: 1px solid var(--line);
+}
+
+.wb-circle-tools .wb-direct-audience {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-direct-bytes {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-direct-bytes.is-over {
+  color: var(--danger);
+}
+
+.wb-direct-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.wb-direct-presence .wb-online-dot {
+  position: static;
+}
+
+/* A message still in the outbox is lighter until the other Mac has it (§7). */
+.wb-direct-msg.is-waiting .wb-bubble {
+  opacity: 0.7;
+}
+
+.wb-direct-delivery {
+  color: var(--text-faint);
+}
+
+.wb-direct-msg.is-highlighted > .wb-circle-line {
+  background: var(--brand-dim);
+}
+
+/* The quoted message above a reply (ADR 0053 §4), and its strip above the composer. */
+.wb-direct-quote {
+  display: flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 0 0 var(--space-1-5);
+  padding: var(--space-1) var(--space-2-5);
+  border: 0;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+}
+
+button.wb-direct-quote {
+  cursor: pointer;
+}
+
+button.wb-direct-quote:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.wb-direct-quote.is-missing {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-style: italic;
+}
+
+.wb-direct-quote-name {
+  color: var(--text);
+  font-size: var(--size-2xs);
+  font-weight: 500;
+}
+
+.wb-direct-quote-text {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-direct-replying {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  margin: var(--space-2) var(--space-2) 0;
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-2-5);
+  border-left: 2px solid var(--line);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+}
+
+.wb-direct-replying-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  color: var(--text-muted);
+}
+
+.wb-direct-replying-label {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-direct-replying-label b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.wb-direct-ended {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  text-align: center;
+}
+
+/* The list's Direct messages rows. */
+.wb-direct-row .wb-circle-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+}
+
+.wb-direct-row-note {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+/* Message and Call on a People row in the Circle tab show on hover or focus, beside the row. */
+.wb-circle-insp-person {
+  position: relative;
+}
+
+.wb-circle-insp-person .wb-person-row-actions {
+  position: absolute;
+  top: 50%;
+  right: var(--space-6);
+  display: flex;
+  gap: var(--space-1);
+  transform: translateY(-50%);
+  opacity: 0;
+}
+
+.wb-circle-insp-person:hover .wb-person-row-actions,
+.wb-circle-insp-person:focus-within .wb-person-row-actions {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wb-direct-msg > .wb-circle-line {
+    transition: background-color 0.3s;
+  }
+}
+}

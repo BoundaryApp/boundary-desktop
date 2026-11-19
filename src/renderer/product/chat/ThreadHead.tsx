@@ -12,6 +12,7 @@ import { ProjectGlyph } from './ProjectGlyph';
 import { formatChannelHead } from './channelHead';
 import { headKindLine } from './conversationKinds';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Button } from '../../components/ui/button';
 
 export interface ThreadHeadProps {
   kind: HermesConversationKind;
@@ -185,28 +186,29 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
       <span className="wb-grow" aria-hidden="true" />
       <span className="wb-thread-head-actions">
         {isHermesChat && onNewChat ? (
-          <button type="button" className="wb-btn-tiny" onClick={onNewChat} title="New chat (⌘N)">
+          <Button variant="secondary" size="sm" type="button" onClick={onNewChat} title="New chat (⌘N)">
             New chat
-          </button>
+          </Button>
         ) : null}
         {isSideChat && onOpenAgentDm ? (
-          <button type="button" className="wb-btn-tiny" onClick={onOpenAgentDm}>
+          <Button variant="secondary" size="sm" type="button" onClick={onOpenAgentDm}>
             Open DM with {agentName}
-          </button>
+          </Button>
         ) : null}
         {isHermesChat && onMakeChannel && !filed ? (
-          <button type="button" className="wb-btn-tiny" onClick={onMakeChannel}>
+          <Button variant="secondary" size="sm" type="button" onClick={onMakeChannel}>
             Make channel
-          </button>
+          </Button>
         ) : null}
         {kind === 'dm' && agent && onAddAgentToChannel ? (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             onClick={() => onAddAgentToChannel(agent)}
           >
             Add to channel
-          </button>
+          </Button>
         ) : null}
       </span>
     </div>

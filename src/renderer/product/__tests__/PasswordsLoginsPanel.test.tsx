@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { PasswordsLoginsPanel } from '../PasswordsLoginsPanel';
 
@@ -40,8 +40,6 @@ const onePassword = {
 };
 
 describe('PasswordsLoginsPanel', () => {
-  afterEach(() => cleanup());
-
   beforeEach(() => {
     vi.clearAllMocks();
     stubElectronAPI({ hermesVault: vaultApi, agents: agentsApi });

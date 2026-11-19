@@ -1,0 +1,219 @@
+/* The desktop agent button's window (ADR 0058 §2, §4): the window is the button, so its page
+   is transparent around it. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+:root:has(body.wb-desktop-button-doc),
+body.wb-desktop-button-doc {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.wb-desktop-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  color: var(--brand);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.wb-desktop-button:hover,
+.wb-desktop-button.is-dragging {
+  border-color: var(--brand);
+}
+
+.wb-desktop-button.is-dragging {
+  cursor: grabbing;
+}
+
+.wb-desktop-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-desktop-button-mark {
+  display: flex;
+  width: 32px;
+  height: 32px;
+}
+
+.wb-desktop-button.has-figure .wb-desktop-button-mark {
+  overflow: hidden;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+}
+
+.wb-desktop-button-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.wb-desktop-button .wb-desktop-button-badge,
+.wb-desktop-button-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+}
+
+.wb-desktop-button-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent, var(--brand));
+}
+
+.wb-desktop-button-count {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--space-1);
+  border-radius: 8px;
+  background: var(--brand);
+  color: var(--on-brand, #fff);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+/* The desktop panel's window (ADR 0058 §6): the panel fills it. */
+:root:has(body.wb-desktop-panel-doc),
+body.wb-desktop-panel-doc {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--surface-0);
+}
+
+.wb-desktop-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  color: var(--text);
+}
+
+.wb-desktop-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.wb-desktop-panel-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.wb-desktop-panel-agent b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-desktop-panel-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.wb-desktop-panel-tab {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.wb-desktop-panel-tab.is-active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.wb-desktop-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The Agent tab's chat (ADR 0058 §7), shared with 0052's in-window window. */
+.wb-agent-panel,
+.wb-panel-circle,
+.wb-panel-circles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-agent-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.wb-agent-panel-picker {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-agent-panel-privacy,
+.wb-agent-panel-error {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-agent-panel-thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-panel-circles {
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+/* Settings: Shortcut from any app (ADR 0058 §11). */
+.wb-shortcut-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wb-shortcut-value {
+  color: var(--text-muted);
+}
+
+.wb-shortcut-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--danger, var(--text-muted));
+  font-size: var(--size-xs);
+}
+}

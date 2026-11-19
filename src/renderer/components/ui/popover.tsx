@@ -1,5 +1,6 @@
 import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
+import { isNode, useOwnerDocument } from "./ownerDocument"
 
 /**
  * Popover menus (project picker, ⋯ menus, run menu, jump to date). Radix supplies the
@@ -45,8 +46,9 @@ const PopoverContent = React.forwardRef<
     },
     ref
   ) => {
+    const ownerDocument = useOwnerDocument()
     const within = (target: EventTarget | null) =>
-      Boolean(keepOpenWithin?.current && target instanceof Node && keepOpenWithin.current.contains(target))
+      Boolean(keepOpenWithin?.current && isNode(target) && keepOpenWithin.current.contains(target))
     return (
       <PopoverPrimitive.Content
         ref={ref}
@@ -65,8 +67,8 @@ const PopoverContent = React.forwardRef<
           if (event.defaultPrevented) return
           // An item that moved focus on purpose (Quote focuses the composer, Move opens a
           // sheet) keeps it; otherwise focus returns to the trigger.
-          const active = document.activeElement
-          if (active && active !== document.body) event.preventDefault()
+          const active = ownerDocument.activeElement
+          if (active && active !== ownerDocument.body) event.preventDefault()
         }}
         {...props}
       />

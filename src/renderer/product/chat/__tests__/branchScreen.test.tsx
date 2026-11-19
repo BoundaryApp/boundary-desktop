@@ -22,7 +22,7 @@ stubElectronAPI({
     branchChat: (...args: unknown[]) => branchChat(...args),
     onSessionsChanged: (cb: () => void) => {
       sessionsChanged.notify = cb;
-      return () => undefined;
+      return (): void => undefined;
     },
   },
   projects: {
@@ -31,7 +31,7 @@ stubElectronAPI({
     inspectSources: vi.fn().mockResolvedValue({ success: false }),
   },
   agents: {
-    onChanged: () => () => undefined,
+    onChanged: () => (): void => undefined,
     list: vi.fn().mockResolvedValue({
       success: true,
       agents: [
@@ -73,7 +73,12 @@ vi.mock('../HermesChatRuntimeProvider', () => ({
     useEffect(() => {
       if (sessionId === 'br-stored') onSessionResolved?.('br-runtime');
     }, [sessionId, onSessionResolved]);
-    return <>{children}</>;
+    return (
+      <>
+        <p data-testid="session">{sessionId ?? 'no-session'}</p>
+        {children}
+      </>
+    );
   },
 }));
 
@@ -138,6 +143,8 @@ describe('a branched chat stays marked as a branch', () => {
   it('right after branching, and after the chat list refreshes', async () => {
     render(<WorkbenchChatScreen />);
     const doBranch = await screen.findByRole('button', { name: 'do-branch' });
+    // The button shows before the chat list lands; branching needs the open chat.
+    await waitFor(() => expect(screen.getByTestId('session').textContent).toBe('t-dm'));
 
     await act(async () => fireEvent.click(doBranch));
     await waitFor(() => expect(screen.getByTestId('branch').textContent).toBe('from Hermes'));

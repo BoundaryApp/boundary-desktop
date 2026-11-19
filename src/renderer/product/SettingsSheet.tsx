@@ -1,17 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useInferenceStatus } from '../onboarding/inferenceStatus';
-import { CIRCLE_MEMBER_PROVIDER } from './cloudInferenceCopy';
-import { AgentBrowserPanel } from './AgentBrowserPanel';
-import { CalendarsPanel } from './CalendarsPanel';
-import { CodingFoldersPanel } from './CodingFoldersPanel';
-import { ComputerAccessPanel } from './ComputerAccessPanel';
-import { PasswordsLoginsPanel } from './PasswordsLoginsPanel';
-import { UpdatesPanel } from './UpdatesPanel';
-import { SETTINGS_TABS, type OpenSettingsRequest, type SettingsPanelTab } from './settingsNavigation';
-
-/** These panels open with their own heading, which holds their InfoTip. */
-const TITLED_PANELS: SettingsPanelTab[] = ['coding', 'browser', 'access'];
+import { appCloudProvider } from './cloudInferenceCopy';
+import { SETTINGS_PANELS } from './settingsPanels';
+import { settingsTabInfo, type OpenSettingsRequest, type SettingsPanelTab } from './settingsNavigation';
 
 interface SettingsSheetProps {
   request: OpenSettingsRequest & { tab: SettingsPanelTab };
@@ -20,12 +12,12 @@ interface SettingsSheetProps {
 
 /** A Settings panel over the current screen, which stays mounted behind it. */
 export const SettingsSheet: React.FC<SettingsSheetProps> = ({ request, onClose }) => {
-  const { tab, agentSlug, connectFromChat } = request;
+  const { tab } = request;
   const { status } = useInferenceStatus();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  const label = SETTINGS_TABS.find((candidate) => candidate.id === tab)?.label;
+  const { label, titled } = settingsTabInfo(tab);
 
   useEffect(() => {
     const opener = document.activeElement;
@@ -59,30 +51,13 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ request, onClose }
         onClick={(event) => event.stopPropagation()}
       >
         <header className="wb-settings-sheet-head">
-          {TITLED_PANELS.includes(tab) ? null : <h1>{label}</h1>}
+          {titled ? null : <h1>{label}</h1>}
           <button type="button" aria-label={`Close ${label}`} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
         </header>
         <div className="wb-settings-sheet-body">
-          {tab === 'passwords' ? (
-            <PasswordsLoginsPanel initialAgentSlug={agentSlug} />
-          ) : tab === 'calendars' ? (
-            <CalendarsPanel
-              cloudProvider={
-                status?.appDefault === 'openrouter' ? 'OpenRouter' : status?.appSharedModel ? CIRCLE_MEMBER_PROVIDER : null
-              }
-              onConnectFromChatClosed={connectFromChat ? onClose : undefined}
-            />
-          ) : tab === 'coding' ? (
-            <CodingFoldersPanel />
-          ) : tab === 'browser' ? (
-            <AgentBrowserPanel />
-          ) : tab === 'access' ? (
-            <ComputerAccessPanel />
-          ) : (
-            <UpdatesPanel />
-          )}
+          {SETTINGS_PANELS[tab]({ request, cloudProvider: appCloudProvider(status), onClose })}
         </div>
       </div>
     </div>

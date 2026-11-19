@@ -44,7 +44,7 @@ export function useOnChatSwitch(
 export interface LiveTurn {
   phaseEvent: HermesChatPhaseEvent | null;
   phase: HermesChatPhase;
-  /** Preparing, restarting, running a tool or generating. */
+  /** Held, preparing, restarting, running a tool or generating. */
   livePhase: boolean;
   usage: HermesChatUsageSnapshot | null;
   /** The cards to draw now: the live turn's, while it runs past preparing. */
@@ -142,9 +142,14 @@ export function useLiveTurn({
       if (event.usage) {
         setUsage(event.usage);
       }
-      if (event.phase === 'preparing' || event.phase === 'tool' || event.phase === 'generating') {
+      if (
+        event.phase === 'held' ||
+        event.phase === 'preparing' ||
+        event.phase === 'tool' ||
+        event.phase === 'generating'
+      ) {
         setActiveRequestId(event.requestId);
-        if (event.phase === 'preparing') {
+        if (event.phase === 'preparing' || event.phase === 'held') {
           setToolCards([]);
           setTurnStats(null);
           const chatId = event.sessionId ?? chatIdRef.current;
@@ -236,13 +241,14 @@ export function useLiveTurn({
 
   const phase: HermesChatPhase = phaseEvent?.phase ?? 'idle';
   const livePhase =
+    phase === 'held' ||
     phase === 'preparing' ||
     phase === 'restarting' ||
     phase === 'tool' ||
     phase === 'generating';
 
   const visibleToolCards = useMemo(() => {
-    if (!livePhase || phase === 'preparing') return [];
+    if (!livePhase || phase === 'preparing' || phase === 'held') return [];
     return activeRequestId ? toolCards.filter((c) => c.requestId === activeRequestId) : toolCards;
   }, [toolCards, activeRequestId, livePhase, phase]);
 

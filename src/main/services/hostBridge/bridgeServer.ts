@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
-import { checkBridgeRequest, readLimitedBody, type GuardFailure } from './requestGuard';
-import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools } from './mcpProtocol';
+import { checkAgentRequest, checkBridgeRequest, readLimitedBody, type GuardFailure } from './requestGuard';
+import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools, type ToolCallResult } from './mcpProtocol';
+import type { HostToolDefinition } from './toolCatalog';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
@@ -11,12 +12,17 @@ import { APP_NAME } from '../../../shared/buildIdentity';
  * sockets; `bridgeProcess.ts` runs it inside an Electron utilityProcess.
  *
  * - MCP listener: `POST /mcp`, host tools. Tool calls go to `callTool`, which main answers.
+ *   `POST /calendar` on the same listener serves the Mac's calendars (ADR 0045 §3). It accepts
+ *   only per-agent calendar tokens, never the general token, and passes each call on with the
+ *   agent its token belongs to. It keeps its own MCP sessions, which don't count as Hermes
+ *   host-tool clients.
  * - Browser listener: WebSocket upgrades on `/devtools/browser/…` go to the browser relay
  *   (Boundary's Chrome). Its token may also come as `?token=`, because Hermes hands its CDP
  *   driver a URL rather than headers. There are no discovery endpoints (`/json/…`).
  */
 
 const MCP_PATH = '/mcp';
+const CALENDAR_PATH = '/calendar';
 export const MAX_BODY_BYTES = 1024 * 1024;
 
 export interface BridgeServerOptions {
@@ -37,6 +43,24 @@ export interface BridgeServerOptions {
    */
   onMcpMethod?: (method: string, sessionId: string | null) => void;
   /** A client ended its MCP session (`DELETE /mcp` with the session id). */
+  onSessionClosed?: (sessionId: string) => void;
+  /** The `/calendar` route. Without it, `/calendar` is an unknown path behind the general token. */
+  calendar?: CalendarRoute;
+}
+
+export interface CalendarRoute {
+  /** Token → agent slug, read on every request. */
+  tokens: () => Readonly<Record<string, string>>;
+  callTool: (agent: string, name: string, args: Record<string, unknown>) => Promise<ToolCallResult>;
+  listTools: (agent: string) => Promise<readonly HostToolDefinition[]>;
+}
+
+/** How one route answers MCP once its caller has passed the guard. */
+interface RpcRoute {
+  callTool: CallTool;
+  listTools?: ListTools;
+  isKnownTool?: (name: string) => boolean;
+  onMethod?: (method: string, sessionId: string | null) => void;
   onSessionClosed?: (sessionId: string) => void;
 }
 
@@ -128,17 +152,43 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
   });
 
   const serveMcp = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    const path = (req.url ?? '').split('?')[0];
+    const calendar = options.calendar;
+    if (calendar && path === CALENDAR_PATH) {
+      const checked = checkAgentRequest(req.headers, { port: portOf(mcp), tokens: calendar.tokens() });
+      if ('status' in checked) {
+        log('calendar request rejected', { status: checked.status, reason: checked.reason });
+        rejectGuard(res, checked);
+        return;
+      }
+      const { agent } = checked;
+      await serveRpc(req, res, {
+        callTool: (name, args) => calendar.callTool(agent, name, args),
+        listTools: () => calendar.listTools(agent),
+        // Main decides per agent which tools exist, and refuses the rest itself.
+        isKnownTool: () => true,
+      });
+      return;
+    }
     const guard = checkBridgeRequest(req.headers, { port: portOf(mcp), token: options.mcpToken });
     if (guard) {
       log('mcp request rejected', { status: guard.status, reason: guard.reason });
       rejectGuard(res, guard);
       return;
     }
-    const path = (req.url ?? '').split('?')[0];
     if (path !== MCP_PATH) {
       sendJson(res, 404, { error: 'Not found' });
       return;
     }
+    await serveRpc(req, res, {
+      callTool: options.callTool,
+      listTools: options.listTools,
+      onMethod: options.onMcpMethod,
+      onSessionClosed: options.onSessionClosed,
+    });
+  };
+
+  const serveRpc = async (req: http.IncomingMessage, res: http.ServerResponse, route: RpcRoute): Promise<void> => {
     if (req.method === 'DELETE') {
       // A client ending its session (MCP Streamable HTTP), so it stops counting as connected.
       const header = req.headers['mcp-session-id'];
@@ -146,7 +196,7 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
         sendJson(res, 400, { error: 'Mcp-Session-Id is required' });
         return;
       }
-      options.onSessionClosed?.(header);
+      route.onSessionClosed?.(header);
       sendJson(res, 200);
       return;
     }
@@ -173,8 +223,8 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       }
       const header = req.headers['mcp-session-id'];
       const sessionId = parsed.method === 'initialize' ? randomUUID() : typeof header === 'string' ? header : null;
-      options.onMcpMethod?.(parsed.method, sessionId);
-      const reply = await handleMcpMessage(parsed, options.callTool, options.listTools);
+      route.onMethod?.(parsed.method, sessionId);
+      const reply = await handleMcpMessage(parsed, route.callTool, route.listTools, route.isKnownTool);
       const issue = parsed.method === 'initialize' && reply.status === 200 && sessionId;
       sendJson(res, reply.status, reply.body, issue ? { 'mcp-session-id': sessionId } : {});
     } catch (err) {

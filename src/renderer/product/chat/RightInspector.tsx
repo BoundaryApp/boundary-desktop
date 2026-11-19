@@ -22,6 +22,11 @@ import {
 import type { CenterMode } from './ChatRail';
 import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
+import { WritingCheckPane, type CheckedFile, type WritingCheckRequest } from './WritingCheckPane';
+import type { AgentWritingVoices } from '../../../shared/types/writingVoices';
+import { WritingVoicePicker } from '../writingVoices/WritingVoicePicker';
+import { useWritingVoiceOptions } from '../writingVoices/useWritingVoiceOptions';
+import { Button } from '../../components/ui/button';
 
 interface RightInspectorProps {
   centerMode: CenterMode;
@@ -42,7 +47,14 @@ interface RightInspectorProps {
   onRemoveMember?: (channelId: string, agentSlug: string) => void;
   /** How the Project tab's project relates to the open conversation (ADR 0024 §5). */
   projectRole?: ProjectRole | null;
+  /** The reply last sent to the Check tab (writing check spec, phase 2); null hides the tab. */
+  writingCheck?: WritingCheckRequest | null;
+  onCloseCheck?: () => void;
+  onShowCheckedReply?: (messageId: string) => void;
+  onRecheckFile?: (file: CheckedFile) => void;
 }
+
+type Tab = InspectorTab | 'check';
 
 export const RightInspector: React.FC<RightInspectorProps> = ({
   centerMode,
@@ -58,6 +70,10 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
   onAddMember,
   onRemoveMember,
   projectRole = null,
+  writingCheck = null,
+  onCloseCheck,
+  onShowCheckedReply,
+  onRecheckFile,
 }) => {
   const ctx = useMemo(
     () => {
@@ -70,10 +86,12 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
     [centerMode, kind, activeAgent]
   );
 
-  const tabs = useMemo(() => {
-    if (centerMode !== 'conversation') return ['project'] as InspectorTab[];
-    return inspectorTabsFor(ctx);
-  }, [centerMode, ctx]);
+  // A file can be checked from a project page too, so the tab shows wherever there's a result.
+  const showCheck = writingCheck !== null;
+  const tabs = useMemo<Tab[]>(() => {
+    const base: Tab[] = centerMode !== 'conversation' ? ['project'] : inspectorTabsFor(ctx);
+    return showCheck ? [...base, 'check'] : base;
+  }, [centerMode, ctx, showCheck]);
 
   const conversationKey = conversationInspectorKey({
     kind: ctx.kind,
@@ -83,18 +101,21 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
   });
 
   const defaultTab = centerMode !== 'conversation' ? 'project' : defaultInspectorTab(ctx);
-  const [tabState, setTabState] = useState<{ key: string; tab: InspectorTab }>(() => ({
-    key: conversationKey,
-    tab: defaultTab,
-  }));
+  const checkSeq = writingCheck?.seq ?? null;
+  const [tabState, setTabState] = useState<{ key: string; tab: Tab; checkSeq: number | null }>(
+    () => ({ key: conversationKey, tab: checkSeq !== null ? 'check' : defaultTab, checkSeq })
+  );
 
   if (tabState.key !== conversationKey) {
-    setTabState({ key: conversationKey, tab: defaultTab });
+    setTabState({ key: conversationKey, tab: defaultTab, checkSeq });
+  } else if (checkSeq !== tabState.checkSeq) {
+    // Each Check press brings its result forward.
+    setTabState({ key: conversationKey, tab: checkSeq !== null ? 'check' : tabState.tab, checkSeq });
   }
 
   const tab = tabState.key === conversationKey ? tabState.tab : defaultTab;
   const resolvedTab = tabs.includes(tab) ? tab : tabs[0] ?? 'project';
-  const setTab = (next: InspectorTab) => setTabState({ key: conversationKey, tab: next });
+  const setTab = (next: Tab) => setTabState({ key: conversationKey, tab: next, checkSeq });
 
   return (
     <aside className="wb-right">
@@ -112,7 +133,9 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
                 ? 'Agent'
                 : id === 'session'
                   ? 'Session'
-                  : 'Project'}
+                  : id === 'check'
+                    ? 'Check'
+                    : 'Project'}
           </button>
         ))}
       </nav>
@@ -149,11 +172,20 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
             </span>
           </div>
           <div className="wb-insp-actions">
-            <button type="button" className="wb-btn-tiny" onClick={onMakeChannel}>
+            <Button variant="secondary" size="sm" type="button" onClick={onMakeChannel}>
               Make channel
-            </button>
+            </Button>
           </div>
         </div>
+      ) : null}
+
+      {resolvedTab === 'check' && writingCheck ? (
+        <WritingCheckPane
+          check={writingCheck}
+          onClose={() => onCloseCheck?.()}
+          onShowReply={(messageId) => onShowCheckedReply?.(messageId)}
+          onRecheckFile={(file) => onRecheckFile?.(file)}
+        />
       ) : null}
 
       {resolvedTab === 'project' ? (
@@ -222,15 +254,17 @@ function RoomPane({
                   {member?.builtIn ? <span className="sub">Default agent</span> : null}
                 </span>
                 {onRemoveMember ? (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    className="wb-btn-tiny wb-member-remove"
+                    className="wb-member-remove"
                     aria-label={`Remove ${name} from #${channel.slug}`}
                     title={`Remove ${name} from #${channel.slug}`}
                     onClick={() => onRemoveMember(slug)}
                   >
                     Remove
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             );
@@ -241,16 +275,17 @@ function RoomPane({
         <div className="wb-member-add" role="group" aria-label="Add a member">
           <span className="wb-member-add-label">Add</span>
           {addable.map((agent) => (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               key={agent.slug}
               type="button"
-              className="wb-btn-tiny"
               aria-label={`Add ${agent.displayName} to #${channel.slug}`}
               onClick={() => onAddMember(agent.slug)}
             >
               <AgentMark agent={agent} size={14} />
               {agent.displayName}
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}
@@ -275,6 +310,68 @@ function RoomPane({
 
 /** Lines of role shown before "Show more" in the Agent tab. */
 const ROLE_LINES = 4;
+
+/**
+ * The agent's two writing voices (ADR 0056 §5). A personality changes them in its edit sheet;
+ * the built-in agent has none, so its pickers are here and save on change.
+ */
+function AgentVoices({ agent }: { agent: AgentProfile }) {
+  const voices = useWritingVoiceOptions();
+  const [current, setCurrent] = useState<AgentWritingVoices>({
+    chatRepliesVoiceId: agent.chatRepliesVoiceId ?? null,
+    draftsVoiceId: agent.draftsVoiceId ?? null,
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrent({ chatRepliesVoiceId: agent.chatRepliesVoiceId ?? null, draftsVoiceId: agent.draftsVoiceId ?? null });
+    setError(null);
+  }, [agent.slug, agent.chatRepliesVoiceId, agent.draftsVoiceId]);
+
+  const save = (next: AgentWritingVoices) => {
+    const before = current;
+    setCurrent(next);
+    setError(null);
+    void window.electronAPI.agents.setWritingVoices(agent.slug, next).then((result) => {
+      if ('error' in result) {
+        setCurrent(before);
+        setError(result.error);
+      }
+    });
+  };
+
+  const name = (id: string | null) => (id ? (voices.find((v) => v.id === id)?.name ?? id) : 'No voice');
+
+  return (
+    <div className="wb-insp-soul">
+      <div className="kicker">Writing voice</div>
+      {agent.builtIn ? (
+        <>
+          <WritingVoicePicker
+            label="Chat replies"
+            value={current.chatRepliesVoiceId}
+            voices={voices}
+            onChange={(id) => save({ ...current, chatRepliesVoiceId: id })}
+          />
+          <WritingVoicePicker
+            label="Drafts"
+            value={current.draftsVoiceId}
+            voices={voices}
+            onChange={(id) => save({ ...current, draftsVoiceId: id })}
+          />
+        </>
+      ) : (
+        <dl className="wb-insp-voices">
+          <dt>Chat replies</dt>
+          <dd>{name(current.chatRepliesVoiceId)}</dd>
+          <dt>Drafts</dt>
+          <dd>{name(current.draftsVoiceId)}</dd>
+        </dl>
+      )}
+      {error ? <p className="wb-insp-note">{error}</p> : null}
+    </div>
+  );
+}
 
 function AgentPane({
   agent,
@@ -347,24 +444,26 @@ function AgentPane({
           </button>
         ) : null}
       </div>
+      <AgentVoices agent={agent} />
       <p className="wb-insp-note">Private memory. Shared folder only when a project is bound.</p>
       <div className="wb-insp-actions">
-        <button type="button" className="wb-btn-tiny" onClick={onAddToChannel}>
+        <Button variant="secondary" size="sm" type="button" onClick={onAddToChannel}>
           Add to channel
-        </button>
+        </Button>
         {onEdit ? (
-          <button type="button" className="wb-btn-tiny" onClick={onEdit}>
+          <Button variant="secondary" size="sm" type="button" onClick={onEdit}>
             Edit
-          </button>
+          </Button>
         ) : null}
         {canOpen ? (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             onClick={() => void window.electronAPI.agents.revealSoul({ slug: agent.slug })}
           >
             Open SOUL.md
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>

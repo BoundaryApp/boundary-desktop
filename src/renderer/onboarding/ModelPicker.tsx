@@ -238,7 +238,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         {onRefresh && (
           <Button
             type="button"
-            variant="ghost"
+            variant="quiet"
             size="sm"
             disabled={loading}
             onClick={onRefresh}

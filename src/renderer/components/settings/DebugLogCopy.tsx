@@ -40,7 +40,7 @@ export const DebugLogCopy: React.FC<DebugLogCopyProps> = ({ path, className }) =
 
   return (
     <details className={cn('group text-xs text-fg-faint', className)}>
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm transition-colors duration-(--dur-fast) hover:text-fg-muted focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm hover:text-fg-muted focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
         <ChevronRight
           aria-hidden="true"
           className="size-3.5 transition-transform duration-(--dur-fast) group-open:rotate-90"
@@ -51,12 +51,12 @@ export const DebugLogCopy: React.FC<DebugLogCopyProps> = ({ path, className }) =
         <p>Share the debug log if you ask for help.</p>
         {path && <p className="break-all font-mono text-fg-muted">{path}</p>}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleCopyLog()}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopyLog()}>
             {copied === 'log' ? <CheckCircle aria-hidden="true" /> : <Copy aria-hidden="true" />}
             {copied === 'log' ? 'Copied log' : 'Copy log'}
           </Button>
           {path && (
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleCopyPath()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopyPath()}>
               {copied === 'path' ? 'Copied path' : 'Copy path'}
             </Button>
           )}

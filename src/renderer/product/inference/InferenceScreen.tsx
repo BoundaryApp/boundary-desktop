@@ -13,6 +13,8 @@ import { ModelConnections } from './ModelConnections';
 import { dryRun, removeEntry, shownStack } from './stack';
 import { AddModelSheet, buildRungs, EntryDetails, formatContext, StackList } from './StackList';
 import { useAppStack } from './useAppStack';
+import { poolContext, usePoolRankings, useConfidentialState } from './useConfidentialState';
+import { Button } from '../../components/ui/button';
 import './inference.css';
 
 /** Model sources sit under the stack; connecting and signing in happen there. */
@@ -40,7 +42,12 @@ function FromYourCircles({
         const offers = circles.snapshot.circles.flatMap((circle) =>
           circle.offers.filter((offer) => offer.identity === identity).map((offer) => ({ circle, offer }))
         );
-        const online = offers.some(({ offer }) => offer.online);
+        // Offline wins, as in the offer toasts: a paused provider who drops is just offline.
+        const reach = offers.some(({ offer }) => offer.online && offer.available)
+          ? 'Online'
+          : offers.some(({ offer }) => offer.online)
+            ? 'Not sharing now'
+            : 'Offline';
         const where = [...new Set(offers.map(({ circle }) => circle.name))].join(', ');
         const trusted = circles.providers[identity]?.trusted === true;
         return (
@@ -60,18 +67,19 @@ function FromYourCircles({
                       {name} · <span className="mono">{entry.modelId}</span>
                     </b>
                     <span>
-                      Offered in {where} · {online ? 'Online' : 'Offline'}
+                      Offered in {where} · {reach}
                     </span>
                   </span>
-                  <button
+                  <Button
+                    variant="secondary"
+                    block
                     type="button"
-                    className="wb-btn-ghost"
                     disabled={added || !trusted}
                     title={!trusted ? `Trust ${name} first` : undefined}
                     onClick={() => onAdd(entry)}
                   >
                     {added ? 'In your stack' : 'Add to stack'}
-                  </button>
+                  </Button>
                 </div>
               );
             })}
@@ -91,7 +99,9 @@ function FromYourCircles({
 export const InferenceScreen: React.FC<{
   /** A link asked for this person's row; `seq` changes on each request, even for the same person. */
   focusPerson?: { person?: string; seq: number };
-}> = ({ focusPerson }) => {
+  /** Counts requests to open the Confidential providers add sheet; a new value opens it. */
+  addProviderRequest?: number;
+}> = ({ focusPerson, addProviderRequest }) => {
   const { status, circles, list, described, busy, error, notice, save } = useAppStack();
   const { appSwitch, error: switchError } = useAppSwitch();
   // During a switch the target shows first from the click, or the previous first while going back.
@@ -108,7 +118,10 @@ export const InferenceScreen: React.FC<{
     if (!focused || !ready) return;
     document.getElementById(`inference-person-${focused}`)?.scrollIntoView?.({ block: 'center' });
   }, [focused, focusPerson?.seq, ready]);
-  const ctx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const { state: confidential } = useConfidentialState();
+  const poolModels = confidential?.enabled === true ? confidential.models.map((model) => model.id) : [];
+  const rankings = usePoolRankings(confidential, poolModels, { privateProject: false });
+  const ctx: ChainContext = { slots: status?.slots ?? {}, circles, pools: poolContext(confidential, rankings) };
 
   const rungs = buildRungs(shown, ctx, described);
   const change = (next: InferenceChainEntry[]) => {
@@ -135,9 +148,9 @@ export const InferenceScreen: React.FC<{
                   <b>Add your first model</b>
                   <span>Connect a model on this Mac or OpenRouter, or add one a Circle shares.</span>
                 </span>
-                <button type="button" className="wb-btn-ghost" onClick={showSources}>
+                <Button variant="secondary" block type="button" onClick={showSources}>
                   Connect
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
@@ -148,13 +161,14 @@ export const InferenceScreen: React.FC<{
                   <input type="checkbox" checked={privateProject} onChange={(event) => setPrivateProject(event.target.checked)} />
                   From a private project
                 </label>
-                <button
+                <Button
+                  variant="primary"
+                  block
                   type="button"
-                  className="wb-btn-solid"
                   onClick={() => setRun(dryRun(rungs, { privateProject }))}
                 >
                   Run
-                </button>
+                </Button>
                 {run ? (
                   <p className={`wb-inf-verdict${run.answeredBy === null ? ' is-none' : ''}`} role="status">
                     {run.answeredBy === null
@@ -201,7 +215,7 @@ export const InferenceScreen: React.FC<{
           <h2 className="wb-inf-sec" id="inference-sources">
             Model sources
           </h2>
-          <ModelConnections />
+          <ModelConnections addProviderRequest={addProviderRequest} />
 
           {inCircle ? (
             <>

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { CodingAgentBusy } from '../../../shared/types/codingFolders';
+import { Callout } from '../../components/ui/alert';
 
 /**
  * The wait-or-stop choice every coding-grant entry point offers when a coding task is running:
@@ -13,7 +14,7 @@ export type CodingBusyLook = 'sheet' | 'interrupt' | 'popover';
 export type CodingBusyVerb = 'add' | 'allow';
 
 const WARNING_CLASS: Record<CodingBusyLook, string> = {
-  sheet: 'wb-insp-banner warn wb-sheet-banner',
+  sheet: 'wb-sheet-banner',
   interrupt: 'why is-warn',
   popover: 'wb-popover-warn',
 };
@@ -39,9 +40,9 @@ export const CodingBusyWarning: React.FC<{
   );
   // The sheet's banner wraps its text; the other hosts style the paragraph itself.
   return look === 'sheet' ? (
-    <div className={WARNING_CLASS.sheet}>
+    <Callout variant="warn" layout="row" size="sm" className={WARNING_CLASS.sheet} role={undefined}>
       <p>{text}</p>
-    </div>
+    </Callout>
   ) : (
     <p className={WARNING_CLASS[look]}>{text}</p>
   );

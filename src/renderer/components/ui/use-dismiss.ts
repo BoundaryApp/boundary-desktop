@@ -1,9 +1,11 @@
 import { useEffect, useRef, type RefObject } from "react"
+import { useOwnerDocument, useOwnerWindow } from "./ownerDocument"
 
 /** Esc closes the open sheet or dialog (ignored while `disabled`, e.g. saving). */
 export function useEscapeToClose(onClose: () => void, disabled = false): void {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  const win = useOwnerWindow()
   useEffect(() => {
     if (disabled) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -11,9 +13,9 @@ export function useEscapeToClose(onClose: () => void, disabled = false): void {
       event.preventDefault()
       closeRef.current()
     }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [disabled])
+    win.addEventListener("keydown", onKeyDown)
+    return () => win.removeEventListener("keydown", onKeyDown)
+  }, [disabled, win])
 }
 
 interface DismissOptions {
@@ -35,6 +37,7 @@ export function useDismiss(
 ): void {
   const dismissRef = useRef(onDismiss)
   dismissRef.current = onDismiss
+  const doc = useOwnerDocument()
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
@@ -43,18 +46,18 @@ export function useDismiss(
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return
       event.preventDefault()
-      const active = document.activeElement
+      const active = doc.activeElement
       const focusWasInside =
-        !active || active === document.body || Boolean(ref.current?.contains(active))
+        !active || active === doc.body || Boolean(ref.current?.contains(active))
       dismissRef.current()
       if (focusWasInside) returnFocusTo?.current?.focus()
     }
     // Capture, so Escape is consumed before window-level handlers (sheets, run stop) see it.
-    document.addEventListener("pointerdown", onPointerDown, true)
-    document.addEventListener("keydown", onKeyDown, true)
+    doc.addEventListener("pointerdown", onPointerDown, true)
+    doc.addEventListener("keydown", onKeyDown, true)
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true)
-      document.removeEventListener("keydown", onKeyDown, true)
+      doc.removeEventListener("pointerdown", onPointerDown, true)
+      doc.removeEventListener("keydown", onKeyDown, true)
     }
-  }, [open, ref, returnFocusTo])
+  }, [open, ref, returnFocusTo, doc])
 }

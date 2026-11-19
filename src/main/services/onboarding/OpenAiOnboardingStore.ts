@@ -346,6 +346,17 @@ export async function getSlotApiKey(slot: InferenceSlotId | null): Promise<strin
   return decryptApiKey(readSlots()[slot]?.encryptedApiKey);
 }
 
+/** Every stored model key, including OpenRouter's while disconnected. For masking only. */
+export async function storedApiKeys(): Promise<string[]> {
+  ensureV2Document();
+  const connections = [...Object.values(readSlots()), store.get('savedOpenRouterConnection')];
+  // One unreadable key leaves the others in.
+  const keys = await Promise.all(
+    connections.map((c) => decryptApiKey(c?.encryptedApiKey).catch((): null => null))
+  );
+  return keys.filter((key): key is string => Boolean(key));
+}
+
 export interface LlmConnection {
   endpointUrl: string;
   apiKey: string;
@@ -771,16 +782,20 @@ export async function setAppDefault(slot: InferenceSlotId): Promise<SetAppDefaul
 }
 
 /**
- * Make a shared model the app default, in place of any slot (ADR 0036). The caller has checked
- * that it can serve now. Fallbacks stay; one naming this model goes, as it is now the first entry.
+ * Make a shared model or a confidential pool the app default, in place of any slot (ADR 0036,
+ * ADR 0047 §8). The caller has checked that it can serve now. Fallbacks stay; one naming this
+ * model goes, as it is now the first entry.
  */
 export async function setAppSharedModel(entry: InferenceChainEntry): Promise<SetAppSharedModelResult> {
   ensureV2Document();
-  const shared = wellFormedSharedEntry(entry);
+  const shared = entry.slot === 'confidential' ? wellFormedPoolEntry(entry) : wellFormedSharedEntry(entry);
   if (!shared) {
     return {
       success: false,
-      error: `That shared model isn’t one ${APP_NAME} knows.`,
+      error:
+        entry.slot === 'confidential'
+          ? 'That confidential pool doesn’t name a model.'
+          : `That shared model isn’t one ${APP_NAME} knows.`,
       status: await getOpenAiOnboardingStatus(),
     };
   }
@@ -836,11 +851,16 @@ export function dropAppEntries(
   deleteStoreKey('appSharedModel');
   const slots = readSlots();
   const connected = (slot: InferenceSlotId) => Boolean(slots[slot]?.modelId?.trim());
+  // Whether a pool has a provider is the confidential service's to say, which this can't ask, so a pool never takes over.
   const next = fallbacks.find((entry) =>
-    entry.slot === 'peer' ? providerTrusted(entry.peer?.providerId ?? '') : connected(entry.slot)
+    entry.slot === 'confidential'
+      ? false
+      : entry.slot === 'peer'
+        ? providerTrusted(entry.peer?.providerId ?? '')
+        : connected(entry.slot)
   );
   if (next?.slot === 'peer') store.set('appSharedModel', next);
-  else if (next) setStoredAppDefault(next.slot);
+  else if (next && next.slot !== 'confidential') setStoredAppDefault(next.slot);
   else setStoredAppDefault((['local', 'openrouter', 'infrastructure'] as const).find(connected) ?? null);
   store.set('appFallbacks', fallbacks.filter((entry) => entry !== next));
 }
@@ -855,7 +875,15 @@ function wellFormedSharedEntry(entry: InferenceChainEntry): InferenceChainEntry 
   return { slot: 'peer', modelId, peer: { circleId, providerId } };
 }
 
+function wellFormedPoolEntry(entry: InferenceChainEntry): InferenceChainEntry | null {
+  const modelId = entry.modelId?.trim() ?? '';
+  if (entry.slot !== 'confidential' || !modelId || modelId.length > 200) return null;
+  return { slot: 'confidential', modelId };
+}
+
+/** The key of an entry that names its model outright: a shared model or a confidential pool. */
 function chainPeerKey(entry: InferenceChainEntry): string | null {
+  if (entry.slot === 'confidential') return `confidential:${entry.modelId?.trim() ?? ''}`;
   return entry.slot === 'peer' ? `peer:${entry.peer?.circleId}:${entry.peer?.providerId}:${entry.modelId?.trim()}` : null;
 }
 
@@ -863,7 +891,8 @@ function chainPeerKey(entry: InferenceChainEntry): string | null {
  * Check a chain's fallbacks against its first entry. Only connected chat providers and
  * well-formed shared models are accepted, each slot and model once, and never the first
  * entry's own slot and model. A shared model is kept even while it is stale, so the user
- * sees it (ADR 0033 §10).
+ * sees it (ADR 0033 §10). A confidential pool is kept when it names a model and dropped
+ * when it doesn't.
  */
 export async function keepChainFallbacks(
   primary: InferenceChainEntry | null,
@@ -872,10 +901,20 @@ export async function keepChainFallbacks(
   ensureV2Document();
   const slots = readSlots();
   const modelFor = (entry: InferenceChainEntry) =>
-    entry.modelId?.trim() || (entry.slot === 'peer' ? '' : slots[entry.slot]?.modelId?.trim()) || '';
+    entry.modelId?.trim() ||
+    (entry.slot === 'peer' || entry.slot === 'confidential' ? '' : slots[entry.slot]?.modelId?.trim()) ||
+    '';
   const seen = new Set<string>(primary ? [chainPeerKey(primary) ?? `${primary.slot}:${modelFor(primary)}`] : []);
   const fallbacks: InferenceChainEntry[] = [];
   for (const entry of entries) {
+    if (entry.slot === 'confidential') {
+      const modelId = entry.modelId?.trim();
+      const key = chainPeerKey(entry);
+      if (!modelId || seen.has(key)) continue;
+      seen.add(key);
+      fallbacks.push({ slot: 'confidential', modelId });
+      continue;
+    }
     if (entry.slot === 'peer') {
       const shared = wellFormedSharedEntry(entry);
       const key = shared && chainPeerKey(shared);

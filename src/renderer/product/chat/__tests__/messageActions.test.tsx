@@ -2,37 +2,40 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import type {
+  HermesChatBreakdownResult,
+  HermesChatCredentialRequestEvent,
+  HermesProjectRecord,
+} from '../../../../shared/types/hermesChat';
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   type AssistantRuntime,
   type ChatModelAdapter,
 } from '@assistant-ui/react';
-import {
-  formatDayLabel,
-  formatMessageTime,
-  formatMessageTimeFull,
-  toUnixSeconds,
-} from '../../../../shared/messageTime';
-import { messageTimeMs, needsDayDivider } from '../messageMeta';
-import { toThreadMessage } from '../HermesChatRuntimeProvider';
+import { formatMessageTimeFull } from '../../../../shared/messageTime';
+import { toThreadMessage } from '../chatHistoryMessages';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+const noop = (): void => undefined;
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+const readHtmlPreview = vi.hoisted(() => vi.fn());
+
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 stubElectronAPI({
   hermesChat: {
-    listPendingCredentialRequests: async () => [],
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+    readHtmlPreview,
+    listPendingCredentialRequests: async (): Promise<HermesChatCredentialRequestEvent[]> => [],
+    getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
+      success: true,
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
+    }),
   },
   onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
@@ -43,84 +46,12 @@ stubElectronAPI({
   },
 });
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
 
 const sec = (d: Date) => d.getTime() / 1000;
-
-describe('messageTime', () => {
-  it('coerces seconds, ms and date strings to unix seconds', () => {
-    expect(toUnixSeconds(1767225600)).toBe(1767225600);
-    expect(toUnixSeconds(1767225600000)).toBe(1767225600);
-    expect(toUnixSeconds('1767225600')).toBe(1767225600);
-    expect(toUnixSeconds('2026-01-01T00:00:00.000Z')).toBe(1767225600);
-    expect(toUnixSeconds(null)).toBeNull();
-    expect(toUnixSeconds('soon')).toBeNull();
-    expect(toUnixSeconds(0)).toBeNull();
-  });
-
-  it('labels days relative to now', () => {
-    const now = new Date(2026, 8, 29, 14, 0).getTime();
-    expect(formatDayLabel(new Date(2026, 8, 29, 1, 0).getTime(), now, 'en-US')).toBe('Today');
-    expect(formatDayLabel(new Date(2026, 8, 28, 23, 0).getTime(), now, 'en-US')).toBe(
-      'Yesterday'
-    );
-    expect(formatDayLabel(new Date(2026, 8, 21, 9, 0).getTime(), now, 'en-US')).toBe(
-      'Monday, September 21'
-    );
-    expect(formatDayLabel(new Date(2025, 11, 31, 9, 0).getTime(), now, 'en-US')).toBe(
-      'Wednesday, December 31, 2025'
-    );
-  });
-
-  it('formats a short time and a full tooltip', () => {
-    const ms = new Date(2026, 8, 29, 14, 14, 8).getTime();
-    expect(formatMessageTime(ms, 'en-US')).toBe('2:14 PM');
-    expect(formatMessageTimeFull(ms, 'en-US')).toBe(
-      'Tuesday, September 29, 2026 at 2:14:08 PM'
-    );
-  });
-});
-
-describe('messageMeta', () => {
-  it('prefers the stored time and never falls back to load time for history', () => {
-    const loadedAt = new Date(2026, 8, 29, 9, 0);
-    expect(messageTimeMs({ createdAt: loadedAt, metadata: { custom: { ts: 100 } } })).toBe(
-      100_000
-    );
-    expect(messageTimeMs({ createdAt: loadedAt, metadata: { custom: { ts: null } } })).toBeNull();
-    expect(messageTimeMs({ createdAt: loadedAt })).toBe(loadedAt.getTime());
-    expect(messageTimeMs(undefined)).toBeNull();
-  });
-
-  it('puts a divider on the first timed message and at each new local day', () => {
-    const mon = new Date(2026, 8, 28, 23, 0).getTime();
-    const tue = new Date(2026, 8, 29, 1, 0).getTime();
-    expect(needsDayDivider(0, tue, null)).toBe(true);
-    expect(needsDayDivider(3, tue, mon)).toBe(true);
-    expect(needsDayDivider(3, tue, tue + 60_000)).toBe(false);
-    expect(needsDayDivider(3, tue, null)).toBe(false);
-    expect(needsDayDivider(0, null, null)).toBe(false);
-  });
-
-  it('hydrates history rows with an explicit time slot', () => {
-    expect(toThreadMessage({ role: 'user', content: 'hi', timestamp: 100, rowId: 7 }, 0)).toEqual({
-      id: 'hist-0',
-      role: 'user',
-      content: 'hi',
-      createdAt: new Date(100_000),
-      metadata: { custom: { ts: 100, rowId: 7 } },
-    });
-    expect(toThreadMessage({ role: 'assistant', content: 'yo' }, 1)).toEqual({
-      id: 'hist-1',
-      role: 'assistant',
-      content: 'yo',
-      metadata: { custom: { ts: null, rowId: null } },
-    });
-  });
-});
 
 const adapter = {
   async *run() {
@@ -132,7 +63,8 @@ const Harness: React.FC<{
   history: Parameters<typeof toThreadMessage>[0][];
   chatAdapter?: ChatModelAdapter;
   onRuntime?: (runtime: AssistantRuntime) => void;
-}> = ({ history, chatAdapter = adapter, onRuntime }) => {
+  project?: HermesProjectRecord | null;
+}> = ({ history, chatAdapter = adapter, onRuntime, project = null }) => {
   const runtime = useLocalRuntime(chatAdapter, {
     initialMessages: history.map(toThreadMessage),
   });
@@ -142,7 +74,7 @@ const Harness: React.FC<{
       <WorkbenchThread
         sessionId="s1"
         threadTitle="Assistant"
-        activeProject={null}
+        activeProject={project}
         projects={[]}
         activeProjectId={null}
         toolsEnabled
@@ -250,6 +182,24 @@ describe('transcript message rows', () => {
     ]);
   });
 
+  it('names the writing voice a reply was written in, and nothing on other replies', async () => {
+    render(
+      <Harness
+        history={[
+          { role: 'user', content: 'draft it' },
+          { role: 'assistant', content: 'voiced', writingVoiceName: 'News' },
+          { role: 'user', content: 'and plainly' },
+          { role: 'assistant', content: 'plain' },
+        ]}
+      />
+    );
+    await screen.findByText('plain');
+    const labelled = [...document.querySelectorAll('.wb-msg.is-assistant')].map(
+      (m) => m.querySelector('.wb-reply-voice')?.textContent ?? null
+    );
+    expect(labelled).toEqual(['In News voice', null]);
+  });
+
   it('passes invented tags to the renderer escaped, so they show as text', async () => {
     render(
       <Harness
@@ -310,5 +260,104 @@ describe('transcript message rows', () => {
     await screen.findByText('also untimed');
     expect(document.querySelectorAll('time.wb-msg-time')).toHaveLength(0);
     expect(screen.queryByRole('separator')).toBeNull();
+  });
+
+  describe('Preview on the Files line', () => {
+    const project: HermesProjectRecord = {
+      id: 'p1',
+      name: 'Job',
+      hostPath: '/Users/me/job',
+      containerPath: '/opt/projects/job',
+      slug: 'job',
+      kind: 'host-folder',
+      createdAt: '',
+      updatedAt: '',
+    };
+    const wrote = (files: string[]) => [
+      { role: 'user' as const, content: 'make it' },
+      { role: 'assistant' as const, content: 'done', files },
+    ];
+
+    it('offers Preview for an html file in a bound project', async () => {
+      readHtmlPreview.mockResolvedValue({ success: true, html: '<p>x</p>', name: 'page.html' });
+      render(
+        <Harness
+          project={project}
+          history={wrote(['/opt/projects/job/out/page.html', '/opt/projects/job/notes.md'])}
+        />
+      );
+      await screen.findByText('out/page.html');
+      expect(screen.getAllByRole('button', { name: 'Preview' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: 'Reveal' })).toHaveLength(2);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      });
+      expect(readHtmlPreview).toHaveBeenCalledWith({
+        containerPath: '/opt/projects/job/out/page.html',
+      });
+    });
+
+    it('lists only previewable /opt/projects files when no project is bound', async () => {
+      readHtmlPreview.mockResolvedValue({ success: true, html: '<p>x</p>', name: 'demo.html' });
+      render(
+        <Harness
+          history={wrote([
+            '/opt/projects/scratch/demo.html',
+            '/opt/projects/scratch/n.md',
+            '/opt/data/x.html',
+          ])}
+        />
+      );
+      await screen.findByText('scratch/demo.html');
+      expect(document.querySelectorAll('.wb-file')).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: 'Preview' })).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Reveal' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Copy path' })).toBeNull();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      });
+      expect(readHtmlPreview).toHaveBeenCalledWith({
+        containerPath: '/opt/projects/scratch/demo.html',
+      });
+    });
+
+    it('renders nothing without a project when no file is previewable', async () => {
+      render(<Harness history={wrote(['/opt/projects/scratch/n.md', '/opt/data/x.html'])} />);
+      await screen.findByText('done');
+      expect(document.querySelector('.wb-files')).toBeNull();
+    });
+
+    it('hides the strip while the reply runs', async () => {
+      let release: () => void = noop;
+      const running: ChatModelAdapter = {
+        async *run() {
+          yield {
+            content: [{ type: 'text' as const, text: 'partial' }],
+            metadata: { custom: { files: ['/opt/projects/scratch/live.html'] } },
+          };
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        },
+      };
+      let runtime: AssistantRuntime | null = null;
+      render(
+        <Harness
+          history={[{ role: 'user', content: 'go', timestamp: 100 }]}
+          chatAdapter={running}
+          onRuntime={(r) => {
+            runtime = r;
+          }}
+        />
+      );
+      await screen.findByText('go');
+      await act(async () => {
+        runtime?.thread.startRun({ parentId: runtime.thread.getState().messages[0].id });
+      });
+      await screen.findByText('partial');
+      expect(document.querySelector('.wb-files')).toBeNull();
+      await act(async () => release());
+      await screen.findByText('scratch/live.html');
+    });
   });
 });

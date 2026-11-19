@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { KanbanSnapshot } from '../../../../../shared/types/hermesKanban';
 import {
   ensureKanbanFeed,
@@ -15,6 +15,8 @@ import {
 
 const NOW_S = 1_800_000_000;
 
+type KanbanDeps = Parameters<typeof resetKanbanFeedForTests>[0];
+
 function task(over: Record<string, unknown> = {}) {
   return {
     id: 't_1',
@@ -24,13 +26,13 @@ function task(over: Record<string, unknown> = {}) {
     status: 'running',
     created_at: NOW_S - 600,
     started_at: NOW_S - 300,
-    completed_at: null,
+    completed_at: null as number | null,
     workspace_kind: 'worktree',
     workspace_path: '/repo/.worktrees/t_1',
     claim_expires: NOW_S + 600,
     last_heartbeat_at: NOW_S - 5,
     session_id: 'sess-orchestrator',
-    block_kind: null,
+    block_kind: null as string | null,
     ...over,
   };
 }
@@ -171,18 +173,18 @@ describe('the feed', () => {
   let sockets: FakeSocket[];
   let broadcasts: KanbanSnapshot[];
   let fetchMock: ReturnType<typeof vi.fn>;
-  let login: ReturnType<typeof vi.fn>;
-  let notify: ReturnType<typeof vi.fn>;
+  let login: Mock<NonNullable<KanbanDeps['login']>>;
+  let notify: Mock<NonNullable<KanbanDeps['notify']>>;
   let background: boolean;
 
   beforeEach(() => {
-    notify = vi.fn();
+    notify = vi.fn<NonNullable<KanbanDeps['notify']>>();
     background = true;
     vi.useFakeTimers();
     sockets = [];
     broadcasts = [];
     fetchMock = vi.fn();
-    login = vi.fn().mockResolvedValue({ cookieHeader: 'sid=1', dashboardBaseUrl: 'http://127.0.0.1:9119' });
+    login = vi.fn<NonNullable<KanbanDeps['login']>>().mockResolvedValue({ cookieHeader: 'sid=1', cookies: [], dashboardBaseUrl: 'http://127.0.0.1:9119' });
     resetKanbanFeedForTests({
       fetch: fetchMock as unknown as typeof fetch,
       login,
@@ -197,6 +199,11 @@ describe('the feed', () => {
       inBackground: () => background,
       notify,
     });
+  });
+
+  afterEach(() => {
+    resetKanbanFeedForTests();
+    vi.useRealTimers();
   });
 
   /** Writes sent to the plugin, as [method, path, body]. */
@@ -373,11 +380,6 @@ describe('the feed', () => {
       expect.objectContaining({ taskId: 't_1', body: 'The worker crashed' })
     );
     expect(JSON.stringify(notify.mock.calls)).not.toContain('boom');
-  });
-
-  afterEach(() => {
-    resetKanbanFeedForTests();
-    vi.useRealTimers();
   });
 
   it('seeds from the board, then listens for events from its cursor', async () => {

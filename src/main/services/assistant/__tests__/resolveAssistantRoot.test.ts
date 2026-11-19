@@ -8,16 +8,10 @@ import {
 } from '../../../../shared/assistantStackConstants';
 
 describe('resolveAssistantRoot', () => {
-  const prevEnv = process.env.BOUNDARY_ASSISTANT_ROOT;
   let tmpRoot: string | null = null;
 
   afterEach(async () => {
     (await import('../resolveAssistantRoot')).forgetAssistantRootChecks();
-    if (prevEnv === undefined) {
-      delete process.env.BOUNDARY_ASSISTANT_ROOT;
-    } else {
-      process.env.BOUNDARY_ASSISTANT_ROOT = prevEnv;
-    }
     if (tmpRoot) {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
       tmpRoot = null;
@@ -27,7 +21,7 @@ describe('resolveAssistantRoot', () => {
   it('prefers BOUNDARY_ASSISTANT_ROOT when compose file exists', async () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-root-'));
     fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
-    process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', tmpRoot);
 
     const { resolveAssistantRoot } = await import('../resolveAssistantRoot');
     expect(resolveAssistantRoot()).toBe(path.resolve(tmpRoot));
@@ -35,14 +29,14 @@ describe('resolveAssistantRoot', () => {
 
   it('throws when BOUNDARY_ASSISTANT_ROOT is missing compose file', async () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-root-bad-'));
-    process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', tmpRoot);
 
     const { resolveAssistantRoot, AssistantRootError } = await import('../resolveAssistantRoot');
     expect(() => resolveAssistantRoot()).toThrow(AssistantRootError);
   });
 
   it('uses userData project when present and does not require sibling assistant', async () => {
-    delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
     const { resolveAssistantProjectRoot } = await import('../assistantPaths');
     const projectRoot = resolveAssistantProjectRoot();
     fs.mkdirSync(projectRoot, { recursive: true });
@@ -54,7 +48,7 @@ describe('resolveAssistantRoot', () => {
   });
 
   it('error message cites GitHub repo when project missing', async () => {
-    delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
     const { resolveAssistantProjectRoot } = await import('../assistantPaths');
     const projectRoot = resolveAssistantProjectRoot();
     fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -72,14 +66,14 @@ describe('resolveAssistantRoot', () => {
   it('puts Hermes data under a local stack, not the userData install', async () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-active-'));
     fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
-    process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', tmpRoot);
 
     const { resolveActiveAssistantDataRoot } = await import('../resolveAssistantRoot');
     expect(resolveActiveAssistantDataRoot()).toBe(path.join(path.resolve(tmpRoot), 'data'));
   });
 
   it('falls back to the userData install when no stack resolves', async () => {
-    delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
     const { resolveAssistantProjectRoot } = await import('../assistantPaths');
     fs.rmSync(resolveAssistantProjectRoot(), { recursive: true, force: true });
 
@@ -96,7 +90,7 @@ describe('resolveAssistantRoot', () => {
     function stackDir(): string {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-cache-'));
       fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');
-      process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+      vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', tmpRoot);
       return tmpRoot;
     }
 
@@ -137,7 +131,7 @@ describe('resolveAssistantRoot', () => {
 
     it('sees a stack installed after a miss on the next call', async () => {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-assistant-late-'));
-      process.env.BOUNDARY_ASSISTANT_ROOT = tmpRoot;
+      vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', tmpRoot);
       const { resolveAssistantRoot, AssistantRootError } = await import('../resolveAssistantRoot');
       expect(() => resolveAssistantRoot()).toThrow(AssistantRootError);
       fs.writeFileSync(path.join(tmpRoot, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'services: {}\n');

@@ -33,6 +33,13 @@ export interface FolderRemountOutcome {
  * from the stores when its turn starts, so it mounts what is current then.
  */
 let remountTail: Promise<unknown> = Promise.resolve();
+/** Remounts queued or running, including a held turn. */
+let unsettled = 0;
+
+/** True while a remount is queued or running, so a new one would wait its turn. */
+export function isFolderRemountBusy(): boolean {
+  return unsettled > 0;
+}
 
 export function enqueueFolderRemount(
   job: () => Promise<FolderRemountOutcome>
@@ -46,6 +53,10 @@ export function enqueueFolderRemount(
         error: error instanceof Error ? error.message : String(error),
       })
     );
+  unsettled += 1;
+  void next.then(() => {
+    unsettled = Math.max(0, unsettled - 1);
+  });
   remountTail = next;
   return next;
 }
@@ -69,4 +80,5 @@ export function holdFolderRemounts(): Promise<() => void> {
 /** Test-only: drop any queued remount. */
 export function resetFolderRemountQueueForTests(): void {
   remountTail = Promise.resolve();
+  unsettled = 0;
 }

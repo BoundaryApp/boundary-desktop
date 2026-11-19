@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '../../components/ui/button';
 
 /** Chromium's "navigation aborted", which the board's own redirects and guards cause. */
 const ERR_ABORTED = -3;
@@ -57,9 +58,9 @@ export const TasksBoard: React.FC<{ taskId: string | null }> = ({ taskId }) => {
     return (
       <div className="wb-tasks-board-note">
         <p className="wb-quiet">{state.message}</p>
-        <button type="button" className="wb-btn-ghost" onClick={() => setAttempt((n) => n + 1)}>
+        <Button variant="secondary" block type="button" onClick={() => setAttempt((n) => n + 1)}>
           Try again
-        </button>
+        </Button>
       </div>
     );
   }

@@ -6,6 +6,7 @@ import { loadYaml } from '../../loadYaml';
 import { hostBridgeCdpUrl, hostBridgeHermesConfigSets, toolCatalogFingerprint } from '../../hostBridge/hermesProvision';
 import {
   buildHermesConfigApplyInput,
+  type DesiredHermesProfile,
   HERMES_CONFIG_APPLY_ARGS,
   hermesWritesNeedRestart,
   parseHermesConfigApplyOutput,
@@ -33,6 +34,21 @@ const bridgeKeys = (yaml: string, port = 47001) =>
   planHermesProfileWrites({ profile: '', set: hostBridgeHermesConfigSets(port) }, parsed(yaml)).set.map(([key]) => key);
 
 describe('planHermesProfileWrites', () => {
+  it('appends to a list once and keeps what is there', () => {
+    const include = (current: Record<string, unknown> | null) =>
+      planHermesProfileWrites(
+        { profile: 'juniper', set: [], listIncludes: [['skills.external_dirs', '/opt/skills']] },
+        current
+      ).entries;
+    expect(include({})).toEqual([['skills.external_dirs', ['/opt/skills']]]);
+    expect(include({ skills: { external_dirs: ['/Users/me/skills'] } })).toEqual([
+      ['skills.external_dirs', ['/Users/me/skills', '/opt/skills']],
+    ]);
+    expect(include({ skills: { external_dirs: ['/opt/skills'] } })).toEqual([]);
+    expect(include({ skills: { external_dirs: '/odd' } })).toEqual([['skills.external_dirs', ['/opt/skills']]]);
+    expect(include(null)).toEqual([['skills.external_dirs', ['/opt/skills']]]);
+  });
+
   it('writes nothing for a bridge entry that already matches, numbers included', () => {
     expect(bridgeKeys(BRIDGE_ENTRY)).toEqual([]);
   });
@@ -65,14 +81,14 @@ describe('planHermesProfileWrites', () => {
   });
 
   it('writes max_tokens only where a profile has none', () => {
-    const want = { profile: 'browser', set: [], setIfUnset: [['model.max_tokens', '16384']] as Array<[string, string]> };
+    const want: DesiredHermesProfile = { profile: 'browser', set: [], setIfUnset: [['model.max_tokens', '16384']] };
     expect(planHermesProfileWrites(want, { model: { max_tokens: 1024 } }).set).toEqual([]);
     expect(planHermesProfileWrites(want, { model: {} }).set).toEqual([['model.max_tokens', '16384']]);
     expect(planHermesProfileWrites(want, {}).set).toEqual([['model.max_tokens', '16384']]);
   });
 
   it('sets browser.cdp_url where it differs and clears only Boundary’s own URL', () => {
-    const ours = hostBridgeCdpUrl(47002, 't');
+    const ours = hostBridgeCdpUrl(47002);
     const on = (current: unknown) =>
       planHermesProfileWrites({ profile: '', set: [], browserCdpUrl: ours }, { browser: { cdp_url: current } }).set;
     const off = (current: unknown) =>
@@ -86,7 +102,7 @@ describe('planHermesProfileWrites', () => {
 
   it('replaces a mapping entry only when it differs, including one stored as a string', () => {
     const entry = { url: 'http://vikunja:3456/api/v2/mcp', headers: { Authorization: 'Bearer t' } };
-    const want = { profile: 'ana', set: [], entries: [['mcp_servers.todos', entry]] as Array<[string, Record<string, unknown>]> };
+    const want: DesiredHermesProfile = { profile: 'ana', set: [], entries: [['mcp_servers.todos', entry]] };
     expect(planHermesProfileWrites(want, { mcp_servers: { todos: { ...entry } } }).entries).toEqual([]);
     expect(planHermesProfileWrites(want, { mcp_servers: { todos: JSON.stringify(entry) } }).entries).toHaveLength(1);
     expect(planHermesProfileWrites(want, {}).entries).toHaveLength(1);

@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
 
-/** Open Inference, at a person's row in From your Circles when `person` names their identity. */
+/**
+ * Open Inference, at a person's row in From your Circles when `person` names their identity, or
+ * with the Confidential providers add sheet open when `addConfidentialProvider` is set.
+ */
 export interface OpenInferenceRequest {
   person?: string;
+  addConfidentialProvider?: boolean;
 }
 
 const OPEN_INFERENCE_EVENT = 'boundary:open-inference';

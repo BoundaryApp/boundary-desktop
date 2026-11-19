@@ -5,7 +5,8 @@ export type ChainAttemptOutcome =
   | { kind: 'served' }
   | { kind: 'unreachable'; detail?: string }
   | { kind: 'header-timeout' }
-  | { kind: 'status'; status: number }
+  /** `contextOverflow`: a pool's provider refused the request as longer than the model's context. */
+  | { kind: 'status'; status: number; contextOverflow?: true }
   /** The reply had started streaming when it failed. Never retried elsewhere. */
   | { kind: 'failed-mid-stream'; detail?: string };
 

@@ -1,11 +1,12 @@
 import * as React from "react"
 
 import { cn } from "../../lib/utils"
+import { isElement } from "./ownerDocument"
 
 /** Enter on these does its own thing (press a button, submit a form, follow a link). */
 function handlesEnter(target: EventTarget): boolean {
   return (
-    target instanceof HTMLElement &&
+    isElement(target) &&
     Boolean(target.closest("button, a[href], input, textarea, select, [role='menuitem']"))
   )
 }

@@ -10,6 +10,8 @@ import { errorText } from '../../components/ui/use-sheet-action';
 import { conversationTitle as conversationTitleFor } from './conversationKinds';
 import type { BranchRequest } from './MessageActions';
 import type { BranchedFrom } from './WorkbenchThread';
+import { writeChatDraft } from './chatDrafts';
+import { takeNewChatDraft } from './newChatDraft';
 import type { ChatIds } from './useChatIds';
 import type { ChatLists } from './useChatLists';
 
@@ -167,6 +169,9 @@ export function useConversationNav({
    */
   const newHermesChat = useCallback(async (): Promise<string | null> => {
     setThreadError(null);
+    // Taken up front: a chat that fails to create drops the text rather than leaving it
+    // for an unrelated chat.
+    const draft = takeNewChatDraft();
     try {
       const result = await window.electronAPI.hermesChat.createHermesChat({
         projectId: activeProjectId,
@@ -177,6 +182,7 @@ export function useConversationNav({
       }
       const thread = result.thread;
       setThreads((prev) => [thread, ...prev.filter((t) => t.id !== thread.id)]);
+      if (draft) writeChatDraft([thread.id], draft);
       setActiveThreadId(thread.id);
       showConversation();
       void window.electronAPI.channels.setLastOpened({ kind: 'hermes', id: thread.id });

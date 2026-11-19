@@ -1,0 +1,243 @@
+{
+  "format": 1,
+  "publishedAt": "2026-11-08T00:00:00Z",
+  "models": [
+    {
+      "id": "qwen",
+      "name": "Qwen 3.8 27B"
+    },
+    {
+      "id": "dsflash",
+      "name": "DeepSeek V4.1 Flash"
+    },
+    {
+      "id": "glmflash",
+      "name": "GLM 5.3 Flash"
+    }
+  ],
+  "providers": [
+    {
+      "id": "prem",
+      "name": "Prem",
+      "level": "C",
+      "levelReason": "Your Mac checks Prem’s hardware, but the key your prompt is encrypted to isn’t part of that check. Whoever runs Prem’s key service could swap it without the check noticing.",
+      "keyUrl": "https://dashboard.prem.io/api-keys",
+      "billing": "Prepaid by card",
+      "note": "New Prem accounts can send 38,000 tokens a minute, about two agent steps. Paying $5 in total raises that within minutes.",
+      "runsIn": "Switzerland",
+      "offers": {
+        "qwen": {
+          "providerModelId": "qwen38-27b",
+          "precision": null,
+          "contextLength": 262144,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.3,
+            "cachedInputPerM": 0,
+            "outputPerM": 2.4
+          },
+          "promo": {
+            "price": {
+              "cachedInputPerM": 0
+            },
+            "until": "2026-12-01T00:00:00Z"
+          }
+        },
+        "dsflash": {
+          "providerModelId": "deepseek-v4.1-flash-1017",
+          "precision": null,
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.35,
+            "cachedInputPerM": 0,
+            "outputPerM": 1.4
+          },
+          "promo": {
+            "price": {
+              "cachedInputPerM": 0
+            },
+            "until": "2026-12-01T00:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "id": "near",
+      "name": "NEAR AI Cloud",
+      "level": "B",
+      "levelReason": "Encrypts on your Mac to the enclave, including tool calls. No reproducible builds are published.",
+      "keyUrl": "https://cloud.near.ai",
+      "billing": "Prepaid credits",
+      "note": "Beta service.",
+      "runsIn": "Not stated",
+      "offers": {
+        "qwen": {
+          "providerModelId": "Qwen/Qwen3.8-27B",
+          "precision": "fp8",
+          "contextLength": 262144,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.04,
+            "cachedInputPerM": 0.018,
+            "outputPerM": 1.35
+          }
+        },
+        "dsflash": {
+          "providerModelId": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "precision": "fp8",
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.3,
+            "cachedInputPerM": 0.006,
+            "outputPerM": 1.2
+          }
+        },
+        "glmflash": {
+          "providerModelId": "z-ai/glm-5.3-flash",
+          "precision": "fp8",
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.08,
+            "cachedInputPerM": 0.012,
+            "outputPerM": 0.5
+          }
+        }
+      }
+    },
+    {
+      "id": "chutes",
+      "name": "Chutes",
+      "level": "C",
+      "levelReason": "Encrypts on your Mac to the enclave, but Chutes leaves the hardware check optional, and Boundary doesn’t enforce it yet. Some components are closed source, and the machines are run by anonymous operators.",
+      "keyUrl": "https://chutes.ai",
+      "billing": "Prepaid by card, crypto or bank",
+      "runsIn": "Varies",
+      "offers": {
+        "qwen": {
+          "providerModelId": "qwen3.8-27b",
+          "precision": "fp8",
+          "contextLength": 262144,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.039,
+            "cachedInputPerM": null,
+            "outputPerM": 1.25
+          }
+        },
+        "dsflash": {
+          "providerModelId": "deepseek-v4.1-flash",
+          "precision": "fp8",
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.3,
+            "cachedInputPerM": null,
+            "outputPerM": 1.2
+          }
+        }
+      }
+    },
+    {
+      "id": "tinfoil",
+      "name": "Tinfoil",
+      "level": "B",
+      "levelReason": "TLS ends inside the enclave and builds are reproducible. Pinning which build runs is in beta, so it’s level B until that ships.",
+      "keyUrl": "https://tinfoil.sh",
+      "billing": "Prepaid by card",
+      "runsIn": "US",
+      "offers": {
+        "dsflash": {
+          "providerModelId": "deepseek-v4.1-flash",
+          "precision": null,
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.75,
+            "cachedInputPerM": null,
+            "outputPerM": 1.6
+          }
+        }
+      }
+    },
+    {
+      "id": "privatemode",
+      "name": "Privatemode",
+      "level": "A",
+      "levelReason": "Encrypts on your Mac; its proxy checks the hardware and the build against reproducible reference values. Audited (BSI C5, ISO 27001).",
+      "keyUrl": "https://privatemode.ai",
+      "billing": "Billed monthly in euros",
+      "runsIn": "EU",
+      "offers": {
+        "glmflash": {
+          "providerModelId": "glm-5.3-flash",
+          "precision": null,
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.22,
+            "cachedInputPerM": null,
+            "outputPerM": 0.71
+          }
+        }
+      }
+    },
+    {
+      "id": "phala",
+      "name": "Phala",
+      "level": "C",
+      "levelReason": "Its gateway runs in sealed hardware, decrypts your request, then forwards it to one of several other providers.",
+      "keyUrl": "https://phala.com",
+      "billing": "Prepaid",
+      "runsIn": "Varies",
+      "offers": {
+        "qwen": {
+          "providerModelId": "qwen3.8-27b",
+          "precision": null,
+          "contextLength": 262144,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.2,
+            "cachedInputPerM": null,
+            "outputPerM": 2.5
+          }
+        },
+        "dsflash": {
+          "providerModelId": "deepseek-v4.1-flash",
+          "precision": null,
+          "contextLength": 1048576,
+          "inputTypes": [
+            "text"
+          ],
+          "price": {
+            "inputPerM": 0.44,
+            "cachedInputPerM": null,
+            "outputPerM": 1.32
+          }
+        }
+      }
+    }
+  ]
+}

@@ -9,17 +9,22 @@ export default defineConfig({
   test: {
     name: 'renderer',
     globals: true,
-    environment: 'jsdom',
+    environment: 'happy-dom',
     include: [
       'src/renderer/**/__tests__/**/*.test.{ts,tsx}',
       `${experimentsDir}/*/renderer/**/__tests__/**/*.test.{ts,tsx}`,
     ],
     exclude: ['node_modules', 'dist', 'out'],
-    setupFiles: ['src/renderer/__tests__/setupElectronAPI.ts'],
+    setupFiles: ['src/__tests__/setupOfflineFetch.ts', 'src/renderer/__tests__/setupElectronAPI.ts'],
     env: {
       NODE_ENV: 'test',
       ENVIRONMENT: 'test',
     },
+    // After each test, put back what a test changed for itself: vi.spyOn spies, vi.stubGlobal and
+    // vi.stubEnv. A file that forgets its own afterEach no longer leaks into the next test.
+    restoreMocks: true,
+    unstubGlobals: true,
+    unstubEnvs: true,
     pool: 'forks',
   },
   // tsconfig.json keeps `"jsx": "preserve"` for tsc; Vite 8's oxc would honour it and leave
@@ -29,6 +34,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // The release notes a build bundles; tests run against an empty folder (ADR 0059).
+      '@release-notes': resolve(import.meta.dirname, '../release-notes-empty'),
       '@': resolve(import.meta.dirname, '..'),
       '@shared': resolve(import.meta.dirname, '../shared'),
       '@renderer': resolve(import.meta.dirname, '.'),

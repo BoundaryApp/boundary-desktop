@@ -1,36 +1,33 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AssistantUiServiceCard } from '../../../shared/types/assistantStack';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { AssistantServicesScreen } from '../AssistantServicesScreen';
+import { lightragListing, listing, localWorkspace, n8nListing, stubAddons } from '../addons/__tests__/addonFixtures';
 
 let stackReady = true;
-let n8nStatus: { enabled: boolean; canToggle: boolean } | undefined;
-let lightragStatus: { enabled: boolean; canToggle: boolean } | undefined;
+const STACK_PORTS = vi.hoisted(() => ({ n8n: 5678, lightrag: 9621, neo4jHttp: 7474 }));
+let uiServices: AssistantUiServiceCard[] = [];
 vi.mock('../assistantStack', () => ({
   useAssistantStackStatus: () => ({
     ready: stackReady,
-    uiServices: [],
-    ports: { n8n: 5678, lightrag: 9621, neo4jHttp: 7474 },
-    n8n: n8nStatus,
-    lightrag: lightragStatus,
+    uiServices: uiServices,
+    ports: STACK_PORTS,
   }),
-  refreshAssistantStackStatus: async () => undefined,
+  refreshAssistantStackStatus: async (): Promise<void> => undefined,
 }));
 
 const ensureRunning = vi.fn();
-const setN8nEnabled = vi.fn();
-const setLightragEnabled = vi.fn();
 const openUrl = vi.fn();
 stubElectronAPI({
   assistantStack: {
     ensureRunning: () => ensureRunning(),
-    setN8nEnabled: (enabled: boolean) => setN8nEnabled(enabled),
-    setLightragEnabled: (enabled: boolean) => setLightragEnabled(enabled),
+    getStatus: async () => ({ ready: true, ports: STACK_PORTS }),
   },
 });
 
-const calendarsApi = { list: vi.fn(), onChanged: vi.fn() };
+const calendarsApi = { list: vi.fn(), onChanged: vi.fn(), macStatus: vi.fn() };
 
 const account = (status: 'ok' | 'rejected' | 'unreachable') => ({
   slug: 'personal',
@@ -38,58 +35,127 @@ const account = (status: 'ok' | 'rejected' | 'unreachable') => ({
   lastCheck: { at: '2026-10-25T10:00:00Z', status },
 });
 
-async function calendarCard() {
-  render(<AssistantServicesScreen />);
-  return within(await screen.findByRole('region', { name: 'Calendar' }));
+/** A tile's button, found by the service's name. */
+const tile = (name: string) => screen.findByRole('button', { name });
+
+/** Opens a tile's menu from its ⋯ button. */
+async function tileMenu(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: `More for ${name}` }));
+  return within(await screen.findByRole('menu', { name }));
 }
 
-describe('Services: Calendar', () => {
-  afterEach(() => cleanup());
+function stubCalendars(accounts: unknown[] = []) {
+  calendarsApi.list.mockResolvedValue({ success: true, accounts });
+  calendarsApi.onChanged.mockReturnValue((): void => undefined);
+}
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    stubElectronAPI({ calendars: calendarsApi });
-    calendarsApi.onChanged.mockReturnValue(() => undefined);
+beforeEach(() => {
+  vi.clearAllMocks();
+  stubElectronAPI({ calendars: calendarsApi, urls: { openUrl: (url: string) => openUrl(url) } });
+  stubCalendars();
+  openUrl.mockResolvedValue({ success: true });
+});
+
+afterEach(() => {
+  uiServices = [];
+  stackReady = true;
+});
+
+describe('Services: built in', () => {
+  it('shows the stack’s services as tiles that open in the browser', async () => {
+    uiServices = [
+      { id: 'searxng', title: 'SearXNG', description: 'Local meta-search.', url: 'http://127.0.0.1:8888/' },
+    ] as AssistantUiServiceCard[];
+    render(<AssistantServicesScreen />);
+    const row = within(screen.getByRole('list', { name: 'Built in' }));
+    const searx = row.getByRole('button', { name: 'SearXNG' });
+    expect(searx.textContent).toContain('Running');
+    fireEvent.click(searx);
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:8888/'));
   });
 
-  it('says it starts when you connect a calendar, and links to Settings → Calendars', async () => {
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
+  it('dims the tiles while the assistant is stopped', () => {
+    stackReady = false;
+    uiServices = [
+      { id: 'searxng', title: 'SearXNG', description: 'Local meta-search.', url: 'http://127.0.0.1:8888/' },
+    ] as AssistantUiServiceCard[];
+    render(<AssistantServicesScreen />);
+    const searx = screen.getByRole('button', { name: 'SearXNG' }) as HTMLButtonElement;
+    expect(searx.disabled).toBe(true);
+    expect(searx.textContent).toContain('Stopped');
+  });
+});
+
+describe('Services: Calendar', () => {
+  it('is off until a calendar is connected, and opens Settings → Calendars', async () => {
     const opened = vi.fn();
     const listener = (event: Event) => opened((event as CustomEvent).detail);
     window.addEventListener('boundary:open-settings', listener);
-    const card = await calendarCard();
-    expect(card.getByText('Starts when you connect a calendar')).toBeTruthy();
-    expect(card.getByText('Off')).toBeTruthy();
-    fireEvent.click(card.getByRole('button', { name: 'Connect calendar' }));
+    render(<AssistantServicesScreen />);
+    const calendar = await tile('Calendar');
+    expect(calendar.textContent).toContain('Off');
+    const menu = await tileMenu('Calendar');
+    expect(menu.getByText('Starts when you connect a calendar')).toBeTruthy();
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Connect calendar' }));
+    fireEvent.click(calendar);
     window.removeEventListener('boundary:open-settings', listener);
+    expect(opened).toHaveBeenCalledTimes(2);
     expect(opened).toHaveBeenCalledWith({ tab: 'calendars' });
   });
 
   it('shows the accounts’ status when connected', async () => {
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [account('ok')] });
-    let card = await calendarCard();
-    expect(card.getByText('CalDAV bridge · Personal')).toBeTruthy();
-    expect(card.getByText('Connected')).toBeTruthy();
-    expect(card.getByRole('button', { name: 'Manage calendars' })).toBeTruthy();
+    stubCalendars([account('ok')]);
+    render(<AssistantServicesScreen />);
+    expect((await tile('Calendar')).textContent).toContain('Connected');
+    const menu = await tileMenu('Calendar');
+    expect(menu.getByText('CalDAV bridge · Personal')).toBeTruthy();
+    expect(menu.getByRole('menuitem', { name: 'Manage calendars' })).toBeTruthy();
     cleanup();
 
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [account('rejected')] });
-    card = await calendarCard();
-    expect(card.getByText('Sign-in failed')).toBeTruthy();
+    stubCalendars([account('rejected')]);
+    render(<AssistantServicesScreen />);
+    expect((await tile('Calendar')).textContent).toContain('Sign-in failed');
+    expect(calendarsApi.macStatus).not.toHaveBeenCalled();
+  });
+
+  it('lists the Mac calendars and helper status in the Calendar menu', async () => {
+    const mac = {
+      slug: 'mac',
+      name: 'This Mac',
+      provider: 'mac',
+      lastCheck: { at: '2026-11-08T10:00:00Z', status: 'ok' },
+      allowedCalendarIds: ['c1', 'c3'],
+    };
+    const calendars = [
+      { id: 'c1', title: 'Home', color: '#3366cc', source: 'iCloud', kind: 'icloud', writable: true },
+      { id: 'c2', title: 'Birthdays', color: '#999999', source: 'iCloud', kind: 'birthdays', writable: false },
+      { id: 'c3', title: 'Team', color: '#cc6633', source: 'Work Exchange', kind: 'exchange', writable: true },
+    ];
+    stubCalendars([{ ...account('ok'), provider: 'icloud' }, mac]);
+    calendarsApi.macStatus.mockResolvedValue({ access: 'granted', calendars });
+    render(<AssistantServicesScreen />);
+    let menu = await tileMenu('Calendar');
+    expect(menu.getByText('CalDAV bridge · Personal')).toBeTruthy();
+    expect(await menu.findByText('This Mac · Home, Team')).toBeTruthy();
+    expect(menu.getByText('Calendar helper running')).toBeTruthy();
+    expect((await tile('Calendar')).textContent).toContain('Connected');
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+
+    calendarsApi.macStatus.mockResolvedValue({ access: 'stopped', calendars: [] });
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(async () => expect((await tile('Calendar')).textContent).toContain('Helper stopped'));
+    menu = await tileMenu('Calendar');
+    expect(menu.getByText('Calendar helper stopped')).toBeTruthy();
+    // Without a list, the line counts the ticked calendars.
+    expect(menu.getByText('This Mac · 2 calendars')).toBeTruthy();
   });
 });
 
 describe('Services: Start assistant', () => {
-  afterEach(() => {
-    stackReady = true;
-    cleanup();
-  });
-
   it('starts the stack from Not ready', () => {
     stackReady = false;
-    stubElectronAPI({ calendars: calendarsApi });
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
-    calendarsApi.onChanged.mockReturnValue(() => undefined);
     ensureRunning.mockResolvedValue({ success: false, error: 'compose failed' });
     render(<AssistantServicesScreen />);
     fireEvent.click(screen.getByRole('button', { name: 'Start assistant' }));
@@ -97,122 +163,69 @@ describe('Services: Start assistant', () => {
   });
 });
 
-describe('Services: n8n', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    stubElectronAPI({ calendars: calendarsApi, urls: { openUrl: (url: string) => openUrl(url) } });
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
-    calendarsApi.onChanged.mockReturnValue(() => undefined);
-  });
-
-  afterEach(() => {
-    n8nStatus = undefined;
-    stackReady = true;
-    cleanup();
-  });
-
-  function n8nCard() {
+describe('Services: add-ons', () => {
+  it('shows installed add-ons as tiles without opening the store, and opens one', async () => {
+    const addons = stubAddons([listing({}, true)], { workspaces: [localWorkspace()] });
     render(<AssistantServicesScreen />);
-    return within(screen.getByRole('region', { name: 'n8n' }));
-  }
-
-  it('is off until turned on, and turns it on', async () => {
-    n8nStatus = { enabled: false, canToggle: true };
-    setN8nEnabled.mockResolvedValue({ success: true });
-    const card = n8nCard();
-    expect(card.getByText('Off')).toBeTruthy();
-    expect(card.queryByRole('button', { name: 'Open' })).toBeNull();
-    fireEvent.click(card.getByRole('button', { name: 'Turn on' }));
-    await waitFor(() => expect(setN8nEnabled).toHaveBeenCalledWith(true));
+    const row = within(await screen.findByRole('list', { name: 'Add-ons' }));
+    const twenty = await row.findByRole('button', { name: 'Twenty CRM' });
+    expect(twenty.textContent).toContain('Running');
+    fireEvent.click(twenty);
+    await waitFor(() => expect(addons.twenty.open).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('heading', { name: 'Services' })).toBeTruthy();
   });
 
-  it('shows why n8n didn’t change', async () => {
-    n8nStatus = { enabled: false, canToggle: true };
-    setN8nEnabled.mockResolvedValue({ success: false, error: 'Couldn’t start n8n. pull failed' });
-    const card = n8nCard();
-    fireEvent.click(card.getByRole('button', { name: 'Turn on' }));
-    expect(await card.findByText('Couldn’t start n8n. pull failed')).toBeTruthy();
+  it('leaves out what isn’t installed, and the Get add-ons tile opens the store', async () => {
+    stubAddons([listing(), n8nListing()]);
+    render(<AssistantServicesScreen />);
+    const row = within(await screen.findByRole('list', { name: 'Add-ons' }));
+    const get = await row.findByRole('button', { name: 'Get add-ons' });
+    expect(row.queryByRole('button', { name: 'Twenty CRM' })).toBeNull();
+    expect(row.queryByRole('button', { name: 'n8n' })).toBeNull();
+    expect(get.textContent).toContain('2 more in the store');
+    fireEvent.click(get);
+    expect(await screen.findByRole('heading', { name: 'Discover' })).toBeTruthy();
   });
 
-  it('opens n8n and turns it off while it runs', async () => {
-    n8nStatus = { enabled: true, canToggle: true };
-    openUrl.mockResolvedValue({ success: true });
-    setN8nEnabled.mockResolvedValue({ success: true });
-    const card = n8nCard();
-    expect(card.getByText('On')).toBeTruthy();
-    fireEvent.click(card.getByRole('button', { name: 'Open' }));
-    await waitFor(() => expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:5678/'));
-    fireEvent.click(card.getByRole('button', { name: 'Turn off' }));
-    await waitFor(() => expect(setN8nEnabled).toHaveBeenCalledWith(false));
-  });
-
-  it('has no switch under dev:local-stack, where the stack’s .env decides', () => {
-    n8nStatus = { enabled: true, canToggle: false };
-    const card = n8nCard();
-    expect(card.getByText('Set by the local stack’s .env (AUTOMATION_ENABLED).')).toBeTruthy();
-    expect(card.queryByRole('button', { name: /Turn/ })).toBeNull();
+  it('opens an add-on’s page in the store from its menu, and comes back', async () => {
+    stubAddons([listing({}, true)], { workspaces: [localWorkspace()] });
+    render(<AssistantServicesScreen />);
+    const menu = await tileMenu('Twenty CRM');
+    expect(menu.getByRole('menuitem', { name: 'Open' })).toBeTruthy();
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Details' }));
+    fireEvent.click(await screen.findByRole('button', { name: '← Services' }));
+    expect(await screen.findByRole('heading', { name: 'Services' })).toBeTruthy();
   });
 });
 
-describe('Services: LightRAG', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    stubElectronAPI({ calendars: calendarsApi, urls: { openUrl: (url: string) => openUrl(url) } });
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
-    calendarsApi.onChanged.mockReturnValue(() => undefined);
-  });
-
-  afterEach(() => {
-    lightragStatus = undefined;
-    stackReady = true;
-    cleanup();
-  });
-
-  function lightragCard() {
+describe('Services: n8n and LightRAG', () => {
+  it('opens n8n from its tile, with Details and no Turn off in its menu', async () => {
+    stubAddons([n8nListing(true)]);
     render(<AssistantServicesScreen />);
-    return within(screen.getByRole('region', { name: 'LightRAG' }));
-  }
-
-  it('is off until turned on, says it restarts the assistant, and turns it on', async () => {
-    lightragStatus = { enabled: false, canToggle: true };
-    setLightragEnabled.mockResolvedValue({ success: true });
-    const card = lightragCard();
-    expect(card.getByText('Off')).toBeTruthy();
-    expect(card.getByText(/Turning it on restarts your assistant\./)).toBeTruthy();
-    expect(card.queryByRole('button', { name: /Open/ })).toBeNull();
-    fireEvent.click(card.getByRole('button', { name: 'Turn on' }));
-    await waitFor(() => expect(setLightragEnabled).toHaveBeenCalledWith(true));
+    fireEvent.click(await tile('n8n'));
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:5678/'));
+    const menu = await tileMenu('n8n');
+    expect(menu.getByRole('menuitem', { name: 'Details' })).toBeTruthy();
+    // Turning an add-on off asks first, on its page.
+    expect(menu.queryByRole('menuitem', { name: 'Turn off' })).toBeNull();
   });
 
-  it('shows why LightRAG didn’t change', async () => {
-    lightragStatus = { enabled: false, canToggle: true };
-    setLightragEnabled.mockResolvedValue({
-      success: false,
-      error: 'Couldn’t start LightRAG. pull failed',
-    });
-    const card = lightragCard();
-    fireEvent.click(card.getByRole('button', { name: 'Turn on' }));
-    expect(await card.findByText('Couldn’t start LightRAG. pull failed')).toBeTruthy();
-  });
-
-  it('opens LightRAG and the Neo4j browser, and turns it off, while it runs', async () => {
-    lightragStatus = { enabled: true, canToggle: true };
-    openUrl.mockResolvedValue({ success: true });
-    setLightragEnabled.mockResolvedValue({ success: true });
-    const card = lightragCard();
-    expect(card.getByText('On')).toBeTruthy();
-    fireEvent.click(card.getByRole('button', { name: 'Open LightRAG' }));
+  it('opens LightRAG and the Neo4j browser while it runs', async () => {
+    stubAddons([lightragListing(true)]);
+    render(<AssistantServicesScreen />);
+    fireEvent.click(await tile('LightRAG'));
     await waitFor(() => expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:9621/webui/'));
-    fireEvent.click(card.getByRole('button', { name: 'Open Neo4j' }));
+    const menu = await tileMenu('LightRAG');
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Open Neo4j' }));
     await waitFor(() => expect(openUrl).toHaveBeenCalledWith('http://127.0.0.1:7474/'));
-    fireEvent.click(card.getByRole('button', { name: 'Turn off' }));
-    await waitFor(() => expect(setLightragEnabled).toHaveBeenCalledWith(false));
   });
 
-  it('has no switch under dev:local-stack, where the stack’s .env decides', () => {
-    lightragStatus = { enabled: true, canToggle: false };
-    const card = lightragCard();
-    expect(card.getByText('Set by the local stack’s .env (COMPOSE_PROFILES).')).toBeTruthy();
-    expect(card.queryByRole('button', { name: /Turn/ })).toBeNull();
+  it('leaves them off Services while they’re off', async () => {
+    stubAddons([n8nListing(), lightragListing()]);
+    render(<AssistantServicesScreen />);
+    const row = within(await screen.findByRole('list', { name: 'Add-ons' }));
+    await row.findByRole('button', { name: 'Get add-ons' });
+    expect(row.queryByRole('button', { name: 'n8n' })).toBeNull();
+    expect(row.queryByRole('button', { name: 'LightRAG' })).toBeNull();
   });
 });

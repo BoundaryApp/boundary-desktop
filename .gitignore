@@ -107,3 +107,8 @@ dist
 *.tfstate.*
 crash.log
 *.tfvars
+
+# Swift package build output
+native/calendar-helper/.build/
+resources/calendar-helper/
+native/calendar-helper/.swiftpm/

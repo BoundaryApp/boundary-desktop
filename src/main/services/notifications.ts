@@ -1,4 +1,6 @@
-import { BrowserWindow, Notification } from 'electron';
+import { Notification, type BrowserWindow, type NotificationConstructorOptions } from 'electron';
+import { persistDebugLog, serializeError } from '../persistDebugLog';
+import { showMainWindow } from './windows';
 
 /** Held until closed: an unreferenced Notification can be collected before macOS shows it. */
 const liveNotifications = new Set<Notification>();
@@ -8,7 +10,7 @@ const RETAIN_MS = 10 * 60_000;
  * A notification that this module holds a reference to until it closes or ten minutes pass.
  * `release` drops the reference early.
  */
-export function heldNotification(options: { title: string; body: string }): {
+export function heldNotification(options: NotificationConstructorOptions & { title: string; body: string }): {
   notification: Notification;
   release: () => void;
 } {
@@ -23,8 +25,8 @@ export function heldNotification(options: { title: string; body: string }): {
 }
 
 /**
- * Shows a notification when the system supports them. A click brings the first open window
- * forward and passes it to `onClick`.
+ * Shows a notification when the system supports them. A click brings the main window forward,
+ * re-opening it if it was closed, and passes it to `onClick` once its page has loaded.
  */
 export function showWindowNotification(
   notice: { title: string; body: string },
@@ -34,12 +36,16 @@ export function showWindowNotification(
   const { notification, release } = heldNotification({ title: notice.title, body: notice.body });
   notification.once('click', () => {
     release();
-    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-    onClick?.(win);
+    showMainWindow()
+      .then((win) => {
+        if (!win || !onClick) return;
+        // A re-opened window has no page yet to receive what onClick sends.
+        if (win.webContents.isLoading()) win.webContents.once('did-finish-load', () => onClick(win));
+        else onClick(win);
+      })
+      .catch((error: unknown) => {
+        persistDebugLog('notifications', 'click could not show the window', serializeError(error));
+      });
   });
   notification.show();
 }

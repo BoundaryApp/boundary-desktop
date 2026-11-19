@@ -42,7 +42,7 @@ function grant(partial: Partial<CodingGrantRow> = {}): CodingGrantRow {
   };
 }
 
-const none = { grants: [], pending: {}, managed: true };
+const none: Parameters<typeof folderRowView>[2] = { grants: [], pending: {}, managed: true };
 
 describe('folderRowView', () => {
   it('offers Allow coding on a host-folder project folder without coding', () => {

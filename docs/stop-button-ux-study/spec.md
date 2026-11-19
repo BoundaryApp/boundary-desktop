@@ -14,7 +14,7 @@ The visual source is this kit: **A · Morph** in [01-run-control.html](01-run-co
 | Phase | Status | Depends on |
 | --- | --- | --- |
 | 1 Run button, Stop markers, Continue | Built; live check pending | — |
-| 2 Enter mid-run: Send now, Queue, Always queue | Not started | 1 |
+| 2 Enter mid-run: Send now, Queue, Always queue | Built; live check pending | 1 |
 | 3 Add to this run (steer) | Not started; spike first | 2 |
 
 ## Goal
@@ -100,14 +100,14 @@ Stop appears only while an agent is working. It sits in the same corner as Send,
 
 **Acceptance**
 
-- [ ] 2.1 Enter mid-run never sends immediately unless you choose Send now (by menu or ⌘↵).
-- [ ] 2.2 Pressing Enter twice queues and never interrupts.
-- [ ] 2.3 Queued messages send in order, each after the previous reply completes.
-- [ ] 2.4 Stop pauses the queue and loses nothing. Send now on a paused chip sends it.
-- [ ] 2.5 Switching chats keeps each chat's queue, and it drains on return.
-- [ ] 2.6 The Always queue choice persists across restarts and can be changed in Settings.
+- [x] 2.1 Enter mid-run never sends immediately unless you choose Send now (by menu or ⌘↵).
+- [x] 2.2 Pressing Enter twice queues and never interrupts.
+- [x] 2.3 Queued messages send in order, each after the previous reply completes.
+- [x] 2.4 Stop pauses the queue and loses nothing. Send now on a paused chip sends it.
+- [x] 2.5 Switching chats keeps each chat's queue, and it drains on return.
+- [x] 2.6 The Always queue choice persists across restarts and can be changed in Settings.
 - [ ] 2.7 After Send now, the agent's next reply shows it saw the partial. *(Live Hermes.)*
-- [ ] 2.8 The Interrupted and Stopped markers are visually distinct (glyph, wording, Continue only on Stopped).
+- [x] 2.8 The Interrupted and Stopped markers are visually distinct (glyph, wording, Continue only on Stopped).
 
 ## Phase 3 · Add to this run (steer)
 

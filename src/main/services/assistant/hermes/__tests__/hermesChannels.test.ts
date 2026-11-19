@@ -42,6 +42,10 @@ vi.mock('../hermesAgentStore', () => ({
   migrateSessionSpeakers: vi.fn(),
 }));
 
+vi.mock('../hermesProjectStore', () => ({
+  listStoredHermesProjects: vi.fn().mockReturnValue([{ id: 'p1', name: 'One' }]),
+}));
+
 vi.mock('../hermesGatewaySession', () => ({
   getHermesGatewaySession: () => ({
     createSessionWithSeed: vi.fn(),
@@ -96,7 +100,14 @@ describe('mergeChannelTranscript', () => {
 });
 
 describe('makeChannelFromHermesChat (ADR 0023)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Other describes make listStoredChannels return a 'research' room, which would turn this
+    // room's slug into 'research-2'; put back the store defaults these tests rely on.
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.listStoredChannels).mockReturnValue([]);
+    vi.mocked(store.getSessionChannelId).mockReturnValue(null);
+    vi.mocked(store.getChannelBySessionId).mockReturnValue(null);
+    vi.mocked(store.getSessionProjectId).mockReturnValue(undefined);
     getSessionAgentSlug.mockReset();
   });
 
@@ -361,6 +372,14 @@ describe('deleteHermesChannel (ADR 0010 §3)', () => {
     expect(deleteHermesChannel({ channelId: 'ch1' }).projectId).toBeNull();
     expect(store.setSessionProjectIds).toHaveBeenCalledWith({ 's-room': null, 's-old': null });
     expect(setLastOpened).not.toHaveBeenCalled();
+  });
+
+  it('files a room whose project was removed under No project, as the lists show it', async () => {
+    const store = await import('../hermesAgentStore');
+    vi.mocked(store.getStoredChannel).mockReturnValue({ ...room, projectId: 'p-removed' });
+    const { deleteHermesChannel } = await import('../hermesChannels');
+    expect(deleteHermesChannel({ channelId: 'ch1' }).projectId).toBeNull();
+    expect(store.setSessionProjectIds).toHaveBeenCalledWith({ 's-room': null, 's-old': null });
   });
 
   it('refuses an unknown room and changes nothing', async () => {

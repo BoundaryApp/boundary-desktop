@@ -20,6 +20,11 @@ declare module 'corestore' {
     close(): Promise<void>;
     append(block: Buffer | string): Promise<{ length: number }>;
     get(index: number): Promise<Buffer | null>;
+    /** Whether this device holds blocks `start` to `end` (exclusive). */
+    has(start: number, end?: number): Promise<boolean>;
+    /** Drops blocks from local storage; peers that hold them can serve them again. */
+    clear(start: number, end?: number): Promise<unknown>;
+    readonly contiguousLength: number;
     update(opts?: { wait?: boolean }): Promise<boolean>;
     /** Marks a peer search as running; call the returned function when it ends. */
     findingPeers(): () => void;
@@ -28,7 +33,9 @@ declare module 'corestore' {
   export default class Corestore {
     constructor(storage: string, opts?: Record<string, unknown>);
     ready(): Promise<void>;
-    get(opts: { name: string } | { key: Buffer; active?: boolean }): Hypercore;
+    get(
+      opts: ({ name: string } | { key: Buffer; active?: boolean }) & { encryption?: { key: Buffer } }
+    ): Hypercore;
     namespace(name: string): Corestore;
     /** Deletes these cores from storage; `force` includes cores with open sessions. */
     purge(keys: Buffer[], opts?: { force?: boolean }): Promise<Buffer[]>;
@@ -59,6 +66,10 @@ declare module 'hyperswarm' {
     readonly bytesReceived: number;
     readonly packetsTransmitted: number;
     readonly packetsReceived: number;
+    /** The largest packet libudx sends on this stream (udx-native lib/stream.js). */
+    readonly mtu: number;
+    /** Emitted once when a write exceeds the MTU (udx-native README). */
+    once(event: 'mtu-exceeded', listener: () => void): unknown;
   }
 
   /** HyperDHT's view of this device's network; read for diagnostics only. */
@@ -180,6 +191,10 @@ declare module 'hyperbee' {
       version: number,
       range?: { gt?: string; gte?: string; lt?: string; lte?: string }
     ): AsyncIterable<{ left: HyperbeeEntry | null; right: HyperbeeEntry | null }>;
+    /** Every put and del in the bee's core, oldest first unless `reverse` (hyperbee README). */
+    createHistoryStream(opts?: { reverse?: boolean; gte?: number; lt?: number; limit?: number }): AsyncIterable<
+      HyperbeeEntry & { type: 'put' | 'del' }
+    >;
   }
 
   export interface HyperbeeEntry {
@@ -187,6 +202,25 @@ declare module 'hyperbee' {
     seq: number;
     key: string;
     value: unknown;
+  }
+}
+
+declare module 'hyperblobs' {
+  import type { Hypercore } from 'corestore';
+
+  /** Where a blob sits in its core (hyperblobs README). */
+  export interface BlobId {
+    byteOffset: number;
+    blockOffset: number;
+    blockLength: number;
+    byteLength: number;
+  }
+
+  export default class Hyperblobs {
+    readonly core: Hypercore;
+    constructor(core: Hypercore, opts?: { blockSize?: number });
+    put(blob: Buffer, opts?: { blockSize?: number }): Promise<BlobId>;
+    get(id: BlobId, opts?: { wait?: boolean; timeout?: number }): Promise<Buffer | null>;
   }
 }
 
@@ -201,6 +235,8 @@ declare module 'hypercore-crypto' {
     verify(message: Buffer, signature: Buffer, publicKey: Buffer): boolean;
     randomBytes(n: number): Buffer;
     discoveryKey(key: Buffer): Buffer;
+    /** BLAKE2b-256 of the data, or of the buffers in order. */
+    hash(data: Buffer | Buffer[]): Buffer;
   };
   export default crypto;
 }

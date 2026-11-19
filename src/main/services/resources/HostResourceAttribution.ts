@@ -713,7 +713,7 @@ type MemoryDocker = {
   listContainers(options: { all: boolean }): Promise<
     Array<{ Id: string; Names?: string[]; Labels?: Record<string, string> }>
   >;
-  getContainer(id: string): { stats(options: { stream: false }): Promise<unknown> };
+  getContainer(id: string): { stats(options: { stream: false; 'one-shot': true }): Promise<unknown> };
 };
 
 /**
@@ -733,7 +733,11 @@ export async function stackContainersMemoryBytes(
     if (!isAssistantStackContainer(labels, name, options)) continue;
     if (excluded.has(labels['com.docker.compose.service'] ?? '')) continue;
     try {
-      const stats = (await docker.getContainer(container.Id).stats({ stream: false })) as DockerContainerStats;
+      // Memory needs one sample. Without one-shot, Docker waits about a second per container to
+      // take a second sample for CPU, which made a 21-container stack take about 21 s.
+      const stats = (await docker
+        .getContainer(container.Id)
+        .stats({ stream: false, 'one-shot': true })) as DockerContainerStats;
       total += stats.memory_stats?.usage ?? 0;
     } catch {
       // container stopped between list and stats

@@ -1,9 +1,15 @@
 import { useCallback, useState } from 'react';
 import type { AgentProfile } from '../../../shared/types/hermesChat';
+import type { AgentWritingVoices } from '../../../shared/types/writingVoices';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
 import type { ChatLists } from './useChatLists';
 
-type AgentFields = { displayName: string; handle: string; role: string };
+type AgentFields = { displayName: string; handle: string; role: string; voices?: AgentWritingVoices };
+
+const sameVoices = (a: AgentWritingVoices, b: AgentWritingVoices) =>
+  a.chatRepliesVoiceId === b.chatRepliesVoiceId && a.draftsVoiceId === b.draftsVoiceId;
+
+const NO_VOICES: AgentWritingVoices = { chatRepliesVoiceId: null, draftsVoiceId: null };
 
 /**
  * The agent roster and the create / edit sheet (ADR 0010 §4, ADR 0023). The roster doubles as
@@ -17,6 +23,16 @@ export function useAgentSheets({
   openDm: (agentSlug: string) => Promise<string | null>;
 }) {
   const { refreshAgents, setThreadError } = lists;
+
+  /** Voices are saved after the agent itself; a failure is the chat's note, not the sheet's. */
+  const saveVoices = useCallback(
+    async (slug: string, voices: AgentWritingVoices | undefined, before: AgentWritingVoices) => {
+      if (!voices || sameVoices(voices, before)) return;
+      const result = await window.electronAPI.agents.setWritingVoices(slug, voices);
+      if ('error' in result) setThreadError(result.error);
+    },
+    [setThreadError]
+  );
   const [rosterOpen, setRosterOpen] = useState(false);
   const [rosterMode, setRosterMode] = useState<'roster' | 'message'>('roster');
   const [createOpen, setCreateOpen] = useState(false);
@@ -24,16 +40,20 @@ export function useAgentSheets({
   const [createInitial, setCreateInitial] = useState<Partial<AgentFields> | null>(null);
   /** The personality the create sheet is editing (ADR 0010 §4); null when creating. */
   const [editingAgentSlug, setEditingAgentSlug] = useState<string | null>(null);
+  /** The edited agent's voices when the sheet opened, so only a change is saved. */
+  const [editingVoices, setEditingVoices] = useState<AgentWritingVoices>(NO_VOICES);
 
   // Main answers once the agent is stored and its profile is starting; the DM opens here.
   const createAgent = useCallback(
     async (payload: AgentFields): Promise<boolean> =>
       (await sheet.run(async () => {
-        const result = await window.electronAPI.agents.create(payload);
+        const { voices, ...fields } = payload;
+        const result = await window.electronAPI.agents.create(fields);
         if (!result.success || !result.agent) {
           sheet.setError(result.error ?? 'Could not create agent.');
           return false;
         }
+        await saveVoices(result.agent.slug, voices, NO_VOICES);
         await refreshAgents();
         await openDm(result.agent.slug);
         setCreateOpen(false);
@@ -43,13 +63,25 @@ export function useAgentSheets({
         }
         return true;
       })) ?? false,
-    [sheet, refreshAgents, openDm, setThreadError]
+    [sheet, refreshAgents, openDm, setThreadError, saveVoices]
   );
 
   const startEdit = useCallback(
     (agent: AgentProfile) => {
       sheet.setError(null);
-      setCreateInitial({ displayName: agent.displayName, handle: agent.handle, role: agent.role });
+      setCreateInitial({
+        displayName: agent.displayName,
+        handle: agent.handle,
+        role: agent.role,
+        voices: {
+          chatRepliesVoiceId: agent.chatRepliesVoiceId ?? null,
+          draftsVoiceId: agent.draftsVoiceId ?? null,
+        },
+      });
+      setEditingVoices({
+        chatRepliesVoiceId: agent.chatRepliesVoiceId ?? null,
+        draftsVoiceId: agent.draftsVoiceId ?? null,
+      });
       setEditingAgentSlug(agent.slug);
       setCreateOpen(true);
     },
@@ -59,11 +91,13 @@ export function useAgentSheets({
   const updateAgent = useCallback(
     async (slug: string, payload: AgentFields) => {
       await sheet.run(async () => {
-        const result = await window.electronAPI.agents.update({ slug, ...payload });
+        const { voices, ...fields } = payload;
+        const result = await window.electronAPI.agents.update({ slug, ...fields });
         if (!result.success) {
           sheet.setError(result.error ?? 'Could not save the agent.');
           return;
         }
+        await saveVoices(slug, voices, editingVoices);
         await refreshAgents();
         setCreateOpen(false);
         setEditingAgentSlug(null);
@@ -77,7 +111,7 @@ export function useAgentSheets({
         }
       });
     },
-    [sheet, refreshAgents, setThreadError]
+    [sheet, refreshAgents, setThreadError, saveVoices, editingVoices]
   );
 
   /** Creates straight from a draft card; a failure opens the sheet so the error shows (ADR 0010 §6). */

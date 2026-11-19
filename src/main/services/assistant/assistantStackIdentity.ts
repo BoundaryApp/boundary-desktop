@@ -23,6 +23,13 @@ export function hermesAgentsStoreName(identity: AssistantStackIdentity): string 
   return `hermes-agents-local-${hash}`;
 }
 
+/** electron-store name for the writing voice records of one stack (ADR 0056). */
+export function writingVoicesStoreName(identity: AssistantStackIdentity): string {
+  if (identity.kind === 'managed') return 'writing-voices-managed';
+  const hash = crypto.createHash('sha256').update(identity.root).digest('hex').slice(0, 12);
+  return `writing-voices-local-${hash}`;
+}
+
 export function resetAssistantStackIdentityCacheForTests(): void {
   resetStackModeCacheForTests();
 }

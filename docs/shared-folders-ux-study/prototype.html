@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared folders</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+/* Values from src/renderer/styles/tokens.css; frame after the Circle chats prototype. */
+:root {
+  --s0:#0d0d0f; --rail:#111113; --s1:#161618; --s2:#1c1c22; --hover:#1d1d22; --line:#2a2a30; --line2:#3a3a44;
+  --tx:#f5f5f7; --mut:#c4c4cc; --fnt:#9e9ea8; --brand:#8b87f8; --brandd:#26244a; --solid:#f5f5f7; --solidfg:#111;
+  --ok:#86c089; --okd:#17251a; --warn:#e8c27a; --warnd:#2a2415; --warnl:#5a4a2a; --dng:#e8a0a0; --dngd:#2a1717; --dngl:#5a3030;
+  --pop:0 12px 32px rgb(0 0 0 / .35); --overlay:0 18px 48px rgb(0 0 0 / .45); --page:#050506;
+}
+:root[data-theme="light"] {
+  --s0:#f3f1ea; --rail:#ece8dc; --s1:#fffcf6; --s2:#f7f4ec; --hover:#ece8dc; --line:#e3dfd3; --line2:#cfc9b8;
+  --tx:#1c1b17; --mut:#6d6a60; --fnt:#9a968a; --brand:#5b56d6; --brandd:#e6e4fb; --solid:#1c1b17; --solidfg:#fffcf6;
+  --ok:#3f7d44; --okd:#e3f0e2; --warn:#8a6415; --warnd:#f6ecd6; --warnl:#e3cf9f; --dng:#a83a3a; --dngd:#f8e4e1; --dngl:#e2b4b4;
+  --pop:0 12px 32px rgb(40 32 16 / .12); --overlay:0 18px 48px rgb(40 32 16 / .16); --page:#d9d5c8;
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--page); color:var(--tx); font:13px/1.45 'IBM Plex Sans',system-ui,sans-serif }
+button { font:inherit; color:inherit; cursor:pointer }
+.mono { font-family:'IBM Plex Mono',monospace; font-size:12px }
+
+.bar { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 16px; background:var(--s1); border-bottom:1px solid var(--line) }
+.bar b { font-weight:500; margin-right:6px }
+.bar .sep { width:1px; height:20px; background:var(--line); margin:0 6px }
+.chip { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:none; color:var(--mut); font-size:12px }
+.chip[aria-pressed="true"] { background:var(--brandd); border-color:var(--brand); color:var(--tx) }
+.note { width:100%; margin:4px 0 0; font-size:12px; color:var(--fnt) }
+.stage { padding:20px 16px 40px; display:flex; justify-content:center }
+.fit { transform-origin:top left }
+
+.app { position:relative; width:1280px; height:800px; overflow:hidden; display:flex; background:var(--s0); border-radius:10px; box-shadow:var(--overlay) }
+.rail { width:56px; flex-shrink:0; background:var(--rail); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; gap:8px; padding-top:44px }
+.rail .ic { position:relative; width:36px; height:36px; border:0; border-radius:8px; background:none; display:flex; align-items:center; justify-content:center; color:var(--fnt) }
+.rail .ic.on { background:var(--brandd); color:var(--brand) }
+
+/* Chat rail */
+.left { width:248px; flex-shrink:0; background:var(--s1); border-right:1px solid var(--line); display:flex; flex-direction:column; padding-top:38px; overflow:auto }
+.r { display:flex; align-items:center; gap:7px; width:calc(100% - 16px); margin:1px 8px; padding:6px 8px; border:0; border-radius:7px; background:none; color:var(--mut); text-align:left }
+.r:hover { background:var(--hover); color:var(--tx) }
+.r.on { background:var(--hover); color:var(--tx) }
+.r.dim .t { color:var(--fnt) }
+.r .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.r small { color:var(--fnt); font-size:11px }
+.r.ghost { color:var(--fnt); border:1px dashed var(--line); margin-top:4px }
+.r.ghost:hover { border-color:var(--line2) }
+.sect { display:flex; align-items:center; justify-content:space-between; padding:12px 8px 4px 16px; font-size:12px; color:var(--fnt) }
+.sect .nm { display:inline-flex; align-items:center; gap:6px }
+.sect .add { width:22px; height:22px; border:0; border-radius:6px; background:none; color:var(--fnt); font-size:15px; line-height:1 }
+.sect .add:hover { background:var(--hover); color:var(--tx) }
+.mk { width:16px; height:16px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center }
+.mk.sp { border-radius:4px; background:var(--brand); color:#fff }
+.mk.ci { color:var(--brand) }
+.mk.fo { color:var(--mut) }
+.mk.hash { color:var(--fnt) }
+.place { position:relative; display:flex; align-items:center; gap:9px; width:calc(100% - 16px); margin:0 8px 8px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:none; text-align:left }
+.place:hover { border-color:var(--line2) }
+.place.in { background:var(--brandd); border-color:transparent }
+.place .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3 }
+.place .pt b { font-weight:500; color:var(--tx) }
+.place .pt small { font-size:11px; color:var(--fnt) }
+.place .chev { color:var(--fnt) }
+.ptile { width:26px; height:26px; flex-shrink:0; border-radius:7px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:10.5px; font-weight:600 }
+.ptile.mac { background:var(--s2); color:var(--mut); border:1px solid var(--line) }
+.proj { display:flex; align-items:center; gap:8px; margin:0 8px 6px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; color:var(--tx) }
+.proj i { width:18px; height:18px; border-radius:5px; background:#c4843a; color:#fff; font-style:normal; font-size:10px; font-weight:600; display:flex; align-items:center; justify-content:center }
+.proj .ctag { display:inline-flex; align-items:center; gap:4px; color:var(--fnt); font-size:11px }
+.pdot { width:7px; height:7px; flex-shrink:0; border-radius:50%; background:var(--ok) }
+.pdot.off { background:none; border:1px solid var(--fnt) }
+.wdot { width:8px; height:8px; flex-shrink:0; border-radius:50%; background:var(--warn) }
+.av { width:28px; height:28px; flex-shrink:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#fff }
+.r .av { width:20px; height:20px; font-size:8px }
+.menu { position:absolute; z-index:20; min-width:170px; padding:4px; border:1px solid var(--line); border-radius:8px; background:var(--s1); box-shadow:var(--pop) }
+.menu button { display:flex; align-items:center; gap:9px; width:100%; min-height:28px; padding:4px 8px; border:0; border-radius:6px; background:none; text-align:left; color:var(--tx) }
+.menu button:hover { background:var(--hover) }
+.menu .pt { flex:1; display:flex; flex-direction:column; line-height:1.3 }
+.menu small { font-size:11px; color:var(--fnt) }
+.menu hr { border:0; border-top:1px solid var(--line); margin:4px 0 }
+
+/* Center */
+main.center { flex:1; min-width:0; display:flex; flex-direction:column; position:relative }
+.head { display:flex; align-items:center; gap:10px; height:64px; flex-shrink:0; padding:20px 24px 0; border-bottom:1px solid var(--line) }
+.head .ttl { flex:1; min-width:0; display:flex; flex-direction:column; padding-bottom:12px }
+.head strong { font-weight:500; font-size:14px }
+.head strong span { color:var(--fnt); font-weight:400 }
+.head small { font-size:12px; color:var(--fnt) }
+.head .right { display:flex; align-items:center; gap:8px; padding-bottom:12px }
+.head .ftile { margin-bottom:12px }
+.ftile { width:28px; height:28px; flex-shrink:0; border-radius:7px; background:var(--s2); border:1px solid var(--line); color:var(--mut); display:flex; align-items:center; justify-content:center }
+.btn { height:30px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:none; color:var(--mut); font-size:12px; white-space:nowrap }
+.btn:hover { border-color:var(--line2); color:var(--tx) }
+.btn.solid { border:0; background:var(--solid); color:var(--solidfg); font-weight:500 }
+.btn.danger { border-color:var(--dngl); color:var(--dng) }
+.btn.sm { height:26px; padding:0 9px }
+.btn.ico { width:30px; padding:0; display:inline-flex; align-items:center; justify-content:center }
+.btn:disabled { opacity:.45; cursor:default }
+.scroll { flex:1; min-height:0; overflow:auto; padding:12px 0 24px }
+.col { max-width:760px; margin:0 auto; padding:0 32px }
+.day { display:flex; align-items:center; gap:10px; margin:18px 0 8px; font-size:11px; color:var(--fnt) }
+.day::before, .day::after { content:""; flex:1; height:1px; background:var(--line) }
+.clock { display:inline-flex; color:var(--fnt); cursor:help; vertical-align:-1px }
+
+/* Folder view */
+.strip { display:flex; align-items:center; gap:10px; margin:14px 0 4px; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:var(--s1); font-size:12.5px; color:var(--mut) }
+.strip .pt { flex:1; display:flex; flex-direction:column; line-height:1.4 }
+.strip small { font-size:11.5px; color:var(--fnt) }
+.strip.ok { color:var(--tx) }
+.strip.ok .ic2 { color:var(--ok) }
+.strip.warn { border-color:var(--warnl); background:var(--warnd); color:var(--warn) }
+.strip.warn small { color:var(--warn); opacity:.85 }
+.strip.info { border-color:var(--brand); background:var(--brandd); color:var(--tx) }
+.strip.info small { color:var(--mut) }
+.prog { height:4px; border-radius:2px; background:var(--line); overflow:hidden; margin-top:6px }
+.prog i { display:block; height:100%; background:var(--brand); transition:width .3s }
+@media (prefers-reduced-motion: reduce) { .prog i { transition:none } }
+.tabs { display:flex; gap:16px; margin:16px 0 6px; border-bottom:1px solid var(--line) }
+.tabs button { padding:0 2px 9px; border:0; border-bottom:2px solid transparent; background:none; color:var(--fnt) }
+.tabs button[aria-selected="true"] { border-bottom-color:var(--brand); color:var(--tx) }
+.tabs .cnt { margin-left:6px; padding:0 6px; border-radius:999px; background:var(--s2); font-size:10.5px; color:var(--mut) }
+.act { display:flex; align-items:flex-start; gap:10px; padding:8px 8px; margin:0 -8px; border-radius:8px }
+.act:hover { background:var(--s1) }
+.act .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.45 }
+.act small { font-size:11.5px; color:var(--fnt) }
+.act.pend .pt > span { color:var(--mut) }
+.fn { border:0; background:none; padding:0; color:var(--tx); font-family:'IBM Plex Mono',monospace; font-size:12px; text-decoration:underline; text-decoration-color:var(--line2); text-underline-offset:3px }
+.fn:hover { text-decoration-color:var(--tx) }
+.ft { width:100%; border-collapse:collapse }
+.ft th { text-align:left; font-weight:400; font-size:11.5px; color:var(--fnt); padding:6px 8px; border-bottom:1px solid var(--line) }
+.ft td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle }
+.ft tr.click { cursor:pointer }
+.ft tr.click:hover td { background:var(--s1) }
+.ft tr.sel td { background:var(--hover) }
+.ft td.n { display:flex; align-items:center; gap:8px }
+.ft td.dir { color:var(--fnt) }
+.ft .who2 { display:flex; align-items:center; gap:6px; color:var(--mut) }
+.ft .who2 .av { width:18px; height:18px; font-size:7.5px }
+.ft .sz { color:var(--fnt); text-align:right; white-space:nowrap }
+.ft tr.unsh td { color:var(--fnt) }
+.tag { display:inline-flex; align-items:center; gap:4px; padding:0 6px; height:18px; border:1px solid var(--line); border-radius:6px; font-size:10.5px; color:var(--fnt); white-space:nowrap }
+.tag.warn { border-color:var(--warnl); color:var(--warn) }
+.tag.br { border-color:transparent; background:var(--brandd); color:var(--tx) }
+.tag.ok { border-color:transparent; background:var(--okd); color:var(--ok) }
+.tag.dng { border-color:var(--dngl); color:var(--dng) }
+.intro { max-width:520px; margin:70px auto 0; text-align:center; color:var(--mut) }
+.intro .ftile { width:52px; height:52px; margin:0 auto 14px; border-radius:12px }
+.intro h2 { margin:0 0 4px; font-size:18px; font-weight:500; color:var(--tx) }
+.facts { display:flex; justify-content:center; gap:22px; margin:18px 0; font-size:12px; color:var(--fnt) }
+.facts b { display:block; font-size:15px; font-weight:500; color:var(--tx) }
+.people { display:flex; justify-content:center; margin-bottom:18px }
+.people .av { width:24px; height:24px; font-size:9px; margin-left:-5px; border:2px solid var(--s0) }
+.small { font-size:12px; color:var(--fnt) }
+
+/* Messages, for the channel scene */
+.msg { display:flex; gap:10px; margin-top:14px }
+.msg .who { font-size:12px; color:var(--fnt) }
+.msg .who b { color:var(--tx); font-weight:500 }
+.text { font-size:14px; line-height:1.55 }
+.fchip { display:inline-flex; align-items:center; gap:6px; margin-top:6px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; background:var(--s1); color:var(--tx); font-size:12.5px }
+.fchip:hover { border-color:var(--line2) }
+.fchip small { color:var(--fnt); font-size:11px }
+.box { border:1px solid var(--line); border-radius:12px; background:var(--s1); overflow:hidden }
+.box.circle { border-top:2px solid var(--brand) }
+.box .ph { padding:12px 14px 4px; color:var(--fnt); font-size:14px }
+.box .tools { display:flex; align-items:center; gap:6px; padding:6px 8px 8px 10px }
+.pill { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border:1px solid var(--line); border-radius:7px; font-size:12px; color:var(--mut) }
+.pill.aud { border-color:transparent; background:var(--brandd); color:var(--tx) }
+.send { margin-left:auto; width:30px; height:30px; border:0; border-radius:8px; background:var(--solid); color:var(--solidfg); opacity:.35; display:flex; align-items:center; justify-content:center }
+.hint { margin-top:6px; font-size:11px; color:var(--fnt); text-align:center }
+.foot { padding:0 0 14px; flex-shrink:0 }
+
+/* Hermes chat (This Mac) */
+.uturn { display:flex; flex-direction:column; align-items:flex-end; margin-top:28px }
+.uturn .bub { max-width:80%; padding:12px 16px; border-radius:14px; background:var(--s2); border:1px solid var(--line); font-size:14px }
+.aturn { margin-top:24px }
+.aturn .wh { font-size:11px; color:var(--fnt); font-weight:500; margin-bottom:8px }
+.tool { display:flex; align-items:center; gap:8px; margin:6px 0 10px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--s1); font-size:12.5px; color:var(--mut) }
+.tool .pt { flex:1 }
+
+/* Inspector */
+.insp { width:320px; flex-shrink:0; border-left:1px solid var(--line); background:var(--s1); display:flex; flex-direction:column; min-height:0 }
+.itabs { display:flex; align-items:flex-end; gap:14px; height:64px; flex-shrink:0; padding:0 12px 0 16px; border-bottom:1px solid var(--line) }
+.itab { padding:0 2px 11px; border:0; border-bottom:2px solid transparent; background:none; color:var(--fnt) }
+.itab.on { border-bottom-color:var(--brand); color:var(--tx); font-weight:500 }
+.itabs .back { padding:0 0 12px; border:0; background:none; color:var(--mut) }
+.itabs .x { margin-left:auto; margin-bottom:8px; width:26px; height:26px; border:0; border-radius:6px; background:none; color:var(--fnt); font-size:16px }
+.ibody { flex:1; min-height:0; overflow:auto; padding:16px }
+.ibody h3 { margin:0; font-size:15px; font-weight:500 }
+.ibody .sub { font-size:12px; color:var(--fnt) }
+.isec { margin:20px 0 6px; font-size:11px; color:var(--fnt); text-transform:uppercase; letter-spacing:.04em }
+.irow { display:flex; align-items:center; gap:10px; width:100%; padding:7px 6px; margin:0 -6px; border:0; border-radius:7px; background:none; text-align:left; color:var(--tx) }
+.irow .pt { flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.35 }
+.irow small { font-size:11.5px; color:var(--fnt) }
+.irow select { height:26px; border:1px solid var(--line); border-radius:6px; background:var(--s0); color:var(--tx); font:inherit; font-size:12px; padding:0 4px }
+.kv { display:flex; flex-direction:column; gap:2px; padding:6px 0 }
+.kv small { font-size:11.5px; color:var(--fnt) }
+.explain { margin-top:8px; padding:8px 10px; border-radius:8px; background:var(--s2); font-size:11.5px; line-height:1.45; color:var(--mut) }
+.vrow { display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-top:1px solid var(--line) }
+.vrow:first-of-type { border-top:0 }
+.vrow .pt { flex:1; display:flex; flex-direction:column; line-height:1.4 }
+.vrow small { font-size:11.5px; color:var(--fnt) }
+.fold { padding:10px 0; border-top:1px solid var(--line) }
+.fold:first-of-type { border-top:0 }
+.fold .top { display:flex; align-items:center; gap:8px }
+.fold .top b { flex:1; font-weight:500 }
+.fold .path { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--fnt); margin:2px 0 6px }
+.fold .line { font-size:12px; color:var(--mut); line-height:1.45 }
+.setrow { display:flex; align-items:flex-start; gap:10px; margin-top:8px }
+.setrow .pt { flex:1; display:flex; flex-direction:column; line-height:1.4; font-size:12.5px }
+.setrow small { font-size:11.5px; color:var(--fnt) }
+.sw { position:relative; width:30px; height:18px; flex-shrink:0; margin-top:2px; border:0; border-radius:999px; background:var(--line2); padding:0 }
+.sw::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff }
+.sw[aria-checked="true"] { background:var(--brand) }
+.sw[aria-checked="true"]::after { left:14px }
+.sw:disabled { opacity:.45; cursor:default }
+
+/* Sheets */
+.scrim { position:absolute; inset:0; z-index:30; background:rgb(0 0 0 / .45); display:flex; align-items:center; justify-content:center }
+:root[data-theme="light"] .scrim { background:rgb(40 32 16 / .2) }
+.sheet { width:520px; max-width:calc(100% - 32px); max-height:calc(100% - 40px); overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--s1); box-shadow:var(--overlay); padding:20px }
+.sheet.wide { width:760px }
+.sheet h2 { margin:0 0 4px; font-size:17px; font-weight:500 }
+.sheet > p { margin:0 0 14px; color:var(--mut) }
+.sheet label.f { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; color:var(--mut); font-size:12px }
+.sheet input[type=text] { width:100%; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--s0); color:var(--tx); font:inherit; font-size:13px }
+.steps { display:flex; gap:6px; margin-bottom:14px; font-size:11px; color:var(--fnt) }
+.steps span { padding:2px 8px; border-radius:999px; border:1px solid var(--line) }
+.steps span.on { border-color:var(--brand); color:var(--tx) }
+.steps span.done { color:var(--mut) }
+.opt { display:flex; align-items:flex-start; gap:12px; width:100%; margin-bottom:8px; padding:12px; border:1px solid var(--line); border-radius:10px; background:none; text-align:left }
+.opt:hover { border-color:var(--line2) }
+.opt.on { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) }
+.opt .pt { flex:1; display:flex; flex-direction:column; line-height:1.4 }
+.opt small { font-size:12px; color:var(--fnt) }
+.opt .rd { width:16px; height:16px; margin-top:2px; flex-shrink:0; border:1.5px solid var(--line2); border-radius:50% }
+.opt.on .rd { border:5px solid var(--brand) }
+.finder { border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:12px }
+.finder .fh { padding:7px 12px; background:var(--s2); font-size:11.5px; color:var(--fnt); border-bottom:1px solid var(--line) }
+.finder button { display:flex; align-items:center; gap:10px; width:100%; padding:8px 12px; border:0; border-bottom:1px solid var(--line); background:none; text-align:left }
+.finder button:last-child { border-bottom:0 }
+.finder button:hover { background:var(--hover) }
+.finder button.on { background:var(--brandd) }
+.finder .pt { flex:1; display:flex; flex-direction:column; line-height:1.35 }
+.finder small { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--fnt) }
+.callout { display:flex; gap:10px; padding:10px 12px; border-radius:9px; margin-bottom:12px; font-size:12.5px; line-height:1.45 }
+.callout.warn { border:1px solid var(--warnl); background:var(--warnd); color:var(--warn) }
+.callout.dng { border:1px solid var(--dngl); background:var(--dngd); color:var(--dng) }
+.callout.plain { border:1px solid var(--line); background:var(--s0); color:var(--mut) }
+.callout b { font-weight:500 }
+.scan { display:flex; gap:20px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; margin-bottom:12px }
+.scan div { display:flex; flex-direction:column; font-size:11.5px; color:var(--fnt) }
+.scan b { font-size:15px; font-weight:500; color:var(--tx) }
+.ul { margin:0 0 12px; padding:0; list-style:none; border:1px solid var(--line); border-radius:9px }
+.ul li { display:flex; align-items:center; gap:10px; padding:7px 12px; border-top:1px solid var(--line); font-size:12.5px }
+.ul li:first-child { border-top:0 }
+.ul li .mono { flex:1 }
+.ul li small { color:var(--fnt); font-size:11.5px }
+.mgr { display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--line) }
+.mgr:first-child { border-top:0 }
+.mgr .pt { flex:1; display:flex; flex-direction:column; line-height:1.35 }
+.mgr small { font-size:11.5px; color:var(--fnt) }
+.cb { width:16px; height:16px; flex-shrink:0; border:1.5px solid var(--line2); border-radius:4px; background:none; padding:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px }
+.cb[aria-checked="true"] { background:var(--brand); border-color:var(--brand) }
+.cb:disabled { opacity:.6; cursor:default }
+.quorum { margin:8px 0 12px; padding:8px 10px; border-radius:8px; background:var(--s2); font-size:12px; color:var(--mut) }
+.quorum b { color:var(--tx); font-weight:500 }
+.acts2 { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-top:8px }
+.acts2 .grow { flex:1 }
+.cons { margin:0 0 12px; padding-left:18px; color:var(--mut); font-size:12.5px; line-height:1.55 }
+.diff { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px }
+.diff .side { border:1px solid var(--line); border-radius:9px; overflow:hidden }
+.diff .sh { display:flex; align-items:center; gap:8px; padding:7px 10px; background:var(--s2); border-bottom:1px solid var(--line); font-size:12px; color:var(--mut) }
+.diff .sh .av { width:18px; height:18px; font-size:7.5px }
+.diff pre { margin:0; padding:8px 0; font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.6; white-space:pre-wrap }
+.diff pre span { display:block; padding:0 10px }
+.diff pre span.ch { background:var(--warnd); color:var(--warn) }
+.toast { position:absolute; z-index:40; left:50%; bottom:24px; transform:translateX(-50%); display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--s2); box-shadow:var(--pop); white-space:nowrap }
+.toast button { border:0; background:none; color:var(--brand); padding:0 }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="stage"><div class="fit" id="fit"><div class="app" id="app"></div></div></div>
+<script>
+// Click-through for shared folders (ADR 0049). People, files and folders are made up.
+const ME = 'jordan';
+const PEOPLE = {
+  jordan: { name: 'Jordan', initials: 'JO', hue: '#6b7bd6', device: 'this Mac', online: true, admin: true },
+  maya: { name: 'Maya', initials: 'MA', hue: '#c4843a', device: 'Maya’s iMac', online: true, admin: true },
+  sam: { name: 'Sam', initials: 'SA', hue: '#3f9a8a', device: 'Sam’s MacBook Air', online: true },
+  priya: { name: 'Priya', initials: 'PR', hue: '#b0558a', device: 'Priya’s MacBook Pro', online: false },
+};
+const MEMBERS = ['jordan', 'maya', 'sam', 'priya'];
+const CIRCLES = { studio: { name: 'Studio', hue: '#7a62c8' }, book: { name: 'Book club', hue: '#3f8a5a' } };
+
+const SCENES = [
+  ['folder', 'A shared folder'],
+  ['files', 'Files'],
+  ['share', 'Share a folder'],
+  ['add', 'Add to this Mac'],
+  ['chat', 'Linked from chat'],
+  ['conflict', 'A conflict'],
+  ['history', 'File history'],
+  ['waiting', 'Waiting for a manager'],
+  ['roles', 'Roles'],
+  ['reader', 'As a reader'],
+  ['project', 'The project on This Mac'],
+  ['agent', 'An agent writes there'],
+  ['remove', 'Remove from this Mac'],
+  ['left', 'After leaving the Circle'],
+  ['empty', 'No folders yet'],
+];
+const NOTES = {
+  folder: 'Studio’s rail gets a Folders section under Channels. Cover art is on this Mac and up to date. Style guide is offered but not added. Click a file name to see its history, or switch to Files.',
+  files: 'Files lists what the folder holds, with who changed each file last. Files that stay on this Mac are listed at the bottom with the reason, so nobody wonders why a file never arrived.',
+  share: 'Folders + opens the share sheet. Try each folder in the picker: spring-list is shareable, press-site is a git repository and is refused, Manuscripts is in iCloud Drive and is offered as a copy. Add managers on the last step and watch how many must be online.',
+  add: 'Sam offered Style guide. Nothing downloads until you press Add to this Mac. The sheet makes a project by default. The download takes about 4 seconds here.',
+  chat: 'A message in #design links a file in Cover art. Paths mean the same thing on every Mac, so the link opens the file’s history for everyone who added the folder.',
+  conflict: 'Sam’s edit to brief.md crossed yours. Boundary kept both: the original has your edit and Sam’s is beside it as a conflict copy. Resolve compares them; nothing merges text.',
+  history: 'Every version stays in its author’s log. Restore writes the old version as a new change. Older versions download when you open them; one here is only on Priya’s Mac, which is offline.',
+  waiting: 'Maya is offline. Cover art has two managers, so changes confirm only when both have seen them. Your edits already reached Sam; the clock marks them until Maya is back. Use the bar to bring Maya online.',
+  roles: 'Managers change roles in the folder’s inspector. The quorum line updates as managers are added or removed. Readers get read-only copies.',
+  reader: 'Priya shares Contracts read-only. Your copy’s files are locked. One file was changed on this Mac anyway; it stays here and is never sent.',
+  project: 'Adding Cover art made a project on This Mac. The Project tab’s Folders list marks it Shared and says who gets what you and your agents write. Coding access starts off.',
+  agent: 'A Hermes chat in the Cover art project. Hermes edits brief.md with its own file tools, and the tool row says the change goes to Studio.',
+  remove: 'Remove from this Mac stops syncing. Keep the files (the default) or move them to the Trash. The project stays.',
+  left: 'After leaving Studio, the copy stays on this Mac and stops syncing. The Project tab says so; nothing is deleted.',
+  empty: 'Book club has no folders yet. The Folders section shows one quiet row that opens the share sheet.',
+};
+
+const ui = { scene: 'folder', theme: 'dark', view: 'circle', circle: 'studio', sel: { kind: 'folder', id: 'cover' }, tab: 'activity', insp: 'folder', file: null, dialog: null, toast: null, placeMenu: false };
+let F; // folders by id
+let timers = [];
+const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+
+const ev = (who, verb, file, at, o = {}) => ({ who, verb, file, at, day: o.day, confirmed: o.confirmed !== false, note: o.note || '' });
+function folders(scene) {
+  const cover = {
+    id: 'cover', circle: 'studio', name: 'Cover art', by: 'maya', managers: ['maya', 'jordan'], def: 'editor', roles: {},
+    local: true, path: '~/Circles/Studio/Cover art', project: 'Cover art', size: '1.2 GB', count: 86, state: 'ok',
+    activity: [
+      ev('sam', 'edited', 'brief.md', '10:09', { day: 'Today' }),
+      ev('maya', 'added', 'covers/option-2.png', '10:02'),
+      ev('maya', 'added', 'covers/option-1.png', '10:01'),
+      ev(ME, 'edited', 'brief.md', '9:40'),
+      ev('priya', 'added', 'fonts/README.md', '16:20', { day: 'Yesterday' }),
+      ev('maya', 'shared the folder', '', '15:58'),
+    ],
+    tree: [
+      { p: 'brief.md', who: 'sam', at: 'Today 10:09', size: '4 KB' },
+      { p: 'covers/', dir: true },
+      { p: 'covers/option-1.png', who: 'maya', at: 'Today 10:01', size: '18.2 MB' },
+      { p: 'covers/option-2.png', who: 'maya', at: 'Today 10:02', size: '17.9 MB' },
+      { p: 'covers/option-3.png', who: 'maya', at: 'Yesterday', size: '16.4 MB' },
+      { p: 'fonts/', dir: true },
+      { p: 'fonts/README.md', who: 'priya', at: 'Yesterday', size: '2 KB' },
+      { p: 'fonts/SourceSerif4-Regular.otf', who: 'priya', at: 'Yesterday', size: '412 KB' },
+      { p: 'references/', dir: true },
+      { p: 'references/moodboard.pdf', who: 'maya', at: 'Yesterday', size: '42 MB' },
+    ],
+    unshared: [['covers/turntable.mov', 'Over 100 MB (640 MB)'], ['.DS_Store', 'System file']],
+  };
+  const style = { id: 'style', circle: 'studio', name: 'Style guide', by: 'sam', managers: ['sam'], def: 'editor', roles: {}, local: false, path: '~/Circles/Studio/Style guide', project: null, size: '48 MB', count: 31, state: 'ok', activity: [ev('sam', 'shared the folder', '', '11:20', { day: 'Today' })], tree: [{ p: 'house-style.md', who: 'sam', at: 'Today 11:20', size: '22 KB' }, { p: 'logos/', dir: true }, { p: 'logos/press-mark.svg', who: 'sam', at: 'Today 11:20', size: '9 KB' }], unshared: [], have: ['sam', 'maya'] };
+  const contracts = { id: 'contracts', circle: 'studio', name: 'Contracts', by: 'priya', managers: ['priya'], def: 'reader', roles: {}, local: true, path: '~/Circles/Studio/Contracts', project: 'Cover art', extra: true, size: '12 MB', count: 14, state: 'ok',
+    activity: [ev('priya', 'edited', 'rights-log.xlsx', '17:02', { day: 'Monday' }), ev('priya', 'added', 'illustrator-agreement.pdf', '16:40'), ev('priya', 'shared the folder', '', '16:31')],
+    tree: [{ p: 'author-agreement.pdf', who: 'priya', at: 'Monday', size: '1.1 MB' }, { p: 'illustrator-agreement.pdf', who: 'priya', at: 'Monday', size: '980 KB' }, { p: 'rights-log.xlsx', who: 'priya', at: 'Monday', size: '64 KB' }],
+    unshared: [['rights-log (changed on this Mac).xlsx', 'Only on this Mac: readers’ changes aren’t sent']] };
+  if (scene === 'conflict') {
+    cover.state = 'conflict';
+    cover.activity[0] = ev(ME, 'edited', 'brief.md', '10:08');
+    cover.activity.unshift(ev('sam', 'conflict', 'brief.md', '10:09', { day: 'Today' }));
+    cover.tree.splice(1, 0, { p: 'brief (conflict, Sam).md', who: 'sam', at: 'Today 10:09', size: '4 KB', conflict: true });
+    cover.tree[0] = { p: 'brief.md', who: ME, at: 'Today 10:08', size: '4 KB' };
+  }
+  if (scene === 'waiting') {
+    cover.state = 'waiting';
+    cover.activity.unshift(ev(ME, 'edited', 'brief.md', '10:21', { day: 'Today', confirmed: false }), ev(ME, 'added', 'covers/option-4.png', '10:19', { confirmed: false }));
+    cover.activity[2].day = undefined;
+    cover.tree.splice(4, 0, { p: 'covers/option-4.png', who: ME, at: 'Today 10:19', size: '17.1 MB', pending: true });
+    cover.tree[0] = { p: 'brief.md', who: ME, at: 'Today 10:21', size: '4 KB', pending: true };
+  }
+  if (scene === 'left') cover.left = true;
+  return { cover, style, contracts };
+}
+
+function load(scene) {
+  timers.forEach(clearTimeout); timers = [];
+  PEOPLE.maya.online = scene !== 'waiting';
+  F = folders(scene);
+  Object.assign(ui, { scene, project: 'Cover art', view: 'circle', circle: 'studio', sel: { kind: 'folder', id: 'cover' }, tab: 'activity', insp: 'folder', file: null, dialog: null, toast: null, placeMenu: false, rolesOpen: false });
+  if (scene === 'files') ui.tab = 'files';
+  if (scene === 'share') ui.dialog = { type: 'share', step: 'how' };
+  if (scene === 'add') ui.sel = { kind: 'folder', id: 'style' };
+  if (scene === 'chat') { ui.sel = { kind: 'chan', id: 'design' }; ui.insp = null; }
+  if (scene === 'history') { ui.tab = 'files'; ui.insp = 'file'; ui.file = 'brief.md'; }
+  if (scene === 'roles') ui.rolesOpen = true;
+  if (scene === 'reader') ui.sel = { kind: 'folder', id: 'contracts' };
+  if (scene === 'project' || scene === 'agent' || scene === 'left') ui.view = 'mac';
+  if (scene === 'remove') ui.dialog = { type: 'remove', keep: true };
+  if (scene === 'empty') { ui.circle = 'book'; ui.sel = { kind: 'chan', id: 'general' }; ui.insp = null; }
+  render();
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const av = (id) => `<span class="av" style="background:${PEOPLE[id].hue}">${PEOPLE[id].initials}</span>`;
+const nm = (id) => (id === ME ? 'You' : PEOPLE[id].name);
+const nmPos = (id) => (id === ME ? 'your' : PEOPLE[id].name + '’s');
+const roleOf = (f, id) => (f.managers.includes(id) ? 'manager' : f.roles[id] || f.def);
+const canEdit = (f, id) => roleOf(f, id) !== 'reader';
+const editors = (f) => MEMBERS.filter((m) => canEdit(f, m)).length;
+const quorum = (n) => Math.floor(n / 2) + 1;
+const folder = () => F[ui.sel.id];
+const inCircle = (key) => Object.values(F).filter((f) => f.circle === key);
+
+const I = {
+  chat: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
+  stack: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2 14 5 8 8 2 5z"/><path d="M2 8l6 3 6-3M2 11l6 3 6-3"/></svg>',
+  tasks: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8l2 2 4-4"/></svg>',
+  gear: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4"/></svg>',
+  circles: (w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none"/></svg>`,
+  folder: (w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.2c0-.7.5-1.2 1.2-1.2h3l1.5 1.6h5.1c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2z"/></svg>`,
+  sfolder: (w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.2c0-.7.5-1.2 1.2-1.2h3l1.5 1.6h5.1c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2z"/><circle cx="8" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="5.6" cy="10.4" r=".8" fill="currentColor" stroke="none"/><circle cx="10.4" cy="10.4" r=".8" fill="currentColor" stroke="none"/></svg>`,
+  file: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.8h5l3 3v9.4H4z"/><path d="M9 1.8v3h3"/></svg>',
+  spark: '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0.8 7.2 4.8 11.2 6 7.2 7.2 6 11.2 4.8 7.2 0.8 6 4.8 4.8z"/></svg>',
+  clock: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6" cy="6" r="4.6"/><path d="M6 3.4V6l1.8 1.1"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8.5l3 3 7-7"/></svg>',
+  down: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v9M4 7.5 8 11.5l4-4M3 14h10"/></svg>',
+  lock: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.5" y="7" width="9" height="7" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>',
+  panel: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>',
+  mac: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="11" height="7.5" rx="1.2"/><path d="M1 13h14"/></svg>',
+  send: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>',
+  pencil: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg>',
+};
+const ctile = (key, w = 26) => `<span class="ptile" style="background:${CIRCLES[key].hue};width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px;border-radius:${Math.round(w * 0.27)}px">${CIRCLES[key].name.slice(0, 2).toUpperCase()}</span>`;
+
+function renderBar() {
+  document.getElementById('bar').innerHTML = `<b>Shared folders</b>${SCENES.map(([id, l]) => `<button class="chip" aria-pressed="${ui.scene === id}" data-scene="${id}">${l}</button>`).join('')}<span class="sep"></span>
+    <button class="chip" data-toggle="maya">Maya ${PEOPLE.maya.online ? 'online' : 'offline'}</button>
+    <button class="chip" data-toggle="theme">${ui.theme === 'dark' ? 'Dark' : 'Light'} theme</button>
+    <p class="note">${NOTES[ui.scene]}</p>`;
+}
+
+function iconRail() {
+  return `<div class="rail"><button class="ic on" aria-label="Chat">${I.chat}</button><button class="ic" aria-label="Inference">${I.stack}</button><button class="ic" aria-label="Tasks">${I.tasks}</button><span style="flex:1"></span><button class="ic" style="margin-bottom:12px" aria-label="Settings">${I.gear}</button></div>`;
+}
+
+function placeButton() {
+  if (ui.view === 'mac') return `<button class="place" data-place-menu aria-haspopup="menu"><span class="ptile mac">${I.mac}</span><span class="pt"><b>This Mac</b><small>Projects, Hermes, your agents</small></span><span class="chev">⌄</span></button>`;
+  const c = CIRCLES[ui.circle];
+  const online = MEMBERS.filter((m) => PEOPLE[m].online).length;
+  return `<button class="place in" data-place-menu aria-haspopup="menu">${ctile(ui.circle)}<span class="pt"><b>${c.name}</b><small>Circle · 4 people · ${online} online</small></span><span class="chev">⌄</span></button>`;
+}
+function placeMenu() {
+  if (!ui.placeMenu) return '';
+  const here = ui.view === 'mac' ? 'mac' : ui.circle;
+  const row = (key, tile, name, sub) => `<button data-place="${key}">${tile}<span class="pt"><span>${name}</span><small>${sub}</small></span><span style="color:var(--brand);width:14px">${here === key ? '✓' : ''}</span></button>`;
+  return `<div class="menu" style="left:64px;top:88px;width:250px">${row('mac', `<span class="ptile mac">${I.mac}</span>`, 'This Mac', 'Projects, Hermes, your agents')}<hr>${row('studio', ctile('studio'), 'Studio', '4 people · 3 shared folders')}${row('book', ctile('book'), 'Book club', '4 people')}</div>`;
+}
+
+function stateMark(f) {
+  if (f.left) return '<small>Not syncing</small>';
+  if (f.local === 'syncing') return `<small>${Math.round(f.progress * 100)}%</small>`;
+  if (!f.local) return '<small>Not added</small>';
+  if (f.state === 'conflict') return '<span class="wdot" title="1 conflict"></span>';
+  if (f.state === 'waiting') return `<span class="clock" title="Changes waiting for a manager">${I.clock}</span>`;
+  if (roleOf(f, ME) === 'reader') return `<span class="clock" title="Read-only">${I.lock}</span>`;
+  return '';
+}
+
+function circleRail() {
+  const chans = ui.circle === 'studio' ? ['general', 'design', 'releases'] : ['general'];
+  const ch = chans.map((id) => `<button class="r ${ui.sel.kind === 'chan' && ui.sel.id === id ? 'on' : ''}" data-chan="${id}"><span class="mk ci">${I.circles()}</span><span class="t">${id[0].toUpperCase() + id.slice(1)}</span></button>`).join('');
+  const fs = inCircle(ui.circle).map((f) => `<button class="r ${ui.sel.kind === 'folder' && ui.sel.id === f.id ? 'on' : ''} ${!f.local ? 'dim' : ''}" data-folder="${f.id}"><span class="mk fo">${I.sfolder()}</span><span class="t">${esc(f.name)}</span>${stateMark(f)}</button>`).join('');
+  const people = MEMBERS.map((id) => `<button class="r">${av(id)}<span class="t">${nm(id)}${PEOPLE[id].admin ? ' <small>admin</small>' : ''}</span><span class="pdot ${PEOPLE[id].online ? '' : 'off'}"></span></button>`).join('');
+  return `<div class="sect"><span class="nm">Channels</span><button class="add" aria-label="Add a channel">+</button></div>${ch}
+    <div class="sect"><span class="nm">Folders</span><button class="add" aria-label="Share a folder" title="Share a folder" data-share>+</button></div>
+    ${fs || `<button class="r ghost" data-share><span class="mk fo">${I.folder()}</span><span class="t">Share a folder…</span></button>`}
+    <div class="sect"><span class="nm">People</span><button class="add" aria-label="Invite someone">+</button></div>${people}`;
+}
+
+function macRail() {
+  if (ui.project !== 'Cover art') return `<div class="proj"><i style="background:#3f9a8a">${ui.project[0]}</i><span style="flex:1">${esc(ui.project)}</span><span class="ctag">${ctile('studio', 16)}</span><span>⌄</span></div><button class="r"><span class="t">All chats</span></button><div class="sect"><span class="nm"><span class="mk sp">${I.spark}</span>Hermes</span><button class="add">+</button></div>`;
+  const left = ui.scene === 'left';
+  return `<div class="proj"><i>C</i><span style="flex:1">Cover art</span>${left ? '' : `<span class="ctag" title="Its folder is shared with Studio">${ctile('studio', 16)}</span>`}<span>⌄</span></div>
+    <button class="r"><span class="t">All chats</span></button>
+    <div class="sect"><span class="nm"><span class="mk sp">${I.spark}</span>Hermes</span><button class="add">+</button></div>
+    <button class="r on"><span class="mk sp">${I.spark}</span><span class="t">${ui.scene === 'agent' ? 'Brief for the designer' : 'Which cover works small?'}</span></button>
+    <button class="r"><span class="mk sp">${I.spark}</span><span class="t">Font licences</span></button>`;
+}
+
+function chatRail() {
+  return `<nav class="left" aria-label="Chats">${placeButton()}${ui.view === 'mac' ? macRail() : circleRail()}</nav>`;
+}
+
+// ---- Folder view ----
+function folderHead(f) {
+  const role = roleOf(f, ME);
+  const sub = `Shared by ${f.by === ME ? 'you' : PEOPLE[f.by].name} · ${editors(f) === 4 ? 'everyone can edit' : `${editors(f)} of 4 can edit`}`;
+  const right = f.local === true ? `<button class="btn">Show in Finder</button>${f.project ? `<button class="btn" data-open-project>Open project</button>` : ''}` : '';
+  return `<header class="head"><span class="ftile">${I.sfolder(15)}</span><div class="ttl"><strong>${esc(f.name)} <span>· Studio</span></strong><small>${sub}${role === 'reader' ? ' · you can read' : role === 'manager' ? ' · you manage it' : ''}</small></div><div class="right">${right}<button class="btn ico" aria-label="Folder details" data-insp-toggle>${I.panel}</button></div></header>`;
+}
+
+function strip(f) {
+  if (f.local === 'syncing') {
+    const n = Math.round(f.count * f.progress);
+    return `<div class="strip"><span class="ic2">${I.down}</span><span class="pt"><span>Downloading ${n} of ${f.count} files</span><div class="prog"><i style="width:${f.progress * 100}%"></i></div></span></div>`;
+  }
+  if (f.state === 'conflict') return `<div class="strip warn"><span class="wdot"></span><span class="pt"><span>1 conflict in <b>brief.md</b></span><small>Your edit and Sam’s were made from the same version. Both are in the folder.</small></span><button class="btn sm" data-resolve>Resolve</button></div>`;
+  if (f.state === 'waiting') {
+    if (PEOPLE.maya.online) return '';
+    return `<div class="strip"><span class="ic2" style="color:var(--fnt)">${I.clock}</span><span class="pt"><span>2 of your changes are waiting for Maya</span><small>Both managers confirm changes. Sam already has them; their order is final once Maya’s Mac is back.</small></span></div>`;
+  }
+  if (roleOf(f, ME) === 'reader') return `<div class="strip info"><span class="ic2">${I.lock}</span><span class="pt"><span>You can read ${esc(f.name)}</span><small>${PEOPLE[f.by].name} manages it, and only managers change it. Files on this Mac are read-only; anything you change stays here.</small></span></div>`;
+  const last = f.activity.find((a) => a.file);
+  return `<div class="strip ok"><span class="ic2">${I.check}</span><span class="pt"><span>Up to date</span><small>${f.local === true && last ? `Last change ${last.at} by ${nm(last.who)}` : ''}</small></span>${f.unshared.length ? `<button class="btn sm" data-tab="files">${f.unshared.length} not shared</button>` : ''}</div>`;
+}
+
+function activityHtml(f) {
+  let out = '';
+  f.activity.forEach((a) => {
+    if (a.day) out += `<div class="day">${a.day}</div>`;
+    let line;
+    if (a.verb === 'conflict') line = `<span><b>Sam</b>’s edit to <button class="fn" data-file="brief.md">brief.md</button> crossed yours. Kept as <button class="fn" data-file="brief (conflict, Sam).md">brief (conflict, Sam).md</button></span>`;
+    else if (!a.file) line = `<span><b>${nm(a.who)}</b> ${a.verb}</span>`;
+    else line = `<span><b>${nm(a.who)}</b> ${a.verb} <button class="fn" data-file="${esc(a.file)}">${esc(a.file)}</button></span>`;
+    const dev = a.who === ME ? 'This Mac' : PEOPLE[a.who].device;
+    out += `<div class="act ${a.confirmed ? '' : 'pend'}">${av(a.who)}<span class="pt">${line}<small>${dev} · ${a.at}${a.confirmed ? '' : ` <span class="clock" title="Waiting for Maya to confirm">${I.clock}</span> waiting for Maya`}${a.note ? ' · ' + a.note : ''}</small></span></div>`;
+  });
+  return out;
+}
+
+function filesHtml(f) {
+  const rows = f.tree.map((t) => {
+    const depth = (t.p.match(/\//g) || []).length - (t.dir ? 1 : 0);
+    const name = t.dir ? t.p.slice(0, -1).split('/').pop() + '/' : t.p.split('/').pop();
+    if (t.dir) return `<tr><td class="n dir" style="padding-left:${8 + depth * 18}px">${I.folder(13)} ${esc(name)}</td><td></td><td></td><td></td></tr>`;
+    const sel = ui.file === t.p ? 'sel' : '';
+    const tag = t.conflict ? ' <span class="tag warn">Conflict copy</span>' : t.pending ? ` <span class="clock" title="Waiting for Maya">${I.clock}</span>` : '';
+    return `<tr class="click ${sel}" data-file="${esc(t.p)}"><td class="n" style="padding-left:${8 + depth * 18}px"><span style="color:var(--fnt)">${I.file}</span><span class="mono">${esc(name)}</span>${tag}</td><td><span class="who2">${av(t.who)}${nm(t.who)}</span></td><td style="color:var(--fnt)">${t.at}</td><td class="sz">${t.size}</td></tr>`;
+  }).join('');
+  const un = f.unshared.map(([p, why]) => `<tr class="unsh"><td class="n" style="padding-left:8px"><span>${I.file}</span><span class="mono">${esc(p)}</span></td><td colspan="3"><span class="tag">${why}</span></td></tr>`).join('');
+  return `<table class="ft"><thead><tr><th>Name</th><th>Changed by</th><th>When</th><th style="text-align:right">Size</th></tr></thead><tbody>${rows}</tbody></table>
+    ${un ? `<div class="day" style="margin-top:22px">Only on this Mac · not shared</div><table class="ft"><tbody>${un}</tbody></table><p class="small">${roleOf(f, ME) === 'reader' ? 'Readers’ changes are kept here and never sent.' : 'Git folders, node_modules, .env files, symbolic links and files over 100 MB stay on the Mac they were written on.'}</p>` : ''}`;
+}
+
+function notAddedHtml(f) {
+  const role = roleOf(f, ME);
+  const have = f.have || [];
+  return `<div class="scroll"><div class="intro"><span class="ftile">${I.sfolder(24)}</span><h2>${esc(f.name)}</h2><div>${PEOPLE[f.by].name} shared this folder with Studio.</div>
+    <div class="facts"><div><b>${f.count}</b>files</div><div><b>${f.size}</b>to download</div><div><b>${role === 'reader' ? 'Read' : 'Edit'}</b>your access</div></div>
+    <div class="people">${have.map(av).join('')}</div><div class="small" style="margin-top:-10px;margin-bottom:22px">${have.map(nm).join(' and ')} ${have.length === 1 ? 'has' : 'have'} it on their Mac</div>
+    <button class="btn solid" data-add>Add to this Mac…</button>
+    <p class="small" style="margin-top:14px">Nothing downloads until you add it. Your copy is a normal folder that your agents can work in.</p></div></div>`;
+}
+
+function folderView(f) {
+  if (!f.local) return `<main class="center">${folderHead(f)}${notAddedHtml(f)}</main>`;
+  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${ui.tab === 'activity'}" data-tab="activity">Activity</button><button role="tab" aria-selected="${ui.tab === 'files'}" data-tab="files">Files<span class="cnt">${f.count}</span></button></div>`;
+  return `<main class="center">${folderHead(f)}<div class="scroll"><div class="col">${strip(f)}${f.local === true ? tabs + (ui.tab === 'files' ? filesHtml(f) : activityHtml(f)) : ''}</div></div></main>`;
+}
+
+// ---- Channel view (link from chat, empty Circle) ----
+function chanView() {
+  const name = ui.sel.id[0].toUpperCase() + ui.sel.id.slice(1);
+  const cname = CIRCLES[ui.circle].name;
+  let body;
+  if (ui.circle === 'book') body = `<div class="msg">${av('maya')}<div><div class="who"><b>Maya</b> 9:02</div><div class="text">Has anyone started chapter 4 yet?</div></div></div><div class="msg">${av('sam')}<div><div class="who"><b>Sam</b> 9:05</div><div class="text">Halfway. The flashback in the middle threw me for a minute.</div></div></div>`;
+  else body = `<div class="day">Today</div>
+    <div class="msg">${av('maya')}<div><div class="who"><b>Maya</b> 10:02</div><div class="text">New cover options are in Cover art. I like the second one, but the type is too tight at small sizes.</div>
+      <button class="fchip" data-goto-file="covers/option-2.png">${I.file}<span class="mono">covers/option-2.png</span><small>Cover art</small></button></div></div>
+    <div class="msg">${av('sam')}<div><div class="who"><b>Sam</b> 10:09</div><div class="text">Agree on two. I updated the brief with the lighter weight.</div>
+      <button class="fchip" data-goto-file="brief.md">${I.file}<span class="mono">brief.md</span><small>Cover art</small></button></div></div>`;
+  return `<main class="center"><header class="head"><span class="mk ci" style="margin-bottom:12px">${I.circles(16)}</span><div class="ttl"><strong>${cname} <span>· ${name}</span></strong><small>Circle channel · 4 people</small></div></header>
+    <div class="scroll"><div class="col">${body}</div></div>
+    <div class="foot"><div class="col"><div class="box circle"><div class="ph">Message ${cname} · 4 people</div><div class="tools"><span class="pill aud">${I.circles(12)} ${cname} · ${name}</span>${inCircle(ui.circle).length ? `<span class="pill" title="Link a file from a shared folder">${I.sfolder(12)} Link a file</span>` : ''}<button class="send" disabled>${I.send}</button></div></div><div class="hint">Everyone in ${cname} gets a copy</div></div></div></main>`;
+}
+
+// ---- This Mac: Hermes chat in the Cover art project ----
+function macView() {
+  if (ui.project !== 'Cover art') return `<main class="center"><div class="intro"><span class="mk sp" style="width:40px;height:40px;margin:0 auto 14px;border-radius:10px">${I.spark}</span><h2>${esc(ui.project)}</h2><div>No chats yet. Hermes can read and edit the shared folder from the first chat.</div><button class="btn solid" style="margin-top:18px">New chat ⌘N</button></div></main>`;
+  let body;
+  if (ui.scene === 'agent') body = `<div class="uturn"><div class="bub">Update brief.md for the designer: we’re going with option 2, lighter weight for small sizes, deliver by the 14th.</div></div>
+    <div class="aturn"><div class="wh">Hermes</div>
+      <div class="tool">${I.pencil}<span class="pt">Edited <span class="mono">brief.md</span></span><span class="tag br">${I.sfolder(11)} Shared with Studio</span></div>
+      <div class="text">Done. The brief now names option 2, asks for Source Serif at the regular weight below 24 pt, and moves the delivery date to the 14th. Everyone in Studio has the new version.</div></div>`;
+  else body = `<div class="uturn"><div class="bub">Which of the three covers holds up best at thumbnail size?</div></div>
+    <div class="aturn"><div class="wh">Hermes</div><div class="text">Option 2. Its title is set larger and the contrast between the type and the water survives down to about 120 px wide. Option 1 loses the subtitle first.</div></div>`;
+  const hint = ui.scene === 'left' ? 'Hermes chat · stays on this Mac' : 'Hermes chat · stays on this Mac · files it writes in Cover art reach Studio';
+  return `<main class="center"><header class="head"><span class="mk sp" style="width:18px;height:18px;margin-bottom:12px">${I.spark}</span><div class="ttl"><strong>${ui.scene === 'agent' ? 'Brief for the designer' : 'Which cover works small?'}</strong><small>Hermes chat · Cover art</small></div><div class="right"><button class="btn">New chat ⌘N</button></div></header>
+    <div class="scroll"><div class="col">${body}</div></div>
+    <div class="foot"><div class="col"><div class="box"><div class="ph">Ask Hermes anything</div><div class="tools"><span class="pill">Cover art</span><span class="pill">qwen3-32b</span><button class="send" disabled>${I.send}</button></div></div><div class="hint">${hint}</div></div></div></main>`;
+}
+
+function projectTab() {
+  if (ui.project !== 'Cover art') { const f = Object.values(F).find((x) => x.project === ui.project) || F.style; return `<aside class="insp"><div class="itabs"><button class="itab">Session</button><button class="itab on">Project</button></div><div class="ibody"><div style="display:flex;align-items:center;gap:10px"><span class="ptile" style="background:#3f9a8a;width:34px;height:34px">${ui.project[0]}</span><div><h3>${esc(ui.project)}</h3><div class="sub mono">${esc(f.path)}</div></div></div><div class="isec">Folders</div><div class="fold"><div class="top">${I.sfolder(14)}<b>${esc(f.name)}</b><span class="tag br">Shared · Studio</span></div><div class="path">${esc(f.path)} · this project’s folder</div><div class="line">${roleOf(f, ME) === 'reader' ? `${PEOPLE[f.by].name} manages it. Hermes can read it; your changes stay on this Mac.` : 'Everyone in Studio can edit. Anything you or Hermes writes here goes to all 4 people.'}</div><div class="setrow"><span class="pt"><span>Coding agent can edit</span><small>Off</small></span><button class="sw" role="switch" aria-checked="false" aria-label="Coding access"></button></div><button class="btn sm" style="margin-top:8px" data-goto-folder="${f.id}">Open in Studio</button></div></div></aside>`; }
+  const left = ui.scene === 'left';
+  const cover = left
+    ? `<div class="fold"><div class="top">${I.folder(14)}<b>Cover art</b><span class="tag">No longer shared</span></div><div class="path">~/Circles/Studio/Cover art</div><div class="line">You left Studio on 9 November. This copy stays on your Mac and no longer syncs. Hermes can still read it.</div><div class="setrow"><span class="pt"><span>Coding agent can edit</span><small>Off</small></span><button class="sw" role="switch" aria-checked="false" aria-label="Coding access"></button></div><button class="btn sm" style="margin-top:8px">Remove from project</button></div>`
+    : `<div class="fold"><div class="top">${I.sfolder(14)}<b>Cover art</b><span class="tag br">Shared · Studio</span></div><div class="path">~/Circles/Studio/Cover art · this project’s folder</div><div class="line">Everyone in Studio can edit. Anything you or Hermes writes here goes to all 4 people.</div>
+      <div class="setrow"><span class="pt"><span>Coding agent can edit</span><small>Off. The coding agent’s changes would sync to Studio too.</small></span><button class="sw" role="switch" aria-checked="${!!ui.coding}" aria-label="Coding access" data-coding></button></div>
+      <button class="btn sm" style="margin-top:8px" data-goto-folder="cover">Open in Studio</button></div>`;
+  const contracts = left ? '' : `<div class="fold"><div class="top">${I.sfolder(14)}<b>Contracts</b><span class="tag br">Shared · Studio</span><span class="tag">Read-only</span></div><div class="path">~/Circles/Studio/Contracts</div><div class="line">Priya manages it. Hermes can read it; your changes stay on this Mac.</div></div>`;
+  return `<aside class="insp"><div class="itabs"><button class="itab">Session</button><button class="itab on">Project</button></div><div class="ibody">
+    <div style="display:flex;align-items:center;gap:10px"><span class="ptile" style="background:#c4843a;width:34px;height:34px">C</span><div><h3>Cover art</h3><div class="sub mono">~/Circles/Studio/Cover art</div></div></div>
+    <div class="isec">Folders</div>${cover}${contracts}<button class="btn sm" style="margin-top:6px">Add folder…</button></div></aside>`;
+}
+
+// ---- Inspector in a Circle ----
+function folderInsp(f) {
+  const me = roleOf(f, ME);
+  const roleLine = { manager: 'Manager: you change roles and confirm changes', editor: 'Editor: you can change files', reader: 'Reader: you can read' }[me];
+  const people = MEMBERS.map((id) => {
+    const r = roleOf(f, id);
+    const ctl = ui.rolesOpen && me === 'manager' && id !== ME
+      ? `<select data-role="${id}" aria-label="${PEOPLE[id].name}’s role"><option value="manager" ${r === 'manager' ? 'selected' : ''}>Manager</option><option value="editor" ${r === 'editor' ? 'selected' : ''}>Editor</option><option value="reader" ${r === 'reader' ? 'selected' : ''}>Reader</option></select>`
+      : `<small>${r[0].toUpperCase() + r.slice(1)}</small>`;
+    return `<div class="irow">${av(id)}<span class="pt"><span>${nm(id)}</span><small>${id === f.by ? 'Shared it · ' : ''}${PEOPLE[id].online ? 'Online' : 'Offline'}</small></span>${ctl}</div>`;
+  }).join('');
+  const m = f.managers.length;
+  const q = quorum(m);
+  const local = f.local === true ? `<div class="isec">On this Mac</div><div class="kv"><span class="mono">${esc(f.path)}</span><small>${f.size} · ${f.count} files</small></div>
+    <div class="kv"><span>${f.extra ? 'In the Cover art project' : f.project ? `Project: ${esc(f.project)}` : 'Not in a project'}</span><small>${f.project ? '<button class="fn" style="font-family:inherit" data-open-project>Open project</button>' : ''}</small></div>` : '';
+  return `<aside class="insp"><div class="itabs"><button class="itab on">Folder</button><button class="itab">Circle</button><button class="x" data-insp-close aria-label="Close">×</button></div><div class="ibody">
+    <div style="display:flex;align-items:center;gap:10px"><span class="ftile" style="width:34px;height:34px">${I.sfolder(16)}</span><div><h3>${esc(f.name)}</h3><div class="sub">${roleLine}</div></div></div>
+    ${local}
+    <div class="isec" style="display:flex;justify-content:space-between;align-items:center">People<span>${me === 'manager' ? `<button class="fn" style="font-family:inherit;text-transform:none;letter-spacing:0" data-roles>${ui.rolesOpen ? 'Done' : 'Change roles'}</button>` : ''}</span></div>${people}
+    <div class="explain">${m === 1 ? `Changes confirm when ${PEOPLE[f.managers[0]].name === 'Jordan' ? 'you are' : PEOPLE[f.managers[0]].name + ' is'} online.` : `${m} managers: changes confirm when ${q === m ? (m === 2 ? 'both' : 'all') : `${q} of ${m}`} have seen them.`} New members join as ${f.def === 'reader' ? 'readers' : 'editors'}.</div>
+    ${f.local === true ? `<div style="margin-top:22px;padding-top:12px;border-top:1px solid var(--line)"><button class="btn danger" data-remove>Remove from this Mac…</button></div>` : ''}
+  </div></aside>`;
+}
+
+const VERSIONS = [
+  ['sam', 'Today 10:09', 'Sam’s MacBook Air', 'current'],
+  [ME, 'Today 9:40', 'This Mac', 'here'],
+  ['maya', 'Yesterday 16:02', 'Maya’s iMac', 'fetch'],
+  ['priya', 'Yesterday 15:30', 'Priya’s MacBook Pro', 'offline'],
+];
+function fileInsp(f) {
+  const p = ui.file;
+  const t = f.tree.find((x) => x.p === p);
+  const vs = p === 'brief.md' && ui.scene !== 'conflict' && ui.scene !== 'waiting' ? VERSIONS : [[t ? t.who : f.by, t ? t.at : '', t && t.who !== ME ? PEOPLE[t.who].device : 'This Mac', 'current']];
+  const rows = vs.map(([who, at, dev, st]) => {
+    const act = st === 'current' ? '<span class="tag ok">Current</span>'
+      : st === 'offline' ? `<span class="tag" title="Only Priya’s Mac has this version">On Priya’s Mac</span>`
+      : `<button class="btn sm" data-restore="${at}">Restore</button>`;
+    const sub = st === 'fetch' ? `${dev} · downloads when opened` : st === 'offline' ? `${dev} · offline` : dev;
+    return `<div class="vrow">${av(who)}<span class="pt"><span>${nm(who)} · ${at}</span><small>${sub}</small></span>${act}</div>`;
+  }).join('');
+  return `<aside class="insp"><div class="itabs"><button class="back" data-insp-back>‹ ${esc(f.name)}</button><button class="x" data-insp-close aria-label="Close">×</button></div><div class="ibody">
+    <h3 class="mono" style="font-size:13.5px">${esc(p)}</h3><div class="sub">${t ? t.size : ''} · ${esc(f.name)}</div>
+    <div style="display:flex;gap:6px;margin-top:12px"><button class="btn sm">Open</button><button class="btn sm">Show in Finder</button><button class="btn sm" data-copy-link>Copy link</button></div>
+    <div class="isec">History</div>${rows}
+    <p class="small" style="margin-top:12px">Restoring writes that version as a new change, so nothing in the history is lost.</p></div></aside>`;
+}
+
+function inspector() {
+  if (ui.view === 'mac') return projectTab();
+  if (ui.sel.kind !== 'folder' || !ui.insp) return '';
+  const f = folder();
+  if (ui.insp === 'file' && ui.file) return fileInsp(f);
+  return folderInsp(f);
+}
+
+// ---- Sheets ----
+const PICKS = {
+  spring: { name: 'spring-list', path: '~/Projects/spring-list', files: 214, size: '380 MB', unshared: [['.env', 'Secrets file'], ['promo/trailer.mov', 'Over 100 MB'], ['.DS_Store', '6 system files']] },
+  site: { name: 'press-site', path: '~/Code/press-site', git: true },
+  icloud: { name: 'Manuscripts', path: '~/Library/Mobile Documents/com~apple~CloudDocs/Manuscripts', files: 58, size: '96 MB', icloud: true, unshared: [] },
+};
+function stepsBar(step) {
+  const order = [['how', 'Folder'], ['review', 'Check'], ['people', 'People']];
+  const idx = order.findIndex(([k]) => k === (step === 'pick' ? 'how' : step));
+  return `<div class="steps">${order.map(([k, l], i) => `<span class="${i === idx ? 'on' : i < idx ? 'done' : ''}">${i + 1} ${l}</span>`).join('')}</div>`;
+}
+function shareSheet(d) {
+  const cname = CIRCLES[ui.circle].name;
+  if (d.step === 'how') return `<div class="sheet">${stepsBar('how')}<h2>Share a folder with ${cname}</h2><p>Every member can add it to their Mac. Each copy is a normal folder that people and their agents work in, and changes sync between Macs.</p>
+    <button class="opt ${d.src !== 'new' ? 'on' : ''}" data-src="pick"><span class="rd"></span><span class="pt"><span>Share a folder from this Mac</span><small>The folder stays where it is and becomes your copy.</small></span></button>
+    <button class="opt ${d.src === 'new' ? 'on' : ''}" data-src="new"><span class="rd"></span><span class="pt"><span>Start an empty folder</span><small>Made in ~/Circles/${cname}/</small></span></button>
+    ${d.src === 'new' ? `<label class="f">Name<input type="text" data-new-name value="${esc(d.name || '')}" placeholder="Spring catalogue"></label>` : ''}
+    <div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-next="${d.src === 'new' ? 'people' : 'pick'}">${d.src === 'new' ? 'Next' : 'Choose folder…'}</button></div></div>`;
+  if (d.step === 'pick') return `<div class="sheet">${stepsBar('pick')}<h2>Choose a folder</h2><p>Stand-in for the macOS folder picker.</p>
+    <div class="finder"><div class="fh">Recent folders</div>${Object.entries(PICKS).map(([k, p]) => `<button class="${d.pick === k ? 'on' : ''}" data-pick="${k}">${I.folder(16)}<span class="pt"><span>${p.name}</span><small>${p.path}</small></span></button>`).join('')}</div>
+    <div class="acts2"><button class="btn" data-back="how">Back</button><button class="btn solid" data-next="review" ${d.pick ? '' : 'disabled'}>Choose</button></div></div>`;
+  if (d.step === 'review') {
+    const p = PICKS[d.pick];
+    if (p.git) return `<div class="sheet">${stepsBar('review')}<h2>${p.name} can’t be shared</h2><p class="mono" style="font-size:12px">${p.path}</p>
+      <div class="callout dng"><span><b>This folder is a git repository.</b> Shared folders sync whole files, so two people’s edits would leave each Mac’s repository in a different state. Share code through git, and add the repository to a project on each Mac.</span></div>
+      <div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-next="pick">Choose another folder</button></div></div>`;
+    const ic = p.icloud ? `<div class="callout warn"><span><b>This folder is in iCloud Drive.</b> iCloud and Boundary would both sync it and overwrite each other’s changes. Boundary can share a copy in ~/Circles/${cname}/ instead; the original stays in iCloud Drive and stops being the one you work in.</span></div>` : '';
+    return `<div class="sheet">${stepsBar('review')}<h2>Share ${p.icloud ? 'a copy of ' : ''}${p.name}</h2><p class="mono" style="font-size:12px">${p.icloud ? `~/Circles/${cname}/${p.name}` : p.path}</p>${ic}
+      <div class="scan"><div><b>${p.files}</b>files</div><div><b>${p.size}</b>each member downloads</div></div>
+      ${p.unshared.length ? `<div class="small" style="margin-bottom:6px">These stay on this Mac:</div><ul class="ul">${p.unshared.map(([f, why]) => `<li><span class="mono">${f}</span><small>${why}</small></li>`).join('')}</ul>` : ''}
+      <div class="acts2"><button class="btn" data-back="pick">Back</button><button class="btn solid" data-next="people">${p.icloud ? 'Copy and continue' : 'Next'}</button></div></div>`;
+  }
+  // people
+  const mgrs = d.managers;
+  const q = quorum(mgrs.length);
+  const name = d.src === 'new' ? (d.name || 'Spring catalogue') : PICKS[d.pick].icloud ? PICKS[d.pick].name : PICKS[d.pick].name;
+  const rows = MEMBERS.map((id) => `<div class="mgr"><button class="cb" role="checkbox" aria-checked="${mgrs.includes(id)}" ${id === ME ? 'disabled' : ''} data-mgr="${id}" aria-label="${PEOPLE[id].name} manages">${mgrs.includes(id) ? '✓' : ''}</button>${av(id)}<span class="pt"><span>${nm(id)}</span><small>${id === ME ? 'Always a manager: you shared it' : PEOPLE[id].online ? 'Online now' : 'Offline now'}</small></span></div>`).join('');
+  const qline = mgrs.length === 1 ? 'Changes confirm when <b>you</b> are online.' : `Changes confirm when <b>${q === mgrs.length ? (mgrs.length === 2 ? 'both' : 'all') : `${q} of ${mgrs.length}`}</b> managers have seen them.`;
+  const tip = mgrs.length === 2 ? ' Two managers makes every change wait for both; one or three wait less.' : mgrs.length === 1 ? ' If you leave Studio, nobody can change roles. Adding managers keeps the folder manageable.' : '';
+  return `<div class="sheet">${stepsBar('people')}<h2>Who can change ${esc(name)}?</h2><p>Everyone in ${cname} can add it and read it.</p>
+    <button class="opt ${d.def === 'editor' ? 'on' : ''}" data-def="editor"><span class="rd"></span><span class="pt"><span>Everyone can edit</span><small>Members change files in their own copy and the change syncs.</small></span></button>
+    <button class="opt ${d.def === 'reader' ? 'on' : ''}" data-def="reader"><span class="rd"></span><span class="pt"><span>Only managers edit</span><small>Everyone else gets a read-only copy.</small></span></button>
+    <div class="isec" style="margin-top:14px">Managers</div>${rows}
+    <div class="quorum">${qline}${tip}</div>
+    <ul class="cons"><li>Every member who adds it gets a full copy and keeps it if they leave.</li><li>Anything you or your agents write in it goes to every member who added it.</li></ul>
+    <div class="acts2"><button class="btn" data-back="${d.src === 'new' ? 'how' : 'review'}">Back</button><button class="btn solid" data-do-share>Share with ${cname}</button></div></div>`;
+}
+
+function addSheet(d) {
+  const f = folder();
+  const opt = (k, title, sub) => `<button class="opt ${d.as === k ? 'on' : ''}" data-as="${k}"><span class="rd"></span><span class="pt"><span>${title}</span><small>${sub}</small></span></button>`;
+  return `<div class="sheet"><h2>Add ${esc(f.name)} to this Mac</h2><p>${f.count} files, ${f.size}. Changes sync while Boundary is open.</p>
+    <label class="f">Location<span style="display:flex;gap:8px"><input type="text" value="~/Circles/Studio/${esc(f.name)}" readonly><button class="btn">Change…</button></span></label>
+    <div class="small" style="margin-bottom:6px">Use it in</div>
+    ${opt('new', `A new project named ${esc(f.name)}`, 'Chats about it start there. The project, its chats and its settings stay yours.')}
+    ${opt('existing', 'An existing project', d.as === 'existing' ? '<span style="display:inline-flex;gap:6px;align-items:center">Add it as a folder in <span class="pill" style="height:22px">Cover art ⌄</span></span>' : 'Add it as an extra folder.')}
+    ${opt('none', 'No project for now', 'Just the folder. You can add it to a project later.')}
+    <div class="callout plain" style="margin-top:6px"><span>${roleOf(f, ME) === 'reader' ? 'You can read it; your copy is read-only.' : 'You can edit it. What you and your agents write here goes to everyone in Studio who added it.'} If you leave Studio, your copy stays on this Mac.</span></div>
+    <div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn solid" data-do-add>Add and download ${f.size}</button></div></div>`;
+}
+
+const BRIEF_MINE = ['Spring list · cover brief', '', 'Title: The Lower Road', 'Mood: quiet, late summer, the water going down', 'Type: Source Serif, regular weight below 24 pt', 'Deliver: three options by the 14th'];
+const BRIEF_SAM = ['Spring list · cover brief', '', 'Title: The Lower Road', 'Mood: quiet, late summer, the water going down', 'Type: Source Serif, light weight below 24 pt', 'Deliver: two options by the 12th'];
+function conflictSheet() {
+  const side = (who, lines, other, label) => `<div class="side"><div class="sh">${av(who)}<span style="flex:1">${label}</span></div><pre>${lines.map((l, i) => `<span class="${l !== other[i] ? 'ch' : ''}">${esc(l) || ' '}</span>`).join('')}</pre></div>`;
+  return `<div class="sheet wide"><h2>brief.md: your edit and Sam’s crossed</h2><p>Both started from Maya’s version of yesterday 16:02. Pick the one to keep; the other stays in the file’s history.</p>
+    <div class="diff">${side(ME, BRIEF_MINE, BRIEF_SAM, 'Yours · This Mac · 10:08 · <span class="mono">brief.md</span>')}${side('sam', BRIEF_SAM, BRIEF_MINE, 'Sam’s · 10:09 · <span class="mono">brief (conflict, Sam).md</span>')}</div>
+    <div class="acts2"><span class="grow small">Boundary doesn’t merge text. To combine them, edit brief.md and choose Keep yours.</span><button class="btn" data-close>Later</button><button class="btn" data-keep="both">Keep both</button><button class="btn" data-keep="sam">Keep Sam’s</button><button class="btn solid" data-keep="mine">Keep yours</button></div></div>`;
+}
+
+function removeSheet(d) {
+  const f = folder();
+  const opt = (k, title, sub) => `<button class="opt ${d.keep === k ? 'on' : ''}" data-keep-files="${k}"><span class="rd"></span><span class="pt"><span>${title}</span><small>${sub}</small></span></button>`;
+  return `<div class="sheet"><h2>Remove ${esc(f.name)} from this Mac?</h2><p>It stops syncing here. Studio keeps the folder, and you can add it again.</p>
+    ${opt(true, 'Keep the files', `${f.path} stays as an ordinary folder.`)}
+    ${opt(false, 'Move the files to the Trash', 'You can put them back from the Trash in Finder.')}
+    ${f.project ? `<div class="callout plain"><span>The ${esc(f.project)} project stays. ${f.extra ? 'This folder' : 'Its folder'} will no longer be shared.</span></div>` : ''}
+    <div class="acts2"><button class="btn" data-close>Cancel</button><button class="btn danger" data-do-remove>Remove from this Mac</button></div></div>`;
+}
+
+function dialogHtml() {
+  const d = ui.dialog;
+  if (!d) return '';
+  const inner = d.type === 'share' ? shareSheet(d) : d.type === 'add' ? addSheet(d) : d.type === 'conflict' ? conflictSheet() : removeSheet(d);
+  return `<div class="scrim" data-scrim>${inner}</div>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = ui.theme;
+  renderBar();
+  let center;
+  if (ui.view === 'mac') center = macView();
+  else if (ui.sel.kind === 'chan') center = chanView();
+  else center = folderView(folder());
+  document.getElementById('app').innerHTML = iconRail() + chatRail() + center + inspector() + placeMenu() + dialogHtml()
+    + (ui.toast ? `<div class="toast" role="status">${ui.toast}</div>` : '');
+  document.querySelector('[data-new-name]')?.focus();
+  fit();
+}
+function fit() {
+  const k = Math.min(1, (window.innerWidth - 32) / 1280);
+  const f = document.getElementById('fit');
+  f.style.transform = `scale(${k})`; f.style.width = 1280 * k + 'px'; f.style.height = 800 * k + 'px';
+}
+window.addEventListener('resize', fit);
+function toast(t) { ui.toast = t; render(); later(() => { ui.toast = null; render(); }, 3500); }
+
+function download(f) {
+  f.local = 'syncing'; f.progress = 0; f.project = ui.dialog.as === 'none' ? null : ui.dialog.as === 'existing' ? 'Cover art' : f.name;
+  f.extra = ui.dialog.as === 'existing';
+  f.have = [...(f.have || []), ME];
+  ui.dialog = null;
+  const tick = () => { f.progress = Math.min(1, f.progress + 0.12); if (f.progress >= 1) { f.local = true; render(); toast(`${f.name} is on this Mac${f.project ? ` · <button data-open-project>Open project</button>` : ''}`); return; } render(); later(tick, 450); };
+  render(); later(tick, 450);
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button, tr[data-file]') || e.target;
+  const d = t.dataset || {};
+  if (d.scene) return load(d.scene);
+  if (d.toggle === 'theme') { ui.theme = ui.theme === 'dark' ? 'light' : 'dark'; return render(); }
+  if (d.toggle === 'maya') {
+    PEOPLE.maya.online = !PEOPLE.maya.online;
+    if (PEOPLE.maya.online && F.cover.state === 'waiting') {
+      render();
+      later(() => { F.cover.activity.forEach((a) => { a.confirmed = true; }); F.cover.tree.forEach((x) => { x.pending = false; }); F.cover.state = 'ok'; toast('Maya confirmed your 2 changes to Cover art'); }, 1200);
+      return;
+    }
+    return render();
+  }
+  if (t.matches?.('[data-place-menu]')) { ui.placeMenu = !ui.placeMenu; return render(); }
+  if (d.place) { ui.placeMenu = false; if (d.place === 'mac') ui.view = 'mac'; else { ui.view = 'circle'; ui.circle = d.place; ui.sel = d.place === 'studio' ? { kind: 'folder', id: 'cover' } : { kind: 'chan', id: 'general' }; ui.insp = d.place === 'studio' ? 'folder' : null; } return render(); }
+  if (ui.placeMenu && !t.closest?.('.menu')) { ui.placeMenu = false; render(); }
+  if (d.chan) { ui.sel = { kind: 'chan', id: d.chan }; ui.insp = null; return render(); }
+  if (d.folder) { ui.sel = { kind: 'folder', id: d.folder }; ui.insp = 'folder'; ui.file = null; ui.tab = 'activity'; return render(); }
+  if (d.tab) { ui.tab = d.tab; return render(); }
+  if (d.file !== undefined && t.matches('[data-file]')) { ui.file = d.file; ui.insp = 'file'; return render(); }
+  if (d.gotoFile) { ui.sel = { kind: 'folder', id: 'cover' }; ui.tab = 'files'; ui.file = d.gotoFile; ui.insp = 'file'; return render(); }
+  if (d.gotoFolder) { ui.view = 'circle'; ui.circle = 'studio'; ui.sel = { kind: 'folder', id: d.gotoFolder }; ui.insp = 'folder'; return render(); }
+  if (t.matches?.('[data-insp-toggle]')) { ui.insp = ui.insp ? null : 'folder'; return render(); }
+  if (t.matches?.('[data-insp-close]')) { ui.insp = null; return render(); }
+  if (t.matches?.('[data-insp-back]')) { ui.insp = 'folder'; ui.file = null; return render(); }
+  if (t.matches?.('[data-roles]')) { ui.rolesOpen = !ui.rolesOpen; return render(); }
+  if (t.matches?.('[data-open-project]')) { const f = ui.sel.kind === 'folder' ? folder() : null; ui.project = f && f.project ? f.project : 'Cover art'; ui.view = 'mac'; ui.toast = null; return render(); }
+  if (t.matches?.('[data-coding]')) { ui.coding = !ui.coding; return render(); }
+  if (d.restore) return toast(`Restored brief.md from ${d.restore}. Everyone in Studio gets it.`);
+  if (t.matches?.('[data-copy-link]')) return toast('Link copied. It opens this file for anyone in Studio who added Cover art.');
+  // Share
+  if (t.matches?.('[data-share]')) { ui.dialog = { type: 'share', step: 'how' }; return render(); }
+  if (d.src) { ui.dialog.src = d.src === 'new' ? 'new' : null; return render(); }
+  if (d.pick) { ui.dialog.pick = d.pick; return render(); }
+  if (d.next) { const dl = ui.dialog; if (dl.step === 'how' && dl.src === 'new') dl.name = document.querySelector('[data-new-name]')?.value || dl.name; dl.step = d.next; if (d.next === 'people' && !dl.managers) { dl.managers = [ME]; dl.def = 'editor'; } return render(); }
+  if (d.back) { ui.dialog.step = d.back; return render(); }
+  if (d.def) { ui.dialog.def = d.def; return render(); }
+  if (d.mgr) { const m = ui.dialog.managers; ui.dialog.managers = m.includes(d.mgr) ? m.filter((x) => x !== d.mgr) : [...m, d.mgr]; return render(); }
+  if (t.matches?.('[data-do-share]')) {
+    const dl = ui.dialog;
+    const p = dl.src === 'new' ? null : PICKS[dl.pick];
+    const name = dl.src === 'new' ? (dl.name || 'Spring catalogue') : p.name;
+    const id = 'f' + Date.now();
+    F[id] = { id, circle: ui.circle, name, by: ME, managers: dl.managers, def: dl.def, roles: {}, local: true, path: p && !p.icloud ? p.path : `~/Circles/${CIRCLES[ui.circle].name}/${name}`, project: p && !p.icloud ? name : null, size: p ? p.size : '0 KB', count: p ? p.files : 0, state: 'ok',
+      activity: [ev(ME, 'shared the folder', '', 'now', { day: 'Today' })], tree: [], unshared: p ? p.unshared : [] };
+    ui.dialog = null; ui.sel = { kind: 'folder', id }; ui.insp = 'folder'; ui.tab = 'activity';
+    return toast(`${esc(name)} is shared with ${CIRCLES[ui.circle].name}. Members see it under Folders.`);
+  }
+  // Add
+  if (t.matches?.('[data-add]')) { ui.dialog = { type: 'add', as: 'new' }; return render(); }
+  if (d.as) { ui.dialog.as = d.as; return render(); }
+  if (t.matches?.('[data-do-add]')) return download(folder());
+  // Conflict
+  if (t.matches?.('[data-resolve]')) { ui.dialog = { type: 'conflict' }; return render(); }
+  if (d.keep) {
+    const f = F.cover;
+    f.state = 'ok'; ui.dialog = null;
+    if (d.keep !== 'both') f.tree = f.tree.filter((x) => !x.conflict);
+    if (d.keep === 'sam') f.tree[0] = { p: 'brief.md', who: 'sam', at: 'Today 10:09', size: '4 KB' };
+    f.activity.splice(0, 1, ev(ME, d.keep === 'both' ? 'kept both versions of' : d.keep === 'sam' ? 'kept Sam’s version of' : 'kept your version of', 'brief.md', 'now', { day: 'Today' }));
+    return toast(d.keep === 'both' ? 'Kept both files.' : 'Conflict resolved. The other version stays in brief.md’s history.');
+  }
+  // Remove
+  if (t.matches?.('[data-remove]')) { ui.dialog = { type: 'remove', keep: true }; return render(); }
+  if (d.keepFiles !== undefined) { ui.dialog.keep = d.keepFiles === 'true'; return render(); }
+  if (t.matches?.('[data-do-remove]')) { const f = folder(); const kept = ui.dialog.keep; f.local = false; f.have = ['maya', 'sam', 'priya']; ui.dialog = null; ui.insp = null; return toast(kept ? `${f.name} stopped syncing. The files stay in ${f.path}.` : `${f.name} stopped syncing and its files are in the Trash.`); }
+  if (t.matches?.('[data-close]') || (t.matches?.('[data-scrim]') && e.target === t)) { ui.dialog = null; return render(); }
+});
+document.addEventListener('change', (e) => {
+  const s = e.target;
+  if (s.dataset.role) {
+    const f = folder(); const id = s.dataset.role; const v = s.value;
+    f.managers = f.managers.filter((x) => x !== id);
+    delete f.roles[id];
+    if (v === 'manager') f.managers.push(id); else f.roles[id] = v;
+    render();
+  }
+});
+document.addEventListener('input', (e) => { if (e.target.matches('[data-new-name]') && ui.dialog) ui.dialog.name = e.target.value; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { ui.dialog = null; ui.placeMenu = false; render(); } });
+
+const q = new URLSearchParams(location.search);
+if (q.get('theme') === 'light') ui.theme = 'light';
+load(SCENES.some(([id]) => id === q.get('start')) ? q.get('start') : 'folder');
+</script>
+</body>
+</html>

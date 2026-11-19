@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { Segmented } from '../components/ui/segmented';
-import { UpdatesPanel } from './UpdatesPanel';
 import { useThemePreference } from '../theme';
+import { useReplyText } from '../replyText';
+import { describeReplyText } from '../../shared/replyText';
+import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
+import { useBusySendPref } from './chat/busySendPref';
 import { useInferenceStatus } from '../onboarding/inferenceStatus';
-import { CIRCLE_MEMBER_PROVIDER } from './cloudInferenceCopy';
-import { PasswordsLoginsPanel } from './PasswordsLoginsPanel';
-import { CalendarsPanel } from './CalendarsPanel';
-import { CodingFoldersPanel } from './CodingFoldersPanel';
-import { AgentBrowserPanel } from './AgentBrowserPanel';
-import { ComputerAccessPanel } from './ComputerAccessPanel';
-import { SETTINGS_TABS, type SettingsTab } from './settingsNavigation';
+import { appCloudProvider } from './cloudInferenceCopy';
+import { SETTINGS_PANELS } from './settingsPanels';
+import { SETTINGS_TABS, isSettingsPanelTab, type SettingsTab } from './settingsNavigation';
 import { rendererExperiments } from '../experiments';
 import { dispatchAppCommand } from './useAppShortcuts';
 import { CirclesProfileSection } from './circles/CirclesProfile';
+import { NotificationsSettingsSection } from './circles/NotificationsSettingsSection';
+import { AssistantRestartSection } from './AssistantRestartSection';
+import { useDesktopAgentSwitch } from './desktopAgent/useDesktopAgentSwitch';
+import { PanelShortcutField } from './desktopAgent/PanelShortcutField';
+import { APP_NAME } from '../../shared/buildIdentity';
+import { Button } from '../components/ui/button';
+import { Switch } from '../components/ui/switch';
 
 interface ProductSettingsScreenProps {
   onBack: () => void;
@@ -29,14 +35,17 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   initialAgentSlug,
 }) => {
   const [themePreference, setThemePreference] = useThemePreference();
+  const [replyText] = useReplyText();
+  const [busySend, setBusySend] = useBusySendPref();
+  const desktopAgent = useDesktopAgentSwitch();
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
   const { status } = useInferenceStatus();
 
   return (
     <section className="wb-inference wb-reading" aria-label="Settings">
-      <button type="button" className="wb-inference-btn" onClick={onBack}>
+      <Button variant="secondary" type="button" onClick={onBack}>
         Back to chat
-      </button>
+      </Button>
       <h1>Settings</h1>
       <div className="wb-settings-tabs" role="tablist" aria-label="Settings sections">
         {SETTINGS_TABS.map((t) => (
@@ -45,6 +54,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
             type="button"
             role="tab"
             id={`settings-tab-${t.id}`}
+            data-guide-anchor={`settings-${t.id}`}
             aria-selected={tab === t.id}
             aria-controls="settings-tabpanel"
             onClick={() => setTab(t.id)}
@@ -55,31 +65,16 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
       </div>
 
       <div id="settings-tabpanel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
-        {tab === 'passwords' ? (
-          <PasswordsLoginsPanel initialAgentSlug={initialAgentSlug} />
-        ) : tab === 'calendars' ? (
-          <CalendarsPanel
-            cloudProvider={
-              status?.appDefault === 'openrouter' ? 'OpenRouter' : status?.appSharedModel ? CIRCLE_MEMBER_PROVIDER : null
-            }
-          />
-        ) : tab === 'coding' ? (
-          <CodingFoldersPanel />
-        ) : tab === 'browser' ? (
-          <AgentBrowserPanel />
-        ) : tab === 'access' ? (
-          <ComputerAccessPanel />
-        ) : tab === 'updates' ? (
-          <UpdatesPanel />
+        {isSettingsPanelTab(tab) ? (
+          SETTINGS_PANELS[tab]({
+            request: { tab, agentSlug: initialAgentSlug },
+            cloudProvider: appCloudProvider(status),
+          })
         ) : (
           <>
 
-          <section className="wb-settings-section" aria-labelledby="settings-appearance">
-            <h2 id="settings-appearance">Appearance</h2>
-            <div className="wb-settings-row">
-              <div>
-                <p className="wb-settings-label">Theme</p>
-              </div>
+          <SettingsSection id="settings-appearance" title="Appearance">
+            <SettingsRow label="Theme">
               <Segmented
                 aria-label="Theme"
                 value={themePreference}
@@ -90,25 +85,79 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
                   { value: 'dark', label: 'Dark', icon: <Moon aria-hidden="true" /> },
                 ]}
               />
-            </div>
-          </section>
+            </SettingsRow>
+            <SettingsRow label="Reply text" hint={describeReplyText(replyText)}>
+              <Button variant="secondary" type="button" onClick={() => setTab('reply-text')}>
+                Adjust
+              </Button>
+            </SettingsRow>
+          </SettingsSection>
+
+          <SettingsSection id="settings-chat" title="Chat">
+            <SettingsRow
+              label="When you send while an agent is replying"
+              hint={
+                busySend === 'queue'
+                  ? 'Enter queues your message until the reply finishes. ⌘↵ stops the reply and sends now.'
+                  : 'Enter asks whether to send now, queue it or keep editing.'
+              }
+            >
+              <Segmented
+                aria-label="When you send while an agent is replying"
+                value={busySend}
+                onChange={setBusySend}
+                options={[
+                  { value: 'ask', label: 'Ask each time' },
+                  { value: 'queue', label: 'Always queue' },
+                ]}
+              />
+            </SettingsRow>
+            {desktopAgent.available ? (
+              <SettingsRow
+                label="Keep the agent button on the desktop"
+                hint="The agent's button floats over every app, and closing this window hides it instead of closing it."
+              >
+                <Switch
+                  checked={desktopAgent.on}
+                  label="Keep the agent button on the desktop"
+                  onChange={(next) => void window.electronAPI.desktopAgent.set(next)}
+                />
+              </SettingsRow>
+            ) : null}
+            {desktopAgent.available && desktopAgent.on ? (
+              <SettingsRow label="Show the agent button" hint="Hide button in the button's menu hides it until this is on again.">
+                <Switch
+                  checked={!desktopAgent.hidden}
+                  label="Show the agent button"
+                  onChange={(show) => void window.electronAPI.desktopAgent.setHidden(!show)}
+                />
+              </SettingsRow>
+            ) : null}
+            {desktopAgent.available && desktopAgent.on ? (
+              <SettingsRow
+                label="Shortcut from any app"
+                hint={`Opens and closes the agent's panel while you work in another app. ⌘J works only inside ${APP_NAME}.`}
+              >
+                <PanelShortcutField shortcut={desktopAgent.shortcut} />
+              </SettingsRow>
+            ) : null}
+          </SettingsSection>
+
+          <NotificationsSettingsSection />
 
           {rendererExperiments.map(({ SettingsSection }, index) =>
             SettingsSection ? <SettingsSection key={index} /> : null
           )}
 
-          <section className="wb-settings-section" aria-labelledby="settings-models">
-            <h2 id="settings-models">Models</h2>
-            <div className="wb-settings-row">
-              <div>
-                <p className="wb-settings-label">Connections, order and fallbacks</p>
-                <p className="wb-settings-hint">In Inference, with what your Circles share.</p>
-              </div>
-              <button type="button" className="wb-inference-btn" onClick={() => dispatchAppCommand('go-inference')}>
+          <SettingsSection id="settings-models" title="Models">
+            <SettingsRow label="Connections, order and fallbacks" hint="In Inference, with what your Circles share.">
+              <Button variant="secondary" type="button" onClick={() => dispatchAppCommand('go-inference')}>
                 Open Inference
-              </button>
-            </div>
-          </section>
+              </Button>
+            </SettingsRow>
+          </SettingsSection>
+
+          <AssistantRestartSection />
 
           <CirclesProfileSection />
           </>

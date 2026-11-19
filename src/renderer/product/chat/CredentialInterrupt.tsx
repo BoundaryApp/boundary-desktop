@@ -20,6 +20,24 @@ interface CredentialInterruptProps {
   onRespond: (answer: Omit<HermesChatCredentialRespondPayload, 'rpcRequestId'>) => void;
 }
 
+/** Where the answer goes, then the last send error. Shared by the credential cards. */
+export const CredentialNote: React.FC<{ id: string; note: string; error: string | null }> = ({
+  id,
+  note,
+  error,
+}) => (
+  <>
+    <p className="wb-credential-note" id={id}>
+      {note}
+    </p>
+    {error ? (
+      <p className="wb-credential-error" role="alert">
+        {error}
+      </p>
+    ) : null}
+  </>
+);
+
 /**
  * Masked prompt for a Hermes credential request, in the ADR 0006 interrupt slot.
  * Values live only in this component's state until submit, and are cleared on
@@ -112,14 +130,7 @@ export const CredentialInterrupt: React.FC<CredentialInterruptProps> = ({
           />
         </label>
       </div>
-      <p className="wb-credential-note" id="wb-credential-note">
-        {credentialNote(request)}
-      </p>
-      {error ? (
-        <p className="wb-credential-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <CredentialNote id="wb-credential-note" note={credentialNote(request)} error={error} />
       <div className="wb-approve-actions">
         <button type="submit" className="run" disabled={!canSave}>
           Save <kbd>↵</kbd>

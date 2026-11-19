@@ -14,18 +14,20 @@ describe('workbench transcript type', () => {
     expect(css).toMatch(/font-family: var\(--font-ui\);[\s\S]*font-size: var\(--size-ui\);/);
   });
 
-  it('sets assistant prose to IBM Plex Serif at 16.5px / 1.68', () => {
+  it('defaults assistant prose to IBM Plex Serif at 15.5px / 1.7, read through the reply tokens', () => {
     expect(tokens).toContain('--font-prose: "IBM Plex Serif"');
-    expect(tokens).toContain('--size-prose: 16.5px;');
-    expect(tokens).toContain('--leading-prose: 1.68;');
-    expect(css).toMatch(/\.wb-prose \{[\s\S]*?font-family: var\(--font-prose\);/);
+    expect(tokens).toContain('--font-reply: var(--font-prose);');
+    expect(tokens).toContain('--size-prose: 15.5px;');
+    expect(tokens).toContain('--leading-prose: 1.7;');
+    expect(css).toMatch(/\.wb-prose \{[\s\S]*?font-family: var\(--font-reply\);/);
     expect(css).toMatch(/\.wb-prose \{[\s\S]*?font-size: var\(--size-prose\);/);
+    expect(css).toMatch(/\.wb-prose \{[\s\S]*?line-height: var\(--leading-prose\);/);
   });
 
   it('opens the feed rhythm off chrome density', () => {
-    expect(css).toContain('padding: 28px var(--chat-inline) 40px;');
+    expect(css).toContain('padding: 28px var(--chat-inline) var(--space-10);');
     expect(css).toContain('gap: 28px;');
-    expect(css).toContain('padding: 12px 16px;');
+    expect(css).toContain('padding: var(--space-3) var(--space-4);');
     expect(css).toContain('font-size: var(--size-title);');
     expect(css).toContain('min-height: 64px;');
   });

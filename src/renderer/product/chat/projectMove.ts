@@ -57,15 +57,15 @@ export function effectiveInference(
     return { slot: pin.mode, modelId, source: 'project' };
   }
   const shared = status?.appSharedModel;
-  if (shared) return { slot: 'peer', modelId: shared.modelId ?? '', source: 'app' };
+  if (shared) return { slot: shared.slot === 'confidential' ? 'confidential' : 'peer', modelId: shared.modelId ?? '', source: 'app' };
   const appDefault = status?.appDefault ?? null;
   if (!appDefault) return null;
   return { slot: appDefault, modelId: status?.slots[appDefault]?.modelId ?? '', source: 'app' };
 }
 
-/** OpenRouter is the cloud slot; Local runs on this Mac. */
+/** OpenRouter and confidential pools run in the cloud; Local runs on this Mac. */
 function isCloud(inference: EffectiveInference | null): boolean {
-  return inference?.slot === 'openrouter';
+  return inference?.slot === 'openrouter' || inference?.slot === 'confidential';
 }
 
 function inferenceLabel(inference: EffectiveInference | null): string {
@@ -123,7 +123,9 @@ export function moveEffects(input: {
   if (inferenceAfter && isCloud(inferenceAfter) && !isCloud(inferenceBefore)) {
     effects.push({
       kind: 'cloud',
-      text: `Inference moves to the cloud: ${after}. The next reply sends this chat’s history, and any files ${agentName} reads, to OpenRouter.`,
+      text: `Inference moves to the cloud: ${after}. The next reply sends this chat’s history, and any files ${agentName} reads, to ${
+        inferenceAfter.slot === 'confidential' ? 'a confidential provider you added' : 'OpenRouter'
+      }.`,
     });
   } else if (before !== after) {
     effects.push({ kind: 'inference', text: `Inference changes from ${before} to ${after}.` });

@@ -7,7 +7,7 @@ import type {
   HermesChatThreadSummary,
 } from '../../../../shared/types/hermesChat';
 
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { ChatRail, RAIL_HERMES_LIMIT, railOrder, type ChatRailProps } from '../ChatRail';
 import { setRunningTurnsForTests } from '../runningTurns';
@@ -62,6 +62,7 @@ function renderRail(over: Partial<ChatRailProps> = {}) {
     mentionsUnseen: 0,
     onOpenMentions: vi.fn(),
     onOpenAllChats: vi.fn(),
+    onOpenProjectPage: vi.fn(),
     agents: [hermes, ana],
     activeThreadId: null,
     sameChat: (a, b) => Boolean(a && b && a === b),
@@ -192,6 +193,7 @@ describe('Working now (kanban tasks)', () => {
     lastHeartbeatAt: nowS - 3,
     claimExpires: nowS + 600,
     blockKind: null,
+    failures: 0,
     ...over,
   });
 
@@ -263,6 +265,7 @@ describe('Tasks row (kanban tasks)', () => {
     lastHeartbeatAt: nowS - 3,
     claimExpires: nowS + 600,
     blockKind: null,
+    failures: 0,
     ...over,
   });
 

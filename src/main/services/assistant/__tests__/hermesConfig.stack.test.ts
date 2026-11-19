@@ -51,6 +51,8 @@ function desiredWithEverything(): DesiredHermesProfile[] {
     bridge: { mcpPort: 47001, browserPort: 47002, mcpToken: 'contract-mcp', browserToken: 'contract-browser' },
     // An inference chain, so the router's provider entry is part of the plan (ADR 0033).
     routed: true,
+    // An agent with the Mac's calendars, so the calendar-mac url is part of the plan.
+    macCalendarProfiles: new Set([AGENT]),
   });
 }
 
@@ -58,7 +60,12 @@ function desiredWithEverything(): DesiredHermesProfile[] {
 function keysBoundaryWrites(): string[] {
   const keys = new Set<string>();
   for (const profile of desiredWithEverything()) {
-    for (const [key] of [...profile.set, ...(profile.setIfUnset ?? []), ...(profile.entries ?? [])]) {
+    for (const [key] of [
+      ...profile.set,
+      ...(profile.setIfUnset ?? []),
+      ...(profile.entries ?? []),
+      ...(profile.listIncludes ?? []),
+    ]) {
       keys.add(key);
     }
     if (profile.browserCdpUrl !== undefined) keys.add('browser.cdp_url');
@@ -160,6 +167,16 @@ describe.skipIf(!probe.ok)(`Hermes config.yaml keys and the settings program${sk
   it('Hermes knows every key Boundary writes, and refuses the nested platform hint', async () => {
     const keys = keysBoundaryWrites();
     expect(keys).toContain(BOUNDARY_PLATFORM_HINT_KEY);
+    // Agent profiles get the stack's skills folder for write-in-voice (ADR 0056 §9).
+    expect(keys).toContain('skills.external_dirs');
+    // The calendar-mac entry's url and its settings for a server the app hosts.
+    expect(keys).toEqual(
+      expect.arrayContaining(
+        ['url', 'connect_timeout', 'keepalive_interval', 'parked_retry_interval'].map(
+          (key) => `mcp_servers.calendar-mac.${key}`
+        )
+      )
+    );
     const verdicts = await pythonJsonInHermes<KeyVerdict[]>(target, VALIDATE_PROGRAM([...keys, REFUSED_KEY]), {
       env: { HERMES_HOME: home },
     });
@@ -221,6 +238,46 @@ describe.skipIf(!probe.ok)(`Hermes config.yaml keys and the settings program${sk
     expect(refusedStored.agent?.max_turns).toBe(12);
     expect(refusedStored.agent).not.toHaveProperty('platform_hints');
     expect(refusedStored.platform_hints).toEqual({ boundary: 'contract hint' });
+  });
+
+  // Uses the profiles the settings program wrote in the case above. Hermes v0.23.1's browser tools
+  // read `browser.cdp_url` through `browser_cfg` → `load_user_config_effective`, which expands
+  // `${VAR}` from the profile's secret scope (`_env_ref_lookup`), so each profile gets its own token.
+  it('Hermes expands the browser token reference in browser.cdp_url from the profile’s own .env', async () => {
+    const tokens: Record<string, string> = { '': 'contract-default-token', [AGENT]: 'contract-agent-token' };
+    for (const [profile, token] of Object.entries(tokens)) {
+      const dir = profile ? `${home}/profiles/${profile}` : home;
+      const wrote = await execInHermes(target, ['sh', '-c', 'cat > "$1/.env"', 'sh', dir], {
+        input: `BOUNDARY_BROWSER_TOKEN=${token}\n`,
+      });
+      expect(wrote.code).toBe(0);
+    }
+    const read = (dir: string) =>
+      pythonJsonInHermes<{ url?: string; error?: string }>(
+        target,
+        `
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, "/opt/hermes")
+os.environ.pop("BOUNDARY_BROWSER_TOKEN", None)
+try:
+    from agent.secret_scope import build_profile_secret_scope, set_secret_scope
+    home = Path(os.environ["HERMES_HOME"])
+    set_secret_scope(build_profile_secret_scope(home), profile_home=str(home))
+    from tools.browser_session_cdp import get_cdp_override_raw
+    print(json.dumps({"url": get_cdp_override_raw()}))
+except (Exception, SystemExit) as error:
+    print(json.dumps({"error": repr(error)}))
+`,
+        { env: { HERMES_HOME: dir } }
+      );
+    const base = 'ws://host.docker.internal:47002/devtools/browser/boundary?token=';
+    expect(await read(home)).toEqual({ url: `${base}contract-default-token` });
+    expect(await read(`${home}/profiles/${AGENT}`)).toEqual({ url: `${base}contract-agent-token` });
+    // The control: with no token in the profile's .env the reference stays as written, so the
+    // relay refuses it rather than another profile's token reaching it.
+    await execInHermes(target, ['rm', '-f', `${home}/profiles/${AGENT}/.env`]);
+    expect(await read(`${home}/profiles/${AGENT}`)).toEqual({ url: `${base}\${BOUNDARY_BROWSER_TOKEN}` });
   });
 
   // Uses the default profile the settings program wrote in the case above.

@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: { getAllWindows: (): Electron.BrowserWindow[] => [] },
   safeStorage: {
     isAsyncEncryptionAvailable: async () => true,
     encryptStringAsync: async (s: string) => Buffer.from(`enc:${s}`),
@@ -72,10 +72,14 @@ import {
   recheckCalendar,
   removeCalendar,
   replaceCalendarPassword,
+  resetCalendarServiceForTests,
   runDailyCalendarCheck,
+  serial,
   setCalendarAccess,
+  syncMacCalendarTokensAtLaunch,
   testCalendarSignIn,
 } from '../calendarService';
+import { persistDebugLog } from '../../../../persistDebugLog';
 import { CALDAV_CHANGE_TOOLS, CALDAV_READ_TOOLS } from '../calendarModel';
 import { HERMES_CONFIG_SECRET_ENV } from '../../hermesConfigSetExec';
 
@@ -117,6 +121,8 @@ beforeEach(() => {
   fs.mkdirSync(path.join(h.dataRoot, 'hermes', 'profiles', 'researcher'), { recursive: true });
   fs.writeFileSync(path.join(h.dataRoot, 'hermes', '.env'), 'OPENAI_API_KEY=x\n');
   h.storeData.accounts = [];
+  // A start kept from an earlier test would skip the `up -d` a test may look for.
+  resetCalendarServiceForTests();
   h.compose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
   h.composeWithInput.mockReset().mockResolvedValue({ stdout: OK_PROBE, stderr: '', code: 0 });
   h.events = [];
@@ -355,5 +361,32 @@ describe('replaceCalendarPassword', () => {
     const result = await replaceCalendarPassword({ slug: 'personal', password: 'pa$$word' });
     expect(result.success).toBe(false);
     expect(envOf('')).toContain(`BOUNDARY_CALENDAR_PERSONAL_PASSWORD=${PW}`);
+  });
+});
+
+describe('syncMacCalendarTokensAtLaunch', () => {
+  it('waits for an access change already running, then syncs', async () => {
+    let finishChange!: () => void;
+    const change = serial(() => new Promise<void>((resolve) => (finishChange = resolve)));
+    const sync = vi.fn(async () => undefined);
+    const launched = syncMacCalendarTokensAtLaunch(sync);
+    await Promise.resolve();
+    expect(sync).not.toHaveBeenCalled();
+    finishChange();
+    await change;
+    await launched;
+    expect(sync).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a failure by error name only and never rejects', async () => {
+    const token = 'a'.repeat(64);
+    const sync = vi.fn(async () => {
+      throw new TypeError(`bad token ${token}`);
+    });
+    await expect(syncMacCalendarTokensAtLaunch(sync)).resolves.toBeUndefined();
+    expect(persistDebugLog).toHaveBeenCalledWith('calendars', 'mac calendar token sync failed at launch', {
+      error: 'TypeError',
+    });
+    expect(JSON.stringify(vi.mocked(persistDebugLog).mock.calls)).not.toContain(token);
   });
 });

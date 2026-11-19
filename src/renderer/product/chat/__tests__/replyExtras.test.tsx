@@ -1,95 +1,47 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type {
-  HermesChatStartPayload,
-  HermesProjectRecord,
-} from '../../../../shared/types/hermesChat';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import type { ElectronAPI } from '../../../../preload';
+import type { FakeBridge, FakeHermesChat } from '../../../__tests__/fakeBridge';
+import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
+import { HostedChatRuntime, installChatBridge, threadProps } from './threadHarness';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+type HermesChatAPI = ElectronAPI['hermesChat'];
+// Runs stay open until a test replies to them (`reply`).
+let bridge: FakeBridge;
+let chat: FakeHermesChat;
+let saveReply: Mock<HermesChatAPI['saveReply']>;
+let revealProjectFile: Mock<HermesChatAPI['revealProjectFile']>;
 
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  chunk: new Set<(e: Record<string, unknown>) => void>(),
-  end: new Set<(e: Record<string, unknown>) => void>(),
-  tool: new Set<(e: Record<string, unknown>) => void>(),
-  phase: new Set<(e: Record<string, unknown>) => void>(),
-  active: null as string | null,
-  startChat: null as unknown as ReturnType<typeof vi.fn>,
-  saveReply: null as unknown as ReturnType<typeof vi.fn>,
-  revealProjectFile: null as unknown as ReturnType<typeof vi.fn>,
-}));
-
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
-// Runs stay open until a test replies to them (`reply`). Main answers with the adapter's id.
-ipc.startChat = vi.fn(async (payload: { requestId: string }) => {
-  ipc.active = payload.requestId;
-  return { success: true, requestId: ipc.active, sessionId: 's1' };
-});
-ipc.saveReply = vi.fn(async () => ({ success: true, path: '/Users/ada/Job Search/plan.md' }));
-ipc.revealProjectFile = vi.fn(async () => ({ success: true }));
-
-stubElectronAPI({
-  hermesChat: {
-    getHistory: ipcCalls.track(vi.fn().mockResolvedValue({
-      success: true,
-      sessionId: 's1',
-      messages: [
-        { role: 'user', content: 'Plan my week', rowId: 1 },
-        {
-          role: 'assistant',
-          content: '## Plan\n\n- **Mon:** write',
-          rowId: 2,
-          files: [
-            '/opt/projects/job-search/plan.md',
-            '/opt/projects/other/elsewhere.md',
-            'relative.md',
-          ],
-        },
+function installBridge() {
+  saveReply = vi.fn<HermesChatAPI['saveReply']>(async () => ({ success: true, path: '/Users/ada/Job Search/plan.md' }));
+  revealProjectFile = vi.fn<HermesChatAPI['revealProjectFile']>(async () => ({ success: true }));
+  ({ bridge, chat } = installChatBridge('s1', { hermesChat: { saveReply, revealProjectFile } }));
+  chat.history = [
+    { role: 'user', content: 'Plan my week', rowId: 1 },
+    {
+      role: 'assistant',
+      content: '## Plan\n\n- **Mon:** write',
+      rowId: 2,
+      files: [
+        '/opt/projects/job-search/plan.md',
+        '/opt/projects/other/elsewhere.md',
+        'relative.md',
       ],
-    })),
-    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-    saveReply: ipcCalls.track((...args: unknown[]) => ipc.saveReply(...args)),
-    revealProjectFile: ipcCalls.track((...args: unknown[]) => ipc.revealProjectFile(...args)),
-    cancelChat: vi.fn(),
-    onChatChunk: on(ipc.chunk as Set<Listener>),
-    onChatEnd: on(ipc.end as Set<Listener>),
-    onChatTool: on(ipc.tool as Set<Listener>),
-    onChatPhase: on(ipc.phase as Set<Listener>),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-  },
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
-  },
-  projects: {
-    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-  },
-});
+    },
+  ];
+}
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
+import { setValue } from '../../../__tests__/formInput';
 
 const project = {
   id: 'p1',
@@ -102,23 +54,17 @@ const Chat: React.FC<{
   withProject?: boolean;
   onShareToCircle?: (share: { text: string; role: 'user' | 'assistant'; model?: string }) => void;
 }> = ({ withProject = true, onShareToCircle }) => (
-  <HermesChatRuntimeProvider sessionId="s1">
+  <HostedChatRuntime sessionId="s1">
     <WorkbenchThread
-      sessionId="s1"
-      threadTitle="Assistant"
-      activeProject={withProject ? project : null}
-      projects={withProject ? [project] : []}
-      activeProjectId={withProject ? 'p1' : null}
-      toolsEnabled
-      onToolsEnabledChange={noop}
-      onSelectProject={noop}
-      onClearProject={noop}
-      onNewProject={noop}
-      onCreateAgentFromDraft={noop}
-      onEditAgentDraft={noop}
-      onShareToCircle={onShareToCircle}
+      {...threadProps({
+        sessionId: 's1',
+        activeProject: withProject ? project : null,
+        projects: withProject ? [project] : [],
+        activeProjectId: withProject ? 'p1' : null,
+        onShareToCircle,
+      })}
     />
-  </HermesChatRuntimeProvider>
+  </HostedChatRuntime>
 );
 
 /** Renders the chat once its history and the rest of its first loads are in. */
@@ -128,20 +74,13 @@ async function renderChat(props: React.ComponentProps<typeof Chat> = {}) {
 }
 
 /** Hermes answers the open run with `text` and ends it. */
-const reply = (text: string) =>
-  act(async () => {
-    for (const cb of ipc.chunk) cb({ requestId: ipc.active, delta: text });
-    for (const cb of ipc.end) cb({ requestId: ipc.active });
-  });
+async function reply(text: string) {
+  await chat.stream(text);
+  await chat.finish();
+}
 
 const writeText = vi.fn(async () => undefined);
-const lastSent = () =>
-  (ipc.startChat.mock.calls.at(-1)?.[0] as HermesChatStartPayload).messages.at(-1)?.content;
-
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-  fireEvent.input(el);
-};
+const lastSent = () => chat.startChat.mock.calls.at(-1)?.[0].messages.at(-1)?.content;
 
 const openMenu = async () => {
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'More' })));
@@ -149,13 +88,14 @@ const openMenu = async () => {
 
 describe('Reply extras', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    ipc.active = null;
+    writeText.mockClear();
+    installBridge();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   });
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('shares a reply or a prompt to a Circle from More, and offers nothing extra on prompts', async () => {
@@ -224,7 +164,7 @@ describe('Reply extras', () => {
     await act(async () =>
       fireEvent.click(screen.getByRole('menuitem', { name: /Save to Job Search/ }))
     );
-    expect(ipc.saveReply).toHaveBeenCalledWith({
+    expect(saveReply).toHaveBeenCalledWith({
       projectId: 'p1',
       content: '## Plan\n\n- **Mon:** write',
     });
@@ -240,18 +180,14 @@ describe('Reply extras', () => {
 
   it('reveals only tool paths inside the project (while the turn is live)', async () => {
     await renderChat();
-    await act(async () => {
-      // Tool cards are progress (ADR 0006): they show while a turn is running.
-      for (const cb of ipc.phase) cb({ requestId: 'r1', sessionId: 's1', phase: 'tool' });
-      for (const cb of ipc.tool) {
-        cb({
-          requestId: 'r1',
-          toolId: 't1',
-          name: 'write_file',
-          status: 'done',
-          paths: ['/opt/projects/job-search/letters/acme.md', 'notes.md'],
-        });
-      }
+    // Tool cards are progress (ADR 0006): they show while a turn is running.
+    await bridge.emit('hermes-chat:phase', { requestId: 'r1', sessionId: 's1', phase: 'tool' });
+    await bridge.emit('hermes-chat:tool', {
+      requestId: 'r1',
+      toolId: 't1',
+      name: 'write_file',
+      status: 'done',
+      paths: ['/opt/projects/job-search/letters/acme.md', 'notes.md'],
     });
     const card = await waitFor(() => {
       const el = document.querySelector('.wb-tool');
@@ -261,7 +197,7 @@ describe('Reply extras', () => {
     const reveal = within(card).getAllByRole('button', { name: 'Reveal' });
     expect(reveal).toHaveLength(1);
     await act(async () => fireEvent.click(reveal[0]));
-    expect(ipc.revealProjectFile).toHaveBeenCalledWith({
+    expect(revealProjectFile).toHaveBeenCalledWith({
       projectId: 'p1',
       relativePath: 'letters/acme.md',
     });
@@ -277,7 +213,7 @@ describe('Reply extras', () => {
       'plan.md',
     ]);
     await act(async () => fireEvent.click(within(files).getByRole('button', { name: 'Reveal' })));
-    expect(ipc.revealProjectFile).toHaveBeenCalledWith({ projectId: 'p1', relativePath: 'plan.md' });
+    expect(revealProjectFile).toHaveBeenCalledWith({ projectId: 'p1', relativePath: 'plan.md' });
   });
 
   it('shows no Files line without a project', async () => {

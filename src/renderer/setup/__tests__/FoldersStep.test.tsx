@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { SetupProgress } from '../../../shared/types/setupProgress';
@@ -20,7 +20,7 @@ vi.mock('../SetupContext', () => {
   // Inline: importing ../steps here would wait on this mock and never resolve.
   const value = {
     activeStep: { id: 'folders', optional: true },
-    snapshot: { setupProgress: null },
+    snapshot: { setupProgress: null as SetupProgress | null },
     skipStep: (...args: unknown[]) => skipStep(...args),
     updateSetupProgress: (...args: unknown[]) => updateSetupProgress(...args),
   };
@@ -73,7 +73,6 @@ describe('FoldersStep (first-run spec, Phase 2)', () => {
   });
 
   afterEach(() => {
-    cleanup();
     vi.clearAllMocks();
   });
 

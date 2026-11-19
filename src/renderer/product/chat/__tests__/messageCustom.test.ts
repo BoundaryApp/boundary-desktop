@@ -57,4 +57,10 @@ describe('messageCustom', () => {
     expect(messageCustom(undefined)).toEqual({});
     expect(messageCustom({})).toEqual({});
   });
+
+  it('reads the writing voice a reply was written in', () => {
+    expect(messageCustom(withCustom({ writingVoiceName: 'News' }))).toEqual({ writingVoiceName: 'News' });
+    expect(messageCustom(withCustom({ writingVoiceName: 3 }))).toEqual({});
+  });
 });
+

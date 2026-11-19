@@ -2,21 +2,17 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import type {
+  HermesChatBreakdownResult,
+  HermesChatCredentialRequestEvent,
+} from '../../../../shared/types/hermesChat';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+const noop = (): void => undefined;
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 const history = vi.hoisted(() => ({
   messages: [] as Array<Record<string, unknown>>,
@@ -33,10 +29,16 @@ stubElectronAPI({
     })),
     startChat: vi.fn(),
     cancelChat: vi.fn(),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(async () => ({
+    listPendingCredentialRequests: ipcCalls.track(async (): Promise<HermesChatCredentialRequestEvent[]> => []),
+    getContextBreakdown: ipcCalls.track(async (): Promise<HermesChatBreakdownResult> => ({
       success: true,
-      breakdown: { categories: [] },
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
     })),
   },
   onboarding: {
@@ -48,10 +50,10 @@ stubElectronAPI({
   },
 });
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
+import { HostedChatRuntime } from './threadHarness';
 import { WorkbenchThread, type BranchedFrom } from '../WorkbenchThread';
 import { branchRequestAt, type BranchRequest } from '../MessageActions';
 
@@ -108,7 +110,7 @@ const Chat: React.FC<{
   onDraftConsumed?: () => void;
   isChannel?: boolean;
 }> = ({ onBranch, branchedFrom = null, initialDraft = null, onDraftConsumed, isChannel }) => (
-  <HermesChatRuntimeProvider sessionId="s1">
+  <HostedChatRuntime sessionId="s1">
     <WorkbenchThread
       sessionId="s1"
       threadTitle="Assistant"
@@ -128,7 +130,7 @@ const Chat: React.FC<{
       initialDraft={initialDraft}
       onDraftConsumed={onDraftConsumed}
     />
-  </HermesChatRuntimeProvider>
+  </HostedChatRuntime>
 );
 
 describe('Branch in the thread', () => {

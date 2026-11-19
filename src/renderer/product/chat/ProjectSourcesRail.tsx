@@ -11,7 +11,10 @@ import { useCirclesState } from '../circles/useCircles';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import { describeChainEntry, entryIsPrivate, entryKey, type ChainContext } from '../inference/entries';
 import { LevelStackSheet } from '../inference/LevelStackSheet';
+import { poolContext, useConfidentialState, usePoolPrivacy } from '../inference/useConfidentialState';
 import { storedStack } from '../inference/stack';
+import { CONFIDENTIAL_COPY } from '../inference/confidentialCopy';
+import { projectConfidentialFloor } from '../../../shared/types/confidential';
 import { displayHostPath } from './chatTelemetryFormat';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { useDismiss } from '../../components/ui/use-dismiss';
@@ -27,9 +30,13 @@ import {
   useCodingFolders,
   type CodingChangeMode,
 } from './codingFoldersStore';
+import { sharedFolderAt, sharedRowView, useSharedFoldersOnMac } from './sharedFolderProject';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Callout } from '../../components/ui/alert';
+import { TrashNotice } from '../TrashNotice';
+import { Button } from '../../components/ui/button';
 
 const CHECKLIST = ['Saved', 'Restarting the coding agent', 'Checking it can open the folder'];
 
@@ -56,6 +63,8 @@ export interface ProjectSourcesRailProps {
   onRemoveSource: (sourceId: string) => void;
   /** Called after a successful inference patch so the parent can refresh project list. */
   onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /** **Check a file…** in the project menu (writing check spec, phase 4); absent hides it. */
+  onCheckFile?: () => void;
   /**
    * ADR 0024: how the shown project relates to what is open, e.g. "This chat lives in", with
    * Move… beside it. Null on the project page, where the project is simply the subject.
@@ -102,15 +111,18 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   onAddFolder,
   onRemoveSource,
   onProjectsUpdated,
+  onCheckFile,
   role,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const circles = useCirclesState();
+  const { state: confidential } = useConfidentialState();
   const [keptWritable, setKeptWritable] = useState(false);
   const { status } = useInferenceStatus();
   const [patchError, setPatchError] = useState<string | null>(null);
   const [patching, setPatching] = useState(false);
   const coding = useCodingFolders();
+  const sharedFolders = useSharedFoldersOnMac();
   const [allowOpen, setAllowOpen] = useState(false);
   const allowGrant = useCodingGrant();
   const allowAgent = allowGrant.agent;
@@ -154,20 +166,39 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     [connecting, onProjectsUpdated, patching, project]
   );
 
+  // Every pool this project's stack could list, inherited or pinned, so the hook runs before the
+  // early return below. A private project's pools rank at the floor main plans its chats at.
+  const pinned = project?.inference;
+  const poolFloor =
+    pinned?.privacyLocalOnly === true && confidential?.enabled === true
+      ? projectConfidentialFloor(pinned, confidential.settings)
+      : undefined;
+  const poolPrivacy = usePoolPrivacy(
+    confidential,
+    project
+      ? [
+          ...storedStack(status),
+          ...(pinned && pinned.mode !== 'inherit' ? [{ slot: pinned.mode, ...(pinned.modelId ? { modelId: pinned.modelId } : {}) }] : []),
+          ...(pinned?.fallbacks ?? []),
+        ]
+      : [],
+    poolFloor
+  );
+
   if (!project) {
     return (
       <div className="wb-insp-pane">
         {role ? <RoleLine role={role} /> : null}
-        <p className="wb-empty" style={{ padding: role ? '6px 16px 8px' : '18px 16px 8px' }}>
+        <p className={role ? 'wb-empty wb-insp-empty' : 'wb-empty wb-insp-empty is-alone'}>
           {role?.onMove
             ? 'No project. Chat still works without a folder. Move it to a project to give it files and sources.'
             : 'No folder bound. Chat still works. Choose a project to attach sources.'}
         </p>
         {role?.onMove ? null : (
           <div className="wb-insp-actions">
-            <button type="button" className="wb-btn-tiny" onClick={onChooseFolder}>
+            <Button variant="secondary" size="sm" type="button" onClick={onChooseFolder}>
               Choose folder…
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -181,6 +212,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       pending: coding.pending,
       managed: coding.managed,
     }),
+    shared: sharedFolderAt(row.hostPath, sharedFolders),
   }));
   const extras = inspect?.sources.filter((row) => !row.isHub) ?? [];
   const isCodingRow = (row: HermesSourceRow) =>
@@ -245,7 +277,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const appDefault = status?.appDefault ?? null;
   const appSlot = appDefault ? status?.slots[appDefault] : undefined;
   const appLabel = status?.appSharedModel
-    ? describeChainEntry(status.appSharedModel, { slots: status.slots, circles }, 'first').label
+    ? describeChainEntry(status.appSharedModel, { slots: status.slots, circles, pools: poolContext(confidential) }, 'first').label
     : appDefault && appSlot?.configured && appSlot.modelId
       ? formatInferenceChipTitle(appDefault, appSlot.modelId)
       : 'No app default';
@@ -254,9 +286,13 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   const pinBusy = connecting || patching;
   const privateOn = project.inference?.privacyLocalOnly === true;
   const pin = project.inference;
-  const privacy = pin?.privacyLocalOnly !== undefined ? { privacyLocalOnly: pin.privacyLocalOnly } : {};
+  const privacy = {
+    ...(pin?.privacyLocalOnly !== undefined ? { privacyLocalOnly: pin.privacyLocalOnly } : {}),
+    ...(pin?.allowConfidentialLevelB !== undefined ? { allowConfidentialLevelB: pin.allowConfidentialLevelB } : {}),
+  };
+  const levelBAllowed = privateOn && pin?.allowConfidentialLevelB === true && confidential?.enabled === true;
   // A pinned project has its own stack; inheriting takes the Chat stack whole (ADR 0033 §1).
-  const stackCtx: ChainContext = { slots: status?.slots ?? {}, circles };
+  const stackCtx: ChainContext = { slots: status?.slots ?? {}, circles, pools: poolContext(confidential, undefined, poolPrivacy) };
   const projectStack: InferenceChainEntry[] =
     mode === 'inherit'
       ? storedStack(status)
@@ -313,20 +349,21 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <CodingBusyWarning agent={allowAgent} verb="allow" look="popover" />
       ) : null}
       <div className="wb-popover-actions">
-        <button type="button" className="wb-btn-ghost" onClick={() => setAllowOpen(false)}>
+        <Button variant="secondary" block type="button" onClick={() => setAllowOpen(false)}>
           Not now
-        </button>
+        </Button>
         {allowAgent?.busy ? (
           <CodingBusyButtons verb="allow" look="popover" onChoose={allowCoding} />
         ) : (
-          <button
+          <Button
+            variant="primary"
+            block
             type="button"
-            className="wb-btn-solid"
             disabled={!allowAgent}
             onClick={() => allowCoding('now')}
           >
             {allowAgent ? 'Allow coding' : 'Checking…'}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -395,6 +432,18 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
               >
                 Open in Finder
               </button>
+              {onCheckFile ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onCheckFile();
+                  }}
+                >
+                  Check a file…
+                </button>
+              ) : null}
               {project.codingEnabled && coding.managed ? (
                 <button
                   type="button"
@@ -429,24 +478,9 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <p className="wb-warn">Folder connected; project RPC unavailable.</p>
       ) : null}
 
-      {trashNotice ? (
-        <div className="wb-insp-banner" role="status">
-          <p>{trashNotice}</p>
-          <button type="button" className="wb-btn-tiny" onClick={() => void window.electronAPI.codingFolders.showTrash()}>
-            Show in Trash
-          </button>
-          <button
-            type="button"
-            className="wb-btn-tiny"
-            aria-label="Dismiss"
-            onClick={() => setTrashNotice(null)}
-          >
-            ✕
-          </button>
-        </div>
-      ) : null}
+      {trashNotice ? <TrashNotice notice={trashNotice} onDismiss={() => setTrashNotice(null)} iconDismiss /> : null}
       {connectingNow ? (
-        <div className="wb-insp-banner code is-stacked" role="status">
+        <Callout variant="code" layout="stacked" size="sm" className="wb-insp-callout" role="status">
           <b>Connecting the coding agent</b>
           <ul className="wb-checklist">
             {CHECKLIST.map((label, index) => {
@@ -463,106 +497,111 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             })}
           </ul>
           <p>Chats keep working. New coding tasks wait until this finishes.</p>
-        </div>
+        </Callout>
       ) : null}
       {queuedNow ? (
-        <div className="wb-insp-banner warn">
+        <Callout variant="warn" layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>
             Waiting for {coding.waitingFor.length ? `“${coding.waitingFor.join('”, “')}”` : 'a coding task'}{' '}
             to finish before restarting the coding agent.
           </p>
-          <button type="button" className="wb-btn-tiny" onClick={forceQueuedCodingChanges}>
+          <Button variant="secondary" size="sm" type="button" onClick={forceQueuedCodingChanges}>
             Stop task and add now
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
       {coding.error ? (
-        <div className="wb-insp-banner bad is-stacked" role="alert">
+        <Callout variant="destructive" layout="stacked" size="sm" className="wb-insp-callout" role="alert">
           <p>{coding.error.message}</p>
-          <div className="wb-insp-banner-actions">
-            <button
+          <div className="wb-callout-actions">
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              className="wb-btn-tiny"
               disabled={connectingNow}
               onClick={() => retryCoding(coding.error?.hostPath ?? null)}
             >
               Retry
-            </button>
-            <button type="button" className="wb-btn-tiny" onClick={dismissCodingError}>
+            </Button>
+            <Button variant="secondary" size="sm" type="button" onClick={dismissCodingError}>
               Dismiss
-            </button>
+            </Button>
           </div>
-        </div>
+        </Callout>
       ) : notVisibleRows.length > 0 && !connectingNow ? (
-        <div className="wb-insp-banner bad is-stacked">
+        <Callout variant="destructive" layout="stacked" size="sm" className="wb-insp-callout" role={undefined}>
           <p>
             The coding agent can’t open {notVisibleRows.map((item) => item.row.id).join(', ')}.
             {APP_NAME}’s container engine only shares your home folder.
           </p>
-          <div className="wb-insp-banner-actions">
-            <button
+          <div className="wb-callout-actions">
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              className="wb-btn-tiny"
               onClick={() => retryCoding(notVisibleRows[0]?.row.hostPath ?? null)}
             >
               Retry
-            </button>
+            </Button>
             {notVisibleRows[0] && !notVisibleRows[0].row.isHub ? (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                className="wb-btn-tiny"
                 onClick={() => onRemoveSource(notVisibleRows[0].row.id)}
               >
                 Remove
-              </button>
+              </Button>
             ) : null}
           </div>
-        </div>
+        </Callout>
       ) : null}
       {hermesPendingRows.length > 0 && !connectingNow ? (
-        <div className="wb-insp-banner">
+        <Callout layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>
             The coding agent can work in {hermesPendingRows.map((item) => item.row.id).join(', ')}{' '}
             now. Hermes’s own edits there start after it restarts.
           </p>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             disabled={restartingHermes}
             onClick={() => void restartHermes()}
           >
             {restartingHermes ? 'Restarting…' : 'Restart Hermes now'}
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
       {unmounted ? (
-        <div className="wb-insp-banner bad">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>{inspect?.nextStep?.title ?? `${unmounted.id} isn’t visible yet.`}</p>
-          <button type="button" className="wb-btn-tiny" disabled={connecting} onClick={onAddFolder}>
+          <Button variant="secondary" size="sm" type="button" disabled={connecting} onClick={onAddFolder}>
             Remount
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
       {showWritable ? (
-        <div className="wb-insp-banner warn">
+        <Callout variant="warn" layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>{inspect?.nextStep?.title ?? 'This extra folder is writable.'}</p>
-          <button type="button" className="wb-btn-tiny" onClick={() => setKeptWritable(true)}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => setKeptWritable(true)}>
             Keep
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
       {showStale ? (
-        <div className="wb-insp-banner warn">
+        <Callout variant="warn" layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>{inspect?.nextStep?.title ?? 'Index is behind the files.'}</p>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             disabled={connecting}
             onClick={onRefreshIndex}
           >
             Refresh
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
 
       <div className="wb-src-hed">
@@ -589,18 +628,19 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         <p className="wb-inf-source wb-inf-rail-source">{appLabel}</p>
       )}
       <div className="wb-inf-rail-acts">
-        <button type="button" className="wb-btn-tiny" disabled={pinBusy || !status} onClick={() => setEditingStack(true)}>
+        <Button variant="secondary" size="sm" type="button" disabled={pinBusy || !status} onClick={() => setEditingStack(true)}>
           Edit stack
-        </button>
+        </Button>
         {mode !== 'inherit' ? (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            className="wb-btn-tiny"
             disabled={pinBusy}
             onClick={() => void applyPin({ mode: 'inherit', ...privacy })}
           >
             Back to Chat stack
-          </button>
+          </Button>
         ) : null}
       </div>
       <button
@@ -609,7 +649,15 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         aria-checked={privateOn}
         className={`wb-inf-fallback-switch wb-inference-check${privateOn ? ' is-on' : ''}`}
         disabled={pinBusy}
-        onClick={() => void applyPin({ mode, ...pin, privacyLocalOnly: !privateOn })}
+        onClick={() =>
+          void applyPin({
+            mode,
+            ...pin,
+            privacyLocalOnly: !privateOn,
+            // Allow level B belongs to a private project, so Private off clears it.
+            ...(privateOn ? { allowConfidentialLevelB: false } : {}),
+          })
+        }
       >
         <span className="wb-inference-box" aria-hidden="true" />
         <span>
@@ -621,6 +669,23 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           </small>
         </span>
       </button>
+      {levelBAllowed ? (
+        <div className="wb-inf-rail-levelb">
+          <span>
+            {CONFIDENTIAL_COPY.levelBAllowed.label}
+            <small>{CONFIDENTIAL_COPY.levelBAllowed.text}</small>
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            disabled={pinBusy}
+            onClick={() => void applyPin({ mode, ...pin, allowConfidentialLevelB: false })}
+          >
+            {CONFIDENTIAL_COPY.levelBAllowed.undo}
+          </Button>
+        </div>
+      ) : null}
       {privateBlocked ? (
         <p className="wb-warn">
           {firstLabel} isn’t private, so chats here can’t send.{' '}
@@ -637,6 +702,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           lede="Applies to chats in this project that don’t have their own. The Chat stack stays as it is."
           initial={projectStack}
           privacyLocked={privateOn}
+          projectFloor={poolFloor}
           save={saveProjectStack}
           onClose={() => setEditingStack(false)}
         />
@@ -654,7 +720,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           Add…
         </button>
       </div>
-      {rows.map(({ row, view }) => (
+      {rows.map(({ row, view, shared }) => (
         <React.Fragment key={row.id}>
           <div className={`wb-src${view.pill.tone === 'busy' ? ' is-fresh' : ''}`}>
             <div className="wb-src-main">
@@ -665,6 +731,14 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
                 {sourcePathLabel(row)}
               </span>
               {view.who ? <span className="wb-src-who">{view.who}</span> : null}
+              {shared ? (
+                <span className="wb-src-shared">
+                  <span className={`wb-src-pill ${shared.ended === null ? 'shared' : 'ended'}`}>
+                    {sharedRowView(shared, view.coding).tag}
+                  </span>
+                  <span className="wb-src-who">{sharedRowView(shared, view.coding).line}</span>
+                </span>
+              ) : null}
             </div>
             <span className="wb-src-meta">
               <span className={`wb-src-pill ${view.pill.tone}`}>

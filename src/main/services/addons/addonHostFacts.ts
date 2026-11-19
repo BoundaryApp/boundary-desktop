@@ -23,6 +23,8 @@ export interface AddonHostFactsDeps {
   portInUse(port: number): Promise<boolean>;
   /** Read after `engineBytes()` settles. */
   runtimeKind(): 'podman' | 'docker';
+  /** Memory reserved by what is turned on, by id (ADR 0055 §1). Optional for fakes. */
+  reservations?(): Promise<Record<string, number>>;
 }
 
 function listenOnce(port: number, host?: string): Promise<boolean> {
@@ -64,6 +66,7 @@ function createDefaultDeps(): AddonHostFactsDeps {
     },
     portInUse: probePort,
     runtimeKind: () => kind,
+    reservations: async () => (await import('./engineReservations')).engineReservationsMiB(),
   };
 }
 
@@ -109,5 +112,20 @@ export async function readAddonHostFacts(
     diskFreeBytes,
     portInUse,
     engineResizable: deps.runtimeKind() === 'podman',
+    reservedMiB: await reservedOtherThan(entry.id, deps),
   };
+}
+
+/** What is reserved by everything turned on except `id`, which the fit check adds itself. */
+async function reservedOtherThan(id: string, deps: AddonHostFactsDeps): Promise<number> {
+  if (!deps.reservations) return 0;
+  try {
+    const reserved = await deps.reservations();
+    return Object.entries(reserved).reduce((sum, [key, mib]) => (key === id ? sum : sum + mib), 0);
+  } catch (error) {
+    persistDebugLog('addons', 'engine reservations failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
+  }
 }

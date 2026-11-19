@@ -7,6 +7,12 @@ import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { AgentMark } from './ConversationMark';
 import { InfoTip } from '../../components/ui/info-tip';
+import type { AgentWritingVoices } from '../../../shared/types/writingVoices';
+import { WritingVoicePicker } from '../writingVoices/WritingVoicePicker';
+import { useWritingVoiceOptions } from '../writingVoices/useWritingVoiceOptions';
+import { Button } from '../../components/ui/button';
+
+const NO_VOICES: AgentWritingVoices = { chatRepliesVoiceId: null, draftsVoiceId: null };
 
 interface AgentCreateSheetProps {
   open: boolean;
@@ -19,12 +25,14 @@ interface AgentCreateSheetProps {
     displayName?: string;
     handle?: string;
     role?: string;
+    voices?: AgentWritingVoices;
   } | null;
   onCancel: () => void;
   onCreate: (payload: {
     displayName: string;
     handle: string;
     role: string;
+    voices: AgentWritingVoices;
   }) => void;
 }
 
@@ -42,6 +50,8 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
   const [handle, setHandle] = useState('');
   const [role, setRole] = useState('');
   const [handleTouched, setHandleTouched] = useState(false);
+  const [voices, setVoices] = useState<AgentWritingVoices>(NO_VOICES);
+  const voiceOptions = useWritingVoiceOptions();
 
   useEffect(() => {
     if (!open) {
@@ -49,6 +59,7 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       setHandle('');
       setRole('');
       setHandleTouched(false);
+      setVoices(NO_VOICES);
       return;
     }
     if (initialValues) {
@@ -56,6 +67,7 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       setHandle(initialValues.handle ?? '');
       setRole(initialValues.role ?? '');
       setHandleTouched(Boolean(initialValues.handle));
+      setVoices(initialValues.voices ?? NO_VOICES);
     }
   }, [open, initialValues]);
 
@@ -94,6 +106,7 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
               displayName: displayName.trim(),
               handle: (handle || derivedHandle).trim(),
               role: role.trim(),
+              voices,
             })
           }
         />
@@ -139,6 +152,21 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
           rows={4}
         />
       </label>
+      <fieldset className="wb-voice-group" disabled={busy}>
+        <legend>Writing voice</legend>
+        <WritingVoicePicker
+          label="Chat replies"
+          value={voices.chatRepliesVoiceId}
+          voices={voiceOptions}
+          onChange={(id) => setVoices((v) => ({ ...v, chatRepliesVoiceId: id }))}
+        />
+        <WritingVoicePicker
+          label="Drafts"
+          value={voices.draftsVoiceId}
+          voices={voiceOptions}
+          onChange={(id) => setVoices((v) => ({ ...v, draftsVoiceId: id }))}
+        />
+      </fieldset>
       {starting ? (
         <p className="wb-sheet-starting" role="status">
           Starting…
@@ -191,12 +219,12 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
       }
       actions={
         <>
-          <button type="button" className="wb-btn-ghost" onClick={onClose}>
+          <Button variant="secondary" block type="button" onClick={onClose}>
             Done
-          </button>
-          <button type="button" className="wb-btn-solid" onClick={onNewAgent}>
+          </Button>
+          <Button variant="primary" block type="button" onClick={onNewAgent}>
             New agent
-          </button>
+          </Button>
         </>
       }
     >
@@ -219,31 +247,34 @@ export const AgentRosterSheet: React.FC<AgentRosterSheetProps> = ({
                   {agent.builtIn ? 'built-in' : `@${agent.handle}`}
                 </span>
               </span>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                className="wb-btn-tiny"
                 onClick={() => onOpenDm(agent.slug)}
               >
                 {agent.builtIn ? 'Chat' : messaging ? 'Message' : 'DM'}
-              </button>
+              </Button>
               {!messaging && onAddToChannel ? (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  className="wb-btn-tiny"
                   onClick={() => onAddToChannel(agent.slug)}
                 >
                   Add to channel
-                </button>
+                </Button>
               ) : null}
               {!messaging && !agent.builtIn && onEditAgent ? (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  className="wb-btn-tiny"
                   aria-label={`Edit ${agent.displayName}`}
                   onClick={() => onEditAgent(agent.slug)}
                 >
                   Edit
-                </button>
+                </Button>
               ) : null}
             </div>
           ))}

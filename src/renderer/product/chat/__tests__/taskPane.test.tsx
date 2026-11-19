@@ -2,7 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type { KanbanTaskDetail, KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
+import type { KanbanTaskDetail, KanbanTaskRun, KanbanTaskSummary } from '../../../../shared/types/hermesKanban';
 import type { AgentProfile } from '../../../../shared/types/hermesChat';
 
 const kanbanTask = vi.fn();
@@ -13,11 +13,11 @@ stubElectronAPI({
   kanban: {
     taskAction: (...a: unknown[]) => kanbanTaskAction(...a),
     openBoard: (taskId?: string) => openKanbanBoard(taskId),
-    onOpenTask: () => () => undefined,
+    onOpenTask: () => (): void => undefined,
     task: (...a: unknown[]) => kanbanTask(...a),
     taskLog: (...a: unknown[]) => kanbanTaskLog(...a),
     snapshot: () => Promise.resolve({ available: false, tasks: [], checkedAt: 0 }),
-    onSnapshot: () => () => undefined,
+    onSnapshot: () => (): void => undefined,
   },
 });
 
@@ -47,6 +47,7 @@ const summary = (over: Partial<KanbanTaskSummary> = {}): KanbanTaskSummary => ({
   lastHeartbeatAt: nowS - 4,
   claimExpires: nowS + 600,
   blockKind: null,
+  failures: 0,
   ...over,
 });
 const detail = (task: KanbanTaskSummary, over: Partial<KanbanTaskDetail> = {}): KanbanTaskDetail => ({
@@ -54,11 +55,17 @@ const detail = (task: KanbanTaskSummary, over: Partial<KanbanTaskDetail> = {}): 
   body: 'List every production dependency with its license.',
   result: null,
   latestSummary: null,
-  events: [{ id: 1, kind: 'spawned', note: null, createdAt: nowS - 250 }],
+  events: [{ id: 1, kind: 'spawned', note: null, trigger: null, createdAt: nowS - 250 }],
   comments: [],
   runs: [],
   ...over,
 });
+
+/** A card's buttons stay disabled until its last action settles, which can come after the action is called. */
+const clickWhenEnabled = async (button: HTMLElement) => {
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button);
+};
 
 describe('TaskPane', () => {
   beforeEach(() => {
@@ -107,7 +114,7 @@ describe('TaskPane', () => {
     kanbanTask.mockResolvedValue({
       success: true,
       detail: detail(blocked, {
-        events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign to 0.9?', createdAt: nowS - 60 }],
+        events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign to 0.9?', trigger: null, createdAt: nowS - 60 }],
       }),
     });
     const { unmount } = render(<TaskPane taskId="t_1" agents={[researcher]} resolveOrigin={() => null} onOpenTasks={vi.fn()} onOpenBoard={vi.fn()} />);
@@ -253,7 +260,7 @@ describe('TaskPane controls', () => {
 
   it('answers a question with Reply and resume, and offers Mark done', async () => {
     show(summary({ status: 'blocked', blockKind: 'needs_input' }), {
-      events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign?', createdAt: nowS - 60 }],
+      events: [{ id: 2, kind: 'blocked', note: 'Credit the redesign?', trigger: null, createdAt: nowS - 60 }],
     });
     const card = screen.getByRole('region', { name: 'Asked you a question' });
     expect(within(card).getByRole('button', { name: 'Resume' })).toBeTruthy();
@@ -262,7 +269,7 @@ describe('TaskPane controls', () => {
     await waitFor(() =>
       expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'reply-resume', body: 'Yes.' })
     );
-    fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }));
+    await clickWhenEnabled(within(card).getByRole('button', { name: 'Mark done' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'mark-done' }));
     // The card has its own reply box, so the page composer steps aside.
     expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
@@ -278,13 +285,13 @@ describe('TaskPane controls', () => {
     await waitFor(() =>
       expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'request-changes', body: 'Add the MIT notices.' })
     );
-    fireEvent.click(within(card).getByRole('button', { name: 'Approve' }));
+    await clickWhenEnabled(within(card).getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'mark-done' }));
   });
 
   it('stops a run only after a confirm, then reads Stopped by you, not Crashed', async () => {
     const running = summary();
-    const run = { id: 7, outcome: null, endedAt: null, error: null };
+    const run: KanbanTaskRun = { id: 7, outcome: null, endedAt: null, error: null };
     show(running, { runs: [run] });
     await waitFor(() => expect(kanbanTask).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Run ▾' }));
@@ -297,7 +304,7 @@ describe('TaskPane controls', () => {
     const stopped = summary({ status: 'blocked' });
     show(stopped, {
       runs: [{ ...run, outcome: 'reclaimed', endedAt: nowS - 30, error: 'manual_reclaim: stopped from Boundary' }],
-      events: [{ id: 9, kind: 'reclaimed', note: 'stopped from Boundary', createdAt: nowS - 30 }],
+      events: [{ id: 9, kind: 'reclaimed', note: 'stopped from Boundary', trigger: null, createdAt: nowS - 30 }],
     });
     const card = await screen.findByRole('region', { name: 'Stopped by you' });
     expect(screen.getByText('Stopped by you', { selector: '.wb-task-tl-label' })).toBeTruthy();
@@ -321,7 +328,7 @@ describe('TaskPane controls', () => {
     expect(screen.getAllByText("Worker couldn't start").length).toBeGreaterThan(0);
     fireEvent.click(within(card).getByRole('button', { name: 'Archive task' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'archive' }));
-    fireEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+    await clickWhenEnabled(within(card).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'resume' }));
   });
 
@@ -382,9 +389,9 @@ describe('TaskPane controls', () => {
     expect(within(card).queryByRole('textbox')).toBeNull();
     fireEvent.click(within(card).getByRole('button', { name: 'Move to To do' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'move-to-todo' }));
-    fireEvent.click(within(card).getByRole('button', { name: 'Archive task' }));
+    await clickWhenEnabled(within(card).getByRole('button', { name: 'Archive task' }));
     await waitFor(() => expect(kanbanTaskAction).toHaveBeenCalledWith('t_1', { kind: 'archive' }));
-    fireEvent.click(within(card).getByRole('button', { name: 'Open in board ↗' }));
+    await clickWhenEnabled(within(card).getByRole('button', { name: 'Open in board ↗' }));
     expect(onOpenBoard).toHaveBeenCalledWith('t_1');
   });
 

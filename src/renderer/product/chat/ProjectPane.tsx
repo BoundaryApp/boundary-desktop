@@ -14,7 +14,8 @@ import { ConversationMark } from './ConversationMark';
 import { conversationTitle } from './conversationKinds';
 import { inProject } from './projectMove';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
-import { WorkingDot } from './WorkingDot';
+import { RunningTurnDot } from './WorkingDot';
+import { Button } from '../../components/ui/button';
 
 interface ProjectPaneProps {
   /** The project the rail shows; null is No project. */
@@ -82,9 +83,9 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
         <span className="wb-grow" aria-hidden="true" />
         {project && onRevealInFinder ? (
           <span className="wb-thread-head-actions">
-            <button type="button" className="wb-btn-tiny" onClick={onRevealInFinder}>
+            <Button variant="secondary" size="sm" type="button" onClick={onRevealInFinder}>
               Open in Finder
-            </button>
+            </Button>
           </span>
         ) : null}
       </div>
@@ -114,9 +115,9 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
                 ? `New chats here work in ${displayHostPath(project.hostPath)}.`
                 : `${hermesName} works without a project folder in these chats.`}
             </span>
-            <button type="button" className="wb-btn-solid" onClick={start}>
+            <Button variant="primary" block type="button" onClick={start}>
               {draft.trim() ? 'Start chat' : 'New chat'}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -138,9 +139,10 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
                 <span className="wb-all-copy">
                   <span className="wb-jump-title">{conversationTitle(thread, agents)}</span>
                 </span>
-                {findRunningTurn(runningTurns, thread.id, sameChat) ? (
-                  <WorkingDot label={`${hermesName} is working`} />
-                ) : null}
+                <RunningTurnDot
+                  turn={findRunningTurn(runningTurns, thread.id, sameChat)}
+                  label={`${hermesName} is working`}
+                />
                 <span className="wb-all-when">{formatRowTime(Date.parse(thread.updatedAt ?? ''))}</span>
               </button>
             ))

@@ -54,20 +54,45 @@ export function hostAllowed(host: string | undefined, port: number): boolean {
   return ALLOWED_HOSTNAMES.some((name) => host.toLowerCase() === `${name}:${port}`);
 }
 
-export function checkBridgeRequest(
-  headers: IncomingHttpHeaders,
-  { port, token, url }: { port: number; token: string; /** Set to also accept `?token=`. */ url?: string }
-): GuardFailure | null {
+const INVALID_TOKEN: GuardFailure = { status: 401, reason: 'Missing or invalid bearer token.' };
+
+/** The Origin and Host checks, which come before any token check. */
+function checkCaller(headers: IncomingHttpHeaders, port: number): GuardFailure | null {
   if (headers.origin !== undefined) {
     return { status: 403, reason: 'Requests from web pages are not accepted.' };
   }
   if (!hostAllowed(headers.host, port)) {
     return { status: 421, reason: 'Unexpected Host header.' };
   }
-  if (!tokenMatches(bearerToken(headers) ?? queryToken(url), token)) {
-    return { status: 401, reason: 'Missing or invalid bearer token.' };
-  }
   return null;
+}
+
+export function checkBridgeRequest(
+  headers: IncomingHttpHeaders,
+  { port, token, url }: { port: number; token: string; /** Set to also accept `?token=`. */ url?: string }
+): GuardFailure | null {
+  const caller = checkCaller(headers, port);
+  if (caller) return caller;
+  if (!tokenMatches(bearerToken(headers) ?? queryToken(url), token)) return INVALID_TOKEN;
+  return null;
+}
+
+/**
+ * The same checks against a map of per-agent tokens (token → agent), bearer header only. Every
+ * entry is compared, so the time taken doesn't depend on which one matched.
+ */
+export function checkAgentRequest(
+  headers: IncomingHttpHeaders,
+  { port, tokens }: { port: number; tokens: Readonly<Record<string, string>> }
+): { agent: string } | GuardFailure {
+  const caller = checkCaller(headers, port);
+  if (caller) return caller;
+  const presented = bearerToken(headers);
+  let agent: string | null = null;
+  for (const [token, owner] of Object.entries(tokens)) {
+    if (tokenMatches(presented, token) && agent === null) agent = owner;
+  }
+  return agent === null ? INVALID_TOKEN : { agent };
 }
 
 /** A request body up to `maxBytes`; null (and the request dropped) when it is larger. */

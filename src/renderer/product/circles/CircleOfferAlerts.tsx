@@ -76,7 +76,11 @@ function useOfferChanges(state: CirclesState, onChanges: (changes: OfferChange[]
   useEffect(() => cancel, []);
 }
 
-const AlertToast: React.FC<{ alert: OfferAlert; onDismiss: () => void }> = ({ alert, onDismiss }) => {
+const AlertToast: React.FC<{ alert: OfferAlert; inInference: boolean; onDismiss: () => void }> = ({
+  alert,
+  inInference,
+  onDismiss,
+}) => {
   useEffect(() => {
     const timer = setTimeout(onDismiss, OFFER_ALERT_MS);
     return () => clearTimeout(timer);
@@ -84,15 +88,17 @@ const AlertToast: React.FC<{ alert: OfferAlert; onDismiss: () => void }> = ({ al
   return (
     <div className="wb-toast wb-circle-alert" role="status">
       <span>{alert.text}</span>
-      <button
-        type="button"
-        onClick={() => {
-          openInference({ person: alert.provider });
-          onDismiss();
-        }}
-      >
-        Open Inference
-      </button>
+      {inInference ? null : (
+        <button
+          type="button"
+          onClick={() => {
+            openInference({ person: alert.provider });
+            onDismiss();
+          }}
+        >
+          Open Inference
+        </button>
+      )}
       <button type="button" aria-label="Dismiss" onClick={onDismiss}>
         ×
       </button>
@@ -100,8 +106,11 @@ const AlertToast: React.FC<{ alert: OfferAlert; onDismiss: () => void }> = ({ al
   );
 };
 
-/** Toasts, on every screen, for other members' shared models coming and going. */
-export const CircleOfferAlerts: React.FC = () => {
+/**
+ * Toasts, on every screen, for other members' shared models coming and going. In Inference the
+ * change is already on screen, so the toast has no Open Inference.
+ */
+export const CircleOfferAlerts: React.FC<{ inInference?: boolean }> = ({ inInference = false }) => {
   const circles = useCirclesState();
   const [alerts, setAlerts] = useState<(OfferAlert & { id: number; dismiss: () => void })[]>([]);
   const nextId = useRef(0);
@@ -119,7 +128,7 @@ export const CircleOfferAlerts: React.FC = () => {
   return (
     <div className="wb-circle-alerts">
       {alerts.map((alert) => (
-        <AlertToast key={alert.id} alert={alert} onDismiss={alert.dismiss} />
+        <AlertToast key={alert.id} alert={alert} inInference={inInference} onDismiss={alert.dismiss} />
       ))}
     </div>
   );

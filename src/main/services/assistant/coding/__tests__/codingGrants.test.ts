@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HermesProjectRecord } from '../../../../../shared/types/hermesChat';
-import type { AuditEntry } from '../../../hostBridge/auditLog';
 import {
   resetHermesProjectsStoreForTests,
   upsertStoredHermesProject,
@@ -25,6 +24,7 @@ import {
   type CodingGrantDeps,
 } from '../codingGrants';
 import { recordHermesCodingRoots, resetCodingGrantStoreForTests } from '../codingGrantStore';
+import { fakeCodingDeps, makeFolder } from './codingDeps';
 
 let home: string;
 
@@ -43,9 +43,7 @@ function project(partial: Partial<HermesProjectRecord> = {}): HermesProjectRecor
 }
 
 function folder(...parts: string[]): string {
-  const dir = path.join(home, ...parts);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  return makeFolder(home, ...parts);
 }
 
 /** The deps in use, to change one without losing the counters fakeDeps set up. */
@@ -54,41 +52,7 @@ function fakeDepsSnapshot(): CodingGrantDeps {
 }
 
 function fakeDeps(overrides: Partial<CodingGrantDeps> = {}) {
-  const calls = {
-    recreate: 0,
-    persisted: [] as string[][],
-    verified: [] as string[],
-    git: [] as string[][],
-    audit: [] as AuditEntry[],
-  };
-  const deps: Partial<CodingGrantDeps> = {
-    isLocalStack: () => false,
-    busy: async () => ({ busy: false, sessions: [] }),
-    writeOverlay: () => undefined,
-    persistEnv: (roots) => {
-      calls.persisted.push([...roots]);
-    },
-    recreate: async () => {
-      calls.recreate += 1;
-      return { success: true };
-    },
-    verify: async (hostPath) => {
-      calls.verified.push(hostPath);
-      return true;
-    },
-    restartHermes: async () => ({ success: true }),
-    ruleOptions: () => ({ home, boundaryDataPaths: [path.join(home, 'boundary')], systemFolders: [] }),
-    runGit: async (_cwd, args) => {
-      calls.git.push(args);
-    },
-    progress: () => undefined,
-    audit: (entry) => {
-      calls.audit.push(entry);
-    },
-    ...overrides,
-  };
-  setCodingGrantDepsForTests(deps);
-  return calls;
+  return fakeCodingDeps({ home, overrides });
 }
 
 beforeEach(() => {
@@ -521,9 +485,15 @@ describe('checkNewCodingFolder', () => {
 describe('newCodingFolderDefaults', () => {
   it('starts in the parent of the most recent grant', async () => {
     fakeDeps({ gitAvailable: async () => true });
-    await grantCoding({ projectId: 'p1', hostPath: folder('Work', 'older'), origin: 'add' });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await grantCoding({ projectId: 'p1', hostPath: folder('Repos', 'newer'), origin: 'add' });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T10:00:00Z'));
+      await grantCoding({ projectId: 'p1', hostPath: folder('Work', 'older'), origin: 'add' });
+      vi.setSystemTime(new Date('2026-01-01T10:01:00Z'));
+      await grantCoding({ projectId: 'p1', hostPath: folder('Repos', 'newer'), origin: 'add' });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await newCodingFolderDefaults()).toEqual({
       defaultParent: path.join(home, 'Repos'),
       gitAvailable: true,

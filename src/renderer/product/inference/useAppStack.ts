@@ -52,14 +52,15 @@ export function useAppStack() {
           if (await saveFallbacks()) setNotice('Saved. It applies to your next message.');
           return;
         }
+        const slot = first.slot;
         // Switch first: a cancelled or failed switch then leaves the stack as it was.
         const outcome = await runAppSwitch(
           first,
           list[0] ?? null,
           () =>
-            first.slot === 'peer'
+            slot === 'peer' || slot === 'confidential'
               ? window.electronAPI.onboarding.setAppSharedModel({ entry: first })
-              : window.electronAPI.onboarding.setAppDefault({ slot: first.slot }),
+              : window.electronAPI.onboarding.setAppDefault({ slot }),
           'Unable to change the first model.'
         );
         if (outcome.cancelled) return;

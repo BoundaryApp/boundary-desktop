@@ -1,6 +1,7 @@
 import { nativeTheme } from 'electron';
 import { THEME_WINDOW_BACKGROUND, isThemePreference, type ThemePreference } from '../shared/theme';
 import { handle, handleResult } from './ipc';
+import { getMainWindow } from './services/windows';
 
 // The stored preference drives nativeTheme (title bar, menus, prefers-color-scheme in the
 // renderer) and the window's pre-paint background.
@@ -27,9 +28,7 @@ export function initNativeTheme(store: ThemePreferenceStore): void {
   nativeThemeInitialized = true;
   nativeTheme.themeSource = readThemePreference(store);
   nativeTheme.on('updated', () => {
-    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-      global.mainWindow.setBackgroundColor(themeWindowBackground());
-    }
+    getMainWindow()?.setBackgroundColor(themeWindowBackground());
   });
 }
 

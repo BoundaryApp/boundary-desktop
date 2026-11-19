@@ -17,7 +17,7 @@ vi.mock('protomux', () => ({
         if (fake.refuse) return null;
         fake.opts = opts;
         return {
-          open: () => undefined,
+          open: (): void => undefined,
           addMessage: ({ onmessage }: { onmessage: (raw: Buffer) => void }) => {
             fake.onmessage = onmessage;
             return { send: (raw: Buffer) => fake.sent.push(raw) };

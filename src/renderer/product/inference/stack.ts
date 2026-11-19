@@ -66,7 +66,12 @@ export function stackChange(
   next: InferenceChainEntry[]
 ): { first: InferenceChainEntry | null; fallbacks: InferenceChainEntry[] } {
   const [head, ...rest] = next;
-  const first = head && !sameEntry(head, before[0]) ? (head.slot === 'peer' ? head : { slot: head.slot }) : null;
+  const first =
+    head && !sameEntry(head, before[0])
+      ? head.slot === 'peer' || head.slot === 'confidential'
+        ? head
+        : { slot: head.slot }
+      : null;
   return { first, fallbacks: rest };
 }
 
@@ -88,6 +93,7 @@ export function skipReason(
     'model-not-offered': `${name} no longer shares it`,
     'provider-untrusted': `You haven’t trusted ${name}`,
     'provider-offline': `${name} is offline`,
+    'pool-no-provider': 'No added provider serves this model now',
   };
   if (state?.stale) return stale[state.stale];
   if (slot?.health === 'unauthorized') return 'Needs signing in again';
@@ -123,6 +129,15 @@ export function dryRun(
 
 /** Why an entry can't serve now, judged from what the renderer holds (see describeStackHere). */
 function staleHere(entry: InferenceChainEntry, ctx: ChainContext): InferenceChainStaleReason | null {
+  if (entry.slot === 'confidential') {
+    // Pools off, no provider added, or ranked and nobody serves: stale. A list drawn without
+    // rankings (the chat chip) or still waiting for this one doesn't mark it; main's plan decides.
+    if (!ctx.pools?.providers.some((provider) => provider.added)) return 'pool-no-provider';
+    const rankings = ctx.pools.rankings;
+    const modelId = entry.modelId?.trim() ?? '';
+    if (!rankings || !(modelId in rankings)) return null;
+    return rankings[modelId]?.serving.length ? null : 'pool-no-provider';
+  }
   if (entry.slot !== 'peer') {
     const slot = ctx.slots[entry.slot];
     return slot?.configured && (entry.modelId?.trim() || slot.modelId) ? null : 'slot-not-configured';
@@ -164,13 +179,19 @@ export function describeStackHere(list: InferenceChainEntry[], ctx: ChainContext
 
 /**
  * Whether a chat or project may save `list`: main stores those levels' first entry as a
- * provider (ChatInferenceProvider), so a shared model can only follow it, and a private
- * project's first must be Local (ADR 0033 §4). Returns why not, or null.
+ * provider (ChatInferenceProvider), so a shared model or pool can only follow it, and a private
+ * project's first must be Local (ADR 0033 §4). Only the app's stack may start with either.
+ * Returns why not, or null.
  */
 export function levelRefuses(list: InferenceChainEntry[], options: { privacyLocked: boolean }): string | null {
   const first = list[0];
   if (!first) return 'Keep at least one model.';
-  if (first.slot === 'peer') return 'A shared model can follow Local or OpenRouter here, but can’t come first.';
+  if (first.slot === 'confidential') {
+    return 'A confidential pool can follow Local or OpenRouter here, but can’t come first. To start with one, put it first in Inference, then go back to the Chat stack here.';
+  }
+  if (first.slot === 'peer') {
+    return 'A shared model can follow Local or OpenRouter here, but can’t come first. To start with one, put it first in Inference, then go back to the Chat stack here.';
+  }
   if (first.slot !== 'local' && first.slot !== 'openrouter') return 'Start with Local or OpenRouter.';
   if (options.privacyLocked && first.slot !== 'local') return 'This project is private, so the first model must be Local.';
   return null;

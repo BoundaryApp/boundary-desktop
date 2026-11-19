@@ -1,10 +1,11 @@
-import { ipcMain, systemPreferences, type Session } from 'electron';
+import { ipcMain, shell, systemPreferences, type Session } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appUrlMatcher } from '../../appUrl';
 import { getMediaAccess, installPermissionHandlers, registerMediaHandlers, requestMediaAccess } from '../media';
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
+  shell: { openExternal: vi.fn(async () => undefined) },
   systemPreferences: {
     getMediaAccessStatus: vi.fn(),
     askForMediaAccess: vi.fn(),
@@ -154,5 +155,19 @@ describe('media access', () => {
     const requestAccess = handlers.get('media:request-access')!;
     expect(() => requestAccess({} as never, 'screen')).toThrow('Unknown media device.');
     expect(handlers.has('media:get-access')).toBe(true);
+  });
+
+  it('opens the privacy pane for each device and refuses others', async () => {
+    registerMediaHandlers();
+    const handlers = new Map(vi.mocked(ipcMain.handle).mock.calls.map(([channel, fn]) => [channel, fn]));
+    const open = handlers.get('media:open-privacy-settings')!;
+    await open({} as never, 'microphone');
+    await open({} as never, 'camera');
+    expect(vi.mocked(shell.openExternal).mock.calls).toEqual([
+      ['x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'],
+      ['x-apple.systempreferences:com.apple.preference.security?Privacy_Camera'],
+    ]);
+    await expect(async () => open({} as never, 'screen')).rejects.toThrow('Unknown media device.');
+    expect(shell.openExternal).toHaveBeenCalledTimes(2);
   });
 });

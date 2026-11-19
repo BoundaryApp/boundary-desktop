@@ -96,6 +96,25 @@ describe('dockerEndpointCandidates', () => {
     ]);
   });
 
+  it('tries Docker Desktop, system Docker, rootless Docker, then Podman on Linux', () => {
+    const candidates = dockerEndpointCandidates({ XDG_RUNTIME_DIR: '/run/user/1000' }, home, 'linux');
+    expect(candidates.map((c) => c.endpoint)).toEqual([
+      `unix://${home}/.docker/desktop/docker.sock`,
+      'unix:///var/run/docker.sock',
+      'unix:///run/user/1000/docker.sock',
+      'unix:///run/user/1000/podman/podman.sock',
+      'unix:///run/podman/podman.sock',
+    ]);
+  });
+
+  it('skips the per-user sockets on Linux when XDG_RUNTIME_DIR is unset', () => {
+    expect(dockerEndpointCandidates({}, home, 'linux').map((c) => c.endpoint)).toEqual([
+      `unix://${home}/.docker/desktop/docker.sock`,
+      'unix:///var/run/docker.sock',
+      'unix:///run/podman/podman.sock',
+    ]);
+  });
+
   it('uses the named pipe on Windows', () => {
     expect(dockerEndpointCandidates({}, home, 'win32')).toEqual([
       { endpoint: 'npipe:////./pipe/docker_engine', source: 'socket' },

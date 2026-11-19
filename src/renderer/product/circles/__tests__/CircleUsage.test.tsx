@@ -1,42 +1,21 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { localDay } from '../../../../shared/circleUsage';
-import type { CircleSharing, CirclesState } from '../../../../shared/types/circles';
+import type { CirclesState } from '../../../../shared/types/circles';
+import { BO, circleMember, circleSharing, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { SharingUsage, YourUsage } from '../CircleUsage';
 
 const A = 'a'.repeat(64);
-const BO = 'b'.repeat(64);
-const SHARING: CircleSharing = { models: [{ id: 'qwen3-8b', tools: true }], circles: [A], paused: false, away: false };
+const SHARING = circleSharing({ models: [{ id: 'qwen3-8b', tools: true }], circles: [A] });
 
 function state(overrides: Partial<CirclesState> = {}): CirclesState {
-  return {
-    status: 'running',
-    displayName: 'Ada',
-    providers: {},
-    sharing: SHARING,
-    snapshot: {
-      identity: 'f'.repeat(64),
-      circles: [
-        {
-          key: A,
-          name: 'Workshop',
-          myRole: 'admin',
-          writable: true,
-          members: [{ identity: BO, name: 'Bo', role: 'member', isMe: false, online: true }],
-          invites: [],
-          offers: [],
-        },
-      ],
-    },
-    ...overrides,
-  };
+  const workshop = circleSnapshot({ key: A, name: 'Workshop', myRole: 'admin', members: [circleMember({ identity: BO, name: 'Bo' })] });
+  return runningCircles({ identity: 'f'.repeat(64), circles: [workshop], sharing: SHARING, ...overrides });
 }
 
 const today = localDay(new Date());
-
-afterEach(() => cleanup());
 
 describe('SharingUsage', () => {
   it('shows each member’s day, who is running, and their limit', () => {

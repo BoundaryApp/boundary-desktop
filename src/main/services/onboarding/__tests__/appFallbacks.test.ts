@@ -5,6 +5,7 @@ import {
   clearOpenAiConfig,
   getAppFallbacks,
   getOpenAiOnboardingStatus,
+  restoreAppInferenceChoice,
   saveLlmConnection,
   saveLocalLlmEndpoint,
   setAppFallbacks,
@@ -13,6 +14,8 @@ import {
 describe('app default fallbacks', () => {
   beforeEach(async () => {
     await clearOpenAiConfig();
+    // clearOpenAiConfig keeps the fallback list; each test starts from none.
+    restoreAppInferenceChoice({ appDefault: null, shared: null, fallbacks: [] });
     await saveLocalLlmEndpoint({
       runtime: 'ollama',
       endpointUrl: 'http://127.0.0.1:11434/v1/',
@@ -82,5 +85,16 @@ describe('app default fallbacks', () => {
       expect((await setAppFallbacks([bad])).success).toBe(false);
     }
     expect(getAppFallbacks()).toHaveLength(2);
+  });
+
+  it('keeps a confidential pool once by its trimmed model, and drops one without a model', async () => {
+    const result = await setAppFallbacks([
+      { slot: 'confidential', modelId: ' qwen ' },
+      { slot: 'confidential' },
+      { slot: 'confidential', modelId: '  ' },
+      { slot: 'confidential', modelId: 'qwen' },
+    ]);
+    expect(result.success).toBe(true);
+    expect(getAppFallbacks()).toEqual([{ slot: 'confidential', modelId: 'qwen' }]);
   });
 });

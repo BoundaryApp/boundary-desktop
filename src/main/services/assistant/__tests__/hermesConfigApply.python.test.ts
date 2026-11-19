@@ -173,6 +173,18 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
     expect(config('worker')).toEqual({ mcp_servers: { boundary: header } });
   });
 
+  it('writes a list entry and keeps the other keys beside it', () => {
+    makeProfile('juniper', { skills: { disabled: ['x'] } });
+    const writes = plan([
+      { profile: 'juniper', set: [], listIncludes: [['skills.external_dirs', '/opt/skills']] },
+    ]);
+
+    const run = apply(writes);
+
+    expect(run.status).toBe(0);
+    expect(config('juniper')).toEqual({ skills: { disabled: ['x'], external_dirs: ['/opt/skills'] } });
+  });
+
   it('writes setIfUnset only where the profile has no value, and clears Boundary’s browser URL', () => {
     makeProfile('', { model: { max_tokens: 4096 }, browser: { cdp_url: BOUNDARY_CDP } });
     makeProfile('worker', { browser: { cdp_url: 'ws://elsewhere.example.com:9222/devtools/browser/x' } });

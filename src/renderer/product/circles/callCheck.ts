@@ -7,8 +7,12 @@
  */
 import {
   CALL_CHECK_STUN,
+  usesTunnel,
   type CallCheckMode,
+  type CallCheckMedia,
   type CallCheckResult,
+  type CallCheckSample,
+  type CallTunnelStats,
 } from '../../../shared/callCheck';
 import { CallPartAssembler, isCallPart, packCallMessage, type CallPart } from '../../../shared/callSignalParts';
 
@@ -19,12 +23,28 @@ const ANSWER_MS = 20_000;
 const CONNECT_MS = 20_000;
 const SETTLE_MS = 4_000;
 const LOAD_MS = 20_000;
-const LOAD_SAMPLE_MS = 5_000;
+/** Load and long runs take a sample this often, and log each one as `call.sample`. */
+const SAMPLE_MS = 5_000;
+/** How often to read what ICE has tried while a connection is still being set up. */
+const ICE_WATCH_MS = 1_000;
+/** A long call: one video connection held this long. */
+export const LONG_MS = 180_000;
 
 type CheckMessage =
-  | { t: 'offer'; run: string; stream: number; mode: CallCheckMode; kind: 'connect' | 'load'; sdp: string }
+  | {
+      t: 'offer';
+      run: string;
+      stream: number;
+      mode: CallCheckMode;
+      kind: CheckKind;
+      sdp: string;
+      /** Tunnel modes: the id both Macs open their tunnel endpoint under. */
+      tunnel?: number;
+    }
   | { t: 'answer'; run: string; stream: number; sdp: string }
   | { t: 'bye'; run: string };
+
+type CheckKind = CallCheckResult['kind'];
 
 /** How the check reaches main; a test passes a fake. */
 export interface CallCheckTransport {
@@ -32,7 +52,17 @@ export interface CallCheckTransport {
   onPart(handler: (signal: { circleKey: string; from: string; part: CallPart }) => void): () => void;
   /** This Mac's public IPv4 address as the DHT sees it, or null. */
   publicAddress(): Promise<string | null>;
-  report(result: CallCheckResult): Promise<CallCheckResult | null>;
+  /** Log a result; main adds CPU use and the Circles connection to `to`. Returns what was logged. */
+  report(circleKey: string, to: string, result: CallCheckResult): Promise<CallCheckResult | null>;
+  /** Log one sample of a connection being measured. */
+  sample(sample: CallCheckSample): Promise<boolean>;
+  /** Open, read or close this Mac's tunnel endpoint for one connection; null when main refused. */
+  tunnel(
+    action: 'open' | 'stats' | 'close',
+    circleKey: string,
+    to: string,
+    id: number
+  ): Promise<{ port?: number; stats?: CallTunnelStats | null } | null>;
 }
 
 export const electronCallCheckTransport: CallCheckTransport = {
@@ -43,8 +73,44 @@ export const electronCallCheckTransport: CallCheckTransport = {
     const host = result.success ? result.address?.host : null;
     return host && /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ? host : null;
   },
-  report: (result) => window.electronAPI.circles.callCheckResult(result),
+  report: (key, to, result) => window.electronAPI.circles.callCheckResult({ key, to, result }),
+  sample: (sample) => window.electronAPI.circles.callCheckSample(sample),
+  tunnel: async (action, key, to, tunnel) => {
+    const result = await window.electronAPI.circles.callTunnel({ action, key, to, tunnel });
+    return result.success ? { port: result.port, stats: result.stats } : null;
+  },
 };
+
+/** Drop a description's candidates, so `tunnel` mode can only connect through the tunnel. */
+export function stripCandidates(sdp: string): string {
+  return sdp
+    .split('\r\n')
+    .filter((line) => !line.startsWith('a=candidate:') && line !== 'a=end-of-candidates')
+    .join('\r\n');
+}
+
+/**
+ * This Mac's tunnel endpoint as a remote candidate. Its priority is below any real candidate's,
+ * so ICE uses it only when no direct pair works.
+ */
+export function tunnelCandidate(port: number, sdpMid: string | null): RTCIceCandidateInit {
+  return { candidate: `candidate:tunnel 1 udp 1000 127.0.0.1 ${port} typ host`, sdpMid, sdpMLineIndex: 0 };
+}
+
+/** The tunnel's counts as result fields. */
+export function tunnelFields(stats: CallTunnelStats): Partial<CallCheckResult> {
+  return {
+    tunnelMtu: stats.mtu,
+    tunnelPackets: stats.packetsOut + stats.packetsIn,
+    tunnelSplit: stats.split,
+    tunnelDropped: stats.dropped,
+    tunnelBytes: stats.bytesOut + stats.bytesIn,
+  };
+}
+
+function randomTunnelId(): number {
+  return (crypto.getRandomValues(new Uint32Array(1))[0] & 0xffffff) || 1;
+}
 
 const IPV4_HOST_CANDIDATE = /^a=candidate:\S+ 1 udp \d+ \S+ (\d+) typ host/;
 
@@ -75,8 +141,11 @@ function statsList(report: RTCStatsReport | StatsList): StatsList {
 
 type CandidateType = NonNullable<CallCheckResult['localType']>;
 
-/** The selected pair's candidate types and round trip, and the audio delay, from one stats report. */
-export function readConnectStats(report: RTCStatsReport | StatsList): Partial<CallCheckResult> {
+/**
+ * The selected pair's candidate types and round trip, and the audio delay, from one stats report.
+ * With `tunnelPort`, also whether the pair runs through the tunnel endpoint.
+ */
+export function readConnectStats(report: RTCStatsReport | StatsList, tunnelPort?: number): Partial<CallCheckResult> {
   const stats = statsList(report);
   const byId = new Map(stats.map((entry) => [entry.id, entry]));
   const transport = stats.find((entry) => entry.type === 'transport');
@@ -90,6 +159,9 @@ export function readConnectStats(report: RTCStatsReport | StatsList): Partial<Ca
     if (local?.candidateType) out.localType = local.candidateType as CandidateType;
     if (remote?.candidateType) out.remoteType = remote.candidateType as CandidateType;
     if (typeof pair.currentRoundTripTime === 'number') out.rttMs = pair.currentRoundTripTime * 1000;
+    if (tunnelPort !== undefined && remote) {
+      out.path = remote.address === '127.0.0.1' && remote.port === tunnelPort ? 'tunnel' : 'direct';
+    }
   }
   const audio = stats.find((entry) => entry.type === 'inbound-rtp' && entry.kind === 'audio');
   const emitted = Number(audio?.jitterBufferEmittedCount ?? 0);
@@ -120,6 +192,111 @@ export function readLoadStats(
   };
 }
 
+/** The selected candidate pair's id, to notice the connection switching paths. */
+export function selectedPairId(report: RTCStatsReport | StatsList): string | null {
+  const stats = statsList(report);
+  const transport = stats.find((entry) => entry.type === 'transport');
+  if (transport?.selectedCandidatePairId) return String(transport.selectedCandidatePairId);
+  const nominated = stats.find((entry) => entry.type === 'candidate-pair' && entry.nominated === true && entry.state === 'succeeded');
+  return nominated ? nominated.id : null;
+}
+
+/**
+ * What ICE had to work with and what it tried: candidates on each side by type, pairs by
+ * outcome, and its connectivity checks. Zero checks answered means no packet came back on any path.
+ */
+export function readIceStats(report: RTCStatsReport | StatsList): Partial<CallCheckResult> {
+  const stats = statsList(report);
+  const count = (type: string, candidateType: string) =>
+    stats.filter((entry) => entry.type === type && entry.candidateType === candidateType).length;
+  const pairs = stats.filter((entry) => entry.type === 'candidate-pair');
+  const sum = (field: string) => pairs.reduce((total, pair) => total + Number(pair[field] ?? 0), 0);
+  return {
+    localHost: count('local-candidate', 'host'),
+    localSrflx: count('local-candidate', 'srflx'),
+    localRelay: count('local-candidate', 'relay'),
+    remoteHost: count('remote-candidate', 'host'),
+    remoteSrflx: count('remote-candidate', 'srflx'),
+    remotePrflx: count('remote-candidate', 'prflx'),
+    pairs: pairs.length,
+    pairsSucceeded: pairs.filter((pair) => pair.state === 'succeeded').length,
+    pairsFailed: pairs.filter((pair) => pair.state === 'failed').length,
+    checksSent: sum('requestsSent'),
+    checksAnswered: sum('responsesReceived'),
+    checksReceived: sum('requestsReceived'),
+  };
+}
+
+/**
+ * Read what ICE has tried every second while a connection is being set up. Chromium leaves
+ * failed pairs and their candidates out of its stats once ICE gives up, so a failed row uses the
+ * last reading that still had pairs.
+ */
+export function watchIce(
+  pc: Pick<RTCPeerConnection, 'getStats'>,
+  everyMs = ICE_WATCH_MS
+): { last: () => Partial<CallCheckResult>; stop: () => void } {
+  let last: Partial<CallCheckResult> = {};
+  let stopped = false;
+  const read = () => {
+    void pc
+      .getStats()
+      .then((report) => {
+        if (stopped) return;
+        const ice = readIceStats(report);
+        if ((ice.pairs ?? 0) > 0 || !last.pairs) last = ice;
+      })
+      .catch((): undefined => undefined);
+  };
+  const timer = setInterval(read, everyMs);
+  read();
+  return {
+    last: () => last,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+/** Loss, jitter, bitrates and video trouble over a window between two stats reports. */
+export function readMediaStats(
+  before: RTCStatsReport | StatsList,
+  after: RTCStatsReport | StatsList,
+  seconds: number
+): CallCheckMedia {
+  const a = statsList(before);
+  const b = statsList(after);
+  const total = (report: StatsList, type: string, field: string, kind?: string) =>
+    report
+      .filter((entry) => entry.type === type && (kind === undefined || entry.kind === kind))
+      .reduce((sum, entry) => sum + Number(entry[field] ?? 0), 0);
+  const delta = (type: string, field: string, kind?: string) => total(b, type, field, kind) - total(a, type, field, kind);
+  const out: CallCheckMedia = {};
+  const received = delta('inbound-rtp', 'packetsReceived');
+  const lost = delta('inbound-rtp', 'packetsLost');
+  if (received + lost > 0) out.lossInPct = (Math.max(0, lost) / (received + lost)) * 100;
+  const audio = b.find((entry) => entry.type === 'inbound-rtp' && entry.kind === 'audio');
+  if (typeof audio?.jitter === 'number') out.jitterMs = audio.jitter * 1000;
+  if (seconds > 0) {
+    out.kbpsOut = (delta('transport', 'bytesSent') * 8) / 1000 / seconds;
+    out.kbpsIn = (delta('transport', 'bytesReceived') * 8) / 1000 / seconds;
+  }
+  const pairId = selectedPairId(b);
+  const pair = pairId ? b.find((entry) => entry.id === pairId) : undefined;
+  if (typeof pair?.availableOutgoingBitrate === 'number') out.availableKbps = pair.availableOutgoingBitrate / 1000;
+  if (b.some((entry) => entry.type === 'inbound-rtp' && entry.kind === 'video')) {
+    out.framesDropped = delta('inbound-rtp', 'framesDropped', 'video');
+    out.freezes = delta('inbound-rtp', 'freezeCount', 'video');
+    out.freezeMs = delta('inbound-rtp', 'totalFreezesDuration', 'video') * 1000;
+    out.plis = delta('inbound-rtp', 'pliCount', 'video');
+  }
+  out.nacks = delta('inbound-rtp', 'nackCount');
+  const samples = delta('inbound-rtp', 'totalSamplesReceived', 'audio');
+  if (samples > 0) out.concealedPct = (delta('inbound-rtp', 'concealedSamples', 'audio') / samples) * 100;
+  return out;
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function randomRun(): string {
@@ -127,7 +304,7 @@ function randomRun(): string {
 }
 
 function iceServers(mode: CallCheckMode): RTCIceServer[] {
-  return mode === 'stun' ? [{ urls: CALL_CHECK_STUN }] : [];
+  return mode === 'stun' || mode === 'stun+tunnel' ? [{ urls: CALL_CHECK_STUN }] : [];
 }
 
 /** A tone, and for load runs a moving 640×360 picture at 30 frames a second. */
@@ -195,11 +372,27 @@ function connected(pc: RTCPeerConnection): Promise<boolean> {
   });
 }
 
+/** Wait for the connection; when it fails, what ICE had tried by its last reading. Null once connected. */
+async function iceFailure(pc: RTCPeerConnection): Promise<Partial<CallCheckResult> | null> {
+  const ice = watchIce(pc);
+  const ok = await connected(pc).finally(ice.stop);
+  return ok ? null : ice.last();
+}
+
 /** Runs checks as caller and answers other members' offers. One per renderer. */
 export class CallCheck {
   private assembler = new CallPartAssembler();
   private answers = new Map<string, (sdp: string) => void>();
-  private open = new Map<string, { pc: RTCPeerConnection; media: GeneratedMedia; sink: HTMLAudioElement }>();
+  private open = new Map<
+    string,
+    {
+      pc: RTCPeerConnection;
+      media: GeneratedMedia;
+      sink: HTMLAudioElement;
+      peer: { circleKey: string; to: string };
+      tunnel?: { circleKey: string; to: string; id: number; port: number };
+    }
+  >();
   private listeners = new Set<(result: CallCheckResult) => void>();
   readonly results: CallCheckResult[] = [];
   private stopListening: () => void;
@@ -228,14 +421,33 @@ export class CallCheck {
     for (const mode of modes) await this.call(circleKey, to, mode, 'connect', 0, randomRun());
   }
 
+  /** One connection with video both ways, held for `LONG_MS` and sampled every few seconds. */
+  async checkLong(circleKey: string, to: string, mode: CallCheckMode): Promise<void> {
+    await this.call(circleKey, to, mode, 'long', 0, randomRun());
+  }
+
   /** Several connections at once, each with video both ways, in one mode. */
   async checkLoad(circleKey: string, to: string, mode: CallCheckMode, streams = LOAD_STREAMS): Promise<void> {
     const run = randomRun();
     await Promise.all(Array.from({ length: streams }, (_, stream) => this.call(circleKey, to, mode, 'load', stream, run)));
   }
 
-  private async record(result: CallCheckResult): Promise<void> {
-    const logged = (await this.transport.report(result).catch((): null => null)) ?? result;
+  /**
+   * Record a result, with what ICE tried and the tunnel's counts when the connection is still
+   * open, so a failure shows how far it got.
+   */
+  private async record(result: CallCheckResult, key: string, circleKey: string, to: string): Promise<void> {
+    const entry = this.open.get(key);
+    if (entry && result.pairs === undefined) {
+      const report = await entry.pc.getStats().catch((): null => null);
+      if (report) result = { ...result, ...readIceStats(report) };
+    }
+    if (entry?.tunnel) {
+      const { id } = entry.tunnel;
+      const reply = await this.transport.tunnel('stats', circleKey, to, id).catch((): null => null);
+      if (reply?.stats) result = { ...result, ...tunnelFields(reply.stats) };
+    }
+    const logged = (await this.transport.report(circleKey, to, result).catch((): null => null)) ?? result;
     this.results.push(logged);
     for (const listener of this.listeners) listener(logged);
   }
@@ -246,17 +458,20 @@ export class CallCheck {
     return { descriptionBytes: packed.rawBytes, descriptionSent: packed.sentChars, descriptionParts: packed.parts.length };
   }
 
-  private async localDescription(pc: RTCPeerConnection, mode: CallCheckMode): Promise<string> {
+  /** This Mac's description once its candidates are gathered, and how long gathering took. */
+  private async localDescription(pc: RTCPeerConnection, mode: CallCheckMode): Promise<{ sdp: string; gatherMs: number }> {
+    const started = performance.now();
     await gathered(pc);
+    const gatherMs = performance.now() - started;
     const sdp = pc.localDescription?.sdp ?? '';
-    if (mode !== 'swarm') return sdp;
+    if (mode !== 'swarm') return { sdp, gatherMs };
     const host = await this.transport.publicAddress();
-    return host ? addSwarmCandidates(sdp, host) : sdp;
+    return { sdp: host ? addSwarmCandidates(sdp, host) : sdp, gatherMs };
   }
 
-  private start(key: string, mode: CallCheckMode, kind: 'connect' | 'load'): RTCPeerConnection {
+  private start(key: string, mode: CallCheckMode, kind: CheckKind, peer: { circleKey: string; to: string }): RTCPeerConnection {
     const pc = new RTCPeerConnection({ iceServers: iceServers(mode) });
-    const media = new GeneratedMedia(kind === 'load');
+    const media = new GeneratedMedia(kind !== 'connect');
     const stream = new MediaStream(media.tracks);
     for (const track of media.tracks) pc.addTrack(track, stream);
     // Chromium only reports the audio jitter buffer for received audio that something plays.
@@ -267,7 +482,7 @@ export class CallCheck {
       sink.srcObject = new MediaStream([event.track]);
       void sink.play().catch((): undefined => undefined);
     });
-    this.open.set(key, { pc, media, sink });
+    this.open.set(key, { pc, media, sink, peer });
     return pc;
   }
 
@@ -275,67 +490,144 @@ export class CallCheck {
     const entry = this.open.get(key);
     if (!entry) return;
     this.open.delete(key);
+    if (entry.tunnel) {
+      const { circleKey, to, id } = entry.tunnel;
+      void this.transport.tunnel('close', circleKey, to, id).catch((): null => null);
+    }
     entry.pc.close();
     entry.media.stop();
     entry.sink.srcObject = null;
   }
 
-  /** Measure an open connection and record it. */
-  private async measure(pc: RTCPeerConnection, base: CallCheckResult, kind: 'connect' | 'load'): Promise<void> {
-    if (kind === 'connect') {
-      await sleep(SETTLE_MS);
-      await this.record({ ...base, ...readConnectStats(await pc.getStats()) });
-      return;
+  /**
+   * Open this Mac's tunnel endpoint for a connection and remember it, so closing the connection
+   * closes it. Resolves to its port, or null when main refused.
+   */
+  private async openTunnel(key: string, circleKey: string, to: string, id: number): Promise<number | null> {
+    const reply = await this.transport.tunnel('open', circleKey, to, id).catch((): null => null);
+    const entry = this.open.get(key);
+    if (!reply?.port || !entry) return null;
+    entry.tunnel = { circleKey, to, id, port: reply.port };
+    return reply.port;
+  }
+
+  /** Give the peer connection this Mac's tunnel endpoint, once its remote description is set. */
+  private async addTunnel(pc: RTCPeerConnection, port: number): Promise<void> {
+    await pc.addIceCandidate(tunnelCandidate(port, pc.getTransceivers()[0]?.mid ?? null));
+  }
+
+  /**
+   * Measure an open connection and record it. Load and long runs take a sample every
+   * `SAMPLE_MS` and log each; the result carries the last window's frame rates, so warm-up
+   * doesn't drag them down, and the whole window's loss and video trouble.
+   */
+  private async measure(key: string, stream: number, pc: RTCPeerConnection, base: CallCheckResult): Promise<void> {
+    const entry = this.open.get(key);
+    if (!entry) return;
+    const { circleKey, to } = entry.peer;
+    const tunnelPort = entry.tunnel?.port;
+    const kind = base.kind;
+    const window = kind === 'connect' ? SETTLE_MS : SAMPLE_MS;
+    const steps = kind === 'connect' ? 1 : (kind === 'load' ? LOAD_MS : LONG_MS) / SAMPLE_MS;
+    const first = await pc.getStats();
+    let previous = first;
+    let pairId = selectedPairId(first);
+    let switches = 0;
+    let last: Partial<CallCheckResult> = {};
+    let taken = 0;
+    for (let step = 1; step <= steps; step++) {
+      await sleep(window);
+      // The other Mac said bye first: record what was measured so far.
+      if (!this.open.has(key)) break;
+      const current = await pc.getStats().catch((): null => null);
+      if (!current) break;
+      taken = step;
+      const nowPair = selectedPairId(current);
+      const switched = pairId !== null && nowPair !== null && nowPair !== pairId;
+      if (switched) switches++;
+      pairId = nowPair ?? pairId;
+      const connect = readConnectStats(current, tunnelPort);
+      last = kind === 'connect' ? {} : readLoadStats(previous, current, window / 1000);
+      const sample: CallCheckSample = {
+        run: base.run,
+        stream,
+        kind,
+        mode: base.mode,
+        role: base.role,
+        t: (step * window) / 1000,
+        switched,
+        ...(connect.path ? { path: connect.path } : {}),
+        ...(connect.rttMs !== undefined ? { rttMs: connect.rttMs } : {}),
+        ...last,
+        ...readMediaStats(previous, current, window / 1000),
+      };
+      void this.transport.sample(sample).catch((): boolean => false);
+      previous = current;
     }
-    await sleep(LOAD_MS - LOAD_SAMPLE_MS);
-    const before = await pc.getStats();
-    await sleep(LOAD_SAMPLE_MS);
-    const after = await pc.getStats();
-    await this.record({
-      ...base,
-      ...readConnectStats(after),
-      ...readLoadStats(before, after, LOAD_SAMPLE_MS / 1000),
-      streams: [...this.open.keys()].filter((key) => key.startsWith(`${base.run}/`)).length,
-    });
+    await this.record(
+      {
+        ...base,
+        ...readConnectStats(previous, tunnelPort),
+        ...readIceStats(previous),
+        ...readMediaStats(first, previous, (taken * window) / 1000),
+        ...last,
+        pathSwitches: switches,
+        samples: taken,
+        ...(kind === 'load' ? { streams: [...this.open.keys()].filter((open) => open.startsWith(`${base.run}/`)).length } : {}),
+      },
+      key,
+      circleKey,
+      to
+    );
   }
 
   private async call(
     circleKey: string,
     to: string,
     mode: CallCheckMode,
-    kind: 'connect' | 'load',
+    kind: CheckKind,
     stream: number,
     run: string
   ): Promise<void> {
     const key = `${run}/${stream}`;
     const base: CallCheckResult = { run, kind, mode, role: 'caller', connected: false };
+    const record = (result: CallCheckResult) => this.record(result, key, circleKey, to);
     try {
-      const pc = this.start(key, mode, kind);
+      const pc = this.start(key, mode, kind, { circleKey, to });
+      const tunnel = usesTunnel(mode) ? randomTunnelId() : undefined;
+      const tunnelPort = tunnel ? await this.openTunnel(key, circleKey, to, tunnel) : null;
+      if (tunnel && !tunnelPort) {
+        await record({ ...base, failedAt: 'tunnel' });
+        return;
+      }
       await pc.setLocalDescription(await pc.createOffer());
-      const sdp = await this.localDescription(pc, mode);
+      const { sdp, gatherMs } = await this.localDescription(pc, mode);
+      base.gatherMs = gatherMs;
       const answered = new Promise<string | null>((resolve) => {
         this.answers.set(key, resolve);
         setTimeout(() => resolve(null), ANSWER_MS);
       });
-      const sizes = await this.send(circleKey, to, { t: 'offer', run, stream, mode, kind, sdp });
+      const sizes = await this.send(circleKey, to, { t: 'offer', run, stream, mode, kind, sdp, ...(tunnel ? { tunnel } : {}) });
       Object.assign(base, sizes);
       const started = performance.now();
       const answer = await answered;
       this.answers.delete(key);
       if (!answer) {
-        await this.record({ ...base, failedAt: 'answer' });
+        await record({ ...base, failedAt: 'answer' });
         return;
       }
-      await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-      if (!(await connected(pc))) {
-        await this.record({ ...base, failedAt: 'ice' });
+      await pc.setRemoteDescription({ type: 'answer', sdp: mode === 'tunnel' ? stripCandidates(answer) : answer });
+      if (tunnelPort) await this.addTunnel(pc, tunnelPort);
+      const failed = await iceFailure(pc);
+      if (failed) {
+        await record({ ...base, ...failed, failedAt: 'ice' });
         return;
       }
       base.connected = true;
       base.msToConnect = performance.now() - started;
-      await this.measure(pc, base, kind);
+      await this.measure(key, stream, pc, base);
     } catch {
-      await this.record({ ...base, failedAt: 'error' });
+      await record({ ...base, failedAt: 'error' });
     } finally {
       if (stream === 0) await this.send(circleKey, to, { t: 'bye', run }).catch((): undefined => undefined);
       this.close(key);
@@ -352,28 +644,38 @@ export class CallCheck {
       return;
     }
     if (message.t !== 'offer') return;
-    const { run, stream, mode, kind } = message;
+    const { run, stream, mode, kind, tunnel } = message;
     const key = `${run}/${stream}`;
     const base: CallCheckResult = { run, kind, mode, role: 'answerer', connected: false };
+    const record = (result: CallCheckResult) => this.record(result, key, circleKey, from);
     try {
-      const pc = this.start(key, mode, kind);
+      const pc = this.start(key, mode, kind, { circleKey, to: from });
       const started = performance.now();
-      await pc.setRemoteDescription({ type: 'offer', sdp: message.sdp });
+      const tunnelPort = usesTunnel(mode) && tunnel ? await this.openTunnel(key, circleKey, from, tunnel) : null;
+      if (usesTunnel(mode) && !tunnelPort) {
+        await record({ ...base, failedAt: 'tunnel' });
+        this.close(key);
+        return;
+      }
+      await pc.setRemoteDescription({ type: 'offer', sdp: mode === 'tunnel' ? stripCandidates(message.sdp) : message.sdp });
+      if (tunnelPort) await this.addTunnel(pc, tunnelPort);
       await pc.setLocalDescription(await pc.createAnswer());
-      const sdp = await this.localDescription(pc, mode);
+      const { sdp, gatherMs } = await this.localDescription(pc, mode);
+      base.gatherMs = gatherMs;
       Object.assign(base, await this.send(circleKey, from, { t: 'answer', run, stream, sdp }));
-      if (!(await connected(pc))) {
-        await this.record({ ...base, failedAt: 'ice' });
+      const failed = await iceFailure(pc);
+      if (failed) {
+        await record({ ...base, ...failed, failedAt: 'ice' });
         this.close(key);
         return;
       }
       base.connected = true;
       base.msToConnect = performance.now() - started;
-      await this.measure(pc, base, kind);
+      await this.measure(key, stream, pc, base);
       // The caller says bye when it has measured too; close anyway if that never arrives.
       setTimeout(() => this.close(key), ANSWER_MS);
     } catch {
-      await this.record({ ...base, failedAt: 'error' });
+      await record({ ...base, failedAt: 'error' });
       this.close(key);
     }
   }

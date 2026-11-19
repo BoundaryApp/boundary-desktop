@@ -1,61 +1,39 @@
 import React from 'react';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FakeBridge } from '../../../__tests__/fakeBridge';
+import type {
+  HermesChatBreakdownResult,
+  HermesChatContextFile,
+} from '../../../../shared/types/hermesChat';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
+import { installChatBridge, threadProps } from './threadHarness';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+let bridge: FakeBridge;
+let contextFiles: HermesChatContextFile[] = [];
 
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  phase: new Set<(event: Record<string, unknown>) => void>(),
-  tool: new Set<(event: Record<string, unknown>) => void>(),
-  breakdown: { contextFiles: [] as { path: string }[] },
-}));
+function installBridge() {
+  ({ bridge } = installChatBridge('s1', {
+    hermesChat: {
+      getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
+        success: true,
+        breakdown: {
+          categories: [],
+          contextUsed: 10,
+          contextMax: 100,
+          contextPercent: 10,
+          contextEstimated: false,
+          contextFiles,
+        },
+      }),
+    },
+  }));
+}
 
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
-
-stubElectronAPI({
-  hermesChat: {
-    listPendingApprovals: vi.fn(async () => []),
-    listPendingCredentialRequests: vi.fn(async () => []),
-    onChatPhase: on(ipc.phase),
-    onChatTool: on(ipc.tool),
-    getContextBreakdown: async () => ({
-      success: true,
-      breakdown: {
-        categories: [],
-        contextUsed: 10,
-        contextMax: 100,
-        contextPercent: 10,
-        contextEstimated: false,
-        contextFiles: ipc.breakdown.contextFiles,
-      },
-    }),
-  },
-  onboarding: {
-    getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
-    probeSlotHealth: vi.fn().mockResolvedValue({ health: 'reachable' }),
-  },
-  projects: {
-    completePath: vi.fn().mockResolvedValue({ success: true, items: [] }),
-  },
-});
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
 
@@ -77,42 +55,39 @@ const Harness: React.FC = () => {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <WorkbenchThread
-        sessionId="s1"
-        threadTitle="Assistant"
-        activeProject={project}
-        projects={[project]}
-        activeProjectId="p1"
-        toolsEnabled
-        onToolsEnabledChange={noop}
-        onSelectProject={noop}
-        onClearProject={noop}
-        onNewProject={noop}
+        {...threadProps({ sessionId: 's1', activeProject: project, projects: [project], activeProjectId: 'p1' })}
       />
     </AssistantRuntimeProvider>
   );
 };
 
-const emit = (set: Set<Listener>, event: Record<string, unknown>) =>
-  act(async () => {
-    for (const cb of [...set]) cb(event);
-  });
-
 const turn = { requestId: 'r1', sessionId: 's1' };
 
 describe('WorkbenchThread live tool cards', () => {
+  beforeEach(installBridge);
   afterEach(() => {
     cleanup();
-    ipc.breakdown.contextFiles = [];
+    contextFiles = [];
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('shows the context files on a finished tool card while the model restarts', async () => {
     render(<Harness />);
-    await emit(ipc.phase, { ...turn, phase: 'preparing' });
-    await emit(ipc.phase, { ...turn, phase: 'tool', toolName: 'read_file' });
-    await emit(ipc.tool, { ...turn, toolId: 't1', name: 'read_file', status: 'done' });
-    ipc.breakdown.contextFiles = [{ path: '/work/notes/plan.md' }];
-    await emit(ipc.phase, { ...turn, phase: 'done' });
-    await emit(ipc.phase, { ...turn, phase: 'restarting' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'preparing' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'tool', toolName: 'read_file' });
+    await bridge.emit('hermes-chat:tool', { ...turn, toolId: 't1', name: 'read_file', status: 'done' });
+    contextFiles = [
+      {
+        label: 'plan.md',
+        path: '/work/notes/plan.md',
+        chars: 400,
+        estTokens: 100,
+        loaded: true,
+        status: '',
+      },
+    ];
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'done' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'restarting' });
     const path = await screen.findByText('plan.md');
     expect(within(path.closest('li')!).getByText('Reveal')).toBeTruthy();
   });
@@ -120,51 +95,51 @@ describe('WorkbenchThread live tool cards', () => {
   it('shows Hermes’s recovery wait in place of Preparing, and drops it when the turn ends', async () => {
     render(<Harness />);
     const wait = { provider: 'OpenRouter', cycle: 2, total: 5, retryInSec: 30 };
-    await emit(ipc.phase, { ...turn, phase: 'preparing', elapsedSec: 40, recovery: wait });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'preparing', elapsedSec: 40, recovery: wait });
     const line = "OpenRouter isn't responding. Retrying in 30s (2 of 5)";
     expect((await screen.findAllByText(line)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Preparing/)).toBeNull();
-    await emit(ipc.phase, { ...turn, phase: 'preparing', elapsedSec: 71, recovery: { ...wait, retryInSec: 0 } });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'preparing', elapsedSec: 71, recovery: { ...wait, retryInSec: 0 } });
     expect((await screen.findAllByText("OpenRouter isn't responding. Retrying now (2 of 5)")).length).toBeGreaterThan(0);
-    await emit(ipc.phase, { ...turn, phase: 'done' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'done' });
     expect(screen.queryByText(/isn't responding/)).toBeNull();
   });
 
   it('drops the Preparing line when a stopped turn ends', async () => {
     render(<Harness />);
-    await emit(ipc.phase, { ...turn, phase: 'preparing' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'preparing' });
     expect((await screen.findAllByText('Preparing…')).length).toBeGreaterThan(0);
-    await emit(ipc.phase, { ...turn, phase: 'done' });
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'done' });
     expect(screen.queryAllByText('Preparing…')).toEqual([]);
   });
 
   it('keeps Reveal on paths when a tool completes without its arguments', async () => {
     render(<Harness />);
-    await emit(ipc.phase, { ...turn, phase: 'tool', toolName: 'write_file' });
-    await emit(ipc.tool, {
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'tool', toolName: 'write_file' });
+    await bridge.emit('hermes-chat:tool', {
       ...turn,
       toolId: 't1',
       name: 'write_file',
       status: 'running',
       paths: ['/work/notes/draft.md'],
     });
-    await emit(ipc.tool, { ...turn, toolId: 't1', name: 'write_file', status: 'done', paths: [] });
+    await bridge.emit('hermes-chat:tool', { ...turn, toolId: 't1', name: 'write_file', status: 'done', paths: [] });
     const path = await screen.findByText('draft.md');
     expect(within(path.closest('li')!).getByText('Reveal')).toBeTruthy();
   });
 
   it('drops the generating card once the tool it announced starts', async () => {
     const { container } = render(<Harness />);
-    await emit(ipc.phase, { ...turn, phase: 'tool', toolName: 'write_file' });
-    await emit(ipc.tool, {
+    await bridge.emit('hermes-chat:phase', { ...turn, phase: 'tool', toolName: 'write_file' });
+    await bridge.emit('hermes-chat:tool', {
       ...turn,
       toolId: 'generating-write_file',
       name: 'write_file',
       status: 'generating',
     });
     expect(container.querySelectorAll('.wb-tool')).toHaveLength(1);
-    await emit(ipc.tool, { ...turn, toolId: 't1', name: 'write_file', status: 'running' });
-    await emit(ipc.tool, { ...turn, toolId: 't1', name: 'write_file', status: 'done' });
+    await bridge.emit('hermes-chat:tool', { ...turn, toolId: 't1', name: 'write_file', status: 'running' });
+    await bridge.emit('hermes-chat:tool', { ...turn, toolId: 't1', name: 'write_file', status: 'done' });
     expect(container.querySelectorAll('.wb-tool')).toHaveLength(1);
     expect(container.querySelectorAll('.wb-tool .wb-spin')).toHaveLength(0);
   });

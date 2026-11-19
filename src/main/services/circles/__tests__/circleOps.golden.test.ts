@@ -91,6 +91,25 @@ const LOG2: Array<[CircleMemberIntro, CircleOp]> = [
   [ada, { type: 'record-del', app: 'garden', scope: 'member', key: 'plot', identity: cy.identity }],
 ];
 
+// Format 3: mentions (ADR 0051) and replies. No build declares format 3 yet, so GIF media may still
+// extend this log and its file until one does; after that it is frozen like the others.
+const LOG3: Array<[CircleMemberIntro, CircleOp]> = [
+  [ada, { type: 'create', name: 'Garden club', format: 3, member: ada }],
+  [ada, inviteOp('7')],
+  [ada, inviteOp('8')],
+  [ada, { type: 'add-member', member: bo, invite: hex('7') }],
+  [ada, { type: 'add-member', member: cy, invite: hex('8') }],
+  [ada, { type: 'chat-post', channel: 'general', id: msgId('a'), text: 'Seed swap on the 9th?', at: 1000 }],
+  [ada, { type: 'chat-post', channel: 'general', id: msgId('b'), text: '@Bo bring peas', at: 1100, mentions: { members: [bo.identity] } } as CircleOp],
+  [ada, { type: 'chat-post', channel: 'general', id: msgId('c'), text: '@channel hello', at: 1200, mentions: { channel: true } } as CircleOp],
+  [ada, { type: 'chat-post', channel: 'general', id: msgId('d'), text: 'Bad mentions', at: 1300, mentions: { members: [] } } as CircleOp],
+  [bo, { type: 'chat-post', channel: 'general', id: msgId('b'), text: 'Count me in', at: 1400, reply: { author: ada.identity, id: msgId('a') } } as CircleOp],
+  [cy, { type: 'chat-post', channel: 'general', id: msgId('c'), text: 'Where was that?', at: 1500, reply: { author: ada.identity, id: msgId('9') } } as CircleOp],
+  [cy, { type: 'chat-post', channel: 'general', id: msgId('d'), text: 'Bad reply', at: 1600, reply: { author: 'short', id: msgId('a') } } as CircleOp],
+  [bo, { type: 'chat-edit', channel: 'general', id: msgId('b'), text: 'Count me in too', reply: { author: cy.identity, id: msgId('c') } } as CircleOp],
+  [ada, { type: 'chat-delete', channel: 'general', author: ada.identity, id: msgId('a') }],
+];
+
 async function replay(log: Array<[CircleMemberIntro, CircleOp]>, supportedFormat: number) {
   const data = new Map<string, unknown>();
   const view: CircleView = {
@@ -136,5 +155,11 @@ describe('format 1', () => {
 describe('format 2', () => {
   it('turns this log into this view', async () => {
     await expect(await replay(LOG2, 2)).toMatchFileSnapshot('./fixtures/circleOpsFormat2.json');
+  });
+});
+
+describe('format 3', () => {
+  it('turns this log into this view', async () => {
+    await expect(await replay(LOG3, 3)).toMatchFileSnapshot('./fixtures/circleOpsFormat3.json');
   });
 });

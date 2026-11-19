@@ -15,6 +15,9 @@ import {
 import { folderKey } from './chat/codingFolderView';
 import { InfoTip } from '../components/ui/info-tip';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { Callout } from '../components/ui/alert';
+import { TrashNotice } from './TrashNotice';
+import { Button } from '../components/ui/button';
 
 /**
  * Settings › Coding agent (ADR 0028 §2, mock flow 4): every folder the coding agent can reach,
@@ -93,17 +96,17 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
       title={`Stop the coding agent working in ${name}?`}
       actions={
         <>
-          <button type="button" className="wb-btn-ghost" onClick={onCancel}>
+          <Button variant="secondary" block type="button" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
           {choice === 'delete' ? (
-            <button type="button" className="wb-btn-solid" onClick={onReviewDelete}>
+            <Button variant="primary" block type="button" onClick={onReviewDelete}>
               Review folder…
-            </button>
+            </Button>
           ) : (
-            <button type="button" className="wb-btn-solid" onClick={() => onRemove(choice)}>
+            <Button variant="primary" block type="button" onClick={() => onRemove(choice)}>
               Remove access
-            </button>
+            </Button>
           )}
           <span className="wb-sheet-note">Restarts the coding agent</span>
         </>
@@ -213,29 +216,15 @@ export const CodingFoldersPanel: React.FC = () => {
         </InfoTip>
       </p>
 
-      {notice ? (
-        <div className="wb-insp-banner" role="status">
-          <p>{notice}</p>
-          <button
-            type="button"
-            className="wb-btn-tiny"
-            onClick={() => void window.electronAPI.codingFolders.showTrash()}
-          >
-            Show in Trash
-          </button>
-          <button type="button" className="wb-btn-tiny" onClick={() => setNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      ) : null}
+      {notice ? <TrashNotice notice={notice} onDismiss={() => setNotice(null)} /> : null}
       {/* Remove, Turn off and Retry all report failures through the store's error. */}
       {coding.error ? (
-        <div className="wb-insp-banner bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-insp-callout" role="alert">
           <p>{coding.error.message}</p>
-          <button type="button" className="wb-btn-tiny" onClick={dismissCodingError}>
+          <Button variant="secondary" size="sm" type="button" onClick={dismissCodingError}>
             Dismiss
-          </button>
-        </div>
+          </Button>
+        </Callout>
       ) : null}
 
       {grants.length === 0 ? (
@@ -281,33 +270,36 @@ export const CodingFoldersPanel: React.FC = () => {
                 </span>
                 <span className="wb-coding-act">
                   {grant.state === 'not-visible' ? (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      className="wb-btn-tiny"
                       disabled={Boolean(pending)}
                       onClick={() => retry(grant)}
                     >
                       Retry
-                    </button>
+                    </Button>
                   ) : null}
                   {grant.origin === 'project-folder' ? (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      className="wb-btn-tiny"
                       disabled={Boolean(pending)}
                       onClick={() => turnOff(grant)}
                     >
                       Turn off
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      className="wb-btn-tiny"
                       disabled={Boolean(pending)}
                       onClick={() => setRemoving(grant)}
                     >
                       Remove…
-                    </button>
+                    </Button>
                   )}
                 </span>
               </li>
@@ -317,14 +309,15 @@ export const CodingFoldersPanel: React.FC = () => {
       )}
 
       <div className="wb-coding-actions">
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
-          className="wb-btn-tiny"
           disabled={verifying}
           onClick={() => void verify(true)}
         >
           {verifying ? 'Checking…' : 'Check again'}
-        </button>
+        </Button>
       </div>
 
       <div className="wb-coding-never">

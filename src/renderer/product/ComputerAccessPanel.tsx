@@ -3,6 +3,9 @@ import type { HostBridgeGrant } from '../../shared/types/hostBridge';
 import { InfoTip } from '../components/ui/info-tip';
 import { errorText } from '../components/ui/use-sheet-action';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { Callout } from '../components/ui/alert';
+import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
+import { Button } from '../components/ui/button';
 
 /**
  * Settings → Computer access: Stop agent, Rotate tokens (ADR 0027 §3), and the host-bridge
@@ -104,93 +107,89 @@ export const ComputerAccessPanel: React.FC = () => {
   }
 
   return (
-    <section className="wb-settings-section wb-computer-access" aria-labelledby="settings-computer-access">
-      <h2 id="settings-computer-access">
-        Computer access
-        <InfoTip label="computer access">
-          <p>
-            Hermes can ask {APP_NAME} to show notifications, open pages in your browser, use the clipboard,
-            and read or save files you choose. Each one asks you first. Reading the clipboard and saving
-            files always ask.
-          </p>
-          <p>
-            Every request, allowed or not, is recorded in <span className="mono">host-bridge/audit.jsonl</span>{' '}
-            in {APP_NAME}’s app data folder. The log keeps sizes and file paths, never clipboard text or file
-            contents.
-          </p>
-        </InfoTip>
-      </h2>
+    <SettingsSection
+      id="settings-computer-access"
+      className="wb-computer-access"
+      title={
+        <>
+            Computer access
+            <InfoTip label="computer access">
+              <p>
+                Hermes can ask {APP_NAME} to show notifications, open pages in your browser, use the clipboard,
+                and read or save files you choose. Each one asks you first. Reading the clipboard and saving
+                files always ask.
+              </p>
+              <p>
+                Every request, allowed or not, is recorded in <span className="mono">host-bridge/audit.jsonl</span>{' '}
+                in {APP_NAME}’s app data folder. The log keeps sizes and file paths, never clipboard text or file
+                contents.
+              </p>
+            </InfoTip>
+        </>
+      }
+    >
       {agent.stopped ? (
-        <div className="wb-inference-banner is-warn" role="status">
+        <Callout variant="warn" layout="row" size="sm" className="wb-inference-callout" role="status">
           <p>
             Agent stopped. Hermes can’t show notifications, open links, use your files or clipboard, or
             drive {APP_NAME}’s browser. This stays off after you restart {APP_NAME}, until you turn access
             back on here.
           </p>
           <div className="wb-agent-browser-actions">
-            <button
+            <Button
+              variant="primary"
               type="button"
-              className="wb-inference-btn is-solid"
               disabled={busy}
               onClick={() => void setStopped(false)}
             >
               Turn access back on
-            </button>
+            </Button>
           </div>
-        </div>
+        </Callout>
       ) : (
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">Stop agent</p>
-            <p className="wb-settings-hint">
-              Cuts Hermes off from this computer and {APP_NAME}’s browser now, and keeps it off until you
-              turn access back on. Its tokens are replaced, so Hermes restarts.
-            </p>
-          </div>
-          <button type="button" className="wb-inference-btn" disabled={busy} onClick={() => void setStopped(true)}>
+        <SettingsRow
+          label="Stop agent"
+          hint={`Cuts Hermes off from this computer and ${APP_NAME}’s browser now, and keeps it off until you turn access back on. Its tokens are replaced, so Hermes restarts.`}
+        >
+          <Button variant="secondary" type="button" disabled={busy} onClick={() => void setStopped(true)}>
             Stop agent
-          </button>
-        </div>
+          </Button>
+        </SettingsRow>
       )}
       {agentError ? (
-        <div className="wb-inference-banner is-bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role="alert">
           <p>{agentError}</p>
-        </div>
+        </Callout>
       ) : null}
       {agent.error ? (
-        <div className="wb-inference-banner is-bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role="alert">
           <p>Access is back on, but {APP_NAME}’s tools didn’t start: {agent.error}</p>
-        </div>
+        </Callout>
       ) : null}
       {agent.hermesError ? (
-        <div className="wb-inference-banner is-bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role="alert">
           <p>Access is back on, but Hermes didn’t get the new tokens: {agent.hermesError}</p>
-        </div>
+        </Callout>
       ) : null}
       {agent.stopped ? null : (
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">Replace tokens</p>
-            <p className="wb-settings-hint">
-              Replaces the tokens Hermes uses to reach this computer and {APP_NAME}’s browser. The old ones
-              stop working at once. Hermes restarts to pick up the new ones, which ends replies in
-              progress, and {APP_NAME}’s browser closes.
-            </p>
-          </div>
-          <button type="button" className="wb-inference-btn" disabled={busy} onClick={() => void rotate()}>
+        <SettingsRow
+          label="Replace tokens"
+          hint={`Replaces the tokens Hermes uses to reach this computer and ${APP_NAME}’s browser. The old ones stop working at once. Hermes restarts to pick up the new ones, which ends replies in progress, and ${APP_NAME}’s browser closes.`}
+        >
+          <Button variant="secondary" type="button" disabled={busy} onClick={() => void rotate()}>
             {rotation?.status === 'running' ? 'Replacing…' : 'Replace tokens'}
-          </button>
-        </div>
+          </Button>
+        </SettingsRow>
       )}
       {rotation?.status === 'done' ? (
-        <div className="wb-inference-banner" role="status">
+        <Callout layout="row" size="sm" className="wb-inference-callout" role="status">
           <p>New tokens are in use. The old ones no longer work.</p>
-        </div>
+        </Callout>
       ) : null}
       {rotation?.status === 'failed' ? (
-        <div className="wb-inference-banner is-bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role="alert">
           <p>{rotation.error}</p>
-        </div>
+        </Callout>
       ) : null}
 
       <p className="wb-inference-lead">What you’ve said Hermes can always do on this computer.</p>
@@ -205,43 +204,48 @@ export const ComputerAccessPanel: React.FC = () => {
             {grants.map((grant) => {
               const { label, detail } = describeGrant(grant);
               return (
-                <li key={`${grant.capability}:${grant.resource}`} className="wb-settings-row">
-                  <div>
-                    <p className="wb-settings-label">{label}</p>
-                    {detail ? <p className="wb-settings-hint mono">{detail}</p> : null}
-                    <p className="wb-settings-hint">{when(grant)}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="wb-inference-btn"
-                    disabled={busy}
-                    aria-label={`Revoke: ${label}`}
-                    onClick={() => void run(() => window.electronAPI.hostBridge.revokeGrant(grant))}
+                <li key={`${grant.capability}:${grant.resource}`}>
+                  <SettingsRow
+                    label={label}
+                    details={
+                      <>
+                        {detail ? <p className="wb-settings-hint mono">{detail}</p> : null}
+                        <p className="wb-settings-hint">{when(grant)}</p>
+                      </>
+                    }
                   >
-                    Revoke
-                  </button>
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Revoke: ${label}`}
+                      onClick={() => void run(() => window.electronAPI.hostBridge.revokeGrant(grant))}
+                    >
+                      Revoke
+                    </Button>
+                  </SettingsRow>
                 </li>
               );
             })}
           </ul>
           <div className="wb-agent-browser-actions">
-            <button
+            <Button
+              variant="secondary"
               type="button"
-              className="wb-inference-btn"
               disabled={busy}
               onClick={() => void run(() => window.electronAPI.hostBridge.revokeAllGrants())}
             >
               Revoke all
-            </button>
+            </Button>
           </div>
         </>
       )}
       {grantError ? (
-        <div className="wb-inference-banner is-bad" role="alert">
+        <Callout variant="destructive" layout="row" size="sm" className="wb-inference-callout" role="alert">
           <p>{grantError}</p>
-        </div>
+        </Callout>
       ) : null}
 
-    </section>
+    </SettingsSection>
   );
 };

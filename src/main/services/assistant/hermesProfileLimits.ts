@@ -29,7 +29,7 @@ export interface HermesProfileLimits {
 
 export type HermesConfigCompose = (
   args: string[],
-  options: { timeout?: number; env?: NodeJS.ProcessEnv }
+  options: { timeout?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal }
 ) => Promise<{ stdout: string; stderr: string }>;
 
 /**
@@ -49,6 +49,27 @@ export function hermesProfileLimitSets(limits: HermesProfileLimits): {
 }
 
 const CONTEXT_LOOKUP_TIMEOUT_MS = 5_000;
+
+/** GETs JSON from a model server with the slot's key; null for any failure or a non-object. */
+export function modelServerJsonGetter(
+  llm: { apiKey?: string; authScheme?: 'bearer' | 'api-key'; provider?: string },
+  fetchImpl: typeof fetch,
+  timeoutMs: number
+): (url: string) => Promise<Record<string, unknown> | null> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const authorization = llmAuthorizationHeader(llm);
+  if (authorization) headers.Authorization = authorization;
+  return async (url) => {
+    try {
+      const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) return null;
+      const body = (await res.json()) as unknown;
+      return body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  };
+}
 
 function positive(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
@@ -72,22 +93,7 @@ export async function lookupModelContextLength(
 ): Promise<number | undefined> {
   const base = llm.endpointUrl.trim().replace(/\/+$/, '');
   const origin = base.replace(/\/v1$/, '');
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const authorization = llmAuthorizationHeader(llm);
-  if (authorization) headers.Authorization = authorization;
-  const getJson = async (url: string): Promise<Record<string, unknown> | null> => {
-    try {
-      const res = await fetchImpl(url, {
-        headers,
-        signal: AbortSignal.timeout(CONTEXT_LOOKUP_TIMEOUT_MS),
-      });
-      if (!res.ok) return null;
-      const body = (await res.json()) as unknown;
-      return body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
-    } catch {
-      return null;
-    }
-  };
+  const getJson = modelServerJsonGetter(llm, fetchImpl, CONTEXT_LOOKUP_TIMEOUT_MS);
 
   const modelPath = llm.modelId.split('/').map(encodeURIComponent).join('/');
   const lmStudio = await getJson(`${origin}/api/v0/models/${modelPath}`);

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { BrowserWindow, dialog, shell, type WebContents } from 'electron';
+import { shell, type WebContents } from 'electron';
 import type {
   HermesRevealProjectFilePayload,
   HermesRevealProjectFileResult,
@@ -9,7 +9,7 @@ import type {
 } from '../../../../shared/types/hermesChat';
 import { slugify } from '../../../../shared/utils/slug';
 import { getStoredHermesProject } from './hermesProjectStore';
-import { rememberDialogPick } from '../../dialogFolders';
+import { pickSavePath } from '../../saveDialog';
 import { isPathUnder } from '../../hostPaths';
 
 /**
@@ -48,14 +48,12 @@ export async function saveReplyToProject(
     defaultPath: path.join(project.hostPath, suggestReplyFileName(payload.content)),
     filters: [{ name: 'Markdown', extensions: ['md'] }],
   };
-  const win = BrowserWindow.fromWebContents(sender);
-  const picked = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
-  if (picked.canceled || !picked.filePath) return { success: false, canceled: true };
-  rememberDialogPick(picked.filePath);
+  const picked = await pickSavePath(sender, options);
+  if (!picked) return { success: false, canceled: true };
   try {
     const body = payload.content.endsWith('\n') ? payload.content : `${payload.content}\n`;
-    await fs.writeFile(picked.filePath, body, 'utf8');
-    return { success: true, path: picked.filePath };
+    await fs.writeFile(picked, body, 'utf8');
+    return { success: true, path: picked };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

@@ -38,6 +38,10 @@ const probe = await probeStack();
 const gptrEnabled =
   probe.ok && readEnvFile(path.join(probe.target.root, '.env')).GPTR_MCP_ENABLED === '1';
 
+/** Same for OpenCode: setup.sh --coding writes OPENCODE_MCP_ENABLED=1 into the stack's `.env`. */
+const opencodeEnabled =
+  probe.ok && readEnvFile(path.join(probe.target.root, '.env')).OPENCODE_MCP_ENABLED === '1';
+
 interface Call {
   method: string;
   keys: string[];
@@ -73,6 +77,8 @@ async function recordSessionCalls(): Promise<Call[]> {
       profile: 'rec-profile',
       parentSessionId: 'rec-parent',
       historyBudget: DM_HISTORY_BUDGET,
+      hidden: true,
+      context: 'contract context',
     });
     await session.describeProfile('rec-profile');
     await session.createProfile({ name: 'rec-profile', description: 'd', soul: 's' });
@@ -83,6 +89,7 @@ async function recordSessionCalls(): Promise<Call[]> {
       historyBudget: DM_HISTORY_BUDGET,
       profile: 'rec-profile',
       omitMessages: true,
+      context: null,
     });
     await session.getSessionHistory('rec-session');
     await session.listProjects();
@@ -175,6 +182,8 @@ const SERVER_REQUESTS_HANDLED: Array<{ name: string; fields: string[] }> = [
       'vault.unlock_prompt': ['session_id', 'backend', 'display_name'],
       'vault.save_login': ['session_id', 'origin', 'site'],
       'vault.code': ['session_id', 'site', 'hint'],
+      'vault.create_login': ['session_id', 'origin', 'site', 'identifier', 'regenerate'],
+      'vault.capture_secret': ['session_id', 'origin', 'site', 'name', 'destination', 'last4', 'replaces'],
     }[name],
   })),
 ];
@@ -186,8 +195,8 @@ const SERVER_REQUESTS_HANDLED: Array<{ name: string; fields: string[] }> = [
 const OVERLAY = {
   methods: ['session.live_status'], // gateway_liveness overlay
   params: {
-    'session.create': ['history_budget'], // history_budget overlay
-    'session.resume': ['history_budget'],
+    'session.create': ['history_budget', 'context'], // history_budget, client_context overlays
+    'session.resume': ['history_budget', 'context'],
     'prompt.submit': ['context'], // client_context overlay
   } as Record<string, string[]>,
   events: ['turn.heartbeat'], // gateway_liveness overlay
@@ -206,6 +215,14 @@ const KNOWN_MISMATCHES: string[] = [];
 const REGISTRY_PROGRAM = (claims: unknown) => `
 import json, sys
 sys.path.insert(0, "/opt/hermes")
+# The stack's client_context overlay adds \`context\` to session.create, session.resume and
+# prompt.submit when the gateway starts (declare_contracts), not in the contract files. Apply it
+# here too, so the catalog is the running gateway's. A stack without the overlay skips this.
+try:
+    from agent.client_context import declare_contracts
+    declare_contracts()
+except ImportError:
+    pass
 from tui_gateway.contracts import METHODS, EVENTS, SERVER_REQUESTS
 claims = json.loads(${JSON.stringify(JSON.stringify(claims))})
 problems = []
@@ -296,13 +313,18 @@ describe.skipIf(!probe.ok)(`Hermes gateway over /api/ws${skipNote(probe)}`, () =
   let client: JsonRpcGatewayClient;
   let readyPayload: Record<string, unknown> | null = null;
   let sessionId = '';
+  /** The params of each `session.create` Boundary sent while setting up, read from the live client. */
+  let creates: unknown[] = [];
 
   beforeAll(async () => {
     session.on('gateway.ready', (event) => {
       readyPayload = (event.payload as Record<string, unknown> | undefined) ?? {};
     });
     client = await session.ensureConnected();
+    const request = vi.spyOn(client, 'request');
     sessionId = await session.createSessionWithSeed({ historyBudget: DM_HISTORY_BUDGET });
+    creates = request.mock.calls.filter(([method]) => method === 'session.create').map(([, params]) => params);
+    request.mockRestore();
   });
 
   afterAll(() => session.dispose());
@@ -320,12 +342,19 @@ describe.skipIf(!probe.ok)(`Hermes gateway over /api/ws${skipNote(probe)}`, () =
 
   it('creates and resumes a session with a history budget and reports its context', async () => {
     expect(sessionId).toBeTruthy();
+    // The pinned stack accepted the budget on the first create (CR 0002).
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).toMatchObject({ history_budget: DM_HISTORY_BUDGET });
+    const request = vi.spyOn(client, 'request');
     // Hermes resumes by the stored id; session.create returned the runtime id.
     const resumed = await session.resumeSession(session.storedSessionId(sessionId), {
       historyBudget: DM_HISTORY_BUDGET,
       omitMessages: true,
     });
     expect(resumed.sessionId).toBeTruthy();
+    const resumes = request.mock.calls.filter(([method]) => method === 'session.resume');
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0][1]).toMatchObject({ history_budget: DM_HISTORY_BUDGET });
     const raw = (await client.request('session.context_breakdown', { session_id: resumed.sessionId })) as Record<
       string,
       unknown
@@ -392,6 +421,21 @@ describe.skipIf(!probe.ok)(`Hermes gateway over /api/ws${skipNote(probe)}`, () =
       expect(gptr?.url).toMatch(/gptr-mcp:8000\/sse$/);
       expect(gptr?.tools?.include).toEqual(
         expect.arrayContaining(['deep_research', 'quick_search', 'write_report'])
+      );
+    }
+  );
+
+  it.skipIf(!opencodeEnabled)(
+    `registers OpenCode on the default profile${opencodeEnabled ? '' : ' (skipped: OPENCODE_MCP_ENABLED is not 1 in the stack .env)'}`,
+    async () => {
+      const list = (await client.request('mcp.servers.list', {})) as {
+        servers?: Array<{ name?: string; url?: string; enabled?: boolean; tools?: { include?: string[] } }>;
+      };
+      const opencode = list.servers?.find((s) => s.name === 'opencode');
+      expect(opencode?.enabled).toBe(true);
+      expect(opencode?.url).toMatch(/opencode-mcp:8000\/sse$/);
+      expect(opencode?.tools?.include).toEqual(
+        expect.arrayContaining(['coding_start_task', 'coding_wait_for_task', 'coding_continue_task'])
       );
     }
   );

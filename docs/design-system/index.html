@@ -112,7 +112,7 @@
     <div class="rules">
       <div><b>One solid action per view</b>The light solid button is the primary action. Everything else is outline or ghost.</div>
       <div><b>Violet means “you are here” or “we recommend”</b>Selection, the active destination, a recommended option. Not a default button color.</div>
-      <div><b>No raw values outside tokens.css</b>No hex, no Tailwind palette colors (<code>zinc-*</code>, <code>indigo-*</code>…), no off-scale px sizes in product code.</div>
+      <div><b>No raw values outside tokens.css</b>No hex, no Tailwind palette colors (<code>zinc-*</code>, <code>indigo-*</code>…), no off-scale px sizes in product code. Padding, margin and gap use <code>--space-*</code>; <code>bun run check:spacing</code> fails when a stylesheet adds a raw length or opens a second block for a selector.</div>
       <div><b>Same frame everywhere</b>Setup, starting and ready states share the workbench surface, type and rail.</div>
       <div><b>Motion is quiet</b>120 ms for hover and press, 200 ms for panels. Nothing bounces. Reduced motion turns it off.</div>
       <div><b>Every control shows focus</b>Keyboard focus always draws <code>--focus-ring</code>. Never <code>outline: none</code> without a replacement.</div>
@@ -137,6 +137,7 @@
       <div class="swatch"><div class="chip" style="background:var(--text-faint)"></div><div class="meta"><b>text-faint</b><code>text-fg-faint</code></div></div>
       <div class="swatch"><div class="chip" style="background:var(--brand)"></div><div class="meta"><b>brand</b><code>bg-brand</code></div></div>
       <div class="swatch"><div class="chip" style="background:var(--brand-dim)"></div><div class="meta"><b>brand-dim</b><code>bg-brand-dim</code></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--bubble-mine)"></div><div class="meta"><b>bubble-mine</b><code>Circle chat, your own message</code></div></div>
       <div class="swatch"><div class="chip" style="background:var(--ok)"></div><div class="meta"><b>ok</b><code>text-ok</code></div></div>
       <div class="swatch"><div class="chip" style="background:var(--warn)"></div><div class="meta"><b>warn</b><code>text-warn</code></div></div>
       <div class="swatch"><div class="chip" style="background:var(--danger)"></div><div class="meta"><b>danger</b><code>text-danger</code></div></div>
@@ -150,12 +151,12 @@
       <div class="row"><code>--size-ui · 13</code><span>Default chrome text, rows and buttons</span><span class="note">text-ui</span></div>
       <div class="row"><code>--size-xs · 12</code><span style="font-size:var(--size-xs);color:var(--text-muted)">Secondary rows, captions, tiny buttons</span><span class="note">text-xs</span></div>
       <div class="row"><code>--size-2xs · 11</code><span style="font-size:var(--size-2xs);font-weight:var(--weight-strong);letter-spacing:0.08em;text-transform:uppercase;color:var(--text-faint)">Section label</span><span class="note">text-2xs</span></div>
-      <div class="row"><code>--size-prose · 16.5</code><span style="font-family:var(--font-prose);font-size:var(--size-prose);line-height:var(--leading-prose)">Assistant replies read like a page, not a log.</span><span class="note">transcript only</span></div>
+      <div class="row"><code>--size-prose · 15.5</code><span style="font-family:var(--font-reply);font-size:var(--size-prose);line-height:var(--leading-prose)">Assistant replies read like a page, not a log.</span><span class="note">transcript only; Settings › Reply text sets it</span></div>
       <div class="row"><code>weights</code><span><span style="font-weight:var(--weight-regular)">400 regular</span> · <span style="font-weight:var(--weight-medium)">560 medium</span> · <span style="font-weight:var(--weight-strong)">650 strong</span></span><span class="note">three only</span></div>
     </div>
 
     <h2>Shape and space</h2>
-    <p>Three radii and a pill. Space steps in multiples of 4.</p>
+    <p>Three radii and a pill. Space steps in multiples of 4 (<code>--space-1</code> 4px to <code>--space-10</code> 40px), with half steps <code>--space-0-5</code>, <code>--space-1-5</code> and <code>--space-2-5</code> (2, 6 and 10px) for dense chrome. Settings pages use <code>SettingsSection</code> and <code>SettingsRow</code> from <code>components/settings</code>, which set the space between rows.</p>
     <div class="shapes">
       <div class="shape" style="border-radius:var(--radius-sm)">sm · 6</div>
       <div class="shape" style="border-radius:var(--radius-md)">md · 8</div>
@@ -164,7 +165,7 @@
     </div>
 
     <h2>Buttons</h2>
-    <p><code>components/ui/button.tsx</code>. Tab through them to see the focus ring.</p>
+    <p><code>components/ui/button.tsx</code>. Tab through them to see the focus ring. Buttons are <code>--control-height</code> (34px) or <code>--control-height-sm</code> (28px) tall, whatever their text; <code>bun run check:sheet-layout</code> fails on any other height. <code>Button</code> has six variants (ADR 0061): <code>primary</code> is <code>.wb-btn-solid</code>, <code>secondary</code> is <code>.wb-btn-ghost</code> (small: <code>.wb-btn-tiny</code>, muted 12px), <code>danger</code> is <code>.wb-btn-danger</code> (small: <code>.wb-btn-tiny.is-danger</code>), and <code>quiet</code>, <code>brand</code> and <code>link</code> are the borderless, violet and text buttons. It sizes to its label; <code>block</code> fills its column. Don't put these classes on a raw <code>&lt;button&gt;</code>; a test fails on it.</p>
     <div class="stage">
       <button class="btn solid" type="button">Continue</button>
       <button class="btn brand" type="button">Sign in with OpenRouter</button>
@@ -175,7 +176,7 @@
     </div>
 
     <h2>Pills and callouts</h2>
-    <p><code>Pill</code> (Badge with <code>dot</code>) and <code>Callout</code> (Alert). One shape per tone.</p>
+    <p><code>Pill</code> (Badge with <code>dot</code>) and <code>Callout</code> (Alert). One shape per tone. Every inline notice, warning and error is a <code>Callout</code> from <code>components/ui/alert</code>: <code>layout="row"</code> puts the message and its buttons on one line, <code>layout="stacked"</code> puts the buttons in a <code>.wb-callout-actions</code> row under it, and <code>size="sm"</code> is for the inspector and Settings. Its container sets the space around it.</p>
     <div class="stage">
       <span class="pill">Not set</span>
       <span class="pill brand">Recommended</span>
@@ -191,6 +192,8 @@
     </div>
 
     <h2>Fields</h2>
+    <p><code>components/ui/field.tsx</code>: a short caption, the control, then an optional hint, with the spacing set by <code>.wb-field</code>. A sentence goes in the hint, not the caption. Fields side by side go in <code>.wb-fields-inline</code>.</p>
+    <p>Sheets come in three widths: the default 480px, <code>.wb-sheet-wide</code> 640px and <code>.wb-sheet-table</code> 960px, each shrinking with the window. A table or other wide content sits in <code>.wb-scroll-x</code>, so a narrow window scrolls it sideways instead of letting it pass the sheet's edge. <code>bun run check:sheet-layout</code> fails on content that passes an edge.</p>
     <div class="stage col">
       <div class="field"><label for="u">Base URL</label><input class="input" id="u" placeholder="http://localhost:11434/v1" /></div>
     </div>

@@ -6,6 +6,7 @@ export {
   getLastSystemDockerProbe,
   resolveContainerRuntime,
   resetContainerRuntimeCache,
+  stopBundledMachineIfStarted,
 } from './resolveContainerRuntime';
 export {
   runCli,

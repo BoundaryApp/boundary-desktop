@@ -1,4 +1,7 @@
 /* Inference (settings spec phase 3). Reading scale: 14px body, 13px secondary, 58px rows. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
 
 .wb-inf {
   display: flex;
@@ -14,7 +17,7 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 40px 32px 64px;
+  padding: var(--space-10) var(--space-8) 64px;
 }
 
 .wb-inf-col {
@@ -29,35 +32,24 @@
 }
 
 .wb-inf-lede {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   color: var(--text-muted);
   font-size: var(--size-small);
 }
 
 .wb-inf-sec {
-  margin: 36px 0 12px;
+  margin: 36px 0 var(--space-3);
   font-size: var(--size-section);
   font-weight: var(--weight-medium);
 }
 
 .wb-inf .wb-btn-ghost,
-.wb-inf .wb-btn-solid {
+.wb-inf .wb-btn-solid,
+.wb-inf .wb-btn-danger {
   width: auto;
-  min-height: 34px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   font-size: var(--size-small);
-  text-align: center;
   white-space: nowrap;
-}
-
-.wb-inf .wb-btn-ghost:disabled,
-.wb-inf .wb-btn-solid:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.wb-inf .wb-btn-ghost.is-danger {
-  color: var(--danger);
 }
 
 .wb-inf-rows {
@@ -73,9 +65,9 @@
 .wb-inf-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   min-height: var(--row-min-height, 58px);
-  padding: 10px 16px;
+  padding: var(--space-2-5) var(--space-4);
   border-top: 1px solid var(--line);
 }
 
@@ -107,8 +99,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: var(--space-2-5);
+  padding: 14px var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -122,7 +114,7 @@
 .wb-inf-check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--text-muted);
   font-size: var(--size-small);
 }
@@ -130,7 +122,7 @@
 .wb-inf-verdict {
   flex-basis: 100%;
   margin: 0;
-  padding-top: 10px;
+  padding-top: var(--space-2-5);
   border-top: 1px solid var(--line);
 }
 
@@ -165,8 +157,8 @@
   align-items: center;
   gap: 14px;
   min-height: 72px;
-  margin-bottom: 12px;
-  padding: 10px 8px 10px 0;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2-5) var(--space-2) var(--space-2-5) 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -246,7 +238,7 @@
 
 .wb-inf-acts {
   display: flex;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .wb-inf-ico {
@@ -274,8 +266,8 @@
 .wb-inf-pline {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 12px 44px;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-3) 44px;
   color: var(--text-muted);
   font-size: var(--size-small);
 }
@@ -295,7 +287,7 @@
   gap: 14px;
   width: 100%;
   height: 48px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   padding-left: 7px;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-lg);
@@ -348,7 +340,7 @@
   flex: none;
   width: 360px;
   overflow-y: auto;
-  padding: 22px 20px 32px;
+  padding: 22px var(--space-5) var(--space-8);
   border-left: 1px solid var(--line);
   background: var(--surface-1);
 }
@@ -356,8 +348,8 @@
 .wb-inf-side-head {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1-5);
 }
 
 .wb-inf-side-head h2 {
@@ -372,8 +364,8 @@
 .wb-inf-kv {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 5px 12px;
-  margin: 12px 0 0;
+  gap: 5px var(--space-3);
+  margin: var(--space-3) 0 0;
   font-size: var(--size-small);
 }
 
@@ -389,12 +381,12 @@
 .wb-inf-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 .wb-inf-kick {
-  margin: 22px 0 8px;
+  margin: 22px 0 var(--space-2);
   color: var(--text-muted);
   font-size: var(--size-small);
   font-weight: var(--weight-strong);
@@ -408,14 +400,14 @@
 .wb-inf-people {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wb-inf-person {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -424,7 +416,7 @@
 .wb-inf-person-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wb-inf-shared {
@@ -437,23 +429,258 @@
 
 /* A chat's or project's stack in a sheet: details sit under the list instead of beside it. Its
    hosts (the chip, the inspector) are small positioned boxes, so the backdrop covers the window. */
-.wb-sheet-backdrop.wb-inf-level-backdrop {
+.wb-sheet-backdrop.wb-inf-level-backdrop,
+.wb-sheet-backdrop.wb-conf-backdrop {
   position: fixed;
 }
 
 .wb-inf-level .wb-inf-side {
   width: auto;
-  margin-top: 8px;
-  padding: 16px 0 0;
+  margin-top: var(--space-2);
+  padding: var(--space-4) 0 0;
   border-left: 0;
   border-top: 1px solid var(--line);
   background: transparent;
 }
 
-.wb-inf-level .wb-btn-ghost.is-danger {
-  color: var(--danger);
+.wb-inf-level .wb-inf-rows {
+  margin-top: var(--space-2);
 }
 
-.wb-inf-level .wb-inf-rows {
-  margin-top: 8px;
+/* Confidential providers (confidential inference spec decisions 1–3, 8 and 11). */
+.wb-conf-level {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-strong);
+}
+
+.wb-conf-level.is-a {
+  border-color: transparent;
+  background: var(--ok-dim);
+  color: var(--ok);
+}
+
+.wb-conf-level.is-b {
+  border-color: transparent;
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+.wb-conf-level.is-c {
+  border-color: var(--warn-line);
+  background: var(--warn-dim);
+  color: var(--warn);
+}
+
+.wb-conf-note {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-conf-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-conf-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) 0;
+  border-top: 1px solid var(--line);
+}
+
+.wb-conf-row:first-child {
+  border-top: 0;
+}
+
+.wb-conf-tradeoff {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--size-small);
+}
+
+.wb-conf-tradeoff b {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.wb-conf-stepper {
+  margin-bottom: var(--space-4);
+}
+
+.wb-conf-choice {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--space-2-5);
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-conf-choice:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.wb-conf-choice[aria-pressed='true'] {
+  border-color: var(--brand);
+  background: var(--brand-dim);
+}
+
+.wb-conf-choice:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.wb-conf-choice .wb-inf-row-text b {
+  white-space: normal;
+}
+
+.wb-conf-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-2-5);
+}
+
+.wb-conf-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-conf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-conf-table th,
+.wb-conf-table td {
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) 0;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  vertical-align: top;
+}
+
+.wb-conf-table th:first-child,
+.wb-conf-table td:first-child {
+  text-align: left;
+}
+
+.wb-conf-table thead th {
+  border-top: 0;
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+}
+
+/* Pool settings sheet (confidential inference spec decision 4). */
+.wb-conf-kicker {
+  margin: var(--space-3) 0 var(--space-1-5);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-strong);
+}
+
+.wb-conf-radio,
+.wb-conf-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.wb-conf-radio {
+  cursor: pointer;
+}
+
+.wb-conf-radio input {
+  margin-top: var(--space-1);
+}
+
+.wb-conf-switch {
+  justify-content: space-between;
+}
+
+.wb-conf-switch .wb-switch {
+  flex: none;
+  margin-top: var(--space-1);
+}
+
+.wb-conf-radio .wb-inf-row-text b,
+.wb-conf-switch .wb-inf-row-text b {
+  white-space: normal;
+}
+
+.wb-conf-threshold {
+  width: auto;
+  max-width: 160px;
+  margin-top: var(--space-2);
+}
+
+/* A pool's side panel: who serves, cheapest first, and who doesn't (spec decision 4). */
+.wb-conf-rank {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-conf-rank li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--line);
+}
+
+.wb-conf-rank li:first-child {
+  border-top: 0;
+}
+
+.wb-conf-rank li.is-out {
+  opacity: 0.72;
+}
+
+.wb-conf-cost {
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.wb-conf-cost small {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-conf-pool .wb-conf-note {
+  margin: var(--space-2) 0 0;
+}
 }

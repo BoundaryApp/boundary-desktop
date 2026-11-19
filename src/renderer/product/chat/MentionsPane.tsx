@@ -8,6 +8,7 @@ import { formatDayAndTime } from '../../../shared/messageTime';
 import { AgentMark } from './ConversationMark';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { WorkingDot } from './WorkingDot';
+import { Button } from '../../components/ui/button';
 
 interface MentionsPaneProps {
   mentions: HermesMentionRecord[];
@@ -224,17 +225,17 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
                 </div>
               ) : null}
               <div className="wb-mention-foot">
-                <button type="button" className="wb-btn-tiny" onClick={() => onOpenInRoom(m)}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => onOpenInRoom(m)}>
                   Open in #{m.channelSlug}
-                </button>
+                </Button>
                 {m.status === 'waiting' ? (
-                  <button type="button" className="wb-btn-tiny" onClick={() => onAskAgain(m)}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => onAskAgain(m)}>
                     Ask again
-                  </button>
+                  </Button>
                 ) : (
-                  <button type="button" className="wb-btn-tiny" onClick={() => onContinue(m)}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => onContinue(m)}>
                     {agent?.builtIn ? `Continue in a ${name} chat` : `Continue in DM with ${name}`}
-                  </button>
+                  </Button>
                 )}
               </div>
             </article>

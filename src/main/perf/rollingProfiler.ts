@@ -3,6 +3,7 @@
  * the lag probe saves a stall (see lagProbe.ts). Used for the main process through
  * node:inspector and for a renderer through webContents.debugger.
  */
+import { createSerialQueue } from '../../shared/utils/serialQueue';
 
 /** Sends one DevTools protocol command and resolves its result. */
 export type ProtocolSend = (method: string, params?: object) => Promise<unknown>;
@@ -37,13 +38,7 @@ export function createRollingProfiler(send: ProtocolSend, options: RollingProfil
   let previous: unknown = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   // save and rotate both stop and restart the profiler; one at a time keeps them from overlapping.
-  let queue: Promise<unknown> = Promise.resolve();
-
-  const serial = <T>(work: () => Promise<T>): Promise<T> => {
-    const next = queue.then(work, work);
-    queue = next.catch((): void => undefined);
-    return next;
-  };
+  const serial = createSerialQueue();
 
   async function begin(): Promise<void> {
     await send('Profiler.start');

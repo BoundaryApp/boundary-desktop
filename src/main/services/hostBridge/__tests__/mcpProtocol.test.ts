@@ -28,7 +28,7 @@ describe('handleMcpMessage', () => {
 
   it('lists offer_setup only while no calendar is connected', async () => {
     const names = async (offerCalendarSetup: boolean) => {
-      const reply = await handleMcpMessage(msg('tools/list'), vi.fn(), () => listedHostTools({ offerCalendarSetup }));
+      const reply = await handleMcpMessage(msg('tools/list'), vi.fn(), () => listedHostTools({ offerCalendarSetup, agentAppAccess: false }));
       return (reply.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
     };
     expect(await names(true)).toContain('offer_setup');
@@ -39,7 +39,7 @@ describe('handleMcpMessage', () => {
   it('still passes an offer_setup call to main after the listing drops it', async () => {
     const callTool = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
     await handleMcpMessage(msg('tools/call', { name: 'offer_setup', arguments: { kind: 'calendar' } }), callTool, () =>
-      listedHostTools({ offerCalendarSetup: false })
+      listedHostTools({ offerCalendarSetup: false, agentAppAccess: false })
     );
     expect(callTool).toHaveBeenCalledWith('offer_setup', { kind: 'calendar' });
   });

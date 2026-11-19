@@ -17,7 +17,9 @@ export type MentionItem =
       agentSlug: string;
       builtIn: boolean;
       notInChannel?: boolean;
-    };
+    }
+  | { kind: 'person'; identity: string; display: string; meta: string; online: boolean }
+  | { kind: 'channel'; display: '@channel'; meta: string };
 
 /** Where the mention being typed starts: the last `@`, when it starts a word; else -1. */
 function mentionStart(text: string): number {
@@ -27,7 +29,7 @@ function mentionStart(text: string): number {
 }
 
 /** Text after the last `@` that starts a word, or null when no mention is being typed. */
-function mentionQueryFor(text: string): string | null {
+export function mentionQueryFor(text: string): string | null {
   const at = mentionStart(text);
   return at < 0 ? null : text.slice(at + 1);
 }
@@ -165,7 +167,8 @@ export function useMentionMenu({
       // Read the composer store — inputRef.value can be empty on click (blur).
       const value = aui.composer.getState().text;
       const at = mentionStart(value);
-      if (at < 0) return;
+      // Person and channel items belong to the Circle composer's own menu.
+      if (at < 0 || item.kind === 'person' || item.kind === 'channel') return;
       const insert = item.text;
       const next = `${value.slice(0, at)}@${insert} `;
       aui.composer.setText(next);

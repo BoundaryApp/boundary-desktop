@@ -1,6 +1,6 @@
 import { assessAddonFit, type AddonFit, type AddonHostFacts } from '../../../shared/addonFit';
 import type { AddonCatalogEntry, AddonId } from '../../../shared/types/addons';
-import { getAssistantStackAccess } from '../assistant/AssistantStackService';
+import { getAssistantStackAccess, getAssistantStackLifecycle } from '../assistant/AssistantStackService';
 import { installedAddonsHere } from './addonComposeState';
 import { readAddonHostFacts } from './addonHostFacts';
 
@@ -11,6 +11,8 @@ export interface AddonFitCheck {
   facts: AddonHostFacts;
   /** The add-on's containers run for this project while the store says it isn't installed. */
   leftover: boolean;
+  /** The store says the add-on is installed, the stack is up, and its server isn't running. */
+  stopped: boolean;
 }
 
 export interface AddonFitCheckDeps {
@@ -18,6 +20,8 @@ export interface AddonFitCheckDeps {
   /** With `leftover`, the add-on's own containers hold its port and memory. */
   readFacts(entry: AddonCatalogEntry, options: { leftover: boolean }): Promise<AddonHostFacts>;
   ps(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }>;
+  /** The agent stack finished starting or attaching, so its add-ons should be up too. */
+  stackReady(): boolean;
 }
 
 /**
@@ -54,26 +58,50 @@ export function parseComposePsRows(stdout: string): Array<Record<string, unknown
 
 export const psRowService = (row: Record<string, unknown>): unknown => row.Service ?? row.service;
 
-/**
- * True when this project's `compose ps` lists a running container of one of the add-on's
- * services while the store says the add-on isn't installed: a quit or crash mid-install, a
- * relaunch before Undo, or a Turn off whose stop or rm failed. A failed `ps` reads as none.
- */
-async function hasLeftoverContainers(
+/** Services of the add-on that this project's `compose ps` lists as running. */
+async function runningServices(
   entry: AddonCatalogEntry,
-  deps: Pick<AddonFitCheckDeps, 'isInstalled' | 'ps'>
-): Promise<boolean> {
-  if (deps.isInstalled(entry.id)) return false;
-  try {
-    const { stdout } = await deps.ps(
-      ['--profile', entry.profile, 'ps', '--format', 'json', ...entry.services],
-      addonInstallEnv(entry)
-    );
-    const services = new Set(entry.services);
-    return parseComposePsRows(stdout).some((row) => services.has(String(psRowService(row))));
-  } catch {
-    return false;
+  deps: Pick<AddonFitCheckDeps, 'ps'>
+): Promise<Set<string>> {
+  const own = entry.ownServices ?? { profile: entry.profile, services: entry.services };
+  const { stdout } = await deps.ps(['--profile', own.profile, 'ps', '--format', 'json', ...own.services], addonInstallEnv(entry));
+  const services = new Set(own.services);
+  const running = new Set<string>();
+  for (const row of parseComposePsRows(stdout)) {
+    const service = String(psRowService(row));
+    if (services.has(service)) running.add(service);
   }
+  return running;
+}
+
+/**
+ * `leftover`: a container of the add-on runs while the store says it isn't installed (a quit
+ * or crash mid-install, a relaunch before Undo, or a Turn off whose stop or rm failed).
+ * `stopped`: the store says it's installed and the stack is ready, but its server isn't
+ * running (a local stack brought up by its own `make up` without the add-on's profile, or a
+ * server that exited). `compose ps` without `-a` lists running containers only. A failed
+ * `ps` reads as neither, so an engine that's down raises no alarm.
+ */
+async function containerState(
+  entry: AddonCatalogEntry,
+  deps: Pick<AddonFitCheckDeps, 'isInstalled' | 'ps' | 'stackReady'>
+): Promise<{ leftover: boolean; stopped: boolean }> {
+  const installed = deps.isInstalled(entry.id);
+  if (installed && !deps.stackReady()) return { leftover: false, stopped: false };
+  let running: Set<string>;
+  try {
+    running = await runningServices(entry, deps);
+  } catch {
+    return { leftover: false, stopped: false };
+  }
+  if (!installed) return { leftover: running.size > 0, stopped: false };
+  return { leftover: false, stopped: !running.has(addonServerService(entry)) };
+}
+
+/** The service whose health says the add-on answers: its first `-server` service, else its first. */
+function addonServerService(entry: AddonCatalogEntry): string {
+  const services = entry.ownServices?.services ?? entry.services;
+  return services.find((s) => s.endsWith('-server')) ?? services[0]!;
 }
 
 /**
@@ -84,9 +112,9 @@ export async function checkAddonFit(
   entry: AddonCatalogEntry,
   deps: AddonFitCheckDeps = defaultAddonFitCheckDeps()
 ): Promise<AddonFitCheck> {
-  const leftover = await hasLeftoverContainers(entry, deps);
+  const { leftover, stopped } = await containerState(entry, deps);
   const facts = await deps.readFacts(entry, { leftover });
-  return { fit: assessAddonFit(entry, facts), facts, leftover };
+  return { fit: assessAddonFit(entry, facts), facts, leftover, stopped };
 }
 
 function defaultAddonFitCheckDeps(): AddonFitCheckDeps {
@@ -94,5 +122,6 @@ function defaultAddonFitCheckDeps(): AddonFitCheckDeps {
     isInstalled: (id) => installedAddonsHere().includes(id),
     readFacts: (entry, options) => readAddonHostFacts(entry, undefined, options),
     ps: (args, env) => getAssistantStackAccess().compose(args, { env, timeout: PS_TIMEOUT_MS }),
+    stackReady: () => getAssistantStackLifecycle().phase === 'ready',
   };
 }

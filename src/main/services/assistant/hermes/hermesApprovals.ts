@@ -3,6 +3,7 @@ import type {
   HermesApprovalMcpCall,
   HermesChatApprovalEvent,
   HermesChatApprovalRespondPayload,
+  HermesChatRespondResult,
 } from '../../../../shared/types/hermesChat';
 import type { ServerRequest } from './vendor/json-rpc-channel';
 import { ParkedRequests, type ParkedResponder } from './parkedRequests';
@@ -130,10 +131,10 @@ function isReplayedApproval(rpcRequestId: string): boolean {
  */
 export async function respondToParkedApproval(
   payload: HermesChatApprovalRespondPayload
-): Promise<{ success: boolean; error?: string }> {
+): Promise<HermesChatRespondResult> {
   const event = parked.get(payload.rpcRequestId);
   if (!event) {
-    return { success: false, error: 'No pending approval for that request' };
+    return { success: false, error: 'No pending approval for that request', errorCode: 'not-pending' };
   }
   if (!isHermesApprovalChoice(payload.choice)) {
     return { success: false, error: 'Invalid approval choice' };

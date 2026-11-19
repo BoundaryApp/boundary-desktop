@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OAUTH_LLM_CAPABILITIES } from '../../../../../shared/llmConnectionDefaults';
 import type { PeerModelRef } from '../../../../../shared/types/inferenceChain';
 import { clearLastAppliedLlm, setLastAppliedLlm } from '../../AssistantStackStore';
 import {
@@ -15,7 +16,7 @@ import { resetRunningTurnsForTests } from '../hermesRunningTurns';
 const applyLlmConnectionToHermes = vi.fn();
 vi.mock('../../AssistantStackService', () => ({
   applyLlmConnectionToHermes: (...args: unknown[]) => applyLlmConnectionToHermes(...args),
-  settleHermesApply: async () => undefined,
+  settleHermesApply: async (): Promise<void> => undefined,
 }));
 
 let routerPushed = false;
@@ -27,7 +28,7 @@ vi.mock('../../../inference/inferenceRouterService', () => ({
 
 const circles = { joined: true, offered: true, trusted: true, online: true, private: false };
 vi.mock('../../../circles/circlesService', () => ({
-  ensureCirclesStarted: async () => undefined,
+  ensureCirclesStarted: async (): Promise<void> => undefined,
   sharedModelFacts: () => ({
     running: true,
     identity: 'a'.repeat(64),
@@ -78,6 +79,11 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
     project = null;
     applyLlmConnectionToHermes.mockResolvedValue({ success: true });
     probeSlotHealth.mockResolvedValue({ success: true, health: 'reachable' });
+    // Planning a chain looks up each upstream's context length from its provider; offline, it
+    // finds none, as when the provider doesn't answer.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }));
     await setAppSharedModel({ slot: 'peer', modelId: 'qwen3-8b', peer });
   });
 
@@ -98,6 +104,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
       provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
     } as const;
     await saveLlmConnection(openRouter);
     expect((await setAppFallbacks([{ slot: 'openrouter' }])).success).toBe(true);
@@ -188,6 +195,7 @@ describe('sending with a shared model as the app default (ADR 0036)', () => {
       apiKey: 'sk-or-key',
       modelId: 'anthropic/claude-sonnet-4',
       provider: 'openrouter',
+      capabilities: OAUTH_LLM_CAPABILITIES,
     } as const;
     const shared = { slot: 'peer', modelId: 'qwen3-8b', peer } as const;
 

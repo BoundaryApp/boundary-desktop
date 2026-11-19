@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { CircleChannel, CirclesResult } from '../../../../shared/types/circles';
-import { Input } from '../../../components/ui/input';
+import { Field } from '../../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
 import { CircleFormSheet } from './CircleFormSheet';
 
@@ -97,18 +97,20 @@ export const ChannelSheets: React.FC<{
       canSubmit={Boolean(name.trim())}
       onSubmit={() => void submit()}
     >
-      <label htmlFor="circle-channel-name-input" className="wb-sheet-help">
-        {adding ? `Everyone in ${circleName} can read it.` : 'Everyone sees the new name.'}
-      </label>
-      <Input
-        id="circle-channel-name-input"
-        className="h-[34px]"
-        value={name}
-        maxLength={80}
-        autoFocus
-        placeholder="Channel name"
-        onChange={(event) => setName(event.target.value)}
-      />
+      <Field
+        label="Name"
+        htmlFor="circle-channel-name-input"
+        hint={adding ? `Everyone in ${circleName} can read it.` : 'Everyone sees the new name.'}
+      >
+        <input
+          id="circle-channel-name-input"
+          value={name}
+          maxLength={80}
+          autoFocus
+          placeholder="Channel name"
+          onChange={(event) => setName(event.target.value)}
+        />
+      </Field>
     </CircleFormSheet>
   );
 };

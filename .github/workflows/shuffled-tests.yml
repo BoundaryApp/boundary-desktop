@@ -1,0 +1,39 @@
+name: Shuffled Tests
+
+# The unit suite in random order, once a week: a test that depends on what an earlier test left
+# behind passes in Test Build's fixed order and fails here. The log's first line names the seed;
+# `SEED=<n> bun run test:shuffle` repeats that order locally, and the seed input reruns it here.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed to repeat (empty for a new random order)
+        required: false
+
+jobs:
+  shuffled-tests:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: node scripts/setup-dependencies.js
+
+      - name: Unit tests in random order
+        run: bun run test:shuffle
+        env:
+          SEED: ${{ inputs.seed }}

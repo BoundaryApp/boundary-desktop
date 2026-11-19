@@ -127,7 +127,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
         description="You can continue. Some assistant services may start slowly or fail until the items marked below are fixed."
         actions={
           <>
-            <Button type="button" variant="outline" onClick={() => void assessCapability()}>
+            <Button type="button" variant="secondary" onClick={() => void assessCapability()}>
               Check again
             </Button>
             <Button type="button" disabled={acknowledging} onClick={() => void handleContinue()}>

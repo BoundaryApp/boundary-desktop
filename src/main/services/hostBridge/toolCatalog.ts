@@ -17,6 +17,8 @@ export interface HostToolDefinition<Name extends string = string> {
     required?: string[];
     additionalProperties: false;
   };
+  /** MCP tool annotations. Hermes runs a tool with `readOnlyHint: true` on an untrusted server without asking. */
+  annotations?: { readOnlyHint?: boolean };
 }
 
 export const NOTIFY_TITLE_MAX = 120;

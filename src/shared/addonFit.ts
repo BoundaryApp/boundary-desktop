@@ -1,11 +1,9 @@
+import { engineCeilingMiB, engineSizeMiB } from './engineSizing';
 import type { AddonCatalogEntry } from './types/addons';
 
 const GiB = 1024 ** 3;
 const MEMORY_HEADROOM_MIB = 768;
 const DISK_TIGHT_BYTES = 10 * GiB;
-const RESIZE_STEP_MIB = 2048;
-const RESIZE_OVERHEAD_MIB = 1536;
-const HOST_RESERVE_MIB = 8192;
 
 export interface AddonHostFacts {
   engineMiB: number;
@@ -14,6 +12,8 @@ export interface AddonHostFacts {
   diskFreeBytes: number;
   portInUse: boolean;
   engineResizable: boolean;
+  /** Memory reserved by what is already turned on (ADR 0055 §1). Absent counts as none. */
+  reservedMiB?: number;
 }
 
 export interface AddonFit {
@@ -51,11 +51,15 @@ export function assessAddonFit(entry: AddonCatalogEntry, facts: AddonHostFacts):
     'ok',
   );
 
+  // The engine size with this add-on on (ADR 0055 §1), or what the stack uses now plus the add-on
+  // and 1 GiB, whichever is larger, within what the Mac can spare. Null when that isn't larger
+  // than the engine already is.
   let suggestedEngineMiB: number | null = null;
   if (memory === 'over' && facts.engineResizable) {
-    const needed = facts.usedMiB + entry.reserveMiB + RESIZE_OVERHEAD_MIB;
-    const candidate = Math.ceil(needed / RESIZE_STEP_MIB) * RESIZE_STEP_MIB;
-    if (candidate <= facts.hostMiB - HOST_RESERVE_MIB) suggestedEngineMiB = candidate;
+    const fromUsage = Math.ceil((facts.usedMiB + entry.reserveMiB + 1024) / 1024) * 1024;
+    const wanted = Math.max(engineSizeMiB(facts.hostMiB, (facts.reservedMiB ?? 0) + entry.reserveMiB), fromUsage);
+    const target = Math.min(engineCeilingMiB(facts.hostMiB), wanted);
+    if (target > facts.engineMiB) suggestedEngineMiB = target;
   }
 
   return { verdict, memory, disk, port, freeMiB, suggestedEngineMiB };

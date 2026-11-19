@@ -121,6 +121,18 @@ describe('Circles over a local DHT', () => {
     ]);
   });
 
+  it('counts each Circle’s updates, refreshes, scans and applies for the heartbeat', async () => {
+    const circles = bo.net.diagnostics().circles as Array<{ circle: string; counts: Record<string, number> }>;
+    const { counts } = circles.find((circle) => key.startsWith(circle.circle))!;
+    expect(Object.keys(counts).sort()).toEqual(['appliedNodes', 'applies', 'refreshes', 'scans', 'scansQueued', 'updates']);
+    expect(counts.updates).toBeGreaterThan(0);
+    expect(counts.refreshes).toBeGreaterThan(0);
+    expect(counts.scans).toBeGreaterThan(0);
+    expect(counts.applies).toBeGreaterThan(0);
+    expect(counts.appliedNodes).toBeGreaterThanOrEqual(counts.applies);
+    expect(counts.scansQueued).toBeGreaterThanOrEqual(0);
+  });
+
   it('stops a join waiting for an admin, and keeps nothing', async () => {
     // The only admin goes offline, so the invite can't be answered.
     const host = await person('Host');
@@ -208,14 +220,14 @@ describe('Circles over a local DHT', () => {
     const ada = await person('ada-rejoin');
     const bo = await person('bo-rejoin');
     const { key } = await ada.net.createCircle('Workshop');
-    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await bo.net.joinCircle((await ada.net.createInvite(key, Date.now() + 60 * 60_000)).code);
     await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-rejoin')));
     await bo.net.leaveCircle(key);
     await ada.until((snapshot) => !memberNamed(snapshot, key, 'bo-rejoin'));
     await bo.until(() => Boolean(removed.get(bo)?.includes(key)));
     expect(departed.get(ada)).toEqual(['bo-rejoin']);
 
-    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await bo.net.joinCircle((await ada.net.createInvite(key, Date.now() + 60 * 60_000)).code);
     await bo.net.publishOffer(key, { models: [{ id: 'm', tools: true }], available: true, away: false });
     await ada.until((snapshot) => circleOf(snapshot, key)?.offers.length === 1);
   });
@@ -267,7 +279,7 @@ describe('Circles over a local DHT', () => {
     const coresBefore = await storedCores(ada);
 
     const { key } = await ada.net.createCircle('Short-lived');
-    await bo.net.joinCircle((await ada.net.createInvite(key)).code);
+    await bo.net.joinCircle((await ada.net.createInvite(key, Date.now() + 60 * 60_000)).code);
     await ada.until((snapshot) => Boolean(memberNamed(snapshot, key, 'bo-delete')));
     await expect(ada.net.deleteCircle(key)).rejects.toThrow(/last member/);
     await expect(bo.net.deleteCircle(key)).rejects.toThrow(/last member/);
@@ -287,6 +299,6 @@ describe('Circles over a local DHT', () => {
     const back = await person('ada-delete', seeds);
     await back.net.openCircle(kept);
     expect(circleOf(back.net.snapshot(), kept.key!)).toMatchObject({ name: 'Kept', myRole: 'admin' });
-    await expect(back.net.createInvite(kept.key!)).resolves.toMatchObject({ code: expect.any(String) });
+    await expect(back.net.createInvite(kept.key!, Date.now() + 60 * 60_000)).resolves.toMatchObject({ code: expect.any(String) });
   });
 });

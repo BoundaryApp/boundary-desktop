@@ -1,4 +1,3 @@
-import { ipcMain } from 'electron';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const applyLlmConnectionToHermes = vi.hoisted(() => vi.fn(async () => ({ success: true })));
@@ -11,6 +10,7 @@ vi.mock('../../assistant/hermes/hermesAgentStore', () => ({ clearSessionInferenc
 vi.mock('../../assistant/hermes/hermesProjects', () => ({ clearProjectInferenceForProvider: vi.fn() }));
 
 import { registerOnboardingHandlers } from '../ipcHandlers';
+import { captureIpcHandlers } from '../../__tests__/captureIpcHandlers';
 import {
   clearOpenAiConfig,
   getAppDefaultSlot,
@@ -24,13 +24,11 @@ import { MANUAL_LLM_CAPABILITIES, OAUTH_LLM_CAPABILITIES } from '../../../../sha
 
 type Handler = (input: unknown) => Promise<any>;
 
-// Captured once at registration: the shared setup clears mock call history before each test.
-const handlers = new Map<string, (event: never, input: unknown) => Promise<any>>();
+const { handler } = captureIpcHandlers();
 
 function handlerFor(channel: string): Handler {
-  const handler = handlers.get(channel);
-  if (!handler) throw new Error(`no handler for ${channel}`);
-  return (input) => handler({} as never, input);
+  const fn = handler(channel);
+  return (input) => fn({}, input) as Promise<any>;
 }
 
 function okChatFetch() {
@@ -61,9 +59,6 @@ async function connectOpenRouterAsDefault(): Promise<void> {
 
 beforeAll(() => {
   registerOnboardingHandlers();
-  for (const [channel, handler] of vi.mocked(ipcMain.handle).mock.calls) {
-    handlers.set(channel, handler as (event: never, input: unknown) => Promise<any>);
-  }
 });
 
 describe('onboarding:save-llm-connection', () => {

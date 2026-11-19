@@ -6,6 +6,8 @@ import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { displayHostPath } from './chatTelemetryFormat';
 import { runCodingChange } from './codingFoldersStore';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Callout } from '../../components/ui/alert';
+import { Button } from '../../components/ui/button';
 
 /**
  * Review before Boundary moves a coding folder to the Trash (ADR 0028 §11, mock flow 5).
@@ -221,19 +223,19 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             ) : null}
           </ul>
           {busy ? (
-            <div className="wb-insp-banner warn is-stacked wb-sheet-banner">
+            <Callout variant="warn" layout="stacked" size="sm" className="wb-insp-callout wb-sheet-banner" role={undefined}>
               <p>
                 The coding agent is working in this folder
                 {facts.busy?.sessions.length ? ` (${facts.busy.sessions.join(', ')})` : ''}. Let
                 the task finish, or stop it in its chat, so nothing writes to the folder while it
                 moves.
               </p>
-              <div className="wb-insp-banner-actions">
-                <button type="button" className="wb-btn-tiny" onClick={() => void load(hostPath)}>
+              <div className="wb-callout-actions">
+                <Button variant="secondary" size="sm" type="button" onClick={() => void load(hostPath)}>
                   Check again
-                </button>
+                </Button>
               </div>
-            </div>
+            </Callout>
           ) : null}
           <p className="wb-sheet-help">
             {APP_NAME} removes coding access first, then moves the folder to the Trash. You can put

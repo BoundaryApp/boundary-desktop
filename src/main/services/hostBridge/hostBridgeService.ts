@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, clipboard, dialog, Notification, shell, utilityProcess, type UtilityProcess } from 'electron';
-import { broadcast } from '../windows';
+import { app, type BrowserWindow, clipboard, dialog, Notification, shell, utilityProcess, type UtilityProcess } from 'electron';
+import { broadcast, showMainWindow } from '../windows';
 import { createFileLogger } from '../../../shared/utils/logger';
 import { persistDebugLog } from '../../persistDebugLog';
 import { denyAllHostBridgeApprovals, requestHostBridgeApproval, setHostBridgeApprovalSender } from './approvals';
 import { appendAudit, trimForAudit } from './auditLog';
 import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
-import { hasCalendarAccounts } from '../assistant/calendar/calendarStore';
+import { hasCalendarAccounts, listCalendarAccounts, type StoredCalendarAccount } from '../assistant/calendar/calendarStore';
+import { callMacCalendarTool, listMacCalendarTools, MAC_CHANGE_TOOLS, MAC_READ_TOOLS } from '../assistant/calendar/macCalendarTools';
+import { getMacCalendarHelper } from '../assistant/calendar/macCalendarHelper';
+import type { ToolCallResult } from './mcpProtocol';
 import type { BoundaryBrowserState, HostToolsState } from '../../../shared/types/hostBridge';
 import type { IpcResult } from '../../../shared/ipc/result';
 import { browserRelayConfigFrom, findGoogleChrome, normalizeBrowserSettings, sitePolicyFrom } from './browserConfig';
@@ -88,20 +91,21 @@ let bridgeRun: {
   settle: NodeJS.Timeout | null;
 } | null = null;
 
+/** Calendar token → agent slug, kept here so a restarted bridge gets it too. */
+let calendarTokens: Record<string, string> = {};
+
 /** Replies the bridge owes main, by request id (browser open / status). */
 let nextRequestId = 1;
 const pendingRequests = new Map<number, { resolve: (message: BridgeToMain) => void; reject: (err: Error) => void }>();
 
 const NOTIFICATION_CONFIRM_MS = 5_000;
 
-/** Bring Boundary forward so a native dialog isn't hidden behind another app. */
-function dialogParent(): BrowserWindow | null {
-  const win = global.mainWindow && !global.mainWindow.isDestroyed() ? global.mainWindow : BrowserWindow.getAllWindows()[0];
-  if (!win || win.isDestroyed()) return null;
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  return win;
+/**
+ * Bring the main window forward, re-opening it if it was closed, so a native dialog isn't
+ * hidden behind another app.
+ */
+async function dialogParent(): Promise<BrowserWindow | null> {
+  return (await showMainWindow()) ?? null;
 }
 
 /** Set at registration: the source reads services that import this module. */
@@ -153,7 +157,7 @@ const toolDeps: HostToolDeps = {
       properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
       ...(extensions.length ? { filters: [{ name: extensions.join(', '), extensions }] } : {}),
     };
-    const parent = dialogParent();
+    const parent = await dialogParent();
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     if (result.canceled) return [];
     rememberDialogPick(result.filePaths[0]);
@@ -166,7 +170,7 @@ const toolDeps: HostToolDeps = {
       defaultPath: path.join(app.getPath('downloads'), defaultName),
       buttonLabel: 'Save',
     };
-    const parent = dialogParent();
+    const parent = await dialogParent();
     const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
     if (result.canceled || !result.filePath) return null;
     rememberDialogPick(result.filePath);
@@ -265,6 +269,40 @@ function post(target: UtilityProcess, message: MainToBridge): void {
   target.postMessage(message);
 }
 
+const STOPPED_RESULT: ToolCallResult = { content: [{ type: 'text', text: AGENT_STOPPED_MESSAGE }], isError: true };
+
+/** The Mac's calendar account, read fresh for each calendar call. */
+function macCalendarAccount(): StoredCalendarAccount | null {
+  return listCalendarAccounts().find((account) => account.provider === 'mac') ?? null;
+}
+
+const CALENDAR_TOOL_NAMES: ReadonlySet<string> = new Set([...MAC_READ_TOOLS, ...MAC_CHANGE_TOOLS]);
+
+/** The tool name for a log line. The agent chooses the name, so anything else is `unknown`. */
+function loggedToolName(name: string): string {
+  return CALENDAR_TOOL_NAMES.has(name) ? name : 'unknown';
+}
+
+async function answerCalendarCall(agent: string, name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+  const result = await callMacCalendarTool(agent, name, args, {
+    helper: getMacCalendarHelper(),
+    account: macCalendarAccount,
+  });
+  persistDebugLog('calendars', 'calendar tool call', { agent, tool: loggedToolName(name), ok: !result.isError });
+  return result;
+}
+
+/** The tools an agent sees on `/calendar`. An unreadable account lists none rather than leaving the bridge waiting. */
+function calendarToolsFor(agent: string): ReturnType<typeof listMacCalendarTools> {
+  try {
+    const access = macCalendarAccount()?.access;
+    return listMacCalendarTools(access && Object.hasOwn(access, agent) ? access[agent] : 'off');
+  } catch (err) {
+    persistDebugLog('calendars', 'calendar tool list failed', { agent, error: err instanceof Error ? err.name : 'unknown' });
+    return [];
+  }
+}
+
 async function launch(): Promise<HostBridgeEndpoints> {
   setHostBridgeApprovalSender(broadcast);
   const mcpToken = await ensureHostBridgeToken('mcp');
@@ -307,16 +345,29 @@ async function launch(): Promise<HostBridgeEndpoints> {
         case 'tool-call':
           // A call that raced Stop agent: the bridge is on its way down.
           if (isHostBridgeAgentStopped()) {
-            post(proc, {
-              type: 'tool-result',
-              id: message.id,
-              result: { content: [{ type: 'text', text: AGENT_STOPPED_MESSAGE }], isError: true },
-            });
+            post(proc, { type: 'tool-result', id: message.id, result: STOPPED_RESULT });
             return;
           }
           void executeHostTool(message.name, message.args, toolDeps).then((result) => {
             if (child === proc) post(proc, { type: 'tool-result', id: message.id, result });
           });
+          return;
+        case 'calendar-tool-call':
+          if (isHostBridgeAgentStopped()) {
+            post(proc, { type: 'tool-result', id: message.id, result: STOPPED_RESULT });
+            return;
+          }
+          void answerCalendarCall(message.agent, message.name, message.args)
+            .catch((err: unknown): ToolCallResult => {
+              persistDebugLog('calendars', 'calendar tool call failed', { agent: message.agent, tool: loggedToolName(message.name), error: err instanceof Error ? err.name : 'unknown' });
+              return { content: [{ type: 'text', text: 'The calendars on this Mac couldn’t answer.' }], isError: true };
+            })
+            .then((result) => {
+              if (child === proc) post(proc, { type: 'tool-result', id: message.id, result });
+            });
+          return;
+        case 'calendar-tool-list':
+          post(proc, { type: 'calendar-tool-list-result', id: message.id, tools: calendarToolsFor(message.agent) });
           return;
         case 'browser-open-result':
         case 'browser-status-result': {
@@ -368,7 +419,17 @@ async function launch(): Promise<HostBridgeEndpoints> {
       listing: hostToolListing(),
       sessionIdleMs: HERMES_SESSION_IDLE_MS,
     });
+    post(proc, { type: 'calendar-tokens', tokens: calendarTokens });
   });
+}
+
+/**
+ * Replace the bridge's calendar tokens (token → agent slug). Only these open `/calendar`, and
+ * each call is answered for the agent its token belongs to.
+ */
+export function setCalendarTokens(tokens: Record<string, string>): void {
+  calendarTokens = { ...tokens };
+  if (child) post(child, { type: 'calendar-tokens', tokens: calendarTokens });
 }
 
 function hostToolListing(): HostToolListing {

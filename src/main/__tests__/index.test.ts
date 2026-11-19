@@ -1,106 +1,29 @@
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import Store from 'electron-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_MENU_COMMAND_CHANNEL } from '../../shared/appCommands';
+import Store from 'electron-store';
+import type { FakeBrowserWindow } from './fakeWindow';
 
 /**
- * Loads src/main/index.ts against a fake Electron and mocked services, and drives it through
- * the handlers it registers on app, process, ipcMain, the menu and the window.
+ * The boot sequence: src/main/index.ts loaded against a fake Electron and mocked services, then
+ * driven through the handlers it registers. Each module's own behaviour is tested beside it
+ * (quit.test.ts, mainWindow.test.ts, appMenu.test.ts); this file keeps how they are wired up,
+ * and the quit and reopen paths that cross them.
  */
 
 type Handler = (...args: any[]) => any;
+
+// Loaded once, so every fresh copy of main (loadMain resets modules) makes the same fake windows.
+const fake = await vi.hoisted(() => import('./fakeWindow'));
+const Win = fake.FakeBrowserWindow;
 
 const h = vi.hoisted(() => {
   const state = {
     appHandlers: {} as Record<string, Handler>,
     processHandlers: {} as Record<string, Handler>,
     ipcHandlers: {} as Record<string, Handler>,
-    windows: [] as any[],
     menuTemplate: [] as any[],
     appReady: false,
+    squirrel: false,
   };
-
-  class FakeEmitter {
-    listeners: Record<string, Handler[]> = {};
-    on(event: string, fn: Handler) {
-      (this.listeners[event] ??= []).push(fn);
-      return this;
-    }
-    once(event: string, fn: Handler) {
-      const wrapped = (...args: any[]) => {
-        this.listeners[event] = this.listeners[event].filter((f) => f !== wrapped);
-        fn(...args);
-      };
-      return this.on(event, wrapped);
-    }
-    emit(event: string, ...args: any[]) {
-      for (const fn of [...(this.listeners[event] ?? [])]) fn(...args);
-    }
-  }
-
-  class FakeWebContents extends FakeEmitter {
-    send = vi.fn();
-    windowOpenHandler: Handler | null = null;
-    loading = true;
-    setWindowOpenHandler(fn: Handler) {
-      this.windowOpenHandler = fn;
-    }
-    isLoading() {
-      return this.loading;
-    }
-    isDestroyed() {
-      return false;
-    }
-    getURL() {
-      return '';
-    }
-    session = {
-      webRequest: { onHeadersReceived: vi.fn() },
-      setPermissionRequestHandler: vi.fn(),
-      setPermissionCheckHandler: vi.fn(),
-    };
-    openDevTools = vi.fn();
-  }
-
-  class FakeBrowserWindow extends FakeEmitter {
-    static getAllWindows() {
-      return state.windows.filter((w) => !w.destroyed);
-    }
-    options: any;
-    destroyed = false;
-    webContents = new FakeWebContents();
-    loadURL = vi.fn(async () => undefined);
-    loadFile = vi.fn(async () => undefined);
-    show = vi.fn();
-    focus = vi.fn();
-    restore = vi.fn();
-    setBackgroundColor = vi.fn();
-    constructor(options: any) {
-      super();
-      this.options = options;
-      state.windows.push(this);
-    }
-    isDestroyed() {
-      return this.destroyed;
-    }
-    isMinimized() {
-      return false;
-    }
-    getBounds() {
-      return { x: 10, y: 10, width: 800, height: 600 };
-    }
-    getTitle() {
-      return 'Boundary';
-    }
-    /** What Electron does when the user closes the window. */
-    close() {
-      this.destroyed = true;
-      this.emit('closed');
-    }
-  }
-
-  const display = { id: 42, workArea: { x: 0, y: 0, width: 2000, height: 1400 }, workAreaSize: { width: 2000, height: 1400 } };
 
   const electron = {
     app: {
@@ -111,6 +34,8 @@ const h = vi.hoisted(() => {
       exit: vi.fn(),
       focus: vi.fn(),
       isReady: () => state.appReady,
+      // Never settles: the panel shortcut waits on it, and these tests set none.
+      whenReady: () => new Promise<void>(() => undefined),
       setName: vi.fn(),
       setAppUserModelId: vi.fn(),
       setAsDefaultProtocolClient: vi.fn(),
@@ -121,7 +46,6 @@ const h = vi.hoisted(() => {
       isPackaged: false,
       dock: { show: vi.fn(async () => undefined) },
     },
-    BrowserWindow: FakeBrowserWindow,
     ipcMain: {
       handle: vi.fn((channel: string, fn: Handler) => {
         state.ipcHandlers[channel] = fn;
@@ -130,18 +54,15 @@ const h = vi.hoisted(() => {
     Menu: Object.assign(function Menu() {}, {
       buildFromTemplate: vi.fn((template: any[]) => {
         state.menuTemplate = template;
-        return template;
+        return Object.assign([...template], { popup: vi.fn() });
       }),
       setApplicationMenu: vi.fn(),
     }),
     MenuItem: function MenuItem() {},
+    globalShortcut: { register: vi.fn(() => true), unregister: vi.fn() },
     nativeTheme: { on: vi.fn(), shouldUseDarkColors: false, themeSource: 'system' },
     shell: { openExternal: vi.fn(async () => undefined) },
-    screen: {
-      getPrimaryDisplay: () => display,
-      getAllDisplays: () => [display],
-      getDisplayNearestPoint: () => display,
-    },
+    dialog: { showMessageBox: vi.fn() },
   };
 
   const services = {
@@ -149,13 +70,29 @@ const h = vi.hoisted(() => {
     dockerDestroy: vi.fn(),
     stopHostBridge: vi.fn(async () => undefined),
     stopAssistantStack: vi.fn(async () => undefined),
+    stopExperiments: vi.fn(async () => undefined),
+    stopBundledMachineIfStarted: vi.fn(async () => false),
+    closeDesktopAgentWindows: vi.fn(),
   };
 
   return { state, electron, services };
 });
 
-vi.mock('electron', () => h.electron);
-vi.mock('electron-squirrel-startup', () => ({ default: false }));
+vi.mock('electron', () => ({
+  ...h.electron,
+  BrowserWindow: fake.FakeBrowserWindow,
+  screen: {
+    getPrimaryDisplay: () => fake.fakeDisplay,
+    getAllDisplays: () => [fake.fakeDisplay],
+    getDisplayNearestPoint: () => fake.fakeDisplay,
+  },
+}));
+
+vi.mock('electron-squirrel-startup', () => ({
+  get default() {
+    return h.state.squirrel;
+  },
+}));
 vi.mock('../perf/lagProbe', () => ({ startLagProbe: vi.fn() }));
 vi.mock('../persistDebugLog', () => ({
   persistDebugLog: h.services.persistDebugLog,
@@ -164,6 +101,9 @@ vi.mock('../persistDebugLog', () => ({
   fileStatForLog: () => ({}),
 }));
 vi.mock('../services/dockerService', () => ({ dockerService: { destroy: h.services.dockerDestroy } }));
+vi.mock('../services/containerRuntime', () => ({
+  stopBundledMachineIfStarted: h.services.stopBundledMachineIfStarted,
+}));
 vi.mock('../services/onboarding/ipcHandlers', () => ({ registerOnboardingHandlers: vi.fn() }));
 vi.mock('../services/updates/ipcHandlers', () => ({
   updateMenuItem: vi.fn(() => ({ label: 'Check for Updates…', click: vi.fn() })),
@@ -171,7 +111,9 @@ vi.mock('../services/updates/ipcHandlers', () => ({
   recordDataVersion: vi.fn(),
   registerUpdateHandlers: vi.fn(),
   startUpdates: vi.fn(async () => undefined),
+  closeUpdatedCard: vi.fn(),
 }));
+vi.mock('../services/whatsNew/ipcHandlers', () => ({ registerWhatsNewHandlers: vi.fn() }));
 vi.mock('../services/capability/ipcHandlers', () => ({ registerCapabilityHandlers: vi.fn() }));
 vi.mock('../services/setup/ipcHandlers', () => ({ registerSetupHandlers: vi.fn() }));
 vi.mock('../services/assistant/ipcHandlers', () => ({ registerAssistantStackHandlers: vi.fn() }));
@@ -201,13 +143,28 @@ vi.mock('../services/onboarding/LocalLlmWatcher', () => ({ startLocalLlmWatcher:
 vi.mock('../experiments', () => ({
   registerExperiments: vi.fn(),
   startExperimentsBeforeWindow: vi.fn(async () => undefined),
+  stopExperiments: h.services.stopExperiments,
 }));
 vi.mock('../singleInstance', () => ({ claimSingleInstance: () => true }));
+vi.mock('../services/desktopAgent/desktopAgentWindows', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../services/desktopAgent/desktopAgentWindows')>();
+  return {
+    ...real,
+    closeDesktopAgentWindows: vi.fn(() => {
+      h.services.closeDesktopAgentWindows();
+      real.closeDesktopAgentWindows();
+    }),
+    // Quit and update close them for good; refusing them after is desktopAgentWindows' own test.
+    closeDesktopAgentWindowsForGood: vi.fn(() => {
+      h.services.closeDesktopAgentWindows();
+      real.closeDesktopAgentWindows();
+    }),
+  };
+});
 vi.mock('../migrations', () => ({ runStartupMigrations: vi.fn() }));
 
 const realPlatform = process.platform;
 let exitSpy: ReturnType<typeof vi.spyOn>;
-let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 /** Import a fresh copy of main on `platform`, with process listeners captured instead of installed. */
 async function loadMain(platform: NodeJS.Platform = 'darwin'): Promise<void> {
@@ -215,9 +172,9 @@ async function loadMain(platform: NodeJS.Platform = 'darwin'): Promise<void> {
   h.state.appHandlers = {};
   h.state.processHandlers = {};
   h.state.ipcHandlers = {};
-  h.state.windows = [];
   h.state.menuTemplate = [];
   h.state.appReady = false;
+  Win.reset();
   global.mainWindow = undefined;
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
   const onSpy = vi.spyOn(process, 'on').mockImplementation(((event: string, fn: Handler) => {
@@ -235,7 +192,7 @@ async function loadMain(platform: NodeJS.Platform = 'darwin'): Promise<void> {
  * Run app `ready` and return the window it created. The listener doesn't return its promise,
  * so this waits for the log line written once the window is up.
  */
-async function ready(): Promise<any> {
+async function ready(): Promise<FakeBrowserWindow> {
   h.state.appReady = true;
   const windowUp = new Promise<void>((resolve) => {
     h.services.persistDebugLog.mockImplementation((_area: string, message: string) => {
@@ -245,7 +202,14 @@ async function ready(): Promise<any> {
   h.state.appHandlers.ready();
   await windowUp;
   h.services.persistDebugLog.mockImplementation(() => undefined);
-  return h.state.windows.at(-1);
+  return Win.made.at(-1)!;
+}
+
+/** `ready` under fake timers, which hold the promise it waits on until they advance. */
+async function readyWithFakeTimers(): Promise<FakeBrowserWindow> {
+  const windowUp = ready();
+  await vi.advanceTimersByTimeAsync(0);
+  return windowUp;
 }
 
 function menuItem(label: string): any {
@@ -256,149 +220,49 @@ function menuItem(label: string): any {
   throw new Error(`no menu item ${label}`);
 }
 
+function closeEvent(win: FakeBrowserWindow) {
+  const event = { preventDefault: vi.fn() };
+  win.emit('close', event);
+  return event;
+}
+
+const config = () => new Store<Record<string, unknown>>({ name: 'boundary-config' });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.state.squirrel = false;
   vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', undefined);
   vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window');
-  exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
-  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((): void => undefined) as never);
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
   exitSpy.mockRestore();
-  consoleErrorSpy.mockRestore();
   vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
+  config().delete('desktopAgentButton');
 });
 
-describe('main window logging (G02-3)', () => {
-  it('passes main\'s DEBUG value to the window\'s preload', async () => {
-    vi.stubEnv('DEBUG', 'boundary:*');
+describe('boot', () => {
+  it('registers the IPC handlers and the app lifecycle', async () => {
+    await loadMain();
+    expect(h.state.ipcHandlers['urls:open-url']).toBeTypeOf('function');
+    expect(h.state.ipcHandlers['desktop-agent:set']).toBeTypeOf('function');
+    expect(Object.keys(h.state.appHandlers)).toEqual(
+      expect.arrayContaining(['ready', 'activate', 'before-quit', 'window-all-closed', 'quit'])
+    );
+    expect(h.state.processHandlers.uncaughtException).toBeTypeOf('function');
+  });
+
+  it('sets the menu, then opens the window, on ready', async () => {
     await loadMain();
     const win = await ready();
-    expect(win.options.webPreferences.additionalArguments).toContain('--boundary-debug=boundary:*');
-  });
-});
-
-describe('urls:open-url (G13-19)', () => {
-  it('is registered outside development and opens http(s) URLs', async () => {
-    await loadMain();
-    const handler = h.state.ipcHandlers['urls:open-url'];
-    expect(handler).toBeTypeOf('function');
-    await expect(handler({}, 'http://localhost:8080/')).resolves.toEqual({ success: true });
-    await expect(handler({}, 'https://example.com/a')).resolves.toEqual({ success: true });
-    expect(h.electron.shell.openExternal).toHaveBeenCalledTimes(2);
-  });
-
-  it('refuses other schemes and non-URLs', async () => {
-    await loadMain();
-    const handler = h.state.ipcHandlers['urls:open-url'];
-    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'smb://host/share', 'not a url', 42]) {
-      const result = await handler({}, url);
-      expect(result.success).toBe(false);
-    }
-    expect(h.electron.shell.openExternal).not.toHaveBeenCalled();
-  });
-});
-
-describe('restart to install', () => {
-  const closeEvent = (win: any) => {
-    const event = { preventDefault: vi.fn() };
-    win.emit('close', event);
-    return event;
-  };
-
-  async function restart() {
-    vi.useFakeTimers();
-    await loadMain();
-    const win = await readyWithFakeTimers();
-    const updates = await import('../services/updates/ipcHandlers');
-    const installAndRestart = vi.mocked(updates.registerUpdateHandlers).mock.calls[0][0];
-    installAndRestart();
-    return { win, quitAndInstall: vi.mocked(updates.quitAndInstallUpdate) };
-  }
-
-  async function readyWithFakeTimers() {
-    const windowUp = ready();
-    await vi.advanceTimersByTimeAsync(0);
-    return windowUp;
-  }
-
-  it('keeps the window open while the stack stops, then lets it close for Squirrel', async () => {
-    const { win, quitAndInstall } = await restart();
-    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
-    expect(quitAndInstall).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(150);
-    expect(h.services.stopAssistantStack).toHaveBeenCalledTimes(1);
-    expect(quitAndInstall).toHaveBeenCalledOnce();
-    expect(closeEvent(win).preventDefault).not.toHaveBeenCalled();
-  });
-
-  it('leaves the quit to Squirrel once the windows have closed', async () => {
-    await restart();
-    await vi.advanceTimersByTimeAsync(150);
-    h.state.appHandlers['window-all-closed']();
-    expect(h.electron.app.quit).not.toHaveBeenCalled();
-  });
-
-  it('exits if Squirrel never takes over', async () => {
-    await restart();
-    await vi.advanceTimersByTimeAsync(150);
-    expect(h.electron.app.exit).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(h.electron.app.exit).toHaveBeenCalledWith(0);
-  });
-
-  it('still keeps the window for a plain quit', async () => {
-    vi.useFakeTimers();
-    await loadMain();
-    const win = await readyWithFakeTimers();
-    h.state.appHandlers['before-quit']({ preventDefault: vi.fn() });
-    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
-  });
-});
-
-describe('menu commands after the window closes (G15-10)', () => {
-  it('clears global.mainWindow when the window closes', async () => {
-    await loadMain();
-    const win = await ready();
+    expect(h.electron.Menu.setApplicationMenu).toHaveBeenCalledOnce();
     expect(global.mainWindow).toBe(win);
-    win.close();
-    expect(global.mainWindow).toBeUndefined();
   });
 
-  it('reopens the window and sends the command once it has loaded', async () => {
-    await loadMain();
-    const first = await ready();
-    first.close();
-
-    menuItem('Settings…').click();
-    await vi.waitFor(() => expect(h.state.windows).toHaveLength(2));
-    const second = h.state.windows[1];
-    // createWindow adds one did-finish-load listener; the menu command adds the second.
-    await vi.waitFor(() => expect(second.webContents.listeners['did-finish-load']).toHaveLength(2));
-
-    expect(global.mainWindow).toBe(second);
-    expect(second.webContents.send).not.toHaveBeenCalled();
-    second.webContents.loading = false;
-    second.webContents.emit('did-finish-load');
-    expect(second.webContents.send).toHaveBeenCalledWith(APP_MENU_COMMAND_CHANNEL, 'go-settings');
-    expect(first.webContents.send).not.toHaveBeenCalled();
-  });
-
-  it('sends straight to an open window', async () => {
-    await loadMain();
-    const win = await ready();
-    menuItem('New Chat').click();
-    expect(win.webContents.send).toHaveBeenCalledWith(APP_MENU_COMMAND_CHANNEL, 'new-chat');
-  });
-});
-
-describe('app ready', () => {
   it('logs a throw before the window step instead of leaving the rejection unhandled', async () => {
     await loadMain();
     h.electron.Menu.buildFromTemplate.mockImplementationOnce(() => {
@@ -408,52 +272,19 @@ describe('app ready', () => {
     h.state.appHandlers.ready();
     await flush();
     expect(h.services.persistDebugLog).toHaveBeenCalledWith('startup', 'ready handler threw', expect.anything());
-    expect(h.state.windows).toHaveLength(0);
-  });
-});
-
-describe('process error handlers (G15-11)', () => {
-  it('logs an unhandled rejection and keeps running', async () => {
-    await loadMain();
-    h.state.processHandlers.unhandledRejection(new Error('stray promise'));
-    await flush();
-    expect(h.services.persistDebugLog).toHaveBeenCalledWith('startup', 'unhandledRejection', expect.anything());
-    expect(exitSpy).not.toHaveBeenCalled();
-    expect(h.services.stopHostBridge).not.toHaveBeenCalled();
-    expect(h.services.stopAssistantStack).not.toHaveBeenCalled();
+    expect(Win.made).toHaveLength(0);
   });
 
-  it('runs the quit teardown on an uncaught exception, then exits', async () => {
-    await loadMain();
-    h.state.processHandlers.uncaughtException(new Error('boom'));
-    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(1));
-    expect(h.services.persistDebugLog).toHaveBeenCalledWith('startup', 'uncaughtException', expect.anything());
-    expect(h.services.stopHostBridge).toHaveBeenCalledTimes(1);
-    expect(h.services.stopAssistantStack).toHaveBeenCalledTimes(1);
-    expect(h.services.dockerDestroy).toHaveBeenCalled();
-  });
-
-  it('exits at the deadline when teardown hangs', async () => {
-    vi.useFakeTimers();
-    await loadMain();
-    h.services.stopAssistantStack.mockImplementationOnce(() => new Promise(() => undefined));
-    h.state.processHandlers.uncaughtException(new Error('boom'));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(exitSpy).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(h.services.dockerDestroy).toHaveBeenCalled();
-  });
-});
-
-describe('macOS window move (G15-12)', () => {
-  it('saves the display the window moved to', async () => {
-    await loadMain('darwin');
-    const win = await ready();
-    const store = new Store<Record<string, unknown>>({ name: 'boundary-config' });
-    store.delete('lastDisplayId');
-    expect(() => win.emit('move')).not.toThrow();
-    expect(store.get('lastDisplayId')).toBe(42);
+  // Before, `app.quit()` did not stop the code below it, so an install or uninstall run went on
+  // to claim the lock, register handlers and could open a window.
+  it('quits a Squirrel install or uninstall run before anything else starts', async () => {
+    h.state.squirrel = true;
+    await loadMain('win32');
+    expect(h.electron.app.quit).toHaveBeenCalledOnce();
+    expect(h.electron.app.on).not.toHaveBeenCalled();
+    expect(h.electron.ipcMain.handle).not.toHaveBeenCalled();
+    expect(h.electron.app.setAppUserModelId).not.toHaveBeenCalled();
+    expect(Win.made).toHaveLength(0);
   });
 });
 
@@ -479,46 +310,94 @@ describe('platform setup (G15-14)', () => {
   });
 });
 
-describe('main window navigation (G15-16)', () => {
-  it('denies window.open and sends http(s) links to the system browser', async () => {
+describe('quitting', () => {
+  it('keeps the window for the quit screen, stops the stack, then exits (Cmd+Q)', async () => {
+    vi.useFakeTimers();
     await loadMain();
-    const win = await ready();
-    const handler = win.webContents.windowOpenHandler;
-    expect(handler).toBeTypeOf('function');
-    expect(handler({ url: 'https://example.com/' })).toEqual({ action: 'deny' });
-    expect(handler({ url: 'file:///etc/passwd' })).toEqual({ action: 'deny' });
-    expect(h.electron.shell.openExternal).toHaveBeenCalledTimes(1);
-    expect(h.electron.shell.openExternal).toHaveBeenCalledWith('https://example.com/');
+    const win = await readyWithFakeTimers();
+    h.state.appHandlers['before-quit']({ preventDefault: vi.fn() });
+    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(h.services.stopHostBridge).toHaveBeenCalledOnce();
+    expect(h.services.stopAssistantStack).toHaveBeenCalledOnce();
+    expect(h.services.dockerDestroy).toHaveBeenCalled();
+    expect(h.electron.app.exit).toHaveBeenCalledWith(0);
   });
 
-  it('blocks navigation away from the app and opens http(s) targets outside', async () => {
+  it('lets the window close instead of hiding it while quitting with the desktop button on', async () => {
+    config().set('desktopAgentButton', true);
     await loadMain();
     const win = await ready();
-    const navigate = (url: string) => {
-      const event = { preventDefault: vi.fn() };
-      win.webContents.emit('will-navigate', event, url);
-      return event.preventDefault;
-    };
-
-    const appUrl = pathToFileURL(win.loadFile.mock.calls[0][0]).href;
-    expect(navigate(`${appUrl}#/settings`)).not.toHaveBeenCalled();
-
-    expect(navigate('https://example.com/')).toHaveBeenCalled();
-    expect(navigate('file:///etc/passwd')).toHaveBeenCalled();
-    expect(navigate(pathToFileURL(path.join(path.dirname(win.loadFile.mock.calls[0][0]), 'other.html')).href)).toHaveBeenCalled();
-    expect(h.electron.shell.openExternal).toHaveBeenCalledTimes(1);
-    expect(h.electron.shell.openExternal).toHaveBeenCalledWith('https://example.com/');
+    h.state.appHandlers['before-quit']({ preventDefault: vi.fn() });
+    expect(h.services.closeDesktopAgentWindows).toHaveBeenCalled();
+    closeEvent(win);
+    expect(win.hide).not.toHaveBeenCalled();
   });
 
-  it('allows navigation within the dev server origin', async () => {
-    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173');
+  it('restart to install keeps the window while the stack stops, then lets it close for Squirrel', async () => {
+    vi.useFakeTimers();
+    await loadMain();
+    const win = await readyWithFakeTimers();
+    const updates = await import('../services/updates/ipcHandlers');
+    vi.mocked(updates.registerUpdateHandlers).mock.calls[0][0]();
+    expect(closeEvent(win).preventDefault).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(h.services.stopAssistantStack).toHaveBeenCalledOnce();
+    expect(updates.quitAndInstallUpdate).toHaveBeenCalledOnce();
+    expect(closeEvent(win).preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('reopening the window', () => {
+  it('a menu command after the window closed reopens it and sends once loaded (G15-10)', async () => {
+    await loadMain();
+    const first = await ready();
+    first.close();
+    menuItem('Settings…').click();
+    await vi.waitFor(() => expect(Win.made).toHaveLength(2));
+    const second = Win.made[1];
+    // The window adds one did-finish-load listener; the menu command adds the second.
+    await vi.waitFor(() => expect(second.webContents.listeners['did-finish-load']).toHaveLength(2));
+    second.webContents.loading = false;
+    second.webContents.emit('did-finish-load');
+    expect(second.webContents.send).toHaveBeenCalledWith('app:menu-command', 'go-settings');
+    expect(first.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('activate shows the main window, never another window', async () => {
+    config().set('desktopAgentButton', true);
     await loadMain();
     const win = await ready();
-    const event = { preventDefault: vi.fn() };
-    win.webContents.emit('will-navigate', event, 'http://localhost:5173/index.html');
-    expect(event.preventDefault).not.toHaveBeenCalled();
-    const away = { preventDefault: vi.fn() };
-    win.webContents.emit('will-navigate', away, 'http://localhost:9119/');
-    expect(away.preventDefault).toHaveBeenCalled();
+    closeEvent(win);
+    // A desktop button window; getAllWindows() makes no promise about order.
+    const other = new Win({});
+    Win.made = [other, ...Win.made.filter((w) => w !== other)];
+    h.state.appHandlers.activate();
+    await flush();
+    expect(win.show).toHaveBeenCalled();
+    expect(other.show).not.toHaveBeenCalled();
+  });
+});
+
+describe('the desktop button switch (ADR 0058)', () => {
+  it('turns background throttling back on when switched off', async () => {
+    config().set('desktopAgentButton', true);
+    await loadMain();
+    const win = await ready();
+    await h.state.ipcHandlers['desktop-agent:set']({}, false);
+    expect(win.webContents.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+  });
+
+  it('shows the hidden window, then closes the desktop windows, when switched off', async () => {
+    config().set('desktopAgentButton', true);
+    await loadMain();
+    const win = await ready();
+    closeEvent(win);
+    win.show.mockClear();
+    const order: string[] = [];
+    win.show.mockImplementation(() => order.push('show'));
+    h.services.closeDesktopAgentWindows.mockImplementation(() => order.push('close desktop windows'));
+    await h.state.ipcHandlers['desktop-agent:set']({}, false);
+    expect(order).toEqual(['show', 'close desktop windows']);
   });
 });

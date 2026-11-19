@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 /**
  * Plain `vitest` runs both unit suites, each under its own config: main-process services
- * (node, Electron mocked) and renderer (jsdom).
+ * (node, Electron mocked) and renderer (happy-dom).
  */
 export default defineConfig({
   test: {

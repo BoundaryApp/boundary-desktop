@@ -1,28 +1,8 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../__tests__/electronApiFake';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CalendarsPanel } from '../CalendarsPanel';
-
-const calendarsApi = {
-  list: vi.fn(),
-  prepare: vi.fn(),
-  test: vi.fn(),
-  connect: vi.fn(),
-  setAccess: vi.fn(),
-  recheck: vi.fn(),
-  recheckAll: vi.fn(),
-  replacePassword: vi.fn(),
-  remove: vi.fn(),
-  onChanged: vi.fn(),
-  onProgress: vi.fn(),
-};
-const agentsApi = { list: vi.fn() };
-
-const agents = [
-  { slug: 'assistant', displayName: 'Hermes', handle: 'hermes', role: '', builtIn: true, createdAt: '' },
-  { slug: 'researcher', displayName: 'Researcher', handle: 'researcher', role: 'Web research', builtIn: false, createdAt: '' },
-];
+import { calendarsApi, macAccount, macCalendars, openSignIn, reportProgress, stubCalendars } from './calendarsHarness';
 
 const personal = {
   slug: 'personal',
@@ -41,32 +21,8 @@ const personal = {
   lastOkAt: '2026-10-21T10:00:00Z',
 };
 
-let progress: ((event: { slug: string; step: string }) => void) | null = null;
-
-async function openSignIn() {
-  render(<CalendarsPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-  fireEvent.change(screen.getByLabelText('Apple ID email'), { target: { value: 'sam@example.com' } });
-}
-
 describe('CalendarsPanel', () => {
-  afterEach(() => cleanup());
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    progress = null;
-    stubElectronAPI({ calendars: calendarsApi, agents: agentsApi });
-    agentsApi.list.mockResolvedValue({ success: true, agents, standingDmByAgent: {} });
-    calendarsApi.list.mockResolvedValue({ success: true, accounts: [] });
-    calendarsApi.prepare.mockResolvedValue({ success: true });
-    calendarsApi.recheckAll.mockImplementation(() => calendarsApi.list());
-    calendarsApi.onChanged.mockReturnValue(() => undefined);
-    calendarsApi.onProgress.mockImplementation((cb) => {
-      progress = cb;
-      return () => undefined;
-    });
-  });
+  beforeEach(stubCalendars);
 
   it('offers to connect when no calendar is connected', async () => {
     render(<CalendarsPanel />);
@@ -74,14 +30,48 @@ describe('CalendarsPanel', () => {
     expect(screen.getByRole('button', { name: /Connect calendar/ })).toBeTruthy();
   });
 
-  it('starts the calendar service as soon as the sheet opens', async () => {
+  it('selects Calendars on this Mac by default and leaves the calendar service alone', async () => {
     render(<CalendarsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
-    expect(calendarsApi.prepare).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
     expect(screen.getByText('Google Calendar.')).toBeTruthy();
+    await act(async () => undefined);
+    expect(calendarsApi.prepare).not.toHaveBeenCalled();
   });
 
-  it('warns about an Apple ID password before testing it', async () => {
+  it('starts the calendar service once a CalDAV provider is picked, and only once', async () => {
+    render(<CalendarsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /^iCloud/ }));
+    await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('radio', { name: /^Calendars on this Mac/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Fastmail/ }));
+    await act(async () => undefined);
+    expect(calendarsApi.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects iCloud by default and starts the calendar service when a Mac account exists', async () => {
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [macAccount] });
+    calendarsApi.macStatus.mockResolvedValue({ access: 'granted', calendars: macCalendars });
+    render(<CalendarsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect another calendar' }));
+    expect(screen.getByRole('radio', { name: /^iCloud/ }).getAttribute('aria-checked')).toBe('true');
+    await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalledTimes(1));
+  });
+
+  it('opened from the chat before the list loads, moves to iCloud when a Mac account turns up', async () => {
+    let answer!: (value: unknown) => void;
+    calendarsApi.list.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    calendarsApi.macStatus.mockResolvedValue({ access: 'granted', calendars: macCalendars });
+    render(<CalendarsPanel onConnectFromChatClosed={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
+    await act(async () => answer({ success: true, accounts: [macAccount] }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^iCloud/ }).getAttribute('aria-checked')).toBe('true'));
+    expect(screen.queryByRole('radio', { name: /^Calendars on this Mac/ })).toBeNull();
+    await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalledTimes(1));
+  });
+
+  it('warns about an Apple Account password before testing it', async () => {
     await openSignIn();
     fireEvent.change(screen.getByLabelText('App-specific password'), { target: { value: 'MyAppleIdPassword1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Test sign-in' }));
@@ -91,6 +81,45 @@ describe('CalendarsPanel', () => {
     calendarsApi.test.mockResolvedValue({ status: 'rejected' });
     fireEvent.click(screen.getByRole('button', { name: 'Test anyway' }));
     expect(await screen.findByText(/didn’t accept this username and password/)).toBeTruthy();
+  });
+
+  it('shows Show me how instead of the collapsed list on the iCloud sign-in step', async () => {
+    await openSignIn();
+    expect(screen.queryByText('How do I get an app-specific password?')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show me how' })).toBeTruthy();
+    expect(screen.getByText(/two-factor authentication turned on first/)).toBeTruthy();
+  });
+
+  it('fills the password field from the walkthrough', async () => {
+    await openSignIn();
+    fireEvent.click(screen.getByRole('button', { name: 'Show me how' }));
+    for (let i = 0; i < 4; i += 1) fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.change(screen.getByLabelText('App-specific password'), { target: { value: 'abcd-efgh-ijkl-mnop' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect((screen.getByLabelText('App-specific password') as HTMLInputElement).value).toBe('abcd-efgh-ijkl-mnop');
+    expect((screen.getByLabelText('Apple Account email') as HTMLInputElement).value).toBe('sam@example.com');
+  });
+
+  it('closes only the walkthrough on Escape and leaves the sign-in step open', async () => {
+    await openSignIn();
+    fireEvent.click(screen.getByRole('button', { name: 'Show me how' }));
+    expect(screen.getByText('Open account.apple.com', { selector: 'h3' })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape', bubbles: true });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show me how' })).toBeTruthy();
+    expect(screen.getByText('Sign in to iCloud')).toBeTruthy();
+    // With the walkthrough closed, Escape closes the sheet as before.
+    fireEvent.keyDown(document.body, { key: 'Escape', bubbles: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps the Fastmail help list unchanged', async () => {
+    render(<CalendarsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Fastmail/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByText('How do I get an app password?')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Show me how' })).toBeNull();
   });
 
   it('refuses a password Hermes can’t pass on', async () => {
@@ -130,7 +159,7 @@ describe('CalendarsPanel', () => {
 
     calendarsApi.list.mockResolvedValue({ success: true, accounts: [personal] });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-    act(() => progress?.({ slug: 'personal', step: 'access' }));
+    act(() => reportProgress({ slug: 'personal', step: 'access' }));
     expect(await screen.findByText('Personal connected. Hermes can read it and asks before changes.')).toBeTruthy();
     expect(calendarsApi.connect).toHaveBeenCalledWith({
       provider: 'icloud',
@@ -160,8 +189,9 @@ describe('CalendarsPanel', () => {
     calendarsApi.test.mockResolvedValue({ status: 'ok', url: 'https://caldav.icloud.com/', calendars: [] });
     render(<CalendarsPanel cloudProvider="OpenRouter" />);
     fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /^iCloud/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.change(screen.getByLabelText('Apple ID email'), { target: { value: 'sam@example.com' } });
+    fireEvent.change(screen.getByLabelText('Apple Account email'), { target: { value: 'sam@example.com' } });
     fireEvent.change(screen.getByLabelText('App-specific password'), { target: { value: 'abcd-efgh-ijkl-mnop' } });
     fireEvent.click(screen.getByRole('button', { name: 'Test sign-in' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
@@ -182,6 +212,24 @@ describe('CalendarsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove Personal' }));
     await waitFor(() => expect(calendarsApi.remove).toHaveBeenCalledWith({ slug: 'personal' }));
     expect(await screen.findByText('Removed Personal')).toBeTruthy();
+  });
+
+  it('closes the remove confirm on Escape, but not while a sheet is open over it', async () => {
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [personal] });
+    render(<CalendarsPanel />);
+    await screen.findByText('“Check my Personal calendar”');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    fireEvent.keyDown(document.body, { key: 'Escape', bubbles: true });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect another calendar' }));
+    expect(screen.getByText('Where is your calendar?')).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: 'Escape', bubbles: true });
+    expect(screen.queryByText('Where is your calendar?')).toBeNull();
+    expect(screen.getByRole('alertdialog', { name: 'Remove Personal' })).toBeTruthy();
+    expect(calendarsApi.remove).not.toHaveBeenCalled();
   });
 
   it('tests every sign-in when the tab opens and turns a rejected one red', async () => {
@@ -210,7 +258,7 @@ describe('CalendarsPanel', () => {
     let changed: (() => void) | null = null;
     calendarsApi.onChanged.mockImplementation((cb: () => void) => {
       changed = cb;
-      return () => undefined;
+      return (): void => undefined;
     });
     calendarsApi.list.mockResolvedValue({ success: true, accounts: [personal] });
     render(<CalendarsPanel />);
@@ -232,7 +280,7 @@ describe('CalendarsPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Replace password' }));
 
     expect(screen.getByText('Replace the Personal password')).toBeTruthy();
-    expect((screen.getByLabelText('Apple ID email') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Apple Account email') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByLabelText('Name')).toBeNull();
     fireEvent.change(screen.getByLabelText('App-specific password'), { target: { value: 'qrst-uvwx-yzab-cdef' } });
     fireEvent.click(screen.getByRole('button', { name: 'Test sign-in' }));
@@ -250,11 +298,23 @@ describe('CalendarsPanel', () => {
     expect(calendarsApi.replacePassword).toHaveBeenCalledWith({ slug: 'personal', password: 'qrst-uvwx-yzab-cdef' });
   });
 
+  it('offers the walkthrough when replacing an iCloud password', async () => {
+    const rejected = { ...personal, lastCheck: { at: '2026-10-24T08:00:00Z', status: 'rejected' } };
+    calendarsApi.list.mockResolvedValue({ success: true, accounts: [rejected] });
+    render(<CalendarsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace password' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show me how' }));
+    for (let i = 0; i < 4; i += 1) fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.change(screen.getByLabelText('App-specific password'), { target: { value: 'qrst-uvwx-yzab-cdef' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.getByText('Replace the Personal password')).toBeTruthy();
+    expect((screen.getByLabelText('App-specific password') as HTMLInputElement).value).toBe('qrst-uvwx-yzab-cdef');
+  });
+
   it('opened from the chat card, starts on the sheet and goes back to the chat when cancelled', async () => {
     const back = vi.fn();
     render(<CalendarsPanel onConnectFromChatClosed={back} />);
     expect(await screen.findByText('Where is your calendar?')).toBeTruthy();
-    await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(back).toHaveBeenCalledTimes(1);
   });
@@ -266,5 +326,11 @@ describe('CalendarsPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the dialog while the walkthrough shows', async () => {
+    await openSignIn();
+    fireEvent.click(screen.getByRole('button', { name: 'Show me how' }));
+    expect(screen.getByRole('dialog', { name: 'Open account.apple.com' })).toBeTruthy();
   });
 });

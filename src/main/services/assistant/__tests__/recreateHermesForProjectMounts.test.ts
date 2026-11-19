@@ -3,34 +3,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const runCompose = vi.fn();
-const getContainerRuntime = vi.fn();
+const fakes = await vi.hoisted(async () => (await import('./stackServiceMocks')).createComposeFakes());
 const { isLocalAssistantStackMode, checkout } = vi.hoisted(() => ({
   isLocalAssistantStackMode: vi.fn(() => false),
   checkout: { root: '' },
 }));
 
-vi.mock('../../containerRuntime', async () => {
-  const actual = await vi.importActual<typeof import('../../containerRuntime')>(
-    '../../containerRuntime'
-  );
-  return {
-    ...actual,
-    getContainerRuntime: (...args: unknown[]) => getContainerRuntime(...args),
-    runCompose: (...args: unknown[]) => runCompose(...args),
-  };
-});
+vi.mock('../../containerRuntime', async (importOriginal) =>
+  (await import('./stackServiceMocks')).containerRuntimeMock(await importOriginal(), fakes)
+);
 
-vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: checkout.root, error: undefined }),
-  resolveAssistantRoot: () => checkout.root,
-}));
+vi.mock('../resolveAssistantRoot', async () =>
+  (await import('./stackServiceMocks')).resolveAssistantRootMock(() => checkout.root)
+);
 
 vi.mock('../assistantPaths', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../assistantPaths')>()),
-  resolveBoundaryOverlayPath: () => '/tmp/docker-compose.boundary.yml',
-  resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
-  ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
+  ...(await import('./stackServiceMocks')).composePathMocks(),
 }));
 
 vi.mock('../localStackMode', async (importOriginal) => ({
@@ -39,27 +28,24 @@ vi.mock('../localStackMode', async (importOriginal) => ({
 }));
 
 import { recreateHermesForProjectMounts } from '../AssistantStackService';
+import { onHermesReplaced } from '../hermesLifecycle';
+import { composeCalls, dockerRuntime } from './stackServiceMocks';
+
+const { runCompose, getContainerRuntime } = fakes;
 
 /** The services named after `up` in the one compose call. */
 function upServices(): string[] {
   expect(runCompose).toHaveBeenCalledTimes(1);
-  const args = runCompose.mock.calls[0][1] as string[];
-  return args.slice(args.indexOf('up') + 1).filter((arg) => !arg.startsWith('-'));
+  const [up] = composeCalls(runCompose);
+  expect(up.command[0]).toBe('up');
+  return up.command.slice(1).filter((arg) => !arg.startsWith('-'));
 }
 
 describe('recreateHermesForProjectMounts', () => {
   beforeEach(() => {
     checkout.root = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-recreate-'));
     runCompose.mockReset().mockResolvedValue({ stdout: '', stderr: '' });
-    getContainerRuntime.mockResolvedValue({
-      kind: 'docker',
-      origin: 'system',
-      cliPath: 'docker',
-      composeArgv: ['compose'],
-      env: {},
-      apiEndpoint: 'unix:///var/run/docker.sock',
-      version: { cli: '1', compose: '2.38.2' },
-    });
+    getContainerRuntime.mockResolvedValue(dockerRuntime());
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })) as unknown as typeof fetch);
   });
 
@@ -74,19 +60,21 @@ describe('recreateHermesForProjectMounts', () => {
     expect(upServices()).toEqual(['hermes', 'hermes-webui', 'hermes-worker']);
   });
 
-  it('turns on the shared database and GPT Researcher tools in Boundary’s compose env', async () => {
+  it('turns on the shared database, GPT Researcher and OpenCode tools in Boundary’s compose env', async () => {
     isLocalAssistantStackMode.mockReturnValue(false);
     await recreateHermesForProjectMounts();
-    const env = (runCompose.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env;
+    const { env } = composeCalls(runCompose)[0];
     expect(env.SQL_MCP_ENABLED).toBe('1');
     expect(env.GPTR_MCP_ENABLED).toBe('1');
+    expect(env.OPENCODE_MCP_ENABLED).toBe('1');
+    expect(env.COMPOSE_PROFILES?.split(',')).toContain('coding');
     expect(env.COMPOSE_PROFILES?.split(',')).toContain('research');
   });
 
   it('routes web searches through search-gate and starts its profile', async () => {
     isLocalAssistantStackMode.mockReturnValue(false);
     await recreateHermesForProjectMounts();
-    const env = (runCompose.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env;
+    const { env } = composeCalls(runCompose)[0];
     expect(env.WEB_SEARCH_URL).toBe('http://search-gate:8080');
     expect(env.COMPOSE_PROFILES?.split(',')).toContain('search-gate');
   });
@@ -103,5 +91,60 @@ describe('recreateHermesForProjectMounts', () => {
     fs.writeFileSync(path.join(checkout.root, '.env'), 'HERMES_TERMINAL_BACKEND=local\n', 'utf8');
     expect(await recreateHermesForProjectMounts()).toEqual({ success: true });
     expect(upServices()).toEqual(['hermes']);
+  });
+
+  describe('telling add-ons', () => {
+    const replaced = vi.fn();
+    let off: () => void = () => {};
+
+    beforeEach(() => {
+      replaced.mockReset();
+      off = onHermesReplaced(replaced);
+    });
+
+    afterEach(() => off());
+
+    it('notifies project-mounts once on Boundary’s stack', async () => {
+      isLocalAssistantStackMode.mockReturnValue(false);
+      expect(await recreateHermesForProjectMounts()).toEqual({ success: true });
+      expect(replaced.mock.calls).toEqual([['project-mounts']]);
+    });
+
+    it('notifies project-mounts once on a local checkout', async () => {
+      isLocalAssistantStackMode.mockReturnValue(true);
+      expect(await recreateHermesForProjectMounts()).toEqual({ success: true });
+      expect(replaced.mock.calls).toEqual([['project-mounts']]);
+    });
+
+    it('notifies project-mounts as soon as compose recreates hermes, even when the health wait then fails', async () => {
+      isLocalAssistantStackMode.mockReturnValue(false);
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })) as unknown as typeof fetch);
+      vi.useFakeTimers();
+      try {
+        const pending = recreateHermesForProjectMounts();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(replaced.mock.calls).toEqual([['project-mounts']]);
+        await vi.advanceTimersByTimeAsync(130_000);
+        expect((await pending).success).toBe(false);
+        expect(replaced.mock.calls).toEqual([['project-mounts']]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('notifies nobody when compose fails', async () => {
+      isLocalAssistantStackMode.mockReturnValue(false);
+      runCompose.mockRejectedValue(new Error('up failed'));
+      expect((await recreateHermesForProjectMounts()).success).toBe(false);
+      expect(replaced).not.toHaveBeenCalled();
+    });
+
+    it('still succeeds when a listener rejects', async () => {
+      isLocalAssistantStackMode.mockReturnValue(false);
+      off();
+      off = onHermesReplaced(() => Promise.reject(new Error('follow failed')));
+      expect(await recreateHermesForProjectMounts()).toEqual({ success: true });
+      await Promise.resolve();
+    });
   });
 });

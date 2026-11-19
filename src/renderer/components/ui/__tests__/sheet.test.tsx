@@ -53,6 +53,36 @@ describe('Sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('closes on a backdrop click unless busy or turned off', () => {
+    const onClose = vi.fn();
+    const clickBackdrop = () => {
+      const backdrop = screen.getByRole('dialog').parentElement!;
+      fireEvent.pointerDown(backdrop);
+      fireEvent.click(backdrop);
+    };
+    const { rerender } = render(<Sheet open busy onClose={onClose} titleId="t" title="Move" />);
+    clickBackdrop();
+    expect(onClose).not.toHaveBeenCalled();
+    rerender(<Sheet open closeOnBackdrop={false} onClose={onClose} titleId="t" title="Move" />);
+    clickBackdrop();
+    expect(onClose).not.toHaveBeenCalled();
+    rerender(<Sheet open onClose={onClose} titleId="t" title="Move" />);
+    clickBackdrop();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays open for clicks inside the dialog and drags that end on the backdrop', () => {
+    const onClose = vi.fn();
+    render(<Sheet open onClose={onClose} titleId="t" title="Move" />);
+    const dialog = screen.getByRole('dialog');
+    fireEvent.pointerDown(dialog);
+    fireEvent.click(dialog);
+    // A selection dragged from the dialog: the press starts inside, the click lands on the backdrop.
+    fireEvent.pointerDown(dialog);
+    fireEvent.click(dialog.parentElement!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('renders as a form that submits', () => {
     const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
     render(

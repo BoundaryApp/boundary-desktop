@@ -4,7 +4,9 @@
  */
 export type ParkedResponder = (result: Record<string, unknown>) => void | Promise<void>;
 
-export type ParkedAnswer = { success: true } | { success: false; error: string };
+export type ParkedAnswer =
+  | { success: true }
+  | { success: false; error: string; errorCode?: 'not-pending' };
 
 /**
  * Server requests (approvals, credential prompts) waiting on the user, keyed by the JSON-RPC
@@ -30,7 +32,7 @@ export class ParkedRequests<E extends { rpcRequestId: string; sessionId: string 
   /** Send `result` for a parked request. The entry stays when the answer wasn't sent. */
   async answer(rpcRequestId: string, result: Record<string, unknown>): Promise<ParkedAnswer> {
     const entry = this.entries.get(rpcRequestId);
-    if (!entry) return { success: false, error: 'No pending request for that id' };
+    if (!entry) return { success: false, error: 'No pending request for that id', errorCode: 'not-pending' };
     try {
       await entry.respond(result);
     } catch (err) {

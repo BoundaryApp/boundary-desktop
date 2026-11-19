@@ -11,7 +11,7 @@ function decrypt(encryptionKey: string, envelope: string): string {
   expect(raw.subarray(0, 8).toString()).toBe('Salted__');
   const salt = raw.subarray(8, 16);
   const pass = Buffer.concat([Buffer.from(encryptionKey, 'binary'), salt]);
-  let prev = Buffer.alloc(0);
+  let prev: Buffer = Buffer.alloc(0);
   let derived = Buffer.alloc(0);
   while (derived.length < 48) {
     prev = crypto.createHash('md5').update(Buffer.concat([prev, pass])).digest();

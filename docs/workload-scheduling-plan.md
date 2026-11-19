@@ -1,6 +1,6 @@
 # Workload scheduling build plan
 
-- Date: 2026-10-28, revised 2026-10-30 for the inference router
+- Date: 2026-10-28, revised 2026-10-30 for the inference router, 2026-11-12 for Phase 1a
 - Status: Proposed
 - Decision: [ADR 0035](adr/0035-turn-admission-and-model-gate.md)
 - Change request: [0018](change-requests/0018-workload-scheduling.md)
@@ -85,6 +85,38 @@ Each phase lands as its own commits and passes `bun run check` before the next s
 3. **Open, needs the app.** Measure main-process lag (the lag probe) while streaming through the router. Decision 2 sends every local user's tokens through main, and the app's responsiveness is part of the goal. If lag shows, move the router into a utility process before Phase 1, as Circles does with its network process.
 4. **Partly done.** A `test:stack` case runs a real agent turn against a fake model server and confirms the header carries the session id. Still unconfirmed: what a board task sends, and that a compacted chat keeps its root id. Decision 5 and Phase 3 rely on these, so check them before Phase 3.
 
+### Phase 1a: hold local turns (admission only)
+
+Phase 1 needs the router on every local chat's path, which is the largest change in this plan. Phase 1a ships the part a person sees first without it: a send to a local model that is already answering in another chat waits in Boundary instead of in the model server, and its chat shows why. It is a subset of Phase 1 step 4 and step 8, and Phase 1 builds on it rather than replacing it.
+
+**Scope.** Turns Boundary starts from a chat (`startChatTurn` in hermesChatSessions.ts): sends, Continue, Retry and Edit, and channel wakes, where a wake counts as one turn however many members it addresses. A turn is limited when its resolved inference has `slot: 'local'`. The slot names the chain's first entry only, so a chain that starts on Local is held even when its fallbacks are a pool or OpenRouter. That is right for its first attempt, which is the one that would wait at the server. A privacy-locked chat whose first entry is Local is held the same way. Turns on OpenRouter, a confidential pool or a shared model (`peer`) are never held in 1a. Shared models already wait in the provider's gateway, and Phase 4 covers them.
+
+**Not counted in 1a:** board tasks, cron, OpenCode, WebUI, guest agents, and Hermes's own title and compression calls. They still reach the server directly. That is the gap the gate closes in Phase 1.
+
+1. **Limit per server.** The limit belongs to the local model server, keyed by the upstream's origin, because two models on one server compete for the same slots. It is the server's reported parallel count where Boundary can read it, and 1 otherwise. LM Studio reports `loaded_instances[].config.parallel` from `GET /api/v1/models` (measured in Phase 0). llama.cpp's server reports `total_slots` from `GET /props` (its `--parallel` defaults to auto, which is 4; the endpoint needs the API key when one is set). Ollama reports nothing: `OLLAMA_NUM_PARALLEL` defaults to 1, which matches the fallback. Settings → Inference shows it on the local model as **Replies at once**, with the reported value as the default and a field to change it. Unlike decision 3, the turn limit equals this number, not one more: without the gate, a second admitted turn's model calls go to the server's queue, where they trigger the stale timeout and evict the first chat's prompt cache.
+2. **Admission.** A new `hermes/workloadScheduler.ts` in main counts running limited turns per server and keeps a first-in, first-out waiting list. `startChatTurn` resolves the session and passes `gateResolvedInference` as today, then returns `{ success: true }` straight away. The background task asks the scheduler for a turn slot before `runJsonRpcTurn` or `runChannelWakeTurns`. `prompt.submit` is not called until the slot is granted, so no Hermes or server timer runs while a turn waits. The slot is released in the same `finally` that calls `endRunningTurn`, and when a waiting turn is stopped.
+3. **Held is a state of a running turn.** The renderer's run starts at send as it does now, so the chat shows **Stop** and the per-chat queue from the run control spec works on a held chat without changes. `beginRunningTurn` records `admission: 'held'` and switches it to `'running'` when the slot is granted. The rail shows a hollow dot for a held turn in place of the working dot. (`RunButton`'s existing `held` prop means an approval is waiting; the code keeps the two names apart.)
+4. **Waiting line.** A new `held` phase, sent through `sendPhase`, carries the turn's position and the session ids of the limited turns running on that server. Where the working line shows the phase, a held chat shows "Waiting for the local model · answering in *Trip research*", or "· 2 ahead" when more than one turn is ahead, with the chat names linked. The renderer takes titles from the rail; main sends ids only. The line offers **Run now**, which grants a slot over the limit to this turn.
+5. **Stop on a held turn** withdraws it: no `prompt.submit` is sent, and the user's message stays in the chat as a failed send (`keepFailedSend`) with a new `HermesNoReply` reason, `withdrawn`, so Retry and Edit work as they do for other unsent messages. It never stops the turn that is answering in the other chat. A withdrawn turn closes its inference provenance window as a blocked send does (`endWindowUnrun` in `startChatTurn`), because `noteTurnStarted` runs before the gate. Otherwise the window stays open and later replies in that chat lose their provider line.
+6. **Quitting with held turns.** Held turns are not kept across a restart in 1a. On quit, each is recorded as a withdrawn failed send so its text survives, and its provenance window is closed as in step 5. Phase 1 step 7 adds the held store and re-admission.
+7. **Logs.** `turn held` and `turn admitted` lines in the debug log carry request id, session id, server origin, position, limit and wait time. They never carry text or titles.
+8. **Tests.** Scheduler unit tests with fake timers: order, release on success, failure, Stop and withdrawal, **Run now** over the limit, two servers counted apart, and a cloud turn never held. A mounted-runtime test sends in two chats on a local model with a limit of 1 and asserts the second shows the waiting line and Stop, then goes live when the first ends. A `test:stack` case sends to two new sessions with a limit of 1 against the fake model server and asserts the upstream never sees two requests at once.
+
+**Acceptance**
+
+- [x] 1a.1 With a limit of 1, a send in chat B while chat A's local reply runs shows Stop and the waiting line naming chat A. No request reaches the model server for B until A's reply ends.
+- [x] 1a.2 B starts on its own when A ends, with no further action.
+- [x] 1a.3 Stop on held B leaves A running and keeps B's message with Retry.
+- [x] 1a.4 **Run now** starts B while A runs.
+- [x] 1a.5 Three chats sent in order run in that order.
+- [x] 1a.6 A chat on OpenRouter sends at once while a local reply runs.
+- [ ] 1a.7 Queuing a follow-up in held B (the run control spec's Queue) sends it after B's reply. *(In the app.)*
+- [ ] 1a.8 With LM Studio set to `parallel: 2`, **Replies at once** shows 2 and two chats run together. *(In the app.)*
+
+1a.1 to 1a.6 are covered by the scheduler, session and mounted-runtime tests and the `test:stack` case; they still need a pass in the app with a real local model.
+
+**Phase 1 after 1a:** steps 1–3 and 6 add the gate and the router. Step 4 changes the turn limit to model limit + 1 once the gate holds the extra turn's model calls. Steps 5, 7, 9 and 10 are unchanged. Step 8's held chat already exists, and its decision 9 holds in 1a, because the session is created before admission.
+
 ### Phase 1: admission and the gate
 
 1. **Gate.** `router/modelGate.ts` is pure logic with fake timers in its tests: per-entry limits, the order in decision 4, the age limit, release on end and on client close. `completions` in chainRouter.ts acquires a slot before `runChainAttempts`' attempt for each entry, so the header timer measures the upstream only, and releases it when the reply ends (the `finishOnce` path) or the attempt fails.
@@ -154,6 +186,7 @@ Live checks: `test:stack` covers the session header on a real turn. Phase 1 adds
 ## Dependencies
 
 - Run control Phase 1 (Stop, Continue, reply-ending markers) is built. Pause conversion reuses it.
+- Confidential pool routing (ADR 0047 phase 4) has landed. A chat whose chain starts on a pool resolves with `slot: 'confidential'`, so the slot type no longer excludes pools; 1a's check is an explicit `slot === 'local'`.
 - Run control Phase 2 (per-chat Queue) is independent. The two share the composer menu, and Phase 2 of this plan adds its rows next to that spec's rows.
 - Circles plan Phase 2 (router and chain UI) is in progress, with its live proxy case not started. Phase 0 here should use that case.
 - Pinned stack v0.3.7 or later for route `fallbacks`.
@@ -161,7 +194,7 @@ Live checks: `test:stack` covers the session header on a real turn. Phase 1 adds
 
 ## Open questions
 
-- **Servers that don't report a limit.** LM Studio reports `parallel`. Check Ollama. Where a server reports nothing, the gate's timings could detect the limit: time to first byte that jumps as in-flight rises means the limit is too high. `router.reply`'s `firstByteMs` and `router.request`'s `inFlight` already give that data.
+- **Servers that don't report a limit.** Settled for 1a: LM Studio and llama.cpp's server report one, Ollama doesn't (Phase 1a step 1), so an Ollama user who raised `OLLAMA_NUM_PARALLEL` sets **Replies at once** by hand. For Phase 1, the gate's timings could detect the limit where a server reports nothing: time to first byte that jumps as in-flight rises means the limit is too high. `router.reply`'s `firstByteMs` and `router.request`'s `inFlight` already give that data.
 - **The model name Hermes sees.** Different first entries give Hermes different model names, so those chats still need an apply and can't run side by side (Phase 1, step 6). A stable name for routed chats would remove that, at the cost of Hermes's per-model handling (ADR 0033 §8 keeps the first entry's name on purpose).
 - **Auxiliary calls.** Hermes's title and compression calls carry the session header too, so they queue with their turn. A long compression at Later priority holds that turn's context. Check whether they need their own rule.
 - **Not-before when the app is closed.** Boundary's held store only drains while the app runs. Hermes cron runs as long as the stack runs. Which matters more depends on whether the stack stays up after Boundary quits.

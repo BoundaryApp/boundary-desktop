@@ -1,8 +1,11 @@
 import type { InferenceProvenance } from './hermesChat';
 import type { InferenceSlotId } from './onboarding';
 
-/** A chain entry's source: a stored slot, or a model a Circle member shares (ADR 0034). */
-export type InferenceChainSlot = InferenceSlotId | 'peer';
+/**
+ * A chain entry's source: a stored slot, a model a Circle member shares (ADR 0034), or a
+ * confidential pool whose `modelId` is a canonical model id (ADR 0047).
+ */
+export type InferenceChainSlot = InferenceSlotId | 'peer' | 'confidential';
 
 /** Which shared model a `peer` entry names. `providerId` is the provider's identity key (ADR 0032 §2). */
 export interface PeerModelRef {
@@ -12,10 +15,20 @@ export interface PeerModelRef {
 
 export interface InferenceChainEntry {
   slot: InferenceChainSlot;
-  /** Blank or absent means the slot's own model. Required in practice for `peer`. */
+  /**
+   * Blank or absent means the slot's own model. Required in practice for `peer`, and for
+   * `confidential`, where it's the canonical model id the pool serves.
+   */
   modelId?: string;
   /** Set when `slot` is `peer`. */
   peer?: PeerModelRef;
+}
+
+/** A confidential pool entry. Narrow with this before treating `slot` as an `InferenceSlotId`. */
+export function isConfidentialEntry(
+  entry: InferenceChainEntry
+): entry is InferenceChainEntry & { slot: 'confidential'; modelId: string } {
+  return entry.slot === 'confidential';
 }
 
 /** Ordered by preference; the router tries entries top to bottom (ADR 0033 §1). */
@@ -45,7 +58,9 @@ export type InferenceChainStaleReason =
    */
   | 'provider-untrusted'
   /** The provider isn't connected to this device now. The router skips them until they're back. */
-  | 'provider-offline';
+  | 'provider-offline'
+  /** None of the user’s added providers can serve this pool’s model now (ADR 0047 §8). */
+  | 'pool-no-provider';
 
 export interface InferenceChainEntryState {
   entry: InferenceChainEntry;

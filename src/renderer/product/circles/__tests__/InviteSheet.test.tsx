@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../../shared/types/circles';
+import { BO, CIRCLE_KEY as KEY, ME, circleMember, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { InviteSheet, useInviteHints } from '../InviteSheet';
 import { useCirclesState } from '../useCircles';
@@ -22,47 +23,24 @@ stubElectronAPI({
     revokeInvite: (...args: unknown[]) => revokeInvite(...args),
     onState: (cb: (state: unknown) => void) => {
       push.current = cb;
-      return () => undefined;
+      return (): void => undefined;
     },
   },
 });
 
-const KEY = 'c'.repeat(64);
 const CODE = 'yrb7ei1ng-the-rest-of-the-code';
 const mine = 'f'.repeat(64);
 const theirs = 'e'.repeat(64);
 
-const admin: CirclesState = {
-  status: 'running',
-  displayName: 'Ada',
-  snapshot: {
-    identity: 'a'.repeat(64),
-    circles: [
-      {
-        key: KEY,
-        name: 'Garden club',
-        myRole: 'admin',
-        members: [
-          { identity: 'a'.repeat(64), name: 'Ada', role: 'admin', isMe: true, online: true },
-          { identity: 'b'.repeat(64), name: 'Bo', role: 'member', isMe: false, online: false },
-        ],
-        invites: [],
-        offers: [],
-        needsUpdate: false,
-        writable: true,
-      },
-    ],
-  },
-  providers: {},
-  sharing: { models: [], circles: [], paused: false, away: false },
-};
+const ada = circleMember({ identity: ME, name: 'Ada', role: 'admin', isMe: true });
+const bo = circleMember({ identity: BO, name: 'Bo', online: false });
+const admin = runningCircles({ circles: [circleSnapshot({ myRole: 'admin', members: [ada, bo] })] });
 
 const open = (id: string) => ({ id, expires: Date.now() + 2 * 86_400_000, revoked: false, used: false });
 
 function stateWith(patch: Partial<CirclesState>, ids: string[], admins = false): CirclesState {
-  const [circle] = admin.snapshot.circles;
-  const members = admins ? [circle.members[0], { ...circle.members[1], role: 'admin' as const }] : circle.members;
-  return { ...admin, ...patch, snapshot: { ...admin.snapshot, circles: [{ ...circle, members, invites: ids.map(open) }] } };
+  const members = admins ? [ada, { ...bo, role: 'admin' as const }] : [ada, bo];
+  return runningCircles({ ...patch, circles: [circleSnapshot({ myRole: 'admin', members, invites: ids.map(open) })] });
 }
 
 /** The sheet as the Circle tab mounts it, with a button that opens it. */
@@ -92,7 +70,6 @@ async function openSheet(state: CirclesState) {
 }
 
 beforeEach(() => vi.clearAllMocks());
-afterEach(() => cleanup());
 
 describe('InviteSheet', () => {
   it('creates a code for a name, and keeps it behind the list once made', async () => {

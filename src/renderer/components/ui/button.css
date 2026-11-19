@@ -1,0 +1,176 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Button (button.tsx) renders .wb-btn plus one look class per variant (ADR 0061). The look
+   classes are also written by hand on a few buttons (ComposerPrimitive buttons, the coding-busy
+   choice, the vault panels), so they keep working without .wb-btn. Containers in workbench.css
+   that size buttons to their label key on .wb-btn-solid and .wb-btn-ghost. */
+
+.wb-btn-solid,
+.wb-btn-ghost,
+.wb-btn-tiny {
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* Heights come from tokens and padding only sets the inline space; a button centres its
+   label, so every button of a size lines up whatever its text. */
+.wb-btn-solid,
+.wb-btn-ghost {
+  border-radius: var(--radius-md);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2-5);
+}
+
+/* A hand-written button fills its column; a Button sizes to its label unless `block`. Both
+   selectors stay at one class, so a container rule (two classes) still sizes a block button to
+   its label. */
+:where(.wb-btn-solid, .wb-btn-ghost):not(.wb-btn),
+:where(.wb-btn).is-block {
+  width: 100%;
+}
+
+.wb-btn-solid {
+  background: var(--text);
+  color: var(--solid-fg);
+  font-weight: var(--weight-medium);
+  /* Same box as the ghost button's 1px border, so the two line up side by side. */
+  border: 1px solid transparent;
+}
+
+.wb-btn-ghost {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+}
+
+.wb-btn-ghost:hover {
+  background: var(--surface-hover);
+}
+
+.wb-btn-tiny {
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--size-xs);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.wb-btn-tiny:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* Danger: an action that deletes, removes or leaves. The full size for a sheet's confirm,
+   the small one (.wb-btn-tiny.is-danger) beside other small buttons. */
+.wb-btn-danger {
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-md);
+  background: var(--danger-dim);
+  color: var(--danger);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.wb-btn-danger:disabled {
+  cursor: not-allowed;
+}
+
+.wb-btn-tiny.is-danger {
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+.wb-btn-tiny.is-danger:hover:not(:disabled) {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+/* A small solid button: Button variant="primary" size="sm". */
+.wb-btn-solid.is-sm {
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--size-xs);
+}
+
+}
+
+/* What Button's Tailwind strings used to set, kept in the utilities layer so it wins over app
+   rules exactly as those utilities did (ADR 0060): a container's `button` or `.wb-btn-*` rule
+   can't change a Button's height, a borderless look or the disabled opacity. :where() keeps every selector here at
+   zero specificity, so a Tailwind class passed in `className` (h-auto, p-0) still wins. */
+@layer utilities {
+
+:where(.wb-btn) {
+  height: var(--control-height);
+  gap: var(--space-2);
+}
+
+:where(.wb-btn.is-sm) {
+  height: var(--control-height-sm);
+  gap: var(--space-1-5);
+}
+
+/* Borderless looks: quiet chrome, the brand's recommended path, and a button that reads as
+   text. */
+:where(.wb-btn-quiet, .wb-btn-brand, .wb-btn-link) {
+  padding: 0 var(--space-3);
+  font-size: var(--size-ui);
+  line-height: var(--leading-ui);
+  font-weight: 500;
+}
+
+:where(.wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(:has(> svg)) {
+  padding: 0 var(--space-2-5);
+}
+
+:where(.wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(.is-sm) {
+  padding: 0 var(--space-2);
+  font-size: var(--size-xs);
+}
+
+:where(.wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(.is-icon) {
+  width: var(--control-height);
+  padding: 0;
+}
+
+:where(.wb-btn-quiet) {
+  color: var(--text-muted);
+}
+
+:where(.wb-btn-quiet:hover) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:where(.wb-btn-brand) {
+  background: var(--brand);
+  color: var(--solid-fg);
+}
+
+:where(.wb-btn-brand:hover) {
+  background: color-mix(in oklab, var(--brand) 90%, transparent);
+}
+
+:where(.wb-btn-link) {
+  color: var(--text-muted);
+  text-underline-offset: 4px;
+}
+
+:where(.wb-btn-link:hover) {
+  color: var(--text);
+  text-decoration-line: underline;
+}
+
+:where(.wb-btn-solid, .wb-btn-ghost, .wb-btn-tiny, .wb-btn-danger, .wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(:disabled) {
+  opacity: 0.5;
+}
+
+}

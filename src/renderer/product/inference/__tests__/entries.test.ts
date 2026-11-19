@@ -1,46 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import type { CirclesState } from '../../../../shared/types/circles';
+import type { CircleOfferView, CirclesState } from '../../../../shared/types/circles';
 import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
+import { BO, CIRCLE_KEY as CIRCLE, ME, circleOffer, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { chainCandidates, describeChainEntry, type ChainContext } from '../entries';
 import { describeStackHere, levelRefuses } from '../stack';
+import { EMPTY_RANKING, QWEN_RANKING, poolState } from '../../../__tests__/confidentialFixtures';
+import type { PoolRanking } from '../../../../shared/types/confidentialState';
 
-const CIRCLE = 'c'.repeat(64);
-const BO = 'b'.repeat(64);
-const ME = 'a'.repeat(64);
-
-function circles(overrides: Partial<CirclesState> = {}, offer: Partial<CirclesState['snapshot']['circles'][0]['offers'][0]> = {}): CirclesState {
-  return {
-    status: 'running',
-    displayName: 'Ada',
+function circles(overrides: Partial<CirclesState> = {}, offer: Partial<CircleOfferView> = {}): CirclesState {
+  const offers = [
+    circleOffer({ models: [{ id: 'qwen3-8b', tools: true }, { id: 'gemma', tools: false }], ...offer }),
+    circleOffer({ identity: ME, name: 'Ada', isMine: true, models: [{ id: 'mine', tools: false }] }),
+  ];
+  return runningCircles({
     providers: { [BO]: { private: false, trusted: true } },
-    snapshot: {
-      identity: ME,
-      circles: [
-        {
-          key: CIRCLE,
-          name: 'Workshop',
-          myRole: 'member',
-          writable: true,
-          members: [],
-          invites: [],
-          offers: [
-            {
-              identity: BO,
-              name: 'Bo',
-              isMine: false,
-              models: [{ id: 'qwen3-8b', tools: true }, { id: 'gemma', tools: false }],
-              available: true,
-              away: false,
-              online: true,
-              ...offer,
-            },
-            { identity: ME, name: 'Ada', isMine: true, models: [{ id: 'mine', tools: false }], available: true, away: false, online: true },
-          ],
-        },
-      ],
-    },
+    circles: [circleSnapshot({ name: 'Workshop', offers })],
     ...overrides,
-  };
+  });
 }
 
 const slots: ChainContext['slots'] = {
@@ -103,6 +79,86 @@ describe('describeChainEntry', () => {
       skipped: true,
       detail: 'Not connected. Skipped.',
     });
+  });
+});
+
+describe('a confidential pool', () => {
+  const pool: InferenceChainEntry = { slot: 'confidential', modelId: 'meta-llama/llama-3.3-70b' };
+  const qwen: InferenceChainEntry = { slot: 'confidential', modelId: 'qwen' };
+  const state = poolState();
+  const pools = (rankings?: Record<string, PoolRanking | null>): ChainContext['pools'] =>
+    state.enabled === true ? { models: state.models, providers: state.providers, ...(rankings ? { rankings } : {}) } : undefined;
+
+  it('is labelled by its model id without pool state, skipped, stale and never private', () => {
+    const ctx = { slots, circles: circles() };
+    expect(describeChainEntry(pool, ctx)).toEqual({
+      entry: pool,
+      label: 'Confidential · meta-llama/llama-3.3-70b',
+      detail: 'No added provider serves this model now. Skipped.',
+      skipped: true,
+    });
+    const stack = describeStackHere([{ slot: 'local' }, pool], ctx);
+    expect(stack.entries.map((state) => [state.key, state.stale, state.private])).toEqual([
+      ['local:', null, true],
+      ['confidential:meta-llama/llama-3.3-70b', 'pool-no-provider', false],
+    ]);
+  });
+
+  it('is stale only when a ranking says nobody serves it', () => {
+    const stale = (rankings?: Record<string, PoolRanking | null>) =>
+      describeStackHere([qwen], { slots, circles: circles(), pools: pools(rankings) }).entries[0].stale;
+    expect(stale({ qwen: QWEN_RANKING })).toBeNull();
+    expect(stale({ qwen: EMPTY_RANKING })).toBe('pool-no-provider');
+    expect(stale({ qwen: null })).toBe('pool-no-provider');
+    // Without rankings, or while this one loads, main's plan decides.
+    expect(stale({})).toBeNull();
+    expect(stale()).toBeNull();
+  });
+
+  it('is labelled with the model’s name, and its detail comes from the ranking', () => {
+    const view = (rankings?: Record<string, PoolRanking | null>) =>
+      describeChainEntry(qwen, { slots, circles: circles(), pools: pools(rankings) });
+    expect(view({ qwen: QWEN_RANKING })).toMatchObject({
+      label: 'Confidential · Qwen 3.8 27B',
+      detail: '2 providers · New chats go to NEAR AI Cloud, about $0.012 a turn',
+      skipped: false,
+    });
+    expect(view({ qwen: EMPTY_RANKING })).toMatchObject({ detail: 'No provider in this pool can serve now', skipped: true });
+    expect(view({ qwen: null }).detail).toBe('No provider in this pool can serve now');
+    // While the ranking loads, the rung says so instead of an error.
+    expect(view({})).toMatchObject({ detail: 'Finding who serves it', skipped: false });
+    // Without rankings (the chip, the inspector), nothing is known here, so it isn't marked skipped.
+    expect(view()).toMatchObject({ detail: 'Served by your confidential providers', skipped: false });
+    const none = describeChainEntry(qwen, {
+      slots,
+      circles: circles(),
+      pools: { models: state.enabled === true ? state.models : [], providers: [], rankings: { qwen: EMPTY_RANKING } },
+    });
+    expect(none.detail).toBe('No confidential providers added yet');
+  });
+
+  it('is offered once per catalog model, only when pools are on', () => {
+    const ctx = { slots, circles: circles(), pools: pools({ qwen: QWEN_RANKING, dsflash: EMPTY_RANKING }) };
+    const offered = chainCandidates({ slot: 'local' }, [], ctx).filter((view) => view.entry.slot === 'confidential');
+    expect(offered.map(({ label, detail }) => [label, detail])).toEqual([
+      ['Confidential · Qwen 3.8 27B', '2 of your providers · from $0.012 a turn'],
+      ['Confidential · DeepSeek V4.1 Flash', 'None of your providers carry it'],
+    ]);
+    expect(offered[0].entry).toEqual(qwen);
+    const loading = chainCandidates({ slot: 'local' }, [], { slots, circles: circles(), pools: pools({}) });
+    expect(loading.find((view) => view.label === 'Confidential · Qwen 3.8 27B')?.detail).toBe('Finding who serves it');
+    // One already in the stack isn't offered again.
+    expect(chainCandidates({ slot: 'local' }, [qwen], ctx).filter((view) => view.entry.slot === 'confidential')).toHaveLength(1);
+    expect(chainCandidates({ slot: 'local' }, [], { slots, circles: circles() }).some((view) => view.entry.slot === 'confidential')).toBe(
+      false
+    );
+  });
+
+  it('can’t come first in a chat’s or project’s stack, and may follow', () => {
+    expect(levelRefuses([pool, { slot: 'local' }], { privacyLocked: false })).toBe(
+      'A confidential pool can follow Local or OpenRouter here, but can’t come first. To start with one, put it first in Inference, then go back to the Chat stack here.'
+    );
+    expect(levelRefuses([{ slot: 'local' }, pool], { privacyLocked: false })).toBeNull();
   });
 });
 

@@ -126,6 +126,31 @@ export function isBoundaryOwnedAssistantRoot(root: string): boolean {
   return path.resolve(root) === owned;
 }
 
+/**
+ * Add-on folders the core Hermes bootstraps bind-mount from `ASSISTANT_DATA_ROOT` (stack
+ * v0.3.13; `addons/caldav` from v0.3.15), whether or not the add-on is on. A missing bind source
+ * fails `up` on Podman, and the stack creates them only from `scripts/addon-dirs.sh` and the
+ * add-ons' `ensure` commands, which Boundary doesn't run. Mode 0700, as `addon-dirs.sh` makes
+ * them, since `secrets/` holds API keys and passwords.
+ */
+const ADDON_MOUNT_SOURCES = [
+  'addons/twenty/instances',
+  'addons/twenty/secrets',
+  'addons/actual/instances',
+  'addons/actual/secrets',
+  'addons/caldav/instances',
+  'addons/caldav/secrets',
+  'addons/email/config',
+  'addons/email/instances',
+  'addons/email/secrets',
+] as const;
+
+export async function ensureAddonMountSources(contentRoot: string): Promise<void> {
+  for (const sub of ADDON_MOUNT_SOURCES) {
+    await fs.promises.mkdir(path.join(contentRoot, sub), { recursive: true, mode: 0o700 });
+  }
+}
+
 export async function ensureAssistantDataDirs(dataRoot: string): Promise<void> {
   const subdirs = [
     'hermes',

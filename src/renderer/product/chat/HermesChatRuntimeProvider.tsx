@@ -7,38 +7,16 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  AssistantRuntimeProvider,
-  useLocalRuntime,
-  type ChatModelAdapter,
-  type ThreadMessageLike,
-} from '@assistant-ui/react';
+import { AssistantRuntimeProvider, type ChatModelAdapter } from '@assistant-ui/react';
 import { createHermesChatModelAdapter } from './hermesChatModelAdapter';
 import type {
   HermesChatMessage,
   SessionInferenceOverride,
 } from '../../../shared/types/hermesChat';
-import { ServerPath, type ServerEntry } from './serverPath';
-import type { HermesMessageCustom } from './messageCustom';
+import type { ServerPath } from './serverPath';
+import { toServerEntries, toThreadMessage } from './chatHistoryMessages';
 import { findRunningTurn, isOwnedRunningTurn, useRunningTurns } from './runningTurns';
-
-/**
- * Hydrated history row → runtime message. `custom.ts` is always set (null when the
- * source had no time) so the transcript never mistakes load time for send time;
- * live turns have no `custom.ts` and use the runtime's own `createdAt`.
- * The id is fixed so the server path can name hydrated messages before the runtime exists.
- */
-const historyMessageId = (index: number) => `hist-${index}`;
-
-function toServerEntries(messages: HermesChatMessage[]): ServerEntry[] {
-  return messages.map((m, i) => ({
-    id: historyMessageId(i),
-    role: m.role,
-    text: m.content,
-    rowId: m.rowId ?? null,
-    ...(m.localOnly ? { localOnly: true } : {}),
-  }));
-}
+import { useHostedChatRuntime, type ChatRuntimeCore } from './chatRuntimeHost';
 
 const ServerPathContext = createContext<ServerPath | null>(null);
 
@@ -57,34 +35,13 @@ export function useServerPath(): ServerPath | null {
   return useContext(ServerPathContext);
 }
 
-export function toThreadMessage(m: HermesChatMessage, index: number): ThreadMessageLike {
-  return {
-    id: historyMessageId(index),
-    role: m.role,
-    content: m.content,
-    ...(m.timestamp != null ? { createdAt: new Date(m.timestamp * 1000) } : {}),
-    metadata: {
-      custom: {
-        ts: m.timestamp ?? null,
-        rowId: m.rowId ?? null,
-        ...(m.files && m.files.length > 0 ? { files: m.files } : {}),
-        ...(m.tasksFiled && m.tasksFiled.length > 0 ? { tasksFiled: m.tasksFiled } : {}),
-        ...(m.toolCount != null ? { toolCount: m.toolCount } : {}),
-        ...(m.ending ? { ending: m.ending } : {}),
-        ...(m.noReply ? { noReply: m.noReply } : {}),
-        ...(m.localOnly ? { localOnly: true } : {}),
-        // Who spoke this turn in a room; the reply's speaker line reads it (ADR 0023).
-        ...(m.agentSlug ? { agentSlug: m.agentSlug } : {}),
-      } satisfies HermesMessageCustom,
-    },
-  };
-}
-
 interface InferenceSendHandlers {
   onLocalUnreachable: () => void;
   onPrivateRefused: () => void;
   /** The inference a chat with no session yet sends its first turn with, taken once. */
   takeNewChatInference?: () => SessionInferenceOverride | null;
+  /** The writing voice a chat with no session yet keeps, taken once by its first send. */
+  takeNewChatWritingVoice?: () => string | null;
 }
 
 const InferenceSendContext = createContext<{
@@ -101,6 +58,7 @@ export function useInferenceSendHandlers(handlers: InferenceSendHandlers): void 
       onLocalUnreachable: () => handlersRef.current.onLocalUnreachable(),
       onPrivateRefused: () => handlersRef.current.onPrivateRefused(),
       takeNewChatInference: () => handlersRef.current.takeNewChatInference?.() ?? null,
+      takeNewChatWritingVoice: () => handlersRef.current.takeNewChatWritingVoice?.() ?? null,
     });
   }, [ctx]);
 }
@@ -137,10 +95,11 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
   // with the wrong messages and spend one-shot props such as a branch draft.
   const [historyFor, setHistoryFor] = useState<string | null>(sessionId);
   // The id the mounted runtime was made for. A send can hand back this chat's real session
-  // id (a DM's placeholder gets one on its first send); that id is adopted in place, so the
-  // runtime keeps the turn it is streaming instead of remounting and dropping it.
+  // id (a DM's placeholder or a new chat with no id gets one on its first send); that id is
+  // adopted in place, so the runtime keeps the turn it is streaming instead of remounting
+  // and dropping it. `from` is null for a new chat.
   const [mountKey, setMountKey] = useState<string>(sessionId ?? 'none');
-  const adoptedRef = useRef<{ from: string; to: string } | null>(null);
+  const adoptedRef = useRef<{ from: string | null; to: string } | null>(null);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const adopting =
@@ -257,12 +216,13 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
         getAgentSlug: () => agentSlugRef.current,
         onSessionResolved: (id, storedId) => {
           const from = sessionIdRef.current;
-          if (from && from !== id) adoptedRef.current = { from, to: id };
+          if (from !== id) adoptedRef.current = { from, to: id };
           onSessionResolvedRef.current?.(id, storedId);
         },
         onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
         onPrivateRefused: () => sendHandlersRef.current?.onPrivateRefused(),
         takeNewChatInference: () => sendHandlersRef.current?.takeNewChatInference?.() ?? null,
+        takeNewChatWritingVoice: () => sendHandlersRef.current?.takeNewChatWritingVoice?.() ?? null,
         getServerPath: () => serverPathRef.current,
       }),
     [sessionId]
@@ -272,11 +232,7 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
 
   // Remount LocalRuntime when session or hydrated history changes.
   if (!adopting && (!historyReady || historyFor !== (sessionId ?? null))) {
-    return (
-      <div className="flex h-full min-h-0 items-center justify-center text-ui text-fg-faint">
-        Loading chat…
-      </div>
-    );
+    return <LoadingChat />;
   }
 
   return (
@@ -288,6 +244,9 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
           history={history}
           refreshed={refreshed}
           serverPathRef={serverPathRef}
+          ids={[mountKey === 'none' ? null : mountKey, sessionId]}
+          agentSlug={agentSlug}
+          sameChat={sameChat}
         >
           {children}
         </HermesChatRuntimeInner>
@@ -296,23 +255,43 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
   );
 };
 
+/** The runtime for the open chat: the host's, shared with any other view of the same chat. */
 const HermesChatRuntimeInner: React.FC<{
   adapter: ChatModelAdapter;
   history?: HermesChatMessage[];
   /** A newer copy of this chat's history (a background turn ended); applied in place. */
   refreshed: HermesChatMessage[] | null;
   serverPathRef: React.MutableRefObject<ServerPath | null>;
+  ids: (string | null)[];
+  agentSlug: string | null;
+  sameChat?: (a: string, b: string) => boolean;
   children: React.ReactNode;
-}> = ({ adapter, history, refreshed, serverPathRef, children }) => {
-  const [initialMessages] = useState(() =>
-    history && history.length > 0 ? history.map(toThreadMessage) : undefined
+}> = ({ adapter, history, refreshed, serverPathRef, ids, agentSlug, sameChat, children }) => {
+  const core = useHostedChatRuntime({ ids, agentSlug, history, adapter, sameChat });
+  // The host mounts the thread over a commit or two.
+  if (!core) return <LoadingChat />;
+  return (
+    <ChatRuntimeView core={core} refreshed={refreshed} serverPathRef={serverPathRef}>
+      {children}
+    </ChatRuntimeView>
   );
-  // A fresh server path per mount: it must describe exactly the messages this runtime
-  // starts with, or a later send could be mistaken for a rewind.
-  const [serverPath] = useState(() => new ServerPath(toServerEntries(history ?? [])));
-  serverPathRef.current = serverPath;
+};
 
-  const runtime = useLocalRuntime(adapter, { initialMessages });
+const LoadingChat: React.FC = () => (
+  <div className="flex h-full min-h-0 items-center justify-center text-ui text-fg-faint">
+    Loading chat…
+  </div>
+);
+
+const ChatRuntimeView: React.FC<{
+  core: ChatRuntimeCore;
+  refreshed: HermesChatMessage[] | null;
+  serverPathRef: React.MutableRefObject<ServerPath | null>;
+  children: React.ReactNode;
+}> = ({ core, refreshed, serverPathRef, children }) => {
+  const { runtime, serverPath } = core;
+  // This view's sends read the chat's server path through its adapter.
+  serverPathRef.current = serverPath;
 
   useEffect(() => {
     if (!refreshed || runtime.thread.getState().isRunning) return;

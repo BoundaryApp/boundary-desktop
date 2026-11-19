@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActionBarPrimitive, ErrorPrimitive, MessagePrimitive } from '@assistant-ui/react';
 import { useAuiState } from '@assistant-ui/store';
+import { useOwnerDocument } from '../../components/ui/ownerDocument';
 import { Streamdown } from 'streamdown';
 import type { AgentDraftProposal, AgentProfile } from '../../../shared/types/hermesChat';
 import { BUILTIN_AGENT_FALLBACK } from '../../../shared/hermesAgentIdentity';
@@ -16,11 +17,14 @@ import {
 import { FiledTaskCards } from './TaskCards';
 import { LiveNoReplyNote, UnansweredNote } from './TurnNotes';
 import { DayDividerWithMarks } from './TranscriptMarks';
+import { PoolReplyLine } from './PoolReplyLine';
 import { AgentMark } from './ConversationMark';
 import { DmHorizonMark, useBeyondHorizon } from './DmThreadTools';
 import { parseAgentDraft, stripAgentDraftFence } from './agentDraft';
 import type { SpeakerSegment } from './speakerSegments';
 import { messageCustom, useMessageCustom } from './messageCustom';
+import { usePacedText } from './usePacedText';
+import { Button } from '../../components/ui/button';
 
 // The transcript's message components. They must keep a stable identity:
 // ThreadPrimitive.Messages compares them by reference and remounts every message when they change.
@@ -109,8 +113,12 @@ const UserBubble: React.FC = () => {
 // ADR 0021: your turns hug the right edge with no "You" label; alignment says who spoke.
 const UserMessage: React.FC = () => {
   const { speakerName, inRoom } = useContext(AssistantMessageContext);
+  const messageId = useAuiState((s) => s.message.id);
   return (
-    <MessagePrimitive.Root className={`wb-msg is-user${useBeyondHorizon() ? ' is-beyond-horizon' : ''}`}>
+    <MessagePrimitive.Root
+      className={`wb-msg is-user${useBeyondHorizon() ? ' is-beyond-horizon' : ''}`}
+      data-message-id={messageId}
+    >
       <BranchMarkBefore />
       <DmHorizonMark />
       <DayDividerWithMarks />
@@ -121,23 +129,42 @@ const UserMessage: React.FC = () => {
   );
 };
 
-const AssistantText: React.FC<{ text: string }> = ({ text }) => {
+/** Word fade for paced text; Streamdown leaves code, math and the like unanimated. */
+const REVEAL_ANIMATION = { animation: 'fadeIn', sep: 'word', duration: 150 } as const;
+
+/**
+ * `streaming` says whether this text is still growing; it defaults to the message's
+ * running state. A room wake's earlier speakers are done while the message still runs.
+ */
+const AssistantText: React.FC<{ text: string; streaming?: boolean }> = ({ text, streaming }) => {
+  // Its link, code and table overlays draw where the reply is, the desktop panel included.
+  const overlayRoot = useOwnerDocument().body;
   const { dismissedDrafts, onDismissDraft, onCreateDraft, onEditDraft } =
     useContext(AssistantMessageContext);
+  const messageRunning = useAuiState((s) => s.message.status?.type === 'running');
+  const paced = usePacedText(text, streaming ?? messageRunning);
   const draft = useMemo(() => parseAgentDraft(text), [text]);
   // Invented tags such as <action>/<result> would be stripped silently; show them as text.
   // A parsed draft shows as the card, so its raw fence is left out (ADR 0010 §6).
   const rendered = useMemo(
-    () => escapeUnknownTags(draft ? stripAgentDraftFence(text) : text),
-    [draft, text]
+    () => escapeUnknownTags(draft ? stripAgentDraftFence(paced.text) : paced.text),
+    [draft, paced.text]
   );
   const draftKey = draft
     ? `${draft.displayName}:${draft.handle}:${draft.role.slice(0, 40)}`
     : '';
-  const showDraft = Boolean(draft) && draftKey && !dismissedDrafts.has(draftKey);
+  // The card waits for the reveal, so it never shows ahead of the text it follows.
+  const showDraft = Boolean(draft) && draftKey && !paced.pacing && !dismissedDrafts.has(draftKey);
   return (
     <>
-      <Streamdown className="wb-streamdown">{rendered}</Streamdown>
+      <Streamdown
+        className="wb-streamdown"
+        portal={overlayRoot}
+        isAnimating={paced.pacing}
+        {...(paced.pacing ? { animated: REVEAL_ANIMATION } : {})}
+      >
+        {rendered}
+      </Streamdown>
       {showDraft && draft ? (
         <div className="wb-draft-card">
           <div className="wb-sheet-kicker">Proposed agent</div>
@@ -151,9 +178,10 @@ const AssistantText: React.FC<{ text: string }> = ({ text }) => {
             any channel yet.
           </p>
           <div className="wb-draft-actions">
-            <button
+            <Button
+              variant="primary"
+              block
               type="button"
-              className="wb-btn-solid"
               onClick={() =>
                 onCreateDraft?.({
                   displayName: draft.displayName,
@@ -163,21 +191,23 @@ const AssistantText: React.FC<{ text: string }> = ({ text }) => {
               }
             >
               Create agent
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              block
               type="button"
-              className="wb-btn-ghost"
               onClick={() => onEditDraft?.(draft)}
             >
               Edit first
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              className="wb-btn-tiny"
               onClick={() => onDismissDraft(draftKey)}
             >
               Dismiss
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -197,7 +227,11 @@ function useReplySpeaker(): { name: string; agent: AgentProfile | null } {
 }
 
 /** A reply's speaker line; in rooms it carries the agent's mark (ADR 0023). */
-const WhoLine: React.FC<{ name: string; agent: AgentProfile | null }> = ({ name, agent }) => {
+const WhoLine: React.FC<{ name: string; agent: AgentProfile | null; voiceName?: string }> = ({
+  name,
+  agent,
+  voiceName,
+}) => {
   const { inRoom } = useContext(AssistantMessageContext);
   return (
     <div className="wb-who">
@@ -205,6 +239,7 @@ const WhoLine: React.FC<{ name: string; agent: AgentProfile | null }> = ({ name,
         <AgentMark agent={agent} size={14} />
       ) : null}
       {name}
+      {voiceName ? <span className="wb-reply-voice">In {voiceName} voice</span> : null}
     </div>
   );
 };
@@ -230,10 +265,12 @@ const AssistantMessage: React.FC = () => {
   const speakerName = sections?.at(-1)?.name ?? replySpeakerName;
   const beyondHorizon = useBeyondHorizon();
   const { roomPost } = useMessageCustom();
+  const messageId = useAuiState((s) => s.message.id);
   if (roomPost) return null;
   return (
     <MessagePrimitive.Root
       className={`wb-msg is-assistant${beyondHorizon ? ' is-beyond-horizon' : ''}`}
+      data-message-id={messageId}
     >
       <BranchMarkBefore />
       <DmHorizonMark />
@@ -241,9 +278,12 @@ const AssistantMessage: React.FC = () => {
       {sections ? (
         sections.map((section, i) => (
           <div key={i} className={i > 0 ? 'wb-speaker-turn' : undefined}>
-            <WhoLine name={section.name} agent={section.agent} />
+            <WhoLine name={section.name} agent={section.agent} voiceName={section.writingVoiceName} />
             <div className="wb-prose">
-              <AssistantText text={section.text} />
+              <AssistantText
+                text={section.text}
+                streaming={i === sections.length - 1 ? undefined : false}
+              />
             </div>
           </div>
         ))
@@ -255,6 +295,7 @@ const AssistantMessage: React.FC = () => {
           </div>
         </>
       )}
+      <PoolReplyLine />
       <ReplyFiles />
       <FiledTaskCards />
       <ReplyEnding />

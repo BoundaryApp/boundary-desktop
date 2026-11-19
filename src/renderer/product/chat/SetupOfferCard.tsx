@@ -1,6 +1,7 @@
 import React from 'react';
 import { CalendarDays } from 'lucide-react';
 import { openSettings } from '../settingsNavigation';
+import { Button } from '../../components/ui/button';
 
 /** Scene 1 of docs/calendar-ux-study/click-through.html, under the reply that called offer_setup. */
 export const SetupOfferCard: React.FC<{ onDismiss: () => void }> = ({ onDismiss }) => (
@@ -12,16 +13,17 @@ export const SetupOfferCard: React.FC<{ onDismiss: () => void }> = ({ onDismiss 
       <h3>Connect a calendar</h3>
       <p>iCloud, Fastmail, Nextcloud or any CalDAV server. You’ll need an app password from your provider.</p>
       <div className="wb-draft-actions">
-        <button
+        <Button
+          variant="primary"
+          block
           type="button"
-          className="wb-btn-solid"
           onClick={() => openSettings({ tab: 'calendars', connectFromChat: true })}
         >
           Connect calendar
-        </button>
-        <button type="button" className="wb-btn-ghost" onClick={onDismiss}>
+        </Button>
+        <Button variant="secondary" block type="button" onClick={onDismiss}>
           Not now
-        </button>
+        </Button>
       </div>
     </div>
   </div>

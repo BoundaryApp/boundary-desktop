@@ -39,8 +39,9 @@ function withoutExperiments(): Allowance[] {
   return [
     { type: 'files', file: 'src/renderer/components/ui/card.tsx', reason },
     { type: 'files', file: 'src/renderer/onboarding/OnboardingContext.tsx', reason },
-    { type: 'exports', file: 'src/renderer/components/ui/badge.tsx', symbol: 'Badge', reason },
     { type: 'exports', file: 'src/main/services/onboarding/onboardingExtensions.ts', symbol: 'registerOnboardingExtension', reason },
+    { type: 'exports', file: 'src/main/services/inference/askChatModelOnce.ts', symbol: 'askChatModelOnce', reason },
+    { type: 'exports', file: 'src/main/services/inference/askChatModelOnce.ts', symbol: 'chatModelReady', reason },
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'isOpenAiConfigEncryptionAvailable', reason },
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'getPendingProviderSetup', reason },
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'setPendingProviderSetup', reason },
@@ -59,9 +60,9 @@ const allowExperiments: Allowance[] = existsSync(experimentAllowances)
 export default {
   entry: [
     'scripts/*.{js,mjs}',
-    // Loaded by import.meta.glob in src/main/experiments.ts, src/preloadExperiments.ts and
-    // src/renderer/experiments.ts, which knip does not follow.
-    ...(hasExperiments ? [`${experiments}/*/{main,preload,renderer}.ts`] : []),
+    // Loaded by import.meta.glob in src/main/experiments.ts, src/preloadExperiments.ts,
+    // src/renderer/experiments.ts and scripts/ui-screenshot/harness.tsx, which knip does not follow.
+    ...(hasExperiments ? [`${experiments}/*/{main,preload,renderer,screenshot}.ts`] : []),
   ],
   project: ['src/**/*.{ts,tsx,css}', 'scripts/**/*.{js,mjs}', '*.ts'],
   // Forge's build entries (main, preload, host bridge, renderer index.html) come from the
@@ -71,6 +72,8 @@ export default {
       'vitest.config.ts',
       'src/main/vitest.main-services.config.ts',
       'src/main/vitest.stack.config.ts',
+      'src/main/vitest.circles.config.ts',
+      'src/main/vitest.live.config.ts',
       'src/renderer/vitest.renderer-unit.config.ts',
     ],
   },
@@ -95,8 +98,10 @@ export default {
       ? []
       : ['better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
   ],
-  // ffmpeg encodes the demo in screenshot:ui; the Screenshot workflow installs it with Homebrew.
-  ignoreBinaries: ['ffmpeg'],
+  // The Swift toolchain, used by test:calendar-helper; it ships with Xcode, not npm. ffmpeg
+  // encodes the demo in screenshot:ui; the Screenshot workflow installs it with Homebrew.
+  // mkfifo is the POSIX tool htmlPreviewFiles.test.ts uses to make a FIFO.
+  ignoreBinaries: ['swift', 'ffmpeg', 'mkfifo'],
   treatConfigHintsAsErrors: true,
   preprocessor: './scripts/knip-allowances.mjs',
   preprocessorOptions: { allow: [...allow, ...allowExperiments] },

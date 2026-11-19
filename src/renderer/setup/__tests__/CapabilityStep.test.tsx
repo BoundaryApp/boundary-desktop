@@ -25,7 +25,7 @@ const onboardingApi = {
   saveLlmConnection: vi.fn(),
   updateLlmModel: vi.fn(),
   sendLlmTestMessage: vi.fn(),
-  onLocalLlmChanged: vi.fn(() => () => undefined),
+  onLocalLlmChanged: vi.fn(() => (): void => undefined),
 };
 
 const capabilityApi = {
@@ -36,7 +36,7 @@ const capabilityApi = {
     path: '/tmp/boundary-debug.log',
     contents: '',
   }),
-  onProgress: vi.fn(() => () => undefined),
+  onProgress: vi.fn(() => (): void => undefined),
 };
 
 const assistantStackApi = {
@@ -65,7 +65,7 @@ const assistantStackApi = {
   ensureRunning: vi.fn(),
   ensureRunningInBackground: vi.fn().mockResolvedValue({ started: true }),
   ensureAndApplyLlm: vi.fn(),
-  onLifecycle: vi.fn(() => () => undefined),
+  onLifecycle: vi.fn(() => (): void => undefined),
 };
 
 const passAssessment = {
@@ -123,10 +123,6 @@ function renderSetup() {
 }
 
 describe('CapabilityStep via SetupFlowShell', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     stubElectronAPI({
@@ -136,6 +132,9 @@ describe('CapabilityStep via SetupFlowShell', () => {
       // No stored progress: the optional steps count as answered, as when the read fails.
       setup: { getProgress: vi.fn().mockRejectedValue(new Error('no progress')) },
     });
+    // clearAllMocks keeps implementations, so restore the ones some tests replace.
+    onboardingApi.discoverLocalLlms.mockResolvedValue({ success: true, endpoints: [] });
+    onboardingApi.onLocalLlmChanged.mockImplementation(() => (): void => undefined);
     onboardingApi.getStatus.mockResolvedValue({
       configured: false,
       encryptionAvailable: true,
@@ -311,7 +310,7 @@ describe('CapabilityStep via SetupFlowShell', () => {
     let reportChange: (payload: { endpoints: unknown[] }) => void = () => undefined;
     onboardingApi.onLocalLlmChanged.mockImplementation(((cb: typeof reportChange) => {
       reportChange = cb;
-      return () => undefined;
+      return (): void => undefined;
     }) as never);
     onboardingApi.discoverLocalLlms.mockResolvedValue({ success: true, endpoints: [] });
     capabilityApi.getStatus.mockResolvedValue({ acknowledged: true, lastAssessment: passAssessment });
@@ -372,6 +371,7 @@ describe('SetupProvider skipStep', () => {
     onboardingApi.getStatus.mockResolvedValue({ configured: false, encryptionAvailable: true });
   });
   afterEach(() => {
+    // Unmount while fake timers are installed; RTL's own cleanup runs after this hook.
     cleanup();
     vi.useRealTimers();
   });

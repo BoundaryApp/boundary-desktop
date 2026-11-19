@@ -8,6 +8,7 @@ import {
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { InfoTip } from '../../components/ui/info-tip';
+import { Button } from '../../components/ui/button';
 
 interface ChannelCreateSheetProps {
   open: boolean;
@@ -120,17 +121,19 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
           {[...agents].sort((a, b) => Number(b.builtIn) - Number(a.builtIn)).map((agent) => {
             const on = memberSlugs.includes(agent.slug);
             return (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 key={agent.slug}
                 type="button"
-                className={`wb-btn-tiny${on ? ' is-on' : ''}`}
+                className={`${on ? ' is-on' : ''}`}
                 aria-pressed={on}
                 disabled={busy}
                 onClick={() => toggleMember(agent.slug)}
               >
                 {on ? '✓ ' : ''}
                 {agent.displayName}
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -257,9 +260,9 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
       error={error}
       actions={
         <>
-          <button type="button" className="wb-btn-ghost" disabled={busy} onClick={onCancel}>
+          <Button variant="secondary" block type="button" disabled={busy} onClick={onCancel}>
             Done
-          </button>
+          </Button>
         </>
       }
     >
@@ -276,14 +279,15 @@ export const AddToChannelSheet: React.FC<AddToChannelSheetProps> = ({
                   <b title={`#${ch.slug}`}>#{ch.slug}</b>
                   <span>{ch.title}</span>
                 </span>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  className="wb-btn-tiny"
                   disabled={busy || already}
                   onClick={() => onAdd(ch.id)}
                 >
                   {already ? 'In channel' : 'Add'}
-                </button>
+                </Button>
               </div>
             );
           })}

@@ -5,12 +5,17 @@ import { persistDebugLog } from '../../persistDebugLog';
 import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
 import type {
   CircleDayUsage,
+  CircleNotifyGlobal,
+  CircleNotifyPrefs,
   CircleProviderSettings,
   CircleReadPosition,
   CircleSharing,
   CircleSnapshot,
 } from '../../../shared/types/circles';
 import type { CircleSecrets } from './networkMessages';
+import type { ServiceGrantsState } from './sharedServices';
+import type { UsedService } from './usedServices';
+import type { FolderSecrets } from './sharedFolders';
 
 interface StoredInviteCode {
   /** Encrypted. */
@@ -39,14 +44,26 @@ interface CirclesStoreShape {
   inviteCodes?: Record<string, Record<string, StoredInviteCode>>;
   /** What members used of this user's models today. Never goes to a Circle's log. */
   servedUsage?: CircleDayUsage;
+  /** What members used of this user's services today. Never goes to a Circle's log. */
+  servedServiceUsage?: CircleDayUsage;
+  /** Encrypted JSON `ServiceGrantsState`: members' keys for this user's services (ADR 0048 §4). */
+  serviceGrants?: string;
+  /** Encrypted JSON `UsedService[]`: services this user uses from their Circles (ADR 0048 §5). */
+  usedServices?: string;
   /** What this user used of each provider's models today. Never goes to a Circle's log. */
   usedUsage?: CircleDayUsage;
   /** The newest message read in each channel, by Circle key and channel. Never goes to a Circle (ADR 0042 §8). */
   readPositions?: Record<string, Record<string, CircleReadPosition>>;
+  /** This device's notification level per Circle key. Never goes to a Circle. */
+  notifyPrefs?: Record<string, CircleNotifyPrefs>;
+  /** Device-wide notification switches for Circle chats. */
+  notifyGlobal?: CircleNotifyGlobal;
   /** The `CIRCLES_DATA_VERSION` this device's Circles were last kept at. */
   dataVersion?: number;
   /** Circles this user left that an admin hasn't confirmed yet, by key. Their secrets stay until then. */
   leavingCircles?: string[];
+  /** Encrypted JSON `LocalSharedFolder`: shared folders on this Mac, by folder key (ADR 0049 §8). */
+  folders?: Record<string, string>;
 }
 
 const store = new Store<CirclesStoreShape>({ name: 'circles', defaults: { circles: {} } });
@@ -175,6 +192,52 @@ export function setUsedUsage(usage: CircleDayUsage): void {
   store.set('usedUsage', usage);
 }
 
+export function getServedServiceUsage(): CircleDayUsage | undefined {
+  return store.get('servedServiceUsage');
+}
+
+export function setServedServiceUsage(usage: CircleDayUsage): void {
+  store.set('servedServiceUsage', usage);
+}
+
+/**
+ * Members' grants and keys for this user's services. Throws when they're stored but won't
+ * decrypt: an empty answer would let a save drop keys that are still live in Twenty.
+ */
+export async function loadServiceGrants(): Promise<ServiceGrantsState> {
+  const stored = store.get('serviceGrants');
+  if (!stored) return { grants: [], revoke: [] };
+  const json = await tryDecryptFromBase64(stored, (next) => store.set('serviceGrants', next));
+  if (!json) throw new Error('The keys for what you share are on this Mac but the keychain won’t open them.');
+  const state = JSON.parse(json) as Partial<ServiceGrantsState>;
+  return { grants: state.grants ?? [], revoke: state.revoke ?? [] };
+}
+
+/** Throws when the keychain can't keep them. */
+export async function saveServiceGrants(state: ServiceGrantsState): Promise<void> {
+  if (!(await isOsEncryptionAvailable())) throw new Error('The keychain isn’t available.');
+  store.set('serviceGrants', await encryptToBase64(JSON.stringify(state)));
+}
+
+/**
+ * Services this user uses from their Circles. Throws when they're stored but won't decrypt, so a
+ * save can't drop listeners the stack still has registered.
+ */
+export async function loadUsedServices(): Promise<UsedService[]> {
+  const stored = store.get('usedServices');
+  if (!stored) return [];
+  const json = await tryDecryptFromBase64(stored, (next) => store.set('usedServices', next));
+  if (!json) throw new Error('The services you use from your Circles are on this Mac but the keychain won’t open them.');
+  const list = JSON.parse(json) as unknown;
+  return Array.isArray(list) ? (list as UsedService[]) : [];
+}
+
+/** Throws when the keychain can't keep them. */
+export async function saveUsedServices(list: UsedService[]): Promise<void> {
+  if (!(await isOsEncryptionAvailable())) throw new Error('The keychain isn’t available.');
+  store.set('usedServices', await encryptToBase64(JSON.stringify(list)));
+}
+
 const NOT_SHARING: CircleSharing = { models: [], circles: [], paused: false, away: false };
 
 export function getCircleSharing(): CircleSharing {
@@ -268,6 +331,9 @@ function forgetLocalCircleData(key: string): void {
   const readPositions = { ...store.get('readPositions') };
   delete readPositions[key];
   store.set('readPositions', readPositions);
+  const notifyPrefs = { ...store.get('notifyPrefs') };
+  delete notifyPrefs[key];
+  store.set('notifyPrefs', notifyPrefs);
 }
 
 /** This device's read positions in a Circle, by channel. */
@@ -278,4 +344,60 @@ export function getReadPositions(key: string): Record<string, CircleReadPosition
 export function setReadPosition(key: string, channel: string, position: CircleReadPosition): void {
   const readPositions = store.get('readPositions') ?? {};
   store.set('readPositions', { ...readPositions, [key]: { ...readPositions[key], [channel]: position } });
+}
+
+const DEFAULT_NOTIFY_PREFS: CircleNotifyPrefs = { level: 'default', channelMentions: true };
+const DEFAULT_NOTIFY_GLOBAL: CircleNotifyGlobal = { enabled: true, showText: true };
+
+export function getNotifyPrefs(key: string): CircleNotifyPrefs {
+  return store.get('notifyPrefs')?.[key] ?? { ...DEFAULT_NOTIFY_PREFS };
+}
+
+export function setNotifyPrefs(key: string, prefs: CircleNotifyPrefs): void {
+  store.set('notifyPrefs', { ...store.get('notifyPrefs'), [key]: prefs });
+}
+
+export function getNotifyGlobal(): CircleNotifyGlobal {
+  return store.get('notifyGlobal') ?? { ...DEFAULT_NOTIFY_GLOBAL };
+}
+
+export function setNotifyGlobal(next: CircleNotifyGlobal): void {
+  store.set('notifyGlobal', next);
+}
+
+/** A shared folder on this Mac: its keys, which Circle it's in, and where its copy lives. */
+export interface LocalSharedFolder {
+  circle: string;
+  name: string;
+  secrets: FolderSecrets;
+  /** The folder on this Mac that mirrors it. */
+  root: string;
+  /** The Circle's name when this Mac added the folder, for after it leaves. */
+  circleName?: string;
+  /**
+   * When this Mac left the folder's Circle (ADR 0049 §12). The folder no longer syncs; the record
+   * stays so its project can say so.
+   */
+  ended?: number;
+}
+
+/** The shared folders on this Mac. One that won't decrypt is left out, not deleted. */
+export async function loadSharedFolders(): Promise<LocalSharedFolder[]> {
+  const stored = store.get('folders') ?? {};
+  const out: LocalSharedFolder[] = [];
+  for (const [key, encrypted] of Object.entries(stored)) {
+    const json = await tryDecryptFromBase64(encrypted, (next) => store.set(`folders.${key}`, next));
+    if (json) out.push(JSON.parse(json) as LocalSharedFolder);
+  }
+  return out;
+}
+
+export async function saveSharedFolder(folder: LocalSharedFolder): Promise<void> {
+  store.set(`folders.${folder.secrets.key}`, await encryptToBase64(JSON.stringify(folder)));
+}
+
+export function forgetSharedFolder(key: string): void {
+  const folders = { ...(store.get('folders') ?? {}) };
+  delete folders[key];
+  store.set('folders', folders);
 }

@@ -20,6 +20,15 @@ export function messageTimeMs(message: TimedMessage | undefined): number | null 
 }
 
 /**
+ * When Hermes stored a message, in ms, or null for a live turn's message (dated by the runtime
+ * when the run began) and history without a time.
+ */
+export function storedMessageTimeMs(message: TimedMessage | undefined): number | null {
+  const ts = message?.metadata?.custom?.ts;
+  return typeof ts === 'number' ? ts * 1000 : null;
+}
+
+/**
  * Whether a day divider goes above a message: the first timed message, or one on a
  * different local day from the message before it. Skipped when either time is unknown.
  */

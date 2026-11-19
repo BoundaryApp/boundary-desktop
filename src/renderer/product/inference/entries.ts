@@ -2,6 +2,9 @@ import { formatInferenceChipTitle, sharedModelLabel } from '../../../shared/infe
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { CirclesState } from '../../../shared/types/circles';
 import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboarding';
+import type { CanonicalModel } from '../../../shared/types/confidential';
+import type { ConfidentialProviderView, PoolRanking } from '../../../shared/types/confidentialState';
+import { formatTurnCost } from './confidentialCopy';
 
 /**
  * How the renderer names and judges one entry of a model stack (ADR 0033 §1), with members'
@@ -9,9 +12,23 @@ import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboa
  * why the router skips them (ADR 0033 §10). Main applies the same rules when it plans the chain.
  */
 
+/** The confidential pools, when the feature is on (confidential inference spec decision 4). */
+export interface PoolContext {
+  models: CanonicalModel[];
+  providers: ConfidentialProviderView[];
+  /**
+   * Each pool's ranking by model id: missing while it loads, null when main can't rank it. A
+   * stack listed without rankings (the chat chip, the project inspector) leaves this out.
+   */
+  rankings?: Record<string, PoolRanking | null>;
+  /** Whether each pool serves a private project now, by model id (usePoolPrivacy). Missing reads as not private. */
+  servesPrivate?: Record<string, boolean>;
+}
+
 export interface ChainContext {
   slots: Partial<Record<InferenceSlotId, LlmSlotStatus>>;
   circles: CirclesState;
+  pools?: PoolContext;
 }
 
 export interface ChainEntryView {
@@ -40,12 +57,61 @@ export function entryKey(entry: InferenceChainEntry): string {
     : `${entry.slot}:${model}`;
 }
 
+/** A pool's model name, or its id when the catalog doesn't name it. */
+function poolModelName(modelId: string, pools: PoolContext | undefined): string {
+  return pools?.models.find((model) => model.id === modelId)?.name ?? modelId;
+}
+
+/**
+ * A pool as a rung: who it would send new chats to and at what cost (spec decision 4). It is
+ * skipped when pools are off or a ranking says nobody serves it (ADR 0047 §8). Without a ranking
+ * (the chip, the inspector) or while one loads, nothing is known here, so it isn't marked skipped.
+ */
+function describePool(entry: InferenceChainEntry, pools: PoolContext | undefined, place: ChainPlace): ChainEntryView {
+  const modelId = entry.modelId?.trim() ?? '';
+  const view = (detail: string, skipped: boolean): ChainEntryView => ({
+    entry,
+    label: `Confidential · ${poolModelName(modelId, pools)}`,
+    detail,
+    skipped,
+  });
+  if (!pools) return view(`No added provider serves this model now. ${SKIPPED_NOTE[place]}`, true);
+  if (!pools.providers.some((provider) => provider.added)) return view('No confidential providers added yet', true);
+  if (!pools.rankings) return view('Served by your confidential providers', false);
+  if (!(modelId in pools.rankings)) return view('Finding who serves it', false);
+  const serving = pools.rankings[modelId]?.serving ?? [];
+  if (serving.length === 0) return view('No provider in this pool can serve now', true);
+  const first = serving[0];
+  const name = pools.providers.find((provider) => provider.id === first.providerId)?.name ?? first.providerId;
+  const count = `${serving.length} provider${serving.length === 1 ? '' : 's'}`;
+  return view(`${count} · New chats go to ${name}, about ${formatTurnCost(first.cost)} a turn`, false);
+}
+
+/** A pool the user could add, with how many of their providers can serve it now. */
+function poolCandidate(model: CanonicalModel, pools: PoolContext): ChainEntryView {
+  const entry: InferenceChainEntry = { slot: 'confidential', modelId: model.id };
+  const label = `Confidential · ${model.name}`;
+  const serving = pools.rankings?.[model.id]?.serving ?? [];
+  const carriers = pools.providers.filter((provider) => provider.added && provider.models.includes(model.id));
+  const loading = !pools.rankings || !(model.id in pools.rankings);
+  const detail =
+    serving.length > 0
+      ? `${serving.length} of your providers · from ${formatTurnCost(serving[0].cost)} a turn`
+      : carriers.length === 0
+        ? 'None of your providers carry it'
+        : loading
+          ? 'Finding who serves it'
+          : 'None of your providers can serve it now';
+  return { entry, label, detail, skipped: true };
+}
+
 /** When `first`, nothing comes after the entry, so "skipped" means chats stop (ADR 0036). */
 export function describeChainEntry(
   entry: InferenceChainEntry,
   ctx: ChainContext,
   place: ChainPlace = 'fallback'
 ): ChainEntryView {
+  if (entry.slot === 'confidential') return describePool(entry, ctx.pools, place);
   if (entry.slot !== 'peer') {
     const slot = ctx.slots[entry.slot];
     const modelId = entry.modelId?.trim() || slot?.modelId || '';
@@ -98,15 +164,21 @@ export function describeChainEntry(
   };
 }
 
-/** Local is private; a shared model is when its provider is marked private (ADR 0033 §4). */
+/**
+ * Local is private and cloud slots never are. A shared model is when its provider is marked
+ * private (ADR 0033 §4); a pool is when a provider at the private floor serves it, as main
+ * judges it (ADR 0047 §8).
+ */
 export function entryIsPrivate(entry: InferenceChainEntry, ctx: ChainContext): boolean {
   if (entry.slot === 'local') return true;
+  if (entry.slot === 'confidential') return ctx.pools?.servesPrivate?.[entry.modelId?.trim() ?? ''] === true;
   return entry.slot === 'peer' && ctx.circles.providers[entry.peer?.providerId ?? '']?.private === true;
 }
 
 /**
- * Entries the user could add: the other connected provider, and models members share. One that
- * can't serve yet can still be added: the router skips it until it can (ADR 0039 §3).
+ * Entries the user could add: the other connected provider, models members share, and a pool
+ * for each catalog model when pools are on. One that can't serve yet can still be added: the
+ * router skips it until it can (ADR 0039 §3).
  */
 export function chainCandidates(
   primary: InferenceChainEntry | null,
@@ -134,6 +206,12 @@ export function chainCandidates(
         candidates.push(describeChainEntry(entry, ctx, 'candidate'));
       }
     }
+  }
+  // Pools come from the catalog: one per model, added or not (spec decision 4).
+  const { pools } = ctx;
+  for (const model of pools?.models ?? []) {
+    if (!pools || takenExact.has(entryKey({ slot: 'confidential', modelId: model.id }))) continue;
+    candidates.push(poolCandidate(model, pools));
   }
   return candidates;
 }

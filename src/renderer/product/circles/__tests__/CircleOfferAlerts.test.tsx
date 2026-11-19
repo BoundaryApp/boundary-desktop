@@ -2,44 +2,33 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleOfferView, CirclesState } from '../../../../shared/types/circles';
+import { circleOffer, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { ProductReadyShell } from '../../ProductReadyShell';
 import { OFFER_ALERT_MS, OFFER_QUIET_MS, OFFER_SETTLE_MS } from '../CircleOfferAlerts';
 
 vi.mock('../../chat/WorkbenchChatScreen', () => ({ WorkbenchChatScreen: () => <div>chat-screen</div> }));
 
-const push = vi.hoisted(() => ({ current: null as ((state: CirclesState) => void) | null }));
-
-const offer = (overrides: Partial<CircleOfferView> = {}): CircleOfferView => ({
-  identity: 'b'.repeat(64),
-  name: 'Bo',
-  isMine: false,
-  models: [{ id: 'qwen', tools: true }],
-  available: true,
-  away: false,
-  online: true,
-  ...overrides,
-});
-
-const state = (offers: CircleOfferView[], overrides: Partial<CirclesState> = {}): CirclesState => ({
-  status: 'running',
-  displayName: 'Ada',
-  snapshot: {
-    identity: 'a'.repeat(64),
-    circles: [{ key: 'c'.repeat(64), name: 'Garden club', myRole: 'member', writable: true, members: [], invites: [], offers }],
+// Every component in the shell that reads Circles' state subscribes; a push reaches all of them.
+const listeners = vi.hoisted(() => new Set<(state: CirclesState) => void>());
+const push = vi.hoisted(() => ({
+  current: (next: CirclesState) => {
+    for (const listener of listeners) listener(next);
   },
-  providers: {},
-  sharing: { models: [], circles: [], paused: false, away: false },
-  ...overrides,
-});
+}));
 
-const send = (next: CirclesState) => act(() => push.current?.(next));
+const offer = (overrides: Partial<CircleOfferView> = {}): CircleOfferView => circleOffer({ models: [{ id: 'qwen', tools: true }], ...overrides });
+
+const state = (offers: CircleOfferView[], overrides: Partial<CirclesState> = {}): CirclesState =>
+  runningCircles({ circles: [circleSnapshot({ offers })], ...overrides });
+
+const send = (next: CirclesState) => act(() => push.current(next));
 const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms));
 const toasts = () => screen.queryAllByRole('status').map((toast) => toast.textContent);
 
 /** The shell mounted, with `offers` as the settled starting point. */
-function mountSettled(offers: CircleOfferView[], onNavigate = vi.fn()) {
-  render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+function mountSettled(offers: CircleOfferView[], onNavigate = vi.fn(), view: 'chat' | 'inference' = 'chat') {
+  render(<ProductReadyShell view={view} onNavigate={onNavigate} />);
   send(state(offers));
   wait(OFFER_QUIET_MS);
 }
@@ -50,15 +39,17 @@ describe('Circle offer alerts', () => {
     stubElectronAPI({
       circles: {
         getState: () => new Promise(() => undefined),
+        onOpenMessage: () => (): void => undefined,
         onState: (cb: (next: CirclesState) => void) => {
-          push.current = cb;
-          return () => undefined;
+          listeners.add(cb);
+          return () => listeners.delete(cb);
         },
       },
     });
   });
 
   afterEach(() => {
+    // Unmount while fake timers are installed; RTL's own cleanup runs after this hook.
     cleanup();
     vi.useRealTimers();
   });
@@ -191,6 +182,15 @@ describe('Circle offer alerts', () => {
     expect(toasts()).toHaveLength(1);
     expect(toasts()[0]).toContain('Bo shared llama with Garden club.');
     expect(toasts()[0]).toContain('Bo stopped sharing qwen with Garden club.');
+  });
+
+  it('leaves Open Inference off a toast shown in Inference', () => {
+    mountSettled([], vi.fn(), 'inference');
+    send(state([offer()]));
+    wait(OFFER_SETTLE_MS);
+    expect(toasts()[0]).toContain('Bo shared qwen with Garden club.');
+    expect(screen.queryByRole('button', { name: 'Open Inference' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy();
   });
 
   it('opens Inference, dismisses and expires', () => {

@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { ListedModel } from '../../../shared/types/onboarding';
 import { ModelPicker } from '../ModelPicker';
 
@@ -31,10 +31,6 @@ const models: ListedModel[] = [
 ];
 
 describe('ModelPicker', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it('labels the price column as input / output per million tokens', () => {
     render(
       <ModelPicker

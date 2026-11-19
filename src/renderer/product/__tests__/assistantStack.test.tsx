@@ -23,7 +23,7 @@ function stack(stubs: Record<string, unknown> = {}) {
     getLifecycle: vi.fn().mockResolvedValue(createLifecycleSnapshot('idle')),
     onLifecycle: vi.fn((cb: typeof push) => {
       push = cb;
-      return () => undefined;
+      return (): void => undefined;
     }),
     ...stubs,
   };
@@ -59,7 +59,7 @@ describe('assistant stack store', () => {
     const { api } = stack({
       onReady: vi.fn((cb: typeof ready) => {
         ready = cb;
-        return () => undefined;
+        return (): void => undefined;
       }),
     });
     const { result } = renderHook(() => useAssistantStackStatus());

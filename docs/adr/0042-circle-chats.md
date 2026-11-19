@@ -3,7 +3,7 @@
 - Date: 2026-11-02
 - Status: Proposed
 - Parent: [0032](0032-circles.md)
-- Amended by: [0043](0043-circles-live-in-the-chat.md) (no Circles destination), [0044](0044-circle-calls.md) (§3: a `call` field)
+- Amended by: [0043](0043-circles-live-in-the-chat.md) (no Circles destination), [0044](0044-circle-calls.md) (§3: a `call` field), [0050](0050-gifs-in-circle-chats.md) (§3: a `media` field at format 3), [0051](0051-circle-notifications-and-mentions.md) (§3: a `mentions` field at format 3; notifications), [0053](0053-replies-in-circle-chats.md) (§3: a `reply` field at format 3), [0054](0054-direct-messages-in-circles.md) (§14: DMs over peer signals)
 - Related: [0008](0008-multi-agent-channels-and-wake.md), [0010](0010-durable-attribution-and-room-lifecycle.md), [0023](0023-chat-types-and-hermes-home.md), [0024](0024-chats-belong-to-projects.md), [0034](0034-shared-models.md), [0038](0038-changing-circle-operations.md), [Autobase 7: writers' entries while no indexer is online](../circles-autobase-confirmation.md), [circles plan](../circles-plan.md) phase 5, [Circle chats spec](../circle-chats-ux-study/spec.md)
 
 ## Context

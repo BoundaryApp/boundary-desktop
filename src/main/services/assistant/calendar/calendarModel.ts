@@ -1,5 +1,6 @@
-import type { CalendarAccess, CalendarProvider } from '../../../../shared/types/calendars';
+import type { CalendarAccess, CalendarProvider, MacCalendarSummary } from '../../../../shared/types/calendars';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { MAC_CHANGE_TOOLS, MAC_READ_TOOLS } from './macCalendarTools';
 
 /**
  * What Boundary writes into Hermes for a connected calendar (docs/calendar-ux-study/spec.md,
@@ -46,10 +47,16 @@ const CALENDAR_PROVIDERS: Record<CalendarProvider, CalendarProviderInfo> = {
   fastmail: { label: 'Fastmail', url: 'https://caldav.fastmail.com/' },
   nextcloud: { label: 'Nextcloud', url: '' },
   other: { label: 'CalDAV server', url: '' },
+  mac: { label: 'This Mac', url: '' },
 };
 
+/** A provider a CalDAV account can use. The Mac's calendars don't connect through CalDAV. */
 export function isCalendarProvider(value: unknown): value is CalendarProvider {
-  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CALENDAR_PROVIDERS, value);
+  return (
+    typeof value === 'string' &&
+    value !== 'mac' &&
+    Object.prototype.hasOwnProperty.call(CALENDAR_PROVIDERS, value)
+  );
 }
 
 export { calendarSlug } from '../../../../shared/types/calendars';
@@ -131,4 +138,73 @@ export function calendarPasswordProblem(password: string): string | null {
     return `${APP_NAME} can’t pass on a password with spaces, quotes, backslashes, # or $. Create an app password for ${APP_NAME} instead.`;
   }
   return null;
+}
+
+// ─── Calendars on this Mac (ADR 0045) ─────────────────────────────────────────
+
+/** The one Mac account's slug. A CalDAV account may not take it. */
+export const MAC_ACCOUNT_SLUG = 'mac';
+export const MAC_ACCOUNT_NAME = 'This Mac';
+/** Each granted agent's own token for the bridge's `/calendar` route, in that agent's `.env`. */
+export const MAC_TOKEN_ENV = 'BOUNDARY_CALENDAR_MAC_TOKEN';
+
+/**
+ * The stack's settings for an MCP server an app hosts (assistant docs/extending.md), the same as
+ * the host bridge's own `boundary` entry: Hermes parks a server it can't reach and retries it
+ * every `parked_retry_interval` seconds, and a `connect_timeout` below 60 abandons a bridge that
+ * is down when Hermes starts instead of parking it where a wake can reach it. A test keeps these
+ * equal to the `boundary` entry's (hostBridgeHermesConfigSets).
+ */
+const MAC_ENTRY_KEEPALIVE_S = 15;
+const MAC_ENTRY_PARKED_RETRY_S = 15;
+const MAC_ENTRY_CONNECT_TIMEOUT_S = 60;
+
+function macCalendarUrl(mcpPort: number): string {
+  return `http://host.docker.internal:${mcpPort}/calendar`;
+}
+
+/** The bridge's calendar tools for an access level. Attendee changes aren't among them. */
+export function macToolsForAccess(access: CalendarAccess): string[] {
+  if (access === 'change') return [...MAC_READ_TOOLS, ...MAC_CHANGE_TOOLS];
+  if (access === 'read') return [...MAC_READ_TOOLS];
+  return [];
+}
+
+/**
+ * The `mcp_servers.calendar-mac` entry. The header names the agent's token env key, which Hermes
+ * resolves from the profile's `.env`, so the token is never in `config.yaml`.
+ */
+export function macCalendarMcpEntry(opts: { mcpPort: number; access: CalendarAccess }): Record<string, unknown> {
+  return {
+    url: macCalendarUrl(opts.mcpPort),
+    timeout: 60,
+    connect_timeout: MAC_ENTRY_CONNECT_TIMEOUT_S,
+    keepalive_interval: MAC_ENTRY_KEEPALIVE_S,
+    parked_retry_interval: MAC_ENTRY_PARKED_RETRY_S,
+    trust: 'untrusted',
+    headers: { Authorization: `Bearer \${${MAC_TOKEN_ENV}}` },
+    tools: { include: macToolsForAccess(opts.access) },
+  };
+}
+
+/** The Mac account's Hermes server name, `calendar-mac`. */
+export const MAC_CALENDAR_SERVER = calendarServerName(MAC_ACCOUNT_SLUG);
+
+/**
+ * `hermes config set` pairs that point a profile's existing `calendar-mac` entry at the bridge,
+ * with the reconnect settings, so entries written before those settings existed get them too.
+ */
+export function macCalendarUrlSets(mcpPort: number): Array<[string, string]> {
+  const base = `mcp_servers.${MAC_CALENDAR_SERVER}`;
+  return [
+    [`${base}.url`, macCalendarUrl(mcpPort)],
+    [`${base}.connect_timeout`, String(MAC_ENTRY_CONNECT_TIMEOUT_S)],
+    [`${base}.keepalive_interval`, String(MAC_ENTRY_KEEPALIVE_S)],
+    [`${base}.parked_retry_interval`, String(MAC_ENTRY_PARKED_RETRY_S)],
+  ];
+}
+
+/** The choose step's starting ticks: every calendar except Birthdays and subscribed ones. */
+export function defaultAllowedCalendarIds(calendars: readonly MacCalendarSummary[]): string[] {
+  return calendars.filter((c) => c.kind !== 'birthdays' && c.kind !== 'subscribed').map((c) => c.id);
 }

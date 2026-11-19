@@ -30,8 +30,9 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | --- | --- |
 | `net.ready` | The process is up: this identity and device. |
 | `net.circles-open` | Stored Circles opened, with a first health record. |
-| `net.heartbeat` | Every minute: event-loop lag, memory, each peer (replicating, channel, age, rtt, address class), each Circle (members online, offers, view and signed length, indexers), the gateway queue, the DHT's view (firewalled, randomized NAT), and peer signals since the run began: messages and bytes per topic this device sent or listens to, and drops by reason (`malformed`, `not-member`, `unknown-topic`, `rate`). Signals get no event of their own, because they can arrive several times a second. |
+| `net.heartbeat` | Every minute: event-loop lag, memory (resident, JS heap, external and array buffers, and the JS heap by space), each peer (replicating, channel, age, rtt, address class), each Circle (members online, offers, view and signed length, indexers, and `counts`: totals since the Circle opened of Autobase updates, view re-reads, finished scans, scans waiting, and apply calls with the nodes they were given), the gateway queue, the DHT's view (firewalled, randomized NAT), and peer signals since the run began: messages and bytes per topic this device sent or listens to, and drops by reason (`malformed`, `not-member`, `unknown-topic`, `rate`). Signals get no event of their own, because they can arrive several times a second. |
 | `net.stopping` | A last health record before quitting. |
+| `net.uncaught` | An error nothing caught, just before the process exits with 1: whether it was an exception or a rejected promise, and the error's type. The message and stack go to `boundary-debug.log` as `uncaught error`. |
 | `dht.nat-update`, `dht.network-change`, `dht.persistent` | The DHT learned its public address, the network changed, or this node became reachable. |
 | `circle.topic-flushed` | A Circle's topic was announced; `ms` is how long that took. |
 | `circle.needs-update` | A Circle moved to a format this build can't apply, and stopped here. |
@@ -52,7 +53,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 
 | Event | When |
 | --- | --- |
-| `main.net-forked`, `main.net-ready`, `main.net-exit`, `main.net-start-failed` | The network process's lifecycle. |
+| `main.net-forked`, `main.net-ready`, `main.net-exit`, `main.net-start-failed` | The network process's lifecycle. After an exit Boundary didn't ask for, the last 8 KB the process wrote to stderr go to `boundary-debug.log` as `network process stderr`. |
 | `main.request` | Each call into the network process: its op, outcome and time. |
 | `main.sharing-sync`, `main.away-blocker`, `main.provider-settings` | Sharing choices applied, sleep held or released, Private and Trusted changes. |
 | `main.shared-request`, `main.shared-head`, `main.shared-end`, `main.shared-cancel`, `main.shared-refused` | A shared-model call as the router sees it. |

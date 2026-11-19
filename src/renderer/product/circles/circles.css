@@ -1,4 +1,7 @@
 /* Circles' shared parts: avatars, switches and the boxes in Shared from this Mac. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
 
 /* Avatars */
 
@@ -42,7 +45,7 @@
   flex-shrink: 0;
   width: 34px;
   height: 20px;
-  padding: 2px;
+  padding: var(--space-0-5);
   border: 0;
   border-radius: var(--radius-full);
   background: var(--line-strong);
@@ -71,35 +74,14 @@
 .wb-circle-box {
   min-width: 0;
   margin: 0;
-  padding: 12px;
+  padding: var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }
 
 .wb-circle-box legend {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
-
-.wb-circle-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-}
-
-.wb-circle-banner.is-ok {
-  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
-  background: var(--ok-dim);
-  color: var(--ok);
-}
-
-.wb-circle-banner.is-warn {
-  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-  background: var(--warn-dim);
-  color: var(--warn);
 }

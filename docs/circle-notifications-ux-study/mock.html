@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle notifications</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<style>
+/* Values from src/renderer/styles/tokens.css, as in ../circle-chats-ux-study/prototype.html. --mention-fill is new. */
+:root {
+  --s0:#0d0d0f; --rail:#111113; --s1:#161618; --s2:#1c1c22; --hover:#1d1d22; --line:#2a2a30; --line2:#3a3a44;
+  --tx:#f5f5f7; --mut:#c4c4cc; --fnt:#9e9ea8; --brand:#8b87f8; --brandd:#26244a; --solid:#f5f5f7; --solidfg:#111;
+  --ok:#86c089; --warn:#e8c27a; --warnd:#2a2415; --warnl:#5a4a2a;
+  --bubble-mine:#24232c; --mention-fill:#1a1930;
+  --overlay:0 18px 48px rgb(0 0 0 / .45); --page:#050506; --banner:rgb(40 40 46 / .92);
+}
+:root[data-theme="light"] {
+  --s0:#f3f1ea; --rail:#ece8dc; --s1:#fffcf6; --s2:#f7f4ec; --hover:#ece8dc; --line:#e3dfd3; --line2:#cfc9b8;
+  --tx:#1c1b17; --mut:#6d6a60; --fnt:#9a968a; --brand:#5b56d6; --brandd:#e6e4fb; --solid:#1c1b17; --solidfg:#fffcf6;
+  --ok:#3f7d44; --warn:#8a6415; --warnd:#f6ecd6; --warnl:#e3cf9f;
+  --bubble-mine:#e9e5d8; --mention-fill:#eeedfb;
+  --overlay:0 18px 48px rgb(40 32 16 / .16); --page:#d9d5c8; --banner:rgb(246 244 238 / .94);
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--page); color:var(--tx); font:13px/1.45 'IBM Plex Sans',system-ui,sans-serif }
+button { font:inherit; color:inherit; cursor:pointer }
+.bar { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 16px; background:var(--s1); border-bottom:1px solid var(--line) }
+.bar b { font-weight:500; margin-right:6px }
+.chip { height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:none; color:var(--mut); font-size:12px }
+.chip[aria-pressed="true"] { background:var(--brandd); border-color:var(--brand); color:var(--tx) }
+main { max-width:1080px; margin:0 auto; padding:24px 16px 48px; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr)); gap:20px }
+section { background:var(--s0); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0 }
+section > h2 { margin:0 0 4px; font-size:13px; font-weight:600 }
+section > p.cap { margin:0 0 14px; color:var(--fnt); font-size:12px }
+
+/* 1 Banners */
+.banner { display:flex; gap:10px; padding:10px 12px; border-radius:14px; background:var(--banner); border:1px solid var(--line); margin-bottom:8px; box-shadow:var(--overlay) }
+.banner .app { width:32px; height:32px; border-radius:8px; background:var(--brandd); color:var(--brand); display:flex; align-items:center; justify-content:center; font-weight:600; flex-shrink:0 }
+.banner .t { font-weight:600; font-size:12.5px }
+.banner .b { color:var(--mut); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
+.banner .now { margin-left:auto; color:var(--fnt); font-size:11px; flex-shrink:0 }
+
+/* 2 Composer */
+.composer { position:relative; margin-top:180px; border:1px solid var(--line2); border-radius:10px; background:var(--s1); padding:10px 12px; color:var(--tx) }
+.composer .hint { color:var(--fnt); font-size:11.5px; margin-top:6px }
+.caret { display:inline-block; width:1px; height:15px; background:var(--tx); vertical-align:-3px }
+.menu { position:absolute; left:8px; bottom:calc(100% + 6px); width:min(320px,calc(100% - 16px)); background:var(--s1); border:1px solid var(--line2); border-radius:10px; box-shadow:var(--overlay); padding:4px }
+.menu .row { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px }
+.menu .row.on { background:var(--hover) }
+.menu .row .meta { margin-left:auto; color:var(--fnt); font-size:11.5px; white-space:nowrap }
+.av { width:22px; height:22px; border-radius:50%; background:var(--s2); border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; font-size:11px; position:relative; flex-shrink:0 }
+.av .dot { position:absolute; right:-2px; bottom:-2px; width:8px; height:8px; border-radius:50%; background:var(--ok); border:2px solid var(--s1) }
+.av .dot.away { background:var(--fnt) }
+.at { color:var(--brand); font-weight:500 }
+.at.me { font-weight:700 }
+
+/* 3 Thread */
+.msg { padding:8px 12px; border-radius:8px; margin:0 -4px 4px; border-left:3px solid transparent }
+.msg .who { font-weight:600; font-size:12.5px } .msg .who span { font-weight:400; color:var(--fnt); margin-left:6px; font-size:11.5px }
+.msg.mentioned { background:var(--mention-fill); border-left-color:var(--brand) }
+.msg .chipline { margin-top:4px; color:var(--mut); font-size:11.5px }
+.mine { margin-left:auto; max-width:80%; background:var(--bubble-mine); border-radius:12px; padding:8px 12px; margin-bottom:4px; width:fit-content }
+
+/* 4 Rail */
+.crail { width:240px; max-width:100%; background:var(--rail); border:1px solid var(--line); border-radius:8px; padding:8px }
+.crail .h { color:var(--fnt); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px }
+.crail .r { display:flex; align-items:center; padding:5px 8px; border-radius:6px; color:var(--mut) }
+.crail .r.unread { color:var(--tx); font-weight:500 }
+.crail .r.on { background:var(--hover) }
+.count { margin-left:auto; font-size:11px; min-width:18px; height:18px; padding:0 6px; border-radius:999px; background:var(--s2); color:var(--tx); display:flex; align-items:center; gap:2px }
+.count .a { color:var(--brand); font-weight:700 }
+.switcher { display:flex; align-items:center; gap:8px; padding:8px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; width:240px; max-width:100% }
+
+/* 5 Circle tab */
+.field { margin-bottom:14px }
+.field > .lbl { font-weight:500; margin-bottom:6px }
+.seg { display:inline-flex; border:1px solid var(--line2); border-radius:8px; overflow:hidden; flex-wrap:wrap }
+.seg button { border:0; background:none; padding:5px 12px; color:var(--mut) }
+.seg button + button { border-left:1px solid var(--line2) }
+.seg button[aria-pressed="true"] { background:var(--brandd); color:var(--tx) }
+.help { color:var(--fnt); font-size:12px; margin-top:6px }
+.sw { display:flex; align-items:flex-start; gap:10px }
+.sw .tg { width:30px; height:18px; border-radius:999px; background:var(--brand); position:relative; flex-shrink:0; margin-top:1px }
+.sw .tg::after { content:''; position:absolute; right:2px; top:2px; width:14px; height:14px; border-radius:50%; background:#fff }
+.sw .tg.off { background:var(--line2) } .sw .tg.off::after { right:auto; left:2px }
+.callout { border:1px solid var(--line2); border-radius:8px; padding:10px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.btn { height:28px; padding:0 12px; border-radius:6px; border:1px solid var(--line2); background:var(--s1) }
+.btn.primary { background:var(--solid); color:var(--solidfg); border-color:var(--solid) }
+
+/* 6 Sheet */
+.sheet { background:var(--s1); border:1px solid var(--line2); border-radius:12px; padding:18px; box-shadow:var(--overlay) }
+.sheet h3 { margin:0 0 8px; font-size:15px }
+.sheet ul { margin:8px 0 12px; padding-left:18px; color:var(--mut) }
+.warn { background:var(--warnd); border:1px solid var(--warnl); color:var(--tx); border-radius:8px; padding:8px 10px; font-size:12.5px }
+.actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>Circle notifications and mentions</b>
+  <button class="chip" aria-pressed="true" data-theme-set="dark">Dark</button>
+  <button class="chip" aria-pressed="false" data-theme-set="light">Light</button>
+  <span style="color:var(--fnt);font-size:12px;margin-left:8px">Static frames for the <a href="spec.md" style="color:var(--brand)">spec</a> and ADR 0051.</span>
+</div>
+<main>
+  <section>
+    <h2>1 · Notification banners</h2>
+    <p class="cap">Decision 1 and ADR 0051 §6–§7. A message, a mention, @channel, and a catch-up summary. The last shows the text switch off.</p>
+    <div class="banner"><div class="app">B</div><div><div class="t">Maya in #general · Book Club</div><div class="b">Finished chapter 9 — the twist with the lighthouse keeper, did anyone see that coming?</div></div><span class="now">now</span></div>
+    <div class="banner"><div class="app">B</div><div><div class="t">Sam mentioned you in #planning · Book Club</div><div class="b">@Dana can you host on the 21st?</div></div><span class="now">2m</span></div>
+    <div class="banner"><div class="app">B</div><div><div class="t">Maya mentioned #general · Book Club</div><div class="b">@channel anyone free for a call at 7?</div></div><span class="now">5m</span></div>
+    <div class="banner"><div class="app">B</div><div><div class="t">Book Club</div><div class="b">14 new messages · Sam mentioned you</div></div><span class="now">8m</span></div>
+    <div class="banner"><div class="app">B</div><div><div class="t">Ana in #random · Climbing</div><div class="b">New message</div></div><span class="now">9m</span></div>
+  </section>
+
+  <section>
+    <h2>2 · Composer @ menu</h2>
+    <p class="cap">Decision 2. Format 3 Circle channel. @channel first, then people, online first. No agents or paths.</p>
+    <div class="composer">
+      <div class="menu" role="listbox">
+        <div class="row"><span class="av">#</span><span>@channel</span><span class="meta">Everyone who hasn't turned it off</span></div>
+        <div class="row on"><span class="av">M<span class="dot"></span></span><span>Maya</span><span class="meta">Online</span></div>
+        <div class="row"><span class="av">M<span class="dot away"></span></span><span>Marcus</span><span class="meta">Away</span></div>
+      </div>
+      Can we move it to Thursday? <span class="at">@Sam</span> @M<span class="caret"></span>
+      <div class="hint">Message #planning in Book Club · every member keeps what you send</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Mentions in the thread</h2>
+    <p class="cap">Decision 3. A mention of me gets the accent rule and fill. The last message mentions someone who renamed since.</p>
+    <div class="msg"><div class="who">Ana<span>6:58 PM</span></div>Meeting at the usual place.</div>
+    <div class="msg mentioned"><div class="who">Sam<span>7:02 PM</span></div><span class="at me">@Dana</span> can you host on the 21st?</div>
+    <div class="mine">Yes, works for me. <span class="at">@Maya</span> bringing the wine?</div>
+    <div class="msg mentioned"><div class="who">Maya<span>7:10 PM</span></div><span class="at">@channel</span> anyone free for a call at 7?</div>
+    <div class="msg"><div class="who">Marcus<span>7:14 PM</span></div>Ask @Jo, they had the list.<div class="chipline">Mentioned: Joanna</div></div>
+  </section>
+
+  <section>
+    <h2>4 · Rail and switcher</h2>
+    <p class="cap">Decision 4. "@" before the count marks unread mentions of me.</p>
+    <div class="switcher"><span class="av">B</span><span>Book Club</span><span class="count"><span class="a">@</span>15</span></div>
+    <div class="crail">
+      <div class="h">Channels</div>
+      <div class="r on"># general</div>
+      <div class="r unread"># planning<span class="count"><span class="a">@</span>3</span></div>
+      <div class="r unread"># random<span class="count">12</span></div>
+      <div class="r"># reading-list</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · Circle tab, Notifications</h2>
+    <p class="cap">Decision 5. The line under the control always says what applies and why.</p>
+    <div class="field">
+      <div class="lbl">Notifications</div>
+      <div class="seg"><button aria-pressed="true">Default</button><button aria-pressed="false">All</button><button aria-pressed="false">Mentions</button><button aria-pressed="false">Nothing</button></div>
+      <div class="help">Default: all messages, because this Circle has 5 people.</div>
+    </div>
+    <div class="field sw"><span class="tg"></span><div><div>@channel notifies me</div><div class="help" style="margin-top:2px">When someone mentions #channel, treat it as a mention of you.</div></div></div>
+    <div class="field" style="margin-top:20px">
+      <div class="lbl">Below format 3, seven or more people</div>
+      <div class="seg"><button aria-pressed="true">Default</button><button aria-pressed="false">All</button><button aria-pressed="false">Mentions</button><button aria-pressed="false">Nothing</button></div>
+      <div class="help">Default: mentions only, because this Circle has 9 people. Mentions need this Circle updated by an admin.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>6 · Update this Circle</h2>
+    <p class="cap">Decision 7. The row admins see in the Circle tab, and its sheet.</p>
+    <div class="callout" style="margin-bottom:16px"><span style="flex:1;min-width:180px">This Circle can use mentions and GIFs.</span><button class="btn">Update this Circle…</button></div>
+    <div class="sheet">
+      <h3>Update Book Club?</h3>
+      <div style="color:var(--mut)">Updating turns on:</div>
+      <ul><li>@-mentions of people and #channel</li><li>GIFs in messages</li></ul>
+      <div class="warn">Members on older versions of Boundary will see this Circle stop until they update.</div>
+      <div class="actions"><button class="btn">Cancel</button><button class="btn primary">Update</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>7 · Settings</h2>
+    <p class="cap">Decision 6. Global switches for every Circle.</p>
+    <div class="field sw"><span class="tg"></span><div><div>Circle notifications</div><div class="help" style="margin-top:2px">Show a notification for Circle messages, following each Circle's setting.</div></div></div>
+    <div class="field sw"><span class="tg"></span><div><div>Show message text in notifications</div><div class="help" style="margin-top:2px">macOS keeps notifications in Notification Center and may show them on the lock screen.</div></div></div>
+  </section>
+</main>
+<script>
+document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => {
+  document.documentElement.dataset.theme = b.dataset.themeSet;
+  document.querySelectorAll('[data-theme-set]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+}));
+</script>
+</body>
+</html>

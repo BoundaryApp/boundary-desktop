@@ -115,6 +115,8 @@ jobs:
           NODE_ENV: production
           # Unset, as in forks, the build has updates off.
           BOUNDARY_UPDATE_FEED_URL: ${{ vars.BOUNDARY_UPDATE_FEED_URL }}
+          # The release notes this build bundles (ADR 0059).
+          BOUNDARY_RELEASE_NOTES_DIR: whats-new
           # Enable Forge osxSign on macOS runners (certs imported above). Omit locally for unsigned builds.
           OSX_SIGN: ${{ matrix.os == 'macos-latest' && 'true' || '' }}
           CSC_NAME: ${{ secrets.CSC_NAME }}

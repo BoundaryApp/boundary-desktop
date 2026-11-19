@@ -1,11 +1,14 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { EMPTY_RANKING, QWEN_RANKING, poolBridge } from '../../../__tests__/confidentialFixtures';
+import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 import type {
   HermesProjectRecord,
   HermesProjectSourcesInspect,
 } from '../../../../shared/types/hermesChat';
+import { replied } from '../../../__tests__/mockReplies';
 import { ProjectSourcesRail } from '../ProjectSourcesRail';
 import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
 import { takeInferenceStatus } from '../../../onboarding/inferenceStatus';
@@ -27,7 +30,7 @@ stubElectronAPI({
     list: (...args: unknown[]) => listCodingFolders(...args),
     busy: (...args: unknown[]) => codingAgentBusy(...args),
     setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
-    onProgress: () => () => undefined,
+    onProgress: () => () => {},
   },
 });
 
@@ -63,7 +66,27 @@ function inspect(
   };
 }
 
-const noop = () => undefined;
+const noop = () => {};
+
+/** The rail for `project` with only its hub, every handler a no-op; `props` overrides any. */
+const railElement = (props: Partial<React.ComponentProps<typeof ProjectSourcesRail>> = {}) => (
+  <ProjectSourcesRail
+    project={project}
+    inspect={inspect({})}
+    onChangeFolder={noop}
+    onChooseFolder={noop}
+    onRevealHub={noop}
+    onRevealSource={noop}
+    onRefreshIndex={noop}
+    onAddFolder={noop}
+    onRemoveSource={noop}
+    connecting={false}
+    rpcAvailable
+    role={null}
+    {...props}
+  />
+);
+const renderRail = (props: Partial<React.ComponentProps<typeof ProjectSourcesRail>> = {}) => render(railElement(props));
 
 const bothConfigured = {
   configured: true,
@@ -82,15 +105,6 @@ const bothConfigured = {
     },
   },
 };
-
-beforeAll(() => {
-  // Radix's popper measures its anchor; jsdom has no ResizeObserver.
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-});
 
 /** The inspector's stack rows, first to last. */
 const stackRows = () =>
@@ -114,22 +128,7 @@ describe('ProjectSourcesRail', () => {
   });
 
   it('lists the hub source with Open and does not show files', () => {
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail();
     expect(screen.getByText('project')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(1);
     expect(screen.queryByText('Files')).toBeNull();
@@ -141,23 +140,7 @@ describe('ProjectSourcesRail', () => {
 
   it('lists the Chat stack it inherits, and saves its own stack from Edit stack', async () => {
     const onProjectsUpdated = vi.fn();
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-        onProjectsUpdated={onProjectsUpdated}
-      />
-    );
+    renderRail({ onProjectsUpdated });
     await waitFor(() => expect(stackRows()).toEqual(['1Local · qwen3:14bOn this Mac']));
     expect(screen.getByText('Chats here use the Chat stack, in order')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Back to Chat stack' })).toBeNull();
@@ -176,22 +159,7 @@ describe('ProjectSourcesRail', () => {
 
   describe('Private (ADR 0033 §4)', () => {
     const rail = (inference: HermesProjectRecord['inference']) =>
-      render(
-        <ProjectSourcesRail
-          project={{ ...project, inference }}
-          inspect={inspect({})}
-          onChangeFolder={noop}
-          onChooseFolder={noop}
-          onRevealHub={noop}
-          onRevealSource={noop}
-          onRefreshIndex={noop}
-          onAddFolder={noop}
-          onRemoveSource={noop}
-          connecting={false}
-          rpcAvailable
-          role={null}
-        />
-      );
+      renderRail({ project: { ...project, inference } });
 
     it('turns on from a switch that keeps the pin', async () => {
       rail({ mode: 'local', modelId: 'qwen3:14b' });
@@ -235,6 +203,78 @@ describe('ProjectSourcesRail', () => {
       });
     });
 
+    describe('Allow level B (confidential inference spec decision 10)', () => {
+      const pool = { slot: 'confidential' as const, modelId: 'qwen' };
+      const allowedB = {
+        mode: 'local' as const,
+        modelId: 'qwen3:14b',
+        privacyLocalOnly: true,
+        allowConfidentialLevelB: true,
+        fallbacks: [pool],
+      };
+      /** Only level B providers serve qwen: a private project ranks it empty below floor B. */
+      const bridge = () => ({
+        ...poolBridge(),
+        rank: vi.fn(({ privateProject, projectFloor }: { privateProject: boolean; projectFloor?: string }) =>
+          Promise.resolve(privateProject && projectFloor !== 'B' ? EMPTY_RANKING : QWEN_RANKING)
+        ),
+      });
+
+      beforeEach(() => resetIpcStoresForTests());
+      afterEach(() => {
+        stubElectronAPI({ confidential: { getState: vi.fn(() => new Promise<never>(() => undefined)) } });
+        resetIpcStoresForTests();
+      });
+
+      it('shows the row with Don’t allow, which turns it off', async () => {
+        stubElectronAPI({ confidential: bridge() });
+        rail(allowedB);
+        expect(await screen.findByText('Level B providers allowed')).toBeTruthy();
+        expect(
+          screen.getByText('Chats here may use providers whose hardware is checked but whose code in the enclave isn’t.')
+        ).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Don’t allow' }));
+        await waitFor(() => {
+          expect(patchProject).toHaveBeenCalledWith({
+            projectId: 'p1',
+            inference: { ...allowedB, allowConfidentialLevelB: false },
+          });
+        });
+      });
+
+      it('hides the row while pools are off', async () => {
+        rail(allowedB);
+        await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
+        expect(screen.queryByText('Level B providers allowed')).toBeNull();
+      });
+
+      it('clears it when Private turns off', async () => {
+        stubElectronAPI({ confidential: bridge() });
+        rail(allowedB);
+        fireEvent.click(await screen.findByRole('switch', { name: /^Private/ }));
+        await waitFor(() => {
+          expect(patchProject).toHaveBeenCalledWith({
+            projectId: 'p1',
+            inference: { ...allowedB, privacyLocalOnly: false, allowConfidentialLevelB: false },
+          });
+        });
+      });
+
+      it('uses a pool only level B serves, and puts it past the private cut after Don’t allow', async () => {
+        const confidential = bridge();
+        stubElectronAPI({ confidential });
+        const { rerender } = rail(allowedB);
+        await waitFor(() => expect(stackRows()[1]).toMatch(/Confidential · Qwen 3\.8 27B/));
+        await waitFor(() => expect(confidential.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'B' }));
+        expect(stackRows()[1]).not.toMatch(/Not used: this project is private/);
+
+        rerender(railElement({ project: { ...project, inference: { ...allowedB, allowConfidentialLevelB: false } } }));
+        await waitFor(() => expect(stackRows()[1]).toMatch(/Not used: this project is private/));
+        expect(confidential.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'A' });
+        expect(screen.queryByText('Level B providers allowed')).toBeNull();
+      });
+    });
+
     it('shows a cloud fallback as not used', async () => {
       rail({
         mode: 'local',
@@ -248,22 +288,9 @@ describe('ProjectSourcesRail', () => {
   });
 
   it("reorders a pinned project's own stack, and goes back to the Chat stack (ADR 0033 §1)", async () => {
-    render(
-      <ProjectSourcesRail
-        project={{ ...project, inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] } }}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail({
+      project: { ...project, inference: { mode: 'local', modelId: 'qwen3:14b', fallbacks: [{ slot: 'openrouter' }] } },
+    });
     await waitFor(() =>
       expect(stackRows()).toEqual(['1Local · qwen3:14bOn this Mac', '2OpenRouter · claude-sonnet-4Cloud'])
     );
@@ -288,22 +315,7 @@ describe('ProjectSourcesRail', () => {
   });
 
   it('follows an app default changed elsewhere without a project change', async () => {
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail();
     await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
     // Settings makes OpenRouter the app default and passes on the status main returned.
     await act(async () =>
@@ -314,66 +326,42 @@ describe('ProjectSourcesRail', () => {
   });
 
   it('shows a quiet pin on the glyph when the project is pinned', () => {
-    render(
-      <ProjectSourcesRail
-        project={{
-          ...project,
-          inference: { mode: 'local', modelId: 'qwen3:14b' },
-        }}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail({
+      project: {
+        ...project,
+        inference: { mode: 'local', modelId: 'qwen3:14b' },
+      },
+    });
     expect(document.querySelector('.wb-inf-pin.is-local')).toBeTruthy();
   });
 
   it('opens each source from its Open button and keeps Remove on extras only', () => {
     const onRevealSource = vi.fn();
     const onRemoveSource = vi.fn();
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({
-          sources: [
-            {
-              id: 'project',
-              path: '.',
-              hostPath: project.hostPath,
-              retrieval: 'files',
-              visibility: 'hub',
-              isHub: true,
-            },
-            {
-              id: 'notes-vault',
-              path: '/Users/ada/Notes/this-project',
-              hostPath: '/Users/ada/Notes/this-project',
-              retrieval: 'files',
-              visibility: 'readonly',
-              isHub: false,
-            },
-          ],
-        })}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={onRevealSource}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={onRemoveSource}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail({
+      inspect: inspect({
+        sources: [
+          {
+            id: 'project',
+            path: '.',
+            hostPath: project.hostPath,
+            retrieval: 'files',
+            visibility: 'hub',
+            isHub: true,
+          },
+          {
+            id: 'notes-vault',
+            path: '/Users/ada/Notes/this-project',
+            hostPath: '/Users/ada/Notes/this-project',
+            retrieval: 'files',
+            visibility: 'readonly',
+            isHub: false,
+          },
+        ],
+      }),
+      onRevealSource,
+      onRemoveSource,
+    });
     const opens = screen.getAllByRole('button', { name: 'Open' });
     expect(opens).toHaveLength(2);
     fireEvent.click(opens[0]);
@@ -385,23 +373,53 @@ describe('ProjectSourcesRail', () => {
     expect(onRemoveSource).toHaveBeenCalledWith('notes-vault');
   });
 
+  it('marks a project folder that is shared with a Circle, and says who gets what is written', async () => {
+    stubElectronAPI({
+      circles: {
+        foldersOnMac: async () => ({
+          success: true,
+          folders: [
+            {
+              key: 'k',
+              circle: 'c',
+              circleName: 'Studio',
+              name: 'Job Search',
+              root: `${project.hostPath}/`,
+              role: 'editor',
+              defaultRole: 'editor',
+              people: 4,
+              managers: ['Maya'],
+              ended: null as number | null,
+            },
+          ],
+        }),
+      },
+    });
+    renderRail();
+    expect(await screen.findByText('Shared · Studio')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Everyone in Studio can edit. Anything you or Hermes writes here goes to all 4 people in it. If you allow coding, the coding agent’s changes sync too.'
+      )
+    ).toBeTruthy();
+  });
+
+  it('offers Check a file… in the project menu when the screen can show a check', () => {
+    const onCheckFile = vi.fn();
+    renderRail({ onCheckFile });
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Check a file…' }));
+    expect(onCheckFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no Check a file… without a place to show it', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    expect(screen.queryByRole('menuitem', { name: 'Check a file…' })).toBeNull();
+  });
+
   it('hides Refresh index for hub-only', () => {
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
     expect(screen.queryByRole('menuitem', { name: 'Refresh index' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Change folder' })).toBeTruthy();
@@ -409,22 +427,7 @@ describe('ProjectSourcesRail', () => {
   });
 
   it('closes the project actions menu on an outside click and on Escape', async () => {
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail();
     const more = screen.getByRole('button', { name: 'Project actions' });
     fireEvent.click(more);
     expect(screen.getByRole('menu')).toBeTruthy();
@@ -445,69 +448,41 @@ describe('ProjectSourcesRail', () => {
   it('keeps Add separate from Change folder', () => {
     const onAddFolder = vi.fn();
     const onChangeFolder = vi.fn();
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({})}
-        onChangeFolder={onChangeFolder}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={onAddFolder}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+    renderRail({ onChangeFolder, onAddFolder });
     fireEvent.click(screen.getByRole('button', { name: 'Add…' }));
     expect(onAddFolder).toHaveBeenCalledTimes(1);
     expect(onChangeFolder).not.toHaveBeenCalled();
   });
 
   it('shows a stale banner and Refresh index in the menu after a remounted extra', () => {
-    render(
-      <ProjectSourcesRail
-        project={project}
-        inspect={inspect({
-          stale: true,
-          sources: [
-            {
-              id: 'project',
-              path: '.',
-              hostPath: project.hostPath,
-              retrieval: 'files',
-              visibility: 'hub',
-              isHub: true,
-            },
-            {
-              id: 'notes-vault',
-              path: '/Users/ada/Notes/this-project',
-              hostPath: '/Users/ada/Notes/this-project',
-              retrieval: 'files',
-              visibility: 'readonly',
-              isHub: false,
-            },
-          ],
-          nextStep: {
-            tone: 'ok',
-            title: 'Index is behind the files.',
-            body: 'Refresh rewrites INDEX.md from this Mac.',
+    renderRail({
+      inspect: inspect({
+        stale: true,
+        sources: [
+          {
+            id: 'project',
+            path: '.',
+            hostPath: project.hostPath,
+            retrieval: 'files',
+            visibility: 'hub',
+            isHub: true,
           },
-        })}
-        onChangeFolder={noop}
-        onChooseFolder={noop}
-        onRevealHub={noop}
-        onRevealSource={noop}
-        onRefreshIndex={noop}
-        onAddFolder={noop}
-        onRemoveSource={noop}
-        connecting={false}
-        rpcAvailable
-        role={null}
-      />
-    );
+          {
+            id: 'notes-vault',
+            path: '/Users/ada/Notes/this-project',
+            hostPath: '/Users/ada/Notes/this-project',
+            retrieval: 'files',
+            visibility: 'readonly',
+            isHub: false,
+          },
+        ],
+        nextStep: {
+          tone: 'ok',
+          title: 'Index is behind the files.',
+          body: 'Refresh rewrites INDEX.md from this Mac.',
+        },
+      }),
+    });
     expect(
       screen.getAllByText('Read-only').some((el) => el.closest('.wb-src'))
     ).toBe(true);
@@ -541,24 +516,6 @@ describe('ProjectSourcesRail', () => {
         ],
       });
 
-    const renderRail = () =>
-      render(
-        <ProjectSourcesRail
-          project={project}
-          inspect={withTokens()}
-          onChangeFolder={noop}
-          onChooseFolder={noop}
-          onRevealHub={noop}
-          onRevealSource={noop}
-          onRefreshIndex={noop}
-          onAddFolder={noop}
-          onRemoveSource={noop}
-          connecting={false}
-          rpcAvailable
-          role={null}
-        />
-      );
-
     it('shows a granted folder as Coding, says Hermes waits, and offers a Hermes restart', async () => {
       listCodingFolders.mockResolvedValue({
         success: true,
@@ -577,7 +534,7 @@ describe('ProjectSourcesRail', () => {
           },
         ],
       });
-      renderRail();
+      renderRail({ inspect: withTokens() });
       expect(
         await screen.findByText('Coding agent can edit · Hermes after its next restart')
       ).toBeTruthy();
@@ -587,7 +544,7 @@ describe('ProjectSourcesRail', () => {
     });
 
     it('allows coding on the project folder from a popover', async () => {
-      renderRail();
+      renderRail({ inspect: withTokens() });
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding…' }));
       expect(screen.getByText('Let the coding agent work in Job Search?')).toBeTruthy();
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding' }));
@@ -601,7 +558,7 @@ describe('ProjectSourcesRail', () => {
     });
 
     it('closes the allow-coding popover on Escape and returns focus to its button', async () => {
-      renderRail();
+      renderRail({ inspect: withTokens() });
       const allow = await screen.findByRole('button', { name: 'Allow coding…' });
       fireEvent.click(allow);
       expect(screen.getByRole('dialog')).toBeTruthy();
@@ -612,7 +569,7 @@ describe('ProjectSourcesRail', () => {
 
     it('offers to wait when a coding task is running', async () => {
       codingAgentBusy.mockResolvedValue({ busy: true, sessions: ['Fix header layout'] });
-      renderRail();
+      renderRail({ inspect: withTokens() });
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding…' }));
       expect(await screen.findByRole('button', { name: 'Allow when it finishes' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Stop task and allow' })).toBeTruthy();
@@ -627,7 +584,7 @@ describe('ProjectSourcesRail', () => {
         error: 'A coding task is running.',
         busy: { busy: true, sessions: ['Fix header layout'] },
       });
-      renderRail();
+      renderRail({ inspect: withTokens() });
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding…' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Allow coding' }));
       await waitFor(() => expect(setProjectFolderCoding).toHaveBeenCalled());
@@ -637,9 +594,9 @@ describe('ProjectSourcesRail', () => {
 
     it('hides Allow coding on a developer stack', async () => {
       listCodingFolders.mockResolvedValue({ success: false, managed: false, grants: [] });
-      renderRail();
-      await waitFor(() => expect(listCodingFolders).toHaveBeenCalled());
-      await waitFor(() => expect(screen.queryByRole('button', { name: 'Allow coding…' })).toBeNull());
+      renderRail({ inspect: withTokens() });
+      await replied(listCodingFolders);
+      expect(screen.queryByRole('button', { name: 'Allow coding…' })).toBeNull();
     });
   });
 });

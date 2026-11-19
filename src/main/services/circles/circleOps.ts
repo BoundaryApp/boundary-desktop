@@ -10,7 +10,10 @@
  * Kept free of native modules so it can be tested on its own; the signature check is passed in.
  */
 
-import type { SharedModelOffer } from '../../../shared/types/circles';
+import { MENTIONS_FORMAT } from '../../../shared/circleMentions';
+import { cleanReply, IDENTITY_PATTERN, MESSAGE_ID_PATTERN, REPLIES_FORMAT } from '../../../shared/circleReplies';
+import type { CircleMessageRef, SharedModelOffer } from '../../../shared/types/circles';
+import { type ApplyHost, type ApplyNode, applyEach } from './autobaseApply';
 
 export type CircleRole = 'admin' | 'member';
 
@@ -19,6 +22,17 @@ export const CIRCLE_FORMAT = 2;
 
 /** The first format with chat and kept records (ADR 0042 §1–§2). */
 export const CHAT_FORMAT = 2;
+
+export { MENTIONS_FORMAT };
+
+/** Most members one message can mention. */
+const MAX_MENTIONED_MEMBERS = 32;
+
+/** Who a message mentions. At least one field is present. */
+export interface CircleMessageMentions {
+  members?: string[];
+  channel?: true;
+}
 
 /** How a device introduces its owner to a Circle. Hex strings throughout. */
 export interface CircleMemberIntro {
@@ -118,6 +132,9 @@ export interface CircleMessageRecord {
   shared?: CircleMessageShared;
   agent?: CircleMessageAgent;
   call?: CircleMessageCall;
+  mentions?: CircleMessageMentions;
+  /** The message this one answers; set at format 3, never changed by an edit. The target may not exist. */
+  reply?: CircleMessageRef;
 }
 
 export type CircleOp =
@@ -141,8 +158,10 @@ export type CircleOp =
       shared?: CircleMessageShared;
       agent?: CircleMessageAgent;
       call?: CircleMessageCall;
+      mentions?: unknown;
+      reply?: unknown;
     }
-  | { type: 'chat-edit'; channel: string; id: string; text: string; call?: CircleMessageCall }
+  | { type: 'chat-edit'; channel: string; id: string; text: string; call?: CircleMessageCall; mentions?: unknown }
   | { type: 'chat-delete'; channel: string; author: string; id: string };
 
 /** The view's `CIRCLE_KEY` entry. */
@@ -196,19 +215,8 @@ export interface CircleViewStore {
   del(key: string): Promise<void>;
 }
 
-/** The parts of Autobase's host calls that apply uses. */
-export interface CircleHost {
-  addWriter(key: Buffer, opts: { indexer: boolean }): Promise<void>;
-  removeWriter(key: Buffer): Promise<void>;
-  removeable(key: Buffer): boolean;
-  /** Stops applying here until a build that can continue reopens the Circle. Throws. */
-  interrupt(reason: string): void;
-}
-
-export interface CircleNode {
-  value: unknown;
-  from: { key: Buffer };
-}
+export type CircleHost = ApplyHost;
+export type CircleNode = ApplyNode;
 
 export interface CircleApplyDeps {
   /** ed25519 verify over raw bytes. */
@@ -224,7 +232,7 @@ export interface CircleApplyDeps {
   onRemoveMember?(identity: string, byThemselves: boolean): void;
 }
 
-const HEX_KEY = /^[0-9a-f]{64}$/;
+const HEX_KEY = IDENTITY_PATTERN;
 const HEX_SIGNATURE = /^[0-9a-f]{128}$/;
 const MAX_NAME = 80;
 const MAX_OFFERED_MODELS = 32;
@@ -233,7 +241,7 @@ const MAX_CONTEXT = 100_000_000;
 /** The longest record value, as JSON text. */
 export const MAX_RECORD_VALUE_BYTES = 16 * 1024;
 const RECORD_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const MESSAGE_ID = /^[0-9a-f]{16,32}$/;
+const MESSAGE_ID = MESSAGE_ID_PATTERN;
 /** The longest message text, as UTF-8. */
 const MAX_MESSAGE_TEXT_BYTES = 12 * 1024;
 /** The longest chat operation, as JSON text. */
@@ -343,6 +351,46 @@ function cleanMessageParts(op: {
   return parts;
 }
 
+/**
+ * `mentions` cut to its known fields; null when malformed. `members` holds 1 to 32 distinct
+ * identities that `isMember` accepts, `channel` is only ever `true`, and one of them is present.
+ */
+export function cleanMentions(value: unknown, isMember: (identity: string) => boolean): CircleMessageMentions | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const { members, channel } = value as { members?: unknown; channel?: unknown };
+  const clean: CircleMessageMentions = {};
+  if (members !== undefined) {
+    if (!Array.isArray(members) || members.length < 1 || members.length > MAX_MENTIONED_MEMBERS) return null;
+    const seen = new Set<string>();
+    for (const identity of members) {
+      if (typeof identity !== 'string' || !HEX_KEY.test(identity) || seen.has(identity) || !isMember(identity)) return null;
+      seen.add(identity);
+    }
+    clean.members = [...seen];
+  }
+  if (channel !== undefined) {
+    if (channel !== true) return null;
+    clean.channel = true;
+  }
+  return clean.members || clean.channel ? clean : null;
+}
+
+/**
+ * `mentions` as sent, checked for shape, then cut to the Circle's current members, so a departed
+ * member's mention doesn't skip the message. Returns false for a malformed field, null when
+ * nothing is left.
+ */
+async function cleanMentionsInView(view: CircleView, value: unknown): Promise<CircleMessageMentions | null | false> {
+  const shape = cleanMentions(value, () => true);
+  if (!shape) return false;
+  const members: string[] = [];
+  for (const identity of shape.members ?? []) {
+    if (await view.get(memberKey(identity))) members.push(identity);
+  }
+  if (members.length === 0 && !shape.channel) return null;
+  return { ...(members.length ? { members } : {}), ...(shape.channel ? { channel: true as const } : {}) };
+}
+
 function cleanCall(value: unknown): CircleMessageCall | null {
   const { id, ended } = (value ?? {}) as CircleMessageCall;
   if (!isMessageId(id)) return null;
@@ -382,12 +430,7 @@ export async function applyCircleNodes(
   host: CircleHost,
   deps: CircleApplyDeps
 ): Promise<void> {
-  for (const node of nodes) {
-    // Ack nodes carry null.
-    if (node.value === null || node.value === undefined) continue;
-    const reason = await applyOne(node, view, host, deps);
-    if (reason) deps.onSkip?.(reason, node.value);
-  }
+  await applyEach(nodes, (node) => applyOne(node, view, host, deps), deps.onSkip);
 }
 
 /** Applies one operation, or returns why it was skipped. */
@@ -543,8 +586,8 @@ async function applyOne(
       if (authorRole === null) return 'not a member';
       if (!isRecordName(op.channel)) return 'bad channel';
       if (!fitsChatOp(op)) return 'chat operation too long';
-      if (op.type === 'chat-post') return postMessage(view, op, authorMember!);
-      if (op.type === 'chat-edit') return editMessage(view, op, author!.identity);
+      if (op.type === 'chat-post') return postMessage(view, op, authorMember!, circle.format);
+      if (op.type === 'chat-edit') return editMessage(view, op, author!.identity, circle.format);
       return deleteMessage(view, op, author!.identity, authorRole);
     }
     default:
@@ -569,13 +612,15 @@ async function deleteDepartedRecord(
 }
 
 /** What `apply` would skip a post for without reading the view, or null. */
-export function chatPostProblem(op: Extract<CircleOp, { type: 'chat-post' }>): string | null {
+export function chatPostProblem(op: Extract<CircleOp, { type: 'chat-post' }>, format: number = CHAT_FORMAT): string | null {
   if (!isRecordName(op.channel)) return 'bad channel';
   if (!fitsChatOp(op)) return 'chat operation too long';
   if (!isMessageId(op.id)) return 'bad message id';
   if (!Number.isSafeInteger(op.at) || op.at < 0) return 'bad message time';
   const parts = cleanMessageParts(op);
   if (!parts) return 'bad message';
+  if (format >= MENTIONS_FORMAT && op.mentions !== undefined && !cleanMentions(op.mentions, () => true)) return 'bad message';
+  if (format >= REPLIES_FORMAT && op.reply !== undefined && !cleanReply(op.reply)) return 'bad message';
   if (!isMessageText(op.text, Boolean(parts.call))) return 'bad message text';
   return null;
 }
@@ -583,11 +628,19 @@ export function chatPostProblem(op: Extract<CircleOp, { type: 'chat-post' }>): s
 async function postMessage(
   view: CircleView,
   op: Extract<CircleOp, { type: 'chat-post' }>,
-  author: CircleMemberRecord
+  author: CircleMemberRecord,
+  format: number
 ): Promise<string | null> {
-  const problem = chatPostProblem(op);
+  const problem = chatPostProblem(op, format);
   if (problem) return problem;
   const parts = cleanMessageParts(op)!;
+  let mentions: CircleMessageMentions | undefined;
+  if (format >= MENTIONS_FORMAT && op.mentions !== undefined) {
+    const clean = await cleanMentionsInView(view, op.mentions);
+    if (clean === false) return 'bad message';
+    mentions = clean ?? undefined;
+  }
+  const reply = format >= REPLIES_FORMAT && op.reply !== undefined ? cleanReply(op.reply) : null;
   const index = chatIndexKey(op.channel, author.identity, op.id);
   if (await view.get(index)) return 'message already posted';
   const position = (await read<number>(view, chatCountKey(op.channel))) ?? 0;
@@ -602,6 +655,8 @@ async function postMessage(
     edited: false,
     deleted: null,
     ...parts,
+    ...(mentions ? { mentions } : {}),
+    ...(reply ? { reply } : {}),
   };
   await view.put(chatMessageKey(op.channel, position), message);
   await view.put(index, position);
@@ -620,7 +675,8 @@ async function findMessage(view: CircleView, channel: string, author: string, id
 async function editMessage(
   view: CircleView,
   op: Extract<CircleOp, { type: 'chat-edit' }>,
-  identity: string
+  identity: string,
+  format: number
 ): Promise<string | null> {
   const message = await findMessage(view, op.channel, identity, op.id);
   if (!message) return 'no such message of theirs';
@@ -631,12 +687,21 @@ async function editMessage(
     if (!next || next.id !== message.call?.id) return 'bad message';
     call = next;
   }
+  let mentions: CircleMessageMentions | undefined;
+  if (format >= MENTIONS_FORMAT && op.mentions !== undefined) {
+    const clean = await cleanMentionsInView(view, op.mentions);
+    if (clean === false) return 'bad message';
+    mentions = clean ?? undefined;
+  }
   if (!isMessageText(op.text, Boolean(call))) return 'bad message text';
+  const { mentions: _previous, ...rest } = message;
   await view.put(chatMessageKey(op.channel, message.position), {
-    ...message,
+    // From format 3 an edit's mentions replace the old ones; below it the record stays as it was.
+    ...(format >= MENTIONS_FORMAT ? rest : message),
     text: op.text,
     edited: message.edited || op.text !== message.text,
     ...(call ? { call } : {}),
+    ...(mentions ? { mentions } : {}),
   });
   return null;
 }

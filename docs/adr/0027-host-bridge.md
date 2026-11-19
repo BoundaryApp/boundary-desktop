@@ -62,9 +62,11 @@ What we know, from research and from local tests on 2026-10-07 (Docker Desktop 4
      - sessions private to the client that attached them;
      - browser-wide auto-attach and target discovery emulated per client, so clients can't override Chrome's single setting for each other.
    - Chrome starts on Hermes's first connection, or when the user opens it from Settings to sign in. It stays open until Boundary quits, so logins and tabs carry across agent sessions.
-   - Hermes connects to `ws://host.docker.internal:<browser port>/devtools/browser/boundary?token=<browser token>`, set as `browser.cdp_url` on each profile when the user turns the browser on.
+   - Hermes connects to `ws://host.docker.internal:<browser port>/devtools/browser/boundary?token=${BOUNDARY_BROWSER_TOKEN}`, set as `browser.cdp_url` on each profile when the user turns the browser on.
      - The `/devtools/browser/` path makes Hermes skip `/json/version` discovery, which the relay doesn't serve.
      - The token is in the query because the driver takes a URL, not headers. Hermes masks CDP query strings in its logs.
+     - Amended 2026-11-12: the URL refers to the token, as decision 3 says, rather than holding it. Hermes v0.23.1 expands `${…}` in `browser.cdp_url` from the profile's own `.env` (`browser_cfg` reads through `load_user_config_effective`). Earlier versions wrote the token itself; a one-time migration replaced that token.
+     - Not on `api-server`, the stack's unattended identity (n8n, scripts). Unattended runs would otherwise drive the signed-in browser. Boundary clears a URL an earlier version wrote there.
      - Hermes reads `cdp_url` on every browser call, so turning the browser on or off needs no restart.
    - Off by default. The user turns it on in Settings → Agent browser, which also opens Chrome for signing in.
    - Why this route first: Chrome supports it, it needs no extension, the spike shows Hermes's own driver passes the static detectors on it, and the agent only ever holds the logins the user chose to put in that profile.
@@ -135,7 +137,7 @@ What we know, from research and from local tests on 2026-10-07 (Docker Desktop 4
     - Bridge process: `chromePipe.ts` (Chrome on the pipe), `cdpMux.ts` (the multiplexer), `cdpPolicy.ts` (blocked methods and sites) and `browserRelay.ts` (glue).
     - Main: `browserConfig.ts` (Chrome path, profile folder, site lists), and `applyHostBridgeBrowserToHermes` in `AssistantStackService.ts` (`browser.cdp_url`).
     - Settings: `AgentBrowserPanel.tsx`.
-    - `browserRelay.live.test.ts` drives the relay against the real Chrome with `BOUNDARY_LIVE_CHROME=1`.
+    - `browserRelay.live.test.ts` drives the relay against the real Chrome with `BOUNDARY_LIVE_CHROME=1 bun run test:live`.
   - Settings → Computer access (`ComputerAccessPanel.tsx`) lists grants, with Revoke and Revoke all.
 
 ## Phases

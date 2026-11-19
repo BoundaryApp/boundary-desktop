@@ -1,34 +1,21 @@
 import React, { useCallback, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type { HermesChatMessage } from '../../../../shared/types/hermesChat';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import type { ElectronAPI } from '../../../../preload';
+import type { FakeBridge } from '../../../__tests__/fakeBridge';
+import type { HermesChatMessage, HermesChatStartResult } from '../../../../shared/types/hermesChat';
+import { HostedChatRuntime, installChatBridge, threadProps } from './threadHarness';
 
 const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
 ipcCalls.settleBeforeWaits();
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
-
-type Listener = (event: Record<string, unknown>) => void;
-const ipc = vi.hoisted(() => ({
-  chunk: new Set<(e: Record<string, unknown>) => void>(),
-  end: new Set<(e: Record<string, unknown>) => void>(),
-  error: new Set<(e: Record<string, unknown>) => void>(),
-  getHistory: null as unknown as ReturnType<typeof vi.fn>,
-  startChat: null as unknown as ReturnType<typeof vi.fn>,
-  listThreads: null as unknown as ReturnType<typeof vi.fn>,
-  sessionsChanged: new Set<() => void>(),
-}));
+type HermesChatAPI = ElectronAPI['hermesChat'];
+let bridge: FakeBridge;
+let getHistory: Mock<HermesChatAPI['getHistory']>;
+let startChat: Mock<HermesChatAPI['startChat']>;
+let listThreads: Mock<HermesChatAPI['listThreads']>;
 
 /**
  * What main keeps, per hermesFailedChats.test.ts: a failed send comes back under a chat id, and
@@ -39,51 +26,33 @@ let down = true;
 let nextId = 1;
 const ERROR = "Couldn't reach the assistant stack: connect failed. Check that it is running, then retry.";
 
-const on = (set: Set<Listener>) => (cb: Listener) => {
-  set.add(cb);
-  return () => set.delete(cb);
-};
-
-stubElectronAPI({
-  hermesChat: {
-    getHistory: ipcCalls.track((...args: unknown[]) => ipc.getHistory(...args)),
-    startChat: ipcCalls.track((...args: unknown[]) => ipc.startChat(...args)),
-    listThreads: ipcCalls.track((...args: unknown[]) => ipc.listThreads(...args)),
-    listMentions: ipcCalls.track(async () => ({ success: true, mentions: [] })),
-    onSessionsChanged: (cb: () => void) => {
-      ipc.sessionsChanged.add(cb);
-      return () => ipc.sessionsChanged.delete(cb);
+/** Main with the test's own history, sends and chat list, no agents, rooms or mentions. */
+function installBridge() {
+  ({ bridge } = installChatBridge('s1', (_chat, fake) => ({
+    hermesChat: {
+      getHistory,
+      startChat,
+      listThreads,
+      listMentions: async () => ({ success: true, mentions: [] }),
+      onSessionsChanged: fake.listen('hermes-chat:sessions-changed'),
     },
-    cancelChat: vi.fn(),
-    onChatChunk: on(ipc.chunk as Set<Listener>),
-    onChatEnd: on(ipc.end as Set<Listener>),
-    onChatError: on(ipc.error as Set<Listener>),
-    listPendingCredentialRequests: ipcCalls.track(async () => []),
-    getContextBreakdown: ipcCalls.track(vi.fn().mockResolvedValue({ success: false })),
-  },
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ health: 'reachable' })),
-  },
-  projects: {
-    completePath: ipcCalls.track(vi.fn().mockResolvedValue({ success: true, items: [] })),
-  },
-  agents: {
-    onChanged: () => () => undefined,
-    list: ipcCalls.track(async () => ({ success: true, agents: [], standingDmByAgent: {} })),
-  },
-  channels: {
-    list: ipcCalls.track(async () => ({ success: true, channels: [], lastOpened: null })),
-  },
-});
+    agents: {
+      onChanged: fake.listen('hermes-agents:changed'),
+      list: async () => ({ success: true, agents: [], standingDmByAgent: {} }),
+    },
+    channels: {
+      list: async () => ({ success: true, channels: [], lastOpened: null }),
+    },
+  })));
+}
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
-import { HermesChatRuntimeProvider } from '../HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../WorkbenchThread';
 import { useChatIds } from '../useChatIds';
 import { useChatLists } from '../useChatLists';
+import { setValue } from '../../../__tests__/formInput';
 
 const Chat: React.FC<{ initialId?: string | null }> = ({ initialId = null }) => {
   const [id, setId] = useState<string | null>(initialId);
@@ -94,29 +63,11 @@ const Chat: React.FC<{ initialId?: string | null }> = ({ initialId = null }) => 
         Start over
       </button>
       <output data-testid="open-chat">{id ?? 'none'}</output>
-      <HermesChatRuntimeProvider sessionId={id} onSessionResolved={resolved}>
-        <WorkbenchThread
-          sessionId={id}
-          threadTitle="Chat"
-          activeProject={null}
-          projects={[]}
-          activeProjectId={null}
-          toolsEnabled
-          onToolsEnabledChange={noop}
-          onSelectProject={noop}
-          onClearProject={noop}
-          onNewProject={noop}
-          onCreateAgentFromDraft={noop}
-          onEditAgentDraft={noop}
-        />
-      </HermesChatRuntimeProvider>
+      <HostedChatRuntime sessionId={id} onSessionResolved={resolved}>
+        <WorkbenchThread {...threadProps({ sessionId: id, threadTitle: 'Chat' })} />
+      </HostedChatRuntime>
     </>
   );
-};
-
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-  fireEvent.input(el);
 };
 
 async function sendMessage(text: string) {
@@ -135,29 +86,27 @@ async function relaunch(id: string) {
   await ipcCalls.settle();
 }
 
-const lastStart = () => ipc.startChat.mock.calls.at(-1)![0] as Record<string, unknown>;
+const lastStart = () => startChat.mock.calls.at(-1)![0];
 
 async function finishTurn() {
   const { requestId } = lastStart();
-  await act(async () => {
-    for (const cb of ipc.chunk) cb({ requestId, delta: 'Here you go.' });
-    for (const cb of ipc.end) cb({ requestId, finishReason: 'stop' });
-  });
+  await bridge.emit('hermes-chat:chunk', { requestId, delta: 'Here you go.' });
+  await bridge.emit('hermes-chat:end', { requestId, finishReason: 'stop' });
   await ipcCalls.settle();
 }
 
 describe('a chat whose send failed', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     chats = {};
     down = true;
     nextId = 1;
-    ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    listThreads = vi.fn<HermesChatAPI['listThreads']>();
+    getHistory = vi.fn<HermesChatAPI['getHistory']>(async ({ sessionId }) => ({
       success: true,
       sessionId,
       messages: chats[sessionId] ?? [],
     }));
-    ipc.startChat = vi.fn(
+    startChat = vi.fn<HermesChatAPI['startChat']>(
       async (payload: {
         requestId: string;
         sessionId?: string;
@@ -192,10 +141,12 @@ describe('a chat whose send failed', () => {
         return { success: true, requestId: payload.requestId, sessionId: 'run-1' };
       }
     );
+    installBridge();
   });
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('opens under its own id, showing the message and the error', async () => {
@@ -312,27 +263,15 @@ const Screen: React.FC = () => {
           </button>
         ))}
       </nav>
-      <HermesChatRuntimeProvider
+      <HostedChatRuntime
         sessionId={ids.activeThreadId}
         onSessionResolved={resolved}
         sameChat={ids.sameChat}
       >
         <WorkbenchThread
-          sessionId={ids.activeThreadId}
-          sameChat={ids.sameChat}
-          threadTitle="Chat"
-          activeProject={null}
-          projects={[]}
-          activeProjectId={null}
-          toolsEnabled
-          onToolsEnabledChange={noop}
-          onSelectProject={noop}
-          onClearProject={noop}
-          onNewProject={noop}
-          onCreateAgentFromDraft={noop}
-          onEditAgentDraft={noop}
+          {...threadProps({ sessionId: ids.activeThreadId, sameChat: ids.sameChat, threadTitle: 'Chat' })}
         />
-      </HermesChatRuntimeProvider>
+      </HostedChatRuntime>
     </>
   );
 };
@@ -344,12 +283,13 @@ const Screen: React.FC = () => {
 describe('retrying a refused send in the open chat', () => {
   const REFUSED = 'The default shared model is offline.';
   const row = (id: string, title = 'Plan my week') => ({ id, title, kind: 'hermes' as const });
-  const started = (result: Record<string, unknown>) =>
-    ipc.startChat.mockImplementationOnce(async ({ requestId }: { requestId: string }) => ({
+  type StartAnswer = Omit<HermesChatStartResult, 'requestId'>;
+  const started = (result: StartAnswer) =>
+    startChat.mockImplementationOnce(async ({ requestId }) => ({
       requestId,
       ...result,
     }));
-  const refused = (sessionId: string, storedSessionId: string) => ({
+  const refused = (sessionId: string, storedSessionId: string): StartAnswer => ({
     success: false,
     sessionId,
     storedSessionId,
@@ -357,13 +297,13 @@ describe('retrying a refused send in the open chat', () => {
     error: REFUSED,
   });
   const listing = (...threads: ReturnType<typeof row>[]) =>
-    ipc.listThreads.mockResolvedValue({ success: true, threads });
+    listThreads.mockResolvedValue({ success: true, threads });
 
   /** Main says sessions changed; the rail lists again once the burst settles. */
   async function sessionsChanged() {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await bridge.emit('hermes-chat:sessions-changed', undefined);
     await act(async () => {
-      for (const cb of ipc.sessionsChanged) cb();
       await vi.advanceTimersByTimeAsync(400);
     });
     vi.useRealTimers();
@@ -377,9 +317,9 @@ describe('retrying a refused send in the open chat', () => {
     expect(rows[0]!.getAttribute('aria-current')).toBe('true');
   };
 
-  async function retry(result: Record<string, unknown>) {
+  async function retry(result: StartAnswer) {
     started(result);
-    ipc.getHistory.mockClear();
+    getHistory.mockClear();
     const note = screen.getByText(REFUSED).closest('.wb-turn-note') as HTMLElement;
     await act(async () => fireEvent.click(within(note).getByRole('button', { name: 'Retry' })));
     await ipcCalls.settle();
@@ -398,18 +338,19 @@ describe('retrying a refused send in the open chat', () => {
   }
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    ipc.startChat = vi.fn();
-    ipc.listThreads = vi.fn();
-    ipc.getHistory = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    startChat = vi.fn<HermesChatAPI['startChat']>();
+    listThreads = vi.fn<HermesChatAPI['listThreads']>();
+    getHistory = vi.fn<HermesChatAPI['getHistory']>(async ({ sessionId }) => ({
       success: true,
       sessionId,
       messages: [],
     }));
+    installBridge();
   });
   afterEach(async () => {
     await ipcCalls.settle();
     cleanup();
+    expect(bridge.unfaked).toEqual([]);
   });
 
   it('keeps one active row and the transcript when the session is still live', async () => {
@@ -423,7 +364,7 @@ describe('retrying a refused send in the open chat', () => {
     await finishTurn();
 
     expectOneActiveRow();
-    expect(ipc.getHistory).not.toHaveBeenCalled();
+    expect(getHistory).not.toHaveBeenCalled();
     expect(screen.getByText('Here you go.')).toBeTruthy();
   });
 
@@ -435,7 +376,7 @@ describe('retrying a refused send in the open chat', () => {
     await finishTurn();
 
     expectOneActiveRow();
-    expect(ipc.getHistory).not.toHaveBeenCalled();
+    expect(getHistory).not.toHaveBeenCalled();
     expect(screen.queryByText('Loading chat…')).toBeNull();
     expect(screen.getByText('Here you go.')).toBeTruthy();
   });
@@ -446,7 +387,7 @@ describe('retrying a refused send in the open chat', () => {
     await ipcCalls.settle();
     started(refused('run-1', 'stored-1'));
     // An empty composer has no history to keep, so the chat loads its kept send from main.
-    ipc.getHistory.mockResolvedValueOnce({
+    getHistory.mockResolvedValueOnce({
       success: true,
       sessionId: 'run-1',
       messages: [

@@ -5,6 +5,7 @@ import {
   JsonRpcGatewayClient,
   type GatewayEvent,
 } from './vendor';
+import type { PromptSubmitStatus } from './vendor/gateway-contract.generated';
 import type { ServerRequest } from './vendor/json-rpc-channel';
 import { isStableOpen, reconnectBackoffDelayMs } from './vendor/reconnect-backoff';
 import { BrowserWindow } from 'electron';
@@ -158,10 +159,7 @@ export type HermesVaultMethod =
 /** MCP calls Boundary makes for the servers it writes into profiles (calendars). */
 export type HermesMcpMethod = 'reload.mcp' | 'mcp.servers.status' | 'mcp.servers.remove';
 
-/**
- * Main-process JSON-RPC client over the Hermes dashboard WebSocket.
- * Uses the vendored MIT JsonRpcGatewayClient from hermes-agent.
- */
+/** How the gateway shows a running turn is alive. */
 export interface TurnLiveness {
   /** Seconds between `turn.heartbeat` events while a turn runs; null when none are sent. */
   heartbeatS: number | null;
@@ -185,6 +183,19 @@ const GATEWAY_DROPPED_MESSAGE =
   'The connection to the assistant stack dropped, so that answer was not sent. Hermes asks again once it reconnects.';
 
 /**
+ * A cron fire whose agent never ran. Hermes commits the session before the job's monitor or
+ * wake gate, and a gate that skips the run leaves it untitled with no messages (CR 0033).
+ * Listed, it shows as an empty "Chat", and typing into it turns it into a chat marked Cron.
+ * A row without `message_count` (an older stack) is kept.
+ */
+function isEmptyCronSession(s: { source?: string; message_count?: number }): boolean {
+  return s.source?.trim().toLowerCase() === 'cron' && s.message_count === 0;
+}
+
+/**
+ * Main-process JSON-RPC client over the Hermes dashboard WebSocket, using the vendored MIT
+ * JsonRpcGatewayClient from hermes-agent.
+ *
  * Owns the one connection to the Hermes gateway. It keeps a single vendored client for its
  * whole life and redials that client when its socket drops, with the vendored backoff. The
  * client keeps its event subscribers and per-session seq watermarks across sockets, so a turn
@@ -513,6 +524,10 @@ export class HermesGatewaySession {
     parentSessionId?: string;
     /** History budget in tokens (CR 0002 R1); DMs only. */
     historyBudget?: number;
+    /** Out of `session.list` (a calibration turn, ADR 0056 §4); still resumable by id. */
+    hidden?: boolean;
+    /** Session context (stack `client_context`): a string sets it, null clears it, absent leaves it. */
+    context?: string | null;
   }): Promise<string> {
     const client = await this.ensureConnected();
     const params: Record<string, unknown> = {
@@ -529,6 +544,12 @@ export class HermesGatewaySession {
     }
     if (opts?.parentSessionId) {
       params.parent_session_id = opts.parentSessionId;
+    }
+    if (opts?.hidden) {
+      params.hidden = true;
+    }
+    if (opts && opts.context !== undefined) {
+      params.context = opts.context;
     }
     if (opts?.messages && opts.messages.length > 0) {
       params.messages = opts.messages.map((m) => ({
@@ -651,10 +672,12 @@ export class HermesGatewaySession {
         last_active?: number;
         source?: string;
         cwd?: string | null;
+        message_count?: number;
       }>;
     };
     const sessions = result.sessions ?? [];
     return sessions
+      .filter((s) => !isEmptyCronSession(s))
       .map((s) => {
         const id = String(s.resolved_id || s.id || '');
         const activity =
@@ -695,6 +718,8 @@ export class HermesGatewaySession {
       profile?: string | null;
       /** Skip the transcript (`omit_messages`) when the caller only needs the live session. */
       omitMessages?: boolean;
+      /** Session context (stack `client_context`): a string sets it, null clears it, absent leaves it. */
+      context?: string | null;
     }
   ): Promise<{
     sessionId: string;
@@ -708,6 +733,7 @@ export class HermesGatewaySession {
     if (opts?.historyBudget != null) params.history_budget = opts.historyBudget;
     if (opts?.profile?.trim()) params.profile = opts.profile.trim();
     if (opts?.omitMessages) params.omit_messages = true;
+    if (opts && opts.context !== undefined) params.context = opts.context;
     const result = (await client.request('session.resume', params)) as {
       session_id?: string;
       stored_session_id?: string | null;
@@ -904,10 +930,6 @@ export class HermesGatewaySession {
   }
 
   /**
-   * Read agent.max_turns from config when available. Callers should treat
-   * null as unknown rather than hardcoding a default.
-   */
-  /**
    * The profile's configured turn limit, read the way Hermes does (`agent.max_turns`, then a
    * top-level `max_turns`). Null when unset, unlimited (0 or a word) or unreadable: Hermes has no
    * getter for the key alone, so this reads the whole config.
@@ -992,8 +1014,13 @@ export class HermesGatewaySession {
       displayKind?: 'hidden';
       /** Turn context: added to this turn's model input, never to `session.history`. */
       context?: string;
+      /**
+       * A queued message from the desktop's queue: on a busy session Hermes holds it and runs
+       * it once the current turn releases, never redirecting or steering the live turn.
+       */
+      queued?: boolean;
     }
-  ): Promise<void> {
+  ): Promise<{ status: PromptSubmitStatus | null }> {
     const client = await this.ensureConnected();
     const params: Record<string, unknown> = {
       session_id: sessionId,
@@ -1005,12 +1032,17 @@ export class HermesGatewaySession {
     if (opts?.context) {
       params.context = opts.context;
     }
+    if (opts?.queued) {
+      params.queued = true;
+    }
     if (opts?.truncate) {
       params.truncate_before_row_id = opts.truncate.rowId;
       params.confirm_truncate = true;
       if (opts.truncate.confirmEmpty) params.confirm_empty_truncate = true;
     }
-    await client.request('prompt.submit', params);
+    const result = (await client.request('prompt.submit', params)) as { status?: unknown } | null;
+    const status = result?.status;
+    return { status: typeof status === 'string' ? (status as PromptSubmitStatus) : null };
   }
 
   private async getCapabilities(): Promise<Record<string, unknown>> {

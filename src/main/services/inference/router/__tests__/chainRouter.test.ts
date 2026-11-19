@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InferenceChainEntryState } from '../../../../../shared/types/inferenceChain';
+import { meterUsage } from '../../confidential/usageMeter';
 import {
   ROUTER_SERVED_HEADER,
   ROUTER_SESSION_HEADER,
   startChainRouter,
   type ChainRouter,
+  type PeerFetch,
+  type PoolFetch,
   type RouterChain,
   type RouterServed,
 } from '../chainRouter';
@@ -107,8 +110,12 @@ describe('chain router', () => {
       'cloud.test': ok('from cloud'),
     });
     await start({ fetchImpl: fake.fetchImpl, onServed: (s) => served.push(s) });
+    const before = Date.now();
     const res = await post(userTurn, { [ROUTER_SESSION_HEADER]: 's1' });
     expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('cloud');
+    // Stamped when the request arrived, before the fallback answered.
+    expect(served[0].requestedAt).toBeGreaterThanOrEqual(before);
+    expect(served[0].requestedAt).toBeLessThanOrEqual(served[0].at);
     expect(fake.calls.map((c) => c.host)).toEqual(['peer.test', 'local.test', 'cloud.test']);
     expect(fake.calls[1].init.headers).not.toHaveProperty('Authorization');
     expect(fake.calls[2].body.model).toBe('anthropic/claude');
@@ -274,7 +281,7 @@ describe('chain router', () => {
 
     it('serves through the Circles network with the entry’s model, never by URL', async () => {
       const fake = upstreams({ 'local.test': ok('local') });
-      const peerFetch = vi.fn(async () => new Response('{"text":"shared"}', { status: 200 }));
+      const peerFetch = vi.fn<PeerFetch>(async () => new Response('{"text":"shared"}', { status: 200 }));
       const served: RouterServed[] = [];
       await start({ fetchImpl: fake.fetchImpl, peerFetch, getChain: () => shared, onServed: (s) => served.push(s) });
       const res = await post(userTurn);
@@ -306,6 +313,179 @@ describe('chain router', () => {
       await start({ fetchImpl: fake.fetchImpl, getChain: () => shared });
       expect((await post(userTurn)).headers.get(ROUTER_SERVED_HEADER)).toBe('local');
       expect(fake.calls.map((c) => c.host)).toEqual(['local.test']);
+    });
+  });
+
+  describe('confidential pool entries', () => {
+    const POOL = { modelId: 'llama-3.3-70b', privateProject: false };
+    const pooled: RouterChain = {
+      ...chain,
+      entries: [
+        state('confidential:llama-3.3-70b', { entry: { slot: 'confidential', modelId: 'llama-3.3-70b' } }),
+        state('local'),
+      ],
+      upstreams: {
+        'confidential:llama-3.3-70b': { baseUrl: '', modelId: 'llama-3.3-70b', pool: POOL },
+        local: chain.upstreams.local,
+      },
+    };
+    const served = (providerId = 'tinfoil'): ReturnType<PoolFetch> =>
+      Promise.resolve({
+        ok: true,
+        response: new Response('{"text":"pooled"}', { status: 200 }),
+        providerId,
+        providerModelId: 'meta/llama-3.3-70b',
+        moved: 'new-session',
+      });
+
+    it('serves a pool entry through poolFetch', async () => {
+      const fake = upstreams({ 'local.test': ok('local') });
+      const poolFetch = vi.fn<PoolFetch>(() => served());
+      const record: RouterServed[] = [];
+      await start({ fetchImpl: fake.fetchImpl, poolFetch, getChain: () => pooled, onServed: (s) => record.push(s) });
+      const res = await post(userTurn, { [ROUTER_SESSION_HEADER]: 's1' });
+      expect(res.status).toBe(200);
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('confidential:llama-3.3-70b');
+      expect(await res.json()).toEqual({ text: 'pooled' });
+      expect(poolFetch).toHaveBeenCalledWith(
+        POOL,
+        expect.objectContaining({ messages: userTurn }),
+        expect.any(AbortSignal),
+        expect.objectContaining({ sessionKey: 's1' })
+      );
+      expect(fake.calls).toEqual([]);
+      expect(record).toEqual([
+        expect.objectContaining({
+          sessionKey: 's1',
+          entryKey: 'confidential:llama-3.3-70b',
+          modelId: 'llama-3.3-70b',
+          fellBack: false,
+          pool: { providerId: 'tinfoil', moved: 'new-session' },
+        }),
+      ]);
+    });
+
+    it('falls back past a pool whose providers all fail', async () => {
+      const fake = upstreams({ 'local.test': ok('local') });
+      const poolFetch = vi.fn<PoolFetch>(async () => ({ ok: false, outcome: { kind: 'unreachable' } }));
+      const record: RouterServed[] = [];
+      await start({ fetchImpl: fake.fetchImpl, poolFetch, getChain: () => pooled, onServed: (s) => record.push(s) });
+      const res = await post(userTurn);
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('local');
+      expect(await res.json()).toEqual({ text: 'local' });
+      expect(poolFetch).toHaveBeenCalledOnce();
+      expect(record[0]).not.toHaveProperty('pool');
+    });
+
+    it('tells Hermes a pool’s context overflow in words and a code it compresses on', async () => {
+      const poolFetch = vi.fn<PoolFetch>(async () => ({ ok: false, outcome: { kind: 'status', status: 400, contextOverflow: true } }));
+      await start({ poolFetch, getChain: () => pooled });
+      const res = await post(userTurn);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: {
+          message: 'The confidential provider refused the request: it is longer than the model’s maximum context length.',
+          type: 'invalid_request_error',
+          code: 'context_length_exceeded',
+        },
+      });
+    });
+
+    it('passes a pool’s request error through as its status', async () => {
+      const fake = upstreams({ 'local.test': ok('local') });
+      const poolFetch = vi.fn<PoolFetch>(async () => ({ ok: false, outcome: { kind: 'status', status: 400 } }));
+      await start({ fetchImpl: fake.fetchImpl, poolFetch, getChain: () => pooled });
+      const res = await post(userTurn);
+      expect(res.status).toBe(400);
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBeNull();
+      expect(await res.json()).toEqual({ error: { message: expect.stringContaining('HTTP 400'), type: 'boundary_router_error' } });
+      expect(fake.calls).toEqual([]);
+    });
+
+    it('a pool entry without poolFetch is unreachable', async () => {
+      const fake = upstreams({ 'local.test': ok('local') });
+      await start({ fetchImpl: fake.fetchImpl, getChain: () => pooled });
+      expect((await post(userTurn)).headers.get(ROUTER_SERVED_HEADER)).toBe('local');
+      expect(fake.calls.map((c) => c.host)).toEqual(['local.test']);
+    });
+
+    it('serves a chain whose only entry is a pool', async () => {
+      const solo: RouterChain = { ...pooled, entries: [pooled.entries[0]] };
+      const poolFetch = vi.fn<PoolFetch>(() => served('privatemode'));
+      await start({ poolFetch, getChain: () => solo });
+      const res = await post(userTurn);
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('confidential:llama-3.3-70b');
+      expect(await res.json()).toEqual({ text: 'pooled' });
+      // One entry: the server judges the size, so no estimate is sent.
+      expect(poolFetch.mock.calls[0][3]).toEqual({ sessionKey: null, requestTokens: undefined });
+    });
+
+    it('records a metered pool reply once, with no usage, when the client leaves mid-stream', async () => {
+      let recorded!: () => void;
+      const done = new Promise<void>((resolve) => (recorded = resolve));
+      const onDone = vi.fn((_usage: unknown) => recorded());
+      // A streamed reply that sends one event and never ends.
+      const poolFetch = vi.fn<PoolFetch>(async () => ({
+        ok: true,
+        response: meterUsage(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('data: {"a":1}\n\n'));
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+          ),
+          onDone
+        ),
+        providerId: 'tinfoil',
+        providerModelId: 'meta/llama-3.3-70b',
+        moved: 'new-session',
+      }));
+      await start({ poolFetch, getChain: () => pooled });
+      const client = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${router!.port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'qwen3-32b', messages: userTurn, stream: true }),
+        signal: client.signal,
+      });
+      const reader = res.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe('data: {"a":1}\n\n');
+      client.abort();
+      await done;
+      await router!.close();
+      router = null;
+      expect(onDone).toHaveBeenCalledOnce();
+      expect(onDone).toHaveBeenCalledWith(null);
+    });
+
+    it('falls back when the pool sends no headers in time', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const fake = upstreams({ 'local.test': ok('local') });
+      let reached!: () => void;
+      const poolReached = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      // A sender that resolves on any abort, as a stand-in for one that ignores the reason.
+      const poolFetch = vi.fn<PoolFetch>(
+        (_pool, _body, signal) =>
+          new Promise((resolve) => {
+            reached();
+            signal.addEventListener('abort', () =>
+              resolve({ ok: false, outcome: { kind: 'failed-mid-stream', detail: 'client closed' } })
+            );
+          })
+      );
+      await start({ fetchImpl: fake.fetchImpl, poolFetch, getChain: () => pooled, headerTimeoutMs: 1_000 });
+      const pending = post(userTurn);
+      await poolReached;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((await pending).headers.get(ROUTER_SERVED_HEADER)).toBe('local');
+      // The sender tells a slow provider from a client that left by the reason.
+      const poolSignal = poolFetch.mock.calls[0][2];
+      expect(poolSignal.reason).toBeInstanceOf(DOMException);
+      expect((poolSignal.reason as DOMException).name).toBe('TimeoutError');
     });
   });
 
@@ -395,5 +575,44 @@ describe('chain router', () => {
     await (await post(userTurn, { [ROUTER_SESSION_HEADER]: 'other' })).text();
     expect(seen).toHaveLength(2);
     expect(seen[1].inFlight).not.toHaveProperty('peer');
+  });
+
+  describe('per-request chains', () => {
+    const own: RouterChain = {
+      entries: [state('own')],
+      upstreams: { own: { baseUrl: 'http://own.test/v1', modelId: 'own-model' } },
+      modelId: 'own-model',
+    };
+    const byKey = (key: string | null): RouterChain | null => (key === 'once-a' ? own : chain);
+
+    it('asks for the chain of the request’s session key, and for none from /v1/models', async () => {
+      const getChain = vi.fn(byKey);
+      const fake = upstreams({ 'peer.test': ok('peer') });
+      await start({ fetchImpl: fake.fetchImpl, getChain });
+      await (await post(userTurn, { [ROUTER_SESSION_HEADER]: 's1' })).text();
+      await (await post(userTurn)).text();
+      await fetch(`http://127.0.0.1:${router!.port}/v1/models`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      expect(getChain.mock.calls).toEqual([['s1'], [null], [null]]);
+    });
+
+    it('serves a request with a once key from that key’s chain', async () => {
+      const served: RouterServed[] = [];
+      const fake = upstreams({ 'own.test': ok('own'), 'peer.test': ok('peer') });
+      await start({ fetchImpl: fake.fetchImpl, getChain: byKey, onServed: (s) => served.push(s) });
+      const res = await post(userTurn, { [ROUTER_SESSION_HEADER]: 'once-a' });
+      expect(res.headers.get(ROUTER_SERVED_HEADER)).toBe('own');
+      expect(await res.json()).toEqual({ text: 'own' });
+      expect(fake.calls.map((c) => c.host)).toEqual(['own.test']);
+      expect(fake.calls[0].body.model).toBe('own-model');
+      expect(served).toEqual([expect.objectContaining({ sessionKey: 'once-a', entryKey: 'own', modelId: 'own-model' })]);
+    });
+
+    it('still serves requests without that key from the applied chain', async () => {
+      const fake = upstreams({ 'own.test': ok('own'), 'peer.test': ok('peer') });
+      await start({ fetchImpl: fake.fetchImpl, getChain: byKey });
+      expect((await post(userTurn)).headers.get(ROUTER_SERVED_HEADER)).toBe('peer');
+      expect((await post(userTurn, { [ROUTER_SESSION_HEADER]: 's1' })).headers.get(ROUTER_SERVED_HEADER)).toBe('peer');
+      expect(fake.calls.map((c) => c.host)).toEqual(['peer.test', 'peer.test']);
+    });
   });
 });

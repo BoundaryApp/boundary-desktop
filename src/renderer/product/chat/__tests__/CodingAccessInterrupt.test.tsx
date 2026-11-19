@@ -2,7 +2,10 @@ import React from 'react';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import type { CodingAccessRequestEvent } from '../../../../shared/types/codingFolders';
+import type {
+  CodingAccessRequestEvent,
+  CodingFoldersResult,
+} from '../../../../shared/types/codingFolders';
 
 const grantCodingFolder = vi.fn();
 const createCodingFolder = vi.fn();
@@ -19,8 +22,8 @@ stubElectronAPI({
     setProjectFolder: (...args: unknown[]) => setProjectFolderCoding(...args),
     busy: (...args: unknown[]) => codingAgentBusy(...args),
     newFolderDefaults: (...args: unknown[]) => newCodingFolderDefaults(...args),
-    list: async () => ({ success: true, managed: true, grants: [] }),
-    onProgress: () => () => undefined,
+    list: async (): Promise<CodingFoldersResult> => ({ success: true, managed: true, grants: [] }),
+    onProgress: () => (): void => undefined,
     onAccessRequest: (callback: (event: CodingAccessRequestEvent) => void) => {
       accessListener = callback;
       return () => {

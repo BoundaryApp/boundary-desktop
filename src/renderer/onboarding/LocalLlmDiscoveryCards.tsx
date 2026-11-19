@@ -45,7 +45,7 @@ export const LocalLlmDiscoveryCards: React.FC<LocalLlmDiscoveryCardsProps> = ({
             action={
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 disabled={isSelected || !canAdopt || !selectedModelId}
                 onClick={() => {
                   setSelectedUrl(endpoint.baseUrl);

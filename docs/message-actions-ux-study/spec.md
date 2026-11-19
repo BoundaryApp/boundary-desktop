@@ -17,6 +17,7 @@ The visual source is this kit: option **D · Right bubble** in [01-user-actions.
 | 2 Edit and retry | Built; live check pending | CR 0001 R1 — done |
 | 3 Branch | Built; live check pending | CR 0001 R2 declined; text seed until upstream `up_to_row_id` |
 | 4 Reply extras | Built (items 1–3 + Files line); item 4 blocked | Item 4: inference Phase 4 and CR 0001 R5 (declined upstream) |
+| 5 Page previews | Built; in-app check pending | Phase 4 Files line |
 
 ## Goal
 
@@ -178,6 +179,32 @@ Boundary-only, except the other-provider retry.
 
 ---
 
+## Phase 5 · Page previews
+
+Agents write self-contained HTML pages (animated explainers, small charts) into `/opt/projects`, and today there is no way to see one without leaving Boundary. The agent's own browser can't open them: Hermes's browser URL policy refuses `file://` and private hosts when the browser is reached over CDP, and that browser runs on the Mac, where container paths don't exist. Boundary renders the page itself instead, so the agent's SSRF guard stays as it is.
+
+Boundary-only. The stack fact it relies on is the `/opt/projects` bind from `ASSISTANT_DATA_ROOT/projects` (stack contract, **Files under the stack's folder**).
+
+**Work**
+
+1. **Preview on the Files line.** A `.html` or `.htm` file on the Files line gets **Preview** beside Reveal and Copy path.
+2. **Chats with no project.** The Files line also shows in a chat with no bound project, listing only previewable files under `/opt/projects`, with **Preview** as their only action.
+3. **The preview sheet.** Preview opens a wide sheet with the file name as its title, Reveal when a project is bound, and the page in an iframe that fills the sheet. Esc and the close button dismiss it.
+4. **Isolation.** The iframe is `sandbox="allow-scripts"` (opaque origin: no app storage, no IPC, no top navigation, no popups) with `srcdoc` set to the file's text. Boundary inserts a Content-Security-Policy `<meta>` as the document's first element: `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:`. The page's scripts and styles run; it can't fetch anything, including localhost.
+5. **Main reads the file.** `hermes-chat:read-html-preview` takes the container path, maps it to the Mac, and returns the text. It refuses anything that isn't `.html`/`.htm`, anything whose real path (after symlinks) is outside `ASSISTANT_DATA_ROOT/projects` or a host-folder project's folder, and files over 2 MB.
+
+**Not in this phase:** pages that load sibling files (`style.css`, images) show without them; scripts and styles from a CDN or any other URL, and `eval`, are blocked by the page's CSP, and because the frame also enforces the app's own policy, `blob:` images and `data:`/`blob:` audio and video are blocked too; Esc closes the sheet only while focus is outside the page, since key events inside the sandboxed frame don't reach the app, and the close button always works; inline `html` code blocks in a reply; images and video on the Files line; files written through the terminal rather than `write_file`/`patch`, which the Files line doesn't list.
+
+**AC**
+
+- [ ] 5.1 A finished reply that wrote `report.html` shows Preview on the Files line, in a chat with or without a bound project.
+- [ ] 5.2 The preview runs the page's inline scripts and CSS animations.
+- [ ] 5.3 A page that calls `fetch('http://localhost:8643/health')` or loads `https://example.com/x.png` makes no request (none in the network log).
+- [ ] 5.4 The page can't reach `window.electronAPI`, `localStorage` or the parent document.
+- [ ] 5.5 A path outside the allowed roots, a symlink pointing out of them, a non-HTML file and a file over 2 MB each show an error in the sheet and render nothing.
+
+---
+
 ## Decisions to confirm
 
 1. **Versions are in memory until CR R3.** Recommended. The alternative is Boundary persisting versions itself, which would make it own transcript state and would drift from WebUI.
@@ -187,5 +214,5 @@ Boundary-only, except the other-provider retry.
 
 ## Test plan
 
-- Unit tests (vitest), next to `src/main/services/assistant/hermes/__tests__/hermesChatSessions.test.ts`: mapping, truncate target, branch seed, capability detection.
+- Unit tests (vitest), next to `src/main/services/assistant/hermes/__tests__/hermesChatSessionsSend.test.ts` and `hermesChatSessionsBranch.test.ts`: mapping, truncate target, branch seed, capability detection.
 - Visual check in the running app against the kit at 1000px and 1440px, in both themes, for each phase's states.

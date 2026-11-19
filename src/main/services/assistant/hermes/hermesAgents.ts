@@ -41,6 +41,7 @@ import {
   listStoredChannels,
 } from './hermesAgentStore';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { createSerialQueue } from '../../../../shared/utils/serialQueue';
 
 const RESERVED_SLUGS = new Set([
   BUILTIN_ASSISTANT_SLUG,
@@ -97,40 +98,50 @@ async function readRegistryAgents(): Promise<AgentProfile[]> {
   }
 }
 
-function upsertRegistry(agent: AgentProfile): void {
-  try {
-    const file = registryPath();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    let data: { agents: Array<Record<string, unknown>> } = { agents: [] };
-    if (fs.existsSync(file)) {
+/** Registry writes run one at a time, so a create and an update can't drop each other's row. */
+const registryQueue = createSerialQueue();
+
+/** Adds or updates the agent's row in registry.json. Async for the same reason as the read. */
+function upsertRegistry(agent: AgentProfile): Promise<void> {
+  return registryQueue(async () => {
+    try {
+      const file = registryPath();
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      let data: { agents: Array<Record<string, unknown>> } = { agents: [] };
+      let text: string | null = null;
       try {
-        const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-          agents?: Array<Record<string, unknown>>;
-        };
-        if (Array.isArray(parsed.agents)) {
-          data = { agents: parsed.agents };
-        }
+        text = await fs.promises.readFile(file, 'utf8');
       } catch {
-        data = { agents: [] };
+        text = null;
       }
+      if (text !== null) {
+        try {
+          const parsed = JSON.parse(text) as { agents?: Array<Record<string, unknown>> };
+          if (Array.isArray(parsed.agents)) {
+            data = { agents: parsed.agents };
+          }
+        } catch {
+          data = { agents: [] };
+        }
+      }
+      const idx = data.agents.findIndex((a) => a.name === agent.slug);
+      const row = {
+        name: agent.slug,
+        display_name: agent.displayName,
+        role: agent.role,
+        created_at: agent.createdAt,
+        transports: {},
+      };
+      if (idx >= 0) {
+        data.agents[idx] = { ...data.agents[idx], ...row };
+      } else {
+        data.agents.push(row);
+      }
+      await fs.promises.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    } catch {
+      /* registry is best-effort — electron-store is source of truth for UI */
     }
-    const idx = data.agents.findIndex((a) => a.name === agent.slug);
-    const row = {
-      name: agent.slug,
-      display_name: agent.displayName,
-      role: agent.role,
-      created_at: agent.createdAt,
-      transports: {},
-    };
-    if (idx >= 0) {
-      data.agents[idx] = { ...data.agents[idx], ...row };
-    } else {
-      data.agents.push(row);
-    }
-    fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-  } catch {
-    /* registry is best-effort — electron-store is source of truth for UI */
-  }
+  });
 }
 
 async function mergeAgents(): Promise<AgentProfile[]> {
@@ -327,15 +338,10 @@ function agentFields(payload: {
 }
 
 /** Creates run one at a time, so two can't pick the same slug while the registry is read. */
-let createQueue: Promise<unknown> = Promise.resolve();
+const createQueue = createSerialQueue();
 
 export function createHermesAgent(payload: HermesAgentCreatePayload): Promise<HermesAgentCreateResult> {
-  const run = createQueue.then(
-    () => createHermesAgentNow(payload),
-    () => createHermesAgentNow(payload)
-  );
-  createQueue = run.catch((): void => undefined);
-  return run;
+  return createQueue(() => createHermesAgentNow(payload));
 }
 
 async function createHermesAgentNow(
@@ -361,7 +367,6 @@ async function createHermesAgentNow(
     createdAt: new Date().toISOString(),
   };
 
-  let starting = true;
   try {
     const gateway = getHermesGatewaySession();
     await gateway.ensureConnected();
@@ -372,17 +377,16 @@ async function createHermesAgentNow(
       mirrorCredentials: true,
     });
   } catch (err) {
-    // Still register in UI — profile may already exist or gateway may lag.
+    // Still register it: the profile may already exist, or the gateway may lag. Turns route to
+    // the profile and surface their own errors.
     const message = err instanceof Error ? err.message : String(err);
     if (!/already|exists/i.test(message)) {
-      // Keep going: electron-store + registry still let the human DM;
-      // turns will attempt profile routing and surface errors if needed.
-      starting = true;
+      console.warn('[hermesAgents] profile not created', slug, message);
     }
   }
 
   upsertStoredAgent(agent);
-  upsertRegistry(agent);
+  await upsertRegistry(agent);
 
   // The stack's bootstrap never sees this profile, so it has no model limits or MCP servers
   // (OpenCode and the rest) unless Boundary writes them. Imported lazily: the stack service is heavy.
@@ -398,7 +402,7 @@ async function createHermesAgentNow(
 
   // No DM yet: the first message sent to the agent starts it and claims it (claimNewSession).
   // An empty session made now would not be stored by Hermes, so it could not be resumed later.
-  return { success: true, agent, starting };
+  return { success: true, agent };
 }
 
 /**
@@ -454,7 +458,7 @@ export async function updateHermesAgent(
   }
 
   upsertStoredAgent(next);
-  upsertRegistry(next);
+  await upsertRegistry(next);
 
   const dm = renamed ? getStandingDmSessionId(agent.slug) : null;
   if (dm) {

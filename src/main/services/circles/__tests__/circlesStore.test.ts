@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CircleSnapshot } from '../../../../shared/types/circles';
 
 const data = vi.hoisted(() => new Map<string, unknown>());
 const remove = vi.hoisted(() => ({ fail: false }));
@@ -10,7 +11,7 @@ const keychain = vi.hoisted(() => ({ available: true, rotate: false }));
 vi.mock('electron-store', () => ({
   default: class {
     get = (key: string) => data.get(key);
-    set = (key: string, value: unknown) => void data.set(key, value);
+    set = (key: string, value: unknown): void => void data.set(key, value);
   },
 }));
 vi.mock('node:fs', async (original) => {
@@ -23,7 +24,7 @@ vi.mock('node:fs', async (original) => {
     },
   };
 });
-vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: () => undefined }));
+vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: (): void => undefined }));
 vi.mock('../../secrets/osEncryption', () => ({
   isOsEncryptionAvailable: async () => keychain.available,
   encryptToBase64: async (value: string) => `sealed:${[...value].reverse().join('')}`,
@@ -39,6 +40,8 @@ import {
   forgetInviteCode,
   getCircleSharing,
   getInviteCodeIds,
+  getNotifyGlobal,
+  getNotifyPrefs,
   getReadPositions,
   hasCircles,
   listCircleSecrets,
@@ -48,6 +51,8 @@ import {
   readInviteCode,
   saveCircleSecrets,
   saveInviteCode,
+  setNotifyGlobal,
+  setNotifyPrefs,
   setReadPosition,
   wipeOutdatedCircles,
 } from '../circlesStore';
@@ -56,13 +61,13 @@ const SHARING = { models: [{ id: 'm', tools: true }], circles: ['aa'], paused: t
 
 describe('invite codes', () => {
   const later = Date.now() + 60_000;
-  const view = (key: string, invites: Array<{ id: string; used?: boolean; revoked?: boolean }>) => ({
+  const view = (key: string, invites: Array<{ id: string; used?: boolean; revoked?: boolean }>): CircleSnapshot => ({
     key,
     name: '',
     myRole: 'admin' as const,
     members: [],
     offers: [],
-    needsUpdate: false, writable: true,
+    needsUpdate: false, writable: true, format: 2,
     invites: invites.map((invite) => ({ used: false, revoked: false, expires: later, ...invite })),
   });
 
@@ -184,6 +189,33 @@ describe('read positions', () => {
     forgetCircle('aa');
     expect(getReadPositions('aa')).toEqual({});
     expect(getReadPositions('bb').general?.id).toBe('m4');
+  });
+});
+
+describe('notification preferences', () => {
+  beforeEach(() => data.clear());
+
+  it('defaults to the Circle default level with channel mentions on', () => {
+    expect(getNotifyPrefs('aa')).toEqual({ level: 'default', channelMentions: true });
+    expect(getNotifyGlobal()).toEqual({ enabled: true, showText: true });
+  });
+
+  it('keeps a Circle’s preferences, and forgets them when the Circle goes', () => {
+    setNotifyPrefs('aa', { level: 'mentions', channelMentions: false });
+    setNotifyPrefs('bb', { level: 'nothing', channelMentions: true });
+    expect(getNotifyPrefs('aa')).toEqual({ level: 'mentions', channelMentions: false });
+    forgetCircle('aa');
+    expect(getNotifyPrefs('aa')).toEqual({ level: 'default', channelMentions: true });
+    expect(getNotifyPrefs('bb').level).toBe('nothing');
+  });
+
+  it('forgets them when the user leaves, and keeps the device-wide switches', () => {
+    data.set('circles', { aa: 'sealed' });
+    setNotifyPrefs('aa', { level: 'all', channelMentions: false });
+    setNotifyGlobal({ enabled: false, showText: false });
+    markCircleLeaving('aa');
+    expect(getNotifyPrefs('aa').level).toBe('default');
+    expect(getNotifyGlobal()).toEqual({ enabled: false, showText: false });
   });
 });
 

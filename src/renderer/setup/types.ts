@@ -40,6 +40,8 @@ export type SetupStepDefinition = {
   shouldSkip?: (ctx: SetupFlowSnapshot) => boolean;
   /** The user can leave it with **Skip for now**; the outcome is stored either way. */
   optional?: boolean;
+  /** The skip button's label on an optional step; **Skip for now** when unset. */
+  skipLabel?: string;
   Component: FC<SetupStepProps>;
 };
 

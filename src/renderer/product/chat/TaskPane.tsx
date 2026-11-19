@@ -23,6 +23,7 @@ import {
 } from './kanbanActivity';
 import { WorkingDot } from './WorkingDot';
 import { NeedsYouCard, RunMenu, TaskComposer, useTaskAction } from './TaskControls';
+import { Button } from '../../components/ui/button';
 
 /** Where the task was filed, when that conversation is one Boundary knows. */
 export interface TaskOrigin {
@@ -455,9 +456,9 @@ const RetryButton: React.FC<{ taskId: string; onActed: () => void }> = ({ taskId
   const { busy, error, run } = useTaskAction(taskId, onActed);
   return (
     <span className="wb-task-strip-act">
-      <button type="button" className="wb-btn-ghost" disabled={busy} onClick={() => void run({ kind: 'retry' })}>
+      <Button variant="secondary" block type="button" disabled={busy} onClick={() => void run({ kind: 'retry' })}>
         Retry
-      </button>
+      </Button>
       {error ? (
         <span className="wb-task-error" role="alert">
           {error}

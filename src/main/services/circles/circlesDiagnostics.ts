@@ -25,6 +25,11 @@ let filePath: string | null = null;
 let headerWritten = false;
 let broken = false;
 
+/** This launch's id, which every event it writes carries as `run`. */
+export function diagnosticsRunId(): string {
+  return runId;
+}
+
 export function circlesDiagnosticsPath(): string {
   filePath ??= path.join(path.dirname(getDebugLogPath()), FILE_NAME);
   return filePath;
@@ -83,15 +88,11 @@ function safe<T>(read: () => T): T | null {
 
 /**
  * Record one event. `src` says which process saw it; `ms` is milliseconds since this run of
- * Boundary started, for ordering within a file. `t` is wall-clock time for lining up two Macs.
+ * Boundary started, for ordering within a file, unless the event gives its own `ms` as a
+ * duration. `t` is wall-clock time for lining up two Macs. `t`, `run`, `src` and `ev` always
+ * come from here, whatever `data` holds, so the report can find every event of a run.
  */
 export function diag(event: string, data: Record<string, unknown> = {}, src: 'main' | 'net' = 'main', at?: number): void {
-  write({
-    t: new Date(at ?? Date.now()).toISOString(),
-    ms: Math.round(performance.now() - runStart),
-    run: runId,
-    src,
-    ev: event,
-    ...data,
-  });
+  const fixed = { t: new Date(at ?? Date.now()).toISOString(), run: runId, src, ev: event };
+  write({ t: fixed.t, ms: Math.round(performance.now() - runStart), ...data, ...fixed });
 }

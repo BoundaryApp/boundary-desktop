@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { findWebSearchModeOverrides } from '../webSearchModeOverrides';
-import { stackVersionAtLeast } from '../../../../shared/webSearchMode';
 
 const dirs: string[] = [];
 
@@ -35,19 +34,5 @@ describe('findWebSearchModeOverrides', () => {
 
   it('is empty when the home is missing', async () => {
     expect(await findWebSearchModeOverrides(path.join(os.tmpdir(), 'wsm-missing-home'))).toEqual([]);
-  });
-});
-
-describe('stackVersionAtLeast', () => {
-  it('compares major, minor and patch numerically', () => {
-    expect(stackVersionAtLeast('v0.3.10', 'v0.3.11')).toBe(false);
-    expect(stackVersionAtLeast('v0.3.11', 'v0.3.11')).toBe(true);
-    expect(stackVersionAtLeast('v0.3.12', 'v0.3.11')).toBe(true);
-    expect(stackVersionAtLeast('v0.4.0', 'v0.3.11')).toBe(true);
-    expect(stackVersionAtLeast('v1.0.0', 'v0.3.11')).toBe(true);
-  });
-
-  it('treats an unparsable version as too old', () => {
-    expect(stackVersionAtLeast('main', 'v0.3.11')).toBe(false);
   });
 });

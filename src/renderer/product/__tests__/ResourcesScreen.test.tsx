@@ -67,10 +67,6 @@ function fixture(overrides: Partial<HostResourceSnapshot['buckets']> = {}): Host
 }
 
 describe('ResourcesView', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it('renders not-detected LLM and estimated rest from a fixture', () => {
     render(<ResourcesView snapshot={fixture()} error={null} />);
     expect(screen.getByRole('heading', { name: 'Resources' })).toBeTruthy();
@@ -112,10 +108,6 @@ describe('ResourcesView', () => {
 });
 
 describe('ComposeInventoryView', () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it('shows engine-down honesty without inventing projects', () => {
     render(
       <ComposeInventoryView inventory={{ engineRunning: false, projects: [] }} />
@@ -134,6 +126,7 @@ describe('ComposeInventoryView', () => {
 
 describe('ResourcesScreen polling', () => {
   afterEach(() => {
+    // Unmount while fake timers are installed; RTL's own cleanup runs after this hook.
     cleanup();
     vi.useRealTimers();
   });

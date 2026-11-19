@@ -17,6 +17,7 @@ import type {
   IpcEventChannels,
   IpcReturn,
 } from '../../shared/ipc/channels';
+import type { CirclesState } from '../../shared/types/circles';
 import type {
   HermesChatApprovalEvent,
   HermesChatEndEvent,
@@ -26,6 +27,7 @@ import type {
   HermesChatToolEvent,
 } from '../../shared/types/hermesChat';
 import { emptyInferenceProvidersStatus } from '../../shared/types/onboarding';
+import type { SharedFolderOnMac } from '../../shared/types/sharedFolders';
 import { track } from '../product/chat/__tests__/ipcCalls';
 
 export { settle } from '../product/chat/__tests__/ipcCalls';
@@ -76,11 +78,11 @@ export function createFakeBridge(): FakeBridge {
       },
       send: (channel, payload) => act(() => deliver(channel, payload)),
     },
-    invoke(channel) {
-      return async (...args) => {
+    invoke<C extends IpcChannel>(channel: C) {
+      return async (...args: IpcArgs<C>): Promise<Awaited<IpcReturn<C>>> => {
         const handler = handlers.get(channel);
         if (!handler) throw new Error(`main registered no handler for ${channel}`);
-        return (await handler({}, ...args)) as Awaited<IpcReturn<typeof channel>>;
+        return (await handler({}, ...args)) as Awaited<IpcReturn<C>>;
       };
     },
     listen(channel) {
@@ -196,8 +198,18 @@ export function fakeHermesChat(bridge: FakeBridge, sessionId: string): FakeHerme
     listPendingApprovals: async () => [],
     listPendingCredentialRequests: async () => [],
     listRunningTurns: async () => [],
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
-    getSessionInference: async () => ({ success: true, override: null, resolved: null, marks: [] }),
+    getContextBreakdown: async () => ({
+      success: true,
+      // contextMax 0 reads as "max unknown", the same as a breakdown without one.
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
+    }),
+    getSessionInference: async () => ({ success: true, override: null, resolved: null, marks: [], poolTurns: [], turnWindows: [] }),
     onChatChunk: bridge.listen('hermes-chat:chunk'),
     onChatEnd: bridge.listen('hermes-chat:end'),
     onChatError: bridge.listen('hermes-chat:error'),
@@ -208,6 +220,7 @@ export function fakeHermesChat(bridge: FakeBridge, sessionId: string): FakeHerme
     onChatCredentialRequest: bridge.listen('hermes-chat:credential-request'),
     onChatTurnStats: bridge.listen('hermes-chat:turn-stats'),
     onRunningTurns: bridge.listen('hermes-chat:running'),
+    onInferenceNoted: bridge.listen('hermes-chat:inference-noted'),
   };
   return chat;
 }
@@ -220,7 +233,18 @@ export function fakeHermesChat(bridge: FakeBridge, sessionId: string): FakeHerme
  * approvals, host tools off. Spread a test's own leaves over these.
  */
 function idleMain(bridge: FakeBridge): BridgeLeaves {
+  const circlesState: CirclesState = {
+    status: 'stopped',
+    displayName: '',
+    snapshot: { identity: '', circles: [] },
+    providers: {},
+    sharing: { models: [], circles: [], paused: false, away: false },
+  };
   return {
+    // The app root listens for Help › Report a Bug… in every state.
+    appMenu: { onCommand: bridge.listen('app:menu-command') },
+    // Animations pause while Boundary's window is hidden (ADR 0058).
+    appWindow: { onShown: bridge.listen('app-window:shown') },
     onboarding: {
       getStatus: async () => ({ ...emptyInferenceProvidersStatus(), configured: true }),
       onStatus: bridge.listen('onboarding:status'),
@@ -245,16 +269,42 @@ function idleMain(bridge: FakeBridge): BridgeLeaves {
     codingFolders: {
       onAccessRequest: bridge.listen('coding-folders:access-request'),
     },
+    // The composer lists writing voices for its / menu and reads the chat's kept voice; none here.
+    writingVoices: {
+      list: async () => ({ success: true, voices: [] }),
+      onProgress: bridge.listen('writing-voices:progress'),
+      onChanged: bridge.listen('writing-voices:changed'),
+      getChat: async () => ({ success: true, voice: { voiceId: null, voiceName: null, marks: [] } }),
+    },
     // The composer chip names shared models from Circles' state; this main has joined none.
     circles: {
-      getState: async () => ({
-        status: 'stopped' as const,
-        displayName: '',
-        snapshot: { identity: '', circles: [] },
-        providers: {},
-        sharing: { models: [], circles: [], paused: false, away: false },
-      }),
+      getState: async () => circlesState,
       onState: bridge.listen('circles:state'),
+      // The composer's shared-folder hint asks for this Mac's shared folders; it has none.
+      foldersOnMac: async () => ({
+        success: true as const,
+        state: circlesState,
+        folders: [] as SharedFolderOnMac[],
+      }),
+      onFolderChanged: bridge.listen('circles:folder-changed'),
+      onOpenMessage: bridge.listen('circles:open-message'),
+      viewing: async () => undefined,
+      // Tool cards name a shared workspace's provider; nothing is shared with this main.
+      services: async () => ({ success: true as const, state: circlesState, view: { sharing: [], offered: [] } }),
+      onServicesChanged: bridge.listen('circles:services-changed'),
+    },
+    // The composer chip names a confidential pool by its model; this main has pools off.
+    whatsNew: {
+      // No release notes bundled in tests, so nothing to show.
+      getState: async () => null,
+      markSeen: async () => undefined,
+      setPopups: async () => undefined,
+      onState: bridge.listen('whats-new:state'),
+    },
+    confidential: {
+      getState: async () => ({ enabled: false as const }),
+      getSpend: async () => null,
+      onState: bridge.listen('confidential:state'),
     },
   };
 }

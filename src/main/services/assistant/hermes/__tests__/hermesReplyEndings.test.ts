@@ -1,35 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type Handler = (event: { session_id?: string; payload?: unknown }) => void;
-const handlers = new Map<string, Set<Handler>>();
-const getSessionHistory = vi.fn();
+const gw = await vi.hoisted(async () =>
+  (await import('./fakeGatewaySession')).fakeGatewaySession({
+    getSessionHistory: vi.fn(),
+    storedSessionId: vi.fn((id: string) => (id === 'runtime-1' ? 'stored-1' : id)),
+  })
+);
+const { getSessionHistory } = gw.fns;
 const getReplyEndings = vi.fn();
 const setReplyEnding = vi.fn();
 const getNoReplies = vi.fn();
 const setNoReply = vi.fn();
+const getReplyWritingVoices = vi.fn();
+const setReplyWritingVoice = vi.fn();
+const setPromptWritingVoice = vi.fn();
 
-vi.mock('../hermesGatewaySession', () => ({
-  getHermesGatewaySession: () => ({
-    on: (event: string, handler: Handler) => {
-      const set = handlers.get(event) ?? new Set<Handler>();
-      set.add(handler);
-      handlers.set(event, set);
-      return () => set.delete(handler);
-    },
-    getSessionHistory: (...args: unknown[]) => getSessionHistory(...args),
-  }),
-}));
+vi.mock('../hermesGatewaySession', () => ({ getHermesGatewaySession: () => gw.session }));
 
 vi.mock('../hermesAgentStore', () => ({
   getReplyEndings: (...args: unknown[]) => getReplyEndings(...args),
   setReplyEnding: (...args: unknown[]) => setReplyEnding(...args),
   getNoReplies: (...args: unknown[]) => getNoReplies(...args),
   setNoReply: (...args: unknown[]) => setNoReply(...args),
+  getReplyWritingVoices: (...args: unknown[]) => getReplyWritingVoices(...args),
+  setReplyWritingVoice: (...args: unknown[]) => setReplyWritingVoice(...args),
+  setPromptWritingVoice: (...args: unknown[]) => setPromptWritingVoice(...args),
 }));
 
-const emit = (event: string, payload: { session_id?: string; payload?: unknown }) => {
-  for (const handler of [...(handlers.get(event) ?? [])]) handler(payload);
-};
+const { emit } = gw;
 
 const history = [
   { role: 'user', content: 'hi', rowId: 1 },
@@ -38,11 +36,12 @@ const history = [
 
 describe('hermesReplyEndings', () => {
   beforeEach(async () => {
-    handlers.clear();
+    gw.clearHandlers();
     vi.clearAllMocks();
     getSessionHistory.mockResolvedValue(history);
     getReplyEndings.mockReturnValue({});
     getNoReplies.mockReturnValue({});
+    getReplyWritingVoices.mockReturnValue({});
     const { resetReplyEndingsForTests } = await import('../hermesReplyEndings');
     resetReplyEndingsForTests();
   });
@@ -81,7 +80,8 @@ describe('hermesReplyEndings', () => {
 
     emit('message.complete', { payload: { status: 'interrupted' } });
     emit('message.complete', { session_id: 's1', payload: { status: 'complete' } });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Every reaction to those events is a promise callback, which all run before this turn ends.
+    await new Promise((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
 
     emit('message.complete', { session_id: 's1', payload: { status: 'interrupted' } });
@@ -162,4 +162,82 @@ describe('hermesReplyEndings', () => {
     );
     expect(out.map((m) => m.ending)).toEqual([undefined, 'stopped', undefined]);
   });
+
+  it("notes a voiced turn's reply by its row id", async () => {
+    const { recordReplyWritingVoice } = await import('../hermesReplyEndings');
+    getSessionHistory.mockResolvedValue([
+      { role: 'user', content: 'hi', rowId: 1 },
+      { role: 'assistant', content: 'reply', rowId: 2 },
+    ]);
+    expect(await recordReplyWritingVoice('s1', 'News', Date.now())).toBe(true);
+    expect(setReplyWritingVoice).toHaveBeenCalledWith('s1', 2, 'News');
+    getSessionHistory.mockResolvedValue([{ role: 'user', content: 'hi', rowId: 1 }]);
+    expect(await recordReplyWritingVoice('s1', 'News', Date.now())).toBe(false);
+  });
+
+  it('attaches each reply its voice, and nothing to other rows', async () => {
+    getReplyWritingVoices.mockImplementation((id: string) => (id === 'stored' ? { '2': 'News' } : {}));
+    const { withReplyEndings } = await import('../hermesReplyEndings');
+    const out = withReplyEndings(
+      [
+        { role: 'user', content: 'hi', rowId: 1 },
+        { role: 'assistant', content: 'voiced', rowId: 2 },
+        { role: 'user', content: 'again', rowId: 3 },
+        { role: 'assistant', content: 'plain', rowId: 4 },
+      ],
+      ['stored']
+    );
+    expect(out.map((m) => m.writingVoiceName)).toEqual([undefined, 'News', undefined, undefined]);
+  });
+
+  it("notes the reply to this turn's own message, under the stored id, even after the next message landed", async () => {
+    const { recordReplyWritingVoice } = await import('../hermesReplyEndings');
+    const started = 1_000_000_000_000;
+    const t = started / 1000;
+    getSessionHistory.mockResolvedValue([
+      { role: 'user', content: 'earlier', rowId: 1, timestamp: t - 100 },
+      { role: 'assistant', content: 'earlier reply', rowId: 2, timestamp: t - 99 },
+      { role: 'user', content: 'this turn', rowId: 3, timestamp: t + 1 },
+      { role: 'assistant', content: 'this reply', rowId: 4, timestamp: t + 5 },
+      { role: 'user', content: 'queued next', rowId: 5, timestamp: t + 6 },
+    ]);
+    expect(await recordReplyWritingVoice('runtime-1', 'News', started)).toBe(true);
+    expect(setReplyWritingVoice).toHaveBeenCalledWith('stored-1', 4, 'News');
+    expect(setPromptWritingVoice).not.toHaveBeenCalled();
+  });
+
+  it("keeps a chip message's voice by its user row, for a later Retry or Edit", async () => {
+    const { recordReplyWritingVoice } = await import('../hermesReplyEndings');
+    const started = 1_000_000_000_000;
+    const t = started / 1000;
+    getSessionHistory.mockResolvedValue([
+      { role: 'user', content: 'earlier', rowId: 1, timestamp: t - 100 },
+      { role: 'assistant', content: 'earlier reply', rowId: 2, timestamp: t - 99 },
+      { role: 'user', content: 'this turn', rowId: 3, timestamp: t + 1 },
+      { role: 'assistant', content: 'this reply', rowId: 4, timestamp: t + 5 },
+    ]);
+    expect(await recordReplyWritingVoice('runtime-1', 'News', started, 'news')).toBe(true);
+    expect(setPromptWritingVoice).toHaveBeenCalledWith('stored-1', 3, 'news');
+  });
+
+  it("notes each room member's reply with its own voice, skipping a turn with no reply", async () => {
+    const { recordRoomReplyWritingVoices } = await import('../hermesReplyEndings');
+    const started = 1_000_000_000_000;
+    const t = started / 1000;
+    getSessionHistory.mockResolvedValue([
+      { role: 'user', content: 'before', rowId: 1, timestamp: t - 50 },
+      { role: 'assistant', content: 'before reply', rowId: 2, timestamp: t - 49 },
+      { role: 'user', content: '@Ana look', rowId: 3, timestamp: t + 1 },
+      { role: 'assistant', content: 'ana reply', rowId: 4, timestamp: t + 4 },
+      { role: 'user', content: '@Hermes — please respond', rowId: 5, timestamp: t + 5 },
+      { role: 'user', content: '@Wren — please respond', rowId: 6, timestamp: t + 9 },
+      { role: 'assistant', content: 'wren reply', rowId: 7, timestamp: t + 12 },
+    ]);
+    expect(await recordRoomReplyWritingVoices('runtime-1', started, ['News', 'Plain', 'Blog'])).toBe(2);
+    expect(setReplyWritingVoice.mock.calls).toEqual([
+      ['stored-1', 4, 'News'],
+      ['stored-1', 7, 'Blog'],
+    ]);
+  });
 });
+

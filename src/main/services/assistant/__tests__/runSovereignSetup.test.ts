@@ -55,6 +55,14 @@ describe('runSovereignSetup helpers', () => {
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
   });
 
+  it('keeps the stack scripts on the host python3 and node unless the env says otherwise', () => {
+    const env = buildSovereignSetupEnv({ PATH: '/custom/bin' });
+    expect(env.STACK_PYTHON).toBe('host');
+    expect(env.N8N_NODE).toBe('host');
+    const developer = buildSovereignSetupEnv({ PATH: '/custom/bin', STACK_PYTHON: '' });
+    expect(developer.STACK_PYTHON).toBe('');
+  });
+
   it('stubs node when it is missing: skips the n8n script, fails on anything else', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-node-stub-'));
     const shimDir = path.join(root, 'shim');

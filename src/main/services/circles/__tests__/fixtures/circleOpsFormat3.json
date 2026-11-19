@@ -1,0 +1,148 @@
+{
+  "view": {
+    "chat/general/count": 5,
+    "chat/general/ids/1111111111111111111111111111111111111111111111111111111111111111/bbbbbbbbbbbbbbbb": 3,
+    "chat/general/ids/4444444444444444444444444444444444444444444444444444444444444444/cccccccccccccccc": 4,
+    "chat/general/ids/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaa": 0,
+    "chat/general/ids/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbb": 1,
+    "chat/general/ids/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cccccccccccccccc": 2,
+    "chat/general/messages/000000000000": {
+      "channel": "general",
+      "position": 0,
+      "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "aaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "text": "",
+      "at": 1000,
+      "edited": false,
+      "deleted": "author"
+    },
+    "chat/general/messages/000000000001": {
+      "channel": "general",
+      "position": 1,
+      "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "bbbbbbbbbbbbbbbb",
+      "name": "Ada",
+      "text": "@Bo bring peas",
+      "at": 1100,
+      "edited": false,
+      "deleted": null,
+      "mentions": {
+        "members": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      }
+    },
+    "chat/general/messages/000000000002": {
+      "channel": "general",
+      "position": 2,
+      "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "cccccccccccccccc",
+      "name": "Ada",
+      "text": "@channel hello",
+      "at": 1200,
+      "edited": false,
+      "deleted": null,
+      "mentions": {
+        "channel": true
+      }
+    },
+    "chat/general/messages/000000000003": {
+      "channel": "general",
+      "position": 3,
+      "author": "1111111111111111111111111111111111111111111111111111111111111111",
+      "id": "bbbbbbbbbbbbbbbb",
+      "name": "Bo",
+      "text": "Count me in too",
+      "at": 1400,
+      "edited": true,
+      "deleted": null,
+      "reply": {
+        "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "id": "aaaaaaaaaaaaaaaa"
+      }
+    },
+    "chat/general/messages/000000000004": {
+      "channel": "general",
+      "position": 4,
+      "author": "4444444444444444444444444444444444444444444444444444444444444444",
+      "id": "cccccccccccccccc",
+      "name": "Cy",
+      "text": "Where was that?",
+      "at": 1500,
+      "edited": false,
+      "deleted": null,
+      "reply": {
+        "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "id": "9999999999999999"
+      }
+    },
+    "circle": {
+      "name": "Garden club",
+      "format": 3
+    },
+    "invites/7777777777777777777777777777777777777777777777777777777777777777": {
+      "id": "7777777777777777777777777777777777777777777777777777777777777777",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "invites/8888888888888888888888888888888888888888888888888888888888888888": {
+      "id": "8888888888888888888888888888888888888888888888888888888888888888",
+      "publicKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expires": 5,
+      "createdBy": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "usedBy": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "members/1111111111111111111111111111111111111111111111111111111111111111": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "Bo",
+      "writer": "2222222222222222222222222222222222222222222222222222222222222222",
+      "device": "3333333333333333333333333333333333333333333333333333333333333333",
+      "signature": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "role": "member"
+    },
+    "members/4444444444444444444444444444444444444444444444444444444444444444": {
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444",
+      "name": "Cy",
+      "writer": "5555555555555555555555555555555555555555555555555555555555555555",
+      "device": "6666666666666666666666666666666666666666666666666666666666666666",
+      "signature": "44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444",
+      "role": "member"
+    },
+    "members/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada",
+      "writer": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "device": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "signature": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "admin"
+    },
+    "writers/2222222222222222222222222222222222222222222222222222222222222222": {
+      "identity": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "writers/5555555555555555555555555555555555555555555555555555555555555555": {
+      "identity": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "writers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "writers": [
+    [
+      "add",
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      false
+    ],
+    [
+      "add",
+      "5555555555555555555555555555555555555555555555555555555555555555",
+      false
+    ]
+  ],
+  "skipped": [
+    "bad message",
+    "bad message"
+  ]
+}

@@ -1,4 +1,4 @@
-import { systemPreferences, type Session } from 'electron';
+import { shell, systemPreferences, type Session } from 'electron';
 import type { MediaAccess, MediaAccessStatus, MediaDevice } from '../../shared/types/media';
 import { handle } from '../ipc';
 
@@ -67,10 +67,20 @@ export async function requestMediaAccess(
   return readStatus(device, platform);
 }
 
+const PRIVACY_PANE_URL: Record<MediaDevice, string> = {
+  camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+  microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+};
+
 export function registerMediaHandlers(): void {
   handle('media:get-access', () => getMediaAccess());
   handle('media:request-access', (_event, device: unknown) => {
     if (!isMediaDevice(device)) throw new Error('Unknown media device.');
     return requestMediaAccess(device);
+  });
+  // The renderer names only the device; the URL comes from the table above.
+  handle('media:open-privacy-settings', async (_event, device: unknown) => {
+    if (!isMediaDevice(device)) throw new Error('Unknown media device.');
+    await shell.openExternal(PRIVACY_PANE_URL[device]);
   });
 }

@@ -3,6 +3,7 @@ import type { RunningWorkItem, UpdateSnapshot } from '../../shared/types/updates
 import { Sheet } from '../components/ui/sheet';
 import { WorkingDot } from './chat/WorkingDot';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { Button } from '../components/ui/button';
 
 const UPDATED_CARD_MS = 10_000;
 
@@ -140,29 +141,31 @@ export function useRestartToInstall(): { restart: () => void; sheet: React.React
       title="Some work is still running"
       actions={
         <>
-          <button type="button" className="wb-btn-ghost" onClick={() => setRunning(null)}>
+          <Button variant="secondary" block type="button" onClick={() => setRunning(null)}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            block
             type="button"
-            className="wb-btn-ghost"
             onClick={() => {
               setRunning(null);
               void api?.restart({ force: true });
             }}
           >
             Restart now
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            block
             type="button"
-            className="wb-btn-solid"
             onClick={() => {
               void api?.restartWhenFinished(running);
               setRunning(null);
             }}
           >
             Restart when finished
-          </button>
+          </Button>
         </>
       }
     >
@@ -294,6 +297,21 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
 };
 
 /** Fills with the download, and loops when the total is unknown or Squirrel has the zip. */
+/** Restart now and its way out, while installs wait or the restart counts down. */
+export function RestartActions({ counting }: { counting: boolean }) {
+  const api = window.electronAPI?.updates;
+  return (
+    <>
+      <Button variant={counting ? 'primary' : 'secondary'} block type="button" onClick={() => void api?.restart({ force: true })}>
+        Restart now
+      </Button>
+      <Button variant="secondary" block type="button" onClick={() => void api?.cancelWaiting()}>
+        {counting ? 'Not now' : 'Cancel restart'}
+      </Button>
+    </>
+  );
+}
+
 function DownloadBar({ percent }: { percent: number | null }) {
   if (percent === null || percent === 100) {
     return (
@@ -377,12 +395,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
             <i className="is-drain" style={{ width: `${(state.restartIn / 30) * 100}%` }} />
           </div>
           <div className="wb-update-actions">
-            <button type="button" className="wb-btn-solid" onClick={() => void api.restart({ force: true })}>
-              Restart now
-            </button>
-            <button type="button" className="wb-btn-ghost" onClick={() => void api.cancelWaiting()}>
-              Not now
-            </button>
+            <RestartActions counting={true} />
           </div>
         </>
       );
@@ -393,12 +406,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
           <h3>{waitingTitle(state.waiting.filter((item) => !item.finished).length)}</h3>
           <UpdateTasks state={state} />
           <div className="wb-update-actions">
-            <button type="button" className="wb-btn-ghost" onClick={() => void api.restart({ force: true })}>
-              Restart now
-            </button>
-            <button type="button" className="wb-btn-ghost" onClick={() => void api.cancelWaiting()}>
-              Cancel restart
-            </button>
+            <RestartActions counting={false} />
           </div>
         </>
       );
@@ -409,16 +417,17 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
           <h3>{APP_NAME} is now {updated.version}</h3>
           <Lines lines={updated.summary} />
           <div className="wb-update-actions">
-            <button
+            <Button
+              variant="secondary"
+              block
               type="button"
-              className="wb-btn-ghost"
               onClick={() => {
                 collapse();
                 onOpenUpdates();
               }}
             >
               See what changed
-            </button>
+            </Button>
             <button type="button" className="wb-update-link" onClick={collapse}>
               Close
             </button>
@@ -433,12 +442,12 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
           <p>It installs when you quit. Restart now to get it sooner.</p>
           {state.stackChanges ? <p>The next start takes a few minutes while your tools update.</p> : null}
           <div className="wb-update-actions">
-            <button type="button" className="wb-btn-solid" onClick={restart}>
+            <Button variant="primary" block type="button" onClick={restart}>
               Restart to update
-            </button>
-            <button type="button" className="wb-btn-ghost" onClick={collapse}>
+            </Button>
+            <Button variant="secondary" block type="button" onClick={collapse}>
               Later
-            </button>
+            </Button>
           </div>
         </>
       );
@@ -469,12 +478,12 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
           <h3>{APP_NAME} {state.version} didn’t download</h3>
           <p>Nothing changed. You’re still on {state.currentVersion}.</p>
           <div className="wb-update-actions">
-            <button type="button" className="wb-btn-solid" onClick={() => void api.download()}>
+            <Button variant="primary" block type="button" onClick={() => void api.download()}>
               Try again
-            </button>
-            <button type="button" className="wb-btn-ghost" onClick={collapse}>
+            </Button>
+            <Button variant="secondary" block type="button" onClick={collapse}>
               Later
-            </button>
+            </Button>
           </div>
         </>
       );
@@ -487,12 +496,12 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
         </div>
         <Lines lines={state.summary} />
         <div className="wb-update-actions">
-          <button type="button" className="wb-btn-solid" onClick={() => void api.download()}>
+          <Button variant="primary" block type="button" onClick={() => void api.download()}>
             Download
-          </button>
-          <button type="button" className="wb-btn-ghost" onClick={collapse}>
+          </Button>
+          <Button variant="secondary" block type="button" onClick={collapse}>
             Later
-          </button>
+          </Button>
           <button type="button" className="wb-update-link" onClick={() => void api.skipVersion()}>
             Skip this version
           </button>

@@ -6,12 +6,13 @@ import type {
   HermesProjectRecord,
   SessionProjectMark,
 } from '../../../shared/types/hermesChat';
-import type { CodingFolderInspect } from '../../../shared/types/codingFolders';
+import type { CodingAgentBusy, CodingFolderInspect } from '../../../shared/types/codingFolders';
+import type { NewProjectInput } from './NewProjectSheet';
+import { useProjectCreateSteps } from './useProjectCreateSteps';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
 import { errorText, useSheetAction } from '../../components/ui/use-sheet-action';
 import { useOptionalSetup } from '../../setup/SetupContext';
 import type { ChatScreenSnapshot } from './chatScreenCache';
-import { queueCodingChange } from './codingFoldersStore';
 import { conversationTitle as conversationTitleFor } from './conversationKinds';
 import type { MoveProjectTarget } from './MoveProjectSheet';
 import type { ChatIds } from './useChatIds';
@@ -197,41 +198,62 @@ export function useProjects({
     setNewProjectFolder(folder);
   }, [newProjectSheet]);
 
+  // The create's steps, a running coding task to ask about, and a coding check that failed
+  // after the project was made.
+  const newProjectSteps = useProjectCreateSteps();
+  const [newProjectCodingBusy, setNewProjectCodingBusy] = useState<CodingAgentBusy | null>(null);
+  const [newProjectCodingError, setNewProjectCodingError] = useState<string | null>(null);
+
   const handleCreateNewProject = useCallback(
-    async (input: { name: string; coding: boolean }) => {
+    async (input: NewProjectInput) => {
       const hostPath = newProjectFolder?.hostPath;
       if (!hostPath) return;
+      setNewProjectCodingBusy(null);
+      setNewProjectCodingError(null);
+      const runId = newProjectSteps.begin(input.coding);
       setConnecting(true);
       try {
         await newProjectSheet.run(async () => {
-          const result = await window.electronAPI.projects.createHost({
-            hostPath,
-            name: input.name,
-          });
+          let result: Awaited<ReturnType<typeof window.electronAPI.projects.createHost>>;
+          try {
+            // Coding is mounted in the same restart as the folder (no second remount).
+            result = await window.electronAPI.projects.createHost({
+              hostPath,
+              name: input.name,
+              coding: input.coding,
+              whenCodingBusy: input.whenCodingBusy,
+              runId,
+            });
+          } catch (error) {
+            newProjectSteps.fail();
+            throw error;
+          }
           if (!result.success) {
+            if (result.codingBusy?.busy) {
+              // Back to the form, which asks whether to wait for the task or stop it.
+              newProjectSteps.clear();
+              setNewProjectCodingBusy(result.codingBusy);
+              return;
+            }
+            newProjectSteps.fail();
             newProjectSheet.setError(result.error ?? 'Could not create project.');
             return;
           }
           applyProjectsResult(result, true);
           showCenter('project');
-          setNewProjectFolder(null);
-          const projectId = result.project?.id;
-          if (input.coding && projectId) {
-            // Waits for a running coding task rather than stopping it.
-            void queueCodingChange([hostPath], (stopRunningTask) =>
-              window.electronAPI.codingFolders.setProjectFolder({
-                projectId,
-                enabled: true,
-                stopRunningTask,
-              })
-            );
+          if (result.codingError) {
+            // The project is open behind the sheet; the sheet stays to say why coding is off.
+            setNewProjectCodingError(result.codingError);
+            return;
           }
+          newProjectSteps.clear();
+          setNewProjectFolder(null);
         });
       } finally {
         setConnecting(false);
       }
     },
-    [newProjectFolder, newProjectSheet, applyProjectsResult, showCenter]
+    [newProjectFolder, newProjectSheet, newProjectSteps, applyProjectsResult, showCenter]
   );
 
   /**
@@ -385,8 +407,17 @@ export function useProjects({
       busy: newProjectSheet.busy,
       error: newProjectSheet.error,
       pick: (): void => void handleNewProject(),
-      create: (input: { name: string; coding: boolean }): void => void handleCreateNewProject(input),
-      cancel: () => newProjectSheet.dismiss(() => setNewProjectFolder(null)),
+      steps: newProjectSteps.steps,
+      codingBusy: newProjectCodingBusy,
+      codingError: newProjectCodingError,
+      create: (input: NewProjectInput): void => void handleCreateNewProject(input),
+      cancel: () =>
+        newProjectSheet.dismiss(() => {
+          setNewProjectFolder(null);
+          setNewProjectCodingBusy(null);
+          setNewProjectCodingError(null);
+          newProjectSteps.clear();
+        }),
     },
     move: {
       target: moveTarget,

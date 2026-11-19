@@ -4,6 +4,8 @@
  * frames the client sends, answers each request from `FakeGatewaySocket.results`, and lets a
  * test push server events and server→client requests.
  */
+import { vi } from 'vitest';
+
 type Frame = Record<string, unknown>;
 
 export class FakeGatewaySocket extends EventTarget {
@@ -84,4 +86,19 @@ export class FakeGatewaySocket extends EventTarget {
   }
 }
 
-export const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Moves fake time on by `ms`, running each due timer and the promise work it starts before the
+ * next one. Needs `vi.useFakeTimers()`: on real timers a busy machine let a fixed wait run out
+ * before the socket's own timers fired.
+ */
+export async function tick(ms = 20): Promise<void> {
+  await vi.advanceTimersByTimeAsync(ms);
+}
+
+/** Awaits `promise` after moving fake time on by `ms`, for calls that wait on the fake socket. */
+export async function run<T>(promise: Promise<T>, ms = 20): Promise<T> {
+  // Handled here so a rejection during tick() isn't reported as unhandled; the caller still sees it.
+  promise.catch((): void => undefined);
+  await tick(ms);
+  return promise;
+}

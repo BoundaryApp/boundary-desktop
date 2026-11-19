@@ -1,0 +1,596 @@
+/* What's new: the slideshow, the opt-out toast, screenshots with markers, the release page and
+   the guide view (ADR 0059). Spacing comes from tokens; see docs/whats-new-ux-study. */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* The slideshow ----------------------------------------------------------- */
+
+.wb-sheet.wn-dialog {
+  width: 600px;
+  max-width: calc(100vw - var(--space-8));
+  padding: 0;
+}
+
+.wn-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+}
+
+.wn-kicker {
+  margin: 0;
+  font-size: var(--size-xs);
+  color: var(--text-faint);
+}
+
+.wn-kicker strong {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.wn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  padding: var(--space-0-5) var(--space-2-5);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wn-chip:hover {
+  border-color: var(--brand);
+  color: var(--text);
+}
+
+.wn-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--brand);
+}
+
+.wn-close {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  margin-left: auto;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+
+.wn-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wn-close svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.wn-dialog .wn-shot,
+.wn-dialog .wn-slide-title,
+.wn-dialog .wn-slide-body,
+.wn-dialog .wn-slide-more {
+  margin-inline: var(--space-5);
+}
+
+.wn-slide-title {
+  margin-block: var(--space-4) var(--space-1-5);
+  font-size: var(--size-section);
+  font-weight: var(--weight-strong);
+}
+
+.wn-slide-body {
+  margin-block: 0;
+  color: var(--text-muted);
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+  min-height: 3em;
+}
+
+.wn-slide-more {
+  margin-block: var(--space-2) 0;
+}
+
+.wn-link {
+  color: var(--brand);
+  border-radius: var(--radius-sm);
+}
+
+.wn-link:hover {
+  text-decoration: underline;
+}
+
+.wb-sheet-actions.wn-actions {
+  position: relative;
+  align-items: center;
+  padding: var(--space-4) var(--space-3) var(--space-3);
+}
+
+.wn-actions-right {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.wn-dots {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.wn-dots button {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+
+.wn-dots button[aria-current='true'] {
+  width: 16px;
+  background: var(--brand);
+}
+
+/* The opt-out toast ------------------------------------------------------- */
+
+.wn-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2-5) var(--space-2-5) var(--space-2-5) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 50%);
+  animation: wb-rise-in var(--dur-panel) var(--ease);
+}
+
+.wn-toast p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Screenshots ------------------------------------------------------------- */
+
+.wn-shot {
+  position: relative;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-0);
+}
+
+.wn-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wn-shot-blank {
+  aspect-ratio: 16 / 10;
+  background: var(--surface-1);
+}
+
+.wn-shot-ring {
+  position: absolute;
+  border: 2px solid var(--brand);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
+  pointer-events: none;
+}
+
+.wn-shot-marker {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-full);
+  display: grid;
+  place-items: center;
+  background: var(--brand);
+  color: var(--surface-0);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-strong);
+  box-shadow: 0 0 0 2px var(--surface-0);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.wn-shot-marker.is-hot {
+  transform: translate(-50%, -50%) scale(1.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wn-shot-marker {
+    transition: none;
+  }
+}
+
+/* The What's new page ----------------------------------------------------- */
+
+.wn-page {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  gap: var(--space-10);
+  padding: var(--space-10) var(--space-8);
+}
+
+.wn-page-col {
+  width: var(--reading-column);
+  max-width: 100%;
+}
+
+.wn-page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.wn-page-head h1 {
+  margin: 0;
+  font-size: var(--size-page);
+  font-weight: var(--weight-strong);
+}
+
+.wn-sub {
+  margin: var(--space-1) 0 0;
+  color: var(--text-faint);
+}
+
+.wn-switch {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  color: var(--text-muted);
+  font-size: var(--size-meta);
+  white-space: nowrap;
+}
+
+.wn-switch button {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+
+.wn-switch button::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--text);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.wn-switch button[aria-checked='true'] {
+  background: var(--brand);
+}
+
+.wn-switch button[aria-checked='true']::after {
+  transform: translateX(14px);
+}
+
+.wn-empty {
+  margin-top: var(--space-8);
+  color: var(--text-faint);
+}
+
+.wn-release {
+  padding-top: var(--space-8);
+  scroll-margin-top: var(--space-5);
+}
+
+.wn-release > header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2-5);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--space-2-5);
+  margin-bottom: var(--space-6);
+}
+
+.wn-release > header h2 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-section);
+  font-weight: var(--weight-strong);
+}
+
+.wn-date {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wn-badge {
+  border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  border-radius: var(--radius-full);
+  padding-inline: var(--space-1-5);
+  color: var(--brand);
+  font-size: var(--size-2xs);
+}
+
+.wn-feature {
+  margin-bottom: var(--space-8);
+}
+
+.wn-feature h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--size-section);
+  font-weight: var(--weight-strong);
+}
+
+.wn-feature p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+}
+
+.wn-guides h4 {
+  margin: 0 0 var(--space-2-5);
+  font-size: var(--size-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+}
+
+.wn-guide-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2-5);
+}
+
+.wn-guide-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  padding: var(--space-3) var(--space-4);
+}
+
+.wn-guide-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}
+
+.wn-guide-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+.wn-guide-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+}
+
+.wn-guide-text strong {
+  display: block;
+  font-weight: var(--weight-medium);
+}
+
+.wn-guide-text span {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wn-index {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  width: 150px;
+}
+
+.wn-index h5 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--size-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+}
+
+.wn-index button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--size-2xs);
+}
+
+.wn-index button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+@media (width <= 900px) {
+  .wn-index {
+    display: none;
+  }
+}
+
+/* A guide ----------------------------------------------------------------- */
+
+.wn-guide {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100%;
+}
+
+.wn-guide aside {
+  border-right: 1px solid var(--line);
+  background: var(--surface-1);
+  overflow: auto;
+  padding: var(--space-10) var(--space-3) var(--space-3);
+}
+
+.wn-guide-back {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+
+.wn-guide-back:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.wn-guide aside h2 {
+  margin: 0 var(--space-2) var(--space-0-5);
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.wn-guide-meta {
+  margin: 0 var(--space-2) var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wn-guide-steps button {
+  display: flex;
+  gap: var(--space-2-5);
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+}
+
+.wn-guide-steps button:hover,
+.wn-guide-steps button[aria-current='step'] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wn-step-n {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  display: grid;
+  place-items: center;
+  font-size: var(--size-2xs);
+  color: var(--text-faint);
+}
+
+.wn-guide-steps button[aria-current='step'] .wn-step-n {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.wn-guide-steps button.is-done .wn-step-n {
+  background: var(--brand-dim);
+  border-color: transparent;
+  color: var(--brand);
+}
+
+.wn-guide-step {
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-10) var(--space-8) var(--space-6);
+}
+
+.wn-guide-col {
+  width: 760px;
+  max-width: 100%;
+}
+
+.wn-guide-kicker {
+  margin: 0 0 var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wn-guide-col h3 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--size-heading);
+  font-weight: var(--weight-strong);
+}
+
+.wn-callouts {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.wn-callouts li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+}
+
+.wn-callouts li.is-hot {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wn-callout-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  display: grid;
+  place-items: center;
+  background: var(--brand);
+  color: var(--surface-0);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-strong);
+}
+
+.wn-guide-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-5);
+}
+}

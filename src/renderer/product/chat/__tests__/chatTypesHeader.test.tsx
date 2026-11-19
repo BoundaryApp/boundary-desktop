@@ -4,22 +4,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
-
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 stubElectronAPI({
   hermesChat: {
-    listPendingCredentialRequests: async () => [],
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+    listPendingCredentialRequests: async (): Promise<HermesChatCredentialRequestEvent[]> => [],
+    getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
+      success: true,
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
+    }),
   },
   onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
@@ -30,11 +29,17 @@ stubElectronAPI({
   },
 });
 
-vi.mock('../InferenceChip', () => ({ InferenceChip: () => null }));
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
-import type { AgentProfile, ChannelRecord, HermesConversationKind } from '../../../../shared/types/hermesChat';
+import type {
+  AgentProfile,
+  ChannelRecord,
+  HermesChatBreakdownResult,
+  HermesChatCredentialRequestEvent,
+  HermesConversationKind,
+} from '../../../../shared/types/hermesChat';
 
 const hermes: AgentProfile = {
   slug: 'assistant',
@@ -219,7 +224,7 @@ const RoomLog: React.FC<{ focusText?: string; initialQuote?: string }> = ({
   );
 };
 
-const LiveWake: React.FC = () => {
+const LiveWake: React.FC<{ voice?: string }> = ({ voice }) => {
   const runtime = useLocalRuntime(adapter, {
     initialMessages: [
       { role: 'user', content: '@Ana check pricing' },
@@ -230,7 +235,7 @@ const LiveWake: React.FC = () => {
           custom: {
             agentSlug: 'ana',
             segments: [
-              { agentSlug: 'ana', text: 'Two vendors.' },
+              { agentSlug: 'ana', text: 'Two vendors.', ...(voice ? { writingVoiceName: voice } : {}) },
               { agentSlug: 'assistant', text: 'Confirmed.' },
             ],
           },
@@ -281,6 +286,15 @@ describe('rooms name each reply’s own speaker (ADR 0023 §9)', () => {
     expect(who[1].querySelector('.wb-kind-mark.is-hermes')).toBeTruthy();
     expect(screen.getByText('Two vendors.')).toBeTruthy();
     expect(screen.getByText('Confirmed.')).toBeTruthy();
+  });
+
+  it("says which writing voice each speaker wrote in, beside its name", () => {
+    render(<LiveWake voice="News" />);
+    const sections = [...document.querySelectorAll('.wb-msg.is-assistant .wb-who')];
+    expect(sections.map((el) => el.querySelector('.wb-reply-voice')?.textContent ?? null)).toEqual([
+      'In News voice',
+      null,
+    ]);
   });
 
   it('describes Hermes as the default agent in the room @ menu', async () => {

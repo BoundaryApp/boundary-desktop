@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -25,7 +26,7 @@ import {
   resolveBundledRuntimePaths,
 } from './bundledPaths';
 import { buildBundledRuntimeEnv, ensureContainersConf } from './containersConf';
-import { createPodmanMachineService } from './PodmanMachineService';
+import { PodmanMachineService, createPodmanMachineService } from './PodmanMachineService';
 import {
   clearRuntimeProvisionProgress,
   setRuntimeProvisionProgress,
@@ -37,6 +38,7 @@ import {
   truncateForLog,
 } from '../../persistDebugLog';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { engineCeilingMiB, engineSizeMiB } from '../../../shared/engineSizing';
 
 const execFileAsync = promisify(execFile);
 
@@ -113,6 +115,11 @@ let cachedRuntime: ContainerRuntime | null = null;
 let inflight: Promise<ContainerRuntime> | null = null;
 let lastResolveError: string | null = null;
 let lastSystemDockerProbe: SystemDockerProbe | null = null;
+/**
+ * Set once this process starts (or finds running) the bundled Podman machine. Kept apart from
+ * `cachedRuntime`, which Retry clears, so quit still knows to stop the machine.
+ */
+let startedBundledMachine: { podmanPath: string; env: NodeJS.ProcessEnv } | null = null;
 
 export function getLastContainerRuntimeError(): string | null {
   return lastResolveError;
@@ -263,12 +270,36 @@ async function defaultEnsureBundledMachine(
   paths: NonNullable<ReturnType<typeof resolveBundledRuntimePaths>>,
   env: NodeJS.ProcessEnv
 ): Promise<{ apiEndpoint: string; dockerHost: string }> {
-  const service = createPodmanMachineService(paths, env);
+  const service = createPodmanMachineService(paths, env, execFileAsync, await bundledEngineMiB());
   const result = await service.ensureRunning((message) => {
     persistDebugLog('runtime', 'podman provision progress', { message });
     setRuntimeProvisionProgress(message);
   });
   return { apiEndpoint: result.apiEndpoint, dockerHost: result.dockerHost };
+}
+
+/**
+ * The bundled machine's size from what is turned on (ADR 0055 §1–2). Loaded lazily: the
+ * reservations read the app's store, which this module's tests don't load. Falls back to the
+ * size with nothing optional on when they can't be read.
+ */
+async function bundledEngineMiB(): Promise<number> {
+  const hostMiB = Math.floor(os.totalmem() / 1024 ** 2);
+  let reserved: Record<string, number> = {};
+  let floorMiB = 0;
+  try {
+    const { engineReservationsMiB } = await import('../addons/engineReservations');
+    const { pendingEngineFloorMiB } = await import('../addons/engineMakeRoom');
+    reserved = engineReservationsMiB();
+    floorMiB = pendingEngineFloorMiB();
+  } catch (error) {
+    persistDebugLog('runtime', 'engine reservations unreadable', serializeError(error));
+  }
+  const extrasMiB = Object.values(reserved).reduce((sum, mib) => sum + mib, 0);
+  // An add-on making room may need more than its reservation predicts (ADR 0055 §3).
+  const memoryMiB = Math.min(engineCeilingMiB(hostMiB), Math.max(engineSizeMiB(hostMiB, extrasMiB), floorMiB));
+  persistDebugLog('runtime', 'engine size', { hostMiB, reserved, floorMiB, memoryMiB });
+  return memoryMiB;
 }
 
 async function ensureBundledPodman(
@@ -325,6 +356,8 @@ async function ensureBundledPodman(
   });
 
   const ensureMachine = deps.ensureBundledMachine ?? defaultEnsureBundledMachine;
+  // Before the start, so a quit during a slow or failed start still stops what came up.
+  startedBundledMachine = { podmanPath: paths.podmanPath, env: baseEnv };
   const { apiEndpoint, dockerHost } = await ensureMachine(paths, baseEnv);
   persistDebugLog('runtime', 'bundled machine ready', { apiEndpoint, dockerHost });
   const env = buildBundledRuntimeEnv(paths, deps.env, dockerHost);
@@ -442,4 +475,28 @@ export function resetContainerRuntimeCache(): void {
   if (!inflight) {
     clearRuntimeProvisionProgress();
   }
+}
+
+/**
+ * Stop the bundled Podman machine if this process started it. Quit calls this after the stack's
+ * containers stop, so the VM and its memory don't outlive the app. System Docker is never
+ * touched. Resolves true when it ran `podman machine stop`; rejects when that command fails.
+ */
+export async function stopBundledMachineIfStarted(
+  execFileFn: typeof execFileAsync = execFileAsync
+): Promise<boolean> {
+  const started = startedBundledMachine;
+  if (!started) return false;
+  startedBundledMachine = null;
+  const service = new PodmanMachineService({
+    execFile: execFileFn,
+    env: started.env,
+    podmanPath: started.podmanPath,
+  });
+  // Read before the stop, which resets the count. A count above 0 means the machine was too
+  // small for what ran in it this session.
+  const oomKills = await service.oomKillCount();
+  persistDebugLog('runtime', 'stopping bundled machine for quit', { oomKills });
+  await service.stop();
+  return true;
 }

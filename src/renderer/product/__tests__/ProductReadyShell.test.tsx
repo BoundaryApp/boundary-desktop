@@ -1,9 +1,13 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { ProductReadyShell } from '../ProductReadyShell';
 import { openSettings } from '../settingsNavigation';
 import { openInference } from '../inference/inferenceNavigation';
+
+vi.mock('../desktopAgent/DesktopAgentHost', () => ({
+  DesktopAgentHost: () => <div>desktop-agent-host</div>,
+}));
 
 vi.mock('../chat/WorkbenchChatScreen', () => ({
   WorkbenchChatScreen: () => <div>chat-screen</div>,
@@ -43,11 +47,12 @@ vi.mock('../ResourcesScreen', () => ({
   ResourcesScreen: () => <div>resources-screen</div>,
 }));
 
-describe('ProductReadyShell navigation', () => {
-  afterEach(() => {
-    cleanup();
-  });
+vi.mock('../../experiments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../experiments')>()),
+  rendererExperiments: [{ Overlay: () => <div>experiment-overlay</div> }],
+}));
 
+describe('ProductReadyShell navigation', () => {
   it('reports the open screen and sheet to main', () => {
     const api = window.electronAPI as unknown as { hostBridge?: object };
     const hostBridge = api.hostBridge;
@@ -116,14 +121,16 @@ describe('ProductReadyShell navigation', () => {
     const onNavigate = vi.fn();
     render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
     fireEvent.keyDown(window, { key: '2', ctrlKey: true });
-    expect(onNavigate).toHaveBeenLastCalledWith('inference');
+    expect(onNavigate).toHaveBeenLastCalledWith('circles');
     fireEvent.keyDown(window, { key: '3', ctrlKey: true });
-    expect(onNavigate).toHaveBeenLastCalledWith('services');
+    expect(onNavigate).toHaveBeenLastCalledWith('inference');
     fireEvent.keyDown(window, { key: '4', ctrlKey: true });
-    expect(onNavigate).toHaveBeenLastCalledWith('resources');
-    // There is no Circles destination (ADR 0043 §1), so ⌘5 goes nowhere.
-    onNavigate.mockClear();
+    expect(onNavigate).toHaveBeenLastCalledWith('services');
     fireEvent.keyDown(window, { key: '5', ctrlKey: true });
+    expect(onNavigate).toHaveBeenLastCalledWith('resources');
+    // Nothing is on ⌘6.
+    onNavigate.mockClear();
+    fireEvent.keyDown(window, { key: '6', ctrlKey: true });
     expect(onNavigate).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     expect(onNavigate).toHaveBeenLastCalledWith('settings');
@@ -143,5 +150,55 @@ describe('ProductReadyShell navigation', () => {
     render(<ProductReadyShell view="resources" onNavigate={onNavigate} />);
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
     expect(onNavigate).toHaveBeenLastCalledWith('chat');
+  });
+
+  it('shows the agent button everywhere but Chat, and ⌘J opens Chat from it until the window lands', () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={onNavigate} />);
+    expect(screen.queryByRole('button', { name: /^Ask / })).toBeNull();
+    // ⌘J on Chat does nothing, and isn't sent on to Chat as a chat command.
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true });
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    rerender(<ProductReadyShell view="resources" onNavigate={onNavigate} />);
+    const button = screen.getByRole('button', { name: /^Ask / });
+    // At its default spot the content area keeps room for it.
+    expect(button.parentElement?.className).toContain('wb-agent-room');
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true });
+    expect(onNavigate).toHaveBeenLastCalledWith('chat');
+  });
+
+  it('with the desktop button on, mounts it and shows no in-window button on any screen (ADR 0058 §2)', async () => {
+    const api = window.electronAPI as unknown as { desktopAgent?: object };
+    const was = api.desktopAgent;
+    api.desktopAgent = {
+      get: vi.fn().mockResolvedValue({ available: true, on: true, hidden: false }),
+      onChanged: vi.fn((): (() => void) => () => undefined),
+      onHiddenChanged: vi.fn((): (() => void) => () => undefined),
+    };
+    const { rerender } = render(<ProductReadyShell view="resources" onNavigate={vi.fn()} />);
+    expect(await screen.findByText('desktop-agent-host')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Ask / })).toBeNull();
+    expect(document.querySelector('.wb-agent-room')).toBeNull();
+    rerender(<ProductReadyShell view="circles" onNavigate={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /^Ask / })).toBeNull();
+    api.desktopAgent = was;
+  });
+
+  it('with the desktop button off, keeps the in-window button and mounts no desktop one', async () => {
+    render(<ProductReadyShell view="resources" onNavigate={vi.fn()} />);
+    await act(async () => undefined);
+    expect(screen.getByRole('button', { name: /^Ask / })).toBeTruthy();
+    expect(screen.queryByText('desktop-agent-host')).toBeNull();
+  });
+});
+
+describe('experiment overlays', () => {
+  it('draws an experiment overlay and makes it inert while a settings sheet is open', () => {
+    render(<ProductReadyShell view="chat" onNavigate={vi.fn()} />);
+    const overlay = screen.getByText('experiment-overlay');
+    expect(overlay.closest('[inert]')).toBeNull();
+    act(() => openSettings({ tab: 'passwords' }));
+    expect(screen.getByText('experiment-overlay').closest('[inert]')).not.toBeNull();
   });
 });

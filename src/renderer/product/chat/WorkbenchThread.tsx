@@ -11,7 +11,9 @@ import type {
 } from '../../../shared/types/hermesChat';
 import { useSetupOffer } from './setupOffers';
 import { ProjectPicker } from './ProjectPicker';
+import { useOwnerDocument, useOwnerWindow } from '../../components/ui/ownerDocument';
 import { InferenceChip } from './InferenceChip';
+import { projectInferenceKey } from './projectInferenceKey';
 import {
   BranchContext,
   BranchMarkAtEnd,
@@ -26,6 +28,8 @@ import {
   SelectionQuote,
   RewindAllowedContext,
 } from './MessageActions';
+import { HtmlPreviewSheet } from './HtmlPreviewSheet';
+import { projectRelativePath } from '../../../shared/hermesToolPaths';
 import { FinishedTasksNote, TaskCardsContext } from './TaskCards';
 import { BackgroundTurnNote, TurnNoteContext } from './TurnNotes';
 import { parseMemberMentions } from '../../../shared/hermesMentions';
@@ -38,27 +42,50 @@ import { displayHostPath, formatPhaseLine, sharedFallbackMarkText } from './chat
 import { ContextMeter } from './ContextMeter';
 import { ThreadEmpty } from './ThreadEmpty';
 import { RunButton } from './RunButton';
+import { BusySendMenu } from './BusySendMenu';
+import { QueueChips } from './QueueChips';
+import { useRunQueueControl } from './useRunQueueControl';
 import { projectMarkText } from './projectMove';
 import { ProjectGlyph } from './ProjectGlyph';
 import { onReactRender } from '../../debug/lagProbe';
 import { formatInferenceChipTitle, inferenceMarkLabel } from '../../../shared/inferenceDisplay';
 import { AssistantMessageContext, type AssistantMessageContextValue, MESSAGE_COMPONENTS } from './ThreadMessages';
 import { LiveTurnView } from './LiveTurnView';
+import { HeldTurnLine, type ChatLink } from './HeldTurnLine';
 import {
+  mergePlacedMarks,
   messageTimesKey,
   placeTranscriptMarks,
   TranscriptMarksAtEnd,
   TranscriptMarksContext,
 } from './TranscriptMarks';
 import { ThreadHead } from './ThreadHead';
+import {
+  poolMoveMarks,
+  poolReplyTurns,
+  PoolReplyLinesContext,
+  type PoolReplyLineView,
+  replyTimesKey,
+} from './PoolReplyLine';
+import { CONFIDENTIAL_COPY } from '../inference/confidentialCopy';
+import { poolModelName, useConfidentialState } from '../inference/useConfidentialState';
 import { ThreadInterrupts } from './ThreadInterrupts';
 import { MentionMenu } from './MentionMenu';
 import { useLiveTurn } from './useLiveTurn';
 import { findRunningTurn, isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 import { useChatInterrupts } from './useChatInterrupts';
 import { useMentionMenu } from './useMentionMenu';
+import { useCommandMenu } from './useCommandMenu';
+import { CommandMenu } from './CommandMenu';
+import { KeptVoiceChip, MessageVoiceChip } from './WritingVoiceChips';
+import { useChatWritingVoice } from './useChatWritingVoice';
+import { useWritingVoiceOptions } from '../writingVoices/useWritingVoiceOptions';
 import { useChatInference } from './useChatInference';
+import { NO_LOCAL_MODEL_TEXT, PoolStopPrompt } from './PoolStopPrompt';
 import { composerBlockFor, composerGate } from './composerGate';
+import { composerSharedHint, sharedFoldersIn, useSharedFoldersOnMac } from './sharedFolderProject';
+import { Button } from '../../components/ui/button';
+import { Switch } from '../../components/ui/switch';
 
 export interface BranchedFrom {
   parentTitle: string;
@@ -149,6 +176,20 @@ interface WorkbenchThreadProps {
   onEditAgentDraft?: (payload: AgentDraftProposal) => void;
   /** Share a message to a Circle; absent when the user is in no Circle (ADR 0042 §9). */
   onShareToCircle?: (share: { text: string; role: 'user' | 'assistant'; model?: string }) => void;
+  /** Sends a reply to the inspector's Check tab; absent where no inspector shows it. */
+  onCheckReply?: (check: { messageId: string; markdown: string; source: string }) => void;
+  /** Sends a project file the agent wrote to the inspector's Check tab. */
+  onCheckProjectFile?: (projectId: string, relativePath: string) => void;
+  /** Takes the project list after the chat patches its project (Allow level B). */
+  onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /**
+   * The agent panel's layout (ADR 0058 §7): no header, since the panel draws its own; no
+   * project chip; `placeholder` for the idle composer; Escape left to close the panel rather
+   * than stop a reply; and prompts too wide for 384 pixels opened in the app window.
+   */
+  compact?: { placeholder: string; onOpenInWindow: () => void } | null;
+  /** A chat's name and how to open it, for the held line's links (workload plan Phase 1a). */
+  resolveChat?: (sessionId: string) => ChatLink;
 }
 
 // Stable default: a fresh `[]` per render would retrigger the mention effect forever.
@@ -158,6 +199,7 @@ const NO_PROJECT_MARKS: SessionProjectMark[] = [];
 export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   sessionId,
   sameChat,
+  resolveChat,
   threadTitle,
   agent = null,
   kind = null,
@@ -184,6 +226,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   onOpenTask,
   onBranch,
   branchedFrom = null,
+  compact = null,
   initialDraft = null,
   initialSend = false,
   initialQuote = null,
@@ -198,6 +241,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   onCreateAgentFromDraft,
   onEditAgentDraft,
   onShareToCircle,
+  onCheckReply,
+  onCheckProjectFile,
+  onProjectsUpdated,
 }) => {
   // Read when Share is pressed, so the reply carries the model the chip shows then.
   const shareModelRef = useRef<string | null>(null);
@@ -246,6 +292,8 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   // Filed conversations show project / title, with Move in the title menu (ADR 0024 §5).
   const filed = !isDm && Boolean(onOpenProject);
   const [findOpen, setFindOpen] = useState(false);
+  const ownerDocument = useOwnerDocument();
+  const ownerWindow = useOwnerWindow();
   useEffect(() => setFindOpen(false), [sessionId]);
   useEffect(() => {
     if (!isDm) return undefined;
@@ -257,9 +305,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       // Re-mounting focuses the field even when the bar was already open.
       requestAnimationFrame(() => setFindOpen(true));
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isDm]);
+    ownerWindow.addEventListener('keydown', onKey);
+    return () => ownerWindow.removeEventListener('keydown', onKey);
+  }, [isDm, ownerWindow]);
   const threadMessages = useAuiState((s) => s.thread.messages);
   const hasMessages = threadMessages.length > 0;
   const containerPath = activeProject?.containerPath;
@@ -274,6 +322,24 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     inputRef.current?.focus();
   }, []);
   const aui = useAui();
+  // Writing voices (ADR 0056 §6): a chip on the message, or a voice kept for the chat.
+  const voices = useWritingVoiceOptions();
+  const chatVoice = useChatWritingVoice(sessionId, voices);
+  const [voiceChip, setVoiceChip] = useState<string | null>(null);
+  const voiceChipRef = useRef<string | null>(null);
+  voiceChipRef.current = voiceChip;
+  useEffect(() => setVoiceChip(null), [sessionId]);
+  /** Before each send: the chip's voice rides in the run config once, then the chip goes. */
+  const armSendVoice = useCallback(() => {
+    const id = voiceChipRef.current;
+    aui.composer.setRunConfig(id ? { custom: { writingVoiceId: id } } : {});
+    if (id) {
+      setVoiceChip(null);
+      // The send reads it synchronously; after that, a Retry must not find it (it reads the
+      // composer's run config).
+      queueMicrotask(() => aui.composer.setRunConfig({}));
+    }
+  }, [aui]);
 
   /** Puts a waiting quote into the outgoing text; call right before a send. */
   const applyQuote = useCallback(() => {
@@ -291,15 +357,37 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     (text?: string) => {
       if (text != null) aui.composer.setText(text);
       else applyQuote();
+      armSendVoice();
       aui.composer.send();
     },
-    [aui, applyQuote]
+    [aui, applyQuote, armSendVoice]
   );
 
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  useEffect(() => setPreviewPath(null), [sessionId]);
   const projectFiles = useMemo<ProjectFiles>(
-    () => ({ project: activeProject, onNotice: setNotice }),
-    [activeProject]
+    () => ({
+      project: activeProject,
+      onNotice: setNotice,
+      onCheckFile: onCheckProjectFile,
+      onPreview: setPreviewPath,
+    }),
+    [activeProject, onCheckProjectFile]
   );
+  // Reveal only for a page inside the bound project's folder.
+  const previewRelative = previewPath
+    ? projectRelativePath(previewPath, activeProject?.containerPath)
+    : null;
+  const revealPreview =
+    activeProject && previewRelative
+      ? () => {
+          void window.electronAPI.hermesChat
+            .revealProjectFile({ projectId: activeProject.id, relativePath: previewRelative })
+            .then((result) => {
+              if (!result.success) setNotice(result.error ?? 'Could not show the file.');
+            });
+        }
+      : undefined;
 
   const replyExtras = useMemo<ReplyExtras>(
     () => ({
@@ -328,8 +416,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               ...(role === 'assistant' && shareModelRef.current ? { model: shareModelRef.current } : {}),
             })
         : undefined,
+      onCheck: onCheckReply,
     }),
-    [onQuote, activeProject, onShareToCircle]
+    [onQuote, activeProject, onShareToCircle, onCheckReply]
   );
 
   // A branch from a prompt hands the prompt back, unsent. Once per mount: the runtime
@@ -346,8 +435,11 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     if (draft) aui.composer.setText(draft);
     if (handedQuote) setQuote(handedQuote);
     consumed?.();
-    if (draft && sendAtOnce) aui.composer.send();
-  }, [aui]);
+    if (draft && sendAtOnce) {
+      armSendVoice();
+      aui.composer.send();
+    }
+  }, [aui, armSendVoice]);
 
   // Open in #room: once the transcript is in, bring your message into view and mark it.
   // Matched by text, newest first; if it is not found the log stays at the bottom.
@@ -357,13 +449,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     const target = focusRef.current?.trim();
     if (!target || messageCount === 0) return;
     focusRef.current = null;
-    const rows = [...document.querySelectorAll<HTMLElement>('.wb-log .wb-msg.is-user')].reverse();
+    const rows = [...ownerDocument.querySelectorAll<HTMLElement>('.wb-log .wb-msg.is-user')].reverse();
     const hit = rows.find((el) => el.textContent?.includes(target));
     if (!hit) return;
     hit.scrollIntoView?.({ block: 'center' });
     hit.classList.add('is-focused');
     window.setTimeout(() => hit.classList.remove('is-focused'), 2400);
-  }, [messageCount]);
+  }, [messageCount, ownerDocument]);
   const speakerName =
     (live.liveSpeakerSlug
       ? agents.find((a) => a.slug === live.liveSpeakerSlug)?.displayName
@@ -404,7 +496,27 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     onAddChannelMember,
   });
 
-  const inference = useChatInference({ sessionId, send: sendNow });
+  const inference = useChatInference({
+    sessionId,
+    sameChat,
+    send: sendNow,
+    project: activeProject,
+    onProjectsUpdated,
+    takeNewChatWritingVoice: chatVoice.takeForNewChat,
+  });
+  const voiceAgent = agent ?? agents.find((a) => a.builtIn) ?? null;
+  const { keep: keepChatVoice } = chatVoice;
+  const command = useCommandMenu({
+    voices,
+    enabled: true,
+    onPick: useCallback(
+      (picked: { id: string }, keepIt: boolean) => {
+        if (keepIt) void keepChatVoice(picked.id);
+        else setVoiceChip(picked.id);
+      },
+      [keepChatVoice]
+    ),
+  });
   shareModelRef.current = inference.modelId;
   const { offlinePrompt } = inference;
 
@@ -450,19 +562,6 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     return true;
   }, [applyQuote, gate.canSend, inference.checkReachable]);
 
-  const { handleMentionKeyDown } = mention;
-  const handleComposerKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      handleMentionKeyDown(event);
-      if (event.defaultPrevented) return;
-      if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
-        return;
-      }
-      // When it passes, the composer's own Enter handler runs next and sends.
-      if (!prepareSend()) event.preventDefault();
-    },
-    [handleMentionKeyDown, prepareSend]
-  );
 
   const onDismissDraft = useCallback(
     (key: string) => setDismissedDrafts((prev) => new Set(prev).add(key)),
@@ -509,13 +608,6 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   // Run control (run-control spec Phase 1): one button in the input's corner sends while
   // idle and stops while a run is in flight. There is no Stop while nothing runs.
   const running = useAuiState((s) => s.thread.isRunning);
-  // A turn a fallback answered leaves a mark in main; fetch it when the turn ends (ADR 0033 §3).
-  const wasRunning = useRef(running);
-  const { refreshAfterTurn } = inference;
-  useEffect(() => {
-    if (wasRunning.current && !running) refreshAfterTurn();
-    wasRunning.current = running;
-  }, [running, refreshAfterTurn]);
   // A turn on this chat that this screen is not streaming: started in another window, or
   // before the chat screen remounted. Stop cancels it in main by its request id.
   const chatTurn = findRunningTurn(useRunningTurns(), sessionId, sameChat);
@@ -531,10 +623,63 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     setAnnouncement('');
   }, [running]);
 
+  const focusInput = useCallback(() => inputRef.current?.focus(), []);
+  const runQueue = useRunQueueControl({
+    sessionId,
+    sameChat,
+    stoppable,
+    running,
+    backgroundRequestId,
+    canSend: gate.canSend,
+    prepareSend,
+    applyQuote,
+    focusInput,
+    announce: setAnnouncement,
+    takeVoiceChip: useCallback(() => {
+      const id = voiceChipRef.current;
+      setVoiceChip(null);
+      return id;
+    }, []),
+    restoreVoiceChip: setVoiceChip,
+  });
+  const { pauseQueue, handleKeyDown: handleRunQueueKeyDown } = runQueue;
+
+  const { handleMentionKeyDown } = mention;
+  const { handleKeyDown: handleCommandKeyDown } = command;
+  const handleComposerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (handleCommandKeyDown(event)) return;
+      // Backspace at the very start takes the voice chip off the message.
+      const box = event.currentTarget;
+      if (
+        event.key === 'Backspace' &&
+        voiceChipRef.current &&
+        box.selectionStart === 0 &&
+        box.selectionEnd === 0
+      ) {
+        event.preventDefault();
+        setVoiceChip(null);
+        return;
+      }
+      handleMentionKeyDown(event);
+      if (event.defaultPrevented) return;
+      // While a reply runs, Enter asks, queues or sends now (run-control spec 2.1).
+      if (handleRunQueueKeyDown(event)) return;
+      if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+        return;
+      }
+      // When it passes, the composer's own Enter handler runs next and sends.
+      if (!prepareSend()) event.preventDefault();
+      else if (aui.composer.getState().text.trim()) armSendVoice();
+    },
+    [aui, armSendVoice, handleCommandKeyDown, handleMentionKeyDown, handleRunQueueKeyDown, prepareSend]
+  );
+
   const { respondApproval, respondCredential } = interrupts;
   const stopRun = useCallback(() => {
     // A double-click on Send must not land its second click as Stop.
     if (Date.now() - runStartedAtRef.current < STOP_GUARD_MS) return;
+    pauseQueue();
     if (approval?.choices.includes('deny')) void respondApproval('deny');
     if (credentialRequest) void respondCredential({});
     if (backgroundRequestId) {
@@ -546,13 +691,14 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       aui.thread.cancelRun();
     }
     setAnnouncement('Response stopped');
-  }, [approval, aui, backgroundRequestId, credentialRequest, respondApproval, respondCredential]);
+  }, [approval, aui, backgroundRequestId, credentialRequest, pauseQueue, respondApproval, respondCredential]);
 
   const sendFromButton = useCallback(() => {
     if (!prepareSend()) return;
+    armSendVoice();
     aui.composer.send();
     inputRef.current?.focus();
-  }, [aui, prepareSend]);
+  }, [aui, armSendVoice, prepareSend]);
 
   // Esc stops a run from anywhere in the chat pane, but only once nothing else claims
   // it: open menus and lists close first, and a text selection's Quote popover clears.
@@ -562,14 +708,15 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       const pane = event.currentTarget;
       if (pane.querySelector('.wb-sel-pop')) {
         event.preventDefault();
-        window.getSelection()?.removeAllRanges();
+        pane.ownerDocument.getSelection()?.removeAllRanges();
         return;
       }
+      if (compact) return;
       if (pane.querySelector('[role="menu"], [role="listbox"], [role="dialog"]')) return;
       event.preventDefault();
       stopRun();
     },
-    [stoppable, stopRun]
+    [stoppable, stopRun, compact]
   );
 
   const isHermesChat = conversationKind === 'hermes';
@@ -590,10 +737,17 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             : 'Waiting for approval'
           : phaseLine;
 
+  // Files written in a shared folder reach its Circle (shared folders spec, decision 8).
+  const sharedFolders = useSharedFoldersOnMac();
+  const sharedHint = activeProject ? composerSharedHint(sharedFoldersIn(activeProject.hostPath, sharedFolders)) : null;
   const composerPlaceholder =
     gate.placeholder ??
-    (isHermesChat
-          ? `Ask ${agentName} anything`
+    (stoppable
+      ? runQueue.alwaysQueue
+        ? 'Enter queues · ⌘↵ sends now'
+        : 'Draft your next message… Enter asks what to do with it'
+      : isHermesChat
+          ? (compact?.placeholder ?? `Ask ${agentName} anything`)
           : isSideChat
             ? `Message ${agentName} · side chat`
           : isChannel
@@ -609,8 +763,25 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   }, [isDm, live.historyWindow, threadMessages, agentName]);
   const contextBudget = isDm ? live.historyWindow?.budget ?? null : null;
 
-  const { inferenceMarks } = inference;
+  const { inferenceMarks, poolTurns, turnWindows } = inference;
   const messageTimes = useAuiState((s) => messageTimesKey(s.thread.messages));
+  const replyTimes = useAuiState((s) => replyTimesKey(s.thread.messages));
+  const { state: confidential } = useConfidentialState();
+  // Which provider wrote each reply a pool answered, and where the chat moved (spec decision 9).
+  const poolOwners = useMemo(
+    () => poolReplyTurns(poolTurns, turnWindows, replyTimes),
+    [poolTurns, turnWindows, replyTimes]
+  );
+  const poolLines = useMemo(() => {
+    const lines = new Map<string, PoolReplyLineView>();
+    for (const [id, turn] of poolOwners) {
+      lines.set(id, {
+        text: CONFIDENTIAL_COPY.servedBy(poolModelName(confidential, turn.modelId), turn.providerName),
+        level: turn.level,
+      });
+    }
+    return lines;
+  }, [poolOwners, confidential]);
   const placedMarks = useMemo(
     () =>
       placeTranscriptMarks(
@@ -634,10 +805,27 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                     : `Switched to ${formatInferenceChipTitle(mark.provider, mark.modelId)}`,
             className: `wb-switch-mark wb-model-mark${mark.kind === 'fell-back' ? ' is-fallback' : ''}`,
           })),
+          ...chatVoice.marks.map((mark) => ({
+            id: mark.id,
+            at: mark.at,
+            text:
+              mark.kind === 'kept' && mark.voiceName
+                ? `Writing in ${mark.voiceName} from here`
+                : `Back to ${agentName}'s voice from here`,
+            className: 'wb-switch-mark wb-voice-mark',
+          })),
         ],
         messageTimes
       ),
-    [projectMarks, inferenceMarks, projects, agentName, messageTimes]
+    [projectMarks, inferenceMarks, chatVoice.marks, projects, agentName, messageTimes]
+  );
+  const transcriptMarks = useMemo(
+    () =>
+      mergePlacedMarks(
+        placedMarks,
+        poolMoveMarks(poolOwners, replyTimes, (turn) => CONFIDENTIAL_COPY.tookOver(turn.providerName, turn.moved))
+      ),
+    [placedMarks, poolOwners, replyTimes]
   );
 
   return (
@@ -645,7 +833,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       className="relative flex h-full min-h-0 flex-col"
       onKeyDown={onPaneKeyDown}
     >
-      <ThreadHead
+      {compact ? null : <ThreadHead
         kind={conversationKind}
         threadTitle={threadTitle}
         agent={agent}
@@ -666,9 +854,15 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         onOpenAgentDm={onOpenAgentDm}
         onAddAgentToChannel={onAddAgentToChannel}
         dmTabs={dmTabs}
-      />
+      />}
 
       {isDm && findOpen ? <DmFindBar onClose={closeFind} /> : null}
+
+      <HtmlPreviewSheet
+        containerPath={previewPath}
+        onClose={() => setPreviewPath(null)}
+        reveal={revealPreview}
+      />
 
       {notice && !showBranchToast ? (
         <div className="wb-toast" role="status">
@@ -688,7 +882,8 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       <ContextMeter usage={usage} categories={live.contextCategories} />
 
       <TurnNoteContext.Provider value={turnNoteContext}>
-      <TranscriptMarksContext.Provider value={placedMarks}>
+      <TranscriptMarksContext.Provider value={transcriptMarks}>
+      <PoolReplyLinesContext.Provider value={poolLines}>
       <ThreadPrimitive.Viewport className="wb-log" role="log" aria-label="Transcript">
         <ThreadPrimitive.Empty>
           <ThreadEmpty
@@ -738,8 +933,20 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
           onNotice={setNotice}
           setupOfferChatId={setupOffer?.chatId ?? null}
           statsRows={live.statsRows}
+          heldLine={
+            phaseEvent?.held ? (
+              <HeldTurnLine
+                held={phaseEvent.held}
+                resolveChat={resolveChat}
+                onRunNow={() => {
+                  void window.electronAPI.hermesChat.runHeldTurnNow({ requestId: phaseEvent.requestId });
+                }}
+              />
+            ) : null
+          }
         />
       </ThreadPrimitive.Viewport>
+      </PoolReplyLinesContext.Provider>
       </TranscriptMarksContext.Provider>
       </TurnNoteContext.Provider>
 
@@ -747,16 +954,26 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         interrupts={interrupts}
         projects={projects}
         onFollowUp={sendNow}
+        onOpenInWindow={compact?.onOpenInWindow}
       />
 
       <div
         className={`wb-composer${gate.inputLocked ? ' is-locked' : ''}`}
       >
-        {mention.showing ? (
+        {command.showing ? (
+          <CommandMenu
+            query={command.query}
+            items={command.items}
+            index={command.index}
+            agentVoiceId={voiceAgent?.chatRepliesVoiceId ?? null}
+            agentName={agentName}
+            onPick={command.pick}
+          />
+        ) : mention.showing ? (
           <MentionMenu items={mention.items} index={mention.index} onPick={mention.insertMention} />
         ) : null}
 
-        <SelectionQuote onQuote={onQuote} />
+        <SelectionQuote onQuote={onQuote} onCheck={onCheckReply} />
         <Profiler id="thread:composer" onRender={onReactRender}>
           <ComposerPrimitive.Root>
             <EarlierVersionNotice />
@@ -777,43 +994,74 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               <div className="wb-offline-prompt">
                 <p>Local model unreachable. Retry, or send this message via OpenRouter?</p>
                 <div className="wb-offline-actions">
-                  <button type="button" className="wb-btn" onClick={() => void inference.retryLocal()}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void inference.retryLocal()}>
                     Retry local
-                  </button>
+                  </Button>
                   {inference.openRouterConfigured ? (
-                    <button
+                    <Button
+                      variant="primary"
+                      size="sm"
                       type="button"
-                      className="wb-btn is-solid"
                       onClick={() => void inference.sendViaOpenRouter()}
                     >
                       Send via OpenRouter
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
             ) : null}
-            {inference.privateRefused ? (
+            {inference.privateRefused && inference.poolStop ? (
+              <PoolStopPrompt
+                stop={inference.poolStop}
+                localModelId={inference.localModelId}
+                onAllowLevelB={inference.allowLevelB ? () => void inference.allowLevelB?.() : undefined}
+                onUseLocal={() => void inference.sendViaLocal()}
+                busy={inference.allowingLevelB}
+                error={inference.allowLevelBError}
+              />
+            ) : inference.privateRefused ? (
               <div className="wb-offline-prompt" role="alert">
                 <p>
                   This project is private and this chat’s model isn’t, so nothing can be sent.{' '}
                   {inference.localModelId
                     ? 'Use your local model here, or pin one for the project.'
-                    : 'Connect a local model in Settings, mark a shared model’s provider Private in Circles, or turn off Private for the project.'}
+                    : NO_LOCAL_MODEL_TEXT}
                 </p>
                 {inference.localModelId ? (
                   <div className="wb-offline-actions">
-                    <button
+                    <Button
+                      variant="primary"
+                      size="sm"
                       type="button"
-                      className="wb-btn is-solid"
                       onClick={() => void inference.sendViaLocal()}
                     >
                       Send with {formatInferenceChipTitle('local', inference.localModelId)}
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
               </div>
             ) : null}
+            <QueueChips {...runQueue.chips} />
             <div className="wb-input-box">
+              {runQueue.menuIndex !== null ? (
+                <BusySendMenu
+                  agentName={speakerName}
+                  activeIndex={runQueue.menuIndex}
+                  alwaysQueue={runQueue.alwaysQueue}
+                  onPick={runQueue.pick}
+                  onAlwaysQueueChange={runQueue.setAlwaysQueue}
+                />
+              ) : null}
+              {voiceChip ? (
+                <MessageVoiceChip
+                  name={voices.find((v) => v.id === voiceChip)?.name ?? voiceChip}
+                  onKeep={() => {
+                    void keepChatVoice(voiceChip);
+                    setVoiceChip(null);
+                  }}
+                  onRemove={() => setVoiceChip(null)}
+                />
+              ) : null}
               <ComposerPrimitive.Input
                 ref={inputRef as never}
                 rows={2}
@@ -836,7 +1084,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               ) : null}
             </div>
             <div className="wb-cluster">
-              {onMoveProject && (isDm || messageCount > 0) ? (
+              {compact ? null : onMoveProject && (isDm || messageCount > 0) ? (
                 <button
                   type="button"
                   className="wb-chip"
@@ -877,15 +1125,21 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 sessionId={sessionId}
                 disabled={gate.block === 'connecting' || gate.block === 'restarting'}
                 applying={phase === 'restarting'}
-                projectInferenceKey={
-                  activeProject
-                    ? `${activeProject.id}:${activeProject.inference?.mode ?? 'inherit'}:${activeProject.inference?.modelId ?? ''}:${activeProject.inference?.privacyLocalOnly === true}`
-                    : null
-                }
-                refreshKey={inference.refreshKey}
-                onResolvedChange={inference.setResolvedInference}
-                onMarksChange={inference.setInferenceMarks}
+                projectInferenceKey={projectInferenceKey(activeProject)}
+                resolved={inference.resolved}
+                marks={inference.inferenceMarks}
+                poolTurns={inference.poolTurns}
+                refresh={inference.refresh}
               />
+              {chatVoice.voiceId && chatVoice.voiceName ? (
+                <KeptVoiceChip
+                  name={chatVoice.voiceName}
+                  voiceId={chatVoice.voiceId}
+                  voices={voices}
+                  agentName={agentName}
+                  onKeep={(id) => void keepChatVoice(id)}
+                />
+              ) : null}
               {contextBudget != null ? (
                 <DmContextChip budget={contextBudget} agentName={agentName} />
               ) : null}
@@ -907,17 +1161,10 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               ) : null}
               <label className="wb-toggle">
                 Tools
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={toolsEnabled}
-                  onClick={() => onToolsEnabledChange(!toolsEnabled)}
-                  className={`wb-switch${toolsEnabled ? ' is-on' : ''}`}
-                >
-                  <i />
-                </button>
+                <Switch checked={toolsEnabled} onChange={onToolsEnabledChange} />
               </label>
             </div>
+            {sharedHint ? <p className="wb-composer-shared">{sharedHint}</p> : null}
           </ComposerPrimitive.Root>
         </Profiler>
       </div>

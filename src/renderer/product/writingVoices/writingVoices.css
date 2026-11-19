@@ -1,0 +1,288 @@
+/* Settings → Writing voices and its create sheet (ADR 0056). */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+.wb-voice-lede {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.wb-voice-drop {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.wb-voice-drop p {
+  margin: 0;
+}
+
+.wb-voice-drop-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.wb-voice-paste {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.wb-voice-paste .wb-field {
+  width: 100%;
+}
+
+.wb-voice-files {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.wb-voice-files li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2-5);
+  border-top: 1px solid var(--line);
+}
+
+.wb-voice-files li:first-child {
+  border-top: 0;
+}
+
+.wb-voice-files small {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-files small.is-warn {
+  color: var(--warn);
+}
+
+.wb-voice-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-voice-file.is-refused {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.wb-voice-file-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+}
+
+.wb-voice-file-remove:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wb-voice-file-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wb-voice-meter {
+  margin-top: var(--space-3);
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.wb-voice-meter-nums {
+  display: flex;
+  gap: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-meter-bar {
+  height: 5px;
+  margin: var(--space-2) 0 var(--space-1-5);
+  border-radius: var(--radius-full);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.wb-voice-meter-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+.wb-voice-meter p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+/* Voice cards (phase 2). */
+
+.wb-voice-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+.wb-voice-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+}
+
+.wb-voice-card-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.wb-voice-card-name b {
+  font-weight: 500;
+}
+
+.wb-voice-card-name small,
+.wb-voice-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.wb-voice-rename input,
+.wb-voice-never input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  color: var(--text);
+}
+
+.wb-voice-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-steps li::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-2);
+  border: 1px solid var(--text-faint);
+  border-radius: var(--radius-full);
+}
+
+.wb-voice-steps li.is-done {
+  color: var(--text-muted);
+}
+
+.wb-voice-steps li.is-done::before {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.wb-voice-steps li.is-now {
+  color: var(--text);
+}
+
+.wb-voice-steps li.is-now::before {
+  border-color: var(--brand);
+  background: var(--brand);
+}
+
+.wb-voice-error {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--size-xs);
+}
+
+.wb-voice-desc {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.wb-voice-kicker {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.wb-voice-never {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-voice-never li {
+  display: flex;
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
+}
+
+.wb-voice-never li:first-child {
+  border-top: 0;
+}
+
+.wb-voice-never.is-editing li {
+  border-top: 0;
+}
+
+.wb-voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.wb-voice-actions-gap {
+  flex: 1;
+}
+}

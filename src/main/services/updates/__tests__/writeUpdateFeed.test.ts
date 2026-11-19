@@ -31,7 +31,7 @@ describe('write-update-feed', () => {
   });
 
   it('keeps the real version in updateTo under a label', () => {
-    const feed = buildFeed({ ...release, channel: 'beta' });
+    const feed = buildFeed({ ...release, channel: 'beta', stackVersion: undefined });
     expect(feed.currentRelease).toBe('0.0.1-rc.999999');
     expect(feed.releases[0].version).toBe('0.0.1-rc.999999');
     expect(feed.releases[0].updateTo.version).toBe('0.0.1');
@@ -40,7 +40,7 @@ describe('write-update-feed', () => {
 
   it('writes a channel file electron-updater reads, with the real version and no label', async () => {
     const text = JSON.stringify(buildChannelFile({ ...release, sha512: 'cd', stackVersion: 'v0.3.7' }));
-    const info = parseUpdateInfo(text, 'beta-darwin-arm64-mac.yml', 'https://x.test/');
+    const info = parseUpdateInfo(text, 'beta-darwin-arm64-mac.yml', new URL('https://x.test/'));
     expect(info).toMatchObject({
       version: '0.0.1',
       releaseNotes: 'Line',

@@ -1,17 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover';
 import { useEscapeToClose } from '../use-dismiss';
-
-beforeAll(() => {
-  // Radix's popper measures its anchor; jsdom has no ResizeObserver.
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-});
 
 /** Radix defers focus return and its outside-pointer listener by one timer tick. */
 const flushFocus = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));

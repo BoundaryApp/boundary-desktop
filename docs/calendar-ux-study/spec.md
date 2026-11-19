@@ -4,8 +4,8 @@ The visual source is [click-through.html](click-through.html). What the stack an
 
 | | |
 | --- | --- |
-| Status | Proposed 20 Oct 2026 |
-| Visuals | [click-through.html](click-through.html) |
+| Status | Proposed 20 Oct 2026; Calendars on this Mac and the password walkthrough proposed 7 Nov 2026 ([ADR 0045](../adr/0045-mac-calendars-through-the-host-bridge.md)) |
+| Visuals | [click-through.html](click-through.html) (CalDAV only; phases 5–7 add their own scenes) |
 | Backend | Checked against stack `v0.3.3`, the running `hermes` container, and `gelse/caldav-mcp` v0.1.1 source |
 | Started | 20 Oct 2026 |
 
@@ -18,10 +18,14 @@ The visual source is [click-through.html](click-through.html). What the stack an
 | 1 Connect and read | Built 21 Oct 2026; in-app check pending | 0, pin |
 | 2 Changes with approval, broken sign-ins | Built 25 Oct 2026; in-app check pending | 1 |
 | 3 Chat entry point, Services | Built 25 Oct 2026; in-app check pending | 1 |
+| 4 Spike: the Mac's calendars | Partly done 8 Nov 2026 (access granted and kept across a reopen; ids, change events not checked) | — |
+| 5 App-specific password walkthrough | Built 8 Nov 2026; in-app check pending | 1 |
+| 6 Calendars on this Mac: connect and read | Built 8 Nov 2026; in-app check pending | 4 |
+| 7 Calendars on this Mac: changes and revoked access | Built 8 Nov 2026; in-app check pending | 6, 2 |
 
 ## The problem
 
-The stack can give agents a calendar. `caldav-mcp` (`ghcr.io/gelse/caldav-mcp`) runs in the `calendar` Compose profile, holds no credentials itself, and reads the CalDAV URL, username and password from `X-Caldav-*` headers on each call. The stack's bootstrap turns each `compose/caldav-mcp/accounts/<slug>.env` into a Hermes MCP server `caldav-<slug>` on the default, `api-server` and `browser` profiles (`compose/hermes/bootstrap-api-profile.sh`, `register_caldav_mcp_servers`).
+The stack can give agents a calendar. `caldav-mcp` (`ghcr.io/gelse/caldav-mcp`) runs in the `calendar` Compose profile, holds no credentials itself, and reads the CalDAV URL, username and password from `X-Caldav-*` headers on each call. The stack's bootstrap turns each `compose/caldav-mcp/accounts/<slug>.env` into a Hermes MCP server `caldav-<slug>` on the default, `api-server` and `browser` profiles (`compose/hermes/bootstrap-api-profile.sh`, `register_caldav_mcp_servers`). From stack 0.3.15 those accounts live in the `caldav` add-on's store instead (`addon.sh connect caldav`), and their `caldav-<slug>` servers go on the default and `browser` profiles only. Boundary's own `calendar-<slug>` entries on the same URL are untouched by either.
 
 None of that is reachable from Boundary:
 
@@ -37,9 +41,9 @@ Someone with an iCloud, Fastmail or Nextcloud calendar connects it from Boundary
 
 ## Non-goals
 
-- **Google Calendar and Microsoft 365.** Google's CalDAV endpoint needs OAuth, and Microsoft doesn't offer CalDAV. The provider step lists both as unsupported with the reason.
+- **Google Calendar and Microsoft 365 over CalDAV.** Google's CalDAV endpoint needs OAuth, and Microsoft doesn't offer CalDAV. Both work through Calendars on this Mac (decision 10) once the account is added to macOS, and the provider step points there.
 - **A calendar view in Boundary.** Agents read the calendar. People keep using their calendar app.
-- **Choosing calendars within an account.** caldav-mcp shows every calendar on the login. The sign-in step lists them so this is visible. CR 0006 R5 asks for an allowlist.
+- **Choosing calendars within a CalDAV account.** (Calendars on this Mac does have a picker, decision 12.) caldav-mcp shows every calendar on the login. The sign-in step lists them so this is visible. CR 0006 R5 asks for an allowlist.
 - **Calendar changes from board workers and cron.** Hermes's approval gate fails closed when there's no person to ask, so those runs can read but not write. That's the safe default.
 
 ## Surfaces
@@ -57,7 +61,7 @@ Someone with an iCloud, Fastmail or Nextcloud calendar connects it from Boundary
 
 | Need | Stack or Hermes provides | Boundary adds |
 | --- | --- | --- |
-| Calendar bridge | `caldav-mcp` service in the `calendar` profile, built from upstream commit `ce880c5` (native arm64), reachable at `http://caldav-mcp:8080/mcp` inside the Compose network | Adds `calendar` to the Compose profiles and starts (and the first time, builds) the service when the connect sheet opens, without touching `hermes`. |
+| Calendar bridge | `caldav-mcp` service in the `calendar` profile, built from upstream commit `ce880c5` (native arm64), reachable at `http://caldav-mcp:8080/mcp` inside the Compose network | Adds `calendar` to the Compose profiles and starts (and the first time, builds) the service once a CalDAV provider is chosen in the connect sheet, without touching `hermes`. |
 | Sign-in test | The caldav-mcp container, which has the Python `caldav` client the agent uses. `docker compose exec -T caldav-mcp python -` runs a script from stdin (CR R4 answer) | A short probe script sent on stdin with the URL, username and password, also on stdin, never in argv or the environment. It tries `/.well-known/caldav` when the URL has no path, then lists the calendars (name, color, whether it's read-only). It prints one JSON line: ok with calendars, rejected (401, 403), or unreachable with the error. |
 | Registration | `hermes -p <profile> config set mcp_servers.<name> '<json>'`. Hermes resolves `${VAR}` header values from the profile's `.env` when it connects | One entry per agent with access, named `calendar-<slug>` (decision 2), set with `buildHermesConfigSetExec(..., { secret: true })` as `copyDefaultMcpServers` does. The entry: the URL, the three `X-Caldav-*` headers with the password as `${BOUNDARY_CALENDAR_<SLUG>_PASSWORD}`, `tools.include` (decision 5), `trust: untrusted`, `timeout: 60`, `connect_timeout: 30`. Not `mcp.servers.set_api_key`, which replaces the headers (Phase 0, S1). |
 | Password | The profile's `.env`, read when a server connects | Writes `BOUNDARY_CALENDAR_<SLUG>_PASSWORD` into each granted profile's `.env` on disk, as `hermesProvision.ts` writes the bridge tokens. Keeps its own copy in `safeStorage` so it can provision a newly granted agent or re-provision after a reset. Never in argv or logs. |
@@ -71,7 +75,7 @@ Someone with an iCloud, Fastmail or Nextcloud calendar connects it from Boundary
 1. **Calendars is its own Settings tab** (`SettingsTab` gains `'calendars'`, after `'passwords'`). Like logins, these are real accounts with a secret, so they follow the Passwords & Logins pattern: a list, an add sheet, actions on each row. *Recommended over* a generic Connections page, which would hold one kind of connection today. Rename the tab when a second kind arrives.
 2. **Boundary registers calendars per agent itself, not through the stack's account files.** The stack's path needs `CALDAV_MCP_ENABLED=1`, an account file and a two-minute reload. It also gives every account to every profile it knows, and keeps the password in two plain-text files. Writing the entry and the `.env` key the way the host bridge does registers per agent and needs no restart (Phase 0), and the password lives only in the `.env` of profiles that have access. Entries are named `calendar-<slug>` with `BOUNDARY_CALENDAR_<SLUG>_PASSWORD`, so the bootstrap's `reconcile_caldav_accounts`, which deletes any `caldav-*` entry without an account file, never touches them, even in local-stack mode with `CALDAV_MCP_ENABLED=1`. The stack documents and tests this as a supported path (CR R6). Boundary never registers on `api-server`, and registers only after the first bootstrap has created it: a calendar entry on the default profile when `api-server` is cloned is copied without its password and fails. *Recommended.*
 3. **Provider first, URL hidden.** iCloud, Fastmail and Nextcloud fill the URL in (Nextcloud asks for the host). "Other CalDAV server" takes a host or full URL, and the probe follows `/.well-known/caldav`. The URL stays editable under **Server address**.
-4. **Nothing is saved until the sign-in test passes.** The test runs inside the caldav-mcp container, so it uses the same client and network as the agent. Opening the connect sheet starts the service (building it the first time), so the build overlaps with choosing a provider and fetching an app password. If the service isn't up when the user presses **Test sign-in**, the button reads "Starting the calendar service…" until it is. A rejected sign-in blocks the step, and its copy names the likely cause (for iCloud, the Apple ID password instead of an app-specific one). For iCloud, a password that doesn't match the app-specific format (`abcd-efgh-ijkl-mnop`) warns before any network call, with **Test anyway**. An unreachable server also blocks, with the error, since an agent couldn't reach it either.
+4. **Nothing is saved until the sign-in test passes.** The test runs inside the caldav-mcp container, so it uses the same client and network as the agent. Choosing a CalDAV provider in the connect sheet starts the service (building it the first time), so the build overlaps with fetching an app password. The provider step starts on Calendars on this Mac until a Mac account exists, and on iCloud after that, so opening the sheet doesn't start caldav-mcp for someone who connects the Mac. If the service isn't up when the user presses **Test sign-in**, the button reads "Starting the calendar service…" until it is. A rejected sign-in blocks the step, and its copy names the likely cause (for iCloud, the Apple Account password instead of an app-specific one). For iCloud, a password that doesn't match the app-specific format (`abcd-efgh-ijkl-mnop`) warns before any network call, with **Test anyway**. An unreachable server also blocks, with the error, since an agent couldn't reach it either.
 5. **Access is per agent: Off, Read, or Read and change.** Read is the stack's 8 query tools in `tools.include`; Read and change is all 14. Hermes defaults to Read and change and every other agent to Off, including agents created later. *Recommended over* one switch for all agents, because calendar invites are text other people write (the credential plan lists them as a prompt-injection source).
 6. **Every change asks first.** All entries are `trust: untrusted`, so creating, updating, moving or deleting events and adding or removing attendees raises an approval. Reads never ask. Per ADR 0006, the card offers only the choices the gateway sends.
 7. **The chat entry point is a host-bridge tool, not a keyword match.** The `boundary` bridge gains `offer_setup({ kind: "calendar" })`, listed only while no calendar is connected. Its description tells the model to call it when someone asks about their schedule. Boundary renders the call as the **Connect a calendar** card. *Recommended over* matching words like "calendar" in the renderer, which would misfire on questions about calendars in general.
@@ -142,6 +146,96 @@ No UI. Run each check against the running stack with a throwaway Radicale accoun
 **Acceptance**
 - [ ] 3.1 With no calendar connected, "what do I have on Thursday" shows the card, and "how do Hebrew calendars work" doesn't.
 - [ ] 3.2 After a calendar is connected, `offer_setup` is no longer listed for any agent.
+
+---
+
+## Calendars on this Mac and the password walkthrough
+
+iCloud only accepts an app-specific password over CalDAV, and getting one is most of the three minutes in the goal. Native Mac apps skip that step by reading the system calendar store (EventKit), which already holds every account in System Settings → Internet Accounts. [ADR 0045](../adr/0045-mac-calendars-through-the-host-bridge.md) records how Boundary does the same through the host bridge. Everything above stays: CalDAV accounts connect as before, and the walkthrough makes the iCloud CalDAV route easier for people who use it.
+
+### Decisions (confirm before Phase 5)
+
+10. **One provider, Calendars on this Mac, for every account macOS has.** It's first in the provider step, marked "No password", with the hint "iCloud, Google, Microsoft 365 and other accounts in System Settings". The iCloud row keeps "Needs an app-specific password" and adds "or use Calendars on this Mac". The Google and Microsoft 365 rows say "Use Calendars on this Mac" and select it. *Recommended over* iCloud only, which would leave Google and Microsoft 365 unsupported for no gain.
+11. **A Swift helper owns EventKit, and agents reach it through a per-agent route on the host bridge** (ADR 0045 §1, §3). Each agent with access gets `calendar-mac` in its `mcp_servers`, pointing at the bridge's `/calendar` route with its own `BOUNDARY_CALENDAR_MAC_TOKEN`. Main checks the agent's access and allowed calendars on every call.
+12. **The user picks the calendars.** The connect sheet lists the Mac's calendars by account with their colours. All start ticked except Birthdays and subscribed calendars, and at least one must stay ticked. The allowed set is one list for the account, not per agent; access per agent is still Off, Read, or Read and change (decision 5).
+13. **Same tools and approvals as CalDAV.** The bridge offers `caldav-mcp`'s tool names and argument shapes where EventKit can do the same thing. Attendee tools are left out because EventKit can't invite. Read tools carry `readOnlyHint: true`, and the entry is `trust: untrusted`, so every write raises the existing calendar approval card (decision 6) and the bridge adds no approval of its own.
+14. **Changes to a recurring event touch one occurrence** unless the agent passes the span for future occurrences too. The approval card says which.
+15. **The walkthrough replaces the collapsed help list.** On the iCloud sign-in step, **Show me how** opens a five-slide walkthrough inside the sheet. Each slide is a simplified drawing of one step at account.apple.com, made from the app's tokens as inline SVG, with no Apple logos and nothing copied from Apple's pages. *Recommended over* screenshots, which show Apple's UI, go stale when Apple redesigns, and differ between light and dark mode.
+16. **The Mac's calendars work only while Boundary runs.** With Boundary closed, calls fail with the bridge's "Boundary isn't running" error (ADR 0027 §1). The card says so under the agent list.
+
+### Surfaces
+
+| Moment | Surface |
+| --- | --- |
+| Picks a provider | Calendars on this Mac first; iCloud, Google and Microsoft 365 rows point to it |
+| Connects the Mac's calendars | Three steps in the connect sheet: allow, choose calendars, access per agent |
+| Gets an app-specific password | **Show me how** on the iCloud sign-in step, and on **Replace password** for an iCloud card |
+| Manages it | A **This Mac** card in Settings → Calendars with the ticked calendars, access, **Edit calendars** and **Remove** |
+| Access revoked in System Settings | The card turns red with **Open Privacy Settings** |
+
+### Phase 4 · Spike: the Mac's calendars
+
+No UI, no real calendars. Build a throwaway helper, sign it as the release does, and point it at a test macOS user account with synthetic calendars only. Record the answers in the build log.
+
+- **M1** In a signed, packaged build, the Calendar prompt names Boundary when the helper (a child of main) asks. Record what it names in a dev build. If it names the helper in a packaged build, the helper becomes a bundled app with its own usage string, and ADR 0045 §1 is amended.
+- **M2** The Info.plist keys and entitlements needed on the minimum macOS Boundary supports (`NSCalendarsFullAccessUsageDescription`, `NSCalendarsUsageDescription` before macOS 14, `com.apple.security.personal-information.calendars` on both the app and the helper).
+- **M3** A grant survives the helper restarting and the app updating.
+- **M4** Event identifiers: whether `eventIdentifier` changes after an iCloud or Google sync, and what the helper hands agents if it does.
+- **M5** Hermes queues a write on a `trust: untrusted` entry pointing at the bridge's `/calendar` route, and a tool with `readOnlyHint: true` runs without asking. Confirm in the pinned image's source (ADR 0031) as well as live.
+- **M6** `EKEventStoreChanged` arrives in a command-line helper with no run loop of its own, or how the helper keeps one.
+
+**Acceptance**
+- [ ] 4.1 M1–M6 each have an answer in the build log.
+- [ ] 4.2 If M1 or M5 fails, ADR 0045 is amended before Phase 6 starts.
+
+### Phase 5 · App-specific password walkthrough
+
+**Where:** `src/renderer/product/CalendarsPanel.tsx` (the iCloud sign-in step and **Replace password**), new `src/renderer/product/calendar/AppPasswordWalkthrough.tsx` and its slide drawings.
+
+1. **Check the steps first.** Read Apple's current support page for app-specific passwords and confirm each slide's step and label before drawing. Drawings show labels, not pixel copies.
+2. **Slides:** (1) **Open account.apple.com**, which opens the default browser, then sign in; (2) **Sign-In and Security**, then **App-Specific Passwords**; (3) press **+** and name it "Boundary"; (4) Apple may ask for the Apple Account password again; (5) copy the password, four groups of four letters, and paste it here. The paste field is on slide 5 with the existing format check (decision 4), and **Done** returns to the sign-in step with the password filled in.
+3. **Controls:** **Back**, **Next**, step dots, left and right arrow keys, Escape to close. Focus moves to each slide's heading.
+4. **The other route:** a line at the top, "Rather not make a password? Use Calendars on this Mac", switches the sheet to that provider.
+
+**Acceptance**
+- [ ] 5.1 Every slide reads correctly in light and dark mode and at the sheet's narrowest width.
+- [ ] 5.2 A password pasted on slide 5 lands in the sign-in step's field, and a malformed one shows the format warning there.
+- [ ] 5.3 The whole walkthrough works from the keyboard.
+
+### Phase 6 · Calendars on this Mac: connect and read
+
+**Where:**
+- new `native/calendar-helper/` (Swift package: the JSON-lines protocol, a store interface with EventKit and fixture implementations) and its build step in `forge.config.ts`, which also adds the Info.plist keys and entitlement from M2
+- new `src/main/services/assistant/calendar/macCalendarHelper.ts` (starts, restarts and stops the helper; 10 s per request)
+- `src/main/services/hostBridge/` (the `/calendar` route, per-agent token mapping, the read tools)
+- `src/main/services/assistant/calendar/calendarService.ts` (provider `mac`, per-agent `calendar-mac` entries and tokens)
+- `src/shared/types/calendars.ts` (`CalendarProvider` gains `'mac'`; the view gains the allowed calendar ids)
+- `CalendarsPanel.tsx` (the provider row, the allow and choose steps, the **This Mac** card)
+
+1. **Allow:** one sentence on what agents will see, then **Allow calendar access**. If access was denied before, the step says macOS won't ask again and offers **Open Privacy Settings**, then re-checks when the app regains focus.
+2. **Choose calendars** (decision 12) and **access per agent** (decisions 5, 9), then the connecting checklist as for CalDAV, ending when `mcp.servers.status` shows `calendar-mac` connected on each granted agent.
+3. **Helper failures:** one automatic restart, then "The calendar helper stopped" on the card with **Restart**. Agents get an error naming the cause. A ticked calendar that disappears from the Mac is dropped from the allowed list and named on the card.
+4. **Privacy:** logs hold calendar ids, counts and statuses. No titles, notes, locations or attendees in logs, debug dumps or telemetry.
+5. **Tests use the fixture store only:** Swift tests run the protocol against synthetic calendars in `synthetic-calendars/`, and the TypeScript side runs against a stand-in helper script covering a crash, a hang, malformed output and each access state. Nothing in the suite asks for or reads real calendar access.
+6. **Contract table:** add the rows M5 confirmed to `docs/stack-contract.md`, and name the `test:stack` case or manual flow that covers the route.
+
+**Acceptance**
+- [ ] 6.1 On a Mac with an iCloud account in System Settings, connecting with Read for Hermes needs no password, and Hermes answers "what's on Thursday" from a ticked calendar in a new chat.
+- [ ] 6.2 An unticked calendar's events never reach an agent, including through search.
+- [ ] 6.3 An agent set to Off has no `calendar-mac` entry and no token, and a call with another agent's token or the general bridge token is refused at `/calendar`.
+- [ ] 6.4 With Boundary closed, a calendar call fails with "Boundary isn't running".
+- [ ] 6.5 Grep of the debug log after connecting and one calendar question finds no event text.
+
+### Phase 7 · Calendars on this Mac: changes and revoked access
+
+1. **Read and change** maps to the write tools (decision 13). The approval card renders them as it does CalDAV writes, with the account shown as "This Mac" and the occurrence span (decision 14).
+2. **Revoked access:** when `status` reports denied, on focus or on a failed call, the card turns red with **Open Privacy Settings**, and agents get an error saying access was turned off in System Settings.
+3. **Services** lists the Mac's calendars under Calendar with the helper's status.
+
+**Acceptance**
+- [ ] 7.1 Asking Hermes to add an event to a ticked calendar raises one approval, and declining leaves the calendar unchanged.
+- [ ] 7.2 A Read agent's write is refused at the bridge even with its `tools.include` widened by hand.
+- [ ] 7.3 Turning off Boundary's calendar access in System Settings turns the card red the next time the app regains focus.
 
 ## Open questions
 

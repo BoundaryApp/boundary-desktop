@@ -17,7 +17,7 @@ vi.mock('../../containerRuntime', async () => {
 });
 
 vi.mock('../resolveAssistantRoot', () => ({
-  tryResolveAssistantRoot: () => ({ root: '/tmp/fake-assistant', error: undefined }),
+  tryResolveAssistantRoot: () => ({ root: '/tmp/fake-assistant', error: undefined as string | undefined }),
   resolveAssistantRoot: () => '/tmp/fake-assistant',
 }));
 

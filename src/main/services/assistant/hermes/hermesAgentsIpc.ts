@@ -12,6 +12,8 @@ import {
   updateHermesAgent,
 } from './hermesAgents';
 import { ensureOrchestratorAgent, retryOrchestratorOnGatewayOpen } from './hermesOrchestrator';
+import type { AgentWritingVoices } from '../../../../shared/types/writingVoices';
+import { setAgentWritingVoices } from '../writingVoices/agentWritingVoices';
 
 export function registerAgentHandlers(): void {
   retryOrchestratorOnGatewayOpen();
@@ -33,6 +35,9 @@ export function registerAgentHandlers(): void {
     getHermesAgentSoul(payload)
   );
 
+  handleResult('hermes-agents:set-writing-voices', async (_event, slug: string, voices: AgentWritingVoices) =>
+    setAgentWritingVoices(slug, voices)
+  );
   handleResult('hermes-agents:reveal-soul', async (_event, payload: HermesAgentSoulPayload) =>
     revealHermesAgentSoul(payload)
   );

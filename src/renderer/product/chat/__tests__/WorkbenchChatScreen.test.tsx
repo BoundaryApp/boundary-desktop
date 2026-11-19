@@ -1,320 +1,43 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubElectronAPI } from '../../../__tests__/electronApiFake';
-import { clearChatScreenSnapshot } from '../chatScreenCache';
-
-const ipcCalls = await vi.hoisted(() => import('./ipcCalls'));
-ipcCalls.settleBeforeWaits();
-
-const listThreads = vi.fn();
-const listProjects = vi.fn();
-const inspectSources = vi.fn();
-const addSourceFolder = vi.fn();
-const pickCodingFolder = vi.fn();
-const grantCodingFolder = vi.fn();
-const removeSource = vi.fn();
-const revealSource = vi.fn();
-const refreshIndex = vi.fn();
-const createHostProject = vi.fn();
-const changeFolder = vi.fn();
-const selectProject = vi.fn();
-const listAgents = vi.fn();
-const createHermesChat = vi.fn();
-const openAgentDm = vi.fn();
-const createAgent = vi.fn();
-const updateAgent = vi.fn();
-const listChannels = vi.fn();
-const createChannel = vi.fn();
-const addChannelMember = vi.fn();
-const renameChannel = vi.fn();
-const deleteChannel = vi.fn();
-const deleteFailedChat = vi.fn();
-const makeChannelFromHermesChat = vi.fn();
-const setLastOpened = vi.fn();
-const createEmptyProject = vi.fn();
-const listMentions = vi.fn();
-const markMentionsSeen = vi.fn();
-const moveToProject = vi.fn();
-const undoProjectMove = vi.fn();
-const listProjectMarks = vi.fn();
-const countProjectSources = vi.fn();
-const sessionsChanged = new Set<() => void>();
-
-stubElectronAPI({
-  onboarding: {
-    getStatus: ipcCalls.track(vi.fn().mockResolvedValue({ configured: true, slots: {} })),
-    probeSlotHealth: ipcCalls.track(vi.fn().mockResolvedValue({ success: true })),
-  },
-  hermesChat: {
-    listThreads: ipcCalls.track((...args: unknown[]) => listThreads(...args)),
-    createHermesChat: ipcCalls.track((...args: unknown[]) => createHermesChat(...args)),
-    deleteFailedChat: ipcCalls.track((...args: unknown[]) => deleteFailedChat(...args)),
-    openAgentDm: ipcCalls.track((...args: unknown[]) => openAgentDm(...args)),
-    onSessionsChanged: (cb: () => void) => {
-      sessionsChanged.add(cb);
-      return () => sessionsChanged.delete(cb);
-    },
-    listMentions: ipcCalls.track((...args: unknown[]) => listMentions(...args)),
-    markMentionsSeen: ipcCalls.track((...args: unknown[]) => markMentionsSeen(...args)),
-    moveToProject: ipcCalls.track((...args: unknown[]) => moveToProject(...args)),
-    undoProjectMove: ipcCalls.track((...args: unknown[]) => undoProjectMove(...args)),
-    listProjectMarks: ipcCalls.track((...args: unknown[]) => listProjectMarks(...args)),
-    getSessionInference: ipcCalls.track(
-      vi.fn().mockResolvedValue({ success: true, override: null, marks: [] })
-    ),
-  },
-  projects: {
-    list: ipcCalls.track((...args: unknown[]) => listProjects(...args)),
-    select: ipcCalls.track((...args: unknown[]) => selectProject(...args)),
-    pickFolder: vi.fn(),
-    createEmpty: ipcCalls.track((...args: unknown[]) => createEmptyProject(...args)),
-    createHost: ipcCalls.track((...args: unknown[]) => createHostProject(...args)),
-    changeFolder: ipcCalls.track((...args: unknown[]) => changeFolder(...args)),
-    reveal: vi.fn(),
-    inspectSources: ipcCalls.track((...args: unknown[]) => inspectSources(...args)),
-    addSourceFolder: ipcCalls.track((...args: unknown[]) => addSourceFolder(...args)),
-    removeSource: ipcCalls.track((...args: unknown[]) => removeSource(...args)),
-    revealSource: ipcCalls.track((...args: unknown[]) => revealSource(...args)),
-    refreshIndex: ipcCalls.track((...args: unknown[]) => refreshIndex(...args)),
-    countSources: ipcCalls.track((...args: unknown[]) => countProjectSources(...args)),
-  },
-  agents: {
-    onChanged: () => () => undefined,
-    list: ipcCalls.track((...args: unknown[]) => listAgents(...args)),
-    create: ipcCalls.track((...args: unknown[]) => createAgent(...args)),
-    update: ipcCalls.track((...args: unknown[]) => updateAgent(...args)),
-    getSoul: ipcCalls.track(
-      vi.fn().mockResolvedValue({ success: true, excerpt: null, canOpen: false })
-    ),
-    revealSoul: ipcCalls.track(vi.fn().mockResolvedValue({ success: true })),
-  },
-  channels: {
-    list: ipcCalls.track((...args: unknown[]) => listChannels(...args)),
-    create: ipcCalls.track((...args: unknown[]) => createChannel(...args)),
-    addMember: ipcCalls.track((...args: unknown[]) => addChannelMember(...args)),
-    rename: ipcCalls.track((...args: unknown[]) => renameChannel(...args)),
-    remove: ipcCalls.track((...args: unknown[]) => deleteChannel(...args)),
-    makeFromChat: ipcCalls.track((...args: unknown[]) =>
-      makeChannelFromHermesChat(...args)
-    ),
-    setLastOpened: ipcCalls.track((...args: unknown[]) => setLastOpened(...args)),
-  },
-  codingFolders: {
-    pick: ipcCalls.track((...args: unknown[]) => pickCodingFolder(...args)),
-    grant: ipcCalls.track((...args: unknown[]) => grantCodingFolder(...args)),
-    list: ipcCalls.track(
-      vi.fn(async () => ({ success: true, managed: true, grants: [] }))
-    ),
-    busy: ipcCalls.track(vi.fn(async () => ({ busy: false, sessions: [] }))),
-    onProgress: vi.fn(() => () => undefined),
-  },
-});
-
-vi.mock('../HermesChatRuntimeProvider', () => ({
-  HermesChatRuntimeProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
-
-vi.mock('../WorkbenchThread', () => ({
-  WorkbenchThread: ({
-    threadTitle,
-    kind,
-    initialDraft,
-    initialQuote,
-    focusText,
-    dmTabs,
-    onCreateAgentFromDraft,
-    onRenameChannel,
-    onDeleteChannel,
-    onDeleteChat,
-    toolsEnabled,
-    onToolsEnabledChange,
-  }: {
-    toolsEnabled?: boolean;
-    onToolsEnabledChange?: (enabled: boolean) => void;
-    threadTitle: string;
-    kind?: string | null;
-    initialDraft?: string | null;
-    initialQuote?: string | null;
-    focusText?: string | null;
-    dmTabs?: { count: number; onChange: (tab: 'messages' | 'channels') => void } | null;
-    onCreateAgentFromDraft?: (payload: { displayName: string; handle: string; role: string }) => void;
-    onRenameChannel?: () => void;
-    onDeleteChannel?: () => void;
-    onDeleteChat?: () => void;
-  }) => (
-    <div>
-      thread:{threadTitle}
-      {kind === 'side' ? ' side' : ''}
-      {kind === 'channel' ? ' channel' : ''}
-      {initialDraft ? <p>draft:{initialDraft}</p> : null}
-      {initialQuote ? <p>quote:{initialQuote}</p> : null}
-      {focusText ? <p>focus:{focusText}</p> : null}
-      <button
-        type="button"
-        role="switch"
-        aria-label="Tools"
-        aria-checked={Boolean(toolsEnabled)}
-        onClick={() => onToolsEnabledChange?.(!toolsEnabled)}
-      />
-      {onRenameChannel ? (
-        <button type="button" onClick={onRenameChannel}>
-          Rename channel…
-        </button>
-      ) : null}
-      {onDeleteChannel ? (
-        <button type="button" onClick={onDeleteChannel}>
-          Delete channel…
-        </button>
-      ) : null}
-      {onDeleteChat ? (
-        <button type="button" onClick={onDeleteChat}>
-          Delete chat…
-        </button>
-      ) : null}
-      {onCreateAgentFromDraft ? (
-        <button
-          type="button"
-          onClick={() =>
-            onCreateAgentFromDraft({ displayName: 'Hermes', handle: 'hermes', role: 'Helps.' })
-          }
-        >
-          Create drafted agent
-        </button>
-      ) : null}
-      {dmTabs ? (
-        <button type="button" onClick={() => dmTabs.onChange('channels')}>
-          In channels {dmTabs.count}
-        </button>
-      ) : null}
-    </div>
-  ),
-}));
-
-import { WorkbenchChatScreen } from '../WorkbenchChatScreen';
-import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import * as ipcCalls from './ipcCalls';
 import { dispatchAppCommand } from '../../useAppShortcuts';
+import { requestChatOpen } from '../chatOpenRequests';
+import { readChatDraft, resetChatDraftsForTests } from '../chatDrafts';
+import { startNewChatWithDraft } from '../newChatDraft';
+import {
+  addSourceFolder,
+  changeFolder,
+  createAgent,
+  createEmptyProject,
+  createHermesChat,
+  createHostProject,
+  deleteChannel,
+  deleteFailedChat,
+  grantCodingFolder,
+  inspectSources,
+  listAgents,
+  listChannels,
+  listMentions,
+  listProjects,
+  listThreads,
+  openAgentDm,
+  pickCodingFolder,
+  renameChannel,
+  renderScreen,
+  setLastOpened,
+  setUpScreen,
+  tearDownScreen,
+  updateAgent,
+} from './workbenchChatScreenHarness';
 
-/** Renders the screen once its first loads (chats, projects, agents, folders) are in. */
-async function renderScreen() {
-  render(<WorkbenchChatScreen />);
-  await ipcCalls.settle();
-}
+vi.mock('../HermesChatRuntimeProvider', () => import('./workbenchChatScreenMocks'));
+vi.mock('../WorkbenchThread', () => import('./workbenchChatScreenMocks'));
 
 describe('WorkbenchChatScreen chrome', () => {
-  afterEach(async () => {
-    // Let calls still in flight answer before the next test's mocks are set up.
-    await ipcCalls.settle();
-    cleanup();
-    vi.clearAllMocks();
-    // The coding-folders store is module state; a fresh screen starts from nothing loaded.
-    resetCodingFoldersStoreForTests();
-  });
-
-  beforeEach(() => {
-    clearChatScreenSnapshot();
-    listAgents.mockResolvedValue({
-      success: true,
-      agents: [
-        {
-          slug: 'assistant',
-          displayName: 'Hermes',
-          handle: 'Hermes',
-          role: 'Default agent on this machine.',
-          builtIn: true,
-          createdAt: '1970-01-01T00:00:00.000Z',
-        },
-      ],
-      standingDmByAgent: {},
-    });
-    listThreads.mockResolvedValue({
-      success: true,
-      threads: [
-        {
-          id: 't-hermes',
-          title: 'Plan the launch',
-          source: 'boundary',
-          agentSlug: 'assistant',
-          kind: 'hermes', projectId: 'p1',
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: 't-webui',
-          title: 'Resume summary',
-          source: 'webui',
-          agentSlug: 'assistant',
-          kind: 'hermes', projectId: 'p1',
-          updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
-        },
-      ],
-    });
-    listProjects.mockResolvedValue({
-      success: true,
-      activeId: 'p1',
-      projects: [
-        {
-          id: 'p1',
-          name: 'Job Search',
-          hostPath: '/Users/ada/Documents/Job Search',
-          containerPath: '/opt/projects/job-search',
-          slug: 'job-search',
-          kind: 'host-folder',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          updatedAt: '2026-01-02T00:00:00.000Z',
-        },
-      ],
-    });
-    inspectSources.mockResolvedValue({
-      success: true,
-      inspect: {
-        projectId: 'p1',
-        registryExists: false,
-        stale: false,
-        sources: [
-          {
-            id: 'project',
-            path: '.',
-            hostPath: '/Users/ada/Documents/Job Search',
-            retrieval: 'files',
-            visibility: 'hub',
-            isHub: true,
-          },
-        ],
-        index: [],
-      },
-    });
-    addSourceFolder.mockResolvedValue({ success: false, canceled: true });
-    pickCodingFolder.mockResolvedValue({
-      success: true,
-      hostPath: '/Users/ada/Notes/this-project',
-      name: 'this-project',
-      isGit: false,
-      refuseMessage: null,
-      managed: true,
-    });
-    selectProject.mockResolvedValue({ success: true });
-    listChannels.mockResolvedValue({
-      success: true,
-      channels: [],
-      lastOpened: null,
-    });
-    setLastOpened.mockResolvedValue({ success: true });
-    listMentions.mockResolvedValue({ success: true, mentions: [] });
-    markMentionsSeen.mockResolvedValue({ success: true });
-    listProjectMarks.mockResolvedValue([]);
-    countProjectSources.mockResolvedValue(0);
-    createHermesChat.mockResolvedValue({
-      success: true,
-      thread: {
-        id: 't-new',
-        title: 'New chat',
-        agentSlug: 'assistant',
-        kind: 'hermes', projectId: 'p1',
-      },
-    });
-  });
+  beforeEach(setUpScreen);
+  afterEach(tearDownScreen);
 
   it('uses a current-project picker with All chats, Hermes, Channels and Direct messages', async () => {
     await renderScreen();
@@ -354,6 +77,14 @@ describe('WorkbenchChatScreen chrome', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Job Search').length).toBeGreaterThan(0);
     });
+  });
+
+  it('opens the chat the desktop panel’s ⤢ asked for (ADR 0058 §10)', async () => {
+    await renderScreen();
+    expect(screen.getByText('thread:Plan the launch')).toBeTruthy();
+    await act(async () => requestChatOpen('t-webui'));
+    expect(screen.getByText('thread:Resume summary')).toBeTruthy();
+    expect(setLastOpened).toHaveBeenCalledWith({ kind: 'hermes', id: 't-webui' });
   });
 
   it('renames the open channel from its title menu (ADR 0010 §3)', async () => {
@@ -452,14 +183,18 @@ describe('WorkbenchChatScreen chrome', () => {
       },
     ];
 
-    async function deleteOpenRoom(projectId: string | null) {
+    async function deleteOpenRoom(projectId: string | null, deletedProjectId = projectId) {
       listChannels.mockResolvedValue({
         success: true,
         channels: [room(projectId)],
         lastOpened: { kind: 'channel', id: 'ch1' },
       });
       listThreads.mockResolvedValue({ success: true, threads: threadsFor(projectId) });
-      deleteChannel.mockResolvedValue({ success: true, sessionIds: ['t-ch'], projectId });
+      deleteChannel.mockResolvedValue({
+        success: true,
+        sessionIds: ['t-ch'],
+        projectId: deletedProjectId,
+      });
       await renderScreen();
       fireEvent.click(await screen.findByRole('button', { name: 'Delete channel…' }));
       const sheet = screen.getByRole('dialog', { name: 'Delete #launch-prep' });
@@ -483,6 +218,15 @@ describe('WorkbenchChatScreen chrome', () => {
       const { lede } = await deleteOpenRoom(null);
       expect(lede).toContain('No project');
       expect(await screen.findByText('thread:Elsewhere chat')).toBeTruthy();
+    });
+
+    // A room whose project was removed lists under No project, but its stored id once came
+    // back from the delete and the rail switched to that empty project.
+    it('keeps the rail on No project when the room’s stored project is gone', async () => {
+      await deleteOpenRoom(null, 'p-removed');
+      expect(await screen.findByText('thread:Elsewhere chat')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Elsewhere chat/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /launch-prep/ })).toBeTruthy();
     });
   });
 
@@ -866,62 +610,8 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.queryByText(/make context-root-add/)).toBeNull();
     expect(screen.queryByText('/Users/ada/Notes/this-project/foo.md')).toBeNull();
     expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0);
-  });
-
-  it('shows Read-only and Refresh index after a remounted extra', async () => {
-    inspectSources.mockResolvedValue({
-      success: true,
-      inspect: {
-        projectId: 'p1',
-        registryExists: true,
-        stale: true,
-        sources: [
-          {
-            id: 'project',
-            path: '.',
-            hostPath: '/Users/ada/Documents/Job Search',
-            retrieval: 'files',
-            visibility: 'hub',
-            isHub: true,
-          },
-          {
-            id: 'notes-vault',
-            path: '/Users/ada/Notes/this-project',
-            hostPath: '/Users/ada/Notes/this-project',
-            retrieval: 'files',
-            visibility: 'readonly',
-            isHub: false,
-          },
-        ],
-        index: [
-          {
-            sourceId: 'notes-vault',
-            path: '/Users/ada/Notes/this-project/foo.md',
-            description: 'Vault note',
-            kind: 'absolute',
-            visible: true,
-          },
-        ],
-        nextStep: {
-          tone: 'ok',
-          title: 'Index is behind the files.',
-          body: 'Refresh rewrites INDEX.md from this Mac.',
-        },
-      },
-    });
-
-    await renderScreen();
-
-    await waitFor(() => {
-      expect(
-      screen.getAllByText('Read-only').some((el) => el.closest('.wb-src'))
-    ).toBe(true);
-    });
-    expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
-    expect(screen.getByRole('menuitem', { name: 'Refresh index' })).toBeTruthy();
+    // An extra folder is a source of this project, never a project of its own in the picker.
     expect(screen.queryByRole('button', { name: 'notes-vault' })).toBeNull();
-    expect(createHostProject).not.toHaveBeenCalled();
   });
 
   it('deletes a failed chat and lands on the newest one left', async () => {
@@ -969,6 +659,36 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(setLastOpened).toHaveBeenCalledWith({ kind: 'hermes', id: 't-new' });
   });
 
+  // The thread and runtime are mocked here, so the draft is checked where the composer reads
+  // it: the stored draft for the new chat's id (chatRuntimeHost seeds the composer from it).
+  it('starts a chat with text ready to edit, and the next new chat starts empty', async () => {
+    resetChatDraftsForTests();
+    await renderScreen();
+    act(() => startNewChatWithDraft('hello'));
+    await waitFor(() => expect(createHermesChat).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(readChatDraft(['t-new'])).toBe('hello'));
+
+    resetChatDraftsForTests();
+    act(() => dispatchAppCommand('new-chat'));
+    await waitFor(() => expect(createHermesChat).toHaveBeenCalledTimes(2));
+    await ipcCalls.settle();
+    expect(readChatDraft(['t-new'])).toBeNull();
+  });
+
+  it('drops the text when the chat cannot be created, so a later new chat starts empty', async () => {
+    resetChatDraftsForTests();
+    await renderScreen();
+    createHermesChat.mockResolvedValueOnce({ success: false, error: 'no' });
+    act(() => startNewChatWithDraft('hello'));
+    await waitFor(() => expect(createHermesChat).toHaveBeenCalledTimes(1));
+    await ipcCalls.settle();
+
+    act(() => dispatchAppCommand('new-chat'));
+    await waitFor(() => expect(createHermesChat).toHaveBeenCalledTimes(2));
+    await ipcCalls.settle();
+    expect(readChatDraft(['t-new'])).toBeNull();
+  });
+
   it('creates an empty project from the empty rail', async () => {
     listProjects.mockResolvedValue({ success: true, activeId: null, projects: [] });
     const created = {
@@ -999,509 +719,5 @@ describe('WorkbenchChatScreen chrome', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Create empty project' })).toBeNull()
     );
-  });
-
-  describe('conversation kinds (ADR 0023)', () => {
-    const ana = {
-      slug: 'ana',
-      displayName: 'Ana',
-      handle: 'Ana',
-      role: 'Researcher',
-      builtIn: false,
-      createdAt: '2026-09-22T00:00:00.000Z',
-    };
-    const hermes = {
-      slug: 'assistant',
-      displayName: 'Hermes',
-      handle: 'Hermes',
-      role: 'Default agent on this machine.',
-      builtIn: true,
-      createdAt: '1970-01-01T00:00:00.000Z',
-    };
-    const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
-
-    beforeEach(() => {
-      listAgents.mockResolvedValue({
-        success: true,
-        agents: [hermes, ana],
-        standingDmByAgent: { ana: 't-ana' },
-      });
-      listThreads.mockResolvedValue({
-        success: true,
-        threads: [
-          { id: 't-old', title: 'Older plan', agentSlug: 'assistant', kind: 'hermes', projectId: 'p1', updatedAt: at(30) },
-          { id: 't-ana', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm', updatedAt: at(1) },
-          { id: 't-new', title: 'Newest plan', agentSlug: 'assistant', kind: 'hermes', projectId: 'p1', updatedAt: at(5) },
-          { id: 't-side', title: 'Pricing · branch', agentSlug: 'ana', kind: 'side', projectId: 'p1', updatedAt: at(60) },
-        ],
-      });
-    });
-
-    it('lands on the last-opened DM', async () => {
-      listChannels.mockResolvedValue({
-        success: true,
-        channels: [],
-        lastOpened: { kind: 'dm', id: 't-ana' },
-      });
-      await renderScreen();
-      expect(await screen.findByText('thread:Ana')).toBeTruthy();
-    });
-
-    it('lands on the newest Hermes chat, not a newer DM, when nothing was opened', async () => {
-      await renderScreen();
-      expect(await screen.findByText('thread:Newest plan')).toBeTruthy();
-    });
-
-    it('opens an empty Hermes composer when there are no chats', async () => {
-      listThreads.mockResolvedValue({ success: true, threads: [] });
-      await renderScreen();
-      expect(await screen.findByText('thread:New chat')).toBeTruthy();
-    });
-
-    it('keeps the empty Hermes composer open when a refresh lists other chats', async () => {
-      listThreads.mockResolvedValue({
-        success: true,
-        threads: [{ id: 't-ana', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm', updatedAt: at(1) }],
-      });
-      await renderScreen();
-      expect(await screen.findByText('thread:New chat')).toBeTruthy();
-
-      await act(async () => {
-        for (const cb of [...sessionsChanged]) cb();
-        await new Promise((resolve) => setTimeout(resolve, 450));
-      });
-      await ipcCalls.settle();
-      expect(screen.getByText('thread:New chat')).toBeTruthy();
-      expect(screen.queryByText('thread:Ana')).toBeNull();
-    });
-
-    it('keeps the Tools switch per chat', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      const tools = () => screen.getByRole('switch', { name: 'Tools' });
-      expect(tools().getAttribute('aria-checked')).toBe('true');
-      fireEvent.click(tools());
-      expect(tools().getAttribute('aria-checked')).toBe('false');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Older plan' }));
-      expect(await screen.findByText('thread:Older plan')).toBeTruthy();
-      expect(tools().getAttribute('aria-checked')).toBe('true');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Newest plan' }));
-      expect(await screen.findByText('thread:Newest plan')).toBeTruthy();
-      expect(tools().getAttribute('aria-checked')).toBe('false');
-    });
-
-    it("opens a personality's DM through openAgentDm when it is not loaded", async () => {
-      listAgents.mockResolvedValue({
-        success: true,
-        agents: [hermes, ana],
-        standingDmByAgent: { ana: 't-elsewhere' },
-      });
-      openAgentDm.mockResolvedValue({
-        success: true,
-        created: false,
-        thread: { id: 't-elsewhere', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm' },
-      });
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByText('Ana'));
-      await waitFor(() => expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'ana', projectId: 'p1' }));
-      expect(await screen.findByText('thread:Ana')).toBeTruthy();
-    });
-
-    it('lists Hermes chats newest first in the Hermes section and opens one', async () => {
-      listChannels.mockResolvedValue({
-        success: true,
-        channels: [],
-        lastOpened: { kind: 'dm', id: 't-ana' },
-      });
-      await renderScreen();
-      await screen.findByText('thread:Ana');
-      const rows = ['Newest plan', 'Older plan'].map((t) => screen.getByRole('button', { name: t }));
-      expect(rows[0].compareDocumentPosition(rows[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(screen.queryByRole('button', { name: /Hermes\s*Default/ })).toBeNull();
-      fireEvent.click(rows[0]);
-      expect(await screen.findByText('thread:Newest plan')).toBeTruthy();
-      expect(setLastOpened).toHaveBeenCalledWith({ kind: 'hermes', id: 't-new' });
-    });
-
-    it('opens the roster in message mode from the DMs plus and opens the DM', async () => {
-      openAgentDm.mockResolvedValue({
-        success: true,
-        created: false,
-        thread: { id: 't-ana', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm' },
-      });
-      listAgents.mockResolvedValue({
-        success: true,
-        agents: [hermes, ana],
-        standingDmByAgent: {},
-      });
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'Message an agent' }));
-      const dialog = screen.getByRole('dialog', { name: 'Message an agent' });
-      expect(within(dialog).queryByText('Hermes')).toBeNull();
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Message' }));
-      await waitFor(() => expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'ana', projectId: 'p1' }));
-      expect(createHermesChat).not.toHaveBeenCalled();
-    });
-
-    it('lists the Orchestrator under Direct messages before its first DM, and opens one on click', async () => {
-      const orchestrator = { ...ana, slug: 'orchestrator', displayName: 'Orchestrator', handle: 'orchestrator' };
-      openAgentDm.mockResolvedValue({
-        success: true,
-        created: true,
-        thread: { id: 't-orch', title: 'DM · Orchestrator', agentSlug: 'orchestrator', kind: 'dm' },
-      });
-      listAgents.mockResolvedValue({
-        success: true,
-        agents: [hermes, ana, orchestrator],
-        standingDmByAgent: {},
-        orchestratorSlug: 'orchestrator',
-      });
-      listThreads.mockResolvedValue({ success: true, threads: [] });
-      await renderScreen();
-      const row = await screen.findByRole('button', { name: /^Orchestrator/ });
-      expect(screen.queryByText('No agents yet.')).toBeNull();
-      // Other agents still wait for a DM before they get a row.
-      expect(screen.queryByRole('button', { name: /^Ana/ })).toBeNull();
-      fireEvent.click(row);
-      await waitFor(() =>
-        expect(openAgentDm).toHaveBeenCalledWith({ agentSlug: 'orchestrator', projectId: 'p1' })
-      );
-    });
-
-    it('opens All chats in the project from the Hermes section, and the top row resets it', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats in Job Search…' }));
-      const list = await screen.findByRole('list', { name: 'All chats' });
-      expect(
-        (screen.getByRole('combobox', { name: 'Project' }) as HTMLSelectElement).value
-      ).toBe('p1');
-      expect(within(list).getByText('Newest plan')).toBeTruthy();
-      expect(within(list).getByText('Pricing · branch')).toBeTruthy();
-      // A DM is never filed under a project (ADR 0024 §7).
-      expect(within(list).queryByText('Ana')).toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      const reset = await screen.findByRole('list', { name: 'All chats' });
-      expect(
-        (screen.getByRole('combobox', { name: 'Project' }) as HTMLSelectElement).value
-      ).toBe('');
-      expect(within(reset).getByText('Ana')).toBeTruthy();
-    });
-
-    it('lists every kind newest first, whatever order the list arrives in', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      const list = await screen.findByRole('list', { name: 'All chats' });
-      const titles = within(list)
-        .getAllByRole('listitem')
-        .map((row) => row.querySelector('.wb-jump-title')?.textContent);
-      expect(titles).toEqual(['Ana', 'Newest plan', 'Older plan', 'Pricing · branch']);
-    });
-
-    it('says which filters are on when nothing matches, and Clear brings everything back', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      fireEvent.click(await screen.findByRole('radio', { name: /Side chats/ }));
-      fireEvent.change(screen.getByRole('searchbox', { name: 'Search all chats' }), {
-        target: { value: 'nothing like this' },
-      });
-      expect(screen.getByRole('status').textContent).toContain(
-        'No side chats matching “nothing like this”.'
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-      const list = screen.getByRole('list', { name: 'All chats' });
-      expect(within(list).getByText('Newest plan')).toBeTruthy();
-      expect(within(list).getByText('Ana')).toBeTruthy();
-    });
-
-    it('filters by agent from the agent menu and leaves All chats when a row opens', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      fireEvent.change(await screen.findByRole('combobox', { name: 'Agent' }), {
-        target: { value: 'ana' },
-      });
-      const list = screen.getByRole('list', { name: 'All chats' });
-      expect(within(list).getByText('Ana')).toBeTruthy();
-      expect(within(list).getByText('Pricing · branch')).toBeTruthy();
-      expect(within(list).queryByText('Newest plan')).toBeNull();
-      fireEvent.click(within(list).getByText('Ana'));
-      expect(await screen.findByText('thread:Ana')).toBeTruthy();
-      expect(screen.queryByRole('list', { name: 'All chats' })).toBeNull();
-    });
-
-    it('shows a side chat from All chats as a side chat', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Newest plan');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      expect(await screen.findByText('Side chat with Ana')).toBeTruthy();
-      fireEvent.click(screen.getByText('Pricing · branch'));
-      expect(await screen.findByText('thread:Pricing · branch side')).toBeTruthy();
-    });
-  });
-
-  describe('Mentions (ADR 0023 §6)', () => {
-    const ana = {
-      slug: 'ana',
-      displayName: 'Ana',
-      handle: 'Ana',
-      role: 'Researcher',
-      builtIn: false,
-      createdAt: '2026-09-22T00:00:00.000Z',
-    };
-    const hermesAgent = {
-      slug: 'assistant',
-      displayName: 'Hermes',
-      handle: 'Hermes',
-      role: 'Default agent on this machine.',
-      builtIn: true,
-      createdAt: '1970-01-01T00:00:00.000Z',
-    };
-    const room = {
-      id: 'ch1',
-      slug: 'research',
-      title: 'research',
-      sessionId: 's-room',
-      memberSlugs: ['assistant', 'ana'],
-      createdAt: '2026-09-23T00:00:00.000Z',
-      updatedAt: new Date().toISOString(),
-    };
-    const now = new Date().toISOString();
-    const record = (over: Record<string, unknown>) => ({
-      id: 'p1:ana',
-      channelId: 'ch1',
-      channelSlug: 'research',
-      sessionId: 's-room',
-      agentSlug: 'ana',
-      text: '@Ana pricing?',
-      at: now,
-      status: 'replied',
-      reply: { text: 'Two vendors.', at: now },
-      unseen: true,
-      ...over,
-    });
-
-    beforeEach(() => {
-      listAgents.mockResolvedValue({
-        success: true,
-        agents: [hermesAgent, ana],
-        standingDmByAgent: { ana: 't-ana' },
-      });
-      listChannels.mockResolvedValue({ success: true, channels: [room], lastOpened: { kind: 'dm', id: 't-ana' } });
-      listThreads.mockResolvedValue({
-        success: true,
-        threads: [
-          { id: 't-ana', title: 'DM · Ana', agentSlug: 'ana', kind: 'dm', updatedAt: now },
-          { id: 's-room', title: '#research', kind: 'channel', channelId: 'ch1', channelSlug: 'research', agentSlug: 'assistant', updatedAt: now },
-          { id: 't-h', title: 'Plan', agentSlug: 'assistant', kind: 'hermes', projectId: 'p1', updatedAt: now },
-        ],
-      });
-      listMentions.mockResolvedValue({
-        success: true,
-        mentions: [
-          record({}),
-          record({ id: 'p2:ana', text: '@Ana dates?', status: 'waiting', reply: undefined, unseen: false }),
-          record({ id: 'p3:assistant', agentSlug: 'assistant', text: '@Hermes sum up', reply: { text: 'Done.', at: now } }),
-        ],
-      });
-    });
-
-    it('counts unseen replies on the rail and clears the count when Mentions opens', async () => {
-      await renderScreen();
-      const row = await screen.findByRole('button', { name: 'Mentions, 2 new' });
-      fireEvent.click(row);
-      await waitFor(() => expect(markMentionsSeen).toHaveBeenCalled());
-      expect(await screen.findByRole('button', { name: 'Mentions' })).toBeTruthy();
-      // The cards keep their pills for this visit.
-      expect(screen.getAllByText('New reply')).toHaveLength(2);
-    });
-
-    it("shows the DM agent's @s on its In channels tab, and resets to Messages", async () => {
-      await renderScreen();
-      await screen.findByText('thread:Ana');
-      fireEvent.click(await screen.findByRole('button', { name: 'In channels 2' }));
-      const list = await screen.findByRole('list', { name: 'Mentions' });
-      expect(within(list).getAllByRole('listitem')).toHaveLength(2);
-      expect(screen.getByRole('tab', { name: /In channels/ }).getAttribute('aria-selected')).toBe('true');
-      fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
-      expect(await screen.findByText('thread:Plan')).toBeTruthy();
-      fireEvent.click(screen.getByRole('button', { name: /Ana/ }));
-      expect(await screen.findByText('thread:Ana')).toBeTruthy();
-    });
-
-    it('opens a mention in its room, focused on your message', async () => {
-      await renderScreen();
-      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
-      const list = await screen.findByRole('list', { name: 'Mentions' });
-      fireEvent.click(within(list).getAllByRole('button', { name: 'Open in #research' })[0]);
-      expect(await screen.findByText('focus:@Ana pricing?')).toBeTruthy();
-      expect(screen.getByText(/thread:#research/)).toBeTruthy();
-    });
-
-    it('focuses the mention once: a detour and a return open the room without it', async () => {
-      await renderScreen();
-      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
-      const list = await screen.findByRole('list', { name: 'Mentions' });
-      fireEvent.click(within(list).getAllByRole('button', { name: 'Open in #research' })[0]);
-      expect(await screen.findByText('focus:@Ana pricing?')).toBeTruthy();
-
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      const all = await screen.findByRole('list', { name: 'All chats' });
-      fireEvent.click(within(all).getAllByText(/research/)[0]);
-      expect(await screen.findByText(/thread:#research/)).toBeTruthy();
-      expect(screen.queryByText(/^focus:/)).toBeNull();
-    });
-
-    it('continues in the DM with the exchange as a quote', async () => {
-      await renderScreen();
-      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
-      fireEvent.click(await screen.findByRole('button', { name: 'Continue in DM with Ana' }));
-      expect(await screen.findByText(/quote:In #research you asked: @Ana pricing\?/)).toBeTruthy();
-      expect(screen.getByText(/Ana: Two vendors\./)).toBeTruthy();
-    });
-
-    it('continues a Hermes mention in a new Hermes chat', async () => {
-      createHermesChat.mockResolvedValue({
-        success: true,
-        thread: { id: 't-new', title: 'New chat', agentSlug: 'assistant', kind: 'hermes', projectId: 'p1' },
-      });
-      await renderScreen();
-      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
-      fireEvent.click(await screen.findByRole('button', { name: 'Continue in a Hermes chat' }));
-      await waitFor(() => expect(createHermesChat).toHaveBeenCalled());
-      expect(await screen.findByText(/quote:In #research you asked: @Hermes sum up/)).toBeTruthy();
-    });
-
-    it('asks again by pre-filling the room composer, unsent', async () => {
-      await renderScreen();
-      fireEvent.click(await screen.findByRole('button', { name: /^Mentions/ }));
-      fireEvent.click(await screen.findByRole('button', { name: 'Ask again' }));
-      expect(await screen.findByText('draft:@Ana dates?')).toBeTruthy();
-    });
-  });
-  describe('chats belong to projects (ADR 0024)', () => {
-    const p2 = {
-      id: 'p2',
-      name: 'Landing site',
-      hostPath: '/Users/ada/code/site',
-      containerPath: '/opt/projects/site',
-      slug: 'site',
-      kind: 'host-folder',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    };
-
-    beforeEach(() => {
-      listProjects.mockResolvedValue({
-        success: true,
-        activeId: 'p1',
-        projects: [
-          {
-            id: 'p1',
-            name: 'Job Search',
-            hostPath: '/Users/ada/Documents/Job Search',
-            containerPath: '/opt/projects/job-search',
-            slug: 'job-search',
-            kind: 'host-folder',
-            createdAt: '2026-01-01T00:00:00.000Z',
-            updatedAt: '2026-01-02T00:00:00.000Z',
-          },
-          p2,
-        ],
-      });
-      listThreads.mockResolvedValue({
-        success: true,
-        threads: [
-          {
-            id: 't-hermes',
-            title: 'Plan the launch',
-            agentSlug: 'assistant',
-            kind: 'hermes',
-            projectId: 'p1',
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 't-site',
-            title: 'Hero rewrite',
-            agentSlug: 'assistant',
-            kind: 'hermes',
-            projectId: 'p2',
-            updatedAt: new Date(Date.now() - 60_000).toISOString(),
-          },
-        ],
-      });
-    });
-
-    it('opens a project page from the picker and leaves the open chat where it is', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Plan the launch');
-      // The rail lists only the shown project's chats.
-      expect(screen.queryByRole('button', { name: 'Hero rewrite' })).toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Go to project' }));
-      fireEvent.click(screen.getByRole('option', { name: /Landing site/ }));
-
-      await waitFor(() => expect(selectProject).toHaveBeenCalledWith({ projectId: 'p2' }));
-      for (const [payload] of selectProject.mock.calls) {
-        expect(payload).not.toHaveProperty('sessionId');
-      }
-      expect(await screen.findByLabelText('Start a chat in Landing site')).toBeTruthy();
-      expect(screen.getAllByRole('button', { name: 'Hero rewrite' }).length).toBeGreaterThan(0);
-      expect(moveToProject).not.toHaveBeenCalled();
-    });
-
-    it('brings the rail to a chat opened from another project without selecting it in main', async () => {
-      await renderScreen();
-      await screen.findByText('thread:Plan the launch');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      const list = await screen.findByRole('list', { name: 'All chats' });
-      fireEvent.click(within(list).getByText('Hero rewrite'));
-      expect(await screen.findByText('thread:Hero rewrite')).toBeTruthy();
-      expect(await screen.findByRole('button', { name: 'All chats in Landing site…' })).toBeTruthy();
-      // Following the open chat is navigation only: no projects.set_active, no picker reorder.
-      expect(selectProject).not.toHaveBeenCalled();
-    });
-
-    it('moves selected chats from All chats, says what changes, and undoes', async () => {
-      moveToProject.mockResolvedValue({
-        success: true,
-        moved: [{ sessionId: 't-site', fromProjectId: 'p2', toProjectId: null, markId: 'm1' }],
-      });
-      undoProjectMove.mockResolvedValue({ success: true, moved: [] });
-      await renderScreen();
-      await screen.findByText('thread:Plan the launch');
-      fireEvent.click(screen.getByRole('button', { name: 'All chats' }));
-      await screen.findByRole('list', { name: 'All chats' });
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hero rewrite' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Move to project…' }));
-
-      const dialog = await screen.findByRole('dialog', { name: /Move “Hero rewrite”/ });
-      // The sheet reads a source count, never the full inspect that reads every file.
-      await waitFor(() => expect(countProjectSources).toHaveBeenCalledWith({ projectId: 'p1' }));
-      const inspectsBefore = inspectSources.mock.calls.length;
-      fireEvent.click(within(dialog).getByRole('radio', { name: /No project/ }));
-      expect(within(dialog).getByText(/works without a project folder/)).toBeTruthy();
-      expect(inspectSources.mock.calls.length).toBe(inspectsBefore);
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Move to No project' }));
-
-      await waitFor(() =>
-        expect(moveToProject).toHaveBeenCalledWith({ sessionIds: ['t-site'], projectId: null })
-      );
-      const toast = await screen.findByText('Moved to No project');
-      fireEvent.click(within(toast).getByRole('button', { name: 'Undo' }));
-      await waitFor(() =>
-        expect(undoProjectMove).toHaveBeenCalledWith({
-          moves: [{ sessionId: 't-site', fromProjectId: 'p2', toProjectId: null, markId: 'm1' }],
-        })
-      );
-      expect(await screen.findByText('Move undone')).toBeTruthy();
-    });
   });
 });

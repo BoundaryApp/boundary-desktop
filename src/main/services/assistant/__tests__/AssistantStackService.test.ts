@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { rewriteLlmUrlForContainer } from '../rewriteLlmUrlForContainer';
 import {
@@ -13,6 +16,23 @@ import {
   buildServiceUrl,
 } from '../../../../shared/assistantUiServices';
 import { __test } from '../AssistantStackService';
+
+const calDav = vi.hoisted(() => ({
+  connected: false,
+  macAccess: null as Record<string, 'off' | 'read' | 'change'> | null,
+}));
+vi.mock('../calendar/calendarStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../calendar/calendarStore')>()),
+  hasCalDavAccounts: () => calDav.connected,
+  getMacCalendarAccount: () => (calDav.macAccess ? { access: calDav.macAccess } : null),
+}));
+vi.mock('../hermes/hermesAgentStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../hermes/hermesAgentStore')>()),
+  listStoredAgents: () => [
+    { slug: 'assistant', builtIn: true },
+    { slug: 'researcher', builtIn: false },
+  ],
+}));
 
 describe('rewriteLlmUrlForContainer', () => {
   it('rewrites localhost to host.docker.internal', () => {
@@ -81,6 +101,32 @@ describe('AssistantStackService helpers', () => {
     expect(env.NEO4J_HTTP_HOST_PORT).toBe('17474');
     expect(env.NEO4J_BOLT_HOST_PORT).toBe('17687');
     expect(env.LLM_PROXY_ADMIN_PORT).toBe('14001');
+    expect(env.DETECTOR_PORT).toBe('18790');
+  });
+
+  describe('pinHostPortsInProjectEnv', () => {
+    let root: string;
+    afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    it('writes the detector port into the stack .env, replacing an earlier value', async () => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
+      fs.writeFileSync(path.join(root, '.env'), 'FOO=1\nDETECTOR_PORT=8790\n');
+      await __test.pinHostPortsInProjectEnv(root, portsForIsolationMode('offset-ports', 20_000));
+      expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('FOO=1\nDETECTOR_PORT=28790\n');
+    });
+
+    it('adds the default when .env has no detector port', async () => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
+      fs.writeFileSync(path.join(root, '.env'), 'FOO=1\n');
+      await __test.pinHostPortsInProjectEnv(root, DEFAULT_ASSISTANT_STACK_PORTS);
+      expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('FOO=1\nDETECTOR_PORT=8790\n');
+    });
+
+    it('leaves a stack without .env alone', async () => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
+      await __test.pinHostPortsInProjectEnv(root, DEFAULT_ASSISTANT_STACK_PORTS);
+      expect(fs.existsSync(path.join(root, '.env'))).toBe(false);
+    });
   });
 
   it('always includes project name and both compose files in argv prefix', () => {
@@ -169,5 +215,80 @@ describe('isAssistantStackReady', () => {
     ok = false;
     expect(await isAssistantStackReady()).toBe(false);
     expect(reports).toEqual([true, false]);
+  });
+});
+
+describe('waking the bridge entries', () => {
+  afterEach(() => {
+    calDav.macAccess = null;
+  });
+
+  it('wakes only boundary without a Mac account', () => {
+    expect(__test.hostBridgeWakeServers()).toEqual(['boundary']);
+  });
+
+  it('wakes only boundary while no agent has access to the Mac', () => {
+    calDav.macAccess = { assistant: 'off', researcher: 'off' };
+    expect(__test.hostBridgeWakeServers()).toEqual(['boundary']);
+  });
+
+  it('wakes calendar-mac too when an agent has access to the Mac', () => {
+    calDav.macAccess = { assistant: 'off', researcher: 'read' };
+    expect(__test.hostBridgeWakeServers()).toEqual(['boundary', 'calendar-mac']);
+  });
+});
+
+describe('desiredHermesConfig and the Mac calendar entry', () => {
+  const bridge = (mcpPort: number) => ({ mcpPort, browserPort: 47002, mcpToken: 'm', browserToken: 'b' });
+  const desired = (mcpPort: number) =>
+    __test.desiredHermesConfig({
+      profiles: ['', 'researcher', 'writer'],
+      agents: ['researcher', 'writer'],
+      limits: null,
+      defaultConfig: null,
+      bridge: bridge(mcpPort),
+      macCalendarProfiles: new Set(['', 'researcher']),
+    });
+  const macUrl = (profile: { set: Array<[string, string]> }) =>
+    profile.set.find(([key]) => key === 'mcp_servers.calendar-mac.url')?.[1];
+
+  it('re-points calendar-mac entries when the bridge port changes', () => {
+    const [main, researcher, writer] = desired(47011);
+    expect(macUrl(main)).toBe('http://host.docker.internal:47011/calendar');
+    expect(macUrl(researcher)).toBe('http://host.docker.internal:47011/calendar');
+    // An agent without access has no entry to re-point.
+    expect(macUrl(writer)).toBeUndefined();
+  });
+
+  it('gives agent profiles the stack skills folder and leaves the default profile to the stack', () => {
+    const [main, researcher] = desired(47011);
+    expect(main.listIncludes ?? []).toEqual([]);
+    expect(researcher.listIncludes).toEqual([['skills.external_dirs', '/opt/skills']]);
+  });
+
+  it('leaves calendar-mac alone while no bridge runs', () => {
+    const plan = __test.desiredHermesConfig({
+      profiles: [''],
+      agents: [],
+      limits: null,
+      defaultConfig: null,
+      bridge: null,
+      macCalendarProfiles: new Set(['']),
+    });
+    expect(macUrl(plan[0])).toBeUndefined();
+  });
+});
+
+describe('the calendar compose profile', () => {
+  const profiles = () => __test.boundaryComposeProfilesCsv().split(',');
+
+  it('is left out while only the Mac account is connected', () => {
+    calDav.connected = false;
+    expect(profiles()).not.toContain('calendar');
+  });
+
+  it('is included once a CalDAV account is connected', () => {
+    calDav.connected = true;
+    expect(profiles()).toContain('calendar');
   });
 });

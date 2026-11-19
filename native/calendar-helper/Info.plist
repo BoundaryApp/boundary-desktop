@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.boundary.desktop.calendar-helper</string>
+    <key>CFBundleName</key>
+    <string>boundary-calendar-helper</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Boundary lets the agents you choose read your calendars and, when you approve, change them.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Boundary lets the agents you choose read your calendars and, when you approve, change them.</string>
+  </dict>
+</plist>

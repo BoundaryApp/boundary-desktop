@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boundary Add-on Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Boundary tokens (src/renderer/styles/tokens.css, ADR 0018), copied from the add-ons study.
+   Layout: prototype controls on top, then a Boundary window (icon rail + Add-ons store). */
+:root {
+  color-scheme: light;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --surface-0: #f3f1ea; --surface-rail: #ece8dc; --surface-1: #fffcf6; --surface-2: #f7f4ec;
+  --surface-hover: #ece8dc; --line: #e3dfd3; --line-strong: #cfc9b8;
+  --text: #1c1b17; --text-muted: #6d6a60; --text-faint: #8a867a;
+  --brand: #5b56d6; --brand-dim: #e6e4fb; --solid-bg: #1c1b17; --solid-fg: #fffcf6;
+  --ok: #3f7d44; --ok-dim: #e5f0e3; --warn: #8a6415; --warn-dim: #f6ecd6; --warn-line: #e3cf9f;
+  --danger: #a83a3a; --danger-line: #e2b4b4; --danger-dim: #f8e6e4;
+  --gauge-track: #e3dfd3;
+  --shadow-overlay: 0 18px 48px rgb(40 32 16 / 0.16);
+  --page: #e9e6dc;
+  --tile-s: 55%; --tile-l: 91%; --tile-fs: 42%; --tile-fl: 36%;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --dur: 160ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+    --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+    --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+    --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+    --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+    --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+    --gauge-track: #2a2a30;
+    --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+    --page: #070708;
+    --tile-s: 28%; --tile-l: 17%; --tile-fs: 60%; --tile-fl: 74%;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #0d0d0f; --surface-rail: #111113; --surface-1: #161618; --surface-2: #1c1c22;
+  --surface-hover: #1d1d22; --line: #2a2a30; --line-strong: #3a3a44;
+  --text: #f5f5f7; --text-muted: #c4c4cc; --text-faint: #9e9ea8;
+  --brand: #8b87f8; --brand-dim: #26244a; --solid-bg: #f5f5f7; --solid-fg: #111;
+  --ok: #86c089; --ok-dim: #17231a; --warn: #e8c27a; --warn-dim: #2a2415; --warn-line: #5a4a2a;
+  --danger: #e8a0a0; --danger-line: #5a3030; --danger-dim: #2a1818;
+  --gauge-track: #2a2a30;
+  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.45);
+  --page: #070708;
+  --tile-s: 28%; --tile-l: 17%; --tile-fs: 60%; --tile-fl: 74%;
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--text); font: 13px/1.45 var(--font-ui); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+[hidden] { display: none !important; }
+
+/* ---------- Prototype controls ---------- */
+.proto { max-width: 1240px; margin: 0 auto; padding: 16px 16px 12px; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.proto .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+.proto .title { font-weight: 600; font-size: 14px; margin-right: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-1); }
+.seg button { border: 0; background: none; padding: 5px 10px; cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--brand-dim); color: var(--text); font-weight: 500; }
+.ctl { display: flex; gap: 8px; align-items: center; }
+
+/* ---------- Window ---------- */
+.window { max-width: 1240px; margin: 0 auto 24px; padding: 0 16px; }
+.frame { position: relative; display: grid; grid-template-columns: 56px 220px 1fr; height: 800px; background: var(--surface-0); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-overlay); }
+.rail { background: var(--surface-rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; }
+.rail .ri { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--text-faint); position: relative; }
+.rail .ri.active { background: var(--brand-dim); color: var(--brand); }
+.rail .ri svg { width: 18px; height: 18px; }
+.rail .spacer { flex: 1; }
+.rail .badge { position: absolute; right: 3px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 2px var(--surface-rail); }
+
+/* Store sidebar */
+.side { border-right: 1px solid var(--line); background: var(--surface-0); display: flex; flex-direction: column; min-height: 0; }
+.side .head { padding: 18px 16px 10px; }
+.side .head h1 { font-size: 15px; font-weight: 600; }
+.side .head p { margin: 2px 0 0; font-size: 12px; color: var(--text-faint); }
+.nav { padding: 4px 8px; overflow: auto; flex: 1; }
+.nav .group { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; padding: 14px 8px 6px; }
+.nav button { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; background: none; padding: 6px 8px; border-radius: var(--radius-md); cursor: pointer; color: var(--text-muted); text-align: left; }
+.nav button:hover { background: var(--surface-hover); color: var(--text); }
+.nav button[aria-current="page"] { background: var(--brand-dim); color: var(--text); font-weight: 500; }
+.nav button svg { width: 15px; height: 15px; flex: none; }
+.nav .count { margin-left: auto; font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.nav .count.live { color: var(--brand); font-weight: 600; }
+.engine { margin: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+.engine .row { display: flex; justify-content: space-between; font-size: 12px; gap: 8px; }
+.engine .row b { font-weight: 500; }
+.engine .row span { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.meter { height: 6px; border-radius: 3px; background: var(--gauge-track); display: flex; overflow: hidden; margin-top: 8px; }
+.meter i { display: block; height: 100%; }
+.meter .used { background: var(--text-faint); }
+.meter .add { background: var(--brand); }
+.meter .add.tight { background: var(--warn); }
+.meter .add.over { background: var(--danger); }
+.engine .hint { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+
+/* Main column */
+.main { min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-bottom: 1px solid var(--line); background: var(--surface-0); }
+.search { flex: 1; max-width: 520px; position: relative; }
+.search svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; width: 15px; height: 15px; color: var(--text-faint); pointer-events: none; }
+.search input { width: 100%; height: 36px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-1); padding: 0 64px 0 34px; outline: none; }
+.search input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-dim); }
+.search kbd { position: absolute; right: 8px; top: 50%; translate: 0 -50%; font: 11px var(--font-mono); color: var(--text-faint); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; background: var(--surface-2); }
+.search .clear { position: absolute; right: 6px; top: 50%; translate: 0 -50%; border: 0; background: none; color: var(--text-faint); cursor: pointer; padding: 4px 6px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--surface-1); cursor: pointer; font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.scroll { flex: 1; overflow: auto; padding: 24px 28px 48px; }
+.h-page { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.sub { color: var(--text-muted); max-width: 64ch; margin: 4px 0 0; font-size: 13px; }
+.shelf { margin-top: 28px; }
+.shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.shelf-head h2 { font-size: 15px; font-weight: 600; }
+.shelf-head p { margin: 2px 0 0; color: var(--text-faint); font-size: 12px; }
+
+/* Restart bar (add-ons spec decision 16) */
+.restart { display: flex; align-items: center; gap: 14px; padding: 10px 28px; background: var(--brand-dim); border-bottom: 1px solid var(--line); }
+.restart .msg { flex: 1; }
+.restart .msg b { font-weight: 600; }
+.restart .msg span { color: var(--text-muted); }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-1); cursor: pointer; font-weight: 500; white-space: nowrap; transition: background var(--dur) var(--ease); }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.btn.primary:hover { opacity: .9; }
+.btn.danger { color: var(--danger); border-color: var(--danger-line); }
+.btn.sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.btn.ghost { border-color: transparent; background: none; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.link { background: none; border: 0; padding: 0; color: var(--brand); cursor: pointer; font-weight: 500; }
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; border: 1px solid var(--line); color: var(--text-muted); white-space: nowrap; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-dim); border-color: transparent; }
+.pill.warn { color: var(--warn); background: var(--warn-dim); border-color: var(--warn-line); }
+.pill.danger { color: var(--danger); background: var(--danger-dim); border-color: var(--danger-line); }
+.pill.brand { color: var(--brand); background: var(--brand-dim); border-color: transparent; }
+
+/* Action button on cards: Get / Open / Start / progress */
+.act { min-width: 72px; height: 28px; padding: 0 12px; border-radius: 14px; border: 0; cursor: pointer; font-weight: 600; font-size: 12px; background: var(--brand-dim); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.act:hover { filter: brightness(.96); }
+.act.open { background: var(--surface-2); color: var(--text); border: 1px solid var(--line-strong); }
+.act.start { background: var(--warn-dim); color: var(--warn); }
+.act.muted { background: none; color: var(--text-faint); cursor: default; font-weight: 500; }
+.act.progress { background: none; color: var(--brand); padding: 0 4px; }
+.ring { width: 22px; height: 22px; }
+.ring circle { fill: none; stroke-width: 3; }
+.ring .bg { stroke: var(--gauge-track); }
+.ring .fg { stroke: var(--brand); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset 300ms linear; }
+
+/* Icon tile, tinted per category */
+.tile { --h: 250; width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; background: hsl(var(--h) var(--tile-s) var(--tile-l)); color: hsl(var(--h) var(--tile-fs) var(--tile-fl)); flex: none; position: relative; }
+.tile svg { width: 22px; height: 22px; }
+.tile.lg { width: 72px; height: 72px; border-radius: 18px; }
+.tile.lg svg { width: 34px; height: 34px; }
+.tile.sm { width: 32px; height: 32px; border-radius: 8px; }
+.tile.sm svg { width: 17px; height: 17px; }
+.tile .mark { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: var(--surface-1); box-shadow: 0 0 0 2px var(--surface-1); }
+.tile .mark svg { width: 11px; height: 11px; }
+.tile .mark.warn { background: var(--warn); }
+.tile .mark.busy { background: var(--brand); }
+.tile.lg .mark { width: 24px; height: 24px; right: -6px; bottom: -6px; }
+.tile.lg .mark svg { width: 14px; height: 14px; }
+
+/* Cards */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
+.card { display: grid; grid-template-columns: 44px 1fr auto; gap: 4px 12px; align-items: center; padding: 14px; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-1); cursor: pointer; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); text-align: left; }
+.card:hover { border-color: var(--line-strong); }
+.card .tile { grid-row: span 2; align-self: start; }
+.card .name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .desc { grid-column: 2 / 4; color: var(--text-muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 34px; }
+.card .meta { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--text-faint); font-size: 11px; margin-top: 4px; }
+.card .meta .sep { opacity: .5; }
+.card .state { font-size: 11px; font-weight: 500; }
+.card .state.ok { color: var(--ok); }
+.card .state.warn { color: var(--warn); }
+.card .state.busy { color: var(--brand); }
+.card .state.danger { color: var(--danger); }
+.tag { font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.tag.new { color: var(--brand); border-color: transparent; background: var(--brand-dim); }
+mark { background: var(--warn-dim); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* Featured */
+.hero { display: grid; grid-template-columns: 1.3fr 1fr; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-1); margin-top: 18px; }
+.hero .copy { padding: 24px 26px; display: flex; flex-direction: column; gap: 10px; }
+.hero .eyebrow { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--brand); font-weight: 600; }
+.hero h2 { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.hero p { margin: 0; color: var(--text-muted); max-width: 46ch; }
+.hero .row { display: flex; gap: 10px; align-items: center; margin-top: auto; padding-top: 8px; }
+.hero .art { --h: 250; background: hsl(var(--h) var(--tile-s) var(--tile-l)); padding: 22px; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.bubble { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 12px; max-width: 92%; box-shadow: 0 2px 8px rgb(0 0 0 / .05); }
+.bubble.me { align-self: flex-end; background: var(--solid-bg); color: var(--solid-fg); border-color: var(--solid-bg); }
+.bubble .tool { font: 11px var(--font-mono); color: var(--text-faint); margin-bottom: 4px; }
+
+/* Shared with you */
+.shared { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); background: var(--surface-1); }
+.shared .who { flex: 1; min-width: 0; }
+.shared .who b { font-weight: 600; }
+.shared .who span { display: block; color: var(--text-faint); font-size: 12px; }
+.avatar { width: 18px; height: 18px; border-radius: 50%; background: #c78b5a; color: #fff; display: inline-grid; place-items: center; font-size: 10px; font-weight: 600; vertical-align: -4px; margin-right: 4px; }
+
+/* Search results */
+.results-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.builtin { margin-top: 26px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+.builtin .bh { padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--text-muted); }
+.builtin .bh b { color: var(--text); font-weight: 600; }
+.builtin .br { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.builtin .br + .br { border-top: 1px solid var(--line); }
+.builtin .br .t { flex: 1; }
+.builtin .br .t span { display: block; font-size: 12px; color: var(--text-faint); }
+.empty { padding: 48px 0; text-align: center; color: var(--text-muted); }
+.empty h3 { font-size: 15px; color: var(--text); margin-bottom: 6px; }
+
+/* Installed list */
+.list { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); margin-top: 18px; }
+.lrow { display: grid; grid-template-columns: 32px 1fr 120px 90px auto; gap: 14px; align-items: center; padding: 12px 14px; cursor: pointer; }
+.lrow + .lrow { border-top: 1px solid var(--line); }
+.lrow:hover { background: var(--surface-2); }
+.lrow .n b { font-weight: 600; display: block; }
+.lrow .n span { font-size: 12px; color: var(--text-faint); }
+.lrow .mem { font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.totals { display: flex; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surface-2); font-size: 12px; color: var(--text-muted); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+/* Detail */
+.crumbs { display: flex; gap: 6px; align-items: center; color: var(--text-faint); font-size: 12px; margin-bottom: 16px; }
+.crumbs button { background: none; border: 0; padding: 0; color: var(--text-muted); cursor: pointer; }
+.crumbs button:hover { color: var(--text); text-decoration: underline; }
+.dhead { display: flex; gap: 20px; align-items: center; }
+.dhead .t { flex: 1; min-width: 0; }
+.dhead h1 { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.dhead .by { color: var(--text-muted); margin-top: 2px; }
+.dhead .pills { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.dhead .cta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.dhead .cta small { color: var(--text-faint); font-size: 11px; }
+.facts { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 22px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.facts > div { padding: 12px 14px; text-align: center; }
+.facts > div + div { border-left: 1px solid var(--line); }
+.facts .k { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.facts .v { font-size: 16px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.facts .v.ok { color: var(--ok); } .facts .v.warn { color: var(--warn); } .facts .v.danger { color: var(--danger); }
+.facts .s { font-size: 11px; color: var(--text-faint); }
+.dgrid { display: grid; grid-template-columns: 1fr 300px; gap: 28px; margin-top: 24px; align-items: start; }
+.dsec + .dsec { margin-top: 26px; }
+.dsec h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.dsec p { margin: 0 0 8px; color: var(--text-muted); max-width: 62ch; }
+.asks { display: flex; flex-direction: column; gap: 6px; }
+.asks div { padding: 9px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--line); }
+.privacy { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+.privacy .pr { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 11px 14px; }
+.privacy .pr + .pr { border-top: 1px solid var(--line); }
+.privacy svg { width: 18px; height: 18px; color: var(--text-muted); margin-top: 1px; }
+.privacy b { font-weight: 600; display: block; }
+.privacy span { font-size: 12px; color: var(--text-muted); }
+.info { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); padding: 4px 14px; }
+.info .ir { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 12px; }
+.info .ir + .ir { border-top: 1px solid var(--line); }
+.info .ir span:first-child { color: var(--text-faint); }
+.info .ir span:last-child { text-align: right; }
+.callout { padding: 12px 14px; border-radius: var(--radius-lg); border: 1px solid var(--warn-line); background: var(--warn-dim); margin-top: 18px; display: flex; gap: 12px; align-items: center; }
+.callout .t { flex: 1; }
+.callout b { font-weight: 600; }
+.callout.danger { border-color: var(--danger-line); background: var(--danger-dim); }
+.callout.info2 { border-color: transparent; background: var(--brand-dim); }
+.steps { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-1); }
+.steps li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; padding: 9px 14px; align-items: center; }
+.steps li + li { border-top: 1px solid var(--line); }
+.steps .ic { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); }
+.steps li.done .ic { background: var(--ok); border-color: var(--ok); }
+.steps li.run .ic { border-color: var(--brand); border-right-color: transparent; animation: spin 900ms linear infinite; }
+.steps li.wait .ic { border-color: var(--brand); background: var(--brand-dim); }
+.steps li.pending { color: var(--text-faint); }
+.steps .r { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Sheet */
+.scrim { position: absolute; inset: 0; background: rgb(0 0 0 / .28); display: grid; place-items: center; z-index: 5; }
+.sheet { width: 460px; max-width: calc(100% - 32px); background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-overlay); padding: 22px; }
+.sheet .sh { display: flex; gap: 14px; align-items: center; }
+.sheet h2 { font-size: 17px; font-weight: 600; }
+.sheet .sh p { margin: 2px 0 0; color: var(--text-muted); font-size: 12px; }
+.sheet .body { margin-top: 18px; display: flex; flex-direction: column; gap: 14px; }
+.sheet .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.radio { display: flex; flex-direction: column; gap: 6px; }
+.radio label { display: grid; grid-template-columns: 18px 1fr; gap: 8px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; }
+.radio label:has(input:checked) { border-color: var(--brand); background: var(--brand-dim); }
+.radio input { margin: 2px 0 0; accent-color: var(--brand); }
+.radio b { font-weight: 500; display: block; }
+.radio span { font-size: 12px; color: var(--text-muted); }
+.note { font-size: 12px; color: var(--text-muted); }
+
+/* Toast */
+.toast { position: absolute; left: 50%; bottom: 20px; translate: -50% 0; background: var(--solid-bg); color: var(--solid-fg); padding: 10px 14px; border-radius: 10px; display: flex; gap: 14px; align-items: center; box-shadow: var(--shadow-overlay); z-index: 6; font-size: 13px; }
+.toast .link { color: inherit; text-decoration: underline; }
+
+@media (max-width: 900px) {
+  .frame { grid-template-columns: 56px 1fr; height: auto; min-height: 760px; }
+  .side { display: none; }
+  .hero, .dgrid { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: repeat(2, 1fr); }
+  .lrow { grid-template-columns: 32px 1fr auto; }
+  .lrow .mem, .lrow .pill { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto" role="toolbar" aria-label="Prototype controls">
+  <span class="title">Add-on store <span style="color:var(--text-faint);font-weight:400">· click-through</span></span>
+  <div class="ctl"><span class="label">Catalog</span>
+    <div class="seg" data-ctl="catalog"><button data-v="today">Today’s 6</button><button data-v="grown">Grown, 15</button></div></div>
+  <div class="ctl"><span class="label">Start</span>
+    <div class="seg" data-ctl="start"><button data-v="fresh">Fresh</button><button data-v="used">In use</button></div></div>
+  <div class="ctl"><span class="label">This Mac</span>
+    <div class="seg" data-ctl="room"><button data-v="roomy">Room</button><button data-v="tight">Tight</button><button data-v="full">Full</button></div></div>
+  <div class="ctl"><span class="label">Theme</span>
+    <div class="seg" data-ctl="theme"><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+</div>
+
+<div class="window">
+  <div class="frame" id="frame">
+    <nav class="rail" aria-label="App">
+      <span class="ri" title="Chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg></span>
+      <span class="ri" title="Inference"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
+      <span class="ri active" title="Services"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg><i class="badge" id="rail-badge" hidden></i></span>
+      <span class="ri" title="Resources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+      <span class="spacer"></span>
+      <span class="ri" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></span>
+    </nav>
+    <aside class="side" id="side"></aside>
+    <section class="main" id="main"></section>
+    <div id="overlay"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const S = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const ICONS = {
+    crm: S('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><path d="M16 4.5a3 3 0 0 1 0 6M18 14.8c1.6.7 2.7 2.4 3 5.2"/>'),
+    tasks: S('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 12 2.5 2.5L16 9"/>'),
+    models: S('<path d="M12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/>'),
+    signal: S('<path d="M4 19l1.4-4A8 8 0 1 1 9 18.6z"/>'),
+    flow: S('<rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="15" width="6" height="5" rx="1"/><path d="M6 9v4a2 2 0 0 0 2 2h7"/><circle cx="18" cy="7" r="2"/>'),
+    graph: S('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="8" r="2.2"/><circle cx="9" cy="18" r="2.2"/><path d="M8 7l8 1M7 8l1.6 8M16.4 9.6 10.6 16.4"/>'),
+    doc: S('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h4"/>'),
+    photo: S('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 8"/>'),
+    home: S('<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/>'),
+    money: S('<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6.5 9.5v5M17.5 9.5v5"/>'),
+    notes: S('<path d="M5 4h11l3 3v13H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>'),
+    code: S('<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>'),
+    mic: S('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+    rss: S('<path d="M5 5a14 14 0 0 1 14 14M5 11a8 8 0 0 1 8 8"/><circle cx="6" cy="18" r="1.4"/>'),
+    food: S('<path d="M7 3v8a2 2 0 0 0 4 0V3M9 11v10M16 3c-2 1-3 4-3 7h3v11"/>'),
+  };
+  const UI = {
+    search: S('<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>'),
+    spark: S('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>'),
+    check: S('<path d="m5 12 4.5 4.5L19 7"/>'),
+    grid: S('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'),
+    box: S('<path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/>'),
+    people: S('<circle cx="9" cy="9" r="3"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6"/><circle cx="17" cy="8" r="2.4"/><path d="M16.5 13.6c2.2.2 3.6 1.8 4 4.4"/>'),
+    lock: S('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+    globe: S('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5s-1.1 5.9-3.5 8.5c-2.4-2.6-3.5-5.4-3.5-8.5s1.1-5.9 3.5-8.5z"/>'),
+    agent: S('<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'),
+    pause: S('<path d="M10 6v12M14 6v12"/>'),
+    dots: S('<circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="18" cy="12" r="1" fill="currentColor"/>'),
+  };
+
+  // Categories: hue for the icon tile, nav icon.
+  const CATS = {
+    work: { name: 'Work & CRM', h: 250, icon: 'crm' },
+    tasks: { name: 'Tasks & notes', h: 150, icon: 'tasks' },
+    knowledge: { name: 'Knowledge', h: 205, icon: 'graph' },
+    messaging: { name: 'Messaging', h: 215, icon: 'signal' },
+    models: { name: 'Models & voice', h: 280, icon: 'models' },
+    automation: { name: 'Automation', h: 25, icon: 'flow' },
+    files: { name: 'Files & photos', h: 330, icon: 'photo' },
+    home: { name: 'Home & life', h: 95, icon: 'home' },
+    developer: { name: 'Developer', h: 180, icon: 'code' },
+  };
+
+  // Today's six come from the add-ons spec and Services. The rest are examples only.
+  const ADDONS = [
+    { id: 'twenty', name: 'Twenty CRM', cat: 'work', icon: 'crm', isNew: true, web: true, access: true, featured: true,
+      desc: 'Contacts, companies and deals that your agents can look up and keep current.',
+      version: 'Twenty v2.55.0', mem: 1.8, download: 1.1, net: false, tools: 7,
+      asks: ['Who did I meet from Acme last month?', 'Add Priya Shah at Northwind as a lead from today’s call.', 'Which deals haven’t moved in two weeks?'],
+      runs: ['twenty-server', 'twenty-worker', 'twenty-db', 'twenty-redis'],
+      keys: ['twenty', 'crm', 'contacts', 'customers', 'sales', 'deals', 'leads', 'companies'] },
+    { id: 'tasks', name: 'Tasks', cat: 'tasks', icon: 'tasks', web: true,
+      desc: 'A shared to-do list your agents can read and add to, with its own web page.',
+      version: 'Vikunja 2.7.0', mem: 0.3, download: 0.2, net: false, tools: 26,
+      asks: ['What’s due this week?', 'Add “renew passport” for next Friday.'],
+      runs: ['vikunja', 'vikunja-proxy'], keys: ['vikunja', 'todo', 'to-do', 'reminders', 'projects', 'kanban'] },
+    { id: 'models', name: 'Local models', cat: 'models', icon: 'models',
+      desc: 'Run open models on this Mac’s container engine, with no cloud provider.',
+      version: 'Ollama 0.40.11', mem: 6.0, download: 5.2, net: false, tools: 0,
+      asks: ['Pick a local model in Inference, then chat as usual.'],
+      runs: ['ollama'], keys: ['ollama', 'llm', 'llama', 'offline', 'private', 'gpu', 'inference'] },
+    { id: 'signal', name: 'Signal', cat: 'messaging', icon: 'signal',
+      desc: 'Message your agent from Signal on your phone.',
+      version: 'signal-cli 0.14.9', mem: 0.4, download: 0.3, net: true, tools: 0,
+      asks: ['Text your agent from your phone while you’re away from this Mac.'],
+      runs: ['signal-cli'], keys: ['phone', 'chat', 'sms', 'mobile', 'text'] },
+    { id: 'n8n', name: 'n8n', cat: 'automation', icon: 'flow', included: true,
+      desc: 'Workflows that run on a schedule or a webhook, which agents can start.',
+      version: 'n8n 1.94', mem: 0.6, download: 0, net: true, tools: 4,
+      asks: ['Every Monday, send me a summary of new leads.'],
+      runs: ['n8n'], keys: ['workflow', 'zapier', 'schedule', 'webhook', 'automation', 'cron'] },
+    { id: 'lightrag', name: 'LightRAG', cat: 'knowledge', icon: 'graph', included: true,
+      desc: 'A knowledge graph over your documents, so agents can answer from them.',
+      version: 'LightRAG 1.3 · Neo4j 5', mem: 1.4, download: 0, net: false, tools: 3,
+      asks: ['What did the Q3 board deck say about hiring?'],
+      runs: ['lightrag', 'neo4j'], keys: ['rag', 'documents', 'graph', 'neo4j', 'knowledge', 'pdf'] },
+    // Examples for the grown catalog
+    { ex: true, id: 'paperless', name: 'Paperless-ngx', cat: 'files', icon: 'doc', web: true,
+      desc: 'Scan, file and search paper documents. Agents can find a receipt or a contract.', version: 'Paperless-ngx 2.x',
+      mem: 0.9, download: 0.8, net: false, tools: 9, asks: ['Find the warranty for the dishwasher.'], runs: ['paperless', 'paperless-redis'], keys: ['scan', 'receipts', 'ocr', 'documents', 'pdf'] },
+    { ex: true, id: 'immich', name: 'Immich', cat: 'files', icon: 'photo', web: true,
+      desc: 'Photo and video library with face and place search.', version: 'Immich 1.x',
+      mem: 2.4, download: 1.6, net: false, tools: 5, asks: ['Show photos from the Lisbon trip.'], runs: ['immich-server', 'immich-ml', 'immich-db'], keys: ['photos', 'pictures', 'video', 'gallery'] },
+    { ex: true, id: 'homeassistant', name: 'Home Assistant', cat: 'home', icon: 'home', web: true, isNew: true,
+      desc: 'Lights, thermostats and sensors your agent can check and switch.', version: 'Home Assistant 2026.x',
+      mem: 0.7, download: 1.0, net: true, tools: 12, asks: ['Is the garage door closed?'], runs: ['homeassistant'], keys: ['smart home', 'lights', 'thermostat', 'iot'] },
+    { ex: true, id: 'actual', name: 'Actual Budget', cat: 'home', icon: 'money', web: true,
+      desc: 'Envelope budgeting your agent can categorise and report on.', version: 'Actual 25.x',
+      mem: 0.3, download: 0.2, net: false, tools: 8, asks: ['How much did we spend on groceries in October?'], runs: ['actual'], keys: ['budget', 'finance', 'money', 'spending'] },
+    { ex: true, id: 'mealie', name: 'Mealie', cat: 'home', icon: 'food', web: true,
+      desc: 'Recipes and meal plans, with shopping lists your agent can fill.', version: 'Mealie 2.x',
+      mem: 0.4, download: 0.3, net: false, tools: 6, asks: ['Plan dinners for the week with what’s in the fridge.'], runs: ['mealie'], keys: ['recipes', 'meal', 'cooking', 'shopping'] },
+    { ex: true, id: 'outline', name: 'Outline', cat: 'tasks', icon: 'notes', web: true,
+      desc: 'A team wiki your agents can search and write to.', version: 'Outline 0.8x',
+      mem: 0.8, download: 0.6, net: false, tools: 7, asks: ['Write up today’s decision in the Ops wiki.'], runs: ['outline', 'outline-redis'], keys: ['wiki', 'notes', 'docs', 'notion'] },
+    { ex: true, id: 'miniflux', name: 'Miniflux', cat: 'knowledge', icon: 'rss', web: true,
+      desc: 'Feeds and newsletters in one reader; agents can summarise what’s new.', version: 'Miniflux 2.x',
+      mem: 0.1, download: 0.05, net: true, tools: 4, asks: ['What did my feeds say about Rust this week?'], runs: ['miniflux'], keys: ['rss', 'news', 'feeds', 'newsletters'] },
+    { ex: true, id: 'whisper', name: 'Speech to text', cat: 'models', icon: 'mic',
+      desc: 'Transcribe voice notes and recordings on this Mac.', version: 'faster-whisper',
+      mem: 1.5, download: 1.4, net: false, tools: 1, asks: ['Transcribe the voice memo I just dropped in.'], runs: ['whisper'], keys: ['voice', 'audio', 'transcribe', 'dictation', 'speech'] },
+    { ex: true, id: 'forgejo', name: 'Forgejo', cat: 'developer', icon: 'code', web: true,
+      desc: 'Git hosting on this Mac for repos your coding agent works in.', version: 'Forgejo 9.x',
+      mem: 0.4, download: 0.3, net: false, tools: 10, asks: ['Open an issue for the login bug.'], runs: ['forgejo'], keys: ['git', 'github', 'repos', 'issues', 'code'] },
+  ];
+  const TODAY = ['twenty', 'tasks', 'models', 'signal', 'n8n', 'lightrag'];
+
+  // Services Boundary always runs; search finds them so a user doesn't think they're missing.
+  const BUILTIN = [
+    { name: 'Web search', where: 'Services · Search gate', keys: ['search', 'web', 'google', 'searxng', 'browse', 'internet'] },
+    { name: 'Coding agent', where: 'Services · Coding', keys: ['code', 'coding', 'git', 'programming', 'developer'] },
+    { name: 'Database', where: 'Services · Postgres', keys: ['postgres', 'database', 'sql', 'db'] },
+    { name: 'Mac calendars', where: 'Settings · Calendars', keys: ['calendar', 'events', 'meetings', 'schedule'] },
+    { name: 'Passwords & Logins', where: 'Settings · Passwords & Logins', keys: ['passwords', 'logins', 'vault', 'keys'] },
+  ];
+
+  const ENGINE = 12;
+  const USED = { roomy: 4.1, tight: 8.4, full: 11.2 };
+
+  const state = {
+    catalog: 'today', start: 'fresh', room: 'roomy', theme: 'light',
+    view: 'discover', cat: null, id: null, q: '', filters: { installed: false, fits: false, local: false },
+    st: {}, // id -> { s: 'on' | 'stopped' | 'installing' | 'restart' | 'off-data', p, step }
+    sheet: null, toast: null, restartQueue: [],
+  };
+  let timers = [];
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmt = (n) => (Math.round(n * 10) / 10).toFixed(1);
+  const catalog = () => ADDONS.filter((a) => state.catalog === 'grown' || TODAY.includes(a.id));
+  const byId = (id) => ADDONS.find((a) => a.id === id);
+  const st = (id) => state.st[id] || { s: 'none' };
+  const isInstalled = (id) => ['on', 'stopped', 'restart'].includes(st(id).s);
+  // Installed add-ons count toward used memory; the scenario's baseline already includes the "In use" ones.
+  function used() {
+    let u = USED[state.room];
+    for (const a of catalog()) {
+      const s = st(a.id).s;
+      const baseline = state.start === 'used' && (a.id === 'tasks' || a.id === 'models');
+      if (baseline) continue;
+      if (s === 'on' || s === 'restart' || s === 'installing') u += a.mem;
+    }
+    return Math.min(u, ENGINE);
+  }
+  function fit(a) {
+    if (isInstalled(a.id) || st(a.id).s === 'installing') return 'installed';
+    const free = ENGINE - used();
+    if (a.mem > free) return 'over';
+    if (free - a.mem < 1.2) return 'tight';
+    return 'ok';
+  }
+  const FIT_LABEL = { ok: 'Fits', tight: 'Tight fit', over: 'Won’t fit', installed: 'Installed' };
+
+  function resetState() {
+    timers.forEach(clearTimeout); timers = [];
+    state.st = {}; state.sheet = null; state.toast = null; state.restartQueue = [];
+    if (state.start === 'used') {
+      state.st.tasks = { s: 'on' };
+      state.st.models = { s: 'stopped' };
+      state.st.lightrag = { s: 'off-data' };
+    }
+  }
+
+  // ---------- Pieces ----------
+  function tile(a, size = '') {
+    const s = st(a.id).s;
+    let mark = '';
+    if (s === 'on' || s === 'restart') mark = `<span class="mark" title="Installed">${UI.check}</span>`;
+    else if (s === 'stopped') mark = `<span class="mark warn" title="Not running">${UI.pause}</span>`;
+    else if (s === 'installing') mark = `<span class="mark busy" title="Installing">${UI.dots}</span>`;
+    return `<span class="tile ${size}" style="--h:${CATS[a.cat].h}" aria-hidden="true">${ICONS[a.icon]}${mark}</span>`;
+  }
+  function ring(p) {
+    const c = 2 * Math.PI * 8.5;
+    return `<svg class="ring" viewBox="0 0 22 22"><circle class="bg" cx="11" cy="11" r="8.5"/><circle class="fg" cx="11" cy="11" r="8.5" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}"/></svg>`;
+  }
+  // The card's one action, App Store style.
+  function action(a) {
+    const s = st(a.id);
+    if (s.s === 'installing') return `<span class="act progress" title="Installing">${ring(s.p)}<span class="num">${Math.round(s.p * 100)}%</span></span>`;
+    if (s.s === 'restart') return `<button class="act" data-do="restart">Restart</button>`;
+    if (s.s === 'stopped') return `<button class="act start" data-do="start" data-id="${a.id}">Start</button>`;
+    if (s.s === 'on') return a.web ? `<button class="act open" data-do="open" data-id="${a.id}">Open</button>` : `<span class="act muted">${UI.check.replace('<svg', '<svg width="13" height="13"')} On</span>`;
+    const f = fit(a);
+    if (f === 'over') return `<button class="act open" data-do="detail" data-id="${a.id}">View</button>`;
+    if (s.s === 'off-data' || a.included) return `<button class="act" data-do="get" data-id="${a.id}">Turn on</button>`;
+    return `<button class="act" data-do="get" data-id="${a.id}">Get</button>`;
+  }
+  function stateLine(a) {
+    const s = st(a.id).s;
+    if (s === 'on') return '<span class="state ok">Installed</span>';
+    if (s === 'restart') return '<span class="state busy">Waiting for restart</span>';
+    if (s === 'stopped') return '<span class="state warn">Installed · not running</span>';
+    if (s === 'installing') return `<span class="state busy">${esc(st(a.id).step || 'Installing')}</span>`;
+    if (s === 'off-data') return '<span class="state">Off · data kept</span>';
+    const f = fit(a);
+    const fitTxt = f === 'over' ? '<span class="state danger">Won’t fit</span>' : f === 'tight' ? '<span class="state warn">Tight fit</span>' : '';
+    return `<span class="num">${fmt(a.mem)} GB memory</span>${fitTxt ? '<span class="sep">·</span>' + fitTxt : ''}`;
+  }
+  function hl(text) {
+    const q = state.q.trim();
+    if (!q) return esc(text);
+    const i = text.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return esc(text);
+    return esc(text.slice(0, i)) + '<mark>' + esc(text.slice(i, i + q.length)) + '</mark>' + esc(text.slice(i + q.length));
+  }
+  function card(a) {
+    const tags = [];
+    if (a.isNew && !isInstalled(a.id)) tags.push('<span class="tag new">New</span>');
+    if (a.included) tags.push('<span class="tag" title="Ships with Boundary, off until you turn it on">Included</span>');
+    if (a.ex) tags.push('<span class="tag" title="Example entry for the grown catalog">Example</span>');
+    return `<div class="card" role="button" tabindex="0" data-do="detail" data-id="${a.id}" aria-label="${esc(a.name)}">
+      ${tile(a)}
+      <span class="name"><span>${hl(a.name)}</span></span>
+      ${action(a)}
+      <span class="desc">${hl(a.desc)}</span>
+      <span class="meta">${tags.join('')}<span>${CATS[a.cat].name}</span><span class="sep">·</span>${stateLine(a)}</span>
+    </div>`;
+  }
+
+  // ---------- Sidebar ----------
+  function renderSide() {
+    const list = catalog();
+    const installed = list.filter((a) => isInstalled(a.id) || st(a.id).s === 'installing');
+    const live = list.some((a) => ['installing', 'restart', 'stopped'].includes(st(a.id).s));
+    const cats = Object.entries(CATS).map(([k, c]) => [k, c, list.filter((a) => a.cat === k).length]).filter(([, , n]) => n > 0);
+    const nav = (key, label, icon, count, countLive) => {
+      const cur = !state.q.trim() && ((key === 'discover' && state.view === 'discover') || (key === 'installed' && state.view === 'installed') || (state.view === 'cat' && state.cat === key));
+      return `<button data-nav="${key}" ${cur ? 'aria-current="page"' : ''}>${icon}<span>${label}</span>${count != null ? `<span class="count ${countLive ? 'live' : ''}">${count}</span>` : ''}</button>`;
+    };
+    const u = used();
+    const pct = (u / ENGINE) * 100;
+    $('#side').innerHTML = `
+      <div class="head"><h1>Add-ons</h1><p>Services your agents can use, run on this Mac</p></div>
+      <div class="nav">
+        ${nav('discover', 'Discover', UI.spark)}
+        ${nav('installed', 'Installed', UI.box, installed.length, live)}
+        <div class="group">Categories</div>
+        ${cats.map(([k, c, n]) => nav(k, c.name, ICONS[c.icon], n)).join('')}
+        <div class="group">From your Circles</div>
+        <button data-nav="discover" data-anchor="shared">${UI.people}<span>Shared with you</span><span class="count">1</span></button>
+      </div>
+      <div class="engine" title="Add-ons share the container engine’s memory, not the Mac’s">
+        <div class="row"><b>Engine memory</b><span>${fmt(u)} / ${ENGINE} GB</span></div>
+        <div class="meter"><i class="used" style="width:${pct}%"></i></div>
+        <div class="hint">${ENGINE - u < 1.5 ? 'Nearly full. <button class="link" data-do="grow">Make room…</button>' : `${fmt(ENGINE - u)} GB free for add-ons`}</div>
+      </div>`;
+  }
+
+  // ---------- Views ----------
+  function topbar() {
+    const f = state.filters;
+    const chip = (k, label) => `<button class="chip" data-filter="${k}" aria-pressed="${f[k]}">${label}</button>`;
+    return `<div class="topbar">
+      <label class="search">${UI.search}
+        <input id="q" type="text" placeholder="Search add-ons, or what you want your agent to do" value="${esc(state.q)}" autocomplete="off" aria-label="Search add-ons">
+        ${state.q ? '<button class="clear" data-do="clear" aria-label="Clear search">✕</button>' : '<kbd>/</kbd>'}
+      </label>
+      <div class="chips">${chip('fits', 'Fits this Mac')}${chip('local', 'Stays on this Mac')}${chip('installed', 'Hide installed')}</div>
+    </div>`;
+  }
+  function restartBar() {
+    const waiting = catalog().filter((a) => st(a.id).s === 'restart');
+    if (!waiting.length) return '';
+    const names = waiting.map((a) => a.name).join(' and ');
+    return `<div class="restart"><div class="msg"><b>${esc(names)} ${waiting.length > 1 ? 'are' : 'is'} ready.</b> <span>Restart the assistant so agents get ${waiting.length > 1 ? 'their' : 'its'} tools. Each chat re-sends its history on its next turn.</span></div>
+      <button class="btn sm ghost" data-do="later">Later</button><button class="btn sm primary" data-do="restart">Restart assistant</button></div>`;
+  }
+  function applyFilters(list) {
+    const f = state.filters;
+    return list.filter((a) => (!f.installed || !isInstalled(a.id)) && (!f.fits || fit(a) !== 'over') && (!f.local || !a.net));
+  }
+
+  function viewDiscover() {
+    const list = applyFilters(catalog());
+    const feat = byId('twenty');
+    const fits = list.filter((a) => fit(a) === 'ok' && !a.featured).sort((x, y) => x.mem - y.mem).slice(0, 3);
+    const grown = state.catalog === 'grown';
+    const shelves = grown
+      ? Object.entries(CATS).map(([k, c]) => [k, c, list.filter((a) => a.cat === k)]).filter(([, , l]) => l.length >= 2)
+      : [];
+    const rest = grown ? list.filter((a) => !shelves.some(([k]) => k === a.cat)) : list;
+    const featCard = list.includes(feat) ? `
+      <div class="hero">
+        <div class="copy">
+          <span class="eyebrow">New with stack 0.3.10</span>
+          <div style="display:flex;gap:14px;align-items:center">${tile(feat, 'lg')}<div><h2>${feat.name}</h2><div style="color:var(--text-muted)">${CATS[feat.cat].name} · ${feat.version}</div></div></div>
+          <p>Your contacts, companies and deals in a CRM on this Mac. Agents look people up before a meeting and log what happened after it.</p>
+          <div class="row">${action(feat)}<button class="link" data-do="detail" data-id="twenty">Details</button>
+            <span style="margin-left:auto;color:var(--text-faint);font-size:12px" class="num">${fmt(feat.mem)} GB memory · ${fmt(feat.download)} GB download</span></div>
+        </div>
+        <div class="art" style="--h:${CATS.work.h}">
+          <div class="bubble me">Who did I meet from Acme last month?</div>
+          <div class="bubble"><div class="tool">crm-main · execute_tool</div>Two people: Dana Ruiz (VP Ops) on 14 Oct, and Sam Okafor on 22 Oct about the renewal.</div>
+        </div>
+      </div>` : '';
+    const sharedRow = `
+      <div class="shelf" id="shared">
+        <div class="shelf-head"><div><h2>Shared with you</h2><p>Services people in your Circles let you use from your own agent. Nothing installs on this Mac.</p></div></div>
+        <div class="shared">${tile(feat, 'sm')}<div class="who"><b>Twenty CRM</b> · Northwind studio<span><span class="avatar">M</span>Maya shares this · your agent can look things up</span></div>
+          <button class="btn sm">Use in my agent</button></div>
+      </div>`;
+    const empty = !list.length ? `<div class="empty"><h3>Nothing matches these filters</h3><p>Turn a filter off above to see more.</p></div>` : '';
+    return `${topbar()}${restartBar()}<div class="scroll" id="scroll">
+      <h1 class="h-page">Discover</h1>
+      <p class="sub">Each add-on runs in this Mac’s container engine and gives your agents new tools. Data stays here unless an add-on says otherwise.</p>
+      ${featCard}
+      ${fits.length ? `<div class="shelf"><div class="shelf-head"><div><h2>Fits this Mac</h2><p>Room to spare in the engine right now</p></div></div><div class="grid">${fits.map(card).join('')}</div></div>` : ''}
+      ${shelves.map(([k, c, l]) => `<div class="shelf"><div class="shelf-head"><div><h2>${c.name}</h2></div><button class="link" data-nav="${k}">See all ${l.length}</button></div><div class="grid">${l.slice(0, 3).map(card).join('')}</div></div>`).join('')}
+      ${rest.length ? `<div class="shelf"><div class="shelf-head"><div><h2>${grown ? 'More add-ons' : 'All add-ons'}</h2>${grown ? '' : '<p>Fewer than two per category, so they share one shelf</p>'}</div></div><div class="grid">${rest.map(card).join('')}</div></div>` : ''}
+      ${empty}
+      ${sharedRow}
+    </div>`;
+  }
+
+  function viewCat() {
+    const c = CATS[state.cat];
+    const list = applyFilters(catalog().filter((a) => a.cat === state.cat));
+    return `${topbar()}${restartBar()}<div class="scroll">
+      <div style="display:flex;gap:14px;align-items:center"><span class="tile" style="--h:${c.h}">${ICONS[c.icon]}</span><div><h1 class="h-page">${c.name}</h1><p class="sub" style="margin:0">${list.length} add-on${list.length === 1 ? '' : 's'}</p></div></div>
+      <div class="grid" style="margin-top:20px">${list.map(card).join('')}</div>
+      ${!list.length ? '<div class="empty"><h3>Nothing here with these filters</h3></div>' : ''}
+    </div>`;
+  }
+
+  function score(a, q) {
+    const n = a.name.toLowerCase(), d = a.desc.toLowerCase(), c = CATS[a.cat].name.toLowerCase();
+    if (n.startsWith(q)) return 4;
+    if (n.includes(q)) return 3;
+    if (a.keys.some((k) => k.startsWith(q) || q.includes(k))) return 2;
+    if (d.includes(q) || c.includes(q) || a.asks.some((s) => s.toLowerCase().includes(q))) return 1;
+    return 0;
+  }
+  function viewSearch() {
+    const q = state.q.trim().toLowerCase();
+    const hits = applyFilters(catalog()).map((a) => [a, score(a, q)]).filter(([, s]) => s > 0).sort((x, y) => y[1] - x[1]).map(([a]) => a);
+    const built = BUILTIN.filter((b) => b.name.toLowerCase().includes(q) || b.keys.some((k) => k.startsWith(q) || q.includes(k)));
+    const hidden = catalog().filter((a) => score(a, q) > 0 && !hits.includes(a)).length;
+    return `${topbar()}${restartBar()}<div class="scroll">
+      <div class="results-head"><h1 class="h-page" style="font-size:18px">${hits.length} add-on${hits.length === 1 ? '' : 's'} for “${esc(state.q.trim())}”</h1>
+        ${hidden ? `<span class="note">${hidden} more hidden by filters</span>` : ''}</div>
+      ${hits.length ? `<div class="grid" style="margin-top:14px">${hits.map(card).join('')}</div>` : `<div class="empty"><h3>No add-on for “${esc(state.q.trim())}” yet</h3><p>Search looks at names, descriptions and what you can ask. Try a word like “contacts” or “photos”.</p></div>`}
+      ${built.length ? `<div class="builtin"><div class="bh"><b>Already in Boundary.</b> These run with the assistant and need no add-on.</div>
+        ${built.map((b) => `<div class="br"><span class="tile sm" style="--h:40">${UI.check}</span><div class="t">${hl(b.name)}<span>${b.where}</span></div><button class="btn sm">Go there</button></div>`).join('')}</div>` : ''}
+    </div>`;
+  }
+
+  function viewInstalled() {
+    const list = catalog().filter((a) => isInstalled(a.id) || ['installing', 'off-data'].includes(st(a.id).s));
+    const running = list.filter((a) => ['on', 'restart', 'installing'].includes(st(a.id).s));
+    const mem = running.reduce((n, a) => n + a.mem, 0);
+    const pill = (a) => {
+      const s = st(a.id).s;
+      if (s === 'on') return '<span class="pill ok"><i class="dot"></i>Running</span>';
+      if (s === 'stopped') return '<span class="pill warn"><i class="dot"></i>Not running</span>';
+      if (s === 'restart') return '<span class="pill brand"><i class="dot"></i>Waiting for restart</span>';
+      if (s === 'installing') return `<span class="pill brand"><i class="dot"></i>Installing ${Math.round(st(a.id).p * 100)}%</span>`;
+      return '<span class="pill">Off · data kept</span>';
+    };
+    const row = (a) => `<div class="lrow" data-do="detail" data-id="${a.id}">${tile(a, 'sm')}
+      <div class="n"><b>${a.name}</b><span>${CATS[a.cat].name} · ${a.version}</span></div>
+      ${pill(a)}<span class="mem">${st(a.id).s === 'off-data' || st(a.id).s === 'stopped' ? '—' : fmt(a.mem) + ' GB'}</span>${action(a)}</div>`;
+    return `${topbar()}${restartBar()}<div class="scroll">
+      <h1 class="h-page">Installed</h1>
+      <p class="sub">What’s on this Mac now. Add-ons you turned off keep their data until you remove them.</p>
+      ${list.length ? `<div class="list">${list.map(row).join('')}<div class="totals"><span>${running.length} running</span><span class="num">${fmt(mem)} GB of engine memory</span></div></div>`
+        : `<div class="empty"><h3>No add-ons yet</h3><p>Browse <button class="link" data-nav="discover">Discover</button> to give your agents a CRM, a task list or local models.</p></div>`}
+    </div>`;
+  }
+
+  function viewDetail() {
+    const a = byId(state.id);
+    const s = st(a.id);
+    const f = fit(a);
+    const c = CATS[a.cat];
+    const free = ENGINE - used();
+    const after = free - a.mem;
+    const cta = (() => {
+      if (s.s === 'installing') return `<button class="btn" disabled>${ring(s.p)} Installing…</button><small>You can leave this page</small>`;
+      if (s.s === 'restart') return `<button class="btn primary" data-do="restart">Restart assistant</button><small>Agents get its tools after a restart</small>`;
+      if (s.s === 'stopped') return `<button class="btn primary" data-do="start" data-id="${a.id}">Start</button><small>Installed, not running</small>`;
+      if (s.s === 'on') return `<div style="display:flex;gap:8px">${a.web ? `<button class="btn primary" data-do="open" data-id="${a.id}">Open ${esc(a.name.split(' ')[0])}</button>` : ''}<button class="btn" data-do="off" data-id="${a.id}">Turn off</button></div><small>Running · ${fmt(a.mem)} GB</small>`;
+      if (f === 'over') return `<button class="btn" data-do="grow">Make room…</button><small>Needs ${fmt(a.mem)} GB, ${fmt(free)} GB free</small>`;
+      const label = s.s === 'off-data' || a.included ? 'Turn on' : 'Install';
+      return `<button class="btn primary" data-do="get" data-id="${a.id}">${label}</button><small>${a.download ? fmt(a.download) + ' GB download' : 'Nothing to download'}</small>`;
+    })();
+    const fitV = s.s === 'none' || s.s === 'off-data' ? `<div class="v ${f === 'over' ? 'danger' : f === 'tight' ? 'warn' : 'ok'}">${FIT_LABEL[f]}</div><div class="s num">${f === 'over' ? `${fmt(a.mem - free)} GB short` : `${fmt(after)} GB left after`}</div>` : `<div class="v ok">Installed</div><div class="s">&nbsp;</div>`;
+    const steps = s.s === 'installing' || s.s === 'restart' ? `<div class="dsec"><h3>Installing</h3>${stepsList(a)}</div>` : '';
+    const callout = s.s === 'stopped'
+      ? `<div class="callout"><div class="t"><b>${a.name} isn’t running.</b> Its containers stopped. Start it to bring its tools back to your agents. Its data stays on this Mac either way.</div><button class="btn sm" data-do="markoff" data-id="${a.id}">Mark as not installed</button><button class="btn sm primary" data-do="start" data-id="${a.id}">Start</button></div>`
+      : s.s === 'off-data' ? `<div class="callout info2"><div class="t"><b>Turned off, data kept.</b> Turning it on again picks up where you left off.</div><button class="btn sm danger" data-do="remove" data-id="${a.id}">Remove and delete data…</button></div>`
+      : f === 'over' && s.s === 'none' ? `<div class="callout danger"><div class="t"><b>Not enough room in the container engine.</b> ${a.name} reserves ${fmt(a.mem)} GB and ${fmt(free)} GB is free. Growing the engine restarts the stack.</div><button class="btn sm" data-do="grow">Make room…</button></div>` : '';
+    return `${topbar()}${restartBar()}<div class="scroll">
+      <div class="crumbs"><button data-nav="discover">Add-ons</button><span>/</span><button data-nav="${a.cat}">${c.name}</button><span>/</span><span>${a.name}</span></div>
+      <div class="dhead">${tile(a, 'lg')}
+        <div class="t"><h1>${a.name}</h1><div class="by">${a.desc}</div>
+          <div class="pills">${a.included ? '<span class="pill">Included with Boundary</span>' : ''}${a.ex ? '<span class="pill">Example entry</span>' : ''}<span class="pill ${a.net ? '' : 'ok'}">${a.net ? 'Uses the internet' : 'Stays on this Mac'}</span>${a.tools ? `<span class="pill brand">${a.tools} agent tools</span>` : ''}</div></div>
+        <div class="cta">${cta}</div>
+      </div>
+      ${callout}
+      <div class="facts">
+        <div><div class="k">Memory</div><div class="v num">${fmt(a.mem)} GB</div><div class="s">reserved in the engine</div></div>
+        <div><div class="k">This Mac</div>${fitV}</div>
+        <div><div class="k">Download</div><div class="v num">${a.download ? fmt(a.download) + ' GB' : '—'}</div><div class="s">${a.download ? 'container images' : 'already on this Mac'}</div></div>
+        <div><div class="k">Category</div><div class="v" style="font-size:14px;padding-top:2px">${c.name}</div><div class="s">&nbsp;</div></div>
+      </div>
+      <div class="dgrid">
+        <div>
+          ${steps}
+          <div class="dsec"><h3>Try asking</h3><div class="asks">${a.asks.map((q) => `<div>${esc(q)}</div>`).join('')}</div></div>
+          ${a.access && (s.s === 'none') ? `<div class="dsec"><h3>What agents may do</h3><p>You pick this when you install, and can change it per workspace later. Unattended runs always get the read-only key.</p></div>` : ''}
+          <div class="dsec"><h3>What it runs</h3><p>${a.runs.length} container${a.runs.length === 1 ? '' : 's'} in the engine: <span class="mono" style="font-size:12px">${a.runs.join(', ')}</span>.</p></div>
+        </div>
+        <div>
+          <div class="privacy">
+            <div class="pr">${a.net ? UI.globe : UI.lock}<div><b>${a.net ? 'Connects to the internet' : 'Stays on this Mac'}</b><span>${a.net ? (a.id === 'signal' ? 'Messages pass through Signal’s servers, end-to-end encrypted.' : 'Reaches outside services you set up in it.') : 'Its data lives in the engine’s volumes. Nothing is sent out.'}</span></div></div>
+            <div class="pr">${UI.agent}<div><b>${a.tools ? `${a.tools} tools for agents` : 'No agent tools'}</b><span>${a.access ? 'Look things up, or make changes. You choose.' : a.tools ? 'Your default and browser agents get them after a restart.' : 'Used by the assistant directly.'}</span></div></div>
+          </div>
+          <div class="info" style="margin-top:12px">
+            <div class="ir"><span>Version</span><span>${a.version}</span></div>
+            <div class="ir"><span>Updates</span><span>With the assistant</span></div>
+            <div class="ir"><span>Web page</span><span>${a.web ? 'Yes, opens signed in' : 'None'}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const STEP_NAMES = (a) => [a.download ? `Download ${fmt(a.download)} GB` : 'Check images', 'First-time setup', 'Start containers', 'Restart assistant'];
+  function stepsList(a) {
+    const s = st(a.id);
+    const names = STEP_NAMES(a);
+    const idx = s.s === 'restart' ? 3 : s.p < 0.6 ? 0 : s.p < 0.85 ? 1 : 2;
+    return `<ol class="steps">${names.map((n, i) => {
+      const cls = i < idx ? 'done' : i === idx ? (i === 3 ? 'wait' : 'run') : 'pending';
+      const r = i === 0 && idx === 0 && a.download ? `${fmt(a.download * Math.min(1, s.p / 0.6))} of ${fmt(a.download)} GB` : i === 3 && idx === 3 ? '<button class="link" data-do="restart">Restart now</button>' : i < idx ? 'Done' : '';
+      return `<li class="${cls}"><span class="ic"></span><span>${n}</span><span class="r num">${r}</span></li>`;
+    }).join('')}</ol>`;
+  }
+
+  // ---------- Sheet ----------
+  function renderSheet() {
+    const o = $('#overlay');
+    if (!state.sheet) { o.innerHTML = ''; return; }
+    const a = byId(state.sheet.id);
+    if (state.sheet.kind === 'grow') {
+      o.innerHTML = `<div class="scrim" data-do="close"><div class="sheet" role="dialog" aria-modal="true" aria-label="Make room">
+        <div class="sh"><div><h2>Make room in the engine</h2><p>The container engine has ${ENGINE} GB. Add-ons, the assistant and the coding agent share it.</p></div></div>
+        <div class="body"><div class="radio">
+          <label><input type="radio" name="g" checked><div><b>Grow the engine to 16 GB</b><span>This Mac has 32 GB. The stack restarts, about a minute.</span></div></label>
+          <label><input type="radio" name="g"><div><b>Turn off an add-on</b><span>Pick one in Installed. Its data stays.</span></div></label>
+        </div></div>
+        <div class="foot"><button class="btn" data-do="close">Cancel</button><button class="btn primary" data-do="close">Continue</button></div></div></div>`;
+      return;
+    }
+    if (state.sheet.kind === 'remove') {
+      o.innerHTML = `<div class="scrim" data-do="close"><div class="sheet" role="dialog" aria-modal="true">
+        <div class="sh">${tile(a)}<div><h2>Remove ${a.name} and its data?</h2><p>This deletes its containers, volumes and keys. It can’t be undone.</p></div></div>
+        <div class="foot"><button class="btn" data-do="close">Cancel</button><button class="btn danger" data-do="confirm-remove" data-id="${a.id}">Remove and delete</button></div></div></div>`;
+      return;
+    }
+    const f = fit(a);
+    const free = ENGINE - used();
+    const u = used();
+    const turnOn = st(a.id).s === 'off-data' || a.included;
+    o.innerHTML = `<div class="scrim" data-do="close"><div class="sheet" role="dialog" aria-modal="true" aria-label="Install ${esc(a.name)}">
+      <div class="sh">${tile(a)}<div><h2>${turnOn ? 'Turn on' : 'Install'} ${a.name}?</h2><p>${a.version} · ${a.download && !turnOn ? fmt(a.download) + ' GB download' : 'nothing to download'}</p></div></div>
+      <div class="body">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px"><b style="font-weight:500">Engine memory</b><span class="num" style="color:var(--text-muted)">${fmt(u)} + ${fmt(a.mem)} of ${ENGINE} GB</span></div>
+          <div class="meter" style="height:8px"><i class="used" style="width:${(u / ENGINE) * 100}%"></i><i class="add ${f === 'tight' ? 'tight' : ''}" style="width:${(a.mem / ENGINE) * 100}%"></i></div>
+          <div class="note" style="margin-top:6px">${f === 'tight' ? `Fits, with ${fmt(free - a.mem)} GB left. Other add-ons may not fit after this.` : `Fits, with ${fmt(free - a.mem)} GB left.`}</div>
+        </div>
+        ${a.access ? `<div><div style="font-weight:500;margin-bottom:6px">What agents may do</div><div class="radio">
+          <label><input type="radio" name="acc" checked><div><b>Look things up</b><span>Agents read records but can’t change them.</span></div></label>
+          <label><input type="radio" name="acc"><div><b>Make changes</b><span>Agents can add and update records too.</span></div></label></div></div>` : ''}
+        <div class="note">${a.tools ? 'When it’s done, the assistant restarts so agents get its tools. You choose when.' : 'Nothing to restart. It’s ready when the install finishes.'} You can leave this screen while it runs.</div>
+      </div>
+      <div class="foot"><button class="btn" data-do="close">Cancel</button><button class="btn primary" data-do="install" data-id="${a.id}">${turnOn ? 'Turn on' : 'Install'}</button></div>
+    </div></div>`;
+  }
+
+  function renderToast() {
+    let t = $('#toast');
+    if (!state.toast) { if (t) t.remove(); return; }
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; $('#frame').appendChild(t); }
+    t.innerHTML = state.toast;
+  }
+
+  // ---------- Flow ----------
+  function render() {
+    document.documentElement.dataset.theme = state.theme;
+    document.querySelectorAll('.seg').forEach((seg) => seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(state[seg.dataset.ctl] === b.dataset.v))));
+    const focusQ = document.activeElement && document.activeElement.id === 'q';
+    const caret = focusQ ? document.activeElement.selectionStart : null;
+    renderSide();
+    const v = state.q.trim() ? viewSearch() : state.view === 'installed' ? viewInstalled() : state.view === 'cat' ? viewCat() : state.view === 'detail' ? viewDetail() : viewDiscover();
+    const scrollTop = $('.scroll') ? $('.scroll').scrollTop : 0;
+    $('#main').innerHTML = v;
+    if (state.keepScroll && $('.scroll')) $('.scroll').scrollTop = scrollTop;
+    state.keepScroll = false;
+    if (focusQ) { const q = $('#q'); q.focus(); q.setSelectionRange(caret, caret); }
+    renderSheet();
+    renderToast();
+    $('#rail-badge').hidden = !catalog().some((a) => ['installing', 'restart', 'stopped'].includes(st(a.id).s));
+  }
+  function go(view, extra = {}) {
+    Object.assign(state, { view, q: '' }, extra);
+    render();
+    const sc = $('.scroll'); if (sc) sc.scrollTop = 0;
+  }
+  function toast(html, ms = 4200) {
+    state.toast = html; renderToast();
+    timers.push(setTimeout(() => { state.toast = null; renderToast(); }, ms));
+  }
+  function install(id) {
+    const a = byId(id);
+    const turnOn = st(id).s === 'off-data' || a.included;
+    state.st[id] = { s: 'installing', p: 0, step: 'Downloading' };
+    state.sheet = null;
+    render();
+    const total = turnOn ? 2600 : 2200 + a.download * 1600;
+    const t0 = performance.now();
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - t0) / total);
+      const cur = state.st[id];
+      if (!cur || cur.s !== 'installing') return;
+      cur.p = p;
+      cur.step = p < 0.6 ? (a.download && !turnOn ? 'Downloading' : 'Preparing') : p < 0.85 ? 'Setting up' : 'Starting';
+      if (p >= 1) {
+        state.st[id] = a.tools ? { s: 'restart' } : { s: 'on' };
+        if (!a.tools) toast(`<span><b>${esc(a.name)}</b> is on.</span>`);
+      }
+      state.keepScroll = true;
+      render();
+      if (p < 1) timers.push(setTimeout(tick, 120));
+    };
+    timers.push(setTimeout(tick, 120));
+  }
+  function restart() {
+    const waiting = catalog().filter((a) => st(a.id).s === 'restart');
+    if (!waiting.length) return;
+    toast('<span>Restarting the assistant…</span>', 1400);
+    timers.push(setTimeout(() => {
+      waiting.forEach((a) => { state.st[a.id] = { s: 'on' }; });
+      const a = waiting[0];
+      state.keepScroll = true;
+      render();
+      toast(`<span><b>${esc(waiting.map((w) => w.name).join(' and '))}</b> ready. Try asking: “${esc(a.asks[0])}”</span><button class="link" data-do="noop">New chat</button>`, 6000);
+    }, 1400));
+  }
+
+  // ---------- Events ----------
+  document.addEventListener('click', (e) => {
+    const seg = e.target.closest('.seg button');
+    if (seg) {
+      const k = seg.parentElement.dataset.ctl;
+      state[k] = seg.dataset.v;
+      if (k === 'catalog' || k === 'start') { resetState(); if (state.view === 'detail' && !catalog().includes(byId(state.id))) state.view = 'discover'; if (state.view === 'cat' && !catalog().some((a) => a.cat === state.cat)) state.view = 'discover'; }
+      render(); return;
+    }
+    const nav = e.target.closest('[data-nav]');
+    if (nav) {
+      const k = nav.dataset.nav;
+      if (k === 'discover' || k === 'installed') go(k); else go('cat', { cat: k });
+      if (nav.dataset.anchor) { const el = $('#' + nav.dataset.anchor); if (el) el.scrollIntoView({ block: 'start' }); }
+      return;
+    }
+    const fl = e.target.closest('[data-filter]');
+    if (fl) { state.filters[fl.dataset.filter] = !state.filters[fl.dataset.filter]; state.keepScroll = true; render(); return; }
+    const el = e.target.closest('[data-do]');
+    if (!el) return;
+    const id = el.dataset.id;
+    const act = el.dataset.do;
+    if (act !== 'detail' && act !== 'close') e.stopPropagation();
+    switch (act) {
+      case 'detail': go('detail', { id }); break;
+      case 'get': state.sheet = { kind: 'get', id }; renderSheet(); break;
+      case 'install': install(id); break;
+      case 'close': if (e.target === el || el.tagName === 'BUTTON') { state.sheet = null; renderSheet(); } break;
+      case 'restart': restart(); break;
+      case 'later': toast('<span>The Services icon keeps a dot until you restart.</span>'); break;
+      case 'open': toast(`<span>Opens ${esc(byId(id).name)} in your browser, signed in.</span>`); break;
+      case 'start': state.st[id] = { s: 'installing', p: 0.86, step: 'Starting' }; render(); timers.push(setTimeout(() => { state.st[id] = byId(id).tools ? { s: 'restart' } : { s: 'on' }; state.keepScroll = true; render(); }, 1600)); break;
+      case 'markoff': case 'off': state.st[id] = { s: 'off-data' }; state.keepScroll = true; render(); toast(`<span><b>${esc(byId(id).name)}</b> is off. Its data stays on this Mac.</span>`); break;
+      case 'remove': state.sheet = { kind: 'remove', id }; renderSheet(); break;
+      case 'confirm-remove': delete state.st[id]; state.sheet = null; render(); toast(`<span><b>${esc(byId(id).name)}</b> and its data were removed.</span>`); break;
+      case 'grow': state.sheet = { kind: 'grow' }; renderSheet(); break;
+      case 'clear': state.q = ''; render(); $('#q').focus(); break;
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); }
+    if (e.key === 'Escape') { if (state.sheet) { state.sheet = null; renderSheet(); } else if (state.q) { state.q = ''; render(); } }
+    if (e.key === 'Enter' && document.activeElement.classList.contains('card')) document.activeElement.click();
+  });
+  document.addEventListener('input', (e) => { if (e.target.id === 'q') { state.q = e.target.value; render(); } });
+
+  // ?start=discover|search|detail|installing|installed|full
+  const p = new URLSearchParams(location.search);
+  const sc = p.get('start');
+  if (p.get('catalog') === 'grown') state.catalog = 'grown';
+  if (sc === 'installed' || sc === 'used') state.start = 'used';
+  if (sc === 'full') state.room = 'full';
+  if (matchMedia('(prefers-color-scheme: dark)').matches) state.theme = 'dark';
+  resetState();
+  if (sc === 'search') state.q = 'contacts';
+  if (sc === 'detail') { state.view = 'detail'; state.id = 'twenty'; }
+  if (sc === 'installed') state.view = 'installed';
+  render();
+  if (sc === 'installing') install('twenty');
+})();
+</script>
+</body>
+</html>

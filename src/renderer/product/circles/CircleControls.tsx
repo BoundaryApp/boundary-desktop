@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '../../components/ui/button';
+import { Switch } from '../../components/ui/switch';
 import { cn } from '../../lib/utils';
 import './circles.css';
 
@@ -59,34 +60,19 @@ export function CircleSwitch({
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onToggle}
-      className={`wb-circle-switch${on ? ' is-on' : ''}`}
-    >
-      <i />
-    </button>
+    <Switch checked={on} label={label} disabled={disabled} onChange={onToggle} className="wb-circle-switch" />
   );
 }
 
-// `text-ui` here would read as a colour to tailwind-merge and drop the variant's text colour.
-const HEIGHTS = {
-  page: 'h-[34px] rounded-md px-3.5 text-[length:var(--size-ui)]',
-  panel: 'h-[30px] rounded-sm px-2.5 text-xs',
-  row: 'h-7 rounded-sm px-2.5 text-[length:var(--size-ui)]',
-};
+/** Button sizes by place: a page's action is the normal size, the side panel's and a banner's small. */
+const SIZES = { page: 'default', panel: 'sm', row: 'sm' } as const;
 
 /** `page` is a page's action, `panel` the side panel's, `row` one inside a banner or box. */
 export function CircleButton({
   size = 'page',
-  className,
   ...props
-}: Omit<React.ComponentProps<typeof Button>, 'size'> & { size?: keyof typeof HEIGHTS }) {
-  return <Button {...props} size="default" className={cn(HEIGHTS[size], 'font-normal', props.variant === 'default' && 'font-medium', className)} />;
+}: Omit<React.ComponentProps<typeof Button>, 'size'> & { size?: keyof typeof SIZES }) {
+  return <Button {...props} size={SIZES[size]} />;
 }
 
 /** Text that acts as a button, such as an invite's **Show** and **Revoke**. */

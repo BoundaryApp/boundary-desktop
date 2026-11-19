@@ -1,0 +1,445 @@
+/* Shared folders in a Circle (ADR 0049; shared folders spec). */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+.wb-folder-mark {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-mark.is-busy {
+  color: var(--brand);
+}
+
+.wb-folder-share-row {
+  border: 1px dashed var(--line);
+  color: var(--text-muted);
+}
+
+.wb-folder-rail-error {
+  margin: var(--space-1) var(--space-3);
+  color: var(--danger);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+.wb-folder-tile.is-small {
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
+}
+
+.wb-folder-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.wb-folder-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.wb-folder-col {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.wb-folder-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.wb-folder-strip.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+}
+
+.wb-folder-strip.is-info {
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+}
+
+.wb-folder-strip-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  color: var(--text);
+  font-size: var(--size-xs);
+}
+
+.wb-folder-strip-copy small {
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-where {
+  margin: var(--space-3) 0;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-files {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--size-xs);
+}
+
+.wb-folder-files th {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.wb-folder-files td {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-muted);
+}
+
+.wb-folder-files td.mono {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.wb-folder-files .is-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.wb-folder-who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  white-space: nowrap;
+}
+
+.wb-folder-sect {
+  margin: var(--space-6) 0 var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wb-folder-unshared {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-xs);
+}
+
+.wb-folder-unshared li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  color: var(--text-muted);
+}
+
+.wb-folder-unshared small {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.wb-folder-note,
+.wb-folder-empty {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-intro {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.wb-folder-intro h2 {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--text);
+  font-size: var(--size-title);
+}
+
+.wb-folder-intro p {
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-folder-facts {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  margin: var(--space-4) 0;
+}
+
+.wb-folder-facts div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.wb-folder-facts dt {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-facts dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.wb-share-scan {
+  margin: var(--space-3) 0;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-share-scan b {
+  color: var(--text);
+}
+
+.wb-share-quorum {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-2-5);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-share-cons {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-add-shared-root {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.wb-add-shared-root input {
+  flex: 1;
+}
+
+.wb-folder-strip.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+
+.wb-folder-warn-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--space-2);
+  height: var(--space-2);
+  margin-left: auto;
+  border-radius: var(--radius-full);
+  background: var(--warn);
+}
+
+.wb-folder-strip .wb-folder-warn-dot {
+  margin-left: 0;
+}
+
+.wb-folder-clock {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-faint);
+  vertical-align: -2px;
+}
+
+.wb-folder-act .wb-folder-clock,
+.wb-folder-versions .wb-folder-clock,
+.wb-folder-strip .wb-folder-clock {
+  margin-left: var(--space-1);
+}
+
+.wb-folder-tabs {
+  display: flex;
+  gap: var(--space-4);
+  margin: var(--space-3) 0 var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-folder-tabs button {
+  padding: var(--space-1-5) 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-folder-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+}
+
+.wb-folder-count {
+  margin-left: var(--space-1-5);
+  color: var(--text-faint);
+}
+
+.wb-folder-activity {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-folder-day {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-medium);
+}
+
+.wb-folder-act {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1-5) 0;
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+}
+
+.wb-folder-act b {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.wb-folder-act-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.wb-folder-act-copy small {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-fn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.wb-folder-fn:hover {
+  text-decoration: underline;
+}
+
+.wb-folder-files tr.is-sel td {
+  background: var(--surface-hover);
+}
+
+.wb-folder-tag {
+  margin-left: var(--space-1-5);
+}
+
+.wb-folder-current {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-people-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wb-folder-role {
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.wb-folder-side {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.wb-folder-side-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: var(--size-2xs);
+}
+
+.wb-folder-side pre {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  font-size: var(--size-2xs);
+  white-space: pre-wrap;
+}
+
+.wb-folder-side pre .is-changed {
+  display: block;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.wb-share-managers {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-xs);
+}
+
+.wb-share-managers label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.wb-share-managers small {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+}

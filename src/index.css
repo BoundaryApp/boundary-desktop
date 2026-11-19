@@ -1,5 +1,18 @@
 @import "tailwindcss";
 @import "./renderer/styles/tokens.css";
+
+/* Cascade layers, lowest first: Tailwind's theme and base, the app's own stylesheets in
+   `components`, Tailwind utilities, then `markdown`. A utility class on an element wins over an
+   app rule for the same property, whatever the selectors' specificity. To override a utility
+   from a stylesheet, put the rule in `@layer utilities`.
+
+   `markdown` holds the rules that restyle replies: Streamdown renders markdown with its own
+   Tailwind classes, and the reply look has to win over them.
+
+   Every app stylesheet wraps its rules in these layers and repeats this order statement, so the
+   order holds whichever file a document loads first. tokens.css stays unlayered: it only
+   defines custom properties. */
+@layer theme, base, components, utilities, markdown;
 @source "../node_modules/streamdown/dist/*.js";
 
 /* Tailwind reads Boundary tokens (src/renderer/styles/tokens.css). `inline` keeps
@@ -63,6 +76,27 @@
   --ease-standard: var(--ease);
 }
 
+/* The transition every control shares (workbench.css, Motion and focus), for a component that
+   also renders outside .workbench or whose own transition would otherwise outrank that rule. */
+@utility control-transition {
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+/* The focus look every text field shares (workbench.css, Motion and focus), as a utility for a
+   field whose own border utility would otherwise outrank that rule. */
+@utility field-focus {
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--brand) 60%, var(--line));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
+  }
+}
+
 @layer base {
   *,
   ::before,
@@ -77,13 +111,29 @@
     -webkit-font-smoothing: antialiased;
     font-kerning: normal;
   }
+
+  /* Every native select draws the same caret, with room on both sides of it. Chromium's own
+     arrow sits a few pixels from the text whatever padding the select has, so it is turned off
+     and the caret drawn as a background instead. These declarations are !important inside the
+     base layer, which outranks every unlayered rule and utility class, so a select's own
+     `background` or `padding` shorthand can't erase the caret or the room for it. Style the
+     rest of a select (height, color, border, left padding) as usual. */
+  select {
+    appearance: none !important;
+    background-image: var(--select-caret) !important;
+    background-repeat: no-repeat !important;
+    background-position: right var(--space-2-5) center !important;
+    background-size: var(--select-caret-size) !important;
+    padding-inline-end: calc(var(--space-2-5) + var(--select-caret-size) + var(--space-2)) !important;
+  }
 }
 
-/* Window drag area for frameless chrome; controls inside stay clickable. */
-.app-drag {
-  -webkit-app-region: drag;
+@layer components {
+/* Boundary's window is hidden (ADR 0058): its page keeps running, so its animations pause. The
+   desktop button and panel are other documents and keep theirs. */
+body.wb-window-hidden *,
+body.wb-window-hidden *::before,
+body.wb-window-hidden *::after {
+  animation-play-state: paused !important;
 }
-
-.app-drag :is(button, a, input, textarea, select, [role='button'], [role='tab']) {
-  -webkit-app-region: no-drag;
 }

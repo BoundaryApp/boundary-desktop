@@ -1,5 +1,6 @@
 import type {
   ChatInferenceProvider,
+  PoolServedTurn,
   ResolvedSessionInference,
   SessionInferenceMark,
 } from './types/hermesChat';
@@ -13,6 +14,7 @@ export function inferenceSlotLabel(slot: InferenceChainSlot): string {
   if (slot === 'local') return 'Local';
   if (slot === 'openrouter') return 'OpenRouter';
   if (slot === 'peer') return 'Shared model';
+  if (slot === 'confidential') return 'Confidential';
   return 'Custom';
 }
 
@@ -58,6 +60,19 @@ export function servingFallback(
     (entry) => entry.slot === last.provider && (!entry.modelId || entry.modelId === last.modelId)
   );
   return listed ? last : null;
+}
+
+/**
+ * The provider that answered the chat's latest pool turn, while the chat still starts with that
+ * pool: the session stays there until it fails (ADR 0047 §8). Null for any other first entry.
+ */
+export function servingPoolTurn(
+  resolved: ResolvedSessionInference | null,
+  poolTurns: readonly PoolServedTurn[]
+): PoolServedTurn | null {
+  const last = poolTurns.at(-1);
+  if (!last || !resolved?.configured || resolved.slot !== 'confidential') return null;
+  return last.modelId === resolved.modelId ? last : null;
 }
 
 export function formatInferenceProvenance(

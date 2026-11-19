@@ -6,7 +6,7 @@ const BASE = 'http://127.0.0.1:9119';
 const SECRET = 's'.repeat(40);
 
 const cookieJar = { get: vi.fn(), set: vi.fn() };
-const openExternal = vi.fn(() => Promise.resolve());
+const openExternal = vi.fn<(url: string) => Promise<void>>(() => Promise.resolve());
 vi.mock('electron', () => ({
   session: { fromPartition: vi.fn(() => ({ cookies: cookieJar })) },
   shell: { openExternal: (url: string) => openExternal(url) },

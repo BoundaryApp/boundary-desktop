@@ -1,6 +1,6 @@
 # Circles: sharing, membership and trust
 
-Two Macs. The provider has a local model connected and is in a Circle with the member; the member trusts the provider and has the shared model in their Chat stack. There is no Circles screen ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)): sharing and trust are in Inference (⌘2), and a Circle is managed from the chat's place switcher and the Circle tab in the chat's inspector.
+Two Macs. The provider has a local model connected and is in a Circle with the member; the member trusts the provider and has the shared model in their Chat stack. Sharing and trust are in Inference (⌘3) ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)). Circles (⌘2) holds Circles' conversations only, and a Circle is managed from its Circle tab ([ADR 0052](../adr/0052-circles-destination-and-floating-agent.md)).
 
 ## Sharing from this Mac
 
@@ -15,16 +15,27 @@ Run these on the provider, in Inference.
 7. Quit the provider's model server. Within about 3 seconds the panel says the server isn't responding, and the Inference icon has an amber dot on every screen. Restart the server: the dot goes.
 8. Turn off **Share with** for the Circle. The member stops seeing the offer, and the model stays ticked.
 9. On an install with no local model server, or one that isn't responding, in a Circle and sharing nothing, Inference shows no **Shared from this Mac**.
-10. There is no Circles icon in the rail, and ⌘5 does nothing.
+10. The Circles icon has no sharing dot, and Circles shows no model setting.
 
 ## Starting and joining
 
-1. With no Circles, open the switcher at the top of the chat rail. The menu says what a Circle is and offers **Start a Circle…** and **Join with an invite…**.
-2. Start a Circle. The sheet closes and the chat switches to it, on General. With no name set yet, the sheet asks for yours first.
-3. On the other Mac, **Join with an invite…** with a code for a Circle with no admin online. The sheet closes and the chat shows the waiting page, and the switcher says **Joining a Circle…**. Switch to This Mac and back through the menu's **Joining a Circle…** row: it's still waiting. Have an admin open Boundary and touch nothing there: the page moves into the Circle, and the Circle replaces the row in the menu. Until this Mac can write, the composer says it's still joining.
-4. Repeat, and press **Cancel**. The row goes and the chat returns to This Mac. Bring an admin online: nothing happens, and the code still works.
+1. With no Circles, open Circles. The list and the page beside it say what a Circle is, and the page offers **Start a Circle…** and **Join with an invite…**, as does the list's `+`.
+2. Start a Circle. The sheet closes and Circles opens it, on General. With no name set yet, the sheet asks for yours first.
+3. On the other Mac, **Join with an invite…** with a code for a Circle with no admin online. The sheet closes, Circles shows the waiting page, and the list has a **Joining a Circle…** row. Go to Chat and back to Circles: it's still waiting. Have an admin open Boundary and touch nothing there: the page moves into the Circle, and the Circle replaces the row in the list. Until this Mac can write, the composer says it's still joining.
+4. Repeat, and press **Cancel**. The row and the page go. Bring an admin online: nothing happens, and the code still works.
 5. Join with an expired code. The page says the invite didn't work, with the reason. Press **Close**.
-6. In Settings, General, **Circles profile** shows your name and the connection. **Profile…** changes the name and has **Show diagnostics file**. With Circles failing to connect, the switcher's menu says so, and **Circles profile** in that line opens Settings.
+6. In Settings, General, **Circles profile** shows your name and the connection. **Profile…** changes the name and has **Show diagnostics file**. With Circles failing to connect, the Circles list says so, and **Circles profile** in that line opens Settings.
+
+## The Circles list
+
+1. Join three or more Circles. Circles (⌘2) lists **Unread** with the Circles that have unread messages, those that mention you first, then **All Circles** with the count, by name. A Circle with unread messages is in both.
+2. The Circles icon shows the unread total, with "@" when any of it mentions you. The Chat icon shows no Circle count.
+3. Open a Circle. Its row expands to its channels and folders, once, under the row it first appears in. Its own row carries no count; its channels do. Other Circles stay one row.
+4. Type part of a Circle's name in **Search Circles**. The headings go and only matching Circles are listed.
+5. In Chat, share a reply to a Circle and press **Open** on the toast. Circles opens at that channel.
+6. With Circles in the background, have someone post. Click the notification: Circles opens at the channel and scrolls to the message. With that channel open on Circles and the window focused, nothing notifies.
+7. Chat lists no Circle anywhere, and ⌘N from Circles opens a new chat in Chat.
+8. Hover a Circle row, or tab to it: **⋯** replaces its count. Right-clicking the row opens the same menu. A member sees **Circle details**, **Notifications** and **Leave…**; an admin also sees **Invite someone…**, disabled while the Circle can't be written to. On a Circle that isn't open, each item opens that Circle first: **Invite someone…** the invite sheet, **Circle details** the Circle tab, **Leave…** the leave sheet (**Delete Circle…** for its last member). Pick a level under **Notifications**, then open the Circle tab: it shows the same level. Press Escape in the menu: it closes and focus is on **⋯**.
 
 ## Membership in the Circle tab
 
@@ -32,10 +43,9 @@ Run these on the provider, in Inference.
 2. As an admin, press **Invite someone**, enter a name and press **Create code**. The sheet shows the code, says it can be copied again from the list, and names the admins who must be online. Close it: the tab's **Open invites** shows the invite by name and the code's first 9 characters, such as `For Sam · yrb7ei1ng…`. Clicking it reopens the sheet with the code masked. **Show** reveals it, **Copy** puts it on the clipboard, and **Revoke** is beside them. Restart Boundary: all of that still works. The invited person never sees the name.
    Type the same name with different case or extra spaces. Before you create it, the sheet says it replaces the open code for that name. Press **Create code**: the list has one invite for that name, with a new short code. Try the old code on a second install once this admin's device is online: it's refused.
    On a second admin's device the same invite shows `Invite` and part of its id, with no **Show** or **Copy**. Use or revoke an invite, or leave the Circle, and its code goes.
-3. The rail's People `+` (admins only) opens the tab and the invite sheet together.
-4. Click a person in the tab, the rail or on a message. Their view replaces the tab, with **←** and the Circle's name to go back. It shows whether they're online, their role, the models they share and **Open in Inference**.
-5. As an admin, **Make admin** or **Make member** and **Remove from** the Circle are there, and **Remove** asks first, saying what they've already received stays with them. As a member, neither shows.
-6. Leave a Circle. It asks first; the Circle leaves the switcher and the chat returns to This Mac.
+3. Click a person in the tab or on a message. Their view replaces the tab, with **←** and the Circle's name to go back. It shows whether they're online, their role, the models they share and **Open in Inference**.
+4. As an admin, **Make admin** or **Make member** and **Remove from** the Circle are there, and **Remove** asks first, saying what they've already received stays with them. As a member, neither shows.
+5. Leave a Circle. It asks first; the Circle leaves the list.
 
 ## Trust and use
 

@@ -25,6 +25,7 @@ export default defineConfig({
         'electron',
         'dockerode',
         'ssh2',
+        '@premai/reticle',
         'fs',
         'path',
         'crypto',

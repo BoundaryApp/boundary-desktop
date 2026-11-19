@@ -2,16 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../shared/assistantStackConstants';
 import type { UpdateChannel, UpdateSnapshot } from '../../shared/types/updates';
 import { Segmented } from '../components/ui/segmented';
+import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
 import {
   UpdateTasks,
   downloadDetail,
   downloadTitle,
   formatSize,
+  RestartActions,
   useRestartToInstall,
   useUpdates,
   waitingTitle,
 } from './updates';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { Button } from '../components/ui/button';
+import { Switch } from '../components/ui/switch';
 
 type HeroTone = 'ok' | 'brand' | 'warn';
 
@@ -34,32 +38,28 @@ function checkedAt(state: UpdateSnapshot): string {
 const FeedKeyRow: React.FC<{ onSave: (key: string) => void }> = ({ onSave }) => {
   const [key, setKey] = useState('');
   return (
-    <form
-      className="wb-settings-row"
+    <SettingsRow
+      label="Update key"
+      hint="Your key is on the page you downloaded this app from."
+      stacked
       onSubmit={(event) => {
         event.preventDefault();
         onSave(key);
         setKey('');
       }}
     >
-      <div>
-        <p className="wb-settings-label">Update key</p>
-        <p className="wb-settings-hint">Your key is on the page you downloaded this app from.</p>
-      </div>
-      <div className="wb-vault-field">
-        <input
-          aria-label="Update key"
-          className="mono"
-          type="password"
-          autoComplete="off"
-          value={key}
-          onChange={(event) => setKey(event.target.value)}
-        />
-      </div>
-      <button type="submit" className="wb-btn-ghost" disabled={!key.trim()}>
+      <input
+        aria-label="Update key"
+        className="mono"
+        type="password"
+        autoComplete="off"
+        value={key}
+        onChange={(event) => setKey(event.target.value)}
+      />
+      <Button variant="secondary" block type="submit" disabled={!key.trim()}>
         Save key
-      </button>
-    </form>
+      </Button>
+    </SettingsRow>
   );
 };
 
@@ -103,9 +103,9 @@ export const UpdatesPanel: React.FC = () => {
   );
 
   const checkNow = (
-    <button type="button" className="wb-btn-ghost" disabled={state.checking} onClick={() => void api.check()}>
+    <Button variant="secondary" block type="button" disabled={state.checking} onClick={() => void api.check()}>
       Check now
-    </button>
+    </Button>
   );
   const remaining = state.waiting.filter((item) => !item.finished).length;
   const news = state.version
@@ -118,9 +118,9 @@ export const UpdatesPanel: React.FC = () => {
         'warn',
         `${APP_NAME} can’t update from this folder`,
         'Move it to Applications to get updates.',
-        <button type="button" className="wb-btn-solid" onClick={() => void api.moveToApplications()}>
+        <Button variant="primary" block type="button" onClick={() => void api.moveToApplications()}>
           Move to Applications
-        </button>
+        </Button>
       );
     }
     if (state.blocked === 'no-key') return hero('warn', 'Enter your update key', 'This build needs a personal key to get updates.');
@@ -131,14 +131,7 @@ export const UpdatesPanel: React.FC = () => {
         'brand',
         `Restarting in ${state.restartIn} seconds`,
         `Everything has finished. Restarting installs ${APP_NAME} ${state.version}.`,
-        <>
-          <button type="button" className="wb-btn-solid" onClick={() => void api.restart({ force: true })}>
-            Restart now
-          </button>
-          <button type="button" className="wb-btn-ghost" onClick={() => void api.cancelWaiting()}>
-            Not now
-          </button>
-        </>
+        <RestartActions counting={true} />
       );
     }
     if (state.waiting.length > 0) {
@@ -146,14 +139,7 @@ export const UpdatesPanel: React.FC = () => {
         'brand',
         waitingTitle(remaining),
         'You get 30 seconds to stop it after the last one.',
-        <>
-          <button type="button" className="wb-btn-ghost" onClick={() => void api.restart({ force: true })}>
-            Restart now
-          </button>
-          <button type="button" className="wb-btn-ghost" onClick={() => void api.cancelWaiting()}>
-            Cancel restart
-          </button>
-        </>,
+        <RestartActions counting={false} />,
         true
       );
     }
@@ -163,9 +149,9 @@ export const UpdatesPanel: React.FC = () => {
         'brand',
         `${APP_NAME} ${state.version} is ready`,
         state.stackChanges ? `${body} The next start takes a few minutes while your tools update.` : body,
-        <button type="button" className="wb-btn-solid" onClick={restart}>
+        <Button variant="primary" block type="button" onClick={restart}>
           Restart to update
-        </button>
+        </Button>
       );
     }
     if (state.phase === 'downloading') {
@@ -183,12 +169,12 @@ export const UpdatesPanel: React.FC = () => {
             ? `${formatSize(state.size)} download.`
             : checkedAt(state),
         <>
-          <button type="button" className="wb-btn-ghost" onClick={() => void api.skipVersion()}>
+          <Button variant="secondary" block type="button" onClick={() => void api.skipVersion()}>
             Skip this version
-          </button>
-          <button type="button" className="wb-btn-solid" onClick={() => void api.download()}>
+          </Button>
+          <Button variant="primary" block type="button" onClick={() => void api.download()}>
             {failed ? 'Try again' : 'Download'}
-          </button>
+          </Button>
         </>
       );
     }
@@ -203,8 +189,7 @@ export const UpdatesPanel: React.FC = () => {
       {status()}
 
       {news && news.summary.length > 0 ? (
-        <section className="wb-settings-section" aria-labelledby="settings-updates-new">
-          <h2 id="settings-updates-new">What’s new in {news.version}</h2>
+        <SettingsSection id="settings-updates-new" title={`What’s new in ${news.version}`}>
           <div className="wb-settings-row">
             <ul className="wb-update-lines">
               {news.summary.map((line) => (
@@ -212,36 +197,24 @@ export const UpdatesPanel: React.FC = () => {
               ))}
             </ul>
           </div>
-        </section>
+        </SettingsSection>
       ) : null}
 
-      <section className="wb-settings-section" aria-labelledby="settings-updates-versions">
-        <h2 id="settings-updates-versions">Versions</h2>
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">{APP_NAME}</p>
-          </div>
+      <SettingsSection id="settings-updates-versions" title="Versions">
+        <SettingsRow label={APP_NAME}>
           <span className="wb-update-version">{state.currentVersion}</span>
-        </div>
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">Your tools</p>
-            <p className="wb-settings-hint">Update with {APP_NAME}</p>
-          </div>
+        </SettingsRow>
+        <SettingsRow label="Your tools" hint={`Update with ${APP_NAME}`}>
           <span className="wb-update-version">{SOVEREIGN_AGENT_STACK_VERSION.replace(/^v/, '')}</span>
-        </div>
-      </section>
+        </SettingsRow>
+      </SettingsSection>
 
-      <section className="wb-settings-section" aria-labelledby="settings-updates-preferences">
-        <h2 id="settings-updates-preferences">Preferences</h2>
+      <SettingsSection id="settings-updates-preferences" title="Preferences">
         {state.keyRequired ? <FeedKeyRow onSave={(key) => void api.setFeedKey(key)} /> : null}
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">Release channel</p>
-            <p className="wb-settings-hint">
-              Beta gets new versions first. They pass the same tests, but fewer people have used them.
-            </p>
-          </div>
+        <SettingsRow
+          label="Release channel"
+          hint="Beta gets new versions first. They pass the same tests, but fewer people have used them."
+        >
           <Segmented<UpdateChannel>
             aria-label="Release channel"
             value={state.channel}
@@ -251,30 +224,24 @@ export const UpdatesPanel: React.FC = () => {
               { value: 'beta', label: 'Beta' },
             ]}
           />
-        </div>
-        <div className="wb-settings-row">
-          <div>
-            <p className="wb-settings-label">Check for updates</p>
-            <p className="wb-settings-hint">
-              {state.checksEnabled
-                ? state.keyRequired
-                  ? `${APP_NAME} downloads one small file once a day. Your update key identifies you when it does.`
-                  : `${APP_NAME} downloads one small file from GitHub once a day. It sends no ID and nothing about how you use it.`
-                : `${APP_NAME} doesn’t check for updates, so it can’t tell you about security fixes. Check now still checks once.`}
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={state.checksEnabled}
-            aria-label="Check for updates"
-            onClick={() => void api.setChecksEnabled(!state.checksEnabled)}
-            className={`wb-switch${state.checksEnabled ? ' is-on' : ''}`}
-          >
-            <i />
-          </button>
-        </div>
-      </section>
+        </SettingsRow>
+        <SettingsRow
+          label="Check for updates"
+          hint={
+            state.checksEnabled
+              ? state.keyRequired
+                ? `${APP_NAME} downloads one small file once a day. Your update key identifies you when it does.`
+                : `${APP_NAME} downloads one small file from GitHub once a day. It sends no ID and nothing about how you use it.`
+              : `${APP_NAME} doesn’t check for updates, so it can’t tell you about security fixes. Check now still checks once.`
+          }
+        >
+          <Switch
+            checked={state.checksEnabled}
+            label="Check for updates"
+            onChange={(next) => void api.setChecksEnabled(next)}
+          />
+        </SettingsRow>
+      </SettingsSection>
       {sheet}
     </>
   );

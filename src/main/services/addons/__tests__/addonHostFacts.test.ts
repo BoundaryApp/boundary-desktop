@@ -45,7 +45,16 @@ describe('readAddonHostFacts', () => {
       diskFreeBytes: 50_000_000_000,
       portInUse: false,
       engineResizable: true,
+      reservedMiB: 0,
     });
+  });
+
+  it('counts what is reserved by everything on except the add-on being checked', async () => {
+    const facts = await readAddonHostFacts(
+      entry,
+      deps({ reservations: async () => ({ [entry.id]: entry.reserveMiB, lightrag: 3072, actual: 640 }) })
+    );
+    expect(facts.reservedMiB).toBe(3712);
   });
 
   it('reports engineMiB 0 when the engine is down', async () => {

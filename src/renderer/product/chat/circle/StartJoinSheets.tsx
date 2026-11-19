@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import type { CirclesResult } from '../../../../shared/types/circles';
-import { Input } from '../../../components/ui/input';
+import { Field } from '../../../components/ui/field';
 import { CircleFormSheet } from './CircleFormSheet';
 
-/** Which of the switcher's sheets is open (ADR 0043 §7). */
+/** Which of the Circles list's sheets is open (ADR 0043 §7). */
 export type StartJoinSheet = 'start' | 'join';
 
 const api = () => window.electronAPI.circles;
 
 /**
- * Start a Circle, or join one with a code, from the switcher's menu. Main needs the name other
- * members see before either, so a user without one gives it here. Start switches to the new
- * Circle; join closes at once and the chat shows the waiting page, since admission can take as
+ * Start a Circle, or join one with a code, from the Circles list. Main needs the name other
+ * members see before either, so a user without one gives it here. Start opens the new Circle;
+ * join closes at once and the Circles destination shows the waiting page, since admission can take as
  * long as an admin takes to come online.
  */
 export const StartJoinSheets: React.FC<{
@@ -86,35 +86,30 @@ export const StartJoinSheets: React.FC<{
           ? 'You’ll be its admin and can invite people. It starts with a General channel.'
           : 'Paste the code someone sent you. An admin of that Circle has to be online to let you in.'}
       </p>
-      {blocked ? <p className="wb-sheet-help">A join is already waiting. Cancel it from its page in the switcher first.</p> : null}
+      {blocked ? <p className="wb-sheet-help">A join is already waiting. Cancel it from its row in the Circles list first.</p> : null}
       {needsName ? (
-        <>
-          <label htmlFor="circle-my-name" className="wb-sheet-help">
-            Your name in Circles. Members see it.
-          </label>
-          <Input
+        <Field label="Your name in Circles" htmlFor="circle-my-name" hint="Members see it.">
+          <input
             id="circle-my-name"
-            className="h-[34px]"
             value={myName}
             maxLength={80}
             autoFocus
             onChange={(event) => setMyName(event.target.value)}
           />
-        </>
+        </Field>
       ) : null}
-      <label htmlFor="circle-start-join-input" className="wb-sheet-help">
-        {starting ? 'Name' : 'Invite code'}
-      </label>
-      <Input
-        id="circle-start-join-input"
-        className={`h-[34px]${starting ? '' : ' font-mono'}`}
-        value={value}
-        maxLength={starting ? 80 : undefined}
-        autoFocus={!needsName}
-        disabled={blocked}
-        placeholder={starting ? 'e.g. Book club' : 'e.g. yrb7ei1ng…'}
-        onChange={(event) => setValue(event.target.value)}
-      />
+      <Field label={starting ? 'Name' : 'Invite code'} htmlFor="circle-start-join-input">
+        <input
+          id="circle-start-join-input"
+          className={starting ? undefined : 'mono'}
+          value={value}
+          maxLength={starting ? 80 : undefined}
+          autoFocus={!needsName}
+          disabled={blocked}
+          placeholder={starting ? 'e.g. Book club' : 'e.g. yrb7ei1ng…'}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </Field>
     </CircleFormSheet>
   );
 };

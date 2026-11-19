@@ -1,10 +1,8 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { AddonDetail } from '../AddonDetail';
-import { listing, stubAddons } from './addonFixtures';
-
-afterEach(() => cleanup());
+import { hostedWorkspace, listing, stubAddons } from './addonFixtures';
 
 function renderDetail(onInstallStarted = vi.fn()) {
   render(<AddonDetail id="twenty" onBack={() => undefined} onInstallStarted={onInstallStarted} />);
@@ -23,20 +21,47 @@ describe('AddonDetail', () => {
     expect(screen.getByRole('heading', { name: 'What your agents get' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Updates' })).toBeTruthy();
     fireEvent.click(await installButton());
-    expect(addons.install).toHaveBeenCalledWith('twenty');
+    expect(addons.install).toHaveBeenCalledWith('twenty', { access: 'write' });
     expect(started).toHaveBeenCalled();
   });
 
-  it("detail disables Install and shows the resize text when memory doesn't fit", async () => {
-    stubAddons([listing({ usedMiB: 10957 })]);
-    renderDetail();
-    expect(((await installButton()) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText('Needs 2.2 GB. The engine has 1.3 GB free.')).toBeTruthy();
+  it("offers Make room and install when memory doesn't fit and the engine can grow", async () => {
+    const addons = stubAddons([listing({ usedMiB: 10957 })]);
+    const started = renderDetail();
+    expect(await screen.findByText('Needs 2.2 GB. The engine has 1.3 GB free.')).toBeTruthy();
     expect(
       screen.getByText(
-        'Give the container engine 16 GB in its settings. This Mac has 32 GB, so 16 GB stays for macOS and your apps.'
+        'Installing gives the container engine 14 GB first. Your assistant pauses for about two minutes while the engine restarts. This Mac has 32 GB, so 18 GB stays for macOS and your apps.'
       )
     ).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Make room and install' }));
+    await vi.waitFor(() => expect(addons.install).toHaveBeenCalledWith('twenty', { access: 'write', makeRoom: true }));
+    expect(started).toHaveBeenCalled();
+  });
+
+  it('waits for running agent work before making room, and can stop waiting', async () => {
+    const addons = stubAddons([listing({ usedMiB: 10957 })], {
+      work: [{ id: 'c1', kind: 'chat', title: 'A chat', detail: 'Replying' }],
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: 'Make room and install' }));
+    expect(
+      await screen.findByText(
+        'Agent work is running. Twenty CRM installs when it finishes, after the container engine restarts.'
+      )
+    ).toBeTruthy();
+    expect(addons.install).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Make room and install' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Don’t wait' }));
+    expect((screen.getByRole('button', { name: 'Make room and install' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(addons.install).not.toHaveBeenCalled();
+  });
+
+  it("disables Install when memory doesn't fit and the engine can't grow", async () => {
+    stubAddons([listing({ usedMiB: 10957, engineResizable: false })]);
+    renderDetail();
+    expect(((await installButton()) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Turn off another add-on to free memory for this one.')).toBeTruthy();
     expect(screen.getAllByText('Needs more memory').length).toBeGreaterThan(0);
   });
 
@@ -58,33 +83,64 @@ describe('AddonDetail', () => {
     expect(((await installButton()) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('offers Start and Mark as not installed while installed Twenty is not running', async () => {
+    const addons = stubAddons([listing({}, true, true, false, true)]);
+    renderDetail();
+    expect(await screen.findByRole('heading', { name: 'Twenty CRM isn’t running' })).toBeTruthy();
+    expect(screen.getAllByText('Not running').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'This Mac’s Twenty' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Start Twenty CRM' }));
+    expect(addons.start).toHaveBeenCalledWith('twenty');
+  });
+
+  it('shows no stopped callout while installed Twenty runs', async () => {
+    stubAddons([listing({}, true)]);
+    renderDetail();
+    expect(await screen.findByRole('heading', { name: 'This Mac’s Twenty' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Twenty CRM isn’t running' })).toBeNull();
+  });
+
   it('turns Twenty off from Manage after confirming', async () => {
     const addons = stubAddons([listing({}, true)]);
     renderDetail();
     fireEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
-    const dialog = screen.getByRole('dialog', { name: 'Turn off Twenty CRM?' });
+    const dialog = screen.getByRole('dialog', { name: 'Turn off this Mac’s Twenty?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Turn off' }));
     await vi.waitFor(() => expect(addons.turnOff).toHaveBeenCalledWith('twenty'));
   });
 
-  it('remove needs the word delete', async () => {
-    const addons = stubAddons([listing({}, true)]);
-    renderDetail();
+  it('remove needs the word delete, defaults to deleting images, and closes at once into the progress view', async () => {
+    const addons = stubAddons([listing({}, true)], { workspaces: [hostedWorkspace('work')] });
+    const started = renderDetail();
     fireEvent.click(await screen.findByRole('button', { name: 'Remove and delete data' }));
-    const dialog = screen.getByRole('dialog', { name: 'Remove Twenty CRM and delete its data?' });
-    const confirm = within(dialog).getByRole('button', { name: 'Delete data' }) as HTMLButtonElement;
+    const dialog = screen.getByRole('dialog', { name: 'Remove this Mac’s Twenty and delete its data?' });
+    expect(within(dialog).getByText(/crm-work stays connected\./)).toBeTruthy();
+    const confirm = within(dialog).getByRole('button', { name: 'Remove and delete data' }) as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     const field = within(dialog).getByRole('textbox', { name: 'Type delete to confirm' });
     fireEvent.change(field, { target: { value: 'remove' } });
     expect(confirm.disabled).toBe(true);
+    const images = within(dialog).getByRole('checkbox', { name: /Also delete the downloaded images/ }) as HTMLInputElement;
+    expect(images.checked).toBe(true);
+    expect(within(dialog).getByText('Frees about 1.1 GB. Installing again downloads them again.')).toBeTruthy();
     fireEvent.change(field, { target: { value: 'delete' } });
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
-    await vi.waitFor(() => expect(addons.removeData).toHaveBeenCalledWith('twenty'));
-    expect(addons.turnOff).toHaveBeenCalledWith('twenty');
-    expect(addons.turnOff.mock.invocationCallOrder[0]).toBeLessThan(
-      addons.removeData.mock.invocationCallOrder[0]
-    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(started).toHaveBeenCalled();
+    await vi.waitFor(() => expect(addons.remove).toHaveBeenCalledWith('twenty', { deleteImages: true }));
+    expect(addons.turnOff).not.toHaveBeenCalled();
+  });
+
+  it('keeps the images when the box is cleared', async () => {
+    const addons = stubAddons([listing({}, true)]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove and delete data' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Also delete the downloaded images/ }));
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'delete' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove and delete data' }));
+    await vi.waitFor(() => expect(addons.remove).toHaveBeenCalledWith('twenty', { deleteImages: false }));
   });
 
   it('disables Remove in a local stack and never turns the add-on off for it', async () => {
@@ -102,7 +158,7 @@ describe('AddonDetail', () => {
     fireEvent.click(remove);
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(addons.turnOff).not.toHaveBeenCalled();
-    expect(addons.removeData).not.toHaveBeenCalled();
+    expect(addons.remove).not.toHaveBeenCalled();
   });
 
   it('says Turn off keeps the data', async () => {
@@ -110,20 +166,28 @@ describe('AddonDetail', () => {
     renderDetail();
     expect(
       await screen.findByText(
-        'Turning it off stops its containers and removes its tools from your agents. Its data stays on this Mac.'
+        'Turning it off stops its containers, and agents lose crm-main after the next assistant restart. Its data stays, so turning it on again picks up where you left off.'
       )
     ).toBeTruthy();
   });
 
-  it('shows why removal failed', async () => {
+  it('a refused removal shows as a failed first step in the progress view', async () => {
     const addons = stubAddons([listing({}, true)]);
-    addons.removeData.mockResolvedValue({ success: false, error: 'Remove its data from the stack checkout.' });
+    addons.remove.mockResolvedValue({ success: false, error: 'Remove its data from the stack checkout.' });
     renderDetail();
     fireEvent.click(await screen.findByRole('button', { name: 'Remove and delete data' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'delete' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete data' }));
-    expect(await screen.findByText('Remove its data from the stack checkout.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove and delete data' }));
+    expect(await screen.findAllByText('Removal failed')).toBeTruthy();
+  });
+
+  it('opens the connect sheet from the page', async () => {
+    stubAddons([listing()]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect a workspace' }));
+    expect(screen.getByRole('dialog', { name: 'Connect a hosted Twenty workspace' })).toBeTruthy();
+    expect(screen.queryByText(/isn’t in this build yet/)).toBeNull();
   });
 
   describe('after an install that did not finish', () => {

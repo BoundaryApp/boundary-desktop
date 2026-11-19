@@ -67,10 +67,17 @@ export function readDockerContextEndpoint(
 }
 
 /**
- * Sockets the common macOS Docker setups listen on, most specific first. Docker Desktop
+ * Sockets the common Docker setups listen on, most specific first. On macOS, Docker Desktop
  * and OrbStack only symlink `/var/run/docker.sock` when the user allowed it, so it goes last.
  */
-function wellKnownDockerSockets(homeDir: string): string[] {
+function wellKnownDockerSockets(
+  homeDir: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv
+): string[] {
+  if (platform === 'linux') {
+    return wellKnownLinuxSockets(homeDir, env).map((socket) => `unix://${socket}`);
+  }
   return [
     path.join(homeDir, '.docker', 'run', 'docker.sock'),
     path.join(homeDir, '.orbstack', 'run', 'docker.sock'),
@@ -78,6 +85,22 @@ function wellKnownDockerSockets(homeDir: string): string[] {
     path.join(homeDir, '.rd', 'docker.sock'),
     '/var/run/docker.sock',
   ].map((socket) => `unix://${socket}`);
+}
+
+/**
+ * Linux sockets: Docker Desktop's VM, the system Docker daemon, rootless Docker, then Podman's
+ * API service (rootless, then rootful). The per-user ones live under `XDG_RUNTIME_DIR`.
+ */
+function wellKnownLinuxSockets(homeDir: string, env: NodeJS.ProcessEnv): string[] {
+  const runtimeDir = env.XDG_RUNTIME_DIR?.trim();
+  return [
+    path.posix.join(homeDir, '.docker', 'desktop', 'docker.sock'),
+    '/var/run/docker.sock',
+    ...(runtimeDir
+      ? [path.posix.join(runtimeDir, 'docker.sock'), path.posix.join(runtimeDir, 'podman', 'podman.sock')]
+      : []),
+    '/run/podman/podman.sock',
+  ];
 }
 
 /**
@@ -100,7 +123,7 @@ export function dockerEndpointCandidates(
   if (fromContext) {
     candidates.push({ endpoint: fromContext.endpoint, source: 'context', context: fromContext.context });
   }
-  for (const endpoint of wellKnownDockerSockets(homeDir)) {
+  for (const endpoint of wellKnownDockerSockets(homeDir, platform, env)) {
     if (!candidates.some((c) => c.endpoint === endpoint)) {
       candidates.push({ endpoint, source: 'socket' });
     }

@@ -1,7 +1,9 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
+import type { PoolMoveReason, TrustLevel } from '../../../../shared/types/confidential';
 import type { InferenceChainEntryState, PeerModelRef } from '../../../../shared/types/inferenceChain';
+import type { PoolSendResult } from '../confidential/poolSender';
 import { checkBridgeRequest, readLimitedBody } from '../../hostBridge/requestGuard';
 import {
   opensNewTurn,
@@ -40,10 +42,23 @@ export interface RouterUpstream {
   peer?: PeerModelRef;
   /** What error text calls this entry; shared models' keys aren't for reading. */
   label?: string;
+  /** A confidential pool (ADR 0047), reached through `poolFetch`; `modelId` is the canonical id. */
+  pool?: { modelId: string; privateProject: boolean; projectFloor?: TrustLevel };
 }
 
 /** Calls a shared model's `/v1/chat/completions` with a JSON body; resolves at the reply's head. */
 export type PeerFetch = (peer: PeerModelRef, body: string, signal: AbortSignal) => Promise<Response>;
+
+/**
+ * Sends a request to a confidential pool, which picks the provider and swaps in its model id.
+ * Resolves at the reply's head, or with the outcome when no provider answered.
+ */
+export type PoolFetch = (
+  pool: NonNullable<RouterUpstream['pool']>,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+  ctx: { sessionKey: string | null; requestTokens?: number }
+) => Promise<PoolSendResult>;
 
 export interface RouterChain {
   entries: InferenceChainEntryState[];
@@ -64,17 +79,28 @@ export interface RouterServed {
   peer?: InferenceChainEntryState['entry']['peer'];
   /** A later entry than the chain's first answered, now or earlier in the turn (ADR 0033 §3). */
   fellBack: boolean;
+  /** Which provider a pool entry used, and why the session moved to it. Never a key. */
+  pool?: { providerId: string; moved: PoolMoveReason | null };
+  /** When the router received the request, so a turn can leave out requests sent before it began. */
+  requestedAt: number;
+  /** When the answer's head arrived. */
   at: number;
 }
 
 export interface ChainRouterOptions {
   token: string;
-  getChain: () => RouterChain | null;
+  /**
+   * The chain for a request carrying `sessionKey` (null without one, and for `/v1/models`). Read
+   * once when the request arrives; the request keeps that chain to its end.
+   */
+  getChain: (sessionKey: string | null) => RouterChain | null;
   /** How long to wait for an upstream's response headers before falling back. */
   headerTimeoutMs?: number;
   fetchImpl?: typeof fetch;
   /** Shared-model entries go here; without it they are unreachable. */
   peerFetch?: PeerFetch;
+  /** Confidential pool entries go here; without it they are unreachable. */
+  poolFetch?: PoolFetch;
   onServed?: (served: RouterServed) => void;
   /** Metadata only: no prompt or reply text. */
   log?: (message: string, data?: Record<string, unknown>) => void;
@@ -154,7 +180,9 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
   };
 
   async function completions(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const chain = options.getChain();
+    const sessionHeader = req.headers[ROUTER_SESSION_HEADER];
+    const sessionKey = typeof sessionHeader === 'string' && sessionHeader ? sessionHeader : null;
+    const chain = options.getChain(sessionKey);
     if (!chain) {
       sendError(res, 503, `${APP_NAME} has no inference chain to serve.`);
       return;
@@ -175,21 +203,21 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     const inFlightAtStart = Object.fromEntries(
       [...inFlight].map(([key, count]) => [shortKey(key), count])
     );
-    const sessionHeader = req.headers[ROUTER_SESSION_HEADER];
-    const sessionKey = typeof sessionHeader === 'string' && sessionHeader ? sessionHeader : null;
     const messages = Array.isArray(body.messages) ? (body.messages as Array<{ role?: unknown }>) : [];
+    // An estimate decides which entry to skip; with one entry the server decides.
+    const requestTokens = chain.entries.length > 1 ? estimateTokens(raw) : undefined;
     const plan = planChainAttempts({
       entries: chain.entries.filter((state) => chain.upstreams[state.key]),
       stickyKey: sticky.get(sessionKey),
       newTurn: opensNewTurn(messages),
-      // An estimate decides which entry to skip; with one entry the server decides.
-      requestTokens: chain.entries.length > 1 ? estimateTokens(raw) : undefined,
+      requestTokens,
     });
 
     const client = new AbortController();
     res.on('close', () => client.abort());
     // Set by each attempt; read after the chain run, so not narrowed here.
     let answer = null as Response | null;
+    let servedPool = null as RouterServed['pool'] | null;
     let releaseServed: () => void = () => undefined;
 
     const timings: Array<{ key: string; ms: number; outcome: string; status?: number }> = [];
@@ -209,18 +237,37 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       // The previous entry's refusal isn't read; free its socket.
       void answer?.body?.cancel().catch((): undefined => undefined);
       answer = null;
+      servedPool = null;
       const headerTimeout = new AbortController();
       // The last entry has nowhere to fall back to, so it may take as long as Hermes will wait:
       // a member's server can queue, or load a model, before its first byte.
-      const timer = state.key === plan.at(-1)?.key ? undefined : setTimeout(() => headerTimeout.abort(), headerTimeoutMs);
+      const timer = state.key === plan.at(-1)?.key ? undefined : setTimeout(() => headerTimeout.abort(new DOMException('No first byte in time', 'TimeoutError')), headerTimeoutMs);
       // The client hanging up also stops a reply that is already streaming.
       const signal = AbortSignal.any([client.signal, headerTimeout.signal]);
       const payload = JSON.stringify({ ...body, model: upstream.modelId });
       const release = holdEntry(state.key);
       try {
         let response: Response;
-        if (upstream.peer) {
-          if (!options.peerFetch) return { kind: 'unreachable' };
+        if (upstream.pool) {
+          if (!options.poolFetch) {
+            release();
+            return { kind: 'unreachable' };
+          }
+          const sent = await options.poolFetch(upstream.pool, body, signal, { sessionKey, requestTokens });
+          if (sent.ok === false) {
+            release();
+            if (client.signal.aborted) return { kind: 'failed-mid-stream', detail: 'client closed' };
+            // The sender reads the TimeoutError reason; the router decides the outcome either way.
+            if (headerTimeout.signal.aborted) return { kind: 'header-timeout' };
+            return sent.outcome;
+          }
+          servedPool = { providerId: sent.providerId, moved: sent.moved };
+          response = sent.response;
+        } else if (upstream.peer) {
+          if (!options.peerFetch) {
+            release();
+            return { kind: 'unreachable' };
+          }
           response = await options.peerFetch(upstream.peer, payload, signal);
         } else {
           response = await fetchImpl(`${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -261,6 +308,8 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
         modelId: chain.upstreams[result.served.key].modelId,
         ...(result.served.entry.peer ? { peer: result.served.entry.peer } : {}),
         fellBack: result.served.key !== chain.entries[0]?.key,
+        ...(servedPool ? { pool: servedPool } : {}),
+        requestedAt: receivedAt,
         at: Date.now(),
       });
     }
@@ -292,10 +341,27 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
 
     const last = result.tried.at(-1);
     // A refusal that doesn't allow fallback (400, 401…) is the upstream's answer; pass it on.
-    const passThrough = !result.ok && last && last.outcome.kind === 'status' && !shouldFallBack(last.outcome)
-      ? answer
+    const refusedStatus = !result.ok && last && last.outcome.kind === 'status' && !shouldFallBack(last.outcome)
+      ? last.outcome.status
       : null;
-    const response: Response | null = result.ok ? answer : passThrough;
+    const response: Response | null = result.ok ? answer : refusedStatus !== null ? answer : null;
+    if (!response && refusedStatus !== null) {
+      // A pool's request error has no upstream reply to pass on, only its status. The provider's
+      // text isn't passed on; a context overflow gets fixed words and OpenAI's code, which Hermes
+      // reads as "compress and retry" rather than a failed turn.
+      if (last?.outcome.kind === 'status' && last.outcome.contextOverflow === true) {
+        sendJson(res, refusedStatus, {
+          error: {
+            message: 'The confidential provider refused the request: it is longer than the model’s maximum context length.',
+            type: 'invalid_request_error',
+            code: 'context_length_exceeded',
+          },
+        });
+        return;
+      }
+      sendError(res, refusedStatus, `The confidential provider refused the request (HTTP ${refusedStatus}).`);
+      return;
+    }
     if (!response) {
       const detail = result.tried.length
         ? result.tried.map((record) => describeOutcome(record, chain)).join('; ')
@@ -335,7 +401,14 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       releaseServed();
       finish(how);
     };
-    Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)
+    if (res.destroyed) {
+      // The client left before the reply could start: nothing will read the body, so cancel it.
+      void response.body.cancel().catch((): void => undefined);
+      finishOnce('client-closed');
+      return;
+    }
+    const readable = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
+    readable
       .on('data', (chunk: Buffer) => {
         firstByteMs ??= Date.now() - streamStarted;
         replyBytes += chunk.length;
@@ -346,11 +419,16 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
         res.destroy();
       })
       .pipe(res);
-    res.on('close', () => finishOnce(res.writableFinished ? 'end' : 'client-closed'));
+    res.on('close', () => {
+      // `pipe` only unpipes when the client leaves; destroying cancels the upstream body, which
+      // frees its socket and ends a metered pool reply.
+      if (!res.writableFinished) readable.destroy();
+      finishOnce(res.writableFinished ? 'end' : 'client-closed');
+    });
   }
 
   function models(res: http.ServerResponse): void {
-    const chain = options.getChain();
+    const chain = options.getChain(null);
     sendJson(res, 200, {
       object: 'list',
       data: chain

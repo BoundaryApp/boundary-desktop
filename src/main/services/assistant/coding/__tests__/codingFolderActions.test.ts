@@ -35,61 +35,22 @@ import {
   findCodingGrant,
   resetCodingGrantStoreForTests,
 } from '../codingGrantStore';
+import { fakeCodingDeps, makeFolder, type GitAnswers } from './codingDeps';
 
 let home: string;
 let hub: string;
 
 function folder(...parts: string[]): string {
-  const dir = path.join(home, ...parts);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  return makeFolder(home, ...parts);
 }
 
-interface GitAnswers {
-  status?: string;
-  remote?: string;
-  unpushed?: string;
-  total?: string;
-  diffTree?: string;
-}
+let audit: AuditEntry[] = [];
 
-const audit: AuditEntry[] = [];
-
+/** Fake deps with no Boundary data folders; returns the recreate and Trash order. */
 function fakeDeps(overrides: Partial<CodingGrantDeps> = {}, git: GitAnswers = {}) {
-  const order: string[] = [];
-  audit.length = 0;
-  const deps: Partial<CodingGrantDeps> = {
-    isLocalStack: () => false,
-    busy: async () => ({ busy: false, sessions: [] }),
-    writeOverlay: () => undefined,
-    persistEnv: () => undefined,
-    recreate: async () => {
-      order.push('recreate');
-      return { success: true };
-    },
-    verify: async () => true,
-    restartHermes: async () => ({ success: true }),
-    ruleOptions: () => ({ home, boundaryDataPaths: [], systemFolders: [] }),
-    runGit: async () => undefined,
-    gitOutput: async (_cwd, args) => {
-      if (args[0] === 'status') return git.status ?? '';
-      if (args[0] === 'remote') return git.remote ?? 'origin';
-      if (args[0] === 'rev-list' && args.includes('--not')) return git.unpushed ?? '0';
-      if (args[0] === 'rev-list') return git.total ?? '5';
-      if (args[0] === 'diff-tree') return git.diffTree ?? 'README.md';
-      return '';
-    },
-    trash: async (hostPath) => {
-      order.push(`trash:${hostPath}`);
-    },
-    progress: () => undefined,
-    audit: (entry) => {
-      audit.push(entry);
-    },
-    ...overrides,
-  };
-  setCodingGrantDepsForTests(deps);
-  return order;
+  const calls = fakeCodingDeps({ home, boundaryDataPaths: [], git, overrides });
+  audit = calls.audit;
+  return calls.order;
 }
 
 function grantRepo(name: string, createdByBoundary = false): string {

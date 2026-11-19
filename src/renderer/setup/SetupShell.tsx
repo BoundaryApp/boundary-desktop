@@ -85,14 +85,14 @@ export const SetupShell: React.FC<SetupShellProps> = ({
           <footer className="shrink-0 bg-surface-0">
             <div className={cn('mx-auto flex w-full items-center gap-2 px-6 py-3', column)}>
               {onBack && (
-                <Button type="button" variant="ghost" onClick={onBack}>
+                <Button type="button" variant="quiet" onClick={onBack}>
                   {backLabel}
                 </Button>
               )}
               <div className="ml-auto flex items-center gap-2">
                 {skippable && (
-                  <Button type="button" variant="ghost" disabled={skipping} onClick={skip}>
-                    Skip for now
+                  <Button type="button" variant="quiet" disabled={skipping} onClick={skip}>
+                    {activeStep?.skipLabel ?? 'Skip for now'}
                   </Button>
                 )}
                 {actions}

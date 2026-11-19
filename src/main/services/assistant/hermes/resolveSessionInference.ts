@@ -1,8 +1,8 @@
 import { inferenceSlotLabel } from '../../../../shared/inferenceDisplay';
-import type { ResolvedSessionInference } from '../../../../shared/types/hermesChat';
+import type { ProjectInferencePin, ResolvedSessionInference } from '../../../../shared/types/hermesChat';
 import type { InferenceChainEntry } from '../../../../shared/types/inferenceChain';
 import type { InferenceSlotId } from '../../../../shared/types/onboarding';
-import { sharedEntryLabel, sharedModelConnection } from '../../inference/inferenceChainService';
+import { poolConnection, sharedEntryLabel, sharedModelConnection } from '../../inference/inferenceChainService';
 import {
   getLastAppliedLlm,
   llmFingerprintsMatch,
@@ -43,8 +43,24 @@ function buildResolved(
   };
 }
 
+/** A confidential pool as the app default: like a shared model, planning says if it can serve. */
+function resolvePoolDefault(entry: InferenceChainEntry): ResolvedSessionInference {
+  const modelId = entry.modelId?.trim() ?? '';
+  const { endpointUrl } = poolConnection(modelId);
+  return {
+    slot: 'confidential',
+    modelId,
+    providerDisplayName: 'Confidential',
+    provenance: 'app-default',
+    configured: true,
+    needsRestart: !llmFingerprintsMatch(getLastAppliedLlm(), { slot: 'confidential', endpointUrl, modelId }),
+    fallbacks: getAppFallbacks(),
+  };
+}
+
 /** A shared model as the app default: it resolves as configured, and planning says if it can serve. */
 function resolveSharedDefault(entry: InferenceChainEntry): ResolvedSessionInference {
+  if (entry.slot === 'confidential') return resolvePoolDefault(entry);
   const modelId = entry.modelId ?? '';
   const { endpointUrl } = sharedModelConnection(modelId);
   return {
@@ -59,7 +75,8 @@ function resolveSharedDefault(entry: InferenceChainEntry): ResolvedSessionInfere
   };
 }
 
-async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
+/** The app's default chat model, ignoring any chat override or project pin. */
+export async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
   const shared = getAppSharedModel();
   if (shared) return resolveSharedDefault(shared);
   const appDefault = getAppDefaultSlot();
@@ -80,11 +97,16 @@ async function resolveAppDefault(): Promise<ResolvedSessionInference | null> {
   return buildResolved(appDefault, connection, 'app-default', getAppFallbacks());
 }
 
-/** The chat's own project is private; with no session yet, the rail's (ADR 0033 §4). */
-export function sessionPrivacyLocked(sessionId?: string | null): boolean {
+/** The pin of the project a chat runs in; with no session, the rail's project. */
+export function sessionProjectPin(sessionId?: string | null): ProjectInferencePin | undefined {
   const projectId = sessionId ? conversationProjectId(sessionId) : getActiveHermesProjectId();
   const project = projectId ? getStoredHermesProject(projectId) : null;
-  return project?.inference?.privacyLocalOnly === true;
+  return project?.inference;
+}
+
+/** The chat's own project is private; with no session yet, the rail's (ADR 0033 §4). */
+export function sessionPrivacyLocked(sessionId?: string | null): boolean {
+  return sessionProjectPin(sessionId)?.privacyLocalOnly === true;
 }
 
 /**

@@ -1,94 +1,73 @@
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AddonFit } from '../../../../shared/addonFit';
+import { FOUR, OFF, ON, fakeDeps, okFit, pending, psRow, statuses } from './addonInstallerFakes';
 
-vi.mock('../../assistant/AssistantStackService', () => ({
-  getAssistantStackAccess: vi.fn(),
-  reloadHermesForAddons: vi.fn(),
-}));
-vi.mock('../../assistant/AssistantStackStore', () => ({
-  getInstalledAddons: () => [],
-  setAddonInstalled: vi.fn(),
-}));
-vi.mock('../../assistant/localStackMode', () => ({ isLocalAssistantStackMode: vi.fn(() => false) }));
-vi.mock('../addonHostFacts', () => ({ readAddonHostFacts: vi.fn() }));
+vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
+vi.mock('../../assistant/AssistantStackStore', async () => (await import('./addonInstallerFakes')).storeMock());
+vi.mock('../../assistant/resolveAssistantRoot', async () => (await import('./addonInstallerFakes')).resolveAssistantRootMock());
+vi.mock('../../assistant/localStackMode', async () => (await import('./addonInstallerFakes')).localStackModeMock());
+vi.mock('../addonHostFacts', async () => (await import('./addonInstallerFakes')).addonHostFactsMock());
 
-import {
-  ADDON_PYTHON3_MESSAGE,
-  createAddonInstaller,
-  getAddonInstaller,
-  runAddonSetupScript,
-  type AddonInstallSnapshot,
-  type AddonInstallerDeps,
-} from '../addonInstaller';
+import { ADDON_PYTHON3_MESSAGE, createAddonInstaller, type AddonInstallSnapshot } from '../addonInstaller';
+import { twentyWorkspacesDir } from '../twentyWorkspaces';
+import { LOCAL_SETTINGS, readTwentyWorkspace, writeTwentyWorkspace } from './twentyStoreFixtures';
 
-const FAKE_STACK = path.join(os.tmpdir(), 'addon-installer-fake-stack');
-const FOUR = ['twenty-db', 'twenty-redis', 'twenty-server', 'twenty-worker'];
 const INSTALL_ENV = { TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' };
+const SETUP_ENV = { ...INSTALL_ENV, TWENTY_OWNER_FIRST_NAME: 'Ada', TWENTY_OWNER_LAST_NAME: 'Lovelace' };
 
-const okFit: AddonFit = {
-  verdict: 'ok',
-  memory: 'ok',
-  disk: 'ok',
-  port: 'ok',
-  freeMiB: 6000,
-  suggestedEngineMiB: null,
-};
-
-function psRow(health: string): string {
-  return JSON.stringify({ Service: 'twenty-server', State: 'running', Health: health });
-}
-
-type ComposeCall = { args: string[]; env?: NodeJS.ProcessEnv };
-
-/** Stand-ins for compose and crm.sh. `serverHealth` is what `ps` reports for twenty-server. */
-function fakeDeps(overrides: Partial<AddonInstallerDeps> = {}) {
-  const calls: ComposeCall[] = [];
-  const streamCalls: ComposeCall[] = [];
-  const state = { serverHealth: 'healthy', serverLogs: '', setupCode: 0, setupLines: [] as string[] };
-  const deps: AddonInstallerDeps = {
-    checkFit: vi.fn(async () => okFit),
-    compose: vi.fn(async (args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
-      calls.push({ args, env: opts?.env });
-      if (args.includes('ps')) return { stdout: psRow(state.serverHealth), stderr: '' };
-      if (args.includes('logs')) return { stdout: state.serverLogs, stderr: '' };
-      return { stdout: '', stderr: '' };
-    }),
-    composeStreaming: vi.fn(async (args: string[], _onLine: (l: string) => void, env?: NodeJS.ProcessEnv) => {
-      streamCalls.push({ args, env });
-      return { code: 0 };
-    }),
-    runSetup: vi.fn(async (onLine: (l: string) => void) => {
-      for (const line of state.setupLines) onLine(line);
-      return { code: state.setupCode };
-    }),
-    reloadHermes: vi.fn(async () => ({ success: true })),
-    setInstalled: vi.fn(),
-    isInstalled: vi.fn(() => false),
-    isLocalStack: vi.fn(() => false),
-    // A per-run temp folder: install creates data/twenty/{db,storage} under dataRoot.
-    stackPaths: vi.fn(() => ({ root: FAKE_STACK, dataRoot: path.join(FAKE_STACK, 'data') })),
-    now: () => Date.now(),
-    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-    ...overrides,
-  };
-  return { deps, calls, streamCalls, state };
-}
-
-function statuses(s: AddonInstallSnapshot | null): Record<string, string> {
-  return Object.fromEntries((s?.steps ?? []).map((step) => [step.id, step.status]));
-}
 
 describe('addon installer', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    pending.list = [];
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe('access choice', () => {
+    let tmp: string;
+    let root: string;
+    beforeEach(() => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-access-'));
+      root = path.join(tmp, 'root');
+    });
+    afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+    const store = () => twentyWorkspacesDir(root);
+
+    it('writes the access setting before the restart step waits, with no pending line', async () => {
+      const { deps } = fakeDeps({ stackPaths: () => ({ root, dataRoot: path.join(tmp, 'data') }) });
+      let atSetupEnd: Record<string, unknown> = {};
+      deps.runSetup = vi.fn(async () => {
+        writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRo: 'r', keyRw: 'w' });
+        return { code: 0 };
+      });
+      const installer = createAddonInstaller(deps);
+      installer.onChange((s) => {
+        if (s.steps.find((step) => step.id === 'restart')?.status === 'waiting') {
+          atSetupEnd = readTwentyWorkspace(store(), 'main');
+        }
+      });
+      await installer.install('twenty', { access: 'read' });
+      expect(atSetupEnd).toMatchObject({ access: 'read' });
+      expect(installer.snapshot()?.error).toBeUndefined();
+      expect(pending.list).toEqual([]);
+    });
+
+    it('fails the setup step with a readable message when the workspace has no key for the choice', async () => {
+      const { deps } = fakeDeps({ stackPaths: () => ({ root, dataRoot: path.join(tmp, 'data') }) });
+      deps.runSetup = vi.fn(async () => {
+        writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRw: 'w' });
+        return { code: 0 };
+      });
+      const installer = createAddonInstaller(deps);
+      await installer.install('twenty', { access: 'read' });
+      const error = installer.snapshot()?.error;
+      expect(error?.step).toBe('setup');
+      expect(error?.message).toContain('crm-main has no read-only key');
+    });
   });
 
   it('runs the steps in order and waits at restart', async () => {
@@ -112,6 +91,7 @@ describe('addon installer', () => {
       restart: 'waiting',
     });
     expect(installer.snapshot()?.done).toBe(false);
+    expect(installer.snapshot()?.kind).toBe('install');
     expect(streamCalls[0].args).toEqual(['--progress', 'json', '--profile', 'crm', 'pull', ...FOUR]);
     expect(streamCalls[0].env).toEqual(INSTALL_ENV);
     expect(calls[0].args).toEqual(['--profile', 'crm', 'up', '-d', ...FOUR]);
@@ -120,11 +100,40 @@ describe('addon installer', () => {
       expect(call.env).toEqual(INSTALL_ENV);
     }
     expect(deps.runSetup).toHaveBeenCalledWith(expect.any(Function), {
-      env: INSTALL_ENV,
+      env: SETUP_ENV,
       profiles: ['crm'],
+      signal: expect.any(AbortSignal),
     });
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', true);
+    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', ON);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
+  });
+
+  it('records the flags in the stack before marking Twenty installed', async () => {
+    const order: string[] = [];
+    const { deps } = fakeDeps({
+      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
+        order.push(`flags:${flags.TWENTY_LOCAL_ENABLED}`);
+      }),
+      setInstalled: vi.fn((_id: string, on: boolean) => void order.push(`installed:${on}`)),
+    });
+    await createAddonInstaller(deps).install('twenty');
+    expect(order).toEqual(['flags:1', 'installed:true']);
+  });
+
+  it('fails setup and leaves Twenty uninstalled when the flags cannot be written', async () => {
+    const { deps } = fakeDeps({
+      syncStackFlags: vi.fn(async () => {
+        throw new Error("The stack's sync-profiles.sh exited with code 1: rag is on but NEO4J_PASSWORD not set");
+      }),
+    });
+    const installer = createAddonInstaller(deps);
+    await installer.install('twenty');
+    const snap = installer.snapshot();
+    expect(snap?.error?.step).toBe('setup');
+    expect(snap?.error?.message).toBe("Twenty CRM is set up, but the stack's .env couldn't record it as on.");
+    expect(snap?.error?.logTail.join(' ')).toContain('NEO4J_PASSWORD');
+    expect(deps.setInstalled).not.toHaveBeenCalled();
   });
 
   it('reports download bytes from compose JSON lines', async () => {
@@ -280,6 +289,7 @@ describe('addon installer', () => {
     expect(calls).toEqual([{ args: ['--profile', 'crm', 'rm', '-s', '-f', ...FOUR], env: INSTALL_ENV }]);
     expect(calls.some((c) => c.args.includes('-v') || c.args.includes('down'))).toBe(false);
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
+    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
     expect(installer.snapshot()).toBeNull();
   });
 
@@ -345,14 +355,10 @@ describe('addon installer', () => {
     expect(installer.snapshot()).toBeNull();
   });
 
-  it('turn off keeps data and reloads Hermes', async () => {
+  it('turn off keeps data, stops and removes the containers, and leaves the reload for later', async () => {
     const order: string[] = [];
     const { deps, calls } = fakeDeps({
       setInstalled: vi.fn((_id: string, on: boolean) => void order.push(`installed:${on}`)),
-      reloadHermes: vi.fn(async () => {
-        order.push('reload');
-        return { success: true };
-      }),
     });
     (deps.compose as ReturnType<typeof vi.fn>).mockImplementation(async (args: string[]) => {
       order.push(args[2]);
@@ -368,7 +374,75 @@ describe('addon installer', () => {
       ['--profile', 'crm', 'rm', '-f', ...FOUR],
     ]);
     expect(calls.some((c) => c.args.includes('-v') || c.args.includes('down'))).toBe(false);
-    expect(order).toEqual(['installed:false', 'stop', 'rm', 'reload']);
+    expect(order).toEqual(['installed:false', 'stop', 'rm']);
+    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
+    expect(deps.reloadHermes).not.toHaveBeenCalled();
+  });
+
+  it('start brings up the four containers, waits for health and reloads Hermes', async () => {
+    const order: string[] = [];
+    const { deps, calls, state } = fakeDeps({
+      isInstalled: vi.fn(() => true),
+      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
+        order.push(`flags:${flags.TWENTY_LOCAL_ENABLED}${flags.TWENTY_MCP_ENABLED}`);
+      }),
+      reloadHermes: vi.fn(async () => {
+        order.push('reload');
+        return { success: true };
+      }),
+    });
+    state.serverHealth = 'starting';
+    const installer = createAddonInstaller(deps);
+    const started = installer.start('twenty');
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(deps.reloadHermes).not.toHaveBeenCalled();
+    state.serverHealth = 'healthy';
+    await vi.advanceTimersByTimeAsync(2_000);
+    await started;
+
+    expect(calls[0]).toEqual({ args: ['--profile', 'crm', 'up', '-d', ...FOUR], env: INSTALL_ENV });
+    expect(order).toEqual(['flags:11', 'reload']);
+    expect(deps.setInstalled).not.toHaveBeenCalled();
+    expect(installer.snapshot()).toBeNull();
+  });
+
+  it('start rejects with compose output when up fails, and keeps Twenty installed', async () => {
+    const { deps } = fakeDeps({
+      isInstalled: vi.fn(() => true),
+      compose: vi.fn(async () => {
+        throw Object.assign(new Error('exit 1'), { stderr: 'Error: port 3000 is already allocated' });
+      }),
+    });
+    await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow(
+      "Twenty CRM's containers didn't start. Error: port 3000 is already allocated"
+    );
+    expect(deps.setInstalled).not.toHaveBeenCalled();
+    expect(deps.reloadHermes).not.toHaveBeenCalled();
+  });
+
+  it('start gives up on a server that stays unhealthy for 300 s', async () => {
+    const { deps, state } = fakeDeps({ isInstalled: vi.fn(() => true) });
+    state.serverHealth = 'unhealthy';
+    const started = createAddonInstaller(deps).start('twenty');
+    const settled = expect(started).rejects.toThrow("twenty-server didn't report healthy within 5 minutes.");
+    await vi.advanceTimersByTimeAsync(302_000);
+    await settled;
+    expect(deps.reloadHermes).not.toHaveBeenCalled();
+  });
+
+  it('start refuses an add-on that is not installed', async () => {
+    const { deps, calls } = fakeDeps();
+    await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow("Twenty CRM isn't installed.");
+    expect(calls).toEqual([]);
+    expect(deps.syncStackFlags).not.toHaveBeenCalled();
+  });
+
+  it('start rejects when the reload fails', async () => {
+    const { deps } = fakeDeps({
+      isInstalled: vi.fn(() => true),
+      reloadHermes: vi.fn(async () => ({ success: false, error: 'Hermes API did not become healthy' })),
+    });
+    await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow('Hermes API did not become healthy');
   });
 
   it('turn off leaves the add-on off and rejects when a step fails', async () => {
@@ -380,12 +454,6 @@ describe('addon installer', () => {
     await expect(createAddonInstaller(deps).turnOff('twenty')).rejects.toThrow('docker is not running');
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
     expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
-
-    const reload = fakeDeps({ reloadHermes: vi.fn(async () => ({ success: false, error: 'Hermes API did not become healthy' })) });
-    await expect(createAddonInstaller(reload.deps).turnOff('twenty')).rejects.toThrow(
-      'Hermes API did not become healthy'
-    );
-    expect(reload.deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
   it('turn off rejects while another add-on operation runs', async () => {
@@ -395,7 +463,7 @@ describe('addon installer', () => {
     const first = installer.install('twenty');
     await vi.advanceTimersByTimeAsync(0);
     await expect(installer.turnOff('twenty')).rejects.toThrow('An add-on install is already running.');
-    await expect(installer.removeData('twenty')).rejects.toThrow('An add-on install is already running.');
+    await expect(installer.remove('twenty', { deleteImages: false })).rejects.toThrow('An add-on install is already running.');
     state.serverHealth = 'healthy';
     await vi.advanceTimersByTimeAsync(2_000);
     await first;
@@ -475,6 +543,47 @@ describe('addon installer', () => {
     expect(deps.compose).not.toHaveBeenCalled();
   });
 
+  it('makes room, checks again and installs when asked to', async () => {
+    const over = { ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024, suggestedEngineMiB: 8192 };
+    const { deps } = fakeDeps({ checkFit: vi.fn().mockResolvedValueOnce(over).mockResolvedValue(okFit) });
+    const installer = createAddonInstaller(deps);
+
+    await installer.install('twenty', { makeRoom: true });
+
+    expect(deps.makeRoom).toHaveBeenCalledTimes(1);
+    expect(deps.checkFit).toHaveBeenCalledTimes(2);
+    expect(statuses(installer.snapshot()).check).toBe('done');
+    expect(deps.composeStreaming).toHaveBeenCalled();
+  });
+
+  it('doesn\'t make room unless asked, or when the engine can\'t grow', async () => {
+    const over = { ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024 };
+    const notAsked = fakeDeps({ checkFit: vi.fn(async () => ({ ...over, suggestedEngineMiB: 8192 })) });
+    await createAddonInstaller(notAsked.deps).install('twenty');
+    expect(notAsked.deps.makeRoom).not.toHaveBeenCalled();
+
+    const cantGrow = fakeDeps({ checkFit: vi.fn(async () => ({ ...over, suggestedEngineMiB: null })) });
+    const installer = createAddonInstaller(cantGrow.deps);
+    await installer.install('twenty', { makeRoom: true });
+    expect(cantGrow.deps.makeRoom).not.toHaveBeenCalled();
+    expect(installer.snapshot()?.error?.step).toBe('check');
+  });
+
+  it('fails the check step with the reason when making room fails', async () => {
+    const over = { ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024, suggestedEngineMiB: 8192 };
+    const { deps } = fakeDeps({
+      checkFit: vi.fn(async () => over),
+      makeRoom: vi.fn(async () => {
+        throw new Error('The engine is back at its old size.');
+      }),
+    });
+    const installer = createAddonInstaller(deps);
+    await installer.install('twenty', { makeRoom: true });
+    expect(installer.snapshot()?.error?.step).toBe('check');
+    expect(installer.snapshot()?.error?.message).toMatch(/back at its old size/);
+    expect(deps.composeStreaming).not.toHaveBeenCalled();
+  });
+
   it('names the port when it is in use', async () => {
     const { deps } = fakeDeps({
       checkFit: vi.fn(async () => ({ ...okFit, verdict: 'over' as const, port: 'over' as const })),
@@ -535,229 +644,5 @@ describe('addon installer', () => {
     off();
     await installer.install('twenty');
     expect(cb).not.toHaveBeenCalled();
-  });
-});
-
-describe('getAddonInstaller', () => {
-  it('returns one installer for the app, idle until asked', () => {
-    expect(getAddonInstaller()).toBe(getAddonInstaller());
-    expect(getAddonInstaller().snapshot()).toBeNull();
-  });
-});
-
-describe('Twenty data folders before start', () => {
-  let dir: string;
-
-  beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-data-dirs-'));
-  });
-  afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  /** Records whether both bind sources exist when `up` runs. */
-  function depsSeeingDirs(overrides: Partial<AddonInstallerDeps> = {}) {
-    const atUp: boolean[] = [];
-    const made = fakeDeps({ stackPaths: () => ({ root: dir, dataRoot: path.join(dir, 'data') }), ...overrides });
-    const compose = made.deps.compose as ReturnType<typeof vi.fn>;
-    const base = compose.getMockImplementation()!;
-    compose.mockImplementation(async (args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
-      if (args.includes('up')) {
-        atUp.push(['db', 'storage'].every((sub) => fs.existsSync(path.join(dir, 'data', 'twenty', sub))));
-      }
-      return base(args, opts);
-    });
-    return { ...made, atUp };
-  }
-
-  it('creates data/twenty/db and data/twenty/storage before up in the managed stack', async () => {
-    const { deps, atUp } = depsSeeingDirs();
-    await createAddonInstaller(deps).install('twenty');
-    expect(atUp).toEqual([true]);
-  });
-
-  it("leaves a local checkout's folders to the stack's own scripts", async () => {
-    const { deps, atUp } = depsSeeingDirs({ isLocalStack: vi.fn(() => true) });
-    await createAddonInstaller(deps).install('twenty');
-    expect(atUp).toEqual([false]);
-    expect(fs.existsSync(path.join(dir, 'data', 'twenty'))).toBe(false);
-  });
-
-  it('stops at start without calling up when a folder cannot be made', async () => {
-    fs.writeFileSync(path.join(dir, 'data'), 'a file where the data folder goes');
-    const { deps, atUp } = depsSeeingDirs();
-    const installer = createAddonInstaller(deps);
-    await installer.install('twenty');
-    expect(atUp).toEqual([]);
-    expect(installer.snapshot()?.error?.step).toBe('start');
-    expect(installer.snapshot()?.error?.message).toBe("Twenty CRM's data folders couldn't be created.");
-  });
-});
-
-/** A spawn stand-in that prints `lines` and exits with `code`, or fails to start. */
-function fakeSpawn(behaviour: { lines?: string[]; code?: number; fail?: boolean; hang?: boolean }) {
-  const calls: Array<{ command: string; args: string[]; options: { cwd?: string; env?: NodeJS.ProcessEnv } }> = [];
-  const kills: string[] = [];
-  const impl = ((command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv }) => {
-    calls.push({ command, args, options });
-    const stdout = new EventEmitter();
-    const stderr = new EventEmitter();
-    const child = Object.assign(new EventEmitter(), {
-      stdout,
-      stderr,
-      kill: (signal: string) => {
-        kills.push(signal);
-        setTimeout(() => child.emit('close', null), 0);
-        return true;
-      },
-    });
-    setTimeout(() => {
-      if (behaviour.fail) {
-        child.emit('error', Object.assign(new Error('spawn bash ENOENT'), { code: 'ENOENT' }));
-        return;
-      }
-      const lines = behaviour.lines ?? [];
-      stdout.emit('data', Buffer.from(lines.slice(0, 1).map((l) => `${l}\n`).join('')));
-      // A line split across two chunks, on stderr.
-      const rest = lines.slice(1).join('\n');
-      if (rest) {
-        stderr.emit('data', Buffer.from(rest.slice(0, 3)));
-        stderr.emit('data', Buffer.from(`${rest.slice(3)}\n`));
-      }
-      if (!behaviour.hang) child.emit('close', behaviour.code ?? 0);
-    }, 0);
-    return child;
-  }) as unknown as typeof spawn;
-  return { impl, calls, kills };
-}
-
-describe('runAddonSetupScript', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('runs bash scripts/crm.sh init in the stack root and passes each line on', async () => {
-    const { impl, calls } = fakeSpawn({ lines: ['[crm] Generated the owner password', '[crm] Next: make hermes-reload'] });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({
-      root: '/stack',
-      env: { PATH: '/usr/bin', TWENTY_LOCAL_ENABLED: '1' },
-      onLine: (l) => lines.push(l),
-      spawnImpl: impl,
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 0 });
-    expect(calls[0].command).toBe('bash');
-    expect(calls[0].args).toEqual(['scripts/crm.sh', 'init']);
-    expect(calls[0].options.cwd).toBe('/stack');
-    expect(calls[0].options.env).toEqual({ PATH: '/usr/bin', TWENTY_LOCAL_ENABLED: '1' });
-    expect(lines).toEqual(['[crm] Generated the owner password', '[crm] Next: make hermes-reload']);
-  });
-
-  it('resolves with the exit code of a failing script', async () => {
-    const { impl } = fakeSpawn({ lines: ['[crm] ERROR: Docker daemon is not running'], code: 1 });
-    const run = runAddonSetupScript({ root: '/stack', env: {}, onLine: () => {}, spawnImpl: impl });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 1 });
-  });
-
-  it('reports a missing bash as code 127 with the error as a line', async () => {
-    const { impl } = fakeSpawn({ fail: true });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({ root: '/stack', env: {}, onLine: (l) => lines.push(l), spawnImpl: impl });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 127 });
-    expect(lines).toEqual(['spawn bash ENOENT']);
-  });
-
-  it('stops a script that runs past the timeout', async () => {
-    const { impl, kills } = fakeSpawn({ hang: true });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({
-      root: '/stack',
-      env: {},
-      onLine: (l) => lines.push(l),
-      spawnImpl: impl,
-      timeoutMs: 1_000,
-    });
-    await vi.advanceTimersByTimeAsync(1_001);
-    expect(kills).toEqual(['SIGTERM']);
-    expect(await run).toEqual({ code: 124 });
-    expect(lines.at(-1)).toBe('crm.sh init ran for more than 1 s and was stopped.');
-  });
-});
-
-describe('addon data removal', () => {
-  let tmp: string;
-  let root: string;
-  let dataRoot: string;
-  const envText = '# stack env\nFOO=1\nexport TWENTY_USERNAME=owner@crm.localhost\n  TWENTY_PASSWORD = secret\nTWENTY_PASSWORD_HINT=keep\nTWENTY_PORT=3000\nBAR=2\n';
-
-  beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-remove-'));
-    root = path.join(tmp, 'root');
-    dataRoot = path.join(tmp, 'data');
-    fs.mkdirSync(path.join(dataRoot, 'twenty', 'db'), { recursive: true });
-    fs.writeFileSync(path.join(dataRoot, 'twenty', 'db', 'f'), 'x');
-    fs.mkdirSync(path.join(root, 'compose', 'twenty', 'workspaces'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'compose', 'twenty', 'workspaces', 'main.env'), 'TWENTY_KEY_RW=k\n');
-    fs.writeFileSync(path.join(root, '.env'), envText);
-  });
-  afterEach(() => {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  const make = (overrides: Partial<AddonInstallerDeps> = {}) =>
-    createAddonInstaller(fakeDeps({ stackPaths: () => ({ root, dataRoot }), ...overrides }).deps);
-
-  it('remove refuses while Twenty is on', async () => {
-    await expect(make({ isInstalled: () => true }).removeData('twenty')).rejects.toThrow(
-      'Turn Twenty off before removing its data.'
-    );
-    expect(fs.existsSync(path.join(dataRoot, 'twenty'))).toBe(true);
-    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe(envText);
-  });
-
-  it('remove refuses in local stack mode', async () => {
-    await expect(make({ isLocalStack: () => true }).removeData('twenty')).rejects.toThrow(
-      "Remove Twenty's data from the stack checkout instead; Boundary doesn't delete files in a local stack."
-    );
-    expect(fs.existsSync(path.join(dataRoot, 'twenty'))).toBe(true);
-  });
-
-  it('remove deletes the data folder, the workspace file and the two .env keys', async () => {
-    const { removed } = await make().removeData('twenty');
-
-    expect(fs.existsSync(path.join(dataRoot, 'twenty'))).toBe(false);
-    expect(fs.existsSync(path.join(root, 'compose', 'twenty', 'workspaces', 'main.env'))).toBe(false);
-    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe(
-      '# stack env\nFOO=1\nTWENTY_PASSWORD_HINT=keep\nTWENTY_PORT=3000\nBAR=2\n'
-    );
-    expect(removed).toHaveLength(3);
-  });
-
-  it('keeps a .env without a trailing newline as it was', async () => {
-    fs.writeFileSync(path.join(root, '.env'), 'A=1\nTWENTY_PASSWORD=x\nB=2');
-    await make().removeData('twenty');
-    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('A=1\nB=2');
-  });
-
-  it('missing files are not an error and are not listed', async () => {
-    fs.rmSync(path.join(root, '.env'));
-    fs.rmSync(path.join(root, 'compose'), { recursive: true });
-    const { removed } = await make().removeData('twenty');
-    expect(removed).toEqual([path.join(dataRoot, 'twenty')]);
-
-    fs.rmSync(dataRoot, { recursive: true });
-    await expect(make().removeData('twenty')).resolves.toEqual({ removed: [] });
-  });
-
-  it('leaves a .env without the keys untouched', async () => {
-    fs.writeFileSync(path.join(root, '.env'), 'A=1\n');
-    const { removed } = await make().removeData('twenty');
-    expect(removed.some((r) => r.includes('TWENTY_PASSWORD'))).toBe(false);
   });
 });

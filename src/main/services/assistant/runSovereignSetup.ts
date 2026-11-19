@@ -57,6 +57,13 @@ export function buildSovereignSetupEnv(
     }
   }
   env.PATH = pathParts.join(path.delimiter);
+  // From stack v0.3.11, setup.sh and crm.sh run their Python in the Hermes image and n8n's
+  // credentials script in the n8n image, through `docker run` with the stack root bind-mounted.
+  // On a first install that pulls the Hermes image inside setup.sh, under its timeout and with no
+  // pull progress. Keep the host python3 (checked by checkPython3ForSetup) and the node stub
+  // until that path has been tried on bundled Podman. A value already in the env wins.
+  env.STACK_PYTHON ??= 'host';
+  env.N8N_NODE ??= 'host';
   return env;
 }
 

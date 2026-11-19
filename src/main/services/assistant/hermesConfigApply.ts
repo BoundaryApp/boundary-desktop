@@ -23,8 +23,10 @@ export interface DesiredHermesProfile {
   set: Array<[string, string]>;
   /** Written only when the profile has no value: a profile's own max_tokens is kept. */
   setIfUnset?: Array<[string, string]>;
-  /** Mappings, each written whole as a YAML map so a rotated header or moved URL follows. */
-  entries?: Array<[string, Record<string, unknown>]>;
+  /** Mappings or lists, each written whole so a rotated header or moved URL follows. */
+  entries?: Array<[string, unknown]>;
+  /** Lists that must contain a value; other items are kept (`skills.external_dirs`). */
+  listIncludes?: Array<[string, string]>;
   /** `browser.cdp_url`: Boundary's URL, or '' to clear Boundary's URL. Someone else's is kept. */
   browserCdpUrl?: string;
 }
@@ -34,7 +36,7 @@ export interface HermesProfileWrites {
   profile: string;
   /** Through Hermes's own `set_config_value`, which `hermes config set` uses. */
   set: Array<[string, string]>;
-  entries: Array<[string, Record<string, unknown>]>;
+  entries: Array<[string, unknown]>;
 }
 
 /**
@@ -119,6 +121,11 @@ export function planHermesProfileWrites(
   const entries = (desired.entries ?? []).filter(
     ([key, value]) => current === null || !isDeepStrictEqual(valueAt(current, key), value)
   );
+  for (const [key, value] of desired.listIncludes ?? []) {
+    const existing = current === null ? undefined : valueAt(current, key);
+    const list = Array.isArray(existing) ? existing : [];
+    if (!list.includes(value)) entries.push([key, [...list, value]]);
+  }
   return { profile: desired.profile, set, entries };
 }
 

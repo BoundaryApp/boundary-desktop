@@ -5,7 +5,7 @@
 | Status | Proposed |
 | Visuals | [prototype.html](prototype.html) (click-through) |
 | Started | 2 Nov 2026 |
-| Builds on | [ADR 0042](../adr/0042-circle-chats.md), [ADR 0043](../adr/0043-circles-live-in-the-chat.md), [ADR 0032](../adr/0032-circles.md), [ADR 0038](../adr/0038-changing-circle-operations.md), [ADR 0023](../adr/0023-chat-types-and-hermes-home.md), [ADR 0024](../adr/0024-chats-belong-to-projects.md), [circles plan](../circles-plan.md) phase 5, [chat types spec](../chat-types-ux-study/spec.md), [message actions spec](../message-actions-ux-study/spec.md) |
+| Builds on | [ADR 0042](../adr/0042-circle-chats.md), [ADR 0043](../adr/0043-circles-live-in-the-chat.md), [ADR 0032](../adr/0032-circles.md), [ADR 0038](../adr/0038-changing-circle-operations.md), [ADR 0057](../adr/0057-circle-reactions.md), [ADR 0023](../adr/0023-chat-types-and-hermes-home.md), [ADR 0024](../adr/0024-chats-belong-to-projects.md), [circles plan](../circles-plan.md) phase 5, [chat types spec](../chat-types-ux-study/spec.md), [message actions spec](../message-actions-ux-study/spec.md) |
 
 ## Progress
 
@@ -17,7 +17,8 @@
 | 4 Typing and read marks | Built; not yet tried between two Macs | 3 |
 | 5 Channels | Built; not yet tried between two Macs | 3 |
 | 6 Share from a Hermes chat | Built; not yet tried in the app | 2, 3 |
-| 7 Compact thread | Built; checked at 320px in headless Chromium | 3 |
+| 7 Compact thread | Built; checked at 320px in headless Chromium, including hover toolbars and bubble contrast | 3 |
+| 8 Reactions | Built; not yet tried between two Macs | 3, 7 |
 
 Phases 4 to 7 can run at the same time once 3 lands. Bringing agents into Circles is later work with its own ADR; phase 1 stores the field it needs (ADR 0042 §12).
 
@@ -27,7 +28,7 @@ Members of a Circle can talk in it from the same chat they use with their agents
 
 ## Decisions
 
-ADR 0042 holds the storage, format, privacy and placement decisions. These are the screen's.
+ADR 0042 holds the storage, format, privacy and placement decisions. These are the screen's. [ADR 0052](../adr/0052-circles-destination-and-floating-agent.md), proposed, replaces the place switcher with a Circles destination, built in the [Circles screen spec](../circles-ux-study/spec.md)'s phases 10 and 11. Decisions 1, 2, 3, 4, 7 and 13 change there: Chat is This Mac's rail alone, a Circle's channels list under its row on the Circles destination, its people move to the Circle tab, and counts move to the Circles icon. [ADR 0053](../adr/0053-replies-in-circle-chats.md), proposed, adds replies to decisions 10 and 11; the [Circle replies and DMs spec](../circle-replies-dms-ux-study/spec.md) builds them, and [ADR 0054](../adr/0054-direct-messages-in-circles.md) adds DMs for decision 15.
 
 1. **A place switcher tops the chat rail.** It is a full-width button above everything else in the rail. In This Mac it shows a laptop tile, **This Mac** and "Projects, Hermes, your agents". In a Circle it shows the Circle's coloured tile, its name and "Circle · 4 people · 3 online", on a brand-tinted background so the rail itself looks different. When other places have unread messages, the button carries their total. Its menu lists **This Mac**, then a **Circles** heading with each Circle (tile, name, people and online count, unread count, a check on the current place), then **Start a Circle…** and **Join with an invite…**, which open sheets ([ADR 0043](../adr/0043-circles-live-in-the-chat.md) §7). A join waiting for an admin adds a **Joining a Circle…** row. With no Circles the menu says what a Circle is, so the switcher shows for everyone. The name **This Mac** avoids "Home", which ADR 0023 uses for Hermes.
 2. **This Mac's rail is today's rail.** **Go to project** sits under the switcher, then All chats, Mentions, Hermes, Channels and Direct messages, all as they are now. No Circle appears in it.
@@ -42,13 +43,14 @@ ADR 0042 holds the storage, format, privacy and placement decisions. These are t
 7. **Unread counts.** Channels carry counts in a Circle's rail, Circles carry them in the switcher's menu, and the switcher shows the total for places other than the current one. The Chat icon in the icon rail shows the total across Circles as a count badge, since Circle channels are the only conversations with unread messages from other people.
 8. **Unconfirmed is quiet.** An unconfirmed message has a small hollow clock after its time and a tooltip: "Waiting for admins to confirm. Its place in the chat can still change." When a channel has unconfirmed messages and no other admin's device is online, a line above the composer says "No admin is online. New messages show now and settle in order once one is." Confirmation never moves the reader's scroll position.
 9. **Who-lines.** Every message has the Workbench who-line: the person's avatar and name, or **You** for the user's own. An agent's message, once agents can post, reads "Maya's Hermes" with the agent's mark. People who have left keep their name from the message, with a muted **Left** tag and no link.
-10. **Message actions.** The Workbench hover row with **Copy**, and for the author **Edit** and **Delete**, and for an admin **Delete** on anyone's. Retry, Branch, Save to folder and the DM horizon don't appear. Edited messages say **edited** after the time. A deleted message reads "Deleted" or "Removed by an admin". The delete dialog says: "It disappears from the chat. Every member's Mac still holds the Circle's history, so it isn't erased."
-11. **What a message can hold.** Plain text with the same Markdown as Hermes chats, minus images and raw HTML, so a message never loads anything from the network. Links open in the browser after the usual confirmation. No attachments, reactions or threads.
+10. **Message actions.** A hover toolbar on the message's top right corner, over the message's own edge so it never covers the next one, with **React** (decision 17), **Copy**, **Reply** from format 3 (ADR 0053), and for the author **Edit** and **Delete**. Admins get nothing extra there. To remove other people's messages, an admin chooses **Remove messages** on the Circle tab, which puts the open channel in select mode: each live message gets a round checkbox on its left, a click anywhere on its line picks it, and the composer becomes a bar with the count, **Cancel** and **Remove**. Escape, **Cancel** or another channel ends it. The hovered message gets a light fill. The toolbar is the same at every width. The user's own messages sit on the right in a bubble filled with `--bubble-mine`, at least 3:1 against the page in both themes. Retry, Branch, Save to folder and the DM horizon don't appear. Edited messages say **edited** after the time. A deleted message reads "Deleted" or "Removed by an admin". The delete dialog says: "It disappears from the chat. Every member's Mac still holds the Circle's history, so it isn't erased." The remove dialog asks "Remove 3 messages?" and says the same of them. Messages that fail to go stay picked, and the dialog says how many.
+11. **What a message can hold.** Plain text with the same Markdown as Hermes chats, minus images and raw HTML, so a message never loads anything from the network. Links open in the browser after the usual confirmation. No attachments or threads. Reactions are decision 17. From format 3 a message can reply to an earlier one in its channel and shows a quote of it (ADR 0053).
 12. **Typing and seen.** "Maya is typing…" above the composer, from `chat.typing` signals, gone 6 seconds after the last one. Under the newest message, small avatars show who has read up to it, from `chat.read` signals received since the Circle opened. They are only ever a subset of who has read, and the tooltip says "Seen while you were online".
 13. **There is no Circles screen.** A Circle is managed from the inspector's **Circle** tab, the switcher's menu starts and joins Circles, and model sharing and trust are in Inference ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)). The **Open chat** link the Circles screen had went with it.
 14. **Sharing from a Hermes chat.** Sharing is the one way text moves from This Mac into a Circle. **Share to Circle…** sits in a message's **More** menu in Hermes chats, for user and assistant messages, and is hidden when the user is in no Circle. The sheet has the Circle and channel picker (last used first), the text in an editable box with the byte limit shown when it's close, a preview line of how it will appear (with the model name for a reply), and "Everyone in this Circle gets a copy that you can't take back." **Share** posts it and leaves the user in This Mac with a toast whose **Open** switches to the Circle's channel.
-15. **No DMs in a Circle.** A person's row opens their details, not a conversation (ADR 0042 §14).
+15. **No DMs in a Circle.** A person's row opens their details, not a conversation (ADR 0042 §14). [ADR 0054](../adr/0054-direct-messages-in-circles.md), proposed, adds DMs over peer signals on the Circles destination.
 16. **Leave and remove wording.** The leave dialog adds "This Circle's chats leave this Mac with it. Your messages stay in the Circle." The remove dialog adds "Their messages stay in the chat."
+17. **Reactions.** ([ADR 0057](../adr/0057-circle-reactions.md)) **React** in the hover toolbar opens a popover with 👍 ❤️ 😂 😮 😢 🙏 and a **+** that opens a searchable emoji picker. Picking an emoji the user already has on that message takes it back. Under the message, or under the right edge of the user's own bubble, each emoji used shows as a pill with its count, in the order the emoji were first used. The user's own pills are tinted with the accent, and clicking a pill adds or takes back the user's reaction. Hovering a pill lists who reacted, "You" first, with a muted **Left** tag for anyone who has left. A member has at most 20 emoji on one message; at the limit the popover says "You've used 20 reactions on this message". A deleted message has no pills and no **React**. Reactions to the user's own messages count toward the channel's unread count until they read it. They never notify.
 
 ## The public seam
 
@@ -62,31 +64,32 @@ getCircleMessages(circleKey, channel, { before?: MessageRef; limit?: number }): 
 postCircleMessage(circleKey, channel, text, opts?: { shared?: SharedFrom }): Promise<CirclesResult<{ id: string }>>
 editCircleMessage(circleKey, channel, id, text): Promise<CirclesResult>
 deleteCircleMessage(circleKey, channel, author, id): Promise<CirclesResult>
+reactCircleMessage(circleKey, channel, ref: MessageRef, emoji, on: boolean): Promise<CirclesResult>
 onCircleMessage(handler: (event: CircleMessageEvent) => void): () => void
 onCircleMessageChange(handler: (event: CircleMessageChange) => void): () => void
 ```
 
-`CircleMessage` carries `channel`, `id`, `author` (identity), `name`, `agent` (null, or the agent's slug and name), `text`, `at`, `confirmed`, `edited`, `deleted` (null, `author` or `admin`), `shared` and `mine`. `MessageRef` is `{ author, id }`. `postCircleMessage` takes no `agent` until agents can post.
+`CircleMessage` carries `channel`, `id`, `author` (identity), `name`, `agent` (null, or the agent's slug and name), `text`, `at`, `confirmed`, `edited`, `deleted` (null, `author` or `admin`), `shared`, `mine` and `reactions`: each emoji used, with its `count`, whether it is `mine`, and its `people` (`identity`, `name`, `left`, `at`) in the order they reacted. `MessageRef` is `{ author, id }`. `postCircleMessage` takes no `agent` until agents can post.
 
-`onCircleMessage` is the new-message event: `{ circleKey, channel, id, author, name, agent, text, at, confirmed, mine }`, fired once per message per launch, the first time this device sees it after the Circle opened. Messages already in the view when a Circle opens don't fire; messages caught up after being offline do. `onCircleMessageChange` reports edits, deletes, confirmation and messages that disappear when their order settles.
+`onCircleMessage` is the new-message event: `{ circleKey, channel, id, author, name, agent, text, at, confirmed, mine }`, fired once per message per launch, the first time this device sees it after the Circle opened. Messages already in the view when a Circle opens don't fire; messages caught up after being offline do. `onCircleMessageChange` reports edits, deletes, confirmation, reaction changes and messages that disappear when their order settles.
 
-**Renderer.** IPC under `circles:chat-*` and a `circles:chat-event` broadcast that carries one channel's changes. `useCircleChat(circleKey, channel)` returns what the thread needs: messages newest last, `loadOlder`, `typing`, `seenBy`, members, and the send, edit and delete actions.
+**Renderer.** IPC under `circles:chat-*` and a `circles:chat-event` broadcast that carries one channel's changes. `useCircleChat(circleKey, channel)` returns what the thread needs: messages newest last, `loadOlder`, `typing`, `seenBy`, members, and the send, edit, delete and react actions.
 
-**Thread.** `CircleThread` adapts those to an assistant-ui external store and renders the Workbench thread and composer, so a Circle channel and a Hermes chat share message rendering, who-lines, day dividers and the hover row. It takes its data from props or the hook, has no knowledge of the chat rail or places, and has a `compact` layout from 320px: a channel picker in its header, the hover row behind a **…** button, and the composer growing to five lines before it scrolls.
+**Thread.** `CircleThread` adapts those to an assistant-ui external store and renders the Workbench thread and composer, so a Circle channel and a Hermes chat share message rendering, who-lines and day dividers. A Circle message has its own hover toolbar (decision 10). It takes its data from props or the hook, has no knowledge of the chat rail or places, and has a `compact` layout from 320px: a channel picker in its header and the composer growing to five lines before it scrolls.
 
 **Default channel.** `general`, shown as **General**, exists in every Circle with no record. An admin can rename it with a record; it can't be removed. Only admins add, rename and remove channels.
 
 ## Non-goals
 
 - Bringing agents into a Circle, and agents reading or replying there. Format 2 stores the `agent` field (ADR 0042 §12); the Agents section, waking, approvals and what the agent sees need their own ADR.
-- Direct messages between two members. A message in the Circle's log is readable by every member, so a private one needs live signals or per-recipient encryption, each with its own cost (ADR 0042 §14).
+- Direct messages between two members. A message in the Circle's log is readable by every member, so a private one needs live signals or per-recipient encryption, each with its own cost (ADR 0042 §14). [ADR 0054](../adr/0054-direct-messages-in-circles.md) chooses live signals with an outbox.
 - Places changing anything outside the chat screen.
 - Private channels. Every channel is readable by every member, since every member replicates the whole Autobase.
 - Attachments and images, which would need a blob store in the Circle.
-- Reactions, threads, replies, mentions, search, and Circle channels in All chats or Mentions.
+- Threads, search, and Circle channels in All chats or Mentions. Replies are in ADR 0053. Mentions are in the [Circle notifications spec](../circle-notifications-ux-study/spec.md).
 - Sharing several messages or a whole Hermes chat at once, and anything that moves Circle messages into a Hermes chat.
 - Pruning or expiring history.
-- Desktop notifications. The count badges come first; notifications wait for a decision on defaults.
+- Desktop notifications, now decided in [ADR 0051](../adr/0051-circle-notifications-and-mentions.md) and built from the [Circle notifications spec](../circle-notifications-ux-study/spec.md).
 
 ## Risks and open questions
 
@@ -98,6 +101,8 @@ onCircleMessageChange(handler: (event: CircleMessageChange) => void): () => void
 - **Seen-by is partial.** It shows only reads signalled while the viewer was online, so a quiet row doesn't mean unread. The tooltip says so.
 - **Old builds.** A member who hasn't updated can't join a format 2 Circle; the join page says to update.
 - **Scrolling while order changes.** Reorders only affect unconfirmed messages, which are near the bottom. The thread keeps the reader's position by message id, not by offset.
+- **Reactions are indexed whole.** Reaction records sort by member before message, so every view update re-indexes all of a Circle's reaction records. If that shows in timings, a later format can move reactions into a chat operation (ADR 0057).
+- **Reaction unread uses the reactor's clock.** A reaction counts as unread when its `at` is later than the time this device last marked the channel read. A reactor whose clock runs behind can be missed.
 - **Storage growth.** See ADR 0042's consequences. A size line in the Circle tab may be needed once Circles are used for months.
 
 ## Build order
@@ -116,13 +121,15 @@ onCircleMessageChange(handler: (event: CircleMessageChange) => void): () => void
 
 **7 Compact thread.** `CircleThread`'s `compact` layout and the channel picker. A 320px rendering check in headless Chromium in both themes, with no horizontal scroll.
 
+**8 Reactions.** ADR 0057's records: `reactCircleMessage`, reading and checking `reactions` records, folding them into `CircleMessage.reactions`, and `changed` events when they change. `reactionsAt` on read positions and reactions in unread counts. **React**, the popover, the bundled picker and the pills in `CircleThread`. Unit tests for the record checks, folding (including departed members) and unread counts; a `test:circles` case where two members react, one is removed, and the reaction stays with **Left**; a mounted `CircleThread` test of pills and the limit; and `check:circle-compact` with pills and the popover at 320px.
+
 ## Acceptance criteria
 
 - [x] **1.** At format 1, `apply` skips every chat and kept-record operation, and the format 1 golden log is unchanged.
 - [x] **2.** New Circles start at format 2, and a joiner whose build declares format 1 is refused with a message to update.
 - [ ] **3.** A message shows on every online member's Mac at once, marked unconfirmed until a majority of admins have indexed it, and the mark clears without moving the reader's scroll.
 - [x] **4.** Messages are named by author and id everywhere outside `apply`; a reorder changes no message's identity.
-- [ ] **5.** Only the author edits a message. The author or an admin deletes it, and the dialog says it isn't erased.
+- [ ] **5.** Only the author edits a message. The author deletes it from the toolbar; an admin removes anyone's from select mode. Both dialogs say it isn't erased.
 - [ ] **6.** A removed member's messages stay in the channel under their name with a **Left** tag, and their own Mac no longer shows the Circle.
 - [x] **7.** Kept records survive their member's removal, plain records don't, and an admin can delete a departed member's kept record but not a current member's.
 - [x] **8.** Typing and read marks never enter the Autobase, and a device's unread counts never leave it.
@@ -137,3 +144,8 @@ onCircleMessageChange(handler: (event: CircleMessageChange) => void): () => void
 - [x] **17.** A Circle's rail shows only its channels and people. Switching place reopens that place's last conversation, and opening a conversation from another place switches to it.
 - [x] **18.** The switcher shows the unread total for places other than the current one, and its menu shows each Circle's count.
 - [x] **19.** A post with `call` and empty text is stored, a post with neither is skipped, and only the author can add `ended` with an edit.
+- [x] **20.** A reaction shows on every member's Mac with the reactor's name, a second click on the same pill takes it back, and a member can't add a twenty-first emoji to one message.
+- [x] **21.** A reaction record that fails ADR 0057 §2's checks, or whose key doesn't match its message, shows nothing.
+- [x] **22.** A removed member's reactions stay, listed under their name with **Left**.
+- [x] **23.** Another member's reaction to the user's message raises that channel's unread count until the user reads it, taking it back lowers it, and no reaction notifies.
+- [x] **24.** Opening the emoji picker makes no network request.

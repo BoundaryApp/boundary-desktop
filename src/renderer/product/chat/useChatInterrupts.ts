@@ -10,6 +10,7 @@ import { useHostBridgeApprovals } from './useHostBridgeApprovals';
 import { useHostToolsState } from './useHostToolsState';
 import { useCodingAccessRequests } from './useCodingAccessRequests';
 import { useOnChatSwitch } from './useLiveTurn';
+import { leftMain, usePendingQueue } from './usePendingQueue';
 
 type SameChat = (a: string, b: string) => boolean;
 
@@ -33,79 +34,45 @@ export function useChatInterrupts({
   /** Whose logins a saved login lands in: the live speaker, else the chat's agent. */
   speakerSlug: string;
 }) {
-  const [approvals, setApprovals] = useState<HermesChatApprovalEvent[]>([]);
-  const [approvalBusy, setApprovalBusy] = useState(false);
-  const [approvalError, setApprovalError] = useState<string | null>(null);
-  // Approvals answered or gone from main, so a pending list that was already in flight can't
-  // bring them back.
-  const settledApprovalsRef = useRef(new Set<string>());
+  const approvalQueue = usePendingQueue({
+    subscribe: ({ add }) => window.electronAPI.hermesChat.onChatApproval(add),
+    // An approval blocks the agent until answered, so main keeps it parked: each mount or switch
+    // shows the open chat's, which a reloaded or reopened window would otherwise never see.
+    list: sessionId ? () => window.electronAPI.hermesChat.listPendingApprovals(sessionId) : null,
+    listKey: sessionId,
+    key: (item: HermesChatApprovalEvent) => item.rpcRequestId,
+    upsert: withApproval,
+    settle: (item: HermesChatApprovalEvent, choice: HermesApprovalChoice) =>
+      window.electronAPI.hermesChat.respondApproval({ rpcRequestId: item.rpcRequestId, choice }),
+    // Main no longer holds it (answered elsewhere, withdrawn, or its socket dropped): drop the card.
+    isSettled: leftMain,
+    fallbackError: 'Could not send that answer. Try again.',
+  });
+  const approvals = approvalQueue.items;
   const ackedApprovalRef = useRef<string | null>(null);
-  const [credentialRequests, setCredentialRequests] = useState<HermesChatCredentialRequestEvent[]>([]);
+  const credentialQueue = usePendingQueue({
+    subscribe: ({ add }) => window.electronAPI.hermesChat.onChatCredentialRequest(add),
+    // A credential prompt blocks the agent until answered, so it outlives a chat switch: main
+    // keeps it parked, and each mount or switch shows whatever is still waiting. The list holds
+    // every prompt, so one it leaves out has gone from main.
+    list: () => window.electronAPI.hermesChat.listPendingCredentialRequests(),
+    listKey: sessionId,
+    listCovers: () => true,
+    key: (item: HermesChatCredentialRequestEvent) => item.rpcRequestId,
+    settle: (item: HermesChatCredentialRequestEvent, answer: Omit<HermesChatCredentialRespondPayload, 'rpcRequestId'>) =>
+      window.electronAPI.hermesChat.respondCredentialRequest({ rpcRequestId: item.rpcRequestId, ...answer }),
+    // Main no longer holds it (answered elsewhere or timed out): drop the card.
+    isSettled: leftMain,
+    fallbackError: 'Could not send that. Try again.',
+  });
+  const credentialRequests = credentialQueue.items;
   const [savedLogin, setSavedLogin] = useState<SavedLogin | null>(null);
-  const [credentialBusy, setCredentialBusy] = useState(false);
-  const [credentialError, setCredentialError] = useState<string | null>(null);
   const runningTurns = useRunningTurns();
   const hostApprovals = useHostBridgeApprovals();
   const hostTools = useHostToolsState();
   const codingAccess = useCodingAccessRequests(sessionId, sameChat);
 
-  useEffect(() => {
-    const unsubApproval = window.electronAPI.hermesChat.onChatApproval((event) => {
-      setApprovals((prev) => withApproval(prev, event));
-    });
-    const unsubCredential = window.electronAPI.hermesChat.onChatCredentialRequest((event) => {
-      setCredentialRequests((prev) =>
-        prev.some((item) => item.rpcRequestId === event.rpcRequestId)
-          ? prev.map((item) => (item.rpcRequestId === event.rpcRequestId ? event : item))
-          : [...prev, event]
-      );
-    });
-    return () => {
-      unsubApproval();
-      unsubCredential();
-    };
-  }, []);
-
-  useOnChatSwitch(sessionId, sameChat, () => setCredentialError(null));
-
-  // An approval blocks the agent until answered, so main keeps it parked: each mount or switch
-  // shows the open chat's, which a reloaded or reopened window would otherwise never see.
-  useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
-    void window.electronAPI.hermesChat
-      .listPendingApprovals(sessionId)
-      .then((pending) => {
-        if (cancelled) return;
-        const settled = settledApprovalsRef.current;
-        setApprovals((prev) =>
-          pending.filter((item) => !settled.has(item.rpcRequestId)).reduce(withApproval, prev)
-        );
-      })
-      .catch(() => {
-        /* best effort: live events still arrive */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
-
-  // A credential prompt blocks the agent until answered, so it outlives a chat switch:
-  // main keeps it parked, and each mount or switch shows whatever is still waiting.
-  useEffect(() => {
-    let cancelled = false;
-    void window.electronAPI.hermesChat
-      .listPendingCredentialRequests()
-      .then((pending) => {
-        if (!cancelled) setCredentialRequests(pending);
-      })
-      .catch(() => {
-        /* best effort: live events still arrive */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
+  useOnChatSwitch(sessionId, sameChat, credentialQueue.clearError);
 
   // Approvals reach every window for every chat; keep them all (the chat waits on its answer)
   // and show only the open chat's. A new chat has no id yet, so it takes its own turn's.
@@ -130,59 +97,31 @@ export function useChatInterrupts({
     });
   }, [approval]);
 
-  useEffect(() => setApprovalError(null), [approval?.rpcRequestId]);
+  const clearApprovalError = approvalQueue.clearError;
+  useEffect(() => clearApprovalError(), [approval?.rpcRequestId, clearApprovalError]);
 
+  const { respond: respondToApproval } = approvalQueue;
   const respondApproval = useCallback(
     async (choice: HermesApprovalChoice) => {
       if (!approval) return;
-      const { rpcRequestId } = approval;
-      setApprovalBusy(true);
-      setApprovalError(null);
-      try {
-        const result = await window.electronAPI.hermesChat.respondApproval({ rpcRequestId, choice });
-        // Main no longer holds it (answered elsewhere, withdrawn, or its socket dropped): drop the card.
-        if (result.success || result.error?.startsWith('No pending')) {
-          settledApprovalsRef.current.add(rpcRequestId);
-          setApprovals((prev) => prev.filter((item) => item.rpcRequestId !== rpcRequestId));
-        } else {
-          setApprovalError(result.error ?? 'Could not send that answer. Try again.');
-        }
-      } finally {
-        setApprovalBusy(false);
-      }
+      await respondToApproval(approval, choice);
     },
-    [approval]
+    [approval, respondToApproval]
   );
 
+  const { respond: respondToCredential } = credentialQueue;
   const respondCredential = useCallback(
     async (answer: Omit<HermesChatCredentialRespondPayload, 'rpcRequestId'>) => {
       if (!credentialRequest) return;
-      const rpcRequestId = credentialRequest.rpcRequestId;
-      setCredentialBusy(true);
-      setCredentialError(null);
-      try {
-        const result = await window.electronAPI.hermesChat.respondCredentialRequest({ rpcRequestId, ...answer });
-        if (result.success) {
-          setCredentialRequests((prev) => prev.filter((item) => item.rpcRequestId !== rpcRequestId));
-          if (credentialRequest.kind === 'vault.save_login' && answer.login) {
-            setSavedLogin({
-              site: credentialRequest.site ?? credentialRequest.origin ?? 'this site',
-              agentSlug: speakerSlug,
-            });
-          }
-        } else {
-          setCredentialError(result.error ?? 'Could not send that. Try again.');
-          // Main no longer holds it (answered elsewhere or timed out): drop the card.
-          if (result.error?.startsWith('No pending')) {
-            setCredentialRequests((prev) => prev.filter((item) => item.rpcRequestId !== rpcRequestId));
-            setCredentialError(null);
-          }
-        }
-      } finally {
-        setCredentialBusy(false);
+      const result = await respondToCredential(credentialRequest, answer);
+      if (result.success && credentialRequest.kind === 'vault.save_login' && answer.login) {
+        setSavedLogin({
+          site: credentialRequest.site ?? credentialRequest.origin ?? 'this site',
+          agentSlug: speakerSlug,
+        });
       }
     },
-    [credentialRequest, speakerSlug]
+    [credentialRequest, respondToCredential, speakerSlug]
   );
 
   useEffect(() => {
@@ -194,13 +133,13 @@ export function useChatInterrupts({
   return {
     approval,
     chatApprovals,
-    approvalBusy,
-    approvalError,
+    approvalBusy: approvalQueue.busy,
+    approvalError: approvalQueue.error,
     respondApproval,
     credentialRequest,
     credentialRequests,
-    credentialBusy,
-    credentialError,
+    credentialBusy: credentialQueue.busy,
+    credentialError: credentialQueue.error,
     respondCredential,
     savedLogin,
     dismissSavedLogin,

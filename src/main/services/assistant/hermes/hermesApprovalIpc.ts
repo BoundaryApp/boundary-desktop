@@ -4,6 +4,7 @@ import type {
   HermesChatApprovalEvent,
   HermesChatApprovalAckPayload,
   HermesChatApprovalRespondPayload,
+  HermesChatRespondResult,
 } from '../../../../shared/types/hermesChat';
 
 /**
@@ -13,7 +14,7 @@ import type {
  */
 export function handleHermesChatApprovalRespond(
   payload: HermesChatApprovalRespondPayload
-): Promise<{ success: boolean; error?: string }> {
+): Promise<HermesChatRespondResult> {
   return respondToParkedApproval(payload);
 }
 

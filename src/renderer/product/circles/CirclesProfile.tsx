@@ -6,6 +6,7 @@ import { Sheet } from '../../components/ui/sheet';
 import { CircleButton } from './CircleControls';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { SettingsRow, SettingsSection } from '../../components/settings/SettingsSection';
 
 /**
  * The user's side of Circles: the name members see, joining from setup, and the profile in
@@ -32,7 +33,7 @@ export function NameForm({ current, onSaved }: { current: string; onSaved?: () =
       </label>
       <div className="flex gap-2">
         <Input id="circles-name" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} />
-        <Button type="submit" variant="outline" disabled={action.busy || !name.trim()}>
+        <Button type="submit" variant="secondary" disabled={action.busy || !name.trim()}>
           Save
         </Button>
       </div>
@@ -64,7 +65,7 @@ export function JoinForm({ onJoin }: { onJoin?: (code: string) => void }) {
       <span className="text-title font-medium text-fg">Join with an invite</span>
       <span className="text-xs text-fg-faint">Paste the code someone sent you.</span>
       <Input className="h-[34px] bg-surface-0" aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
-      <CircleButton type="submit" variant="outline" disabled={join.busy || !code.trim()}>
+      <CircleButton type="submit" variant="secondary" disabled={join.busy || !code.trim()}>
         {join.busy ? 'Joining…' : 'Join'}
       </CircleButton>
       {join.busy ? (
@@ -94,7 +95,7 @@ function ProfileSheet({ circles, open, onClose }: { circles: CirclesState; open:
       title="Circles profile"
       error={error}
       actions={
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Done
         </Button>
       }
@@ -103,7 +104,7 @@ function ProfileSheet({ circles, open, onClose }: { circles: CirclesState; open:
         <NameForm current={circles.displayName} />
         <Button
           size="sm"
-          variant="ghost"
+          variant="quiet"
           className="self-start"
           onClick={() =>
             void api().revealDiagnostics().then((result) => {
@@ -124,21 +125,17 @@ export function CirclesProfileSection() {
   const [open, setOpen] = useState(false);
   const problem = circles.status === 'failed' ? circles.error : null;
   return (
-    <section className="wb-settings-section" aria-labelledby="settings-circles" id="settings-circles-profile">
-      <h2 id="settings-circles">Circles</h2>
-      <div className="wb-settings-row">
-        <div>
-          <p className="wb-settings-label">Circles profile</p>
-          <p className="wb-settings-hint">
-            {circles.displayName ? `${circles.displayName} · ${CONNECTION[circles.status]}` : 'No name yet. Members see the name you choose.'}
-          </p>
-          {problem ? <p className="wb-settings-hint is-warn">{problem}</p> : null}
-        </div>
-        <button type="button" className="wb-inference-btn" onClick={() => setOpen(true)}>
+    <SettingsSection id="settings-circles" title="Circles" sectionId="settings-circles-profile">
+      <SettingsRow
+        label="Circles profile"
+        hint={circles.displayName ? `${circles.displayName} · ${CONNECTION[circles.status]}` : 'No name yet. Members see the name you choose.'}
+        details={problem ? <p className="wb-settings-hint is-warn">{problem}</p> : null}
+      >
+        <Button variant="secondary" type="button" onClick={() => setOpen(true)}>
           Profile…
-        </button>
-      </div>
+        </Button>
+      </SettingsRow>
       <ProfileSheet circles={circles} open={open} onClose={() => setOpen(false)} />
-    </section>
+    </SettingsSection>
   );
 }

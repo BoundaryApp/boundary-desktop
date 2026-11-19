@@ -4,23 +4,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 
-const noop = () => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-} as unknown as typeof ResizeObserver;
-Element.prototype.scrollTo ??= noop;
+const noop = (): void => undefined;
 
-vi.mock('streamdown', () => ({
-  Streamdown: ({ children }: { children: string }) => <div>{children}</div>,
-}));
+vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 stubElectronAPI({
   hermesChat: {
     listPendingApprovals: vi.fn(async () => []),
     listPendingCredentialRequests: vi.fn(async () => []),
-    getContextBreakdown: async () => ({ success: true, breakdown: { categories: [] } }),
+    getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
+      success: true,
+      breakdown: {
+        categories: [],
+        contextUsed: 0,
+        contextMax: 0,
+        contextPercent: 0,
+        contextEstimated: false,
+      },
+    }),
   },
   onboarding: {
     getStatus: vi.fn().mockResolvedValue({ configured: true, slots: {} }),
@@ -28,20 +29,21 @@ stubElectronAPI({
   },
 });
 
-const chip = vi.hoisted(() => ({ marks: [] as unknown[] }));
-vi.mock('../InferenceChip', async () => {
-  const { useEffect } = await import('react');
-  return {
-    InferenceChip: ({ onMarksChange }: { onMarksChange?: (marks: unknown[]) => void }) => {
-      useEffect(() => onMarksChange?.(chip.marks), [onMarksChange]);
-      return null;
-    },
-  };
+// The switch marks main notes for the chat. The chip is not mounted: the marks come from main.
+const main = vi.hoisted(() => ({ marks: [] as unknown[] }));
+stubElectronAPI({
+  hermesChat: {
+    getSessionInference: vi.fn(async () => ({ success: true, override: null, resolved: null, marks: main.marks })),
+  },
 });
-vi.mock('../ProjectPicker', () => ({ ProjectPicker: () => null }));
+vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
+vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
-import type { SessionProjectMark } from '../../../../shared/types/hermesChat';
+import type {
+  HermesChatBreakdownResult,
+  SessionProjectMark,
+} from '../../../../shared/types/hermesChat';
 
 const adapter = {
   async *run() {
@@ -99,11 +101,11 @@ const follows = (a: Element, b: Element) =>
 describe('transcript marks', () => {
   afterEach(() => {
     cleanup();
-    chip.marks = [];
+    main.marks = [];
   });
 
   it('draws each mark between the messages it happened between', async () => {
-    chip.marks = [
+    main.marks = [
       { id: 'i1', at: at(11).toISOString(), kind: 'switched', provider: 'openrouter', modelId: 'x/model-a' },
     ];
     render(<Harness projectMarks={[move('m1', at(9, 30).toISOString(), 'p2')]} />);
@@ -119,7 +121,7 @@ describe('transcript marks', () => {
   });
 
   it('says which provider answered when a fallback did (ADR 0033 §3)', async () => {
-    chip.marks = [
+    main.marks = [
       { id: 'f1', at: at(11).toISOString(), kind: 'fell-back', provider: 'openrouter', modelId: 'x/model-a' },
     ];
     render(<Harness projectMarks={[]} />);
@@ -127,7 +129,7 @@ describe('transcript marks', () => {
   });
 
   it('names who shared the model when a shared model answered', async () => {
-    chip.marks = [
+    main.marks = [
       {
         id: 'f1',
         at: at(11).toISOString(),
@@ -142,7 +144,7 @@ describe('transcript marks', () => {
   });
 
   it('says when the primary answers again, naming who shares it', async () => {
-    chip.marks = [
+    main.marks = [
       { id: 'r1', at: at(11).toISOString(), kind: 'recovered', provider: 'openrouter', modelId: 'x/model-a' },
       {
         id: 'r2',

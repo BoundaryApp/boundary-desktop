@@ -22,7 +22,12 @@ export interface RingFigureProps {
 }
 
 export interface BuiltinAgentMarkProps {
-  /** The mark's side in CSS pixels: 14 in section heads, 18 in rows, 24 in headers. */
+  /** The mark's side in CSS pixels: 14 in section heads, 18 in rows, 24 in headers, 48 on the agent button. */
+  size: 14 | 18 | 24 | 48;
+}
+
+export interface BuiltinAgentPortraitProps {
+  /** The mark's side in CSS pixels: 14 in section heads and inline, 18 in lists, 24 in headers. */
   size: 14 | 18 | 24;
 }
 
@@ -36,6 +41,11 @@ export interface ExperimentDestination {
   Icon: ComponentType;
   /** Fills the area right of the rail, below the title bar band. */
   Screen: ComponentType;
+  /**
+   * A React hook the rail calls on every render of this destination's button. While it returns
+   * true the button shows a dot and its accessible name gains ", needs attention".
+   */
+  useAttention?: () => boolean;
 }
 
 /**
@@ -53,12 +63,20 @@ export interface RendererExperiment {
   /** Drawn in the centre of the start-up ring in place of the face. The first one wins. */
   RingFigure?: ComponentType<RingFigureProps>;
   /**
-   * Drawn in place of the sparkle wherever the built-in agent's chats are marked, filling the
-   * mark's square at `size` CSS pixels. The first one wins.
+   * Drawn in place of the speech bubble wherever the built-in agent's chats are marked, filling
+   * the mark at `size` CSS pixels. The first one wins.
    */
   BuiltinAgentMark?: ComponentType<BuiltinAgentMarkProps>;
+  /**
+   * Drawn wherever the built-in agent itself is named rather than one of its chats (its rail
+   * section head, message attributions, Mentions, the @ menu, room members), in place of the
+   * start-up face, so the agent and its chats get different marks. The first one wins.
+   */
+  BuiltinAgentPortrait?: ComponentType<BuiltinAgentPortraitProps>;
   /** A section in Settings → General, after Appearance. */
   SettingsSection?: ComponentType;
+  /** Drawn over every screen, beside the update card, for cards an experiment must show wherever the user is. */
+  Overlay?: ComponentType;
   /** Screens with a button in the icon rail. */
   destinations?: ExperimentDestination[];
 }

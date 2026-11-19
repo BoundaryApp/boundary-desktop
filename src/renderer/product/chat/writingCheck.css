@@ -1,0 +1,191 @@
+/* Writing check pane in the inspector (writing check spec, phase 2). */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+.wb-check .wb-insp-ident > span:has(> .who-name) .who-meta {
+  white-space: normal;
+}
+
+.wb-check-path,
+.wb-check-file-meta {
+  display: block;
+}
+
+.wb-check-path {
+  overflow-wrap: anywhere;
+}
+
+.wb-check-error {
+  color: var(--warn);
+}
+
+.wb-check-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.wb-check-link:hover {
+  color: var(--text);
+}
+
+.wb-check-close {
+  flex-shrink: 0;
+  width: var(--space-5);
+  height: var(--space-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-check-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.wb-check-summary {
+  padding: 0 var(--inspector-gutter);
+}
+
+.wb-check-count {
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+  letter-spacing: -0.02em;
+}
+
+.wb-check-rate {
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-check-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  padding: var(--space-3) var(--inspector-gutter) 0;
+}
+
+.wb-check-filter {
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-check-filter[aria-pressed='true'] {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.wb-check-filter[aria-pressed='false'] {
+  opacity: 0.55;
+}
+
+.wb-check-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  margin: var(--space-3) var(--inspector-gutter) 0;
+  padding: var(--space-2) var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: var(--size-xs);
+}
+
+.wb-check-hint,
+.wb-check-reason > span {
+  color: var(--text-muted);
+}
+
+.wb-check-reason {
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-check-prose {
+  padding: var(--space-3) var(--inspector-gutter) 0;
+  font-family: var(--font-prose);
+  font-size: var(--size-ui);
+  line-height: var(--leading-prose);
+}
+
+.wb-check-prose p {
+  margin: 0 0 var(--space-2);
+}
+
+.wb-check-prose p.is-heading {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-strong);
+}
+
+.wb-check-prose p.is-listItem {
+  padding-left: var(--space-3);
+  text-indent: calc(-1 * var(--space-3));
+}
+
+.wb-check-prose p.is-listItem::before {
+  content: '• ';
+}
+
+.wb-check-prose mark {
+  border-bottom: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-dim);
+  color: inherit;
+  cursor: help;
+}
+
+.wb-check-prose mark.is-active,
+.wb-check-prose mark:focus-visible {
+  background: var(--warn-line);
+  outline: none;
+}
+
+/* "Show in chat" marks the checked reply for a moment. */
+.wb-msg.is-assistant.is-focused .wb-prose {
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 var(--space-1-5) var(--warn-dim);
+}
+
+/* Detector score (phase 5): its own block under the note, and a second highlight layer. */
+.wb-check-detector {
+  padding: var(--space-2) 0 0;
+}
+
+.wb-check-detector .wb-insp-actions {
+  padding-top: 0;
+}
+
+.wb-check-detector-leaves {
+  margin: 0;
+  padding: 0 var(--inspector-gutter) var(--space-2);
+  font-size: var(--size-xs);
+}
+
+.wb-check-detector-score {
+  padding: 0 var(--inspector-gutter);
+  font-weight: var(--weight-strong);
+}
+
+.wb-check-detector > .wb-check-rate {
+  padding: 0 var(--inspector-gutter);
+}
+
+.wb-check-prose .is-detected {
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 3px;
+}
+}

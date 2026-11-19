@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 /** The real bridge entry on loopback ports, with a fake parent port standing in for main. */
 
@@ -10,21 +10,27 @@ const parentPort = Object.assign(new EventEmitter(), {
   postMessage: (m: Record<string, unknown>) => posted.push(m),
 });
 
-function send(port: number, method: string, body?: unknown, session?: string): Promise<{ status: number; session?: string; body: string }> {
+function send(
+  port: number,
+  method: string,
+  body?: unknown,
+  session?: string,
+  { path = '/mcp', token = MCP_TOKEN }: { path?: string; token?: string } = {}
+): Promise<{ status: number; session?: string; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: '127.0.0.1',
         port,
         method,
-        path: '/mcp',
+        path,
         // A new connection per request. The global agent keeps sockets alive, so a request sent
         // right after stop could reuse a socket the bridge has closed and fail with ECONNRESET
         // or "socket hang up" instead of reaching the closed listener.
         agent: false,
         headers: {
           host: `host.docker.internal:${port}`,
-          authorization: `Bearer ${MCP_TOKEN}`,
+          authorization: `Bearer ${token}`,
           'content-type': 'application/json',
           ...(session ? { 'mcp-session-id': session } : {}),
         },
@@ -42,8 +48,10 @@ function send(port: number, method: string, body?: unknown, session?: string): P
   });
 }
 
+/** Polls the real sockets' effects; fails naming the condition if it doesn't hold within 2 s. */
 const waitFor = async (pred: () => boolean) => {
   for (let i = 0; i < 200 && !pred(); i++) await new Promise((r) => setTimeout(r, 10));
+  if (!pred()) throw new Error(`Timed out waiting for ${pred.toString()}`);
 };
 
 const clientCounts = () => posted.filter((m) => m.type === 'hermes-clients').map((m) => m.count);
@@ -51,12 +59,22 @@ const clientCounts = () => posted.filter((m) => m.type === 'hermes-clients').map
 describe('bridge process', () => {
   const realExit = process.exit;
   let mcpPort = 0;
+  let exits = 0;
 
   beforeAll(async () => {
     (process as unknown as { parentPort: unknown }).parentPort = parentPort;
     // Keep the bridge's own exit from ending the test worker.
-    (process as unknown as { exit: unknown }).exit = () => undefined;
+    (process as unknown as { exit: unknown }).exit = () => {
+      exits += 1;
+    };
     await import('../bridgeProcess');
+  });
+
+  // Each test gets its own start of the bridge, since one test stops it and the rest need it up.
+  beforeEach(async () => {
+    posted.length = 0;
+    exits = 0;
+    parentPort.emit('message', { data: { type: 'calendar-tokens', tokens: {} } });
     parentPort.emit('message', {
       data: {
         type: 'start',
@@ -73,10 +91,16 @@ describe('bridge process', () => {
     mcpPort = (posted.find((m) => m.type === 'ready') as { mcpPort: number }).mcpPort;
   });
 
-  afterAll(async () => {
-    parentPort.emit('message', { data: { type: 'stop' } });
-    await waitFor(() => posted.some((m) => m.type === 'stopped'));
-    await new Promise((r) => setTimeout(r, 20));
+  afterEach(async () => {
+    if (!posted.some((m) => m.type === 'stopped')) {
+      parentPort.emit('message', { data: { type: 'stop' } });
+      await waitFor(() => posted.some((m) => m.type === 'stopped'));
+    }
+    // The bridge exits on the turn after it stops; wait for that while the stub is in place.
+    await waitFor(() => exits > 0);
+  });
+
+  afterAll(() => {
     (process as unknown as { exit: unknown }).exit = realExit;
   });
 
@@ -97,6 +121,32 @@ describe('bridge process', () => {
       await waitFor(() => clientCounts().length === 2 * i + 2);
     }
     expect(clientCounts()).toEqual([1, 0, 1, 0, 1]);
+  });
+
+  it('forwards calendar listings and calls to main with the agent its token belongs to', async () => {
+    const asWork = { path: '/calendar', token: 'calendar-token-work' };
+    // No calendar tokens yet: refused.
+    expect((await send(mcpPort, 'POST', { jsonrpc: '2.0', id: 5, method: 'ping' }, undefined, asWork)).status).toBe(401);
+    parentPort.emit('message', { data: { type: 'calendar-tokens', tokens: { 'calendar-token-work': 'work' } } });
+
+    const list = send(mcpPort, 'POST', { jsonrpc: '2.0', id: 6, method: 'tools/list' }, undefined, asWork);
+    await waitFor(() => posted.some((m) => m.type === 'calendar-tool-list'));
+    const listRequest = posted.find((m) => m.type === 'calendar-tool-list') as { id: number; agent: string };
+    expect(listRequest.agent).toBe('work');
+    const tool = { name: 'caldav_list_calendars', title: 't', description: 'd', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } };
+    parentPort.emit('message', { data: { type: 'calendar-tool-list-result', id: listRequest.id, tools: [tool] } });
+    expect(JSON.parse((await list).body).result.tools).toEqual([tool]);
+
+    const call = send(mcpPort, 'POST', { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'caldav_list_calendars', arguments: {} } }, undefined, asWork);
+    await waitFor(() => posted.some((m) => m.type === 'calendar-tool-call'));
+    const callRequest = posted.find((m) => m.type === 'calendar-tool-call') as { id: number; agent: string; name: string };
+    expect(callRequest).toMatchObject({ agent: 'work', name: 'caldav_list_calendars', args: {} });
+    parentPort.emit('message', { data: { type: 'tool-result', id: callRequest.id, result: { content: [{ type: 'text', text: 'listed' }] } } });
+    expect(JSON.parse((await call).body).result.content[0].text).toBe('listed');
+
+    // The map is replaced whole: a dropped token stops working at once.
+    parentPort.emit('message', { data: { type: 'calendar-tokens', tokens: {} } });
+    expect((await send(mcpPort, 'POST', { jsonrpc: '2.0', id: 8, method: 'ping' }, undefined, asWork)).status).toBe(401);
   });
 
   it('on stop, answers a call in flight with the reason and stops listening', async () => {

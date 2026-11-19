@@ -1,3 +1,4 @@
+import { shell } from 'electron';
 import { handle, handleResult } from '../../../ipc';
 import type {
   CalendarAccessPayload,
@@ -5,6 +6,8 @@ import type {
   CalendarReplacePasswordPayload,
   CalendarSlugPayload,
   CalendarTestPayload,
+  MacCalendarsPayload,
+  MacConnectPayload,
 } from '../../../../shared/types/calendars';
 import {
   connectCalendar,
@@ -17,6 +20,16 @@ import {
   setCalendarAccess,
   testCalendarSignIn,
 } from './calendarService';
+import {
+  connectMacCalendars,
+  macCalendarStatus,
+  requestMacCalendarAccess,
+  restartMacCalendarHelper,
+  setMacCalendars,
+} from './macCalendarAccount';
+
+/** The one address this handler opens. It takes nothing from the renderer. */
+const PRIVACY_CALENDARS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars';
 
 export function registerCalendarHandlers(): void {
   handleResult('calendars:list', async () => listCalendars());
@@ -51,4 +64,26 @@ export function registerCalendarHandlers(): void {
   handleResult('calendars:remove', async (_event, payload: CalendarSlugPayload) =>
     removeCalendar(payload)
   );
+
+  // Calendars on this Mac. Access changes and removal use set-access and remove.
+  handle('calendars:mac-status', async () => macCalendarStatus());
+
+  handle('calendars:mac-request-access', async () => requestMacCalendarAccess());
+
+  // No arguments: restarts the one helper and answers with its new status.
+  handle('calendars:mac-restart-helper', async () => restartMacCalendarHelper());
+
+  handleResult('calendars:mac-connect', async (_event, payload: MacConnectPayload) => connectMacCalendars(payload));
+
+  handleResult('calendars:mac-set-calendars', async (_event, payload: MacCalendarsPayload) => setMacCalendars(payload));
+
+  // No arguments: the renderer can't choose what opens.
+  handleResult('calendars:open-privacy-settings', async () => {
+    try {
+      await shell.openExternal(PRIVACY_CALENDARS_URL);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 }

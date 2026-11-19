@@ -13,16 +13,24 @@ import Autobase from 'autobase';
 import Corestore, { type Hypercore } from 'corestore';
 import Hyperswarm from 'hyperswarm';
 import { CircleNetwork } from './circleNetwork';
+import type { SharedModelResponse } from './inferenceChannel';
+import { FolderRuntime, handleFolderRequest } from './folderRuntime';
 import type {
+  CallContext,
+  CallTunnelReply,
   CircleChatReply,
   CirclePublicAddress,
   CircleRecordEntry,
   CircleSecrets,
   CirclesRequest,
+  FolderReply,
+  FolderRequest,
   MainToNetwork,
   NetworkSpikeMode,
   NetworkToMain,
 } from './networkMessages';
+import { reportFatalErrors } from './networkFatal';
+import { processHealth } from './processHealth';
 import { runUnorderedProbe } from './unorderedProbe';
 
 /** The addons ADR 0032 names; the process is no use without any of them. */
@@ -33,6 +41,9 @@ let store: Corestore | null = null;
 let swarm: Hyperswarm | null = null;
 let base: Autobase | null = null;
 let circles: CircleNetwork | null = null;
+let folderRuntime: FolderRuntime | null = null;
+/** Folders whose change main hasn't been told about yet; sent once per turn of the loop. */
+const changedFolders = new Set<string>();
 let stopping = false;
 
 function post(message: NetworkToMain): void {
@@ -47,6 +58,8 @@ function diag(event: string, data: Record<string, unknown> = {}): void {
   post({ type: 'diag', at: Date.now(), event, data });
 }
 
+reportFatalErrors(process, { log, diag, print: (error) => console.error(error) });
+
 /** How often the health record goes out while Circles run. */
 const HEARTBEAT_MS = 60_000;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -59,11 +72,9 @@ function startHeartbeat(net: CircleNetwork): void {
   let expected = Date.now() + HEARTBEAT_MS;
   heartbeat = setInterval(() => {
     const now = Date.now();
-    const memory = process.memoryUsage();
     diag('net.heartbeat', {
       lagMs: Math.max(0, now - expected),
-      rssMb: Math.round(memory.rss / 2 ** 20),
-      heapMb: Math.round(memory.heapUsed / 2 ** 20),
+      ...processHealth(),
       sharedCalls: sharedCalls.size,
       ...net.diagnostics(),
     });
@@ -178,18 +189,30 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
     },
     usage: message.usage,
     onUsage: (served, serving) => post({ type: 'share-usage', served, serving }),
+    serviceUsage: message.serviceUsage,
+    onServiceUsage: (served) => post({ type: 'service-usage', served }),
     onSignal: (signal) => post({ type: 'signal-received', signal }),
     onRecord: (change) => post({ type: 'record-changed', change }),
     onChat: (update) => post({ type: 'chat-update', update }),
     onPaired: (secrets) => post({ type: 'circle-paired', secrets }),
     onRemoved: (key) => post({ type: 'circle-removed', key }),
     onMemberLeft: (left) => post({ type: 'member-left', ...left }),
+    onFolderChange: (key) => {
+      folderRuntime?.viewChanged(key);
+      folderChanged(key);
+    },
     log,
     diag,
   });
   const started = Date.now();
   await net.ready();
   circles = net;
+  folderRuntime = new FolderRuntime({
+    folders: net.folders,
+    stateDir: path.join(message.storageDir, 'folder-mirrors'),
+    onStatus: folderChanged,
+    log,
+  });
   for (const secrets of message.circles) {
     // One Circle that won't open shouldn't keep the others offline.
     await net.openCircle(secrets).catch((err: unknown) => {
@@ -201,15 +224,35 @@ async function startCircles(message: Extract<MainToNetwork, { type: 'circles-sta
   startHeartbeat(net);
 }
 
+function folderChanged(key: string): void {
+  if (changedFolders.size === 0) {
+    setImmediate(() => {
+      for (const changed of changedFolders) post({ type: 'folder-changed', key: changed });
+      changedFolders.clear();
+    });
+  }
+  changedFolders.add(key);
+}
+
+/** Runs one shared folder request (ADR 0049). */
+async function handleFolder(request: FolderRequest): Promise<FolderReply> {
+  if (!circles || !folderRuntime) throw new Error('Circles are not running.');
+  return handleFolderRequest(circles.folders, folderRuntime, request);
+}
+
+const isFolderRequest = (request: CirclesRequest): request is FolderRequest => request.op.startsWith('folder-');
+
 /** Runs one request; a created or joined Circle returns its secrets, an invite its code. */
 async function handleCircles(
-  request: CirclesRequest
+  request: Exclude<CirclesRequest, FolderRequest>
 ): Promise<
   | CircleSecrets
   | { id: string; code: string; expires: number }
   | CircleRecordEntry[]
   | { chat: CircleChatReply }
   | { address: CirclePublicAddress }
+  | { tunnel: CallTunnelReply }
+  | { context: CallContext }
   | void
 > {
   const net = circles;
@@ -241,8 +284,17 @@ async function handleCircles(
       return net.withdrawOffer(request.key);
     case 'share-upstream':
       return net.setShareUpstream(request.upstream, request.limits);
+    case 'service-sharing':
+      return net.setServiceSharing(request.sharing);
     case 'public-address':
       return { address: net.publicAddress() };
+    case 'call-context':
+      return { context: net.callContext(request.key, request.to) };
+    case 'call-tunnel':
+      if (request.action === 'open') return { tunnel: { port: await net.openCallTunnel(request.key, request.to, request.tunnel, request.device) } };
+      return {
+        tunnel: { stats: net.callTunnelStats(request.key, request.to, request.tunnel, { close: request.action === 'close' }) },
+      };
     case 'record-set':
       return net.setRecord(request.key, request.app, request.scope, request.record, request.value, { keep: request.keep });
     case 'record-del':
@@ -250,29 +302,36 @@ async function handleCircles(
     case 'records-list':
       return net.listRecords(request.key, request.app);
     case 'chat-channels':
-      return { chat: { channels: await net.listChannels(request.key, request.reads) } };
+      return { chat: { channels: await net.listChannels(request.key, request.reads, request.channelMentions) } };
     case 'chat-messages':
       return { chat: await net.listMessages(request.key, request.channel, { before: request.before, limit: request.limit }) };
     case 'chat-post':
-      return { chat: { id: await net.postMessage(request.key, request.channel, request.text, request.shared) } };
+      return { chat: { id: await net.postMessage(request.key, request.channel, request.text, { shared: request.shared, mentions: request.mentions, reply: request.reply }) } };
+    case 'chat-message':
+      return { chat: { message: await net.getMessage(request.key, request.channel, request.ref) } };
     case 'chat-edit':
-      return net.editMessage(request.key, request.channel, request.id, request.text);
+      return net.editMessage(request.key, request.channel, request.id, request.text, request.mentions);
     case 'chat-delete':
       return net.deleteMessage(request.key, request.channel, request.author, request.id);
+    case 'chat-react':
+      return net.reactMessage(request.key, request.channel, { author: request.author, id: request.id }, request.emoji, request.on);
   }
 }
 
 /** Shared-model calls in flight, by main's id, so main can cancel them. */
 const sharedCalls = new Map<number, AbortController>();
 
-async function runSharedCall(message: Extract<MainToNetwork, { type: 'shared-request' }>): Promise<void> {
-  const { id } = message;
+/** Runs one call to a member's shared model or service and streams its reply to main. */
+async function runSharedCall(
+  id: number,
+  start: (net: CircleNetwork, signal: AbortSignal) => Promise<SharedModelResponse>
+): Promise<void> {
   const abort = new AbortController();
   sharedCalls.set(id, abort);
   try {
     const net = circles;
     if (!net) throw new Error('Circles are not running.');
-    const response = await net.requestSharedModel(message.key, message.provider, message.request, abort.signal);
+    const response = await start(net, abort.signal);
     post({ type: 'shared-head', id, status: response.status, contentType: response.contentType });
     try {
       for await (const chunk of response.body) post({ type: 'shared-chunk', id, data: chunk as Buffer });
@@ -294,7 +353,7 @@ async function stop(): Promise<void> {
   if (circles) diag('net.stopping', circles.diagnostics());
   // In order: the Autobase closes its sessions on the store, which fails once the store is closed.
   const errors: string[] = [];
-  for (const close of [() => circles?.close(), () => swarm?.destroy(), () => base?.close(), () => store?.close()]) {
+  for (const close of [() => folderRuntime?.close(), () => circles?.close(), () => swarm?.destroy(), () => base?.close(), () => store?.close()]) {
     try {
       await close();
     } catch (err) {
@@ -324,13 +383,20 @@ port.on('message', (event: { data: MainToNetwork }) => {
       return;
     case 'circles-request': {
       const { id, request } = message;
+      if (isFolderRequest(request)) {
+        handleFolder(request).then(
+          (folders) => post({ type: 'circles-reply', id, ok: true, folders }),
+          (err: unknown) => post({ type: 'circles-reply', id, ok: false, error: errorMessage(err) })
+        );
+        return;
+      }
       handleCircles(request).then(
         (result) => {
           const extra = !result
             ? {}
             : Array.isArray(result)
               ? { records: result }
-              : 'chat' in result || 'address' in result
+              : 'chat' in result || 'address' in result || 'tunnel' in result || 'context' in result
                 ? result
                 : 'code' in result
                   ? { invite: result }
@@ -342,7 +408,10 @@ port.on('message', (event: { data: MainToNetwork }) => {
       return;
     }
     case 'shared-request':
-      void runSharedCall(message);
+      void runSharedCall(message.id, (net, signal) => net.requestSharedModel(message.key, message.provider, message.request, signal));
+      return;
+    case 'service-request':
+      void runSharedCall(message.id, (net, signal) => net.requestService(message.key, message.provider, message.request, signal));
       return;
     case 'shared-cancel':
       sharedCalls.get(message.id)?.abort();

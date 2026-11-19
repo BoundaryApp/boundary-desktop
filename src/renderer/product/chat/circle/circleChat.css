@@ -1,79 +1,15 @@
-/* Circle places in the chat screen (Circle chats spec decisions 1 to 10). */
+/* Circles on the Circles destination (ADR 0052, Circle chats spec decisions 3 to 10). */
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
 
 .wb-circles-mark {
   flex-shrink: 0;
   color: var(--brand);
 }
 
-/* Place switcher: the top of the chat rail says which place the rail shows. */
-.wb-place {
-  position: relative;
-  margin: 10px 8px 8px;
-}
-
-/* The project picker's own top margin would double the gap under the switcher. */
-.wb-place + .wb-proj-picker {
-  margin-top: 0;
-}
-
-.wb-place-button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wb-place-button:hover {
-  border-color: var(--line-strong, var(--line));
-}
-
-.wb-place-button.is-circle {
-  border-color: transparent;
-  background: var(--brand-dim);
-}
-
-.wb-place-button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.wb-place-copy {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  line-height: 1.3;
-}
-
-.wb-place-copy b,
-.wb-place-copy span {
-  overflow: hidden;
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-place-copy small {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-place-chev {
-  color: var(--text-faint);
-}
-
-.wb-place-tile {
+/* The Circles destination's list (ADR 0052 §2). */
+.wb-circle-tile {
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -86,31 +22,39 @@
   font-weight: var(--weight-strong);
 }
 
-.wb-place-tile.is-mac {
+.wb-circle-tile.is-plain {
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text-muted);
 }
 
-.wb-place-menu {
+.wb-circles-list .wb-circle-tile {
+  border-radius: var(--radius-sm);
+  font-size: 9px;
+}
+
+.wb-circles-add {
+  position: relative;
+  margin-left: auto;
+}
+
+.wb-circles-menu {
   position: absolute;
   z-index: 30;
   top: calc(100% + 4px);
-  left: 0;
-  width: 260px;
-  padding: 4px;
+  right: 0;
+  width: 200px;
+  padding: var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-1);
   box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.16));
 }
 
-.wb-place-menu > button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.wb-circles-menu > button {
+  display: block;
   width: 100%;
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
@@ -120,49 +64,262 @@
   cursor: pointer;
 }
 
-.wb-place-menu > .wb-place-menu-static {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 8px;
-  color: var(--text-muted);
-  cursor: default;
-}
-
-.wb-place-menu > button:hover,
-.wb-place-menu > button:focus-visible {
+.wb-circles-menu > button:hover,
+.wb-circles-menu > button:focus-visible {
   outline: none;
   background: var(--surface-hover);
 }
 
-.wb-place-menu hr {
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid var(--line);
+.wb-circles-search {
+  display: block;
+  width: calc(100% - 2 * var(--space-2));
+  margin: 0 var(--space-2) var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-xs);
 }
 
-.wb-place-menu-head {
-  padding: 6px 8px 4px;
+.wb-circles-search:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-circles-row.is-static {
+  cursor: default;
+}
+
+.wb-circles-row.is-static:hover {
+  background: transparent;
+}
+
+/* A Circle row's ⋯ (Circles screen spec decision 20): shown on hover, on focus and while its
+   menu is open, in place of the row's count. */
+.wb-circles-row-wrap {
+  position: relative;
+}
+
+.wb-circles-more {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.wb-circles-more:hover {
+  color: var(--text);
+}
+
+.wb-circles-more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-circles-row-wrap:hover .wb-circles-more,
+.wb-circles-row-wrap:focus-within .wb-circles-more,
+.wb-circles-row-wrap.is-menu-open .wb-circles-more {
+  opacity: 1;
+}
+
+.wb-circles-row-wrap:hover .wb-rail-count,
+.wb-circles-row-wrap:focus-within .wb-rail-count,
+.wb-circles-row-wrap.is-menu-open .wb-rail-count {
+  visibility: hidden;
+}
+
+.wb-circles-row-levels {
+  padding-left: var(--space-3);
+}
+
+.wb-circles-row-menu [role='menuitemradio'][aria-checked='true']::after {
+  content: '✓';
+  float: right;
+  color: var(--text-muted);
+}
+
+.wb-circles-row-menu button.is-danger {
+  color: var(--danger);
+}
+
+.wb-circles-row-menu button:disabled {
+  background: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.wb-circles-row-line {
+  display: block;
+  overflow: hidden;
   color: var(--text-faint);
   font-size: var(--size-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.wb-place-menu-note {
-  margin: 4px 8px 6px;
+/* The rail (Circles screen spec decision 22): the open Circle's area on top, a dock of every
+   Circle below it. The header stays put; the sections scroll beneath it. */
+.wb-circle-rail {
+  overflow: hidden;
+}
+
+.wb-circle-area {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The open Circle draws its area into this element, which adds no box of its own. */
+.wb-circle-area-slot {
+  display: contents;
+}
+
+.wb-circle-area-head {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 48px;
+  --more-width: 22px;
+  /* Room on the right for the absolutely placed ⋯ button, so a long name ends before it. */
+  padding: 0 calc(var(--space-2) * 2 + var(--more-width)) 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-circle-area-head .wb-circle-tile {
+  border-radius: var(--radius-sm);
+  font-size: 9px;
+}
+
+.wb-circle-area-head .wb-circles-more {
+  right: var(--space-2);
+  width: var(--more-width);
+  opacity: 1;
+}
+
+.wb-circle-area-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-circle-area-sections {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: var(--space-2);
+  overflow-y: auto;
+}
+
+.wb-circles-grip {
+  position: relative;
+  flex: none;
+  height: var(--space-2);
+  margin-bottom: calc(var(--space-2) * -1);
+  cursor: row-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.wb-circles-grip:hover,
+.wb-circles-grip:focus-visible {
+  background: var(--line);
+}
+
+.wb-circles-grip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-circles-dock {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.wb-circles-dock.is-alone {
+  flex: 1 1 auto;
+  border-top: 0;
+}
+
+.wb-circles-list {
+  --dock-chip-height: 28px;
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-circles-dock-rows {
+  flex: 1;
+  min-height: 0;
+  /* Room for the unread chip (its height and the gap under it) plus a gap above it, so a row
+     scrolled into view, and the last row, sit clear of the chip. */
+  padding-bottom: calc(var(--dock-chip-height) + var(--space-2) * 2);
+  scroll-padding-bottom: calc(var(--dock-chip-height) + var(--space-2) * 2);
+  overflow-y: auto;
+}
+
+.wb-circles-chip {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  height: var(--dock-chip-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+  box-shadow: var(--shadow-popover);
+}
+
+.wb-circles-row.is-unread {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.wb-circles-note {
+  margin: var(--space-1) var(--space-2) var(--space-1-5);
   color: var(--text-faint);
   font-size: var(--size-xs);
   line-height: 1.45;
 }
 
-.wb-place-menu-note.is-warn {
-  padding: 6px 8px;
+.wb-circles-note.is-warn {
+  padding: var(--space-1-5) var(--space-2);
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-sm);
   background: var(--warn-dim);
   color: var(--warn);
 }
 
-.wb-place-menu-link {
+.wb-circles-link {
   padding: 0;
   border: 0;
   background: none;
@@ -172,6 +329,12 @@
   cursor: pointer;
 }
 
+.wb-circles-welcome-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1-5);
+}
+
 /* The page that waits for a join (ADR 0043 §7). */
 .wb-circle-joining {
   display: flex;
@@ -179,8 +342,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 24px;
+  gap: var(--space-2-5);
+  padding: var(--space-6);
   text-align: center;
 }
 
@@ -203,12 +366,7 @@
 }
 
 .wb-circle-joining .wb-btn-tiny {
-  margin-top: 6px;
-}
-
-.wb-place-check {
-  width: 14px;
-  color: var(--brand);
+  margin-top: var(--space-1-5);
 }
 
 /* The Circle's rail. */
@@ -216,11 +374,6 @@
   width: 20px;
   height: 20px;
   font-size: 8px;
-}
-
-.wb-circle-admin {
-  color: var(--text-faint);
-  font-size: var(--size-2xs);
 }
 
 .wb-online-dot {
@@ -244,15 +397,162 @@
 
 .wb-circle-channel {
   color: var(--text-muted);
-  font-weight: var(--weight-normal, 400);
+  font-weight: var(--weight-regular);
 }
 
-.wb-circle-log {
-  gap: 14px;
+.wb-log.wb-circle-log {
+  gap: var(--space-1-5);
 }
 
 .wb-circle-msg.is-cont {
-  margin-top: -8px;
+  margin-top: calc(-1 * var(--space-1-5));
+}
+
+/* One message's content, below any day divider. It carries the hover fill and anchors the
+   toolbar, so the divider never highlights with the message. */
+.wb-circle-line {
+  position: relative;
+  margin-inline: calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.wb-circle-line:hover,
+.wb-circle-line:focus-within {
+  background: var(--surface-hover);
+}
+
+/* A message that mentions the user: an accent rule and fill on the line, not the day divider.
+   The rule replaces its width of left padding, so the text doesn't move. */
+.wb-circle-msg.is-mentioned > .wb-circle-line {
+  padding-left: calc(var(--space-2) - var(--mention-rule));
+  border-left: var(--mention-rule) solid var(--brand);
+  background: var(--mention-fill);
+}
+
+/* The message a reply's quote went to, for two seconds (ADR 0053 §7). */
+.wb-circle-msg.is-highlighted > .wb-circle-line {
+  background: var(--brand-dim);
+}
+
+/* A mention in the text. The user's own is bolder. */
+.wb-circle-at {
+  color: var(--brand);
+  font-weight: var(--weight-medium);
+}
+
+.wb-circle-at.is-me {
+  font-weight: var(--weight-strong);
+}
+
+.wb-circle-msg .wb-bubble .wb-circle-at {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* Who a message mentions whose current name isn't the one typed. */
+.wb-circle-mentioned-chip {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-msg.is-user > .wb-circle-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: stretch;
+}
+
+/* The hover toolbar sits on the line's top right corner, half over the line above, so it
+   never lands on the next message (Slack's pattern). Hidden, it takes no clicks. */
+.wb-circle-bar {
+  position: absolute;
+  z-index: 3;
+  top: calc(-1 * var(--space-3));
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-popover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* After 60ms, so a pointer crossing the log doesn't flicker toolbars; kept while Copied shows. */
+.wb-circle-line:hover > .wb-circle-bar,
+.wb-circle-line:focus-within > .wb-circle-bar,
+.wb-circle-bar:has([data-copied]) {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 60ms;
+}
+
+/* Select mode (decision 10): an admin picks messages to remove. Each live line makes room on
+   its left for a round checkbox, the whole line is the click target, and a picked line keeps
+   a brand fill. */
+.wb-circle-thread.is-selecting .wb-circle-line:has(> .wb-circle-pick-box) {
+  padding-left: calc(var(--space-2) + var(--space-6));
+  cursor: pointer;
+}
+
+.wb-circle-thread.is-selecting .wb-circle-msg.is-mentioned > .wb-circle-line:has(> .wb-circle-pick-box) {
+  padding-left: calc(var(--space-2) + var(--space-6) - var(--mention-rule));
+}
+
+.wb-circle-line.is-picked,
+.wb-circle-line.is-picked:hover {
+  background: var(--brand-dim);
+}
+
+.wb-circle-pick-box {
+  position: absolute;
+  top: var(--space-1-5);
+  left: var(--space-2);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-1);
+  appearance: none;
+  cursor: pointer;
+}
+
+.wb-circle-pick-box:checked {
+  border-color: var(--brand);
+  background:
+    radial-gradient(circle, var(--surface-1) 0 2.5px, transparent 3px),
+    var(--brand);
+}
+
+.wb-circle-pick-box:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.wb-circle-select-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wb-circle-select-count {
+  flex: 1;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-circle-line,
+  .wb-circle-bar {
+    transition: none;
+  }
 }
 
 .wb-circle-msg.is-pending {
@@ -262,7 +562,7 @@
 /* Someone else's message: avatar, then the who-line and text (Circle chats spec decision 9). */
 .wb-circle-row {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-circle-row > .wb-circle-avatar {
@@ -284,8 +584,8 @@
 .wb-who.wb-circle-who {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 2px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-0-5);
   color: var(--text-faint);
   font-size: var(--size-xs);
   font-weight: var(--weight-medium);
@@ -312,20 +612,86 @@ button.wb-circle-name:hover {
   font-size: var(--size-2xs);
   font-weight: var(--weight-regular);
 }
+}
 
+/* Markdown rules sit in the markdown layer, above Streamdown's utilities (index.css). */
+@layer markdown {
 /* A person's message reads as chat, not as an assistant's reply. */
 .wb-circle-msg .wb-prose,
-.wb-circle-msg .wb-prose .wb-streamdown,
-.wb-circle-shared-card {
+.wb-circle-msg .wb-prose .wb-streamdown {
   font-family: var(--font-ui);
   font-size: var(--size-body);
   line-height: 1.55;
 }
+}
+
+@layer components {
 
 .wb-circle-msg .wb-bubble {
   padding: 9px 14px;
-  border-radius: 14px;
+  border-radius: 16px 16px var(--radius-sm) 16px;
   font-size: var(--size-ui);
+}
+
+/* Your own message takes the bubble fill, so it reads as yours against the page in both
+   themes. Colors inside it come from the fill, not from the page. */
+.wb-circle-msg .wb-bubble:not(.is-gone) {
+  --text: var(--bubble-mine-text);
+  --text-muted: color-mix(in srgb, var(--bubble-mine-text) 85%, transparent);
+  --text-faint: color-mix(in srgb, var(--bubble-mine-text) 75%, transparent);
+  --brand: var(--bubble-mine-text);
+  --line: color-mix(in srgb, var(--bubble-mine-text) 28%, transparent);
+  --surface-1: color-mix(in srgb, var(--bubble-mine-text) 12%, transparent);
+  --surface-2: var(--surface-1);
+  border-color: transparent;
+  background: var(--bubble-mine);
+  color: var(--text);
+}
+
+}
+
+@layer markdown {
+/* Streamdown draws a link as a button that opens LinkConfirmSheet. Its own `text-primary` is
+   the solid-button fill, which barely shows on --bubble-mine. --brand is the accent on the
+   page and the bubble's text colour inside your own bubble. */
+.wb-circle-msg [data-streamdown='link'],
+.wb-circle-msg .wb-streamdown a {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.wb-circle-msg [data-streamdown='link']:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+}
+
+@layer components {
+
+/* The address in LinkConfirmSheet, whole, so a lookalike can't hide past an ellipsis. */
+.wb-link-confirm-url {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
+  overflow-wrap: anywhere;
+  max-height: 8em;
+  overflow-y: auto;
+}
+
+.wb-circle-msg .wb-bubble.is-gone {
+  background: none;
+  border-style: dashed;
 }
 
 /* **edited** and the clock follow the text on its last line when they fit. */
@@ -333,11 +699,14 @@ button.wb-circle-name:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 6px;
+  column-gap: var(--space-1-5);
 }
 
+/* `anywhere` also lowers the body's min-content width, so a long unbroken string wraps
+   inside the bubble instead of widening the flex row. */
 .wb-circle-body {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .wb-circle-text .wb-circle-stamp {
@@ -359,8 +728,8 @@ button.wb-circle-name:hover {
 .wb-circle-stamp {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 2px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-0-5);
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
@@ -377,9 +746,13 @@ button.wb-circle-name:hover {
   font-size: var(--size-xs);
 }
 
+/* A shared card reads as chat, like a person's message. */
 .wb-circle-shared-card {
-  margin-top: 2px;
-  padding: 8px 12px;
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  line-height: 1.55;
+  margin-top: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-left: 3px solid var(--brand);
   border-radius: var(--radius-md);
@@ -394,8 +767,8 @@ button.wb-circle-name:hover {
 .wb-circle-shared {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 4px;
+  gap: var(--space-1-5);
+  margin: 0 0 var(--space-1);
   color: var(--text-faint);
   font-size: var(--size-2xs);
   line-height: 1.45;
@@ -408,7 +781,7 @@ button.wb-circle-name:hover {
 .wb-circle-edit textarea {
   width: 100%;
   min-width: 280px;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-1);
@@ -420,8 +793,8 @@ button.wb-circle-name:hover {
 .wb-circle-edit-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: var(--space-2);
+  margin-top: var(--space-1-5);
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
@@ -431,7 +804,7 @@ button.wb-circle-name:hover {
 }
 
 .wb-circle-error {
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   color: var(--danger, var(--warn));
   font-size: var(--size-xs);
 }
@@ -444,7 +817,7 @@ button.wb-circle-name:hover {
 }
 
 .wb-circle-empty h2 {
-  margin: 10px 0 6px;
+  margin: var(--space-2-5) 0 var(--space-1-5);
   color: var(--text);
   font-size: var(--size-title);
   font-weight: var(--weight-medium);
@@ -457,14 +830,114 @@ button.wb-circle-name:hover {
 .wb-circle-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 var(--chat-inline) 6px;
+  gap: var(--space-2);
+  margin: 0 var(--chat-inline) var(--space-1-5);
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
 
 .wb-circle-status.is-warn {
   color: var(--warn);
+}
+
+/* A reply's quote of its original (ADR 0053 §4, §5): a rule in the author's avatar colour, their
+   name, and one line of the original's text. Deleted or unavailable originals read in italics. */
+.wb-circle-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 0 var(--space-1);
+  padding: var(--space-0-5) var(--space-2-5) var(--space-1);
+  border: 0;
+  border-left: 2px solid var(--quote-rule, var(--line-strong));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+}
+
+/* Holds the quote's height while the original is looked up. */
+.wb-circle-quote:empty {
+  min-height: 2.6em;
+}
+
+button.wb-circle-quote {
+  cursor: pointer;
+}
+
+button.wb-circle-quote:hover {
+  background: var(--surface-hover);
+}
+
+button.wb-circle-quote:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wb-circle-quote.is-na {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-style: italic;
+}
+
+.wb-circle-quote-name {
+  color: var(--text);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+}
+
+.wb-circle-quote-text {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-circle-quote-text.is-na {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* In your own bubble the quote sits on a darker fill that reads at 3:1 against the bubble, and
+   keeps it on hover. */
+.wb-circle-msg .wb-bubble:not(.is-gone) .wb-circle-quote {
+  max-width: none;
+  background: var(--quote-mine);
+}
+
+/* Above the text box while a reply is written: "Replying to Maya", the quote and Cancel reply. */
+.wb-circle-reply-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  margin: var(--space-2) var(--space-2) 0;
+  padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-2-5);
+  border-left: 2px solid var(--quote-rule, var(--line-strong));
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--surface-2);
+}
+
+.wb-circle-reply-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.wb-circle-reply-label {
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+}
+
+.wb-circle-reply-label b {
+  color: var(--text);
+  font-weight: var(--weight-medium);
 }
 
 /* The composer's box carries the brand edge, so it reads as a Circle's (decision 6). */
@@ -478,7 +951,7 @@ button.wb-circle-name:hover {
 
 .wb-circle-composer .wb-input-box textarea {
   min-height: 0;
-  padding: 12px 14px 4px;
+  padding: var(--space-3) 14px var(--space-1);
   border: 0;
   border-radius: 0;
   background: none;
@@ -492,8 +965,8 @@ button.wb-circle-name:hover {
 .wb-circle-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px 8px 10px;
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2) var(--space-2) var(--space-2-5);
 }
 
 .wb-circle-tools .wb-run {
@@ -510,7 +983,7 @@ button.wb-circle-name:hover {
 .wb-circle-tools .wb-circle-audience {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   height: 26px;
   padding: 0 9px;
   border-color: transparent;
@@ -521,7 +994,7 @@ button.wb-circle-name:hover {
 }
 
 .wb-circle-hint {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   color: var(--text-faint);
   font-size: var(--size-2xs);
   text-align: center;
@@ -529,7 +1002,7 @@ button.wb-circle-name:hover {
 
 .wb-circle-dots {
   display: inline-flex;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .wb-circle-dots i {
@@ -565,10 +1038,25 @@ button.wb-circle-name:hover {
   }
 }
 
-/* The Circle tab. */
+/* The Circle tab. Its body has a 16px gutter on every side (circle-chats study); rows reach
+   6px past it so their hover fill frames the content, which stays on the gutter. */
+.wb-circle-insp {
+  --inspector-gutter: var(--space-4);
+}
+
+.wb-circle-insp .wb-insp-pane {
+  padding: var(--inspector-gutter);
+}
+
 .wb-circle-insp .wb-insp-tabs {
   display: flex;
   align-items: center;
+  padding-left: var(--inspector-gutter);
+}
+
+/* The tab's text starts on the body's gutter, its underline as wide as the text. */
+.wb-circle-insp .wb-insp-tab {
+  padding-inline: 0;
 }
 
 .wb-circle-insp-close {
@@ -578,8 +1066,8 @@ button.wb-circle-name:hover {
 .wb-circle-insp-ident {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--space-2-5);
+  margin-bottom: var(--space-2);
 }
 
 .wb-circle-insp-ident > span {
@@ -588,7 +1076,7 @@ button.wb-circle-name:hover {
 }
 
 .wb-circle-insp-head {
-  margin: 18px 0 6px;
+  margin: 18px 0 var(--space-1-5);
   color: var(--text-faint);
   font-size: var(--size-2xs);
   font-weight: var(--weight-medium);
@@ -605,9 +1093,10 @@ button.wb-circle-name:hover {
 .wb-circle-insp-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6px;
+  gap: var(--space-2-5);
+  width: calc(100% + 2 * var(--space-1-5));
+  margin: 0 calc(-1 * var(--space-1-5));
+  padding: var(--space-1-5);
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
@@ -640,9 +1129,9 @@ button.wb-circle-insp-row:hover {
 .wb-circle-insp-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
   margin-top: 22px;
-  padding-top: 12px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
 
@@ -652,13 +1141,13 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-insp-action {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .wb-circle-insp-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .wb-circle-insp-mono {
@@ -668,7 +1157,7 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-insp-error {
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
   color: var(--danger);
   font-size: var(--size-xs);
 }
@@ -683,22 +1172,11 @@ button.wb-circle-insp-row:hover {
   color: var(--text);
 }
 
-.wb-circle-insp .wb-btn-tiny.is-danger {
-  border-color: var(--danger-line);
-  color: var(--danger);
-}
-
-.wb-circle-insp .wb-btn-tiny.is-danger:hover:not(:disabled) {
-  background: var(--danger-dim);
-  color: var(--danger);
-}
-
 .wb-circle-seen {
   display: flex;
   align-items: center;
   align-self: flex-end;
   gap: 3px;
-  margin-top: -6px;
   color: var(--text-faint);
   font-size: var(--size-2xs);
 }
@@ -713,26 +1191,26 @@ button.wb-circle-insp-row:hover {
 .wb-circle-share {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-circle-share-pick {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wb-circle-share-pick label {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--text-muted);
   font-size: var(--size-xs);
 }
 
 .wb-circle-share select,
 .wb-circle-share textarea {
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-1);
@@ -764,10 +1242,10 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-thread.is-compact .wb-thread-head {
-  gap: 8px;
+  gap: var(--space-2);
   height: auto;
   min-height: 48px;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 
 .wb-circle-thread.is-compact .wb-thread-id {
@@ -795,7 +1273,7 @@ button.wb-circle-insp-row:hover {
 .wb-circle-pick {
   flex-shrink: 0;
   max-width: 45%;
-  padding: 3px 6px;
+  padding: 3px var(--space-1-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-1);
@@ -805,7 +1283,7 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-thread.is-compact .wb-log {
-  padding: 16px 12px 24px;
+  padding: var(--space-4) var(--space-3) var(--space-6);
 }
 
 .wb-circle-thread.is-compact .wb-msg {
@@ -819,16 +1297,7 @@ button.wb-circle-insp-row:hover {
 }
 
 .wb-circle-thread.is-compact .wb-circle-composer {
-  padding-inline: 12px;
-}
-
-/* The … button and its row sit at the message's top right instead of in the gap below. */
-.wb-circle-more {
-  top: 0;
-  right: 0;
-  left: auto;
-  margin-top: 0;
-  opacity: 1;
+  padding-inline: var(--space-3);
 }
 
 .wb-circle-thread.is-compact .wb-cluster {
@@ -841,6 +1310,18 @@ button.wb-circle-insp-row:hover {
   overflow: hidden;
 }
 
+/* At 320px the reply strip keeps "Replying to Maya" and the quote on one line. */
+.wb-circle-thread.is-compact .wb-circle-reply-copy {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-1-5);
+}
+
+.wb-circle-thread.is-compact .wb-circle-reply-label {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .wb-circle-thread.is-compact .wb-circle-audience,
 .wb-circle-thread.is-compact .wb-circle-status {
   text-overflow: ellipsis;
@@ -851,18 +1332,24 @@ button.wb-circle-insp-row:hover {
 .wb-circle-check {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--space-2-5);
+}
+
+.wb-circle-check .wb-field {
+  margin-bottom: 0;
 }
 
 .wb-circle-check-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
+}
+
+.wb-circle-check-results {
+  margin-top: var(--space-4);
 }
 
 .wb-circle-check-table {
   width: 100%;
-  margin-top: 14px;
   border-collapse: collapse;
   font-size: var(--size-xs);
   font-variant-numeric: tabular-nums;
@@ -870,7 +1357,7 @@ button.wb-circle-insp-row:hover {
 
 .wb-circle-check-table th,
 .wb-circle-check-table td {
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-1-5);
   border-bottom: 1px solid var(--line);
   text-align: left;
   white-space: nowrap;
@@ -879,4 +1366,193 @@ button.wb-circle-insp-row:hover {
 .wb-circle-check-table th {
   color: var(--text-faint);
   font-weight: var(--weight-medium);
+}
+
+/* Reactions (Circle chats spec decision 17). Pills wrap onto more lines at narrow widths; the
+   user's own sit at the right edge under their bubble. */
+.wb-react-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.wb-msg.is-user .wb-react-pills {
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.wb-react-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  cursor: pointer;
+}
+
+.wb-react-pill:hover {
+  background: var(--surface-hover);
+}
+
+.wb-react-pill.is-mine {
+  border-color: var(--brand);
+  background: var(--brand-dim);
+  color: var(--text);
+}
+
+.wb-react-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-react-pill[data-tip]:hover::after,
+.wb-react-pill[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 4;
+  bottom: calc(100% + var(--space-1-5));
+  left: 0;
+  width: max-content;
+  max-width: 240px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--solid-bg);
+  color: var(--solid-fg);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-medium);
+  pointer-events: none;
+}
+
+.wb-react-wrap {
+  display: inline-flex;
+}
+
+/* The popover opens below the toolbar, right-aligned to it (the wrap is not positioned, so the
+   absolutely placed .wb-circle-bar is the containing block). The picks wrap onto a second row
+   rather than run past the left edge of a 320px thread. */
+.wb-react-pop {
+  position: absolute;
+  width: max-content;
+  max-width: min(280px, calc(100vw - var(--space-8)));
+  z-index: 5;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  padding: var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-popover);
+}
+
+.wb-react-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5);
+}
+
+.wb-react-pick {
+  min-width: 32px;
+  padding: var(--space-1) var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-title);
+  cursor: pointer;
+}
+
+.wb-react-pick:hover:not(:disabled),
+.wb-react-pick:focus-visible {
+  background: var(--surface-hover);
+}
+
+.wb-react-pick[aria-checked='true'] {
+  background: var(--brand-dim);
+}
+
+.wb-react-pick:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.wb-react-full {
+  margin: var(--space-1) var(--space-1) 0;
+  max-width: 240px;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+/* The full picker. The sheet is never wider than the window less the backdrop gutters. */
+.wb-sheet.wb-emoji-sheet {
+  width: min(360px, 100%);
+}
+
+.wb-emoji {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.wb-emoji-search {
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+  color: var(--text);
+  font: inherit;
+}
+
+.wb-emoji-viewport {
+  height: 280px;
+  border-radius: var(--radius-md);
+}
+
+.wb-emoji-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+.wb-emoji-category {
+  padding: var(--space-1) var(--space-1);
+  background: var(--surface-1);
+  color: var(--text-faint);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wb-emoji-item {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: var(--size-title);
+  cursor: pointer;
+}
+
+.wb-emoji-item[data-active] {
+  background: var(--surface-hover);
+}
+
+/* Keep the toolbar up while its popover is open. */
+.wb-circle-bar:has(.wb-react-pop) {
+  opacity: 1;
+  pointer-events: auto;
+}
 }

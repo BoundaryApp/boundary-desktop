@@ -6,13 +6,21 @@ import {
   type SetupStepDefinition,
 } from '../types';
 import { setupSteps } from '../steps';
+import type { CapabilityAssessment } from '../../../shared/types/capability';
+import {
+  emptyInferenceProvidersStatus,
+  type InferenceProvidersStatus,
+} from '../../../shared/types/onboarding';
 
-const passAssessment = {
+const passAssessment: CapabilityAssessment = {
   passed: true,
   stackAlreadyRunning: false,
   checkedAt: '2026-08-12T00:00:00.000Z',
   checks: [],
 };
+
+const noProvider = emptyInferenceProvidersStatus();
+const withProvider: InferenceProvidersStatus = { ...noProvider, configured: true };
 
 const failAssessment = {
   ...passAssessment,
@@ -23,6 +31,7 @@ function makeSteps(): SetupStepDefinition[] {
   return [
     {
       id: 'capability',
+      label: 'Machine',
       title: 'Capability',
       description: 'Check machine',
       isComplete: (ctx) => Boolean(ctx.capabilityStatus?.acknowledged),
@@ -30,6 +39,7 @@ function makeSteps(): SetupStepDefinition[] {
     },
     {
       id: 'llm-onboarding',
+      label: 'Model',
       title: 'LLM',
       description: 'Connect LLM',
       isComplete: (ctx) => Boolean(ctx.onboardingStatus?.configured),
@@ -45,6 +55,7 @@ function snapshot(partial: Partial<SetupFlowSnapshot> = {}): SetupFlowSnapshot {
     onboardingStatus: null,
     onboardingLoading: false,
     assistantStackStatus: null,
+    setupProgress: null,
     ...partial,
   };
 }
@@ -56,7 +67,7 @@ describe('resolveActiveSetupStep', () => {
       snapshot({
         capabilityAssessment: passAssessment,
         capabilityStatus: { acknowledged: false, lastAssessment: passAssessment },
-        onboardingStatus: { configured: false, encryptionAvailable: true },
+        onboardingStatus: noProvider,
       })
     );
     expect(active?.id).toBe('capability');
@@ -68,7 +79,7 @@ describe('resolveActiveSetupStep', () => {
       snapshot({
         capabilityAssessment: passAssessment,
         capabilityStatus: { acknowledged: true, lastAssessment: passAssessment },
-        onboardingStatus: { configured: false, encryptionAvailable: true },
+        onboardingStatus: noProvider,
       })
     );
     expect(active?.id).toBe('llm-onboarding');
@@ -80,7 +91,7 @@ describe('resolveActiveSetupStep', () => {
       snapshot({
         capabilityAssessment: failAssessment,
         capabilityStatus: { acknowledged: true, lastAssessment: failAssessment },
-        onboardingStatus: { configured: false, encryptionAvailable: true },
+        onboardingStatus: noProvider,
       })
     );
     expect(active?.id).toBe('llm-onboarding');
@@ -92,7 +103,7 @@ describe('resolveActiveSetupStep', () => {
       snapshot({
         capabilityAssessment: failAssessment,
         capabilityStatus: { acknowledged: false, lastAssessment: failAssessment },
-        onboardingStatus: { configured: true, encryptionAvailable: true },
+        onboardingStatus: withProvider,
       })
     );
     expect(active?.id).toBe('capability');
@@ -104,7 +115,7 @@ describe('resolveActiveSetupStep', () => {
       snapshot({
         capabilityAssessment: passAssessment,
         capabilityStatus: { acknowledged: true, lastAssessment: passAssessment },
-        onboardingStatus: { configured: true, encryptionAvailable: true },
+        onboardingStatus: withProvider,
       })
     );
     expect(active).toBeNull();
@@ -114,7 +125,7 @@ describe('resolveActiveSetupStep', () => {
         snapshot({
           capabilityAssessment: passAssessment,
           capabilityStatus: { acknowledged: true, lastAssessment: passAssessment },
-          onboardingStatus: { configured: true, encryptionAvailable: true },
+          onboardingStatus: withProvider,
         })
       )
     ).toBe(true);
@@ -123,7 +134,6 @@ describe('resolveActiveSetupStep', () => {
 
 describe('the Model step', () => {
   const modelStep = () => setupSteps().find((step) => step.id === 'llm-onboarding')!;
-  const noProvider = { configured: false, encryptionAvailable: true };
   const stack = (setupComplete: boolean) =>
     ({ setupComplete, ready: setupComplete }) as SetupFlowSnapshot['assistantStackStatus'];
 

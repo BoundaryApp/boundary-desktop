@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 import { formatShortDate } from '../../../shared/messageTime';
 import { dmDays, matchOffsets, stepMatch } from './dmThreadIndex';
 import { formatTokenCount } from '../../../shared/utils/format';
+import { Button } from '../../components/ui/button';
 
 /** Message text the find bar searches: prompts and replies, not times or action rows. */
 const SEARCHABLE = '.wb-log .wb-msg .wb-bubble-body, .wb-log .wb-msg .wb-prose';
@@ -216,27 +217,29 @@ export const DmFindBar: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <span className="wb-find-count" aria-live="polite">
         {status}
       </span>
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         type="button"
-        className="wb-btn-tiny"
         aria-label="Previous match"
         disabled={ranges.length === 0}
         onClick={() => step(-1)}
       >
         ↑
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
         type="button"
-        className="wb-btn-tiny"
         aria-label="Next match"
         disabled={ranges.length === 0}
         onClick={() => step(1)}
       >
         ↓
-      </button>
-      <button type="button" className="wb-btn-tiny" aria-label="Close search" onClick={onClose}>
+      </Button>
+      <Button variant="secondary" size="sm" type="button" aria-label="Close search" onClick={onClose}>
         Esc
-      </button>
+      </Button>
     </div>
   );
 };

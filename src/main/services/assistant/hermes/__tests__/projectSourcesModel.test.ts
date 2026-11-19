@@ -44,7 +44,7 @@ describe('sources.yaml parse/serialize', () => {
         path: '.',
         retrieval: 'files',
         include: ['**/*.md', '**/*.txt'],
-        exclude: [],
+        exclude: [] as string[],
       },
     ]);
   });
@@ -56,7 +56,7 @@ describe('sources.yaml parse/serialize', () => {
         path: '.',
         retrieval: 'files',
         include: ['**/*.md', '**/*.txt'],
-        exclude: [],
+        exclude: [] as string[],
       },
       {
         id: 'notes-vault',
@@ -157,7 +157,7 @@ describe('refuse and visibility', () => {
     const extra = '/Users/ada/Notes/this-project';
     expect(
       visibilityForSource(
-        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] },
+        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] as string[] },
         extra,
         '/Users/ada/Documents/Job Search',
         { contextRoots: [], codingRoots: [] }
@@ -165,7 +165,7 @@ describe('refuse and visibility', () => {
     ).toBe('unmounted');
     expect(
       visibilityForSource(
-        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] },
+        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] as string[] },
         extra,
         '/Users/ada/Documents/Job Search',
         { contextRoots: [extra], codingRoots: [] }
@@ -173,7 +173,7 @@ describe('refuse and visibility', () => {
     ).toBe('readonly');
     expect(
       visibilityForSource(
-        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] },
+        { id: 'notes-vault', path: extra, retrieval: 'files', include: [], exclude: [] as string[] },
         extra,
         '/Users/ada/Documents/Job Search',
         { contextRoots: [], codingRoots: ['/Users/ada/Notes'] }
@@ -199,14 +199,14 @@ describe('catalog and INDEX', () => {
         path: '.',
         retrieval: 'files' as const,
         include: ['**/*.md', '**/*.txt'],
-        exclude: [],
+        exclude: [] as string[],
       },
       {
         id: 'notes-vault',
         path: extra,
         retrieval: 'files' as const,
         include: ['**/*.md'],
-        exclude: [],
+        exclude: [] as string[],
       },
     ];
     const { files } = await buildCatalog(hub, sources);
@@ -242,7 +242,7 @@ describe('catalog and INDEX', () => {
         path: '.',
         retrieval: 'files' as const,
         include: ['**/*.md'],
-        exclude: [],
+        exclude: [] as string[],
       },
     ];
     await writeIndex(hub, sources, false);
@@ -286,7 +286,7 @@ describe('catalog and INDEX', () => {
     const files = Array.from({ length: 20 }, (_, i) => path.join(hub, `n${i}.md`));
     for (const file of files) fs.writeFileSync(file, `# ${path.basename(file)}\n`);
     const sources = [
-      { id: 'project', path: '.', retrieval: 'files' as const, include: ['**/*.md'], exclude: [] },
+      { id: 'project', path: '.', retrieval: 'files' as const, include: ['**/*.md'], exclude: [] as string[] },
     ];
     await writeIndex(hub, sources, false);
 
@@ -319,7 +319,7 @@ describe('catalog and INDEX', () => {
         path: '.',
         retrieval: 'files' as const,
         include: ['**/*.md'],
-        exclude: [],
+        exclude: [] as string[],
       },
     ];
     const readFile = vi.spyOn(fs.promises, 'readFile');
@@ -354,14 +354,14 @@ describe('catalog and INDEX', () => {
         path: '.',
         retrieval: 'files',
         include: ['**/*.md', '**/*.txt'],
-        exclude: [],
+        exclude: [] as string[],
       },
       {
         id: 'notes',
         path: '/Users/ada/Notes',
         retrieval: 'files',
         include: ['**/*.md'],
-        exclude: [],
+        exclude: [] as string[],
       },
     ]);
     expect(fs.existsSync(path.join(hub, 'sources.yaml'))).toBe(true);
@@ -448,8 +448,7 @@ describe('next step and ids', () => {
           isHub: false,
         },
       ],
-      false,
-      'job-search'
+      false
     );
     expect(step).toBeUndefined();
   });

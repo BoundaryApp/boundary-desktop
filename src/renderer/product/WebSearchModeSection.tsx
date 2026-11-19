@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { InfoTip } from '../components/ui/info-tip';
 import type { WebSearchMode, WebSearchModeState } from '../../shared/webSearchMode';
+import { Button } from '../components/ui/button';
 
 /**
  * Settings → Agent browser → Web search: who answers Hermes's web searches and page reads (the
@@ -68,7 +69,7 @@ export const WebSearchModeSection: React.FC = () => {
     }
   }, [choice]);
 
-  if (!state?.available) return null;
+  if (!state) return null;
 
   const changed = choice !== state.mode;
   const outside = choice !== 'private';
@@ -135,14 +136,14 @@ export const WebSearchModeSection: React.FC = () => {
 
       {state.canChange ? (
         <div className="wb-agent-browser-actions">
-          <button
+          <Button
+            variant="secondary"
             type="button"
-            className="wb-inference-btn"
             disabled={busy || !changed}
             onClick={() => void save()}
           >
             {busy ? 'Restarting Hermes…' : 'Save and restart Hermes'}
-          </button>
+          </Button>
           {changed ? <p className="wb-settings-hint">Chats pause while Hermes restarts.</p> : null}
         </div>
       ) : null}

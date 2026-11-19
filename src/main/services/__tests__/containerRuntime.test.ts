@@ -1,6 +1,4 @@
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,11 +12,14 @@ import {
   runCli,
   runCompose,
   runComposeStreaming,
+  stopBundledMachineIfStarted,
+  BOUNDARY_MACHINE_NAME,
 } from '../containerRuntime';
 import {
   defaultDockerApiEndpoint,
   dockerodeOptionsFromApiEndpoint,
 } from '../containerRuntime/apiEndpoint';
+import { fakeChild } from './fakeChild';
 
 describe('dockerodeOptionsFromApiEndpoint', () => {
   it('parses unix sockets', () => {
@@ -69,7 +70,7 @@ function systemDockerDeps(
     pingDocker: vi.fn(async (endpoint: string) => {
       if (!reachable(endpoint)) throw new Error('socket not found');
     }),
-    readLoginShellPath: async () => null,
+    readLoginShellPath: async (): Promise<string | null> => null,
     findDockerCli: () => (overrides.cli === undefined ? '/fake/bin/docker' : overrides.cli),
   };
 }
@@ -308,6 +309,69 @@ describe('resolveContainerRuntime', () => {
   });
 });
 
+/** Deps with no Docker and an `ensureBundledMachine` the test settles by hand. */
+function makeBundledDeps(root: string) {
+  for (const dir of ['bin', 'lib', 'share/krunkit']) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+  }
+  for (const file of ['bin/podman', 'bin/docker-compose', 'bin/gvproxy', 'bin/krunkit']) {
+    fs.writeFileSync(path.join(root, file), '#!/bin/sh\n');
+  }
+  fs.writeFileSync(path.join(root, 'lib', 'libkrun.dylib'), 'dylib');
+  fs.writeFileSync(path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'), 'fw');
+  const binDir = path.join(root, 'bin');
+  const stateDir = path.join(root, 'state');
+  const paths = {
+    root,
+    binDir,
+    helperDir: binDir,
+    libDir: path.join(root, 'lib'),
+    firmwarePath: path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'),
+    podmanPath: path.join(binDir, 'podman'),
+    composePath: path.join(binDir, 'docker-compose'),
+    machineImagePath: null as string | null,
+    stateDir,
+    containersConfPath: path.join(stateDir, 'containers.conf'),
+  };
+
+  const machine = { calls: 0, running: 0, maxRunning: 0 };
+  const settlers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+  const ensureBundledMachine = vi.fn(
+    () =>
+      new Promise<{ apiEndpoint: string; dockerHost: string }>((resolve, reject) => {
+        machine.calls++;
+        machine.running++;
+        machine.maxRunning = Math.max(machine.maxRunning, machine.running);
+        const endpoint = `unix:///tmp/boundary-${machine.calls}.sock`;
+        const done = () => {
+          machine.running--;
+        };
+        const settler = {
+          resolve: () => {
+            done();
+            resolve({ apiEndpoint: endpoint, dockerHost: endpoint });
+          },
+          reject: (err: Error) => {
+            done();
+            reject(err);
+          },
+        };
+        settlers.push(settler);
+      })
+  );
+
+  const deps = {
+    execFile: (async () => ({ stdout: '1.0.0\n', stderr: '' })) as never,
+    platform: 'darwin' as const,
+    arch: 'arm64' as const,
+    env: {},
+    ...systemDockerDeps({ cli: null }),
+    resolveBundledPaths: () => paths,
+    ensureBundledMachine,
+  };
+  return { deps, machine, settlers, paths };
+}
+
 describe('getContainerRuntime with a reset during a resolve', () => {
   let root: string;
 
@@ -316,68 +380,9 @@ describe('getContainerRuntime with a reset during a resolve', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  /** Deps with no Docker and an `ensureBundledMachine` the test settles by hand. */
   function bundledDeps() {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-bundled-'));
-    for (const dir of ['bin', 'lib', 'share/krunkit']) {
-      fs.mkdirSync(path.join(root, dir), { recursive: true });
-    }
-    for (const file of ['bin/podman', 'bin/docker-compose', 'bin/gvproxy', 'bin/krunkit']) {
-      fs.writeFileSync(path.join(root, file), '#!/bin/sh\n');
-    }
-    fs.writeFileSync(path.join(root, 'lib', 'libkrun.dylib'), 'dylib');
-    fs.writeFileSync(path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'), 'fw');
-    const binDir = path.join(root, 'bin');
-    const stateDir = path.join(root, 'state');
-    const paths = {
-      root,
-      binDir,
-      helperDir: binDir,
-      libDir: path.join(root, 'lib'),
-      firmwarePath: path.join(root, 'share', 'krunkit', 'KRUN_EFI.silent.fd'),
-      podmanPath: path.join(binDir, 'podman'),
-      composePath: path.join(binDir, 'docker-compose'),
-      machineImagePath: null as string | null,
-      stateDir,
-      containersConfPath: path.join(stateDir, 'containers.conf'),
-    };
-
-    const machine = { calls: 0, running: 0, maxRunning: 0 };
-    const settlers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
-    const ensureBundledMachine = vi.fn(
-      () =>
-        new Promise<{ apiEndpoint: string; dockerHost: string }>((resolve, reject) => {
-          machine.calls++;
-          machine.running++;
-          machine.maxRunning = Math.max(machine.maxRunning, machine.running);
-          const endpoint = `unix:///tmp/boundary-${machine.calls}.sock`;
-          const done = () => {
-            machine.running--;
-          };
-          const settler = {
-            resolve: () => {
-              done();
-              resolve({ apiEndpoint: endpoint, dockerHost: endpoint });
-            },
-            reject: (err: Error) => {
-              done();
-              reject(err);
-            },
-          };
-          settlers.push(settler);
-        })
-    );
-
-    const deps = {
-      execFile: (async () => ({ stdout: '1.0.0\n', stderr: '' })) as never,
-      platform: 'darwin' as const,
-      arch: 'arm64' as const,
-      env: {},
-      ...systemDockerDeps({ cli: null }),
-      resolveBundledPaths: () => paths,
-      ensureBundledMachine,
-    };
-    return { deps, machine, settlers };
+    return makeBundledDeps(root);
   }
 
   const machineCalls = async (machine: { calls: number }, n: number) =>
@@ -430,6 +435,96 @@ describe('getContainerRuntime with a reset during a resolve', () => {
     await machineCalls(machine, 2);
     settlers[1]!.resolve();
     await expect(again).resolves.not.toBe(await first);
+  });
+});
+
+describe('stopBundledMachineIfStarted', () => {
+  let root: string | null = null;
+  const stopExec = vi.fn(async (_bin: string, args: string[]) => ({
+    stdout: args[1] === 'ssh' ? 'oom_kill 0\n' : '',
+    stderr: '',
+  }));
+  const stopCalls = () => stopExec.mock.calls.filter(([, args]) => args[1] === 'stop').length;
+
+  beforeEach(async () => {
+    // Tests in the describes above start a bundled machine and leave it marked as started;
+    // clear that so each test here starts with none.
+    await stopBundledMachineIfStarted((async () => ({ stdout: '', stderr: '' })) as never);
+  });
+
+  afterEach(async () => {
+    // Clears the started marker so one test's machine never reaches the next.
+    await stopBundledMachineIfStarted(stopExec as never);
+    stopExec.mockClear();
+    resetContainerRuntimeCache();
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    root = null;
+  });
+
+  it('stops the bundled machine this process started', async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-bundled-'));
+    const { deps, settlers, paths } = makeBundledDeps(root);
+    const resolving = getContainerRuntime(deps);
+    await vi.waitFor(() => expect(settlers).toHaveLength(1));
+    settlers[0]!.resolve();
+    await resolving;
+
+    await expect(stopBundledMachineIfStarted(stopExec as never)).resolves.toBe(true);
+    expect(stopCalls()).toBe(1);
+    // The out-of-memory count is read before the stop resets it.
+    expect(stopExec.mock.calls.map(([, args]) => args[1])).toEqual(['ssh', 'stop']);
+    expect(stopExec).toHaveBeenCalledWith(
+      paths.podmanPath,
+      ['machine', 'stop', BOUNDARY_MACHINE_NAME],
+      expect.objectContaining({ env: expect.objectContaining({ CONTAINERS_CONF: paths.containersConfPath }) })
+    );
+    // A second quit step (update install after a failed quit, say) has nothing left to stop.
+    await expect(stopBundledMachineIfStarted(stopExec as never)).resolves.toBe(false);
+    expect(stopCalls()).toBe(1);
+  });
+
+  it('still stops the machine after a Retry cleared the cached runtime', async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-bundled-'));
+    const { deps, settlers } = makeBundledDeps(root);
+    const resolving = getContainerRuntime(deps);
+    await vi.waitFor(() => expect(settlers).toHaveLength(1));
+    settlers[0]!.resolve();
+    await resolving;
+    resetContainerRuntimeCache();
+
+    await expect(stopBundledMachineIfStarted(stopExec as never)).resolves.toBe(true);
+    expect(stopCalls()).toBe(1);
+  });
+
+  it('leaves system Docker alone', async () => {
+    const execFile = vi.fn(async (_bin: string, args: string[]) => {
+      if (args[0] === 'version' || args[0] === 'info') return { stdout: '27.0.0\n', stderr: '' };
+      if (args[0] === 'compose') return { stdout: '2.29.0\n', stderr: '' };
+      throw new Error(`unexpected args: ${args.join(' ')}`);
+    });
+    await getContainerRuntime({
+      execFile: execFile as never,
+      platform: 'darwin',
+      env: { PATH: '/usr/bin:/bin' },
+      ...systemDockerDeps({ reachable: () => true }),
+    });
+
+    await expect(stopBundledMachineIfStarted(stopExec as never)).resolves.toBe(false);
+    expect(stopExec).not.toHaveBeenCalled();
+  });
+
+  it('rejects when podman machine stop fails, so quit can log it', async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-bundled-'));
+    const { deps, settlers } = makeBundledDeps(root);
+    const resolving = getContainerRuntime(deps);
+    await vi.waitFor(() => expect(settlers).toHaveLength(1));
+    settlers[0]!.resolve();
+    await resolving;
+
+    const failing = vi.fn(async () => {
+      throw Object.assign(new Error('exit 125'), { stderr: 'machine did not stop' });
+    });
+    await expect(stopBundledMachineIfStarted(failing as never)).rejects.toThrow(/machine did not stop/);
   });
 });
 
@@ -486,32 +581,14 @@ describe('runComposeStreaming timeout', () => {
     version: { cli: '5', compose: '2' },
   };
 
-  /** A child that ignores SIGTERM: `killed` turns true but it doesn't exit. */
-  function makeStubbornChild() {
-    const child = Object.assign(new EventEmitter(), {
-      stdout: new PassThrough(),
-      stderr: new PassThrough(),
-      stdin: null,
-      killed: false,
-      exitCode: null as number | null,
-      signalCode: null as NodeJS.Signals | null,
-      signals: [] as string[],
-      kill(signal: NodeJS.Signals) {
-        child.signals.push(signal);
-        child.killed = true;
-        return true;
-      },
-    });
-    return child;
-  }
-
+  // Each test's fakeChild() ignores SIGTERM: `killed` turns true but it doesn't exit.
   afterEach(() => {
     vi.useRealTimers();
   });
 
   it('sends SIGKILL when the child has not exited 5 s after SIGTERM', async () => {
     vi.useFakeTimers();
-    const child = makeStubbornChild();
+    const child = fakeChild();
     const promise = runComposeStreaming(runtime, ['up'], {
       timeout: 100,
       spawnFn: (() => child) as never,
@@ -531,7 +608,7 @@ describe('runComposeStreaming timeout', () => {
 
   it('does not send SIGKILL when the child exited after SIGTERM', async () => {
     vi.useFakeTimers();
-    const child = makeStubbornChild();
+    const child = fakeChild();
     const promise = runComposeStreaming(runtime, ['up'], {
       timeout: 100,
       spawnFn: (() => child) as never,
@@ -546,6 +623,40 @@ describe('runComposeStreaming timeout', () => {
     await expect(promise).resolves.toMatchObject({ code: 130, timedOut: true });
   });
 
+  it('stops the child when its signal aborts, as a timeout does, and says it was cancelled', async () => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const controller = new AbortController();
+    const promise = runComposeStreaming(runtime, ['pull'], {
+      signal: controller.signal,
+      spawnFn: (() => child) as never,
+    });
+
+    controller.abort();
+    expect(child.signals).toEqual(['SIGTERM']);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']);
+    child.signalCode = 'SIGKILL';
+    child.emit('exit', null, 'SIGKILL');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(promise).resolves.toMatchObject({ code: null, timedOut: false, cancelled: true });
+  });
+
+  it('stops a child at once when its signal was aborted before the call', async () => {
+    const child = fakeChild();
+    const controller = new AbortController();
+    controller.abort();
+    const promise = runComposeStreaming(runtime, ['pull'], {
+      signal: controller.signal,
+      spawnFn: (() => child) as never,
+    });
+    expect(child.signals).toEqual(['SIGTERM']);
+    child.exitCode = 130;
+    child.emit('exit', 130, null);
+    child.emit('close', 130, null);
+    await expect(promise).resolves.toMatchObject({ code: 130, cancelled: true });
+  });
+
   it('settles for a real process that ignores SIGTERM and leaves a grandchild on its pipes', async () => {
     let grandchildPid: number | null = null;
     try {
@@ -555,13 +666,16 @@ describe('runComposeStreaming timeout', () => {
         ['-c', 'trap "" TERM; sleep 30 & echo $! >&2; wait'],
         {
           timeout: 100,
+          // Short graces: the defaults (5 s, then 1 s) only make the test wait.
+          graceMs: { kill: 100, close: 100 },
           onStderrLine: (line) => {
             grandchildPid = Number.parseInt(line, 10) || null;
           },
         }
       );
       expect(result.timedOut).toBe(true);
-      expect(Date.now() - started).toBeLessThan(8_000);
+      // Settled on the graces, not on the grandchild's 30 s sleep.
+      expect(Date.now() - started).toBeLessThan(5_000);
     } finally {
       if (grandchildPid) {
         try {

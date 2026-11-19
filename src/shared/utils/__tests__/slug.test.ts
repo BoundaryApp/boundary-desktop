@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calendarSlug } from '../../types/calendars';
 import { agentSlugFromDisplayName } from '../../types/hermesChat';
-import { slugify, uniqueSlug } from '../slug';
+import { ADDON_SLUG, addonSlugFromName, slugify, uniqueSlug } from '../slug';
 
 describe('slugify', () => {
   it('lowercases and joins runs of other characters with one hyphen', () => {
@@ -17,6 +17,38 @@ describe('slugify', () => {
   it('caps the length and drops hyphens the cut leaves at the end', () => {
     expect(slugify('a'.repeat(45), { max: 40 })).toBe('a'.repeat(40));
     expect(slugify(`${'a'.repeat(47)} b`, { max: 48 })).toBe('a'.repeat(47));
+  });
+});
+
+describe('slugify with stripDiacritics', () => {
+  it('drops accents and splits compatibility characters before slugging', () => {
+    expect(slugify('Crème Brûlée')).toBe('cr-me-br-l-e');
+    expect(slugify('Crème Brûlée', { stripDiacritics: true })).toBe('creme-brulee');
+    expect(slugify('ﬁnance Ⅻ', { stripDiacritics: true })).toBe('finance-xii');
+    expect(slugify('日本語', { stripDiacritics: true, fallback: 'x' })).toBe('x');
+  });
+});
+
+describe('addonSlugFromName', () => {
+  it.each([
+    ['Family Budget 2026', 'family-budget-2026'],
+    ['Ñandú Ölçü', 'nandu-olcu'],
+    ['9 lives', 'lives'],
+    ['--Ärger--', 'arger'],
+    ['a1-'.repeat(15), 'a1-a1-a1-a1-a1-a1-a1-a1-a1-a1-a'],
+    ['2026', 'mail'],
+  ])('%s → %s', (name, slug) => {
+    expect(addonSlugFromName(name, 'mail')).toBe(slug);
+    expect(ADDON_SLUG.test(slug)).toBe(true);
+  });
+});
+
+describe('ADDON_SLUG', () => {
+  it('takes a letter then up to 30 of a-z, 0-9 and -', () => {
+    expect(ADDON_SLUG.test(`a${'b'.repeat(30)}`)).toBe(true);
+    expect(ADDON_SLUG.test(`a${'b'.repeat(31)}`)).toBe(false);
+    expect(ADDON_SLUG.test('9a')).toBe(false);
+    expect(ADDON_SLUG.test('Ab')).toBe(false);
   });
 });
 

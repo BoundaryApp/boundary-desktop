@@ -1,4 +1,12 @@
+import type {
+  ChatModelAdapter,
+  ChatModelRunOptions,
+  ChatModelRunResult,
+  RunConfig,
+} from '@assistant-ui/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { ElectronAPI } from '../../../../preload';
+import type { HermesChatToolEvent } from '../../../../shared/types/hermesChat';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import {
   CONTINUE_LATEST_ONLY_MESSAGE,
@@ -9,22 +17,57 @@ import {
 import { ServerPath } from '../serverPath';
 import { isOwnedRunningTurn } from '../runningTurns';
 
-const startChat = vi.fn();
-const cancelChat = vi.fn();
-const onChatChunk = vi.fn();
-const onChatEnd = vi.fn();
-const onChatError = vi.fn();
-const onChatTool = vi.fn(() => () => undefined);
+type HermesChatAPI = ElectronAPI['hermesChat'];
+const startChat = vi.fn<HermesChatAPI['startChat']>();
+const cancelChat = vi.fn<HermesChatAPI['cancelChat']>();
+const onChatChunk = vi.fn<HermesChatAPI['onChatChunk']>();
+const onChatEnd = vi.fn<HermesChatAPI['onChatEnd']>();
+const onChatError = vi.fn<HermesChatAPI['onChatError']>();
+const onChatTool = vi.fn<HermesChatAPI['onChatTool']>(() => () => undefined);
+const onChatSpeaker = vi.fn<HermesChatAPI['onChatSpeaker']>(() => () => undefined);
 
 stubElectronAPI({
   hermesChat: {
-    startChat: (...args: unknown[]) => startChat(...args),
-    cancelChat: (...args: unknown[]) => cancelChat(...args),
-    onChatChunk: (...args: unknown[]) => onChatChunk(...args),
-    onChatEnd: (...args: unknown[]) => onChatEnd(...args),
-    onChatError: (...args: unknown[]) => onChatError(...args),
-    onChatTool: (...args: unknown[]) => onChatTool(...args),
+    startChat: (...args: Parameters<HermesChatAPI['startChat']>) => startChat(...args),
+    cancelChat: (...args: Parameters<HermesChatAPI['cancelChat']>) => cancelChat(...args),
+    onChatChunk: (...args: Parameters<HermesChatAPI['onChatChunk']>) => onChatChunk(...args),
+    onChatEnd: (...args: Parameters<HermesChatAPI['onChatEnd']>) => onChatEnd(...args),
+    onChatError: (...args: Parameters<HermesChatAPI['onChatError']>) => onChatError(...args),
+    onChatTool: (...args: Parameters<HermesChatAPI['onChatTool']>) => onChatTool(...args),
+    onChatSpeaker: (...args: Parameters<HermesChatAPI['onChatSpeaker']>) => onChatSpeaker(...args),
   },
+});
+
+/**
+ * Runs a turn the way useLocalRuntime does, which always passes a run config. The adapter's
+ * `run` is an async generator.
+ */
+function runTurn(
+  adapter: ChatModelAdapter,
+  options: Pick<ChatModelRunOptions, 'messages' | 'abortSignal' | 'unstable_assistantMessageId'> & {
+    runConfig?: RunConfig;
+  }
+): AsyncGenerator<ChatModelRunResult, void> {
+  return adapter.run({
+    runConfig: {},
+    context: {},
+    unstable_getMessage: () => {
+      throw new Error('the adapter does not read the message');
+    },
+    ...options,
+  }) as AsyncGenerator<ChatModelRunResult, void>;
+}
+
+// clearAllMocks keeps implementations, so each test starts from these defaults rather than
+// whatever listener or start reply the previous test installed.
+beforeEach(() => {
+  for (const mock of [startChat, cancelChat, onChatChunk, onChatEnd, onChatError, onChatTool]) {
+    mock.mockReset();
+  }
+  onChatChunk.mockImplementation(() => () => undefined);
+  onChatEnd.mockImplementation(() => () => undefined);
+  onChatError.mockImplementation(() => () => undefined);
+  onChatTool.mockImplementation(() => () => undefined);
 });
 
 /** The adapter makes the turn's request id; tests pick it so their events match. */
@@ -56,7 +99,7 @@ describe('createHermesChatModelAdapter', () => {
 
     const adapter = createHermesChatModelAdapter(() => 'session-1');
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -64,8 +107,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     const yields: string[] = [];
@@ -99,6 +140,46 @@ describe('createHermesChatModelAdapter', () => {
     expect(yields.at(-1)).toBe('Hello');
   });
 
+  it("puts each room speaker's writing voice on its section, or on the reply when one spoke", async () => {
+    type Cb<T> = ((e: T) => void) | null;
+    let chunkCb: Cb<{ requestId: string; delta: string; agentSlug?: string }> = null;
+    let speakerCb: Cb<{ requestId: string; agentSlug: string; writingVoiceName?: string }> = null;
+    let endCb: Cb<{ requestId: string }> = null;
+    onChatChunk.mockImplementation((cb) => ((chunkCb = cb), () => undefined));
+    onChatSpeaker.mockImplementation((cb) => ((speakerCb = cb), () => undefined));
+    onChatEnd.mockImplementation((cb) => ((endCb = cb), () => undefined));
+    onChatError.mockImplementation(() => () => undefined);
+    const wake = async (speakers: Array<[string, string | undefined, string]>) => {
+      useRequestId('req-voices');
+      startChat.mockResolvedValue({ success: true, requestId: 'req-voices', sessionId: 'chan-1' });
+      const gen = runTurn(createHermesChatModelAdapter(() => 'chan-1'), {
+        messages: [{ role: 'user', content: [{ type: 'text', text: '@Ana look' }] } as never],
+        abortSignal: new AbortController().signal,
+      });
+      let last: Record<string, unknown> | undefined;
+      const consume = (async () => {
+        for await (const update of gen) last = update.metadata?.custom;
+      })();
+      await Promise.resolve();
+      await Promise.resolve();
+      for (const [slug, voice, delta] of speakers) {
+        speakerCb?.({ requestId: 'req-voices', agentSlug: slug, ...(voice ? { writingVoiceName: voice } : {}) });
+        chunkCb?.({ requestId: 'req-voices', delta, agentSlug: slug });
+        await Promise.resolve();
+      }
+      endCb?.({ requestId: 'req-voices' });
+      await consume;
+      return last;
+    };
+    expect(await wake([['ana', 'News', 'Two vendors.'], ['assistant', undefined, 'Confirmed.']])).toMatchObject({
+      segments: [
+        { agentSlug: 'ana', text: 'Two vendors.', writingVoiceName: 'News' },
+        { agentSlug: 'assistant', text: 'Confirmed.' },
+      ],
+    });
+    expect(await wake([['ana', 'News', 'Alone.']])).toMatchObject({ agentSlug: 'ana', writingVoiceName: 'News' });
+  });
+
   it('gives each speaker in a room wake its own section (ADR 0010 §1)', async () => {
     let chunkCb: ((e: { requestId: string; delta: string; agentSlug?: string }) => void) | null =
       null;
@@ -120,11 +201,9 @@ describe('createHermesChatModelAdapter', () => {
     });
 
     const adapter = createHermesChatModelAdapter(() => 'chan-1');
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: '@Ana look' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
     const updates: Array<{ text?: string; custom?: Record<string, unknown> }> = [];
     const consume = (async () => {
@@ -159,6 +238,53 @@ describe('createHermesChatModelAdapter', () => {
     });
   });
 
+  describe('the time main saw the turn finish, for the reply’s pool line', () => {
+    async function turn(stop: boolean): Promise<ChatModelRunResult[]> {
+      let chunkCb: ((e: { requestId: string; delta: string }) => void) | null = null;
+      let endCb: ((e: { requestId: string; endedAt?: number }) => void) | null = null;
+      onChatChunk.mockImplementation((cb) => {
+        chunkCb = cb;
+        return () => undefined;
+      });
+      onChatEnd.mockImplementation((cb) => {
+        endCb = cb;
+        return () => undefined;
+      });
+      useRequestId('req-end');
+      startChat.mockResolvedValue({ success: true, requestId: 'req-end', sessionId: 's1' });
+      cancelChat.mockResolvedValue({ success: true });
+      const abort = new AbortController();
+      const gen = runTurn(createHermesChatModelAdapter(() => 's1'), {
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] } as never],
+        abortSignal: abort.signal,
+      });
+      const yields: ChatModelRunResult[] = [];
+      const consume = (async () => {
+        for await (const update of gen) yields.push(update);
+      })();
+      await Promise.resolve();
+      await Promise.resolve();
+      chunkCb?.({ requestId: 'req-end', delta: 'Hello' });
+      await Promise.resolve();
+      if (stop) abort.abort();
+      else endCb?.({ requestId: 'req-end', endedAt: 1_700_000_000_000 });
+      await consume;
+      return yields;
+    }
+
+    it('is on the final reply of a finished turn', async () => {
+      const yields = await turn(false);
+      expect(yields.at(-1)?.metadata?.custom?.turnEndedAt).toBe(1_700_000_000_000);
+      expect(yields.slice(0, -1).some((y) => y.metadata?.custom?.turnEndedAt !== undefined)).toBe(false);
+    });
+
+    it('is on no reply of a stopped turn', async () => {
+      const yields = await turn(true);
+      expect(yields.length).toBeGreaterThan(0);
+      expect(yields.some((y) => y.metadata?.custom?.turnEndedAt !== undefined)).toBe(false);
+    });
+  });
+
   it('cancels chat when abortSignal fires', async () => {
     onChatChunk.mockImplementation(() => () => undefined);
     onChatEnd.mockImplementation(() => () => undefined);
@@ -173,7 +299,7 @@ describe('createHermesChatModelAdapter', () => {
 
     const adapter = createHermesChatModelAdapter(() => 's1');
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -181,8 +307,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     const consume = (async () => {
@@ -196,7 +320,7 @@ describe('createHermesChatModelAdapter', () => {
     abort.abort();
     await consume;
 
-    expect(cancelChat).toHaveBeenCalledWith({ requestId: 'req-abort', reason: 'stopped' });
+    expect(cancelChat).toHaveBeenCalledWith({ requestId: 'req-abort', reason: 'stopped', via: 'stop' });
     // This screen keeps showing the stopped turn, so its end never triggers a reload.
     expect(isOwnedRunningTurn('req-abort')).toBe(true);
   });
@@ -214,7 +338,7 @@ describe('createHermesChatModelAdapter', () => {
 
     const adapter = createHermesChatModelAdapter(() => 's1');
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -222,8 +346,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     const consume = (async () => {
@@ -263,7 +385,7 @@ describe('createHermesChatModelAdapter', () => {
       onSessionResolved: onResolved,
     });
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -271,8 +393,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     for await (const _ of gen) {
@@ -280,6 +400,32 @@ describe('createHermesChatModelAdapter', () => {
     }
 
     expect(onResolved).toHaveBeenCalledWith('gateway-session', 'stored-session');
+  });
+
+  it("sends a message's voice and a new chat's kept voice, and marks the reply", async () => {
+    onChatChunk.mockImplementation(() => () => undefined);
+    onChatEnd.mockImplementation((cb) => {
+      queueMicrotask(() => cb({ requestId: 'req-voice' }));
+      return () => undefined;
+    });
+    onChatError.mockImplementation(() => () => undefined);
+    useRequestId('req-voice');
+    startChat.mockResolvedValue({ success: true, requestId: 'req-voice', sessionId: 's9', writingVoiceName: 'News' });
+    const adapter = createHermesChatModelAdapter(() => null, {
+      takeNewChatWritingVoice: () => 'plain',
+    });
+    const results: ChatModelRunResult[] = [];
+    for await (const r of runTurn(adapter, {
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] } as never],
+      abortSignal: new AbortController().signal,
+      runConfig: { custom: { writingVoiceId: 'news' } },
+    })) {
+      results.push(r);
+    }
+    expect(startChat).toHaveBeenCalledWith(
+      expect.objectContaining({ writingVoiceId: 'news', keptWritingVoiceId: 'plain' })
+    );
+    expect(results.at(-1)?.metadata?.custom).toMatchObject({ writingVoiceName: 'News' });
   });
 
   it('passes toolsEnabled false from getter', async () => {
@@ -300,7 +446,7 @@ describe('createHermesChatModelAdapter', () => {
       getToolsEnabled: () => false,
     });
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -308,8 +454,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     for await (const _ of gen) {
@@ -337,7 +481,7 @@ describe('createHermesChatModelAdapter', () => {
 
     const adapter = createHermesChatModelAdapter(() => 'chan-1');
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -345,8 +489,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     const yields: unknown[] = [];
@@ -372,11 +514,9 @@ describe('createHermesChatModelAdapter', () => {
       error: 'This project is private and this chat’s model isn’t, so your message wasn’t sent.',
     });
     const adapter = createHermesChatModelAdapter(() => 's1', { onPrivateRefused });
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
     await expect(gen.next()).resolves.toMatchObject({ done: true });
     expect(onPrivateRefused).toHaveBeenCalled();
@@ -395,12 +535,11 @@ describe('createHermesChatModelAdapter', () => {
     });
 
     const adapter = createHermesChatModelAdapter(() => 's1', { onLocalUnreachable });
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-    } as never) as AsyncGenerator<{ metadata?: { custom?: unknown } }>;
-    expect((await gen.next()).value?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
+    });
+    expect(((await gen.next()).value as ChatModelRunResult | undefined)?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
     expect((await gen.next()).done).toBe(true);
     expect(onLocalUnreachable).toHaveBeenCalledOnce();
   });
@@ -410,12 +549,11 @@ describe('createHermesChatModelAdapter', () => {
     const error = 'Ada’s qwen3:14b is offline. Your message wasn’t sent.';
     startChat.mockResolvedValue({ success: false, requestId: 'req-refused', errorCode: 'apply-failed', error });
 
-    const gen = createHermesChatModelAdapter(() => 's1').run({
+    const gen = runTurn(createHermesChatModelAdapter(() => 's1'), {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-    } as never) as AsyncGenerator<{ metadata?: { custom?: unknown } }>;
-    expect((await gen.next()).value?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
+    });
+    expect(((await gen.next()).value as ChatModelRunResult | undefined)?.metadata?.custom).toEqual({ noReply: { reason: 'unreachable', error } });
     expect((await gen.next()).done).toBe(true);
   });
 
@@ -432,7 +570,7 @@ describe('createHermesChatModelAdapter', () => {
 
     const adapter = createHermesChatModelAdapter(() => 's1', { onLocalUnreachable });
     const abort = new AbortController();
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [
         {
           role: 'user',
@@ -440,8 +578,6 @@ describe('createHermesChatModelAdapter', () => {
         } as never,
       ],
       abortSignal: abort.signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
 
     const yields: unknown[] = [];
@@ -463,12 +599,10 @@ describe('createHermesChatModelAdapter server path', () => {
     messages: never[],
     assistantId: string
   ) =>
-    adapter.run({
+    runTurn(adapter, {
       messages,
       abortSignal: new AbortController().signal,
-      context: {} as never,
       unstable_assistantMessageId: assistantId,
-      unstable_getMessage: (() => undefined) as never,
     });
   const drain = async (gen: AsyncGenerator<unknown> | Promise<unknown>) => {
     try {
@@ -526,8 +660,8 @@ describe('createHermesChatModelAdapter server path', () => {
   });
 
   it('records the files this turn wrote on the reply', async () => {
-    const tools: Array<(e: Record<string, unknown>) => void> = [];
-    onChatTool.mockImplementation((cb: (e: Record<string, unknown>) => void) => {
+    const tools: Array<(e: HermesChatToolEvent) => void> = [];
+    onChatTool.mockImplementation((cb) => {
       tools.push(cb);
       return () => undefined;
     });
@@ -573,16 +707,14 @@ describe('createHermesChatModelAdapter Continue (run control)', () => {
     adapter: ReturnType<typeof createHermesChatModelAdapter>,
     messages: never[],
     assistantId: string,
-    runConfig?: unknown
+    runConfig?: RunConfig
   ) =>
-    adapter.run({
+    runTurn(adapter, {
       messages,
       abortSignal: new AbortController().signal,
-      context: {} as never,
       unstable_assistantMessageId: assistantId,
-      unstable_getMessage: (() => undefined) as never,
       ...(runConfig ? { runConfig } : {}),
-    } as never);
+    });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -659,11 +791,9 @@ describe('createHermesChatModelAdapter Continue (run control)', () => {
     });
 
     const adapter = createHermesChatModelAdapter(() => 's1');
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
     const yields: string[] = [];
     for await (const update of gen) {
@@ -685,13 +815,13 @@ describe('filed task cards from live tool results (new-C-1)', () => {
     vi.clearAllMocks();
   });
 
-  async function runWithTool(event: Record<string, unknown>) {
-    let toolCb: ((e: Record<string, unknown>) => void) | null = null;
+  async function runWithTool(event: Partial<HermesChatToolEvent>) {
+    let toolCb: ((e: HermesChatToolEvent) => void) | null = null;
     let endCb: ((e: { requestId: string }) => void) | null = null;
-    onChatTool.mockImplementation(((cb: (e: Record<string, unknown>) => void) => {
+    onChatTool.mockImplementation((cb) => {
       toolCb = cb;
       return () => undefined;
-    }) as never);
+    });
     onChatChunk.mockImplementation(() => () => undefined);
     onChatEnd.mockImplementation((cb) => {
       endCb = cb;
@@ -702,11 +832,9 @@ describe('filed task cards from live tool results (new-C-1)', () => {
     startChat.mockResolvedValue({ success: true, requestId: 'req-kanban', sessionId: 's1' });
 
     const adapter = createHermesChatModelAdapter(() => 's1');
-    const gen = adapter.run({
+    const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'file it' }] } as never],
       abortSignal: new AbortController().signal,
-      context: {} as never,
-      unstable_getMessage: (() => undefined) as never,
     });
     const updates: Array<{ metadata?: { custom?: Record<string, unknown> } }> = [];
     const consume = (async () => {

@@ -25,9 +25,13 @@ export interface CircleSignalFrame {
   payload: unknown;
 }
 
-/** A signal that passed the receiver's checks. `from` comes from the connection, not the sender. */
+/**
+ * A signal that passed the receiver's checks. `from` and `device` come from the connection, not
+ * the sender: `device` is the sender's device (64 hex) that the signal arrived from.
+ */
 export interface CircleSignal extends CircleSignalFrame {
   from: string;
+  device: string;
 }
 
 export const isSignalTopic = (topic: unknown): topic is string => typeof topic === 'string' && TOPIC.test(topic);

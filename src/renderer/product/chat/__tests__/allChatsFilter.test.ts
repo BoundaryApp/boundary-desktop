@@ -71,7 +71,13 @@ describe('allChatsFilter (ADR 0023)', () => {
 
   it('names the filters that are on when nothing matches', () => {
     expect(isFiltered(EMPTY_ALL_CHATS_FILTER)).toBe(false);
-    const filter = { kind: 'dm', agentSlug: 'ana', source: 'Telegram', query: 'price' } as const;
+    const filter: AllChatsFilter = {
+      ...EMPTY_ALL_CHATS_FILTER,
+      kind: 'dm',
+      agentSlug: 'ana',
+      source: 'Telegram',
+      query: 'price',
+    };
     expect(isFiltered(filter)).toBe(true);
     expect(emptyFilterMessage(filter, agents)).toBe('No DMs with Ana from Telegram matching “price”.');
     expect(emptyFilterMessage({ ...EMPTY_ALL_CHATS_FILTER, kind: 'hermes' }, agents)).toBe(

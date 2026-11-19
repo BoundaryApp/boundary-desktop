@@ -22,21 +22,14 @@ import {
 } from '../localStackMode';
 
 describe('stackMode', () => {
-  const prevLocal = process.env.BOUNDARY_LOCAL_STACK;
-  const prevRoot = process.env.BOUNDARY_ASSISTANT_ROOT;
-
   beforeEach(() => {
-    delete process.env.BOUNDARY_LOCAL_STACK;
-    delete process.env.BOUNDARY_ASSISTANT_ROOT;
+    vi.stubEnv('BOUNDARY_LOCAL_STACK', undefined);
+    vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', undefined);
     storedOverride = null;
     resetStackModeCacheForTests();
   });
 
   afterEach(() => {
-    if (prevLocal === undefined) delete process.env.BOUNDARY_LOCAL_STACK;
-    else process.env.BOUNDARY_LOCAL_STACK = prevLocal;
-    if (prevRoot === undefined) delete process.env.BOUNDARY_ASSISTANT_ROOT;
-    else process.env.BOUNDARY_ASSISTANT_ROOT = prevRoot;
     resetStackModeCacheForTests();
   });
 
@@ -117,8 +110,8 @@ describe('stackMode', () => {
   ];
 
   it.each(cases)('$name', ({ liveFlag, envRoot, stored, expected }) => {
-    if (liveFlag) process.env.BOUNDARY_LOCAL_STACK = '1';
-    if (envRoot) process.env.BOUNDARY_ASSISTANT_ROOT = envRoot;
+    if (liveFlag) vi.stubEnv('BOUNDARY_LOCAL_STACK', '1');
+    if (envRoot) vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', envRoot);
     storedOverride = stored ?? null;
     expect(stackMode()).toEqual(expected);
     expect(isLocalAssistantStackMode()).toBe(expected.kind === 'local');

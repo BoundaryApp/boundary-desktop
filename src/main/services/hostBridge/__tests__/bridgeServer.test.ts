@@ -190,6 +190,98 @@ describe('MCP listener', () => {
   });
 });
 
+describe('calendar route', () => {
+  const HERMES_CAL_TOKEN = 'calendar-token-hermes';
+  const WORK_CAL_TOKEN = 'calendar-token-work';
+
+  async function startWithCalendar() {
+    const callTool = vi.fn<CallTool>();
+    const callCalendarTool = vi.fn(async (agent: string, name: string) => ({
+      content: [{ type: 'text' as const, text: `${agent} called ${name}` }],
+    }));
+    const listCalendarTools = vi.fn(async (agent: string) =>
+      agent === 'hermes'
+        ? [{ name: 'caldav_list_calendars', title: 'List', description: 'd', inputSchema: { type: 'object' as const, properties: {}, additionalProperties: false as const }, annotations: { readOnlyHint: true } }]
+        : []
+    );
+    const onMcpMethod = vi.fn();
+    servers = await startBridgeServers({
+      mcpToken: MCP_TOKEN,
+      browserToken: BROWSER_TOKEN,
+      callTool,
+      onMcpMethod,
+      calendar: {
+        tokens: () => ({ [HERMES_CAL_TOKEN]: 'hermes', [WORK_CAL_TOKEN]: 'work' }),
+        callTool: callCalendarTool,
+        listTools: listCalendarTools,
+      },
+    });
+    return { port: servers.mcpPort, callTool, callCalendarTool, listCalendarTools, onMcpMethod };
+  }
+
+  const asAgent = (token: string) => ({ authorization: `Bearer ${token}` });
+
+  it('accepts a calendar token on /calendar and passes its agent with the call', async () => {
+    const { port, callTool, callCalendarTool, onMcpMethod } = await startWithCalendar();
+    const init = await request(port, { path: '/calendar', headers: asAgent(HERMES_CAL_TOKEN), body: rpc('initialize', { protocolVersion: '2025-06-18' }) });
+    expect(init.status).toBe(200);
+    expect(typeof init.headers['mcp-session-id']).toBe('string');
+
+    const list = await request(port, { path: '/calendar', headers: asAgent(HERMES_CAL_TOKEN), body: rpc('tools/list') });
+    const tools = JSON.parse(list.body).result.tools;
+    expect(tools.map((t: { name: string }) => t.name)).toEqual(['caldav_list_calendars']);
+    expect(tools[0].annotations).toEqual({ readOnlyHint: true });
+
+    const call = await request(port, {
+      path: '/calendar',
+      headers: asAgent(WORK_CAL_TOKEN),
+      body: rpc('tools/call', { name: 'caldav_get_events', arguments: { calendar_name: 'Home' } }),
+    });
+    expect(JSON.parse(call.body).result.content[0].text).toBe('work called caldav_get_events');
+    expect(callCalendarTool).toHaveBeenCalledWith('work', 'caldav_get_events', { calendar_name: 'Home' });
+    expect(callTool).not.toHaveBeenCalled();
+    // Calendar sessions are not Hermes host-tool clients.
+    expect(onMcpMethod).not.toHaveBeenCalled();
+    expect((await request(port, { path: '/calendar', method: 'DELETE', headers: { ...asAgent(HERMES_CAL_TOKEN), 'mcp-session-id': 'a' } })).status).toBe(200);
+  });
+
+  it('refuses the general bridge token on /calendar and a calendar token on /mcp', async () => {
+    const { port, callTool, callCalendarTool } = await startWithCalendar();
+    const call = rpc('tools/call', { name: 'caldav_list_calendars', arguments: {} });
+    expect((await request(port, { path: '/calendar', body: call })).status).toBe(401);
+    const onMcp = rpc('tools/call', { name: 'desktop_notification', arguments: { title: 'x' } });
+    expect((await request(port, { path: '/mcp', headers: asAgent(HERMES_CAL_TOKEN), body: onMcp })).status).toBe(401);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(callCalendarTool).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown calendar token', async () => {
+    const { port, callCalendarTool, listCalendarTools } = await startWithCalendar();
+    expect((await request(port, { path: '/calendar', headers: asAgent('calendar-token-other'), body: rpc('tools/list') })).status).toBe(401);
+    expect((await request(port, { path: '/calendar', headers: { authorization: '' }, body: rpc('tools/list') })).status).toBe(401);
+    // A token in the query string doesn't count on this listener.
+    expect((await request(port, { path: `/calendar?token=${HERMES_CAL_TOKEN}`, headers: { authorization: '' }, body: rpc('tools/list') })).status).toBe(401);
+    expect(callCalendarTool).not.toHaveBeenCalled();
+    expect(listCalendarTools).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Origin and Host checks on /calendar', async () => {
+    const { port, listCalendarTools } = await startWithCalendar();
+    const body = rpc('tools/list');
+    expect((await request(port, { path: '/calendar', body, headers: { ...asAgent(HERMES_CAL_TOKEN), origin: `http://localhost:${port}` } })).status).toBe(403);
+    expect((await request(port, { path: '/calendar', body, headers: { ...asAgent(HERMES_CAL_TOKEN), host: `attacker.example:${port}` } })).status).toBe(421);
+    const ok = await request(port, { path: '/calendar', body, headers: asAgent(HERMES_CAL_TOKEN) });
+    expect(ok.headers['access-control-allow-origin']).toBeUndefined();
+    expect(listCalendarTools).toHaveBeenCalledTimes(1);
+  });
+
+  it('is closed when no calendar route is configured', async () => {
+    const { mcpPort } = await start();
+    expect((await request(mcpPort, { path: '/calendar', body: rpc('ping') })).status).toBe(404);
+    expect((await request(mcpPort, { path: '/calendar', headers: asAgent(HERMES_CAL_TOKEN), body: rpc('ping') })).status).toBe(401);
+  });
+});
+
 describe('browser listener', () => {
   function upgrade(
     browserPort: number,

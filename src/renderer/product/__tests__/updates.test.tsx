@@ -2,6 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateSnapshot } from '../../../shared/types/updates';
+import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { resetUpdatesForTests, UpdateCard, UpdateRailButton, useUpdates } from '../updates';
 import { UpdatesPanel } from '../UpdatesPanel';
 
@@ -37,11 +38,11 @@ function mockApi(state: UpdateSnapshot) {
     getState: vi.fn(async () => state),
     onState: vi.fn((callback: (next: UpdateSnapshot) => void) => {
       push = callback;
-      return () => undefined;
+      return (): void => undefined;
     }),
     onRestartRequested: vi.fn((callback: () => void) => {
       requestRestart = callback;
-      return () => undefined;
+      return (): void => undefined;
     }),
     download: vi.fn(async () => state),
     closeCard: vi.fn(async () => undefined),
@@ -56,7 +57,7 @@ function mockApi(state: UpdateSnapshot) {
     moveToApplications: vi.fn(async () => undefined),
     check: vi.fn(async () => state),
   };
-  (window as unknown as { electronAPI: unknown }).electronAPI = { updates: api };
+  stubElectronAPI({ updates: api });
   return {
     api,
     push: (next: UpdateSnapshot) => act(() => push(next)),
@@ -82,9 +83,9 @@ describe('updates', () => {
     openUpdates.mockClear();
   });
   afterEach(() => {
+    // Unmount while fake timers are installed; RTL's own cleanup runs after this hook.
     cleanup();
     vi.useRealTimers();
-    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   });
 
   it('asks before downloading, then offers the restart', async () => {

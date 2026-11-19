@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Proposed; the destination is retired by [ADR 0043](../adr/0043-circles-live-in-the-chat.md) once Circle chats' places and Inference ship |
+| Status | Proposed; [ADR 0043](../adr/0043-circles-live-in-the-chat.md) retired the destination, and [ADR 0052](../adr/0052-circles-destination-and-floating-agent.md) brings back one for talking in Circles (phases 10 and 11) |
 | Visuals | [prototype.dc.html](prototype.dc.html) (click-through source) |
 | Started | 31 Oct 2026 |
 | Builds on | [ADR 0032](../adr/0032-circles.md), [ADR 0034](../adr/0034-shared-models.md), [ADR 0036](../adr/0036-shared-model-app-default.md), [circles plan](../circles-plan.md), [settings spec](../settings-ux-study/spec.md) |
@@ -20,8 +20,11 @@
 | 7 Circle tab and person drill-in | Built; live check pending | Circle chats phase 3 |
 | 8 Start and join sheets | Built; live check pending | 7 |
 | 9 Retire the destination | Built; live check pending | 7, 8, settings spec phase 3 |
+| 10 Circles destination for talking | Built; not yet tried in the app | 9 |
+| 11 A Circle row’s menu | Built; not yet tried in the app | 10 |
+| 12 The open Circle above a dock | Built; not yet tried in the app | 11 |
 
-Phases 7 to 9 move this screen's parts into the chat and into Inference ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)): membership to the chat's Circle tab, sharing, trust and use to Inference. Decisions 1, 4, 7, 8, 10, 13, 14 and 15 change there; the rest still describe the parts, wherever they're mounted.
+Phases 7 to 9 move this screen's parts into the chat and into Inference ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)): membership to the chat's Circle tab, sharing, trust and use to Inference. Decisions 1, 4, 7, 8, 10, 13, 14 and 15 change there; the rest still describe the parts, wherever they're mounted. Phases 10 and 11 bring back a Circles destination that holds only Circles' conversations ([ADR 0052](../adr/0052-circles-destination-and-floating-agent.md)), as decisions 16 to 21 describe. Nothing about models comes back with it. Phase 12 splits the rail into the open Circle and a dock of every Circle, as decision 22 describes; it replaces decision 17's list.
 
 ## Goal
 
@@ -50,6 +53,20 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 13. **Problems reach the user wherever they are.** A sharing problem sets a warning dot on the Circles icon, and **Sharing**'s status line in the list names it. A banner on **Sharing** carries the fix.
 14. **No tab bar.** Circle chats open in the Workbench chat instead of a Chat tab here ([ADR 0042](../adr/0042-circle-chats.md) §10), and a Circle's header gets **Open chat**, which switches the chat to that Circle. This replaces the earlier plan for a Chat tab. Once phase 9 ships there is no Circles screen, and the Circle tab in the chat's inspector takes this page's place ([ADR 0043](../adr/0043-circles-live-in-the-chat.md)).
 15. **Diagnostics moves to Profile.** So do the display name and renaming.
+16. **Circles is in the icon rail again, after Chat.** It is the only way into a Circle, and Chat shows This Mac alone with no place switcher. Shortcuts follow the rail: ⌘1 Chat, ⌘2 Circles, ⌘3 Inference, ⌘4 Services, ⌘5 Resources. ⌘N still opens a new chat in Chat.
+17. **The list is the Circles rail.** It is 256px, like the chat rail. From the top: **Circles** with `+`, a menu of the start and join sheets from phase 8, a search field that filters Circles by name, a **Joining a Circle…** row while a join waits, **Unread** with Circles that have unread messages, those that mention the user first, then by unread count, then **All Circles** with its count, by name. A Circle with unread messages appears in both groups. Each row has the Circle's tile, name, unread count and, with a mention of the user unread, "@" before the count. The open Circle's row expands in place, once, under the row where it first appears, to its channels with their counts and its shared folders, and admins get the channels' `+`; every other Circle stays one row. With nothing chosen, Circles opens the first Circle by name without remembering it as a choice. People move out of the rail into the Circle tab, which the header's panel button opens. The **Unread** group is hidden when empty, and search hides both headings and lists matches by name. Decision 22 replaces this list from phase 12.
+18. **No Circles, and no connection.** With no Circles the list says what a Circle is and offers **Start a Circle…** and **Join with an invite…**, and the main area shows the same. When the Circles process can't connect, a line under the heading says so and links to the **Circles profile** row in Settings.
+19. **A Circle's screen is phase 7's.** The channel, its header with the panel button, and the Circle tab, unchanged. Each Circle reopens on the channel last open in it, a Circle opened for the first time opens **General**, and opening Circles reopens the Circle last open.
+20. **A row's ⋯ menu.** On hover or focus a row shows ⋯, also opened by the row's context menu: **Invite someone…** (admins), **Circle details**, a **Notifications** submenu with the four levels of the Circle notifications spec decision 5, and **Leave…** (**Delete Circle…** for its last member, as in the tab). Each opens the Circle tab or the sheet it already has.
+21. **Counts move to the Circles icon.** It carries the unread total across Circles, with "@" when any of it mentions the user. The Chat icon no longer counts Circle messages.
+22. **The open Circle stays put; every Circle sits in a dock below it.** Decision 17's list made the rail jump: the open Circle's channels opened under whichever row came first, so at a different height for each Circle, and reading a Circle moved it out of **Unread** while the user looked. The rail now has two parts in fixed places.
+    - **The Circle area** is the top. A header holds the open Circle's tile, name and the ⋯ menu of decision 20. Under it, **Channels** with counts and the admins' `+`, **Direct messages**, then **Folders** with **Share a folder…**, scroll together. Switching Circles changes what the area shows; the header and the first channel stay where they were. While the joining page is open, the header reads **Joining a Circle…** and the area holds nothing else; a join doesn't know the Circle's name until it's let in.
+    - **The dock** is the bottom, under a drag grip. From the top: **Circles** with `+` (the start and join menu of decision 17), a search field, the **Joining a Circle…** row and **Leaving…** notes while they last, then every Circle by name. A Circle with unread messages is bold with its count, and "@" before the count for an unread mention. The open Circle's row is selected and has no count, since its channels carry it. Rows keep their order as messages arrive and are read. Search filters the dock and nothing above it. Each row keeps decision 20's ⋯ menu.
+    - **The chip.** When rows with unread messages are scrolled out of the dock, a chip at its bottom edge reads "3 unread ↓" (or ↑ when they're above) and scrolls the nearest into view. It goes when none are hidden.
+    - **Height.** The dock opens about six rows tall. Dragging the grip resizes it; it can't go below three rows or leave the Circle area fewer than four. This Mac keeps the height. In a window too short for both minimums the dock gives way first, then both scroll.
+    - **No Circles.** The Circle area goes and the dock fills the rail with decision 18's explanation and both sheets. The can't-connect line sits under the dock's heading.
+    - **Links don't move the dock.** A share toast's **Open**, a notification's click or a row's ⋯ action opens the Circle in the Circle area. The dock doesn't scroll to its row.
+    - **What goes.** The **Unread** group, the **All Circles** heading and its count, and channels expanding under a Circle's row.
 
 ## Where each flow goes
 
@@ -83,6 +100,7 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 - **Cancel stops only a waiting join.** Nothing is kept, because a device isn't in a Circle until an admin admits it. Once it's admitted, cancelling does nothing and the join finishes.
 - **Offers stay published as available** when the provider's server is down. Members see a model that fails until they try it. Fixing that is a network change outside this spec.
 - **Tokens depend on the server.** Tokens come from each reply's `usage` field. A server that leaves it out counts requests only, so a token limit never stops its members.
+- **Short windows.** The dock's three rows and the Circle area's four need about 330px under the titlebar. The main window sets no minimum height, so below that both parts scroll, as decision 22 says. Setting a minimum height is a separate choice.
 - **Window width.** Icon rail, list and panel leave about 640px at a 1280px window. The panel should cover the detail pane below that width. The minimum window size needs checking.
 
 ## Build order
@@ -105,9 +123,15 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 
 **9 Retire the destination.** Once Inference (settings spec phase 3) holds Sharing and per-person trust: remove the Circles icon and `CirclesScreen`, move the warning dot to Inference, add the **Circles profile** row to Settings, and point every navigation request that named the Circles screen or a person's panel at the Circle tab or Inference. Re-check criteria 1, 3 and 8 against the new places.
 
+**10 Circles destination for talking.** The Circles icon after Chat and the shortcut shift in `useAppShortcuts.ts`, `appCommands.ts` and the app menu. The list of decisions 17 and 18. The Circle place, `CircleThread` and the Circle tab move from the Workbench chat to the destination as they are; the place switcher, the Circle half of the place store and the chat screen's Circle branch go, and the start and join sheets and the joining page move to the list. Every link that switched to a Circle's place opens the destination at that channel: the share toast's **Open**, a notification's click, and the Circle tab's links. The viewing report of the Circle notifications spec comes from the destination, so a channel open there with the window focused stays silent. Counts move to the Circles icon. Rewrite criteria 1 and 14 for the destination, and mounted tests that Chat shows no Circle anywhere, that a share toast's **Open** lands on the channel, and that the Circles icon's count matches the list.
+
+**11 A Circle row's menu.** The ⋯ menu and its context-menu twin, each item opening the Circle tab section or sheet it names.
+
+**12 The open Circle above a dock.** Decision 22. `CirclesList` splits into the Circle area's header and the dock, and `CirclePlace` hands the Circle area its channels and folders in place of the `expanded` slot. The dock's height is a renderer preference on this Mac; it needs no IPC and no change to the Circles process. The chip watches which unread rows are in view. Mounted tests in `CirclesScreen.test.tsx`: reading a channel and a new message arriving leave the dock's order unchanged; switching Circles keeps the header and the first channel at the same offset; the chip appears with the right count and direction and scrolls to the row; a link to a Circle doesn't scroll the dock; the grip's height survives a remount and respects both minimums. Rewrite the cases that assert the **Unread** group and the expanded row. Criterion 18 is re-checked in the app.
+
 ## Acceptance criteria
 
-- [x] **1.** A user with two Circles can switch between them from the chat's place switcher, and leaving the chat and coming back restores the place.
+- [x] **1.** A user with two Circles can switch between them from the Circles list, and leaving Circles and coming back reopens the Circle and channel last open.
 - [x] **2.** Someone in two Circles appears with one set of switches, and a change shows in both Circles at once.
 - [x] **3.** A member can trust a provider and add their model to the Chat stack without leaving Inference.
 - [x] **4.** Use buttons stay disabled until the provider is Trusted, and main refuses the choice if the renderer is wrong.
@@ -120,6 +144,16 @@ Sharing to a Circle takes two controls far apart: a tick in the panel at the top
 - [x] **11.** The chat's stop message for a shared model opens that person's panel.
 - [x] **12.** Only admins see role and remove actions, and the remove dialog keeps the wording ADR 0032 requires.
 - [x] **13.** Usage counts appear only on the provider's and that member's own Macs.
-- [x] **14.** There is no Circles icon. Every Circle, invite, join and member is reachable from the chat's switcher, the Circle tab or a sheet.
+- [x] **14.** Every Circle, invite, join and member is reachable from the Circles list, the Circle tab or a sheet, and nothing on Circles manages models.
 - [x] **15.** No control in a Circle place changes a model setting; sharing, trust and use are only in Inference.
 - [x] **16.** A link about a person's model opens Inference at their row without changing the chat's place.
+- [x] **17.** Circles is reachable from the icon rail and ⌘2, Chat shows no Circle, and a Circle opens nowhere else.
+- [ ] **18.** A user in 25 Circles sees how many have unread messages without scrolling, from the bold rows in view and the chip, and search finds one by name. (Before phase 12: sees which have unread messages without scrolling.)
+- [x] **19.** A share toast's **Open** and a notification's click open the Circles destination at the right channel and scroll to the message.
+- [x] **20.** No notification fires for a channel open on the Circles destination while the window is focused.
+- [x] **21.** The Circles icon shows the unread total and "@" for an unread mention; the Chat icon counts no Circle message.
+- [x] **22.** Every item in a row's ⋯ menu opens the same Circle tab section or sheet as its control in the tab.
+- [x] **23.** Switching between any two Circles leaves the Circle area's header and first channel where they were.
+- [x] **24.** No row in the dock changes place when a message arrives or a channel is read.
+- [x] **25.** With unread rows scrolled out of the dock, the chip says how many and which way, and clicking it brings the nearest into view.
+- [ ] **26.** The dock's height survives quitting and reopening the app, and neither part of the rail drops below its minimum.

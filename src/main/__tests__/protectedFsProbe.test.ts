@@ -287,7 +287,7 @@ describe('wrapCalls', () => {
   it('keeps properties such as realpath.native and reports through promisify.custom', async () => {
     const calls: string[] = [];
     const native = () => 'native';
-    const execFile = Object.assign(() => undefined, {
+    const execFile = Object.assign((): void => undefined, {
       native,
       [promisify.custom]: async (file: string) => ({ stdout: `ran ${file}`, stderr: '' }),
     });
@@ -305,7 +305,7 @@ describe('wrapCalls', () => {
       frames: () => captureFrames(5),
       classify: () => ({ pathClass: 'documents', area: '' }),
     });
-    const target = { stat: () => undefined };
+    const target = { stat: (_path: string): void => undefined };
     wrapCalls(target, ['stat'], (op, args) => r.record(op, fsTargets(op, args)), { depth: 0 });
     function callerUnderTest() {
       target.stat('/Users/u/Documents/a');
@@ -322,7 +322,7 @@ describe('spawnTargets', () => {
 
   it('uses the inherited working folder when none is given, and the program for spawn', () => {
     expect(spawnTargets('spawn', ['docker', ['ps']], cwd)).toEqual([cwd(), 'docker']);
-    expect(spawnTargets('execFile', ['git', ['status'], () => undefined], cwd)).toEqual([cwd(), 'git']);
+    expect(spawnTargets('execFile', ['git', ['status'], (): void => undefined], cwd)).toEqual([cwd(), 'git']);
   });
 
   it('uses the given working folder, and only the folder for a shell command', () => {
@@ -334,7 +334,7 @@ describe('spawnTargets', () => {
 
 describe('fsTargets', () => {
   it('takes both paths of rename and copy', () => {
-    expect(fsTargets('rename', ['/a', '/b', () => undefined])).toEqual(['/a', '/b']);
+    expect(fsTargets('rename', ['/a', '/b', (): void => undefined])).toEqual(['/a', '/b']);
     expect(fsTargets('promises.copyFile', ['/a', '/b'])).toEqual(['/a', '/b']);
     expect(fsTargets('renameSync', ['/a', '/b'])).toEqual(['/a', '/b']);
   });

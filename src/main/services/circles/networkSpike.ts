@@ -65,12 +65,14 @@ export function startCirclesNetworkSpike(): void {
       case 'shared-chunk':
       case 'shared-end':
       case 'share-usage':
+      case 'service-usage':
       case 'circle-paired':
       case 'circle-removed':
       case 'member-left':
       case 'signal-received':
       case 'record-changed':
       case 'chat-update':
+      case 'folder-changed':
       case 'diag':
         return;
     }

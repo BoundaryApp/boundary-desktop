@@ -15,9 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows / Linux packaging disabled for now — uncomment to re-enable.
-        os: [macos-latest]
-        # os: [macos-latest, windows-latest, ubuntu-latest]
+        # Windows joins once it packages and launches; see docs/windows-linux-plan.md.
+        os: [macos-latest, ubuntu-latest]
 
     steps:
       - name: Checkout code
@@ -48,6 +47,10 @@ jobs:
 
       - name: Lint
         run: bun run lint
+        env:
+          # Type-aware lint needs more than the runner's default ~2 GB heap; at 2 GB it aborts
+          # with "JavaScript heap out of memory".
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Unused files and exports
         run: bun run check:unused
@@ -55,8 +58,15 @@ jobs:
       - name: Repeated blocks
         run: bun run check:duplicates
 
+      - name: Spacing tokens
+        run: bun run check:spacing
+
       - name: Stack archive checksum
         run: bun run check:stack-archive
+
+      - name: Calendar helper tests (macOS)
+        if: matrix.os == 'macos-latest'
+        run: bun run test:calendar-helper
 
       - name: Fetch bundled container runtime (macOS)
         if: matrix.os == 'macos-latest'
@@ -78,3 +88,37 @@ jobs:
             echo "Expected Forge package output under out/" >&2
             exit 1
           fi
+
+      - name: Verify calendar helper in the packaged app (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          app=$(find out -maxdepth 2 -name '*.app' -type d | head -n 1)
+          if [ -z "$app" ]; then
+            echo "No packaged .app under out/" >&2
+            exit 1
+          fi
+          helper="$app/Contents/Resources/calendar-helper/boundary-calendar-helper"
+          if [ ! -f "$helper" ] || [ ! -x "$helper" ]; then
+            echo "Expected an executable calendar helper at $helper" >&2
+            ls -la "$app/Contents/Resources/calendar-helper" || true
+            exit 1
+          fi
+          echo "Calendar helper present and executable: $helper"
+
+      # Ubuntu 24.04 stops unprivileged user namespaces through AppArmor, which Chromium's
+      # sandbox needs. Allowing them here keeps the sandbox on for the launch below.
+      - name: Allow Chromium's sandbox (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Launch the packaged app (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          exe=$(find out -maxdepth 2 -type f -name Boundary -perm -u+x | head -n 1)
+          if [ -z "$exe" ]; then
+            echo "No packaged executable under out/" >&2
+            exit 1
+          fi
+          BOUNDARY_SMOKE_EXIT=1 xvfb-run -a "$exe"

@@ -25,7 +25,7 @@ export interface ToolCallResult {
 }
 
 export type CallTool = (name: string, args: Record<string, unknown>) => Promise<ToolCallResult>;
-export type ListTools = () => readonly HostToolDefinition[];
+export type ListTools = () => readonly HostToolDefinition[] | Promise<readonly HostToolDefinition[]>;
 
 /** `undefined` means the message was a notification and gets no response body. */
 export type McpReply = { status: number; body?: unknown };
@@ -69,7 +69,9 @@ export function isReply(value: JsonRpcRequest | McpReply): value is McpReply {
 export async function handleMcpMessage(
   msg: JsonRpcRequest,
   callTool: CallTool,
-  listTools: ListTools = () => listedHostTools({ offerCalendarSetup: false, agentAppAccess: false })
+  listTools: ListTools = () => listedHostTools({ offerCalendarSetup: false, agentAppAccess: false }),
+  /** Names refused here, before main sees them. The calendar route leaves this to main. */
+  isKnownTool: (name: string) => boolean = isHostToolName
 ): Promise<McpReply> {
   const isNotification = msg.id === undefined;
   if (isNotification) {
@@ -96,7 +98,7 @@ export async function handleMcpMessage(
     case 'ping':
       return result(msg.id, {});
     case 'tools/list':
-      return result(msg.id, { tools: listTools() });
+      return result(msg.id, { tools: await listTools() });
     case 'tools/call': {
       const name = msg.params?.name;
       const args = msg.params?.arguments ?? {};
@@ -105,7 +107,7 @@ export async function handleMcpMessage(
       }
       // Any tool in the catalog, listed now or not: a Hermes that hasn't reconnected since the
       // listing changed may still call offer_setup, and main answers that itself.
-      if (!isHostToolName(name)) {
+      if (!isKnownTool(name)) {
         return error(msg.id, JSON_RPC_ERRORS.invalidParams, `Unknown tool: ${name}`);
       }
       return result(msg.id, await callTool(name, args as Record<string, unknown>));

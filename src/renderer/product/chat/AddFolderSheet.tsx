@@ -7,6 +7,7 @@ import type { CodingChangeMode } from './codingFoldersStore';
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Button } from '../../components/ui/button';
 
 /**
  * Add a folder to a project (ADR 0028, mock flow 1): pick it, choose Code in it or Use as
@@ -138,25 +139,28 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           </p>
           {pickError ? <p className="wb-sheet-error">{pickError}</p> : null}
           <div className="wb-sheet-actions">
-            <button
+            <Button
+              variant="secondary"
+              block
               type="button"
-              className="wb-btn-ghost is-start"
+              className="is-start"
               disabled={picking}
               onClick={() => setStep('new')}
             >
               New folder…
-            </button>
-            <button type="button" className="wb-btn-ghost" disabled={picking} onClick={onCancel}>
+            </Button>
+            <Button variant="secondary" block type="button" disabled={picking} onClick={onCancel}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              block
               type="button"
-              className="wb-btn-solid"
               disabled={picking}
               onClick={() => void pick()}
             >
               {picking ? 'Choosing…' : 'Choose folder…'}
-            </button>
+            </Button>
           </div>
         </>
       ) : null}
@@ -228,27 +232,29 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           </div>
           {error ? <p className="wb-sheet-error">{error}</p> : null}
           <div className="wb-sheet-actions">
-            <button
+            <Button
+              variant="secondary"
+              block
               type="button"
-              className="wb-btn-ghost"
               disabled={busy}
               onClick={() => setStep('pick')}
             >
               Back
-            </button>
+            </Button>
             {access === 'code' ? (
-              <button type="button" className="wb-btn-solid" onClick={() => setStep('confirm')}>
+              <Button variant="primary" block type="button" onClick={() => setStep('confirm')}>
                 Continue
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
+                variant="primary"
+                block
                 type="button"
-                className="wb-btn-solid"
                 disabled={busy}
                 onClick={() => onReference(hostPath)}
               >
                 {busy ? 'Adding…' : 'Add as reference'}
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -280,9 +286,9 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
           </div>
           {agent?.busy ? <CodingBusyWarning agent={agent} verb="add" look="sheet" /> : null}
           <div className="wb-sheet-actions">
-            <button type="button" className="wb-btn-ghost" onClick={() => setStep('access')}>
+            <Button variant="secondary" block type="button" onClick={() => setStep('access')}>
               Back
-            </button>
+            </Button>
             {agent?.busy ? (
               <CodingBusyButtons
                 verb="add"
@@ -290,14 +296,15 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
                 onChoose={(mode) => onCode(hostPath, mode)}
               />
             ) : (
-              <button
+              <Button
+                variant="primary"
+                block
                 type="button"
-                className="wb-btn-solid"
                 disabled={!agent}
                 onClick={() => onCode(hostPath, 'now')}
               >
                 {agent ? 'Give coding access' : 'Checking…'}
-              </button>
+              </Button>
             )}
             <span className="wb-sheet-note">Restarts the coding agent, about 10 seconds</span>
           </div>

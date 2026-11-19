@@ -20,10 +20,10 @@ function setup() {
             rejectList = reject;
           })
       ),
-      onApproval: vi.fn(() => () => undefined),
+      onApproval: vi.fn(() => (): void => undefined),
       onApprovalCleared: vi.fn((cb: (event: { id: string }) => void) => {
         cleared = cb;
-        return () => undefined;
+        return (): void => undefined;
       }),
     },
   });

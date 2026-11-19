@@ -27,6 +27,7 @@ import type {
   CirclesResult,
   CirclesSnapshot,
   CirclesState,
+  DirectMessage,
 } from '../../../shared/types/circles';
 import type { PeerModelRef } from '../../../shared/types/inferenceChain';
 import { stopUtilityProcess } from '../stopUtilityProcess';
@@ -52,25 +53,46 @@ import {
   pruneInviteCodes,
   readInviteCode,
   saveInviteCode,
+  getNotifyPrefs,
   getReadPositions,
   getServedUsage,
   getUsedUsage,
   setReadPosition,
   setServedUsage,
   setUsedUsage,
+  getServedServiceUsage,
+  setServedServiceUsage,
+  loadServiceGrants,
+  saveServiceGrants,
 } from './circlesStore';
+import { keptMentions } from '../../../shared/circleMentions';
 import { NETWORK_ENTRY } from './networkEntry';
+import { createCircleNotifier, type CircleMessageChange, type Viewing } from './circleNotifier';
+import { circleNotifierDeps } from './circleNotifications';
+import { SERVICES_APP } from '../../../shared/serviceOffers';
+import { mintMemberKeys, revokeMemberKeys, TwentyKeyError, type TwentyKeyDeps } from '../addons/twentyMemberKeys';
+import { twentyPort } from '../addons/twentySignIn';
+import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
+import { createSharedServices, localServiceUpstream } from './sharedServices';
 import type {
+  CallContext,
+  CallTunnelAction,
+  CallTunnelReply,
   CircleSecrets,
   CirclesRequest,
+  FolderReply,
+  FolderRequest,
   MainToNetwork,
   CircleRecordChange,
   CircleRecordEntry,
   NetworkToMain,
   SharedModelCall,
+  ServiceCall,
 } from './networkMessages';
+import { captureStderr } from './stderrTail';
 import { UsageTail } from './usageTail';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { slugify } from '../../../shared/utils/slug';
 
 /**
  * Main's side of Circles (ADR 0032 §1): it owns the user's keys and choices and runs the network
@@ -105,19 +127,35 @@ interface SharedCall {
   /** The provider answered with a reply, so this call counts as used. */
   served: boolean;
   tail: UsageTail;
+  /** A shared model's call counts toward the member's usage; a shared service's doesn't yet. */
+  counts: boolean;
 }
 const sharedCalls = new Map<number, SharedCall>();
 
-type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; payload: unknown }) => void;
+type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; fromDevice: string; payload: unknown }) => void;
 const signalHandlers = new Map<string, Set<CircleSignalHandler>>();
 type CircleRecordHandler = (change: CircleRecordChange) => void;
+const folderChangeHandlers = new Set<(key: string) => void>();
+const readyHandlers = new Set<() => void>();
+const snapshotHandlers = new Set<(snapshot: CirclesSnapshot) => void>();
+const removedHandlers = new Set<(key: string) => void>();
+const leavingHandlers = new Set<(key: string) => void>();
 const recordHandlers = new Map<string, Set<CircleRecordHandler>>();
 
-/** An edit, delete or confirmation, or a message that disappeared when its order settled. */
-export type CircleMessageChange =
-  | { kind: 'changed'; message: CircleMessage }
-  | ({ kind: 'gone'; circleKey: string; channel: string } & CircleMessageRef);
+export type { CircleMessageChange } from './circleNotifier';
 const messageHandlers = new Set<(message: CircleMessage) => void>();
+/** Present while the network process runs; turns new messages into notifications. */
+let notifier: ReturnType<typeof createCircleNotifier> | null = null;
+let stopNotifier: (() => void)[] = [];
+/** What the renderer last said it shows; kept across network restarts so a new notifier starts with it. */
+let viewing: Viewing | null = null;
+
+function stopNotifying(): void {
+  for (const stop of stopNotifier) stop();
+  stopNotifier = [];
+  notifier?.dispose();
+  notifier = null;
+}
 const messageChangeHandlers = new Set<(change: CircleMessageChange) => void>();
 /** Messages a read returns when the caller doesn't say. */
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -141,6 +179,41 @@ let state: CirclesState = {
   serving: null,
   used: getUsedUsage(),
 };
+
+/** Reaches this Mac's Twenty as its owner, for members' keys. */
+function twentyKeyDeps(): TwentyKeyDeps {
+  const { root } = tryResolveAssistantRoot();
+  if (!root) throw new TwentyKeyError('no-login', 'The agent stack isn’t on this Mac.');
+  return { root, port: twentyPort(root) };
+}
+
+/**
+ * The services this user shares with their Circles (ADR 0048). Members' keys stay in main,
+ * encrypted, and in the network process's memory while it runs.
+ */
+const sharedServices = createSharedServices({
+  load: loadServiceGrants,
+  save: saveServiceGrants,
+  mintKeys: (name, level) => mintMemberKeys(twentyKeyDeps(), name, level),
+  revokeKeys: (ids) => revokeMemberKeys(twentyKeyDeps(), ids),
+  upstreamFor: (service) => {
+    const { root } = tryResolveAssistantRoot();
+    return localServiceUpstream(service, root ? twentyPort(root) : null);
+  },
+  setOffer: (circle, service, offer) =>
+    requestOrThrow({ op: 'record-set', key: circle, app: SERVICES_APP, scope: 'member', record: service, value: offer }),
+  deleteOffer: (circle, service) =>
+    requestOrThrow({ op: 'record-del', key: circle, app: SERVICES_APP, scope: 'member', record: service }),
+  push: async (sharing) => {
+    if (child && state.status === 'running') await requestOrThrow({ op: 'service-sharing', sharing });
+  },
+  log: (message, data) => persistDebugLog('circles', message, data ?? {}),
+});
+
+/** The provider's side of shared services, for the share sheet and the shared rows. */
+export function getSharedServices(): typeof sharedServices {
+  return sharedServices;
+}
 
 function setState(next: Partial<CirclesState>): void {
   state = { ...state, ...next };
@@ -182,8 +255,16 @@ async function start(): Promise<void> {
     throw error;
   }
 
-  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: `${APP_NAME} Circles` });
+  // stderr is piped so an uncaught error or native crash message reaches the debug log.
+  const proc = utilityProcess.fork(NETWORK_ENTRY, [], { serviceName: `${APP_NAME} Circles`, stdio: ['ignore', 'inherit', 'pipe'] });
+  const stderr = captureStderr(proc.stderr);
   child = proc;
+  stopNotifying();
+  notifier = createCircleNotifier(
+    circleNotifierDeps({ snapshot: () => state.snapshot, listChannels: listCircleChannels }),
+    viewing
+  );
+  stopNotifier = [onCircleMessage(notifier.onMessage), onCircleMessageChange(notifier.onChange)];
   persistDebugLog('circles', 'network process forked', { pid: proc.pid ?? null, circles: circles.length });
   const forkedAt = Date.now();
   diag('main.net-forked', { pid: proc.pid ?? null, circles: circles.length, sharing: sharingSummary() });
@@ -197,8 +278,12 @@ async function start(): Promise<void> {
           postSignalTopics();
           postRecordApps();
           resolve();
+          for (const handler of readyHandlers) handler();
           syncSharing().catch((error: unknown) => {
             persistDebugLog('circles', 'sharing sync failed', { error: error instanceof Error ? error.message : String(error) });
+          });
+          sharedServices.sync().catch((error: unknown) => {
+            persistDebugLog('circles', 'shared services sync failed', { error: error instanceof Error ? error.name : typeof error });
           });
           return;
         case 'circles-snapshot':
@@ -230,10 +315,17 @@ async function start(): Promise<void> {
           return;
         case 'circle-removed':
           forgetCircle(message.key);
+          for (const handler of removedHandlers) handler(message.key);
           setState({ inviteCodeIds: getInviteCodeIds() });
           break;
+        case 'folder-changed':
+          for (const handler of folderChangeHandlers) handler(message.key);
+          return;
         case 'member-left':
           showWindowNotification({ title: message.circle, body: `${message.name} left the Circle.` });
+          return;
+        case 'service-usage':
+          setServedServiceUsage(message.served);
           return;
         case 'share-usage':
           if (message.served) setServedUsage(message.served);
@@ -254,14 +346,24 @@ async function start(): Promise<void> {
       }
     });
     proc.once('exit', (code) => {
-      if (child === proc) child = null;
+      if (child === proc) {
+        child = null;
+        stopNotifying();
+      }
       for (const answer of pending.values()) answer({ type: 'circles-reply', id: 0, ok: false, error: 'Circles stopped.' });
       pending.clear();
       failSharedCalls(new Error('Circles stopped.'));
       setAwayBlocker(false);
+      setAwayBlocker(false, 'services');
       setState({ serving: null });
       persistDebugLog('circles', 'network process exited', { code });
-      diag('main.net-exit', { code, expected: state.status === 'stopped', ms: Date.now() - forkedAt });
+      const expected = state.status === 'stopped';
+      diag('main.net-exit', { code, expected, ms: Date.now() - forkedAt });
+      if (!expected) {
+        void stderr.settled().then(({ bytes, tail }) => {
+          if (bytes > 0) persistDebugLog('circles', 'network process stderr', { code, bytes, tail });
+        });
+      }
       if (state.status !== 'stopped') setState({ status: 'failed', error: 'Circles stopped unexpectedly.' });
       reject(new Error('Circles stopped before they were ready.'));
     });
@@ -273,11 +375,13 @@ async function start(): Promise<void> {
       name: state.displayName,
       circles,
       usage: state.served,
+      serviceUsage: getServedServiceUsage(),
     });
   });
 }
 
 function onSnapshot(snapshot: CirclesSnapshot): void {
+  for (const handler of snapshotHandlers) handler(snapshot);
   const caughtUp = snapshot.circles.some(
     (circle) => circle.writable && state.snapshot.circles.find((before) => before.key === circle.key)?.writable === false
   );
@@ -302,7 +406,7 @@ function onCirclePaired(secrets: CircleSecrets): void {
 
 /** The member's own count of a call the provider answered (ADR 0034 §5). */
 function countUsed(call: SharedCall): void {
-  if (!call.served) return;
+  if (!call.served || !call.counts) return;
   const used = addUsage(state.used, call.providerId, localDay(new Date()), { requests: 1, tokens: call.tail.tokens() ?? 0 });
   setUsedUsage(used);
   setState({ used });
@@ -370,6 +474,40 @@ function onSharedMessage(message: Extract<NetworkToMain, { type: 'shared-head' |
  * provider can't be reached, which the router treats as unreachable (ADR 0033 §6).
  */
 export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, signal?: AbortSignal): Promise<Response> {
+  return startSharedCall(
+    peer,
+    (id) => ({ type: 'shared-request', id, key: peer.circleId, provider: peer.providerId, request: call }),
+    { path: call.path, bodyBytes: Buffer.byteLength(call.body ?? ''), counts: true },
+    signal
+  );
+}
+
+/**
+ * Call a service a member shares through the network process (ADR 0048 §3), for this Mac's
+ * listener. Resolves at the reply's head, like `fetch`; rejects when Circles aren't running or the
+ * provider can't be reached, which the listener reports as the provider being offline (§11).
+ */
+export function fetchSharedService(peer: SharedServiceRef, call: ServiceCall, signal?: AbortSignal): Promise<Response> {
+  return startSharedCall(
+    peer,
+    (id) => ({ type: 'service-request', id, key: peer.circleId, provider: peer.providerId, request: call }),
+    { path: call.path, bodyBytes: Buffer.byteLength(call.body ?? ''), service: call.service, level: call.level, counts: false },
+    signal
+  );
+}
+
+/** Which member's service a call goes to. */
+export interface SharedServiceRef {
+  circleId: string;
+  providerId: string;
+}
+
+function startSharedCall(
+  peer: SharedServiceRef,
+  message: (id: number) => MainToNetwork,
+  meta: { path: string; bodyBytes: number; counts: boolean; service?: string; level?: string },
+  signal?: AbortSignal
+): Promise<Response> {
   const proc = child;
   if (!proc || state.status !== 'running') {
     diag('main.shared-refused', { provider: short(peer.providerId), status: state.status });
@@ -377,12 +515,12 @@ export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, sign
   }
   if (signal?.aborted) return Promise.reject(new Error('cancelled'));
   const id = nextId++;
+  const { counts, ...described } = meta;
   diag('main.shared-request', {
     id,
     circle: short(peer.circleId),
     provider: short(peer.providerId),
-    path: call.path,
-    bodyBytes: Buffer.byteLength(call.body ?? ''),
+    ...described,
     inFlight: sharedCalls.size,
   });
   return new Promise<Response>((resolve, reject) => {
@@ -396,6 +534,7 @@ export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, sign
       providerId: peer.providerId,
       served: false,
       tail: new UsageTail(),
+      counts,
     };
     sharedCalls.set(id, entry);
     signal?.addEventListener(
@@ -411,7 +550,7 @@ export function fetchSharedModel(peer: PeerModelRef, call: SharedModelCall, sign
       },
       { once: true }
     );
-    post(proc, { type: 'shared-request', id, key: peer.circleId, provider: peer.providerId, request: call });
+    post(proc, message(id));
   });
 }
 
@@ -422,7 +561,7 @@ function postSignalTopics(): void {
 function onSignalReceived(signal: CircleSignal): void {
   for (const handler of signalHandlers.get(signal.topic) ?? []) {
     try {
-      handler({ circleKey: signal.circle, fromIdentity: signal.from, payload: signal.payload });
+      handler({ circleKey: signal.circle, fromIdentity: signal.from, fromDevice: signal.device, payload: signal.payload });
     } catch (error) {
       // The topic only: an error from a handler can quote the payload.
       persistDebugLog('circles', 'signal handler failed', { topic: signal.topic });
@@ -629,6 +768,7 @@ export async function stopCircles(): Promise<void> {
   setAwayBlocker(false);
   if (!proc) return;
   child = null;
+  stopNotifying();
   setState({ status: 'stopped' });
   await stopUtilityProcess(proc, () => post(proc, { type: 'stop' }), STOP_TIMEOUT_MS);
 }
@@ -721,6 +861,22 @@ export function getPublicAddress(): Promise<CirclesResult<{ address: CirclePubli
   return run({ op: 'public-address' }, (reply) => ({ address: reply.address ?? null }));
 }
 
+/** Open, read or close a call tunnel to one member, or to one of their devices when `device` is given. */
+export function callTunnel(
+  action: CallTunnelAction,
+  circleKey: string,
+  toIdentity: string,
+  tunnel: number,
+  device?: string
+): Promise<CirclesResult<CallTunnelReply>> {
+  return run({ op: 'call-tunnel', action, key: circleKey, to: toIdentity, tunnel, ...(device ? { device } : {}) }, (reply) => reply.tunnel ?? {});
+}
+
+/** The DHT's view of this network and the Circles connection to one member, for a call check result. */
+export function getCallContext(circleKey: string, toIdentity: string): Promise<CirclesResult<{ context: CallContext }>> {
+  return run({ op: 'call-context', key: circleKey, to: toIdentity }, (reply) => ({ context: reply.context ?? {} }));
+}
+
 /** One app's records in a Circle as this device has them now. */
 export function getCircleRecords(circleKey: string, app: string): Promise<CirclesResult<{ records: CircleRecordEntry[] }>> {
   return run({ op: 'records-list', key: circleKey, app }, (reply) => ({ records: reply.records ?? [] }));
@@ -764,7 +920,7 @@ export function onCircleMessageChange(handler: (change: CircleMessageChange) => 
 
 /** A Circle's channels, `general` first, with what's unread after this device's read positions. */
 export function listCircleChannels(circleKey: string): Promise<CirclesResult<{ channels: CircleChannel[] }>> {
-  return run({ op: 'chat-channels', key: circleKey, reads: getReadPositions(circleKey) }, (reply) => ({
+  return run({ op: 'chat-channels', key: circleKey, reads: getReadPositions(circleKey), channelMentions: getNotifyPrefs(circleKey).channelMentions }, (reply) => ({
     channels: reply.chat?.channels ?? [],
   }));
 }
@@ -782,28 +938,64 @@ export function getCircleMessages(
   }));
 }
 
+/** What the composer picked: people chosen from the @ list, and whether @channel was chosen. Main keeps those still in the text. */
+interface ChatMentionOptions {
+  picked?: { identity: string; name: string }[];
+  mentionChannel?: boolean;
+}
+
 /** Post as this user. The channel counts as read up to the new message. */
 export async function postCircleMessage(
   circleKey: string,
   channel: string,
   text: string,
-  { shared }: { shared?: CircleMessageShared } = {}
+  { shared, picked = [], mentionChannel = false, reply }: ChatMentionOptions & { shared?: CircleMessageShared; reply?: CircleMessageRef } = {}
 ): Promise<CirclesResult<{ id: string }>> {
-  const body = { op: 'chat-post' as const, key: circleKey, channel, text, ...(shared ? { shared } : {}) };
+  const mentions = keptMentions(text, picked, mentionChannel);
+  const body = {
+    op: 'chat-post' as const,
+    key: circleKey,
+    channel,
+    text,
+    ...(shared ? { shared } : {}),
+    ...(mentions ? { mentions } : {}),
+    ...(reply ? { reply } : {}),
+  };
   const result = await run(body, (reply) => ({ id: reply.chat!.id! }));
   if (result.success === true && state.snapshot.identity) {
-    setReadPosition(circleKey, channel, { author: state.snapshot.identity, id: result.id, at: Date.now() });
+    setReadPosition(circleKey, channel, { author: state.snapshot.identity, id: result.id, at: Date.now(), reactionsAt: Date.now() });
   }
   return result;
 }
 
-export function editCircleMessage(circleKey: string, channel: string, id: string, text: string): Promise<CirclesResult> {
-  return run({ op: 'chat-edit', key: circleKey, channel, id, text });
+/** One message by reference, or null when this device's view of the Circle doesn't hold it. */
+export function getCircleMessage(
+  circleKey: string,
+  channel: string,
+  ref: CircleMessageRef
+): Promise<CirclesResult<{ message: CircleMessage | null }>> {
+  return run({ op: 'chat-message', key: circleKey, channel, ref }, (reply) => ({ message: reply.chat?.message ?? null }));
+}
+
+export function editCircleMessage(
+  circleKey: string,
+  channel: string,
+  id: string,
+  text: string,
+  { picked = [], mentionChannel = false }: ChatMentionOptions = {}
+): Promise<CirclesResult> {
+  const mentions = keptMentions(text, picked, mentionChannel);
+  return run({ op: 'chat-edit', key: circleKey, channel, id, text, ...(mentions ? { mentions } : {}) });
 }
 
 /** The author deletes their own; an admin deletes anyone's. */
 export function deleteCircleMessage(circleKey: string, channel: string, author: string, id: string): Promise<CirclesResult> {
   return run({ op: 'chat-delete', key: circleKey, channel, author, id });
+}
+
+/** Add (`on`) or take back this user's emoji reaction on a message. */
+export function reactCircleMessage(circleKey: string, channel: string, ref: CircleMessageRef, emoji: string, on: boolean): Promise<CirclesResult> {
+  return run({ op: 'chat-react', key: circleKey, channel, author: ref.author, id: ref.id, emoji, on });
 }
 
 /** Channels are Circle records of this app, valued `{ name }` (ADR 0042 §1). */
@@ -827,7 +1019,7 @@ export async function addCircleChannel(circleKey: string, name: string): Promise
   const trimmed = name.trim();
   const problem = await channelNameProblem(circleKey, trimmed);
   if (problem) return fail(new Error(problem));
-  const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'channel';
+  const slug = slugify(trimmed, { max: 48, fallback: 'channel' });
   const id = `${slug}-${randomBytes(3).toString('hex')}`;
   const result = await setCircleRecord(circleKey, CHAT_APP, 'circle', id, { name: trimmed });
   return result.success === false ? result : { ...result, id };
@@ -862,8 +1054,76 @@ export function markCircleChannelRead(circleKey: string, channel: string, positi
   if (!isRecordName(channel) || typeof author !== 'string' || !isMessageId(id) || !Number.isSafeInteger(at)) {
     return fail(new Error('That isn’t a read position.'));
   }
-  setReadPosition(circleKey, channel, { author, id, at });
+  // reactionsAt comes from this device's clock, never from the renderer.
+  setReadPosition(circleKey, channel, { author, id, at, reactionsAt: Date.now() });
+  notifier?.noteRead(circleKey, channel);
   return { success: true, state };
+}
+
+/** What this device is showing, so a focused channel stays silent. Null when no channel is open. */
+/** A direct message from `peer` reached this device, or changed: it may notify (ADR 0054 §10). */
+export function notifyDirect(circleKey: string, peer: string, name: string, message: DirectMessage, kind: 'new' | 'change'): void {
+  if (kind === 'new') notifier?.onDirect(circleKey, peer, name, message);
+  else notifier?.onDirectChange(circleKey, peer, name, message);
+}
+
+export function setCircleViewing(next: Viewing | null): void {
+  viewing = next;
+  notifier?.setViewing(next);
+}
+
+/** How many people a Circle has: its members (agents aren't members, ADR 0042 §12). 0 when this device doesn't have it. */
+export function circlePeople(circleKey: string): number {
+  return state.snapshot.circles.find((circle) => circle.key === circleKey)?.members.length ?? 0;
+}
+
+/** Hear when a shared folder's view or mirror changed (ADR 0049). Returns a function that stops. */
+export function onSharedFolderChange(handler: (key: string) => void): () => void {
+  folderChangeHandlers.add(handler);
+  return () => folderChangeHandlers.delete(handler);
+}
+
+/** Hear each time the Circles network has started and opened every Circle. Returns a function that stops. */
+export function onCirclesReady(handler: () => void): () => void {
+  readyHandlers.add(handler);
+  return () => readyHandlers.delete(handler);
+}
+
+/** Hear each new snapshot from the network: members, roles and presence. Returns a function that stops. */
+export function onCirclesSnapshot(handler: (snapshot: CirclesSnapshot) => void): () => void {
+  snapshotHandlers.add(handler);
+  return () => snapshotHandlers.delete(handler);
+}
+
+/**
+ * Hear when this user leaves or deletes a Circle, at once rather than when an admin confirms the
+ * leave. What only this device kept for the Circle can go then. Returns a function that stops.
+ */
+export function onCircleLeaving(handler: (key: string) => void): () => void {
+  leavingHandlers.add(handler);
+  return () => leavingHandlers.delete(handler);
+}
+
+/** Hear when this device left or was removed from a Circle and closed it. Returns a function that stops. */
+export function onCircleRemoved(handler: (key: string) => void): () => void {
+  removedHandlers.add(handler);
+  return () => removedHandlers.delete(handler);
+}
+
+/** Send one shared folder request; throws with the network's error. */
+export async function folderRequest(body: FolderRequest): Promise<FolderReply> {
+  const reply = await request(body);
+  if (reply.ok === false) throw new Error(reply.error);
+  return reply.folders ?? {};
+}
+
+/** Run `work` and answer with the state after it, or its error. */
+export async function circlesResult<T extends object>(work: () => Promise<T>): Promise<CirclesResult<T>> {
+  try {
+    return { success: true, state, ...(await work()) };
+  } catch (error) {
+    return fail(error);
+  }
 }
 
 function fail(error: unknown): CirclesResult<never> {
@@ -1025,6 +1285,7 @@ export function removeCircleMember(key: string, identity: string): Promise<Circl
 export function leaveCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'leave', key }, (): object => {
     markCircleLeaving(key);
+    for (const handler of leavingHandlers) handler(key);
     setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });
@@ -1033,6 +1294,7 @@ export function leaveCircle(key: string): Promise<CirclesResult> {
 export function deleteCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'delete', key }, (): object => {
     forgetCircle(key);
+    for (const handler of leavingHandlers) handler(key);
     setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });
