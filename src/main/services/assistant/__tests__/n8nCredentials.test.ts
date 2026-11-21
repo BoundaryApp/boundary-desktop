@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { encryptN8nCredentialData, writeN8nDemoCredentials } from '../n8nCredentials';
 
 /** OpenSSL `enc -d -aes-256-cbc -md md5` for a `Salted__` envelope, written out independently. */
@@ -32,7 +33,7 @@ describe('n8n credentials', () => {
     try {
       const now = new Date('2026-10-22T12:00:00.000Z');
       await writeN8nDemoCredentials(
-        root,
+        localStackFiles({ stackRoot: root, userContentRoot: () => root }),
         { N8N_ENCRYPTION_KEY: 'enc', LIGHTRAG_API_KEY: 'lr_key', NEO4J_PASSWORD: 'pw' },
         now
       );

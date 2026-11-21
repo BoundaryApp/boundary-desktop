@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { plainRequest, readsAsContextOverflow, streamReply, UnsupportedContent } from '../adapterKit';
+import { plainChatRequest, plainRequest, readsAsContextOverflow, replyObject, settleOrAbort, streamReply, UnsupportedContent } from '../adapterKit';
 import type { AdapterFailure } from '../adapter';
 
 /** An assistant tool call as Hermes v0.23.1 `_assistant_tool_call_dict` stores it, every optional key set. */
@@ -97,5 +97,120 @@ describe('streamReply', () => {
     abort.abort();
     expect(await read).toBe('aborted');
     expect(await settled(aborted.failed)).toBe('pending');
+  });
+});
+
+describe('plainChatRequest', () => {
+  it('keeps the fields NEAR gets, unsealed, and drops the rest', () => {
+    const out = plainChatRequest({
+      model: 'm',
+      stream: true,
+      stream_options: { include_usage: true, extra: 'x' },
+      temperature: 0.2,
+      max_tokens: 'lots',
+      reasoning_effort: 'high',
+      logprobs: true,
+      user: 'someone',
+      metadata: { note: 'leak' },
+      messages: [
+        { role: 'system', content: 'Be brief.' },
+        { role: 'assistant', content: null, reasoning_content: 'earlier thinking', tool_calls: [hermesToolCall()] },
+        { role: 'tool', tool_call_id: 'call_a1b2c3d4e5f6', content: 'file text' },
+      ],
+      tools: [{ type: 'function', function: { name: 'read_file', description: 'Reads', parameters: { type: 'object' }, strict: true }, extra: 1 }],
+      tool_choice: { type: 'function', function: { name: 'read_file', extra: 1 } },
+    });
+    expect(out).toEqual({
+      model: 'm',
+      stream: true,
+      stream_options: { include_usage: true },
+      temperature: 0.2,
+      reasoning_effort: 'high',
+      messages: [
+        { role: 'system', content: 'Be brief.' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call_a1b2c3d4e5f6', type: 'function', function: { name: 'read_file', arguments: '{"path":"notes.md"}' } }] },
+        { role: 'tool', tool_call_id: 'call_a1b2c3d4e5f6', content: 'file text' },
+      ],
+      tools: [{ type: 'function', function: { name: 'read_file', description: 'Reads', parameters: { type: 'object' } } }],
+      tool_choice: { type: 'function', function: { name: 'read_file' } },
+    });
+  });
+
+  it('keeps a listed tool_choice mode and drops another string', () => {
+    expect(plainChatRequest({ model: 'm', tool_choice: 'required' }).tool_choice).toBe('required');
+    expect(plainChatRequest({ model: 'm', tool_choice: 'whatever' })).not.toHaveProperty('tool_choice');
+  });
+
+  it.each([
+    ['stop', { stop: ['x'] }],
+    ['functions', { functions: [] }],
+    ['prediction', { prediction: { type: 'content', content: 'x' } }],
+    ['a json_schema response format', { response_format: { type: 'json_schema', json_schema: {} } }],
+    ['tools that aren’t a list', { tools: {} }],
+    ['a tool that isn’t a function', { tools: [{ type: 'web_search' }] }],
+    ['an image part', { messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] }] }],
+    ['a tool_choice object of another type', { tool_choice: { type: 'web_search' } }],
+  ])('refuses %s', (_name, extra) => {
+    expect(() => plainChatRequest({ model: 'm', ...extra })).toThrow(UnsupportedContent);
+  });
+});
+
+describe('replyObject', () => {
+  const reply = {
+    id: 'c1',
+    object: 'chat.completion',
+    model: 'm',
+    usage: { prompt_tokens: 3 },
+    extra: 'dropped',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        logprobs: { content: [] as unknown[] },
+        message: {
+          role: 'assistant',
+          content: 'hi',
+          reasoning_content: 'why',
+          audio: { data: 'x' },
+          tool_calls: [{ index: 0, id: 't1', type: 'function', extra: 1, function: { name: 'f', arguments: '{}', extra: 1 } }],
+        },
+      },
+    ],
+  };
+
+  it('keeps only the listed fields and passes text as is by default', () => {
+    expect(replyObject(reply)).toEqual({
+      id: 'c1',
+      object: 'chat.completion',
+      model: 'm',
+      usage: { prompt_tokens: 3 },
+      choices: [
+        {
+          index: 0,
+          finish_reason: 'stop',
+          message: { role: 'assistant', content: 'hi', reasoning_content: 'why', tool_calls: [{ index: 0, id: 't1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+        },
+      ],
+    });
+  });
+
+  it('runs each non-empty text field through open', () => {
+    const out = replyObject({ choices: [{ delta: { content: 'a', refusal: '', tool_calls: [{ function: { arguments: 'b' } }] } }] }, (v) => v.toUpperCase());
+    expect(out).toEqual({ choices: [{ delta: { content: 'A', refusal: '', tool_calls: [{ function: { arguments: 'B' } }] } }] });
+  });
+
+  it('throws on a text field that isn’t a string', () => {
+    expect(() => replyObject({ choices: [{ message: { content: { text: 'x' } } }] })).toThrow();
+  });
+});
+
+describe('settleOrAbort', () => {
+  it('resolves done, failed or aborted and never rejects', async () => {
+    expect(await settleOrAbort(Promise.resolve(1), new AbortController().signal)).toEqual({ kind: 'done', value: 1 });
+    expect(await settleOrAbort(Promise.reject(new Error('x')), new AbortController().signal)).toEqual({ kind: 'failed' });
+    const controller = new AbortController();
+    const pending = settleOrAbort(new Promise<number>(() => undefined), controller.signal);
+    controller.abort();
+    expect(await pending).toEqual({ kind: 'aborted' });
   });
 });

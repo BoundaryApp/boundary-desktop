@@ -84,6 +84,15 @@ describe('What’s new on the start-up screen', () => {
     startup({ upgradedFrom: null, seen: [LATEST.version] });
     await act(async () => undefined);
     expect(screen.queryByText('New in this version')).toBeNull();
+    expect(document.querySelector('.su-stage')?.getAttribute('data-story')).toBeNull();
+  });
+
+  // startup.css sizes the story slot for the taller card from this; without it the card runs
+  // over the footer's buttons. `bun run check:startup-layout` measures the layout itself.
+  it('marks the stage for release notes', async () => {
+    startup();
+    await screen.findByText('New in this version');
+    expect(document.querySelector('.su-stage')?.getAttribute('data-story')).toBe('notes');
   });
 
   it('keeps the tool story when no release notes are bundled', async () => {

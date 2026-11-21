@@ -72,20 +72,22 @@ describe('reloadHermesForAddons', () => {
       ['run', '--rm', '--no-deps', '-e', 'HERMES_BOOTSTRAP_FORCE=1', 'hermes-browser-bootstrap'],
       ['up', '-d', '--no-deps', '--force-recreate', 'hermes'],
     ]);
+    // The bootstraps read Twenty's flags from the stack's .env, so none are passed.
     for (const { args, env } of composeCalls()) {
       expect(args).toContain('crm');
-      expect(env.TWENTY_LOCAL_ENABLED).toBe('1');
-      expect(env.TWENTY_MCP_ENABLED).toBe('1');
+      expect(env.TWENTY_LOCAL_ENABLED).toBeUndefined();
+      expect(env.TWENTY_MCP_ENABLED).toBeUndefined();
     }
   });
 
-  it('passes the add-on flags in local stack mode, which adds none of its own', async () => {
+  it('passes no profiles and no add-on flags in local stack mode, which reads the checkout’s .env', async () => {
     local.on = true;
     expect(await reloadHermesForAddons()).toEqual({ success: true });
     expect(runCompose).toHaveBeenCalledTimes(3);
     for (const { args, env } of composeCalls()) {
       expect(args).not.toContain('--profile');
-      expect(env).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
+      expect(env?.TWENTY_LOCAL_ENABLED).toBeUndefined();
+      expect(env?.TWENTY_MCP_ENABLED).toBeUndefined();
     }
   });
 
@@ -127,8 +129,8 @@ describe('reloadHermesForAddons telling add-ons', () => {
     vi.useFakeTimers();
     try {
       const pending = reloadHermesForAddons();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(replaced.mock.calls).toEqual([['addon-reload']]);
+      // The add-on flags come from the stack's files first, whose reads fake timers don't hold.
+      await vi.waitFor(() => expect(replaced.mock.calls).toEqual([['addon-reload']]));
       await vi.advanceTimersByTimeAsync(130_000);
       expect((await pending).success).toBe(false);
       expect(replaced.mock.calls).toEqual([['addon-reload']]);
@@ -178,7 +180,7 @@ describe('getAssistantStackAccess for add-ons', () => {
     expect(options.onStdoutLine).toBe(onLine);
     expect(options.onStderrLine).toBe(onLine);
     expect(options.env.TWENTY_LOCAL_ENABLED).toBe('1');
-    expect(options.env.TWENTY_MCP_ENABLED).toBe('0');
+    expect(options.env.TWENTY_MCP_ENABLED).toBeUndefined();
     expect(options.env.BOUNDARY_ASSISTANT_DATA).toBeTruthy();
   });
 
@@ -189,6 +191,24 @@ describe('getAssistantStackAccess for add-ons', () => {
     expect(env.COMPOSE_PROFILES?.split(',')).toContain('crm');
     expect(env.DOCKER_HOST).toBe('unix:///var/run/docker.sock');
     expect(env.PATH?.split(':')).toContain('/usr/local/bin');
+  });
+
+  it('runs script compose and the CLI from the stack folder with the script environment', async () => {
+    runCompose.mockReset().mockResolvedValue({ stdout: 'compose-out\n', stderr: '' });
+    fakes.runCli.mockReset().mockResolvedValue({ stdout: 'cli-out\n', stderr: '' });
+    const access = getAssistantStackAccess();
+    expect(await access.scriptCompose(['ps', '-q'], { profiles: ['bitwarden'], timeout: 5_000 })).toEqual({ stdout: 'compose-out\n', stderr: '' });
+    const [, composeArgs, composeOptions] = runCompose.mock.calls[0] as [unknown, string[], { cwd: string; env: NodeJS.ProcessEnv; timeout: number }];
+    expect(composeArgs).toEqual(['ps', '-q']);
+    expect(composeOptions.cwd).toBe(checkout.root);
+    expect(composeOptions.timeout).toBe(5_000);
+    expect(composeOptions.env.COMPOSE_PROJECT_NAME).toBe(BOUNDARY_ASSISTANT_PROJECT_NAME);
+    expect(composeOptions.env.COMPOSE_PROFILES?.split(',')).toContain('bitwarden');
+    expect(await access.scriptCli(['inspect', 'x'])).toEqual({ stdout: 'cli-out\n', stderr: '' });
+    const [, cliArgs, cliOptions] = fakes.runCli.mock.calls[0] as [unknown, string[], { cwd: string; env: NodeJS.ProcessEnv }];
+    expect(cliArgs).toEqual(['inspect', 'x']);
+    expect(cliOptions.cwd).toBe(checkout.root);
+    expect(cliOptions.env.COMPOSE_PROFILES?.split(',')).not.toContain('bitwarden');
   });
 
   it('adds the profile to the checkout’s own profiles in local mode', async () => {

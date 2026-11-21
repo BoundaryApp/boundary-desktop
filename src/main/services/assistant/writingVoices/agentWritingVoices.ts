@@ -1,8 +1,7 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { AgentProfile, HermesSessionWritingVoice } from '../../../../shared/types/hermesChat';
 import type { AgentWritingVoices, WritingVoiceUser } from '../../../../shared/types/writingVoices';
+import { CLIENT_CONTEXT_MAX_CHARS } from '../../../../shared/assistantStackConstants';
 import { persistDebugLog } from '../../../persistDebugLog';
 import type { TurnVoiceLog } from '../hermes/hermesTurnLog';
 import {
@@ -16,12 +15,9 @@ import {
   setSessionWritingVoice,
   updateStoredAgentVoices,
 } from '../hermes/hermesAgentStore';
-import { writingVoiceDir } from './writingVoicePaths';
+import { writingVoiceFiles, writingVoiceRel } from './writingVoicePaths';
 import { listWritingVoiceRecords } from './writingVoiceStore';
-import { checkWritingVoiceStyle } from './writingVoiceStyle';
-
-/** The stack's limit on client context (`client_context.py` MAX_CONTEXT_CHARS). */
-const MAX_CONTEXT_CHARS = 16_000;
+import { checkWritingVoiceStyle, splitFrontmatter } from './writingVoiceStyle';
 
 const CHAT_HEADER =
   '[Boundary writing voice] Write every reply in this conversation in the writing voice below: ' +
@@ -41,15 +37,16 @@ function notifyAgentsChanged(): void {
 /** A voice an agent can use: Boundary knows it and its STYLE.md checks out. */
 async function readyVoice(id: string, deps: Deps): Promise<boolean> {
   if (!listWritingVoiceRecords().some((v) => v.id === id)) return false;
-  const check = await checkWritingVoiceStyle(writingVoiceDir(id, deps.contentRoot));
+  const check = await checkWritingVoiceStyle(writingVoiceFiles(deps.contentRoot), writingVoiceRel(id));
   return 'style' in check;
 }
 
 async function styleBody(id: string, deps: Deps): Promise<string | null> {
   if (!(await readyVoice(id, deps))) return null;
   try {
-    const text = await fs.promises.readFile(path.join(writingVoiceDir(id, deps.contentRoot), 'STYLE.md'), 'utf8');
-    return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').replace(/^\s+/, '');
+    const text = await writingVoiceFiles(deps.contentRoot).readText('userContent', `${writingVoiceRel(id)}/STYLE.md`);
+    if (text === null) return null;
+    return splitFrontmatter(text).body.replace(/^\s+/, '');
   } catch {
     return null;
   }
@@ -73,7 +70,7 @@ function fit(
   guide: string | null,
   drafts: string | null,
   log: Record<string, unknown>,
-  budget = MAX_CONTEXT_CHARS
+  budget = CLIENT_CONTEXT_MAX_CHARS
 ): { text: string | null; guideSent: boolean } {
   const parts = [guide, drafts].filter((p): p is string => Boolean(p));
   if (parts.length === 0) return { text: null, guideSent: false };
@@ -134,14 +131,6 @@ export async function resolveSessionWritingVoice(
     voiceName: result.guideSent && chatId ? voiceName(chatId) : null,
     log: voiceLog('agent', chat ? chatId : null, drafts ? draftsId : null, result),
   };
-}
-
-/** The session context text alone (phase 3's callers). */
-export async function writingVoiceSessionContext(
-  agentSlug: string,
-  deps: Deps & { keptVoiceId?: string | null } = {}
-): Promise<string | null> {
-  return (await resolveSessionWritingVoice(agentSlug, deps)).text;
 }
 
 /** Turn context for one message sent with a voice chip (ADR 0056 §7); null if it isn't ready. */

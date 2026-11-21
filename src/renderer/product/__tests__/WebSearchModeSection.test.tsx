@@ -33,7 +33,7 @@ describe('WebSearchModeSection', () => {
   it('starts on Private only with no privacy note and nothing to save', async () => {
     render(<WebSearchModeSection />);
     const priv = await screen.findByRole('radio', { name: /Private only/ });
-    expect(priv.getAttribute('aria-checked')).toBe('true');
+    expect((priv as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByRole('note', { name: 'What leaves this computer' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Save and restart Hermes' })).toHaveProperty('disabled', true);
   });
@@ -58,7 +58,7 @@ describe('WebSearchModeSection', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /Outside services only/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save and restart Hermes' }));
     expect(await screen.findByText('Couldn’t restart Hermes.')).toBeTruthy();
-    expect(screen.getByRole('radio', { name: /Private only/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /Private only/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('names the Hermes .env files that override the setting', async () => {

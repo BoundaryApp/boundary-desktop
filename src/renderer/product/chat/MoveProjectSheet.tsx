@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import type {
   HermesProjectRecord,
   SessionInferenceOverride,
 } from '../../../shared/types/hermesChat';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { poolTitle, useConfidentialState } from '../inference/useConfidentialState';
+import { Listbox, ListboxOption } from '../../components/ui/listbox';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
+import { useListNavigation } from '../../components/ui/use-list-navigation';
 import { displayHostPath } from './chatTelemetryFormat';
 import { ProjectGlyph } from './ProjectGlyph';
 import { effectiveInference, moveEffects, type MoveEffect } from './projectMove';
@@ -79,7 +82,9 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
   onCancel,
 }) => {
   const [dest, setDest] = useState<string | null>(null);
+  const listId = useId();
   const { status } = useInferenceStatus();
+  const { state: confidential } = useConfidentialState();
   const [override, setOverride] = useState<SessionInferenceOverride | null>(null);
   const [extraSources, setExtraSources] = useState<number | null>(null);
 
@@ -146,40 +151,47 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
             inferenceBefore: effectiveInference(fromProject ?? null, override, status),
             inferenceAfter: effectiveInference(toProject, override, status),
             isDm: target.isDm,
+            poolTitle: (modelId) => poolTitle(confidential, modelId),
           }),
-    [unchanged, target, agentName, fromProject, toProject, extraSources, override, status]
+    [unchanged, target, agentName, fromProject, toProject, extraSources, override, status, confidential]
   );
+
+  // Destinations in list order: each project, then No project. Arrows select, as in a radio
+  // group; the current place and a busy sheet can't be picked.
+  const options: (HermesProjectRecord | null)[] = [...projects, null];
+  const isCurrent = (id: string | null) => from !== undefined && (from ?? null) === id;
+  const nav = useListNavigation({
+    id: listId,
+    open: Boolean(target),
+    count: options.length,
+    active: options.findIndex((p) => (p?.id ?? null) === dest),
+    onActiveChange: (index) => setDest(options[index]?.id ?? null),
+    isDisabled: (index) => busy || isCurrent(options[index]?.id ?? null),
+  });
 
   if (!target) return null;
 
-  const row = (project: HermesProjectRecord | null) => {
+  const row = (project: HermesProjectRecord | null, index: number) => {
     const id = project?.id ?? null;
-    const current = from !== undefined && (from ?? null) === id;
+    const current = isCurrent(id);
     const on = dest === id;
     return (
-      <button
+      <ListboxOption
         key={id ?? 'none'}
-        type="button"
-        role="radio"
-        aria-checked={on}
+        id={nav.optionId(index)}
+        selected={on}
+        active={on}
         disabled={busy || current}
-        className={`wb-proj-menu-item wb-move-dest${on ? ' is-on' : ''}`}
-        onClick={() => setDest(id)}
+        onPick={() => setDest(id)}
+        title={project ? `${project.name} · ${displayHostPath(project.hostPath)}` : 'No project'}
+        icon={<ProjectGlyph project={project} inline />}
+        description={
+          project ? <span className="mono">{displayHostPath(project.hostPath)}</span> : 'No folder'
+        }
+        hint={current ? <span className="wb-move-current">{target.isDm ? 'Now' : 'Current'}</span> : undefined}
       >
-        <span className="wb-proj-menu-check" aria-hidden="true">
-          {on ? '✓' : ''}
-        </span>
-        <ProjectGlyph project={project} />
-        <span className="wb-proj-copy">
-          <span className="name" title={project?.name ?? 'No project'}>
-            {project?.name ?? 'No project'}
-          </span>
-          <span className="path mono" title={project ? displayHostPath(project.hostPath) : undefined}>
-            {project ? displayHostPath(project.hostPath) : 'No folder'}
-          </span>
-        </span>
-        {current ? <span className="wb-move-current">{target.isDm ? 'Now' : 'Current'}</span> : null}
-      </button>
+        {project?.name ?? 'No project'}
+      </ListboxOption>
     );
   };
 
@@ -203,10 +215,9 @@ export const MoveProjectSheet: React.FC<MoveProjectSheetProps> = ({
         />
       }
     >
-      <div className="wb-move-list" role="radiogroup" aria-label="Destination">
-        {projects.map((project) => row(project))}
-        {row(null)}
-      </div>
+      <Listbox id={listId} marks className="wb-move-list" aria-label="Destination" {...nav.listProps}>
+        {options.map((project, index) => row(project, index))}
+      </Listbox>
       {effects.length > 0 ? (
         <div className="wb-move-effects" aria-live="polite">
           <div className="wb-move-effects-head">What changes</div>

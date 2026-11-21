@@ -238,4 +238,41 @@ describe('useCodingAccessRequests', () => {
     });
     expect(result.current.request?.id).toBe('a5');
   });
+
+  it('drops a request whose project is no longer known (ADR 0067 §7)', () => {
+    const { result } = renderHook(() =>
+      useCodingAccessRequests('s1', undefined, new Set(['p1']))
+    );
+    act(() => {
+      accessListener?.(request({ projectId: 'gone' }));
+    });
+    expect(result.current.request).toBeNull();
+  });
+
+  it('keeps a request with no project, and one whose project is still known', () => {
+    const { result } = renderHook(() =>
+      useCodingAccessRequests('s1', undefined, new Set(['p1']))
+    );
+    act(() => {
+      accessListener?.(request({ id: 'a1', projectId: null }));
+      accessListener?.(request({ id: 'a2', requestId: 'r2', projectId: 'p1' }));
+    });
+    expect(result.current.request?.id).toBe('a1');
+    expect(result.current.queueSize).toBe(2);
+  });
+
+  it('drops nothing until the project list has loaded, then drops a removed project', () => {
+    const { result, rerender } = renderHook(
+      ({ known }: { known: ReadonlySet<string> }) => useCodingAccessRequests('s1', undefined, known),
+      { initialProps: { known: new Set<string>() } }
+    );
+    act(() => {
+      accessListener?.(request({ projectId: 'p1' }));
+    });
+    expect(result.current.request?.id).toBe('a1');
+    rerender({ known: new Set(['p1']) });
+    expect(result.current.request?.id).toBe('a1');
+    rerender({ known: new Set<string>() });
+    expect(result.current.request).toBeNull();
+  });
 });

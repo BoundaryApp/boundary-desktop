@@ -8,13 +8,11 @@ import {
   llmFingerprintsMatch,
 } from '../AssistantStackStore';
 import {
-  getAppDefaultSlot,
-  getAppFallbacks,
-  getAppSharedModel,
   getSlotHealth,
   getSlotLlmConnection,
   type LlmConnection,
 } from '../../onboarding/OpenAiOnboardingStore';
+import { getAppDefaultSlot, getAppFallbacks, getAppSharedModel } from '../../inference/appInferenceChoice';
 import { getSessionInference } from './hermesAgentStore';
 import { getActiveHermesProjectId, getStoredHermesProject } from './hermesProjectStore';
 import { conversationProjectId } from './hermesChatProjects';

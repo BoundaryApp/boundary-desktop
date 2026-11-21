@@ -1,38 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { SOVEREIGN_AGENT_STACK_VERSION } from '../../shared/assistantStackConstants';
-import type { UpdateChannel, UpdateSnapshot } from '../../shared/types/updates';
+import type { UpdateChannel } from '../../shared/types/updates';
 import { Segmented } from '../components/ui/segmented';
 import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
-import {
-  UpdateTasks,
-  downloadDetail,
-  downloadTitle,
-  formatSize,
-  RestartActions,
-  useRestartToInstall,
-  useUpdates,
-  waitingTitle,
-} from './updates';
+import { UpdateTasks, runUpdateAction, useRestartToInstall, useUpdates } from './updates';
+import { describeUpdate, type UpdateDescription } from './updateModel';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { Button } from '../components/ui/button';
 import { Switch } from '../components/ui/switch';
+import { Input } from '../components/ui/input';
 
-type HeroTone = 'ok' | 'brand' | 'warn';
+type HeroTone = UpdateDescription['tone'];
 
 const HERO_ICON: Record<HeroTone, React.ReactNode> = {
   ok: <path d="m4 10.5 4 4 8-9" />,
   brand: <path d="M10 3v9M6 8.5l4 4 4-4M4 16.5h12" />,
   warn: <path d="M10 4v7M10 14.5v.5" />,
 };
-
-function checkedAt(state: UpdateSnapshot): string {
-  if (!state.lastCheckedAt) return `${APP_NAME} hasn’t checked yet.`;
-  const checked = new Date(state.lastCheckedAt).toLocaleString([], {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-  return `Last checked ${checked}.`;
-}
 
 /** The personal key a gated feed needs. The field never shows the saved key. */
 const FeedKeyRow: React.FC<{ onSave: (key: string) => void }> = ({ onSave }) => {
@@ -48,9 +32,9 @@ const FeedKeyRow: React.FC<{ onSave: (key: string) => void }> = ({ onSave }) => 
         setKey('');
       }}
     >
-      <input
+      <Input
         aria-label="Update key"
-        className="mono"
+        className="min-w-0 flex-1 font-mono"
         type="password"
         autoComplete="off"
         value={key}
@@ -77,13 +61,23 @@ export const UpdatesPanel: React.FC = () => {
 
   if (!state || !api) return null;
 
-  const hero = (
-    tone: HeroTone,
-    title: string,
-    body: string,
-    actions: React.ReactNode = null,
-    tasks = false
-  ) => (
+  const description = describeUpdate(state);
+  const { tone, stage } = description;
+  // The page runs the card's separate lines into one hint, with the download's progress first.
+  const hint = [stage === 'downloading' && description.detail ? `${description.detail}.` : null, description.body, description.note]
+    .filter(Boolean)
+    .join(' ');
+  // Skip leads, so the step forward sits at the end of the row.
+  const actions = [
+    ...description.actions.filter((action) => action.id === 'skip'),
+    ...description.actions.filter((action) => action.id !== 'skip'),
+  ];
+  const tasks = stage === 'waiting';
+  const news = state.version
+    ? { version: state.version, summary: state.summary }
+    : state.updated;
+
+  const status = (
     <section
       className={`wb-settings-row wb-update-hero${tone === 'warn' ? ' is-warn' : ''}${tasks ? ' has-tasks' : ''}`}
       role="status"
@@ -94,99 +88,32 @@ export const UpdatesPanel: React.FC = () => {
         </svg>
       </span>
       <div className="wb-update-body">
-        <h2>{title}</h2>
-        <p className="wb-settings-hint">{body}</p>
+        <h2>{description.title}</h2>
+        <p className="wb-settings-hint">{hint}</p>
       </div>
-      {actions ? <div className="wb-update-row-actions">{actions}</div> : null}
+      {actions.length > 0 ? (
+        <div className="wb-update-row-actions">
+          {actions.map((action) => (
+            <Button
+              key={action.id}
+              variant={action.primary ? 'primary' : 'secondary'}
+              block
+              type="button"
+              disabled={action.disabled}
+              onClick={() => runUpdateAction(action.id, restart)}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {tasks ? <UpdateTasks state={state} /> : null}
     </section>
   );
 
-  const checkNow = (
-    <Button variant="secondary" block type="button" disabled={state.checking} onClick={() => void api.check()}>
-      Check now
-    </Button>
-  );
-  const remaining = state.waiting.filter((item) => !item.finished).length;
-  const news = state.version
-    ? { version: state.version, summary: state.summary }
-    : state.updated;
-
-  const status = (): React.ReactNode => {
-    if (state.blocked === 'not-in-applications') {
-      return hero(
-        'warn',
-        `${APP_NAME} can’t update from this folder`,
-        'Move it to Applications to get updates.',
-        <Button variant="primary" block type="button" onClick={() => void api.moveToApplications()}>
-          Move to Applications
-        </Button>
-      );
-    }
-    if (state.blocked === 'no-key') return hero('warn', 'Enter your update key', 'This build needs a personal key to get updates.');
-    if (state.error === 'key') return hero('warn', 'Your update key wasn’t accepted', 'Check it against your download page, or ask for a new one.');
-    if (state.blocked === 'no-feed') return hero('warn', 'This build doesn’t update itself', 'Update checks are off for this build.');
-    if (state.restartIn !== null) {
-      return hero(
-        'brand',
-        `Restarting in ${state.restartIn} seconds`,
-        `Everything has finished. Restarting installs ${APP_NAME} ${state.version}.`,
-        <RestartActions counting={true} />
-      );
-    }
-    if (state.waiting.length > 0) {
-      return hero(
-        'brand',
-        waitingTitle(remaining),
-        'You get 30 seconds to stop it after the last one.',
-        <RestartActions counting={false} />,
-        true
-      );
-    }
-    if (state.phase === 'ready') {
-      const body = 'It installs when you quit. Restart now to get it sooner.';
-      return hero(
-        'brand',
-        `${APP_NAME} ${state.version} is ready`,
-        state.stackChanges ? `${body} The next start takes a few minutes while your tools update.` : body,
-        <Button variant="primary" block type="button" onClick={restart}>
-          Restart to update
-        </Button>
-      );
-    }
-    if (state.phase === 'downloading') {
-      const detail = downloadDetail(state);
-      return hero('brand', downloadTitle(state), detail ? `${detail}. Keep working.` : 'Keep working.');
-    }
-    if (state.phase === 'available') {
-      const failed = state.error === 'download';
-      return hero(
-        failed ? 'warn' : 'brand',
-        failed ? `${APP_NAME} ${state.version} didn’t download` : `${APP_NAME} ${state.version} is available`,
-        failed
-          ? `Nothing changed. You’re still on ${state.currentVersion}.`
-          : state.size
-            ? `${formatSize(state.size)} download.`
-            : checkedAt(state),
-        <>
-          <Button variant="secondary" block type="button" onClick={() => void api.skipVersion()}>
-            Skip this version
-          </Button>
-          <Button variant="primary" block type="button" onClick={() => void api.download()}>
-            {failed ? 'Try again' : 'Download'}
-          </Button>
-        </>
-      );
-    }
-    if (state.error === 'check') {
-      return hero('warn', 'Couldn’t check for updates', `${APP_NAME} couldn’t reach the update server. Check your connection, then try again.`, checkNow);
-    }
-    return hero('ok', state.checking ? 'Checking…' : `${APP_NAME} is up to date`, checkedAt(state), checkNow);
-  };
-
   return (
     <>
-      {status()}
+      {status}
 
       {news && news.summary.length > 0 ? (
         <SettingsSection id="settings-updates-new" title={`What’s new in ${news.version}`}>

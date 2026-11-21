@@ -68,8 +68,9 @@ function isCloud(inference: EffectiveInference | null): boolean {
   return inference?.slot === 'openrouter' || inference?.slot === 'confidential';
 }
 
-function inferenceLabel(inference: EffectiveInference | null): string {
+function inferenceLabel(inference: EffectiveInference | null, poolTitle?: (modelId: string) => string): string {
   if (!inference) return 'no model';
+  if (inference.slot === 'confidential' && inference.modelId && poolTitle) return poolTitle(inference.modelId);
   return inference.modelId
     ? formatInferenceChipTitle(inference.slot, inference.modelId)
     : formatInferenceChipTitle(inference.slot, '').replace(/ · $/, '');
@@ -94,6 +95,8 @@ export function moveEffects(input: {
   inferenceAfter: EffectiveInference | null;
   /** A DM's move changes the folder it works in; nothing is re-filed. */
   isDm?: boolean;
+  /** Titles a pool by its model's name; without it a pool shows its model id. */
+  poolTitle?: (modelId: string) => string;
 }): MoveEffect[] {
   const { agentName, from, to, inferenceBefore, inferenceAfter } = input;
   const effects: MoveEffect[] = [];
@@ -118,8 +121,8 @@ export function moveEffects(input: {
       from ? ` Links to files in ${displayHostPath(from.hostPath)} still open.` : ''
     } A line in the transcript marks the ${input.isDm ? 'change' : 'move'}.`,
   });
-  const before = inferenceLabel(inferenceBefore);
-  const after = inferenceLabel(inferenceAfter);
+  const before = inferenceLabel(inferenceBefore, input.poolTitle);
+  const after = inferenceLabel(inferenceAfter, input.poolTitle);
   if (inferenceAfter && isCloud(inferenceAfter) && !isCloud(inferenceBefore)) {
     effects.push({
       kind: 'cloud',

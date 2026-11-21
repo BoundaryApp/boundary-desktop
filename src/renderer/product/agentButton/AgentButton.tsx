@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useAgentActivity, useBuiltinName } from './agentActivity';
 import { ariaShortcut, formatShortcut } from '../../../shared/appCommands';
-import { useDismiss } from '../../components/ui/use-dismiss';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { rendererExperiments } from '../../experiments';
 import { Bubble } from '../chat/ConversationMark';
 import { WorkingDot } from '../chat/WorkingDot';
@@ -40,7 +40,6 @@ export const AgentButton: React.FC<{ hidden: boolean; onOpen: () => void }> = ({
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   // A drag ends with a click event; this swallows it.
   const dragged = useRef(false);
 
@@ -52,11 +51,6 @@ export const AgentButton: React.FC<{ hidden: boolean; onOpen: () => void }> = ({
   useAppCommand((command) => {
     if (command === 'toggle-agent' && !hidden) open();
   });
-
-  useDismiss(menuRef, menu, () => setMenu(false), { returnFocusTo: buttonRef });
-  useEffect(() => {
-    if (menu) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-  }, [menu]);
 
   if (hidden) return null;
 
@@ -130,24 +124,31 @@ export const AgentButton: React.FC<{ hidden: boolean; onOpen: () => void }> = ({
         {running ? <WorkingDot label={`${name} is working`} className="wb-agent-button-badge" /> : null}
         {replied && !running ? <span className="wb-agent-button-dot" role="img" aria-label={`${name} replied`} /> : null}
       </button>
-      {menu ? (
-        <div ref={menuRef} className="wb-agent-button-menu" style={menuStyle(spot.edge, spot.along)} role="menu" aria-label="Move the agent button">
+      <Menu open={menu} onOpenChange={setMenu}>
+        {/* The menu opens from a right-click on the button, so its trigger is an inert box over
+            the button that only places the menu; clicks and keys stay with the button. */}
+        <MenuTrigger>
+          <span aria-hidden="true" tabIndex={-1} style={anchorStyle(spot)} />
+        </MenuTrigger>
+        <MenuContent
+          aria-label="Move the agent button"
+          className="z-[36]"
+          {...menuSide(spot.edge, spot.along)}
+          sideOffset={8}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const active = document.activeElement;
+            const content = event.target instanceof Node ? event.target : null;
+            if (!active || active === document.body || content?.contains(active)) buttonRef.current?.focus();
+          }}
+        >
           {Object.entries(CORNERS).map(([corner, at]) => (
-            <button
-              key={corner}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                saveAgentButtonSpot(at);
-                setMenu(false);
-                buttonRef.current?.focus();
-              }}
-            >
+            <MenuItem key={corner} onSelect={() => saveAgentButtonSpot(at)}>
               {corner}
-            </button>
+            </MenuItem>
           ))}
-        </div>
-      ) : null}
+        </MenuContent>
+      </Menu>
     </>
   );
 };
@@ -162,16 +163,16 @@ const DragGuides: React.FC<{ target: AgentButtonEdge | null }> = ({ target }) =>
   </div>
 );
 
-/** The corner menu opens beside the button, toward the middle of the content area. */
-function menuStyle(edge: AgentButtonEdge, along: number): Record<string, string> {
-  const base = spotStyle({ edge, along });
-  const gap = `${BUTTON_SIZE + 8}px`;
-  // Past the middle, the menu lines up with the button's far side so it stays on screen.
-  const flip = along > 0.5;
-  if (edge === 'bottom' || edge === 'top') {
-    const away = edge === 'bottom' ? { bottom: `calc(${base.bottom} + ${gap})` } : { top: `calc(${base.top} + ${gap})` };
-    return { ...base, ...away, ...(flip ? { transform: `translateX(calc(-100% + ${BUTTON_SIZE}px))` } : {}) };
-  }
-  const away = edge === 'left' ? { left: `calc(${base.left} + ${gap})` } : { right: `calc(${base.right} + ${gap})` };
-  return { ...base, ...away, ...(flip ? { transform: `translateY(calc(-100% + ${BUTTON_SIZE}px))` } : {}) };
+/** A box the button's size at its spot, for the corner menu to open from. */
+function anchorStyle(spot: { edge: AgentButtonEdge; along: number }): React.CSSProperties {
+  return { ...spotStyle(spot), position: 'absolute', width: BUTTON_SIZE, height: BUTTON_SIZE, pointerEvents: 'none' };
+}
+
+/**
+ * The corner menu opens beside the button, toward the middle of the content area. Past the
+ * middle of its edge, the menu lines up with the button's far side so it stays on screen.
+ */
+function menuSide(edge: AgentButtonEdge, along: number): { side: AgentButtonEdge; align: 'start' | 'end' } {
+  const toward: Record<AgentButtonEdge, AgentButtonEdge> = { bottom: 'top', top: 'bottom', left: 'right', right: 'left' };
+  return { side: toward[edge], align: along > 0.5 ? 'end' : 'start' };
 }

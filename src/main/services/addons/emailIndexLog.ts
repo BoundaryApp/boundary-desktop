@@ -1,5 +1,6 @@
 import type { EmailAccountState } from '../../../shared/types/addons';
 import { ADDON_SLUG_PATTERN } from '../../../shared/utils/slug';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 export interface IndexerLog {
   lastPass: { at: string; inScope: number; failed: Record<string, 4 | 5> } | null;
@@ -39,10 +40,6 @@ export interface EmailAccountHealth {
 const LINE = /^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/;
 // email-indexer's skip line: "email-indexer: <slug>: <reason>".
 const SKIP = new RegExp(`^email-indexer: (${ADDON_SLUG_PATTERN}): (.+)$`);
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 /**
  * Reads the latest pass and the skip reasons printed for it from the indexer log. Only slugs,

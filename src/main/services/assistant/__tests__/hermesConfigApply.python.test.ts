@@ -11,6 +11,8 @@ import {
   readHermesProfileConfig,
 } from '../hermesConfigApply';
 import { hasPython3, NO_PYTHON3, runPython } from './fixtures/runPython';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import type { StackFiles } from '../../stackHost/types';
 
 /**
  * Runs the settings program Boundary pipes into the hermes container, with stand-ins for
@@ -21,14 +23,18 @@ import { hasPython3, NO_PYTHON3, runPython } from './fixtures/runPython';
 const STANDINS = path.join(import.meta.dirname, 'fixtures', 'hermes-python');
 const BOUNDARY_CDP = 'ws://host.docker.internal:47002/devtools/browser/boundary?token=made-up-token';
 
+let stackRoot: string;
 let dataRoot: string;
+let files: StackFiles;
 
 beforeEach(() => {
-  dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-apply-py-'));
+  stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-apply-py-'));
+  dataRoot = path.join(stackRoot, 'data');
+  files = localStackFiles({ stackRoot, userContentRoot: () => dataRoot });
 });
 
 afterEach(() => {
-  fs.rmSync(dataRoot, { recursive: true, force: true });
+  fs.rmSync(stackRoot, { recursive: true, force: true });
 });
 
 function home(profile: string): string {
@@ -42,8 +48,12 @@ function makeProfile(profile: string, config?: Record<string, unknown>): void {
 }
 
 /** Plans each profile against its config on disk, as writeHermesConfig does. */
-function plan(desired: DesiredHermesProfile[]): HermesProfileWrites[] {
-  return desired.map((want) => planHermesProfileWrites(want, readHermesProfileConfig(dataRoot, want.profile) ?? null));
+async function plan(desired: DesiredHermesProfile[]): Promise<HermesProfileWrites[]> {
+  const writes: HermesProfileWrites[] = [];
+  for (const want of desired) {
+    writes.push(planHermesProfileWrites(want, (await readHermesProfileConfig(files, want.profile)) ?? null));
+  }
+  return writes;
 }
 
 function apply(writes: HermesProfileWrites[], env: Record<string, string> = {}) {
@@ -54,14 +64,14 @@ function apply(writes: HermesProfileWrites[], env: Record<string, string> = {}) 
   return { ...run, results: parseHermesConfigApplyOutput(run.stdout) };
 }
 
-const config = (profile: string) => readHermesProfileConfig(dataRoot, profile);
+const config = (profile: string) => readHermesProfileConfig(files, profile);
 
 describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' : NO_PYTHON3})`, () => {
-  it('writes every key and entry to each profile and keeps values out of its output', () => {
+  it('writes every key and entry to each profile and keeps values out of its output', async () => {
     makeProfile('', { model: { default: 'old' } });
     makeProfile('worker', {});
     const header = { url: 'http://host.docker.internal:47001/mcp', headers: { Authorization: 'Bearer made-up-secret' } };
-    const writes = plan([
+    const writes = await plan([
       {
         profile: '',
         set: [
@@ -82,23 +92,23 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       { profile: '', written: 5 },
       { profile: 'worker', written: 1 },
     ]);
-    expect(config('')).toEqual({
+    expect(await config('')).toEqual({
       model: { default: 'new-model' },
       agent: { max_turns: 180 },
       display: { streaming: true },
       browser: { cdp_url: BOUNDARY_CDP },
       mcp_servers: { boundary: header },
     });
-    expect(config('worker')).toEqual({ model: { default: 'worker-model' } });
+    expect(await config('worker')).toEqual({ model: { default: 'worker-model' } });
     // set_config_value prints each value; the program swallows that, so only the result line shows.
     expect(run.stdout).not.toContain('made-up');
     expect(run.stdout.trim().split('\n')).toHaveLength(1);
   });
 
-  it('reports a key Hermes refuses with sys.exit(1), writes the other profiles and exits 0', () => {
+  it('reports a key Hermes refuses with sys.exit(1), writes the other profiles and exits 0', async () => {
     makeProfile('', {});
     makeProfile('worker', {});
-    const writes = plan([
+    const writes = await plan([
       {
         profile: '',
         set: [
@@ -118,15 +128,15 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       { profile: 'worker', written: 1 },
     ]);
     // Keys on both sides of the refused one are written.
-    expect(config('')).toEqual({ model: { default: 'new-model' }, agent: { max_turns: 90 } });
+    expect(await config('')).toEqual({ model: { default: 'new-model' }, agent: { max_turns: 90 } });
     // The home override was reset, so the next profile's write lands in its own folder.
-    expect(config('worker')).toEqual({ model: { default: 'worker-model' } });
+    expect(await config('worker')).toEqual({ model: { default: 'worker-model' } });
   });
 
-  it('reports a write that raises by exception type and key, never the value', () => {
+  it('reports a write that raises by exception type and key, never the value', async () => {
     makeProfile('', {});
     makeProfile('worker', {});
-    const writes = plan([
+    const writes = await plan([
       { profile: '', set: [['browser.cdp_url', BOUNDARY_CDP]] },
       { profile: 'worker', set: [['model.default', 'worker-model']] },
     ]);
@@ -139,15 +149,15 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       { profile: 'worker', written: 1 },
     ]);
     expect(run.stdout).not.toContain('made-up-token');
-    expect(config('worker')).toEqual({ model: { default: 'worker-model' } });
+    expect(await config('worker')).toEqual({ model: { default: 'worker-model' } });
   });
 
-  it('reports a profile whose folder is missing, without a key, and writes the rest', () => {
+  it('reports a profile whose folder is missing, without a key, and writes the rest', async () => {
     makeProfile('', {});
     // Planned against an unreadable config, as when the folder disappears after planning.
     const writes = [
       planHermesProfileWrites({ profile: 'gone', set: [['model.default', 'm']] }, null),
-      ...plan([{ profile: '', set: [['model.default', 'default-model']] }]),
+      ...(await plan([{ profile: '', set: [['model.default', 'default-model']] }])),
     ];
 
     const run = apply(writes);
@@ -158,34 +168,34 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       { profile: '', written: 1 },
     ]);
     expect(fs.existsSync(home('gone'))).toBe(false);
-    expect(config('')).toEqual({ model: { default: 'default-model' } });
+    expect(await config('')).toEqual({ model: { default: 'default-model' } });
   });
 
-  it('writes entries to a profile folder that has no config.yaml yet', () => {
+  it('writes entries to a profile folder that has no config.yaml yet', async () => {
     makeProfile('worker');
     const header = { url: 'http://host.docker.internal:47001/mcp' };
-    const writes = plan([{ profile: 'worker', set: [], entries: [['mcp_servers.boundary', header]] }]);
+    const writes = await plan([{ profile: 'worker', set: [], entries: [['mcp_servers.boundary', header]] }]);
 
     const run = apply(writes);
 
     expect(run.status).toBe(0);
     expect(run.results).toEqual([{ profile: 'worker', written: 1 }]);
-    expect(config('worker')).toEqual({ mcp_servers: { boundary: header } });
+    expect(await config('worker')).toEqual({ mcp_servers: { boundary: header } });
   });
 
-  it('writes a list entry and keeps the other keys beside it', () => {
+  it('writes a list entry and keeps the other keys beside it', async () => {
     makeProfile('juniper', { skills: { disabled: ['x'] } });
-    const writes = plan([
+    const writes = await plan([
       { profile: 'juniper', set: [], listIncludes: [['skills.external_dirs', '/opt/skills']] },
     ]);
 
     const run = apply(writes);
 
     expect(run.status).toBe(0);
-    expect(config('juniper')).toEqual({ skills: { disabled: ['x'], external_dirs: ['/opt/skills'] } });
+    expect(await config('juniper')).toEqual({ skills: { disabled: ['x'], external_dirs: ['/opt/skills'] } });
   });
 
-  it('writes setIfUnset only where the profile has no value, and clears Boundary’s browser URL', () => {
+  it('writes setIfUnset only where the profile has no value, and clears Boundary’s browser URL', async () => {
     makeProfile('', { model: { max_tokens: 4096 }, browser: { cdp_url: BOUNDARY_CDP } });
     makeProfile('worker', { browser: { cdp_url: 'ws://elsewhere.example.com:9222/devtools/browser/x' } });
     const desired = (profile: string): DesiredHermesProfile => ({
@@ -194,7 +204,7 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       setIfUnset: [['model.max_tokens', '8192']],
       browserCdpUrl: '',
     });
-    const writes = plan([desired(''), desired('worker')]);
+    const writes = await plan([desired(''), desired('worker')]);
 
     const run = apply(writes);
 
@@ -204,9 +214,9 @@ describe.skipIf(!hasPython3)(`settings program on python3 (${hasPython3 ? 'run' 
       { profile: 'worker', written: 1 },
     ]);
     // The default profile keeps its own max_tokens; Boundary's URL is cleared.
-    expect(config('')).toEqual({ model: { max_tokens: 4096 }, browser: { cdp_url: '' } });
+    expect(await config('')).toEqual({ model: { max_tokens: 4096 }, browser: { cdp_url: '' } });
     // The worker gets the default max_tokens; someone else's browser URL is kept.
-    expect(config('worker')).toEqual({
+    expect(await config('worker')).toEqual({
       model: { max_tokens: 8192 },
       browser: { cdp_url: 'ws://elsewhere.example.com:9222/devtools/browser/x' },
     });

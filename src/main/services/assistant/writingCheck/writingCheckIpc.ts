@@ -6,9 +6,8 @@ import type {
 } from '../../../../shared/types/writingCheck';
 import { handle, handleResult } from '../../../ipc';
 import { pickProjectFileForCheck, readProjectFileForCheck } from '../hermes/writingCheckFiles';
-import { resolveAssistantUserContentRoot } from '../assistantPaths';
-import { tryResolveAssistantRoot } from '../resolveAssistantRoot';
 import { checkWithDetector, detectorStatus, type DetectorDeps } from './detectorClient';
+import { getStackEndpoints, getStackFiles } from '../../stackHost/activeStack';
 
 /**
  * IPC for the writing check's detector score (writing check spec, phase 5). The consent record
@@ -26,8 +25,8 @@ const PROVIDERS: readonly DetectorProvider[] = ['pangram', 'gptzero'];
 
 function defaultDeps(): DetectorDeps {
   return {
-    stackRoot: () => tryResolveAssistantRoot().root,
-    dataRoot: (root) => resolveAssistantUserContentRoot(root),
+    files: getStackFiles(),
+    endpoints: getStackEndpoints(),
     fetch: (...args) => globalThis.fetch(...args),
     consent: {
       has: (provider) => (consent().get('providers') ?? []).includes(provider),
@@ -44,7 +43,7 @@ export function registerWritingCheckHandlers(): void {
   handle('writing-check:detector-check', async (_event, payload: { text: string }) =>
     checkWithDetector(typeof payload?.text === 'string' ? payload.text : '', defaultDeps())
   );
-  handle('writing-check:detector-agree', async (_event, payload: { provider: DetectorProvider }) => {
+  handleResult('writing-check:detector-agree', async (_event, payload: { provider: DetectorProvider }) => {
     if (!PROVIDERS.includes(payload?.provider)) return { success: false };
     defaultDeps().consent.add(payload.provider);
     return { success: true };

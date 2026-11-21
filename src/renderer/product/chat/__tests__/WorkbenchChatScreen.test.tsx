@@ -334,16 +334,12 @@ describe('WorkbenchChatScreen chrome', () => {
     );
     await renderScreen();
     fireEvent.click(screen.getByRole('button', { name: 'Mentions' }));
-    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-pressed')).toBe(
-      'true'
-    );
+    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-current')).toBe('page');
     await act(async () => {
       answer({ success: true, threads: [] });
     });
     await ipcCalls.settle();
-    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-pressed')).toBe(
-      'true'
-    );
+    expect(screen.getByRole('button', { name: 'Mentions' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('opens All chats as a destination listing Hermes chats from elsewhere', async () => {
@@ -648,6 +644,32 @@ describe('WorkbenchChatScreen chrome', () => {
     expect(screen.queryByText('Plan my week')).toBeNull();
     // A chat Hermes holds has no delete.
     expect(screen.queryByRole('button', { name: 'Delete chat…' })).toBeNull();
+  });
+
+  it('keeps a failed chat and shows why when main could not delete it', async () => {
+    deleteFailedChat.mockResolvedValue({ success: false, error: 'The chat store is locked.' });
+    listThreads.mockResolvedValue({
+      success: true,
+      threads: [
+        {
+          id: 'failed-1',
+          title: 'Plan my week',
+          kind: 'hermes',
+          agentSlug: 'assistant',
+          failed: true,
+          updatedAt: '2026-10-31T10:00:00.000Z',
+        },
+      ],
+    });
+    await renderScreen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete chat…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' }));
+    await ipcCalls.settle();
+
+    expect(deleteFailedChat).toHaveBeenCalledWith({ sessionId: 'failed-1' });
+    expect(screen.getByText('thread:Plan my week')).toBeTruthy();
+    expect(screen.getByText(/The chat store is locked\./)).toBeTruthy();
   });
 
   it('starts a new chat from the New Chat command', async () => {

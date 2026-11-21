@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadYaml } from '../../loadYaml';
 import { hostBridgeCdpUrl, hostBridgeHermesConfigSets, toolCatalogFingerprint } from '../../hostBridge/hermesProvision';
@@ -160,17 +161,19 @@ describe('readHermesProfileConfig', () => {
     for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('tells a missing folder, a missing file and an unreadable file apart', () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-config-read-'));
-    dirs.push(dataRoot);
+  it('tells a missing folder, a missing file and an unreadable file apart', async () => {
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-config-read-'));
+    dirs.push(stackRoot);
+    const dataRoot = path.join(stackRoot, 'data');
+    const files = localStackFiles({ stackRoot, userContentRoot: () => dataRoot });
     fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'ana'), { recursive: true });
     fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'bad'), { recursive: true });
     fs.writeFileSync(path.join(dataRoot, 'hermes', 'config.yaml'), 'model:\n  default: m\n');
     fs.writeFileSync(path.join(dataRoot, 'hermes', 'profiles', 'bad', 'config.yaml'), ': not yaml : [');
 
-    expect(readHermesProfileConfig(dataRoot, '')).toEqual({ model: { default: 'm' } });
-    expect(readHermesProfileConfig(dataRoot, 'ana')).toEqual({});
-    expect(readHermesProfileConfig(dataRoot, 'bad')).toBeNull();
-    expect(readHermesProfileConfig(dataRoot, 'nobody')).toBeUndefined();
+    expect(await readHermesProfileConfig(files, '')).toEqual({ model: { default: 'm' } });
+    expect(await readHermesProfileConfig(files, 'ana')).toEqual({});
+    expect(await readHermesProfileConfig(files, 'bad')).toBeNull();
+    expect(await readHermesProfileConfig(files, 'nobody')).toBeUndefined();
   });
 });

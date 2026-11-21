@@ -1,4 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// runSovereignSetup checks stack capabilities, which read the stored stack location from
+// electron-store; this renderer suite runs without Electron, on this computer's stack.
+vi.mock('../../../../main/services/stackHost/stackHostLocation', () => ({
+  isRemoteStackLocation: () => false,
+  readStackHostLocation: () => ({ location: { kind: 'local' } }),
+  remoteStackFolderRefusal: (): string | null => null,
+}));
 import { describeStartupError } from '../../../../shared/startupErrors';
 import { python3SetupError } from '../../../../main/services/assistant/runSovereignSetup';
 

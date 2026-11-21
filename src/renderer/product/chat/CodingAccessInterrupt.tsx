@@ -14,6 +14,7 @@ import {
 import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Checkbox } from '../../components/ui/checkbox';
 
 /**
  * Coding-access card (ADR 0028 §9, mock flow 3). A coding task asked for a folder outside the
@@ -212,8 +213,7 @@ export const CodingAccessInterrupt: React.FC<CodingAccessInterruptProps> = ({
           </div>
           {create ? (
             <label className="wb-coding-access-git">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={initGit}
                 disabled={!gitAvailable || locked}
                 onChange={(e) => setInitGit(e.target.checked)}

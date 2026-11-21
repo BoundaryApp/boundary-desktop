@@ -73,7 +73,7 @@ export interface HermesDashboardLogin {
  */
 export async function loginToDashboard(): Promise<HermesDashboardLogin> {
   const { dashboardBaseUrl } = resolveHermesStackEndpoints();
-  const creds = resolveDashboardCredentials();
+  const creds = await resolveDashboardCredentials();
   if (!creds) {
     throw new Error(
       'Dashboard credentials missing. Set HERMES_DASHBOARD_PASSWORD in the assistant project .env.'

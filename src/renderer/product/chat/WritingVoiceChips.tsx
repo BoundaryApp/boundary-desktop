@@ -1,8 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Pin, X } from 'lucide-react';
 import type { WritingVoiceView } from '../../../shared/types/writingVoices';
 import { openSettings } from '../settingsNavigation';
-import { useOwnerDocument } from '../../components/ui/ownerDocument';
+import { Button } from '../../components/ui/button';
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from '../../components/ui/menu';
 
 /** A voice on the message being written (ADR 0056 §6): it covers that message's reply. */
 export const MessageVoiceChip: React.FC<{
@@ -12,12 +22,12 @@ export const MessageVoiceChip: React.FC<{
 }> = ({ name, onKeep, onRemove }) => (
   <span className="wb-voice-chip">
     <span>✎ {name}</span>
-    <button type="button" aria-label={`Keep ${name} for this chat`} title="Keep for this chat" onClick={onKeep}>
-      <Pin aria-hidden="true" />
-    </button>
-    <button type="button" aria-label={`Remove ${name}`} onClick={onRemove}>
-      <X aria-hidden="true" />
-    </button>
+    <Button type="button" variant="quiet" size="icon-xs" aria-label={`Keep ${name} for this chat`} title="Keep for this chat" onClick={onKeep}>
+      <Pin className="size-3" aria-hidden="true" />
+    </Button>
+    <Button type="button" variant="quiet" size="icon-xs" aria-label={`Remove ${name}`} onClick={onRemove}>
+      <X className="size-3" aria-hidden="true" />
+    </Button>
   </span>
 );
 
@@ -30,61 +40,30 @@ export const KeptVoiceChip: React.FC<{
   onKeep: (voiceId: string | null) => void;
 }> = ({ name, voiceId, voices, agentName, onKeep }) => {
   const [open, setOpen] = useState(false);
-  const ownerDocument = useOwnerDocument();
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    ownerDocument.addEventListener('mousedown', onDown);
-    return () => ownerDocument.removeEventListener('mousedown', onDown);
-  }, [open, ownerDocument]);
-
-  const choose = (id: string | null) => {
-    setOpen(false);
-    onKeep(id);
-  };
-
   return (
-    <span className="wb-kept-voice" ref={ref}>
-      <button type="button" className="wb-chip" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        ✎ {name}
-      </button>
-      {open ? (
-        <div className="wb-kept-voice-menu" role="menu" aria-label="This chat writes in">
-          <div className="wb-mention-head">This chat writes in</div>
-          {voices
-            .filter((v) => v.status === 'ready')
-            .map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                role="menuitem"
-                aria-current={v.id === voiceId ? 'true' : undefined}
-                className={v.id === voiceId ? 'is-active' : undefined}
-                onClick={() => choose(v.id)}
-              >
-                {v.name}
-              </button>
-            ))}
-          <hr />
-          <button type="button" role="menuitem" onClick={() => choose(null)}>
-            Use {agentName}'s voice
+    <span className="wb-kept-voice">
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger>
+          <button type="button" className="wb-chip">
+            ✎ {name}
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              openSettings({ tab: 'writing-voices' });
-            }}
-          >
-            Manage voices…
-          </button>
-        </div>
-      ) : null}
+        </MenuTrigger>
+        <MenuContent aria-label="This chat writes in" side="top" align="start">
+          <MenuLabel>This chat writes in</MenuLabel>
+          <MenuRadioGroup value={voiceId} onValueChange={(id) => onKeep(id || null)}>
+            {voices
+              .filter((v) => v.status === 'ready')
+              .map((v) => (
+                <MenuRadioItem key={v.id} value={v.id}>
+                  {v.name}
+                </MenuRadioItem>
+              ))}
+            <MenuRadioItem value="">Use {agentName}'s voice</MenuRadioItem>
+          </MenuRadioGroup>
+          <MenuSeparator />
+          <MenuItem onSelect={() => openSettings({ tab: 'writing-voices' })}>Manage voices…</MenuItem>
+        </MenuContent>
+      </Menu>
     </span>
   );
 };

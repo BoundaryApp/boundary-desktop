@@ -98,6 +98,32 @@ describe('RightInspector', () => {
     expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
   });
 
+  it("shows the built-in agent's soul excerpt and lets it open the file", async () => {
+    getAgentSoul.mockResolvedValue({
+      success: true,
+      excerpt: 'Keeps the house and answers plainly.',
+      canOpen: true,
+    });
+
+    renderAgent({ ...designer, slug: 'assistant', builtIn: true, role: 'Default agent on this machine.' });
+
+    expect(await screen.findByText('Keeps the house and answers plainly.')).toBeTruthy();
+    expect(screen.getByText('Soul')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open SOUL.md' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
+  it('leaves out an excerpt that is the start of a long role', async () => {
+    const role = 'A long role. '.repeat(40).trim();
+    getAgentSoul.mockResolvedValue({ success: true, excerpt: `${role.slice(0, 270)}…`, canOpen: false });
+
+    renderAgent({ ...designer, role });
+    await waitFor(() => expect(getAgentSoul).toHaveBeenCalled());
+
+    expect(screen.getAllByText(/^A long role\./)).toHaveLength(1);
+    expect(screen.queryByText('Soul')).toBeNull();
+  });
+
   it('clamps a role longer than four lines behind Show more', async () => {
     getAgentSoul.mockResolvedValue({ success: true, excerpt: null, canOpen: false });
     // The test DOM has no layout or line height, so the 20px fallback applies: report ten lines.

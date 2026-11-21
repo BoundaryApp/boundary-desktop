@@ -72,36 +72,6 @@
   background: var(--brand);
 }
 
-.wb-agent-button-menu {
-  position: absolute;
-  z-index: 36;
-  width: 150px;
-  padding: var(--space-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-popover);
-}
-
-.wb-agent-button-menu > button {
-  display: block;
-  width: 100%;
-  padding: var(--space-1-5) var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wb-agent-button-menu > button:hover,
-.wb-agent-button-menu > button:focus-visible {
-  outline: none;
-  background: var(--surface-hover);
-}
-
 /* While dragging: the four corners as slots, and the edge the button will snap to. */
 .wb-agent-guides {
   position: absolute;

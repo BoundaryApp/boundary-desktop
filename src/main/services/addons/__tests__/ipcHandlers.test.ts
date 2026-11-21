@@ -68,9 +68,18 @@ vi.mock('electron', async (importOriginal) => ({
 }));
 vi.mock('../twentySignIn', () => ({
   twentyLoginLink: (deps: unknown) => h.link(deps),
-  twentyPort: () => 3456,
+  twentyPort: async () => 3456,
   copyOwnerPassword: (deps: unknown) => h.copy(deps),
 }));
+vi.mock('../../stackHost/activeStack', async () => {
+  const { localStackEndpoints, localStackFiles } = await import('../../stackHost/localStackHost');
+  const { DEFAULT_ASSISTANT_STACK_PORTS } = await import('../../../../shared/assistantStackConstants');
+  return {
+    getStackEndpoints: () => localStackEndpoints(() => DEFAULT_ASSISTANT_STACK_PORTS),
+    getStackFiles: () => ({}),
+    stackFilesAt: (stackRoot: string) => localStackFiles({ stackRoot, userContentRoot: () => `${stackRoot}/data` }),
+  };
+});
 vi.mock('../emailRuntime', () => ({ getEmailService: () => h.email }));
 vi.mock('../twentyService', () => ({ getTwentyService: () => h.twenty }));
 vi.mock('../addonCatalog', async (importOriginal) => ({
@@ -79,7 +88,8 @@ vi.mock('../addonCatalog', async (importOriginal) => ({
 }));
 vi.mock('../addonHostFacts', () => ({ readAddonHostFacts: h.readFacts }));
 vi.mock('../../assistant/AssistantStackService', () => ({
-  getAssistantStackAccess: () => ({ compose: h.ps, root: '/stack' }),
+  getAssistantStackAccess: () => ({ compose: h.ps }),
+  getLocalStackPaths: () => ({ root: '/stack', dataRoot: '/stack/data' }),
   getAssistantStackLifecycle: () => ({ phase: h.phase.value }),
   reloadHermesForAddons: () => h.reload(),
 }));
@@ -516,6 +526,7 @@ describe('addon handlers', () => {
 
   it.each([
     ['a bad slug', { slug: 'Work!', url: 'https://x', keyRw: 'a', keyRo: '', access: 'write', replace: false }],
+    ['a slug the store refuses', { slug: '2024-crm', url: 'https://x', keyRw: 'a', keyRo: '', access: 'write', replace: false }],
     ['a bad access', { slug: 'work', url: 'https://x', keyRw: 'a', keyRo: '', access: 'admin', replace: false }],
     ['a missing key field', { slug: 'work', url: 'https://x', keyRw: 'a', access: 'write', replace: false }],
     ['no input', undefined],
@@ -559,7 +570,7 @@ describe('addon handlers', () => {
   it('opens Twenty at the login link without returning it', async () => {
     const result = await call('addons:twenty-open');
     expect(result).toEqual({ success: true });
-    expect(h.link).toHaveBeenCalledWith({ root: '/stack', port: 3456 });
+    expect(h.link).toHaveBeenCalledWith({ root: '/stack', port: 3456, endpoints: expect.anything(), files: expect.anything() });
     expect(h.open).toHaveBeenCalledWith('http://localhost:3000/verify?loginToken=TOK');
     expect(JSON.stringify(result)).not.toContain('TOK');
   });
@@ -613,6 +624,14 @@ describe('addon handlers', () => {
     expect(await call('addons:twenty-copy-password')).toEqual({
       success: false,
       error: 'This stack has no saved Twenty owner login.',
+    });
+  });
+
+  it('gives no Todo lists account and refuses to copy when the stack has no login', async () => {
+    expect(await call('addons:vikunja-account')).toBeNull();
+    expect(await call('addons:vikunja-copy-password')).toEqual({
+      success: false,
+      error: 'This stack has no saved Todo lists login. Turn Todo lists on first.',
     });
   });
 

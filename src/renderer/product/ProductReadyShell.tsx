@@ -1,25 +1,21 @@
 import React, { Profiler, useEffect, useState } from 'react';
 import type { AppCommand } from '../../shared/appCommands';
 import { dispatchAppCommand, useAppCommand, useAppShortcuts } from './useAppShortcuts';
-import { ProductIconRail, type ProductDestination } from './ProductIconRail';
-import { AssistantServicesScreen } from './AssistantServicesScreen';
+import { ProductIconRail } from './ProductIconRail';
+import { destinationFor, destinationForCommand, type ProductDestination } from './destinations';
 import { ProductSettingsScreen } from './ProductSettingsScreen';
 import { SettingsSheet } from './SettingsSheet';
 import { UpdateCard } from './updates';
-import { ResourcesScreen } from './ResourcesScreen';
 import { CircleOfferAlerts } from './circles/CircleOfferAlerts';
 import { PlacedCallBar } from './circles/calls/PlacedCallBar';
 import { RingCards } from './circles/calls/RingCards';
 import { AddonStoppedAlerts } from './addons/AddonStoppedAlert';
-import { InferenceScreen } from './inference/InferenceScreen';
 import { useOpenInferenceRequests } from './inference/inferenceNavigation';
 import { useCallCheck } from './circles/useCallCheck';
 import { useCircleNotificationClicks } from './circles/useCircleViewing';
-import { WorkbenchChatScreen } from './chat/WorkbenchChatScreen';
 import { ChatRuntimeHost } from './chat/chatRuntimeHost';
 import { WhatsNewScreen } from './whatsNew/WhatsNewScreen';
 import { GuideScreen } from './whatsNew/GuideScreen';
-import { CirclesScreen } from './circles/CirclesScreen';
 import { AgentButton } from './agentButton/AgentButton';
 import { isBottomRight, useAgentButtonSpot } from './agentButton/agentButtonSpot';
 import { DesktopAgentHost } from './desktopAgent/DesktopAgentHost';
@@ -111,11 +107,8 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
     // ⌘J belongs to the agent button: the in-window one, which does nothing on Chat, or the
     // desktop panel's host, which toggles the panel from any screen (ADR 0058 §11).
     if (command === 'toggle-agent') return;
-    if (command === 'go-chat') onNavigate('chat');
-    else if (command === 'go-circles') onNavigate('circles');
-    else if (command === 'go-inference') onNavigate('inference');
-    else if (command === 'go-services') onNavigate('services');
-    else if (command === 'go-resources') onNavigate('resources');
+    const destination = destinationForCommand(command);
+    if (destination) onNavigate(destination.id);
     else if (command === 'go-settings') {
       setSettingsRequest(null);
       onNavigate('settings');
@@ -168,14 +161,6 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
         onBack={() => onNavigate('chat')}
       />
     );
-  } else if (view === 'circles') {
-    main = <CirclesScreen />;
-  } else if (view === 'inference') {
-    main = <InferenceScreen focusPerson={inferencePerson} addProviderRequest={addProviderRequest} />;
-  } else if (view === 'services') {
-    main = <AssistantServicesScreen />;
-  } else if (view === 'resources') {
-    main = <ResourcesScreen />;
   } else if (view === 'whats-new') {
     main = whatsNewRequest?.guide ? (
       <GuideScreen
@@ -191,7 +176,9 @@ export const ProductReadyShell: React.FC<ProductReadyShellProps> = ({
       />
     );
   } else {
-    main = <WorkbenchChatScreen />;
+    // An experiment that is gone falls back to Chat.
+    const destination = destinationFor(view) ?? destinationFor('chat');
+    main = destination?.render({ inferencePerson, addProviderRequest });
   }
 
   // Agent chats live in the host, not in a screen, so a chat can be open in two views.

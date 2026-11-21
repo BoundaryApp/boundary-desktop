@@ -3,13 +3,12 @@
  * service another member shares, such as their Twenty. A protocol of its own beside `inference`,
  * so peers on builds without it turn the channel down and nothing else changes for them.
  */
-import type { SecretStream } from 'hyperswarm';
-import { GatewayLink, isId, isString, onLinkOpen, type LinkDiag, type LinkSpec } from './gatewayLink';
-import type { ServiceGateway, ServiceRequest } from './serviceGateway';
+import { isId, isString, type GatewayLink, type LinkSpec } from './gatewayLink';
+import type { ServiceRequest } from './serviceGateway';
 
 export type ServiceLink = GatewayLink<ServiceRequest>;
 
-const SERVICE: LinkSpec<ServiceRequest> = {
+export const SERVICE_LINK: LinkSpec<ServiceRequest> = {
   protocol: 'boundary/service/1',
   parse(value) {
     const request = value as ServiceRequest;
@@ -40,18 +39,3 @@ const SERVICE: LinkSpec<ServiceRequest> = {
     bodyBytes: Buffer.byteLength(request.body ?? ''),
   }),
 };
-
-export function onServiceOpen(connection: SecretStream, onOpen: () => void): void {
-  onLinkOpen(connection, SERVICE.protocol, onOpen);
-}
-
-/** Null when the stream already has this channel or is gone. */
-export function openServiceLink(
-  connection: SecretStream,
-  device: string,
-  gateway: ServiceGateway,
-  onClose?: () => void,
-  diag?: LinkDiag
-): ServiceLink | null {
-  return GatewayLink.attach(SERVICE, connection, device, gateway, onClose, diag);
-}

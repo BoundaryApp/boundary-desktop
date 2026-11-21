@@ -462,7 +462,7 @@ async function eventsIn(
     start: range.start.toISOString(),
     end: range.end.toISOString(),
   });
-  const names = new Map(ctx.shown.map((s) => [s.calendar.id, s.name]));
+  const names = namesOf(ctx.shown);
   return events.filter((e) => ids.includes(e.calendarId)).map((e) => eventData(e, names));
 }
 

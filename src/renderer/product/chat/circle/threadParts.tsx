@@ -10,6 +10,7 @@ import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
 import { useOwnerDocument } from '../../../components/ui/ownerDocument';
 import { Icon } from '../MessageActions';
 import { Button } from '../../../components/ui/button';
+import { Textarea } from '../../../components/ui/textarea';
 
 /**
  * Pieces a Circle channel and a direct conversation share: the edit box, the delete icon and
@@ -53,7 +54,8 @@ export const EditBox: React.FC<{
   };
   return (
     <div className="wb-circle-edit">
-      <textarea
+      <Textarea
+        className="wb-circle-edit-input min-h-0"
         aria-label="Edit message"
         value={text}
         rows={2}

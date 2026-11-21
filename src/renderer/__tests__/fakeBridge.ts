@@ -17,6 +17,7 @@ import type {
   IpcEventChannels,
   IpcReturn,
 } from '../../shared/ipc/channels';
+import { ALL_STACK_CAPABILITIES } from '../../shared/stackCapabilities';
 import type { CirclesState } from '../../shared/types/circles';
 import type {
   HermesChatApprovalEvent,
@@ -59,6 +60,14 @@ export interface FakeBridge {
   /** A leaf that invokes the handler main registered for `channel`. */
   invoke<C extends IpcChannel>(channel: C): (...args: IpcArgs<C>) => Promise<Awaited<IpcReturn<C>>>;
 }
+
+/**
+ * Leaves every mounted screen reads, answered as the local host would unless a test fakes them:
+ * the stack host's capabilities, all present.
+ */
+const DEFAULT_LEAVES: Record<string, Record<string, unknown>> = {
+  assistantStack: { getCapabilities: async () => ({ ...ALL_STACK_CAPABILITIES }) },
+};
 
 export function createFakeBridge(): FakeBridge {
   const listeners = new Map<IpcEventChannel, Set<Listener>>();
@@ -111,7 +120,7 @@ export function createFakeBridge(): FakeBridge {
           get(target, leaf) {
             if (typeof leaf !== 'string' || leaf === 'then') return undefined;
             if (leaf in target) return target[leaf];
-            const impl = provided[leaf];
+            const impl = provided[leaf] ?? DEFAULT_LEAVES[name]?.[leaf];
             target[leaf] =
               typeof impl === 'function'
                 ? track(impl as (...args: unknown[]) => unknown)

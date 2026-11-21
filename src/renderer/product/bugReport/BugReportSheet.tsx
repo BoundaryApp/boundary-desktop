@@ -15,6 +15,8 @@ import { Sheet } from '../../components/ui/sheet';
 import { Stepper } from '../../components/ui/stepper';
 import { Switch } from '../../components/ui/switch';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
+import { Textarea } from '../../components/ui/textarea';
+import { Input } from '../../components/ui/input';
 import { SettingsRow } from '../../components/settings/SettingsSection';
 import './bugReport.css';
 
@@ -154,7 +156,7 @@ export const BugReportSheet: React.FC<{
     content = (
       <>
         <Field label="What went wrong?" htmlFor="report-what">
-          <textarea
+          <Textarea
             id="report-what"
             autoFocus
             rows={4}
@@ -164,7 +166,7 @@ export const BugReportSheet: React.FC<{
           />
         </Field>
         <Field label="What did you expect?" htmlFor="report-expected">
-          <input
+          <Input
             id="report-expected"
             value={expected}
             placeholder="Search shows the matching conversations."
@@ -203,7 +205,7 @@ export const BugReportSheet: React.FC<{
     content = (
       <>
         <Field label="Title" htmlFor="report-title">
-          <input
+          <Input
             id="report-title"
             value={title}
             maxLength={REPORT_TITLE_MAX}
@@ -211,9 +213,9 @@ export const BugReportSheet: React.FC<{
           />
         </Field>
         <Field label="Issue text" htmlFor="report-body" hint={LINK_NOTE[link.moved]}>
-          <textarea
+          <Textarea
             id="report-body"
-            className="wb-report-body mono"
+            className="min-h-[240px] font-mono"
             rows={14}
             value={body}
             onChange={(event) => edit(setBody)(event.target.value)}

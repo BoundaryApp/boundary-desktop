@@ -3,7 +3,8 @@ import { Button } from '../../components/ui/button';
 import { Callout } from '../../components/ui/alert';
 import { Pill } from '../../components/ui/badge';
 import type { RunningWorkItem } from '../../../shared/types/updates';
-import { useRestartWhenIdle, useRunningWork } from './useAddons';
+import { useRunningWork } from './useAddons';
+import { useAssistantRestart } from '../useAssistantRestart';
 import { usePendingChanges } from './useTwenty';
 
 const KIND_NOUN: Record<RunningWorkItem['kind'], string> = { coding: 'coding task', task: 'task', chat: 'chat' };
@@ -37,32 +38,12 @@ export const PendingRestartBar: React.FC = () => {
   const changes = usePendingChanges();
   const waiting = changes.length > 0;
   const work = useRunningWork(waiting);
-  const [queued, setQueued] = useState(false);
-  const [restarting, setRestarting] = useState(false);
   const [later, setLater] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { restart, queue, queued, restarting, error } = useAssistantRestart({ waiting });
 
   // A new or changed list is news again, so the folded note opens back up.
   const key = changes.join('\n');
   useEffect(() => setLater(false), [key]);
-  // A queue is for the list it was made for. Once that list is applied, the next change asks again.
-  useEffect(() => {
-    if (!waiting) setQueued(false);
-  }, [waiting]);
-
-  const restart = (): void => {
-    setQueued(false);
-    setRestarting(true);
-    setError(null);
-    void window.electronAPI.addons
-      .applyPending()
-      .then((result) => {
-        if (!result.success) setError(result.error ?? 'The assistant didn’t restart.');
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setRestarting(false));
-  };
-  useRestartWhenIdle(queued, waiting, restart);
 
   if (!waiting) return null;
   const busy = work.length > 0;
@@ -110,7 +91,7 @@ export const PendingRestartBar: React.FC = () => {
           </Pill>
         ) : busy ? (
           <>
-            <Button type="button" size="sm" disabled={queued} onClick={() => setQueued(true)}>
+            <Button type="button" size="sm" disabled={queued} onClick={queue}>
               {queued ? 'Restarts when the task finishes' : 'Restart when the task finishes'}
             </Button>
             <Button type="button" size="sm" variant="secondary" onClick={restart}>

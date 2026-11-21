@@ -1,6 +1,7 @@
 import React, { Children, useId, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Button } from '../../components/ui/button';
+import { Menu, MenuContent, MenuItem, MenuNote, MenuSeparator, MenuTrigger } from '../../components/ui/menu';
 import { cn } from '../../lib/utils';
 
 export type TileTone = 'faint' | 'ok' | 'warn' | 'danger' | 'brand';
@@ -38,10 +39,6 @@ export const ServiceTile: React.FC<{
   const [open, setOpen] = useState(false);
   const statusId = useId();
   const hasMenu = menu.length > 0 || notes.length > 0;
-  const pick = (item: TileMenuItem) => () => {
-    setOpen(false);
-    item.onSelect();
-  };
   return (
     <div className="group relative" data-tile={name}>
       <button
@@ -75,33 +72,30 @@ export const ServiceTile: React.FC<{
         </span>
       </button>
       {hasMenu ? (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger>
-            <button
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuTrigger>
+            <Button
               type="button"
+              variant="quiet"
+              size="icon-sm"
               aria-label={`More for ${name}`}
-              className={cn(
-                'absolute top-2 right-2 grid size-7 cursor-pointer place-items-center rounded-full bg-surface-2 text-fg-muted opacity-0 shadow-sm outline-none hover:text-fg focus-visible:opacity-100 focus-visible:shadow-(--focus-ring) group-hover:opacity-100',
-                open && 'opacity-100'
-              )}
+              className={cn('absolute top-2 right-2 opacity-0 focus-visible:opacity-100 group-hover:opacity-100', open && 'opacity-100')}
             >
-              <MoreHorizontal className="size-4" aria-hidden />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="wb-menu" role="menu" aria-label={name} side="bottom" align="end">
+              <MoreHorizontal aria-hidden />
+            </Button>
+          </MenuTrigger>
+          <MenuContent aria-label={name} side="bottom" align="end">
             {notes.map((line) => (
-              <p key={line} className="px-2 py-1 text-2xs leading-relaxed text-fg-faint">
-                {line}
-              </p>
+              <MenuNote key={line}>{line}</MenuNote>
             ))}
-            {notes.length && menu.length ? <div className="mx-1 my-1 h-px bg-line" /> : null}
+            {notes.length && menu.length ? <MenuSeparator /> : null}
             {menu.map((item) => (
-              <button key={item.label} type="button" role="menuitem" onClick={pick(item)}>
+              <MenuItem key={item.label} onSelect={item.onSelect}>
                 {item.label}
-              </button>
+              </MenuItem>
             ))}
-          </PopoverContent>
-        </Popover>
+          </MenuContent>
+        </Menu>
       ) : null}
     </div>
   );

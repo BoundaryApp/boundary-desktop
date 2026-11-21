@@ -14,12 +14,20 @@ import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { checkWithDetector, detectorStatus, type DetectorDeps } from '../writingCheck/detectorClient';
 import { probeStack, skipNote } from './stackHarness';
 
+import { localStackEndpoints, localStackFiles } from '../../stackHost/localStackHost';
+import { DEFAULT_ASSISTANT_STACK_PORTS } from '../../../../shared/assistantStackConstants';
+
+const endpoints = localStackEndpoints(() => DEFAULT_ASSISTANT_STACK_PORTS);
+
 const probe = await probeStack();
 const root = probe.ok ? probe.target.root : '';
 
 const deps = (dataRoot?: string): DetectorDeps => ({
-  stackRoot: () => root,
-  dataRoot: (r) => dataRoot ?? resolveAssistantUserContentRoot(r),
+  files: localStackFiles({
+    stackRoot: root,
+    userContentRoot: () => dataRoot ?? resolveAssistantUserContentRoot(root),
+  }),
+  endpoints,
   fetch: (...args) => globalThis.fetch(...args),
   consent: { has: () => false, add: () => undefined },
 });

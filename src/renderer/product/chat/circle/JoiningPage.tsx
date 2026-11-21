@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import type { CircleJoinState } from '../../../../shared/types/circles';
 import { Button } from '../../../components/ui/button';
+import { useAction } from '../../circles/useCircles';
 import './circleChat.css';
 
 const api = () => window.electronAPI.circles;
@@ -15,19 +16,9 @@ export const JoiningPage: React.FC<{
   /** Let in, and waiting for write access: nothing is left to cancel. */
   admitted: boolean;
 }> = ({ join, admitted }) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAction();
   const failed = Boolean(join.error);
-  const cancel = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api().cancelJoin();
-      if (result.success === false) setError(result.error);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const cancel = () => run(() => api().cancelJoin());
   return (
     <main className="wb-center">
         <div className="wb-circle-joining" role="status">

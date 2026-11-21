@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { HostBridgeGrant } from '../../../shared/types/hostBridge';
 import { ComputerAccessPanel, describeGrant } from '../ComputerAccessPanel';
+import { setStackCapabilitiesForTests } from '../stackCapabilities';
+import { AgentBrowserPanel } from '../AgentBrowserPanel';
 
 const grants: HostBridgeGrant[] = [
   { capability: 'notify', resource: '*', createdAt: '2026-10-08T10:00:00Z', expiresAt: null },
@@ -154,4 +156,14 @@ describe('when main fails', () => {
     expect(screen.getByRole('alert').textContent).toBe('Couldn’t revoke: store write failed');
     expect(screen.getByText('Show desktop notifications')).toBeTruthy();
   });
+
+describe('on a host without hostCallbacks', () => {
+  it('Computer access and the agent browser say why instead of their controls', () => {
+    setStackCapabilitiesForTests({ hostCallbacks: false });
+    render(<ComputerAccessPanel />);
+    render(<AgentBrowserPanel />);
+    expect(screen.getAllByText("Your agent runs on another computer, so it can't reach apps and services on this one.")).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Stop agent/ })).toBeNull();
+  });
+});
 });

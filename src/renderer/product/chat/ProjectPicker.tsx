@@ -1,9 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { HermesProjectRecord } from '../../../shared/types/hermesChat';
 import { newestFirst } from '../../../shared/utils/sort';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { displayHostPath } from './chatTelemetryFormat';
 import { ProjectGlyph } from './ProjectGlyph';
+import { StackCapabilityNote, useStackCapability } from '../stackCapabilities';
+import { Input } from '../../components/ui/input';
+import { Listbox, ListboxOption } from '../../components/ui/listbox';
+import { useListNavigation } from '../../components/ui/use-list-navigation';
 
 const SEARCH_THRESHOLD = 8;
 
@@ -43,9 +47,13 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
   chipPrefix,
   triggerLabel,
 }) => {
+  const hostFolders = useStackCapability('hostFolders');
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const listId = useId();
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) ?? null,
@@ -72,11 +80,23 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
     setQuery('');
   }, []);
 
+  // Options are No project, then the matching projects. The keyboard starts on the current
+  // project, and on the first match once a search narrows the list.
+  const options = useMemo(
+    () => [null, ...filteredProjects.map((p) => p.id)] as (string | null)[],
+    [filteredProjects]
+  );
+
   useEffect(() => {
-    if (open && showSearch) {
-      searchRef.current?.focus();
+    if (!open) return;
+    if (query.trim()) {
+      setActive(filteredProjects.length > 0 ? 1 : 0);
+    } else {
+      setActive(Math.max(0, options.indexOf(activeProjectId)));
     }
-  }, [open, showSearch]);
+    // Only on opening and on a new search: the arrows own `active` in between.
+  }, [open, query]);
+
 
   const onOpenChange = (next: boolean) => {
     if (!next) close();
@@ -93,88 +113,107 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
     close();
   };
 
+  const pickAt = (index: number) => {
+    const id = options[index];
+    if (id === undefined) return;
+    if (id === null) pickNone();
+    else pickProject(id);
+  };
+
+  const nav = useListNavigation({
+    id: listId,
+    open,
+    count: options.length,
+    active,
+    onActiveChange: setActive,
+    onPick: pickAt,
+  });
+
   const pickNew = () => {
     close();
     onNewProject();
   };
 
+  const title = menuTitle ?? 'Choose project';
   const menu = (
     <PopoverContent
       className="wb-proj-menu"
-      role="listbox"
-      aria-label={menuTitle ?? 'Choose project'}
+      aria-label={title}
       side={variant === 'chip' ? 'top' : 'bottom'}
       align="start"
       sideOffset={variant === 'chip' ? 6 : 4}
+      // The search field takes focus when there is one, otherwise the list.
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        (showSearch ? searchRef.current : listRef.current)?.focus();
+      }}
     >
       {menuTitle ? <div className="wb-proj-menu-title">{menuTitle}</div> : null}
       {showSearch ? (
         <div className="wb-proj-menu-search">
-          <input
+          <Input
+            size="sm"
             ref={searchRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search projects…"
             aria-label="Search projects"
+            {...nav.fieldProps}
           />
         </div>
       ) : null}
-      <div className="wb-proj-menu-list">
-        <button
-          type="button"
-          role="option"
-          aria-selected={activeProjectId === null}
-          className={`wb-proj-menu-item${activeProjectId === null ? ' is-on' : ''}`}
-          onClick={pickNone}
+      <Listbox
+        ref={listRef}
+        id={listId}
+        marks
+        aria-label={title}
+        className="wb-proj-menu-list wb-list-inset"
+        {...(showSearch ? {} : nav.listProps)}
+      >
+        <ListboxOption
+          id={nav.optionId(0)}
+          selected={activeProjectId === null}
+          active={active === 0}
+          onPick={pickNone}
+          icon={<ProjectGlyph project={null} inline />}
+          hint={counts ? String(counts.none ?? 0) : undefined}
         >
-          <span className="wb-proj-menu-check" aria-hidden="true">
-            {activeProjectId === null ? '✓' : ''}
-          </span>
-          <ProjectGlyph project={null} />
-          <span className="wb-proj-copy">
-            <span className="name">No project</span>
-          </span>
-          {counts ? <span className="wb-proj-count">{counts.none ?? 0}</span> : null}
-        </button>
-        {filteredProjects.map((project) => {
-          const on = project.id === activeProjectId;
-          return (
-            <button
-              key={project.id}
-              type="button"
-              role="option"
-              aria-selected={on}
-              className={`wb-proj-menu-item${on ? ' is-on' : ''}`}
-              onClick={() => pickProject(project.id)}
-              title={`${project.name} · ${displayHostPath(project.hostPath)}`}
-            >
-              <span className="wb-proj-menu-check" aria-hidden="true">
-                {on ? '✓' : ''}
-              </span>
-              <ProjectGlyph project={project} pin />
-              <span className="wb-proj-copy">
-                <span className="name">{project.name}</span>
-                <span className="path mono">{displayHostPath(project.hostPath)}</span>
-              </span>
-              {counts ? <span className="wb-proj-count">{counts[project.id] ?? 0}</span> : null}
-            </button>
-          );
-        })}
-        {filteredProjects.length === 0 && query.trim() ? (
-          <div className="wb-proj-menu-empty">No matching projects</div>
-        ) : null}
-      </div>
+          No project
+        </ListboxOption>
+        {filteredProjects.map((project, i) => (
+          <ListboxOption
+            key={project.id}
+            id={nav.optionId(i + 1)}
+            selected={project.id === activeProjectId}
+            active={active === i + 1}
+            onPick={() => pickProject(project.id)}
+            title={`${project.name} · ${displayHostPath(project.hostPath)}`}
+            icon={<ProjectGlyph project={project} inline pin />}
+            description={<span className="mono">{displayHostPath(project.hostPath)}</span>}
+            hint={counts ? String(counts[project.id] ?? 0) : undefined}
+          >
+            {project.name}
+          </ListboxOption>
+        ))}
+      </Listbox>
+      {filteredProjects.length === 0 && query.trim() ? (
+        <div className="wb-proj-menu-empty">No matching projects</div>
+      ) : null}
       <div className="wb-proj-menu-footer">
         <div className="wb-proj-menu-sep" role="separator" />
-        <button
-          type="button"
-          className="wb-proj-menu-action"
-          disabled={connecting}
-          onClick={pickNew}
-        >
-          New project…
-        </button>
+        {hostFolders ? (
+          <button
+            type="button"
+            className="wb-proj-menu-action"
+            disabled={connecting}
+            onClick={pickNew}
+          >
+            New project…
+          </button>
+        ) : (
+          <StackCapabilityNote capability="hostFolders" size="sm" />
+        )}
       </div>
     </PopoverContent>
   );

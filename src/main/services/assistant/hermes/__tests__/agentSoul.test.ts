@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { localStackFiles } from '../../../stackHost/localStackHost';
 import { excerptSoul, readSoulFile, resolveSoulFilePath, rewriteSoulIdentity } from '../agentSoul';
 
 const temps: string[] = [];
@@ -27,20 +28,34 @@ describe('agentSoul', () => {
     );
   });
 
-  it('caps a long paragraph and resolves the host file', () => {
+  it('caps a long paragraph and resolves the host file', async () => {
     const long = `Lead ${'word '.repeat(80)}end`;
     const excerpt = excerptSoul(`# Name\n\n${long}`);
     expect(excerpt.endsWith('…')).toBe(true);
     expect(excerpt.length).toBeLessThanOrEqual(281);
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-soul-'));
-    temps.push(root);
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-soul-'));
+    temps.push(stackRoot);
+    const root = path.join(stackRoot, 'data');
     const file = resolveSoulFilePath(root, 'designer');
     expect(file).toBe(path.join(root, 'hermes', 'profiles', 'designer', 'SOUL.md'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, '# Designer\n\nVoice lives here.\n');
-    expect(readSoulFile(file)).toContain('Voice lives here');
-    expect(readSoulFile(path.join(root, 'missing.md'))).toBeNull();
+    const files = localStackFiles({ stackRoot, userContentRoot: () => root });
+    expect(await readSoulFile(files, 'designer')).toContain('Voice lives here');
+    expect(await readSoulFile(files, 'nobody')).toBeNull();
+  });
+
+  it("finds the built-in agent's soul in the default profile's home", async () => {
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-soul-'));
+    temps.push(stackRoot);
+    const root = path.join(stackRoot, 'data');
+    const file = resolveSoulFilePath(root, 'assistant');
+    expect(file).toBe(path.join(root, 'hermes', 'SOUL.md'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# Hob\n\nKeeps the house.\n');
+    const files = localStackFiles({ stackRoot, userContentRoot: () => root });
+    expect(await readSoulFile(files, 'assistant')).toContain('Keeps the house');
   });
 });
 

@@ -15,10 +15,10 @@ import { diag } from './circlesDiagnostics';
 import type { CirclesResult } from '../../../shared/types/circles';
 import { callTunnel, getCallContext, getCirclesState, onCircleSignal, sendCircleSignal } from './circlesService';
 import type { CallContext, CallTunnelReply } from './networkMessages';
-import { broadcast } from '../windows';
+import { broadcast } from '../../host/windows';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
 const CHECK_TOPIC = 'call.check';
-const HEX_KEY = /^[0-9a-f]{64}$/;
 
 export function callCheckEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.BOUNDARY_CALLS_CHECK === '1';
@@ -27,7 +27,7 @@ export function callCheckEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
 /** Send one part of a check message to one member. False when the check is off or the input is wrong. */
 export function sendCallCheckSignal(circleKey: string, toIdentity: string, part: unknown): boolean {
   if (!callCheckEnabled()) return false;
-  if (!HEX_KEY.test(circleKey) || !HEX_KEY.test(toIdentity) || !isCallPart(part)) return false;
+  if (!HEX_KEY_PATTERN.test(circleKey) || !HEX_KEY_PATTERN.test(toIdentity) || !isCallPart(part)) return false;
   return sendCircleSignal(circleKey, CHECK_TOPIC, part, toIdentity);
 }
 
@@ -45,22 +45,22 @@ export function listenForCallSignals(): () => void {
  */
 export function sendCallSignal(input: unknown): boolean {
   const raw = (input ?? {}) as Record<string, unknown>;
-  if (typeof raw.key !== 'string' || !HEX_KEY.test(raw.key)) return false;
+  if (typeof raw.key !== 'string' || !HEX_KEY_PATTERN.test(raw.key)) return false;
   if (raw.topic === CALL_STATE_TOPIC) {
     const state = cleanCallState(raw.state);
     if (!state) return false;
     // A private room's state goes only to the person in it.
     if (raw.to === undefined) return !isPersonRoom(state.room) && sendCircleSignal(raw.key, CALL_STATE_TOPIC, state);
-    if (typeof raw.to !== 'string' || !HEX_KEY.test(raw.to)) return false;
+    if (typeof raw.to !== 'string' || !HEX_KEY_PATTERN.test(raw.to)) return false;
     return sendCircleSignal(raw.key, CALL_STATE_TOPIC, state, raw.to);
   }
   if (raw.topic === CALL_RING_TOPIC) {
     const ring = cleanCallRing(raw.ring);
-    if (!ring || typeof raw.to !== 'string' || !HEX_KEY.test(raw.to)) return false;
+    if (!ring || typeof raw.to !== 'string' || !HEX_KEY_PATTERN.test(raw.to)) return false;
     return sendCircleSignal(raw.key, CALL_RING_TOPIC, ring, raw.to);
   }
   if (raw.topic === CALL_PART_TOPIC) {
-    if (typeof raw.to !== 'string' || !HEX_KEY.test(raw.to) || !isCallPart(raw.part)) return false;
+    if (typeof raw.to !== 'string' || !HEX_KEY_PATTERN.test(raw.to) || !isCallPart(raw.part)) return false;
     return sendCircleSignal(raw.key, CALL_PART_TOPIC, raw.part, raw.to);
   }
   return false;
@@ -106,13 +106,13 @@ export async function callTunnelRequest(input: unknown): Promise<CirclesResult<C
   if (
     !action ||
     typeof raw.key !== 'string' ||
-    !HEX_KEY.test(raw.key) ||
+    !HEX_KEY_PATTERN.test(raw.key) ||
     typeof raw.to !== 'string' ||
-    !HEX_KEY.test(raw.to) ||
+    !HEX_KEY_PATTERN.test(raw.to) ||
     !Number.isInteger(raw.tunnel) ||
     (raw.tunnel as number) < 1 ||
     (raw.tunnel as number) > 0xffffff ||
-    (raw.device !== undefined && (typeof raw.device !== 'string' || !HEX_KEY.test(raw.device)))
+    (raw.device !== undefined && (typeof raw.device !== 'string' || !HEX_KEY_PATTERN.test(raw.device)))
   ) {
     return refuse('Bad tunnel request.');
   }
@@ -165,7 +165,7 @@ export async function recordCallCheckResult(input: unknown): Promise<CallCheckRe
   if (!callCheckEnabled()) return null;
   const raw = (input ?? {}) as { key?: unknown; to?: unknown; result?: unknown };
   let context: CallContext | null = null;
-  if (typeof raw.key === 'string' && HEX_KEY.test(raw.key) && typeof raw.to === 'string' && HEX_KEY.test(raw.to)) {
+  if (typeof raw.key === 'string' && HEX_KEY_PATTERN.test(raw.key) && typeof raw.to === 'string' && HEX_KEY_PATTERN.test(raw.to)) {
     const reply = await getCallContext(raw.key, raw.to).catch((): null => null);
     if (reply?.success) context = reply.context;
   }

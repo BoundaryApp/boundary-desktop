@@ -8,7 +8,7 @@ import type {
   HermesSaveReplyResult,
 } from '../../../../shared/types/hermesChat';
 import { slugify } from '../../../../shared/utils/slug';
-import { getStoredHermesProject } from './hermesProjectStore';
+import { hostFolderProject } from './hostFolderProject';
 import { pickSavePath } from '../../saveDialog';
 import { isPathUnder } from '../../hostPaths';
 
@@ -41,8 +41,8 @@ export async function saveReplyToProject(
   sender: WebContents,
   payload: HermesSaveReplyPayload
 ): Promise<HermesSaveReplyResult> {
-  const project = getStoredHermesProject(payload.projectId);
-  if (!project) return { success: false, error: 'Project not found.' };
+  const { project, error: projectError } = hostFolderProject(payload.projectId);
+  if (!project) return { success: false, error: projectError };
   const options = {
     title: `Save to ${project.name}`,
     defaultPath: path.join(project.hostPath, suggestReplyFileName(payload.content)),
@@ -62,8 +62,8 @@ export async function saveReplyToProject(
 export async function revealProjectFile(
   payload: HermesRevealProjectFilePayload
 ): Promise<HermesRevealProjectFileResult> {
-  const project = getStoredHermesProject(payload.projectId);
-  if (!project) return { success: false, error: 'Project not found.' };
+  const { project, error: projectError } = hostFolderProject(payload.projectId);
+  if (!project) return { success: false, error: projectError };
   const target = resolveInsideProject(project.hostPath, payload.relativePath);
   if (!target) return { success: false, error: 'That file is outside the project folder.' };
   try {

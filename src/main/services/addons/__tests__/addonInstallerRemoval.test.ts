@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pendingChanges } from '../pendingRestart';
-import { FOUR, fakeDeps, pending, statuses } from './addonInstallerFakes';
+import { FOUR, HOSTED_ONLY, ON, fakeDeps, pending, scriptRuns, statuses } from './addonInstallerFakes';
 
 vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
 vi.mock('../../assistant/AssistantStackStore', async () => (await import('./addonInstallerFakes')).storeMock());
@@ -12,8 +12,7 @@ vi.mock('../../assistant/localStackMode', async () => (await import('./addonInst
 vi.mock('../addonHostFacts', async () => (await import('./addonInstallerFakes')).addonHostFactsMock());
 
 import { createAddonInstaller, type AddonInstallSnapshot, type AddonInstallerDeps } from '../addonInstaller';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { LOCAL_SETTINGS, WORK_SETTINGS, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { LOCAL_SETTINGS, WORK_SETTINGS, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
 
 describe('addon removal', () => {
   let tmp: string;
@@ -38,7 +37,7 @@ describe('addon removal', () => {
     pending.list = [];
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-remove-'));
     root = path.join(tmp, 'root');
-    dataRoot = path.join(tmp, 'data');
+    dataRoot = path.join(root, 'data');
     wsDir = twentyWorkspacesDir(root);
     fs.mkdirSync(path.join(dataRoot, 'twenty', 'db'), { recursive: true });
     fs.writeFileSync(path.join(dataRoot, 'twenty', 'db', 'f'), 'x');
@@ -53,14 +52,16 @@ describe('addon removal', () => {
   });
 
   const setup = (overrides: Partial<AddonInstallerDeps> = {}) => {
-    const fake = fakeDeps({ stackPaths: () => ({ root, dataRoot }), ...overrides });
+    const fake = fakeDeps({ stackRoot: root, ...overrides });
     fake.state.config = CONFIG;
     return { ...fake, installer: createAddonInstaller(fake.deps) };
   };
   const ids = (s: AddonInstallSnapshot | null) => (s?.steps ?? []).map((step) => step.id);
 
   it('while installed, stops, removes, deletes and waits at restart', async () => {
-    const { installer, deps, calls } = setup({ isInstalled: vi.fn(() => true) });
+    const { installer, deps, calls, sh } = setup({ isInstalled: vi.fn(async () => true) });
+    sh.flags = { ...ON };
+    sh.local = true;
     await installer.remove('twenty', { deleteImages: false });
 
     const snap = installer.snapshot();
@@ -80,8 +81,9 @@ describe('addon removal', () => {
       ['--profile', 'crm', 'rm', '-f', ...FOUR],
     ]);
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
-    // crm-work is a stored hosted workspace, so its tools stay.
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', { TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '1' });
+    // crm-work is a stored hosted workspace, so its tools stay: enable after local=false.
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'enable']);
+    expect(sh.flags).toEqual(HOSTED_ONLY);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
     expect(deps.removeImages).not.toHaveBeenCalled();
 
@@ -92,7 +94,7 @@ describe('addon removal', () => {
   });
 
   it('adds delete-images before restart when asked', async () => {
-    const { installer } = setup({ isInstalled: vi.fn(() => true) });
+    const { installer } = setup({ isInstalled: vi.fn(async () => true) });
     await installer.remove('twenty', { deleteImages: true });
     expect(ids(installer.snapshot())).toEqual([
       'stop',
@@ -105,25 +107,37 @@ describe('addon removal', () => {
     expect(statuses(installer.snapshot())['delete-images']).toBe('done');
   });
 
-  it('records Twenty off before it stops anything', async () => {
+  it('turns Twenty off through addon.sh before it stops anything', async () => {
     const order: string[] = [];
-    const { installer } = setup({
-      isInstalled: vi.fn(() => true),
+    const { installer, deps } = setup({
+      isInstalled: vi.fn(async () => true),
       setInstalled: vi.fn((_id: string, on: boolean) => void order.push(`installed:${on}`)),
-      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
-        order.push(`flags:${flags.TWENTY_LOCAL_ENABLED}`);
-      }),
       compose: vi.fn(async (args: string[]) => {
         order.push(args[2]);
         return { stdout: '', stderr: '' };
       }),
     });
+    const script = vi.mocked(deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation(async (args, opts) => {
+      order.push(args[0]!);
+      return base(args, opts);
+    });
     await installer.remove('twenty', { deleteImages: false });
-    expect(order).toEqual(['installed:false', 'flags:0', 'stop', 'rm']);
+    expect(order).toEqual(['installed:false', 'configure', 'enable', 'stop', 'rm']);
+  });
+
+  it('fails the stop step when addon.sh can’t turn Twenty off', async () => {
+    const { installer, sh, calls } = setup({ isInstalled: vi.fn(async () => true) });
+    sh.configureCode = 1;
+    await installer.remove('twenty', { deleteImages: false });
+    expect(installer.snapshot()?.error?.step).toBe('stop');
+    expect(installer.snapshot()?.error?.message).toContain('Couldn’t change Twenty CRM’s local setting');
+    expect(calls).toEqual([]);
   });
 
   it('while off, stops and removes what containers are left, deletes, and ends done with no restart', async () => {
-    const { installer, deps, calls } = setup();
+    const { installer, deps, calls, sh } = setup();
     await installer.remove('twenty', { deleteImages: true });
 
     const snap = installer.snapshot();
@@ -142,7 +156,7 @@ describe('addon removal', () => {
       ['--profile', 'crm', 'rm', '-f', ...FOUR],
     ]);
     expect(deps.setInstalled).not.toHaveBeenCalled();
-    expect(deps.syncStackFlags).not.toHaveBeenCalled();
+    expect(sh.calls).toEqual([]);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
   });
 
@@ -169,7 +183,7 @@ describe('addon removal', () => {
 
   it('resolves the images from compose config before stopping, and keeps one in use', async () => {
     const { installer, deps, calls } = setup({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       removeImages: vi.fn(async () => ({
         removed: ['redis:7', 'twentycrm/twenty:v2.55.0'],
         kept: ['postgres:16'],
@@ -215,7 +229,7 @@ describe('addon removal', () => {
   });
 
   it('passes only stderr from a compose config that fails', async () => {
-    const base = fakeDeps({ stackPaths: () => ({ root, dataRoot }) });
+    const base = fakeDeps({ stackRoot: root });
     const compose = base.deps.compose;
     const installer = createAddonInstaller({
       ...base.deps,
@@ -237,7 +251,7 @@ describe('addon removal', () => {
   });
 
   it('records a delete-data failure with its log tail, leaves Twenty off, and resumes there', async () => {
-    const { installer, deps, calls } = setup({ isInstalled: vi.fn(() => true) });
+    const { installer, deps, calls } = setup({ isInstalled: vi.fn(async () => true) });
     fs.chmodSync(dataRoot, 0o500);
     await installer.remove('twenty', { deleteImages: false });
 
@@ -273,14 +287,14 @@ describe('addon removal', () => {
   });
 
   it('refuses in local stack mode before any step runs', async () => {
-    const { installer, deps, calls } = setup({ isInstalled: vi.fn(() => true), isLocalStack: vi.fn(() => true) });
+    const { installer, deps, calls, sh } = setup({ isInstalled: vi.fn(async () => true), isLocalStack: vi.fn(() => true) });
     await expect(installer.remove('twenty', { deleteImages: true })).rejects.toThrow(
-      "Remove Twenty's data from the stack checkout instead; Boundary doesn't delete files in a local stack."
+      "Remove the add-on's data from the stack checkout instead; Boundary doesn't delete files in a local stack."
     );
     expect(installer.snapshot()).toBeNull();
     expect(calls).toEqual([]);
     expect(deps.setInstalled).not.toHaveBeenCalled();
-    expect(deps.syncStackFlags).not.toHaveBeenCalled();
+    expect(sh.calls).toEqual([]);
     expect(fs.existsSync(path.join(dataRoot, 'twenty'))).toBe(true);
     expect(fs.existsSync(ws('instances/main.json'))).toBe(true);
     expect(fs.existsSync(ws('secrets/main.key_rw'))).toBe(true);
@@ -288,15 +302,31 @@ describe('addon removal', () => {
 
   it('replaces pending lines about crm-main with one for the removal when a run with a restart starts', async () => {
     pending.list = ['Turn off this Mac’s Twenty: agents drop crm-main and keep crm-work', 'Connect crm-work'];
-    const { installer } = setup({ isInstalled: vi.fn(() => true) });
+    const { installer } = setup({ isInstalled: vi.fn(async () => true) });
     await installer.remove('twenty', { deleteImages: false });
     expect(pendingChanges()).toEqual(['Connect crm-work', 'Remove this Mac’s Twenty: agents drop crm-main']);
     await installer.restart('twenty');
     expect(pendingChanges()).toEqual([]);
   });
 
+  it('keeps pending lines for a hosted workspace whose name contains main', async () => {
+    pending.list = [
+      'Turn off this Mac’s Twenty: agents drop crm-main and keep crm-main-2',
+      'crm-main: look things up',
+      'Disconnect crm-main-2',
+      'crm-main-2: make changes',
+    ];
+    const { installer } = setup({ isInstalled: vi.fn(async () => true) });
+    await installer.remove('twenty', { deleteImages: false });
+    expect(pendingChanges()).toEqual([
+      'Disconnect crm-main-2',
+      'crm-main-2: make changes',
+      'Remove this Mac’s Twenty: agents drop crm-main',
+    ]);
+  });
+
   it('keeps a pending line naming crm-main when a step after stop fails', async () => {
-    const { installer } = setup({ isInstalled: vi.fn(() => true) });
+    const { installer } = setup({ isInstalled: vi.fn(async () => true) });
     fs.chmodSync(dataRoot, 0o500);
     await installer.remove('twenty', { deleteImages: false });
     expect(installer.snapshot()?.error?.step).toBe('delete-data');
@@ -307,7 +337,7 @@ describe('addon removal', () => {
     // The first run recorded Twenty off, then its stop failed; the app quit, so its snapshot is gone.
     let installed = true;
     const first = setup({
-      isInstalled: vi.fn(() => installed),
+      isInstalled: vi.fn(async () => installed),
       setInstalled: vi.fn((_id: string, on: boolean) => void (installed = on)),
       compose: vi.fn(async (args: string[]) => {
         if (args.includes('stop')) throw Object.assign(new Error('stop failed'), { stderr: 'engine stopped' });
@@ -322,19 +352,18 @@ describe('addon removal', () => {
 
     const order: string[] = [];
     const relaunched = setup({
-      isInstalled: vi.fn(() => installed),
+      isInstalled: vi.fn(async () => installed),
       compose: vi.fn(async (args: string[]) => {
         order.push(args[2]);
         return { stdout: '', stderr: '' };
       }),
     });
-    const rmSync = fs.rmSync;
-    const spy = vi.spyOn(fs, 'rmSync').mockImplementation(((p: fs.PathLike, o?: fs.RmOptions) => {
-      if (String(p) === path.join(dataRoot, 'twenty')) order.push('delete-data');
-      return rmSync(p, o);
-    }) as typeof fs.rmSync);
+    const remove = relaunched.deps.files.remove.bind(relaunched.deps.files);
+    relaunched.deps.files.remove = async (location, relPath) => {
+      if (location === 'data' && relPath === 'twenty') order.push('delete-data');
+      return remove(location, relPath);
+    };
     await relaunched.installer.remove('twenty', { deleteImages: false });
-    spy.mockRestore();
 
     expect(ids(relaunched.installer.snapshot())).toEqual(['stop', 'remove-containers', 'delete-data', 'delete-keys']);
     expect(order.slice(0, 3)).toEqual(['stop', 'rm', 'delete-data']);

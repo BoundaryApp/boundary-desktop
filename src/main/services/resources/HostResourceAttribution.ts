@@ -27,6 +27,7 @@ import {
   discoverLocalLlms,
   LOCAL_LLM_TARGETS,
 } from '../onboarding/LocalLlmDiscovery';
+import { hasStackCapability } from '../stackHost/capabilities';
 
 const execFileAsync = promisify(execFile);
 
@@ -319,6 +320,8 @@ let diskCache: { at: number; app: number; stack: number; llm: number } | null = 
 let diskRefresh: Promise<{ app: number; stack: number; llm: number } | null> | null = null;
 
 export async function getDockerClient(): Promise<Docker | null> {
+  // The engine isn't on this machine, so its containers aren't part of this machine's figures.
+  if (!hasStackCapability('engineControl')) return null;
   if (dockerClient) return dockerClient;
   try {
     const runtime = await getContainerRuntime();
@@ -507,6 +510,7 @@ export function parsePodmanMachineMemoryBytes(stdout: string): number | null {
 }
 
 export async function readPodmanMachineReservedBytes(): Promise<number | null> {
+  if (!hasStackCapability('engineControl')) return null;
   const binaries: string[] = [];
   try {
     const paths = resolveBundledRuntimePaths();

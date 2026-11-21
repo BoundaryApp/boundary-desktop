@@ -97,7 +97,7 @@ export function cancelledSnapshot(s: AddonInstallSnapshot): AddonInstallSnapshot
 
 /** Why Remove and delete data is unavailable when Boundary runs the developer's own stack checkout. */
 export const ADDON_LOCAL_REMOVE_MESSAGE =
-  "Remove Twenty's data from the stack checkout instead; Boundary doesn't delete files in a local stack.";
+  "Remove the add-on's data from the stack checkout instead; Boundary doesn't delete files in a local stack.";
 
 export interface AddonListing {
   entry: AddonCatalogEntry;
@@ -151,7 +151,7 @@ export type TwentyConnectResult =
 
 /** One Twenty workspace file, without its API keys. */
 export interface TwentyWorkspace {
-  /** The file name without `.env` or `.env.off`; the agent sees it as `crm-<slug>`. */
+  /** The file name without `.env`; the agent sees it as `crm-<slug>`. */
   slug: string;
   /** Twenty runs in this stack's own `twenty-server` container. */
   local: boolean;
@@ -162,8 +162,6 @@ export interface TwentyWorkspace {
   skippedReason: string | null;
   hasReadKey: boolean;
   hasWriteKey: boolean;
-  /** The file is renamed to `<slug>.env.off`, so the stack's bootstrap skips it. */
-  parked: boolean;
 }
 
 /** What the agent may do with an Actual budget: look things up (`read`) or make changes (`write`). */
@@ -305,6 +303,11 @@ export interface BitwardenOverview {
   statusError: string | null;
   /** `broker_down` or `command_failed` when the last `requests` run had no reply, else null. */
   requestsError: string | null;
+  /**
+   * The stack signs the agent in through `bitwarden-signin` (stack v0.3.16): a login is filled into
+   * the agent's own page only when its item has the `agent-in-page-fill` custom field.
+   */
+  signInBrowser: boolean;
 }
 
 /** Where the account lives (decision 28). */

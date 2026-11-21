@@ -19,11 +19,14 @@ import {
   resumeHostBridgeAgent,
   rotateHostBridgeAgentTokens,
   setAgentAppSource,
+  setCredentialClientFolder,
   stopHostBridgeAgent,
   type ProvisionHermes,
   updateBoundaryBrowserSettings,
 } from './hostBridgeService';
 import { listHostBridgeGrants, revokeAllHostBridgeGrants, revokeHostBridgeGrant } from './hostBridgeStore';
+import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
+import { bitwardenSecretsDir } from '../addons/bitwardenFolders';
 
 /**
  * New bridge tokens reach Hermes through the stack's one apply path. A stopped stack is skipped:
@@ -34,6 +37,11 @@ const provisionHermes: ProvisionHermes = async () =>
 
 export function registerHostBridgeHandlers(): void {
   setAgentAppSource(agentAppSource);
+  // The relay's credential client files go where the Bitwarden broker mounts `/secrets` (ADR 0065).
+  setCredentialClientFolder(async () => {
+    const { root } = tryResolveAssistantRoot();
+    return root ? bitwardenSecretsDir(root) : null;
+  });
 
   handle('host-bridge:report-screen', async (_event, next) => noteAppScreen(next));
 

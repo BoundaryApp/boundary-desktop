@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess } from 'electron';
-import { persistDebugLog } from '../../persistDebugLog';
-import { stopUtilityProcess } from '../stopUtilityProcess';
+import { persistDebugLog } from '../../host/log';
+import { stopUtilityProcess } from '../../host/processes';
 import { NETWORK_ENTRY } from './networkEntry';
 import type { MainToNetwork, NetworkSpikeMode, NetworkToMain } from './networkMessages';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
 /**
  * Phase 0 of the Circles plan: a debug-only way to run the network utilityProcess (ADR 0032 §1,
@@ -20,7 +21,7 @@ let child: UtilityProcess | null = null;
 export function networkSpikeModeFrom(value: string | undefined): NetworkSpikeMode | null {
   const trimmed = value?.trim().toLowerCase();
   if (trimmed === 'load' || trimmed === 'seed') return { kind: trimmed };
-  if (trimmed && /^[0-9a-f]{64}$/.test(trimmed)) return { kind: 'replicate', key: trimmed };
+  if (trimmed && HEX_KEY_PATTERN.test(trimmed)) return { kind: 'replicate', key: trimmed };
   return null;
 }
 

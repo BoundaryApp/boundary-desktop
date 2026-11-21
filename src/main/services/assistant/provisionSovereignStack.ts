@@ -24,6 +24,7 @@ import {
 } from './projectTreeSwap';
 import { backupStackDataBeforeUpgrade } from './stackDataBackup';
 import { persistDebugLog } from '../../persistDebugLog';
+import { requireStackCapability } from '../stackHost/capabilities';
 
 const execFileAsync = promisify(execFile);
 
@@ -162,6 +163,7 @@ export async function ensureSovereignProjectProvisioned(
     archiveSha256?: string | null;
   } = {}
 ): Promise<string> {
+  requireStackCapability('provision');
   const ref = options.ref ?? SOVEREIGN_AGENT_STACK_REF;
   const archiveSha256 =
     options.archiveSha256 !== undefined

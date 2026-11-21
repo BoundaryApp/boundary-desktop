@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { MAX_MESSAGE_TEXT_BYTES } from '../../../../shared/circleDirect';
 import type { CircleChannel, CircleSnapshot } from '../../../../shared/types/circles';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
+import { NativeSelect } from '../../../components/ui/native-select';
+import { Textarea } from '../../../components/ui/textarea';
+import { useAction } from '../../circles/useCircles';
 import './circleChat.css';
 
 /** What a Hermes chat message offers to share: its text, who wrote it and, for a reply, the model. */
@@ -19,8 +23,7 @@ export interface CircleShareTarget {
 }
 
 const LAST_KEY = 'boundary:circle-share-last';
-/** The message limit `apply` enforces (ADR 0042 §3), and when the sheet starts showing what's left. */
-const MAX_TEXT_BYTES = 12 * 1024;
+/** When the sheet starts showing how much of the message limit is left. */
 const SHOW_LEFT_BYTES = 10 * 1024;
 
 function readLast(): { key: string; channel: string } | null {
@@ -58,8 +61,7 @@ export const ShareToCircleSheet: React.FC<{
   const [circleKey, setCircleKey] = useState('');
   const [channel, setChannel] = useState('general');
   const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
 
   // Each open starts from the message's text and the last place shared to.
   useEffect(() => {
@@ -76,21 +78,15 @@ export const ShareToCircleSheet: React.FC<{
   const channelList = channels[circleKey]?.length ? channels[circleKey] : [{ id: 'general', name: 'General', unread: 0 }];
   const chosen = channelList.find((item) => item.id === channel) ?? channelList[0];
   const bytes = bytesOf(text);
-  const tooLong = bytes > MAX_TEXT_BYTES;
+  const tooLong = bytes > MAX_MESSAGE_TEXT_BYTES;
   const from =
     draft?.role === 'assistant' && draft.model ? `Shared from a chat · reply from ${draft.model}` : 'Shared from a chat';
 
   const share = async () => {
     if (!draft || !circle || busy || !text.trim() || tooLong) return;
-    setBusy(true);
-    setError(null);
     const shared = { role: draft.role, ...(draft.role === 'assistant' && draft.model ? { model: draft.model } : {}) };
-    const result = await window.electronAPI.circles.chatPost({ key: circle.key, channel: chosen.id, text, shared });
-    setBusy(false);
-    if (result.success === false) {
-      setError(result.error);
-      return;
-    }
+    const result = await run(() => window.electronAPI.circles.chatPost({ key: circle.key, channel: chosen.id, text, shared }));
+    if (!result || result.success === false) return;
     saveLast(circle.key, chosen.id);
     onShared({ circleKey: circle.key, circleName: circle.name, channel: chosen.id, channelName: chosen.name });
   };
@@ -120,7 +116,7 @@ export const ShareToCircleSheet: React.FC<{
           <div className="wb-circle-share-pick">
             <label>
               <span>Circle</span>
-              <select
+              <NativeSelect
                 value={circleKey}
                 onChange={(event) => {
                   setCircleKey(event.target.value);
@@ -132,25 +128,25 @@ export const ShareToCircleSheet: React.FC<{
                     {item.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
             <label>
               <span>Channel</span>
-              <select value={chosen.id} onChange={(event) => setChannel(event.target.value)}>
+              <NativeSelect value={chosen.id} onChange={(event) => setChannel(event.target.value)}>
                 {channelList.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
           </div>
-          <textarea aria-label="Text to share" rows={8} value={text} onChange={(event) => setText(event.target.value)} />
+          <Textarea aria-label="Text to share" rows={8} value={text} onChange={(event) => setText(event.target.value)} />
           {bytes > SHOW_LEFT_BYTES ? (
             <p className={`wb-circle-share-left${tooLong ? ' is-over' : ''}`}>
               {tooLong
-                ? `Too long by ${Math.ceil((bytes - MAX_TEXT_BYTES) / 1024)} KB.`
-                : `${Math.floor((MAX_TEXT_BYTES - bytes) / 1024)} KB left.`}
+                ? `Too long by ${Math.ceil((bytes - MAX_MESSAGE_TEXT_BYTES) / 1024)} KB.`
+                : `${Math.floor((MAX_MESSAGE_TEXT_BYTES - bytes) / 1024)} KB left.`}
             </p>
           ) : null}
           <p className="wb-circle-share-from">Shows as: {from}</p>

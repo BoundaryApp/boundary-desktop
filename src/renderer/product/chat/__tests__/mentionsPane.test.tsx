@@ -73,6 +73,19 @@ describe('MentionsPane (ADR 0023 §6)', () => {
     expect(document.querySelector('.wb-mention-at')?.textContent).toBe('@Ana');
   });
 
+  // The highlighter once tried names in a fixed order, so "@UI/UX Designer" lit up only "@UI".
+  it('highlights the longest name the parser reads', () => {
+    const designer: AgentProfile = { ...hermes, slug: 'designer', displayName: 'UI', handle: 'UI/UX Designer', builtIn: false };
+    renderPane({
+      agents: [designer],
+      mentions: [mention({ id: '9', agentSlug: 'designer', text: 'ask @UI/UX Designer and @UI' })],
+    });
+    expect([...document.querySelectorAll('.wb-mention-at')].map((el) => el.textContent)).toEqual([
+      '@UI/UX Designer',
+      '@UI',
+    ]);
+  });
+
   it('filters by agent, unseen and waiting', () => {
     renderPane();
     fireEvent.click(screen.getByRole('radio', { name: /Hermes/ }));

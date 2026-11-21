@@ -3,6 +3,7 @@ import type { PoolStop } from '../../../shared/types/confidentialState';
 import { CONFIDENTIAL_COPY, exclusionText } from '../inference/confidentialCopy';
 import { LevelBadge } from '../inference/LevelBadge';
 import { openInference } from '../inference/inferenceNavigation';
+import { poolModelName, useConfidentialState } from '../inference/useConfidentialState';
 import { Button } from '../../components/ui/button';
 
 /** What the stop says when there's no local model to send with; the same words as the plain stop. */
@@ -25,6 +26,7 @@ export const PoolStopPrompt: React.FC<{
   error?: string | null;
 }> = ({ stop, localModelId, onAllowLevelB, onUseLocal, busy = false, error = null }) => {
   const copy = CONFIDENTIAL_COPY.privateStop;
+  const { state: confidential } = useConfidentialState();
   // Allowing level B only widens a project held to level A.
   const offerLevelB = stop.floor === 'A' && Boolean(onAllowLevelB);
   return (
@@ -46,7 +48,7 @@ export const PoolStopPrompt: React.FC<{
             </li>
           ))
         ) : (
-          <li>{copy.noneAdded(stop.modelId)}</li>
+          <li>{copy.noneAdded(poolModelName(confidential, stop.modelId))}</li>
         )}
       </ul>
       <p>

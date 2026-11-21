@@ -5,8 +5,7 @@
  */
 
 import { cp } from 'node:fs/promises';
-import os from 'node:os';
-import { app, shell } from 'electron';
+import { shell } from 'electron';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import type { CodingGrantRefuseReason } from '../../../shared/types/codingFolders';
 import type { CirclesResult } from '../../../shared/types/circles';
@@ -20,10 +19,8 @@ import type {
   SharedFolderOnMac,
   SharedFolderProblem,
 } from '../../../shared/types/sharedFolders';
-import { folderFacts, refuseCodingGrantReason } from '../assistant/coding/codingGrantRules';
-import { resolveAssistantStackHome } from '../assistant/assistantPaths';
-import { persistDebugLog } from '../../persistDebugLog';
-import { broadcast } from '../windows';
+import { persistDebugLog } from '../../host/log';
+import { broadcast } from '../../host/windows';
 import {
   deleteCircleRecord,
   folderRequest,
@@ -39,6 +36,7 @@ import {
 } from './circlesService';
 import { forgetSharedFolder, loadSharedFolders, saveSharedFolder } from './circlesStore';
 import { scanFolder } from './folderScan';
+import { circlesSharing } from './sharingConfig';
 import type { FolderRole } from './folderOps';
 import { FOLDER_JOINS_APP, FOLDER_OFFERS_APP, SharedFolderManager } from './sharedFolderManager';
 
@@ -85,15 +83,12 @@ const manager = new SharedFolderManager({
   save: saveSharedFolder,
   forget: forgetSharedFolder,
   refuse: (hostPath) => {
-    // The coding-folder rules (ADR 0028 §5), with the same home and Boundary data folders.
-    const reason = refuseCodingGrantReason(hostPath, {
-      home: os.homedir(),
-      boundaryDataPaths: [app.getPath('userData'), resolveAssistantStackHome()],
-    });
+    // The coding-folder rules (ADR 0028 §5), from the app.
+    const reason = circlesSharing().folders.refuseReason(hostPath);
     return reason ? refuseMessage(reason) : null;
   },
-  isGitRepo: (hostPath) => folderFacts(hostPath).isGit,
-  isDirectory: (hostPath) => folderFacts(hostPath).isDirectory,
+  isGitRepo: (hostPath) => circlesSharing().folders.facts(hostPath).isGit,
+  isDirectory: (hostPath) => circlesSharing().folders.facts(hostPath).isDirectory,
   copy: (from, to) => cp(from, to, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true }),
   moveToTrash: (hostPath) => shell.trashItem(hostPath),
   scan: (hostPath) => scanFolder(hostPath),

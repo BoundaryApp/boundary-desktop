@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ServiceOfferRecord, ShareLevel } from '../../../../shared/serviceOffers';
-import type { MemberKeys } from '../../addons/twentyMemberKeys';
 import type { ServiceSharing } from '../networkMessages';
-import { createSharedServices, memberKeyName, type GrantInput, type ServiceGrantsState, type SharedServicesDeps } from '../sharedServices';
+import { createSharedServices, memberKeyName, type GrantInput, type MemberKeys, type ServiceGrantsState, type SharedServicesDeps } from '../sharedServices';
 
 const CIRCLE = 'c'.repeat(64);
 const SERVICE = 'twenty.main';
@@ -34,7 +33,7 @@ function setup(overrides: Partial<SharedServicesDeps> = {}) {
     },
     mintKeys,
     revokeKeys: async (ids) => void revoked.push(ids),
-    upstreamFor: (service) => (service === SERVICE ? UPSTREAM : null),
+    upstreamFor: async (service) => (service === SERVICE ? UPSTREAM : null),
     setOffer: async (circle, service, offer) => void offers.push([circle, service, offer]),
     deleteOffer: async (circle, service) => void offers.push([circle, service, null]),
     push: async (sharing) => void pushed.push(sharing),
@@ -198,7 +197,7 @@ describe('createSharedServices', () => {
   });
 
   it('leaves out an upstream it can’t reach but still sends the grants', async () => {
-    const t = setup({ upstreamFor: () => null });
+    const t = setup({ upstreamFor: async () => null });
     await t.services.grant(grant());
     expect(t.pushed.at(-1)).toMatchObject({ upstreams: {}, grants: [expect.objectContaining({ identity: SAM })] });
   });

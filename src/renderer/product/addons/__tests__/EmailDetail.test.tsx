@@ -193,6 +193,27 @@ describe('EmailDetail', () => {
     fireEvent.click(confirm);
     expect(addons.remove).toHaveBeenCalledWith('email', { deleteImages: false });
   });
+
+  it('Get on the page opens the progress view once the first account starts the install', async () => {
+    const addons = stubAddons([emailListing(false)], { email: overviewWith({ enabled: false, accounts: [], since: null }) });
+    addons.email.mailboxes.mockResolvedValue({
+      success: true,
+      result: { ok: true, mailboxes: [{ name: 'INBOX', messages: 3, specialUse: [] }] },
+    });
+    const onInstallStarted = vi.fn();
+    render(<AddonDetail id="email" onBack={() => undefined} onInstallStarted={onInstallStarted} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Get' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Choose an account' }));
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'iCloud' }));
+    fireEvent.change(within(dialog).getByLabelText('Email address'), { target: { value: 'pat@example.com' } });
+    fireEvent.change(within(dialog).getByLabelText('App password'), { target: { value: 'good-pass' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await within(dialog).findByRole('checkbox', { name: /Inbox/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect' }));
+    await vi.waitFor(() => expect(addons.install).toHaveBeenCalledWith('email', { email: { account: 'icloud' } }));
+    expect(onInstallStarted).toHaveBeenCalled();
+  });
 });
 
 const Store: React.FC = () => {

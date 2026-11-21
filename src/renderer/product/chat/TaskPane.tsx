@@ -24,6 +24,7 @@ import {
 import { WorkingDot } from './WorkingDot';
 import { NeedsYouCard, RunMenu, TaskComposer, useTaskAction } from './TaskControls';
 import { Button } from '../../components/ui/button';
+import { InspectorToggle } from './InspectorToggle';
 
 /** Where the task was filed, when that conversation is one Boundary knows. */
 export interface TaskOrigin {
@@ -288,12 +289,15 @@ export const TaskPane: React.FC<TaskPaneProps> = ({
     <div className="wb-recent-pane">
       <div className="wb-task-page">
         <header className="wb-task-head">
-          <nav className="wb-task-crumbs" aria-label="Breadcrumb">
-            <button type="button" className="wb-task-link" onClick={onOpenTasks}>
-              Tasks
-            </button>
-            <span aria-hidden="true"> › </span>
-          </nav>
+          <div className="wb-task-crumb-row">
+            <nav className="wb-task-crumbs" aria-label="Breadcrumb">
+              <button type="button" className="wb-task-link" onClick={onOpenTasks}>
+                Tasks
+              </button>
+              <span aria-hidden="true"> › </span>
+            </nav>
+            <InspectorToggle />
+          </div>
           <h1 className="wb-task-title">{task.title}</h1>
           <div className="wb-task-meta">
             <span className={`wb-task-pill is-${task.status}`}>{TASK_STATUS_LABEL[task.status] ?? task.status}</span>

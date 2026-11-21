@@ -13,7 +13,6 @@ import {
   normalizeCalendarUrl,
   toolsForAccess,
 } from '../calendarModel';
-import { hostBridgeHermesConfigSets } from '../../../hostBridge/hermesProvision';
 
 describe('calendarSlug', () => {
   it('lowercases and joins runs of other characters with one hyphen', () => {
@@ -108,25 +107,17 @@ describe('calendarPasswordProblem', () => {
 });
 
 describe('the calendar-mac entry', () => {
-  const RECONNECT_KEYS = ['connect_timeout', 'keepalive_interval', 'parked_retry_interval'];
-  const bridgeValues = Object.fromEntries(
-    hostBridgeHermesConfigSets(47001)
-      .filter(([key]) => RECONNECT_KEYS.includes(key.split('.').at(-1)!))
-      .map(([key, value]) => [key.split('.').at(-1)!, value])
-  );
-
-  it('uses the stack settings for an app-hosted server, the same as the boundary entry', () => {
+  it('uses the stack settings for an app-hosted server', () => {
     const entry = macCalendarMcpEntry({ mcpPort: 47001, access: 'read' });
     expect(entry).toMatchObject({ connect_timeout: 60, keepalive_interval: 15, parked_retry_interval: 15 });
-    for (const key of RECONNECT_KEYS) expect(String(entry[key])).toBe(bridgeValues[key]);
   });
 
   it('re-applies the url and the reconnect settings when the bridge moves', () => {
     expect(macCalendarUrlSets(47011)).toEqual([
       ['mcp_servers.calendar-mac.url', 'http://host.docker.internal:47011/calendar'],
-      ['mcp_servers.calendar-mac.connect_timeout', bridgeValues.connect_timeout],
-      ['mcp_servers.calendar-mac.keepalive_interval', bridgeValues.keepalive_interval],
-      ['mcp_servers.calendar-mac.parked_retry_interval', bridgeValues.parked_retry_interval],
+      ['mcp_servers.calendar-mac.connect_timeout', '60'],
+      ['mcp_servers.calendar-mac.keepalive_interval', '15'],
+      ['mcp_servers.calendar-mac.parked_retry_interval', '15'],
     ]);
   });
 });

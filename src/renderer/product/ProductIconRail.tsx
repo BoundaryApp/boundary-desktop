@@ -1,30 +1,12 @@
-import { useSharingAttention } from './circles/CircleSharingPanel';
-import { AddonAttentionDot } from './addons/AddonStoppedAlert';
 import React from 'react';
 import { ariaShortcut, formatShortcut, type AppCommand } from '../../shared/appCommands';
 import { openBugReport } from './bugReport/bugReportEvents';
 import { useAssistantStackStatus } from './assistantStack';
-import { useKanbanSnapshot } from './chat/kanbanActivity';
-import { useRunningTurns } from './chat/runningTurns';
-import { WorkingDot } from './chat/WorkingDot';
 import { useWhatsNew } from './whatsNew/state';
 import { UpdateRailButton, useUpdates } from './updates';
 import { isMacPlatform } from './useAppShortcuts';
 import { experimentDestinations, type ExperimentDestination } from '../experiments';
-import { AtMark } from './chat/circle/AtMark';
-import { useCirclesUnread } from './circles/useCirclesUnread';
-import { useAppBadge } from './appBadge';
-
-/** `experiment:<id>` is a screen a private experiment adds (`ExperimentDestination`). */
-export type ProductDestination =
-  | 'chat'
-  | 'circles'
-  | 'inference'
-  | 'services'
-  | 'resources'
-  | 'whats-new'
-  | 'settings'
-  | `experiment:${string}`;
+import { DESTINATIONS, type ProductDestination } from './destinations';
 
 interface ProductIconRailProps {
   active: ProductDestination | null;
@@ -74,29 +56,6 @@ function RailButton({
   );
 }
 
-/**
- * Unread Circle messages across every Circle (ADR 0052 §5). The app icon's badge shows the same
- * total, and clears while the rail is disabled.
- */
-function CircleUnreadCount() {
-  const { total, mentioned } = useCirclesUnread();
-  useAppBadge(total);
-  return total ? (
-    <span
-      className={`wb-icon-count${mentioned ? ' has-mention' : ''}`}
-      role="img"
-      aria-label={`${total} unread in Circles${mentioned ? ', mentions you' : ''}`}
-    >
-      {mentioned ? <AtMark /> : null}
-      {total > 99 ? '99+' : total}
-    </span>
-  ) : null;
-}
-
-function SharingAttentionDot() {
-  return useSharingAttention() ? <i className="wb-attention-dot" role="img" aria-label="Members can’t use your models" /> : null;
-}
-
 const noAttention = () => false;
 
 /** An experiment's rail button. Its own component so `useAttention` is called once per render. */
@@ -138,11 +97,6 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
   const whatsNew = useWhatsNew();
   // No release notes bundled: the destination has nothing to show, so the rail doesn't offer it.
   const hasNotes = (whatsNew?.releases.length ?? 0) > 0;
-  // Off the chat screen, nothing else says an agent is still working: a chat turn, or a
-  // kanban worker the dispatcher started.
-  const turns = useRunningTurns();
-  const boardRunning = useKanbanSnapshot().tasks.some((t) => t.status === 'running');
-  const working = (turns.length > 0 || boardRunning) && active !== 'chat';
   return (
     <nav aria-label="App" className={`wb-icon-rail${disabled ? ' is-disabled' : ''}`} inert={inert}>
       {stack?.kind === 'local' ? (
@@ -150,80 +104,19 @@ export const ProductIconRail: React.FC<ProductIconRailProps> = ({
           Local
         </div>
       ) : null}
-      <RailButton
-        label="Chat"
-        anchor="rail-chat"
-        command="go-chat"
-        active={active === 'chat'}
-        onClick={() => onNavigate('chat')}
-        disabled={disabled}
-      >
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M3 11.5V4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-4 2.5z" />
-        </svg>
-        {working ? <WorkingDot label="An agent is working" /> : null}
-      </RailButton>
-      <RailButton
-        label="Circles"
-        anchor="rail-circles"
-        command="go-circles"
-        active={active === 'circles'}
-        onClick={() => onNavigate('circles')}
-        disabled={disabled}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <circle cx="8" cy="8" r="5.5" />
-          <circle cx="8" cy="2.5" r="1.4" fill="currentColor" stroke="none" />
-          <circle cx="3.2" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
-          <circle cx="12.8" cy="10.8" r="1.4" fill="currentColor" stroke="none" />
-        </svg>
-        {disabled ? null : <CircleUnreadCount />}
-      </RailButton>
-      <RailButton
-        label="Inference"
-        anchor="rail-inference"
-        command="go-inference"
-        active={active === 'inference'}
-        onClick={() => onNavigate('inference')}
-        disabled={disabled}
-      >
-        {disabled ? null : <SharingAttentionDot />}
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M8 2.5 13.5 5.5 8 8.5 2.5 5.5z" />
-          <path d="M2.5 8.5 8 11.5l5.5-3" />
-          <path d="M2.5 11 8 14l5.5-3" />
-        </svg>
-      </RailButton>
-      <RailButton
-        label="Services"
-        anchor="rail-services"
-        command="go-services"
-        active={active === 'services'}
-        onClick={() => onNavigate('services')}
-        disabled={disabled}
-      >
-        {disabled ? null : <AddonAttentionDot />}
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
-          <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
-          <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
-          <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
-        </svg>
-      </RailButton>
-      <RailButton
-        label="Resources"
-        anchor="rail-resources"
-        command="go-resources"
-        active={active === 'resources'}
-        onClick={() => onNavigate('resources')}
-        disabled={disabled}
-      >
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <rect x="2.5" y="9.5" width="3" height="4" />
-          <rect x="6.5" y="6.5" width="3" height="7" />
-          <rect x="10.5" y="3.5" width="3" height="10" />
-        </svg>
-      </RailButton>
+      {DESTINATIONS.map(({ id, label, command, Icon }) => (
+        <RailButton
+          key={id}
+          label={label}
+          anchor={`rail-${id}`}
+          command={command}
+          active={active === id}
+          onClick={() => onNavigate(id)}
+          disabled={disabled}
+        >
+          <Icon active={active === id} disabled={disabled} />
+        </RailButton>
+      ))}
       {experimentDestinations().map((destination) => (
         <ExperimentRailButton
           key={destination.id}

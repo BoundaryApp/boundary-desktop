@@ -18,15 +18,15 @@ function harness(options: { busy?: number[]; saved?: UsedService[]; files?: Reco
   let tokens = 0;
 
   const store: WorkspaceStore = {
-    slugFree: (slug) => !(slug in files),
-    exists: (slug) => slug in files,
-    write: (slug, values, keys) => {
+    slugFree: async (slug) => !(slug in files),
+    exists: async (slug) => slug in files,
+    write: async (slug, values, keys) => {
       files[slug] = { ...values, keys };
     },
-    setUrl: (slug, url) => {
+    setUrl: async (slug, url) => {
       files[slug] = { ...files[slug]!, url };
     },
-    remove: (slug) => {
+    remove: async (slug) => {
       delete files[slug];
     },
   };
@@ -64,20 +64,21 @@ const input = {
 };
 
 describe('sharedWorkspaceSlug', () => {
-  it('joins the provider’s and Circle’s names', () => {
-    expect(sharedWorkspaceSlug('Ada Lovelace', 'The Family!', () => true)).toBe('ada-lovelace-the-family');
+  it('joins the provider’s and Circle’s names', async () => {
+    expect(await sharedWorkspaceSlug('Ada Lovelace', 'The Family!', () => true)).toBe('ada-lovelace-the-family');
   });
 
-  it('starts with a letter, drops accents and stays short enough for the stack', () => {
-    expect(sharedWorkspaceSlug('9 Élan', 'x'.repeat(40), () => true)).toMatch(/^s-9-elan-x+$/);
-    expect(sharedWorkspaceSlug('Ada', 'x'.repeat(40), () => true).length).toBeLessThanOrEqual(26);
-    expect(sharedWorkspaceSlug('😀', '', () => true)).toBe('shared');
-    expect(sharedWorkspaceSlug('Crème Brûlée', 'Ñandú', () => true)).toBe('creme-brulee-nandu');
-    expect(sharedWorkspaceSlug('ﬁnance', '--Ärger--', () => true)).toBe('finance-arger');
+  it('starts with a letter, drops accents and stays short enough for the stack', async () => {
+    expect(await sharedWorkspaceSlug('9 Élan', 'x'.repeat(40), () => true)).toMatch(/^s-9-elan-x+$/);
+    expect((await sharedWorkspaceSlug('Ada', 'x'.repeat(40), () => true)).length).toBeLessThanOrEqual(26);
+    expect(await sharedWorkspaceSlug('😀', '', () => true)).toBe('shared');
+    expect(await sharedWorkspaceSlug('Crème Brûlée', 'Ñandú', () => true)).toBe('creme-brulee-nandu');
+    expect(await sharedWorkspaceSlug('ﬁnance', '--Ärger--', () => true)).toBe('finance-arger');
   });
 
-  it('adds a number when the name is taken', () => {
-    expect(sharedWorkspaceSlug('Ada', 'Family', (slug) => slug !== 'ada-family')).toBe('ada-family-2');
+  it('adds a number when the name is taken', async () => {
+    expect(await sharedWorkspaceSlug('Ada', 'Family', (slug) => slug !== 'ada-family')).toBe('ada-family-2');
+    expect(await sharedWorkspaceSlug('Ada', 'Family', async (slug) => slug !== 'ada-family')).toBe('ada-family-2');
   });
 });
 
@@ -112,11 +113,11 @@ describe('createUsedServices', () => {
         throw new Error('The keychain isn’t available.');
       },
       store: () => ({
-        slugFree: () => true,
-        exists: () => false,
-        write: (slug, values, keys) => void (h.files[slug] = { ...values, keys }),
-        setUrl: () => undefined,
-        remove: (slug) => void delete h.files[slug],
+        slugFree: async () => true,
+        exists: async () => false,
+        write: async (slug, values, keys) => void (h.files[slug] = { ...values, keys }),
+        setUrl: async () => undefined,
+        remove: async (slug) => void delete h.files[slug],
       }),
       listen: h.listen,
       pending: () => undefined,

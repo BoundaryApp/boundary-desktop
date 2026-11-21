@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '../../components/ui/button';
 import { queueChipLabel, type QueuedPrompt } from './runQueue';
 
 /**
@@ -24,21 +25,22 @@ export const QueueChips: React.FC<{
             {item.text}
           </span>
           {index === 0 && canSendHead ? (
-            <button type="button" className="wb-qchip-act" onClick={() => onSendNow(item.id)}>
+            <Button type="button" variant="quiet" size="sm" onClick={() => onSendNow(item.id)}>
               Send now
-            </button>
+            </Button>
           ) : null}
-          <button type="button" className="wb-qchip-act" onClick={() => onEdit(item.id)}>
+          <Button type="button" variant="quiet" size="sm" onClick={() => onEdit(item.id)}>
             Edit
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="wb-qchip-act"
+            variant="quiet"
+            size="icon-xs"
             aria-label="Remove from queue"
             onClick={() => onRemove(item.id)}
           >
             ×
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

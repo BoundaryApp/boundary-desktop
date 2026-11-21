@@ -11,6 +11,7 @@ import type {
   CirclesSnapshot,
 } from '../../../../shared/types/circles';
 import type { CircleRecordChange } from '../networkMessages';
+import type { CirclesSharing } from '../sharingConfig';
 
 const SNAPSHOT: CirclesSnapshot = { identity: 'ab'.repeat(32), circles: [] };
 
@@ -45,10 +46,6 @@ const powerSaveBlocker = {
   isStarted: (id: number) => blocker.running.has(id),
 };
 vi.mock('electron', () => ({ app: { getPath: () => '/user-data' }, utilityProcess: { fork }, powerSaveBlocker }));
-vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
-  getSlotLlmConnection: async (slot: string) =>
-    slot === 'local' ? { endpointUrl: 'http://127.0.0.1:1234/v1', modelId: 'qwen3-8b' } : null,
-}));
 vi.mock('../../windows', () => ({ broadcast: (_channel: string, payload: unknown) => broadcasts.push(payload) }));
 const debugLog = vi.hoisted(() => [] as Array<{ message: string; data: unknown }>);
 vi.mock('../../../persistDebugLog', () => ({
@@ -142,9 +139,25 @@ vi.mock('../circlesStore', () => ({
   },
 }));
 
-async function load() {
+/** What the app supplies through the configuration point; only the local model matters here. */
+const sharing = (): CirclesSharing =>
+  ({
+    localModel: async () => ({ endpointUrl: 'http://127.0.0.1:1234/v1' }),
+    services: { mintKeys: vi.fn(), revokeKeys: vi.fn(), upstreamFor: vi.fn() },
+    workspaces: vi.fn(),
+    pending: vi.fn(),
+    exclusive: vi.fn(),
+    hasHostCallbacks: vi.fn(),
+    requireHostCallbacks: vi.fn(),
+    folders: { refuseReason: vi.fn(), facts: vi.fn() },
+    agentGuard: { check: vi.fn(), readBody: vi.fn() },
+  }) as unknown as CirclesSharing;
+
+async function load({ configure = true } = {}) {
   vi.resetModules();
-  return import('../circlesService');
+  const service = await import('../circlesService');
+  if (configure) (await import('../sharingConfig')).configureCircles(sharing());
+  return service;
 }
 
 beforeEach(() => {
@@ -521,6 +534,24 @@ describe('circlesService', () => {
     await service.stopCircles();
   });
 
+  it('keeps calling removal handlers after one throws, and logs only the registry and error class', async () => {
+    stored.name = 'Bo';
+    stored.circles.set('c1', { namespace: 'n1', key: 'c1' });
+    const service = await load();
+    await service.ensureCirclesStarted();
+    service.onCircleRemoved(() => {
+      throw new Error('secret detail');
+    });
+    const heard: string[] = [];
+    service.onCircleRemoved((key) => heard.push(key));
+    lastChild!.emit('message', { type: 'circle-removed', key: 'c1' });
+    expect(heard).toEqual(['c1']);
+    expect(stored.circles.has('c1')).toBe(false);
+    expect(diagnostics).toContainEqual(['main.handler-failed', { registry: 'removed', error: 'Error' }]);
+    expect(JSON.stringify(diagnostics)).not.toContain('secret detail');
+    await service.stopCircles();
+  });
+
   it('forgets a Circle the network process says this device was removed from', async () => {
     stored.name = 'Bo';
     stored.circles.set('c1', { namespace: 'n1', key: 'c1' });
@@ -799,6 +830,17 @@ describe('circlesService', () => {
       await flush();
       expect(topicsPosted()).toEqual([{ type: 'signal-topics', topics: ['typing'] }]);
       stop();
+      expect(topicsPosted().at(-1)).toEqual({ type: 'signal-topics', topics: [] });
+    });
+
+    it('posts the topics again only when a topic gains its first listener or loses its last', async () => {
+      const service = await running();
+      const stopA = service.onCircleSignal('typing', () => undefined);
+      const stopB = service.onCircleSignal('typing', () => undefined);
+      expect(topicsPosted()).toEqual([{ type: 'signal-topics', topics: [] }, { type: 'signal-topics', topics: ['typing'] }]);
+      stopA();
+      expect(topicsPosted()).toHaveLength(2);
+      stopB();
       expect(topicsPosted().at(-1)).toEqual({ type: 'signal-topics', topics: [] });
     });
 
@@ -1299,5 +1341,12 @@ describe('circlesService', () => {
       lastChild!.emit('message', { type: 'chat-update', update });
       expect(changes).toHaveLength(2);
     });
+  });
+});
+
+describe('configuration point', () => {
+  it('getSharedServices() does not read the configuration at import', async () => {
+    const { getSharedServices } = await load({ configure: false });
+    expect(() => getSharedServices()).not.toThrow();
   });
 });

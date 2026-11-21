@@ -146,6 +146,24 @@ describe('swapProjectTreePreservingData', () => {
     expect(read(live, 'model-defaults/examples/qwen.json')).toBe('example');
   });
 
+  it('keeps shared-database service logins and the mail and messages index configs', async () => {
+    write(paths.projectRoot, 'compose/postgres/services/.gitkeep', '');
+    write(paths.projectRoot, 'compose/postgres/services/vikunja.env', 'DB_SERVICE_PASSWORD=keep');
+    write(paths.projectRoot, 'mail-index.toml', 'mail config');
+    write(paths.projectRoot, 'messages-index.toml', 'messages config');
+    write(paths.nextRoot, 'compose/postgres/services/.gitkeep', '');
+    write(paths.nextRoot, 'compose/postgres/provision.sh', 'new provision');
+    await swapProjectTreePreservingData(paths);
+    const live = paths.projectRoot;
+    // db-provision turns a role's login off when its env file is gone, and Vikunja then fails
+    // its health check, which stops compose before search-gate.
+    expect(read(live, 'compose/postgres/services/vikunja.env')).toBe('DB_SERVICE_PASSWORD=keep');
+    expect(read(live, 'compose/postgres/services/.gitkeep')).toBe('');
+    expect(read(live, 'compose/postgres/provision.sh')).toBe('new provision');
+    expect(read(live, 'mail-index.toml')).toBe('mail config');
+    expect(read(live, 'messages-index.toml')).toBe('messages config');
+  });
+
   it('replaces the code kept from the previous upgrade', async () => {
     write(paths.previousRoot, 'docker-compose.yml', 'ancient compose');
     await swapProjectTreePreservingData(paths);

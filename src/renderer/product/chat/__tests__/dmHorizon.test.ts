@@ -37,13 +37,13 @@ describe('horizonPlacement (chat types Phase 7b)', () => {
 describe('horizonLabel', () => {
   it('says what the next reply sees and how much of the budget', () => {
     expect(horizonLabel('Ana', { ...cut({}), budget: 8000 })).toBe(
-      'Ana’s next reply sees from here down · about 6k of 8k tokens'
+      'Ana’s next reply sees from here down · about 6K of 8K tokens'
     );
   });
 
   it('says so when the earlier part is summarised', () => {
     expect(horizonLabel('Ana', { ...cut({ summarised: true, tokens: 7450 }), budget: 8000 })).toBe(
-      'Earlier messages are summarised for Ana · about 7.5k of 8k tokens'
+      'Earlier messages are summarised for Ana · about 7.5K of 8K tokens'
     );
   });
 

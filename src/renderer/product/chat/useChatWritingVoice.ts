@@ -17,7 +17,7 @@ export function useChatWritingVoice(sessionId: string | null, voices: WritingVoi
     if (!sessionId) return undefined;
     let live = true;
     void window.electronAPI.writingVoices.getChat(sessionId).then((result) => {
-      if (!live || !('voice' in result)) return;
+      if (!live || !result.success || !result.voice) return;
       setVoiceId(result.voice.voiceId);
       setVoiceName(result.voice.voiceName);
       setMarks(result.voice.marks);
@@ -38,7 +38,7 @@ export function useChatWritingVoice(sessionId: string | null, voices: WritingVoi
         return;
       }
       const result = await window.electronAPI.writingVoices.setChat(sessionId, id);
-      if ('error' in result) {
+      if (!result.success || !result.voice) {
         setError(result.error);
         return;
       }

@@ -1,24 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import type { AddonId } from '../../../shared/types/addons';
 import { AddonPageColumns, AddonPageTop, AddonSwitchPanel, GetPanel, RemoveDataSheet } from './AddonDetailParts';
-import { addonPageState, switchAddon, useAddonActions, useRefreshOnOpen } from './addonPageActions';
+import { addonPageState, lineFromIpc, switchAddon, useAddonActions, useRefreshOnOpen } from './addonPageActions';
 import { Panel } from './AddonPanel';
 import { reloadAddons, useAddonInstall, useAddonListing } from './useAddons';
 
 // Todo lists (Vikunja, CR 0032): Get turns it on through `addon.sh enable`, which also creates the
-// account and the agents' tokens. Open goes to the web app, already signed in.
+// account and the agents' tokens. Open goes to the web app, already signed in. Copy password is
+// for another browser or device; main copies it and the renderer only ever sees the username.
 
 const NEW_CHATS = 'Chats you start now can use it.';
+const PASSWORD_COPIED = 'Password copied. Boundary clears it from the clipboard in 60 seconds.';
 
 /** Opens the signed-in web app. Resolves to a line to show, or null. */
-export async function openVikunja(): Promise<string | null> {
-  try {
-    const result = await window.electronAPI.addons.vikunja.open();
-    return result.success ? null : (result.error ?? 'Couldn’t open Todo lists.');
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+export function openVikunja(): Promise<string | null> {
+  return lineFromIpc(() => window.electronAPI.addons.vikunja.open(), 'Couldn’t open Todo lists.');
 }
 
 const refresh = async (): Promise<void> => {
@@ -38,6 +35,26 @@ export const VikunjaDetail: React.FC<{
   const [dialog, setDialog] = useState<Dialog>(null);
   const { busy, error, note, setNote, act } = useAddonActions('vikunja', refresh, () => setDialog(null));
   useRefreshOnOpen(install, refresh);
+  const [account, setAccount] = useState<{ username: string } | null>(null);
+  const live = Boolean(listing?.installed && !listing.stopped);
+  useEffect(() => {
+    if (!live) {
+      setAccount(null);
+      return;
+    }
+    let current = true;
+    void window.electronAPI.addons.vikunja
+      .account()
+      .then((next) => {
+        if (current) setAccount(next);
+      })
+      .catch(() => {
+        if (current) setAccount(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [live]);
 
   if (!listing) return null;
   const { entry } = listing;
@@ -45,6 +62,12 @@ export const VikunjaDetail: React.FC<{
   const dataLeft = Boolean(listing.dataLeft);
 
   const open = () => act(openVikunja);
+  const copyPassword = () =>
+    act(async () => {
+      const failure = await lineFromIpc(() => window.electronAPI.addons.vikunja.copyPassword(), 'Couldn’t copy the password.');
+      if (!failure) setNote(PASSWORD_COPIED);
+      return failure;
+    });
   const turnOff = () =>
     act(switchAddon('vikunja', entry.name, false, () => setNote('Todo lists is off. Your lists stay on this Mac.')));
   const turnOn = () => act(switchAddon('vikunja', entry.name, true, () => setNote(`Todo lists is on. ${NEW_CHATS}`)));
@@ -77,11 +100,30 @@ export const VikunjaDetail: React.FC<{
 
           {on && !listing.stopped ? (
             <Panel title="Your lists" lead="The web app opens in your browser, signed in to this Mac’s account.">
-              <div>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
                 <Button type="button" size="sm" disabled={busy || running} onClick={() => void open()}>
                   Open todo lists
                 </Button>
+                {account ? (
+                  <span className="ml-auto flex flex-wrap items-center gap-1.5">
+                    Another browser or device?
+                    <span className="font-mono">{account.username}</span>
+                    <button
+                      type="button"
+                      className="cursor-pointer text-brand hover:underline"
+                      disabled={busy || running}
+                      onClick={() => void copyPassword()}
+                    >
+                      Copy password
+                    </button>
+                  </span>
+                ) : null}
               </div>
+              {account ? (
+                <p className="text-xs text-fg-muted">
+                  Open todo lists signs in with this password. If you change it in Vikunja, Open stops signing you in.
+                </p>
+              ) : null}
             </Panel>
           ) : null}
 

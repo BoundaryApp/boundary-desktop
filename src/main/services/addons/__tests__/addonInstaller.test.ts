@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FOUR, OFF, ON, fakeDeps, okFit, pending, psRow, statuses } from './addonInstallerFakes';
+import { FOUR, HOSTED_ONLY, OFF, ON, fakeDeps, okFit, pending, scriptRuns, statuses } from './addonInstallerFakes';
 
 vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
 vi.mock('../../assistant/AssistantStackStore', async () => (await import('./addonInstallerFakes')).storeMock());
@@ -11,12 +11,11 @@ vi.mock('../../assistant/localStackMode', async () => (await import('./addonInst
 vi.mock('../addonHostFacts', async () => (await import('./addonInstallerFakes')).addonHostFactsMock());
 
 import { ADDON_PYTHON3_MESSAGE, createAddonInstaller, type AddonInstallSnapshot } from '../addonInstaller';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { LOCAL_SETTINGS, readTwentyWorkspace, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { parseEnv } from '../../assistant/stackEnv';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
+import { LOCAL_SETTINGS, WORK_SETTINGS, readTwentyWorkspace, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
 
-const INSTALL_ENV = { TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' };
-const SETUP_ENV = { ...INSTALL_ENV, TWENTY_OWNER_FIRST_NAME: 'Ada', TWENTY_OWNER_LAST_NAME: 'Lovelace' };
-
+const OWNER_ENV = { TWENTY_OWNER_FIRST_NAME: 'Ada', TWENTY_OWNER_LAST_NAME: 'Lovelace' };
 
 describe('addon installer', () => {
   beforeEach(() => {
@@ -38,12 +37,9 @@ describe('addon installer', () => {
     const store = () => twentyWorkspacesDir(root);
 
     it('writes the access setting before the restart step waits, with no pending line', async () => {
-      const { deps } = fakeDeps({ stackPaths: () => ({ root, dataRoot: path.join(tmp, 'data') }) });
+      const { deps, sh } = fakeDeps({ stackRoot: root });
       let atSetupEnd: Record<string, unknown> = {};
-      deps.runSetup = vi.fn(async () => {
-        writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRo: 'r', keyRw: 'w' });
-        return { code: 0 };
-      });
+      sh.onInit = () => writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRo: 'r', keyRw: 'w' });
       const installer = createAddonInstaller(deps);
       installer.onChange((s) => {
         if (s.steps.find((step) => step.id === 'restart')?.status === 'waiting') {
@@ -57,11 +53,8 @@ describe('addon installer', () => {
     });
 
     it('fails the setup step with a readable message when the workspace has no key for the choice', async () => {
-      const { deps } = fakeDeps({ stackPaths: () => ({ root, dataRoot: path.join(tmp, 'data') }) });
-      deps.runSetup = vi.fn(async () => {
-        writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRw: 'w' });
-        return { code: 0 };
-      });
+      const { deps, sh } = fakeDeps({ stackRoot: root });
+      sh.onInit = () => writeTwentyWorkspace(store(), 'main', LOCAL_SETTINGS, { keyRw: 'w' });
       const installer = createAddonInstaller(deps);
       await installer.install('twenty', { access: 'read' });
       const error = installer.snapshot()?.error;
@@ -70,8 +63,9 @@ describe('addon installer', () => {
     });
   });
 
-  it('runs the steps in order and waits at restart', async () => {
-    const { deps, calls, streamCalls } = fakeDeps();
+  it('turns the local instance on through addon.sh, runs the steps in order and waits at restart', async () => {
+    const { deps, calls, sh } = fakeDeps();
+    sh.pullLines = [{ phase: 'pull', service: 'twenty-server', current: 1, total: 2 }];
     const installer = createAddonInstaller(deps);
     const seen: string[] = [];
     installer.onChange((s) => {
@@ -92,59 +86,84 @@ describe('addon installer', () => {
     });
     expect(installer.snapshot()?.done).toBe(false);
     expect(installer.snapshot()?.kind).toBe('install');
-    expect(streamCalls[0].args).toEqual(['--progress', 'json', '--profile', 'crm', 'pull', ...FOUR]);
-    expect(streamCalls[0].env).toEqual(INSTALL_ENV);
-    expect(calls[0].args).toEqual(['--profile', 'crm', 'up', '-d', ...FOUR]);
-    for (const call of calls) {
-      expect(call.args.slice(0, 2)).toEqual(['--profile', 'crm']);
-      expect(call.env).toEqual(INSTALL_ENV);
-    }
-    expect(deps.runSetup).toHaveBeenCalledWith(expect.any(Function), {
-      env: SETUP_ENV,
-      profiles: ['crm'],
-      signal: expect.any(AbortSignal),
-    });
+    expect(sh.calls.map((c) => c.args)).toEqual([
+      ['configure', 'twenty'],
+      ['enable', 'twenty', '--reinit', '--json'],
+    ]);
+    expect(sh.calls[0]?.input).toEqual({ local: true });
+    expect(sh.calls[1]?.env).toEqual(OWNER_ENV);
+    expect(sh.flags).toEqual(ON);
+    expect(calls).toEqual([]);
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', true);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', ON);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
   });
 
-  it('records the flags in the stack before marking Twenty installed', async () => {
-    const order: string[] = [];
-    const { deps } = fakeDeps({
-      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
-        order.push(`flags:${flags.TWENTY_LOCAL_ENABLED}`);
-      }),
-      setInstalled: vi.fn((_id: string, on: boolean) => void order.push(`installed:${on}`)),
+  it('writes missing Twenty secrets to .env before addon.sh turns the local instance on', async () => {
+    // A stack first set up before v0.3.10 has neither; setup.sh is the only thing that makes them.
+    const files = createFakeStackFiles({ 'stack:.env': 'TWENTY_MCP_ENABLED=0\n' });
+    const { deps, sh } = fakeDeps({ files });
+    let atConfigure: Record<string, string> = {};
+    const script = vi.mocked(deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation(async (args, opts) => {
+      if (args[0] === 'configure') atConfigure = parseEnv(files.files.get('stack:.env')!);
+      return base(args, opts);
     });
+
     await createAddonInstaller(deps).install('twenty');
-    expect(order).toEqual(['flags:1', 'installed:true']);
+
+    expect(atConfigure.TWENTY_ENCRYPTION_KEY).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+    expect(atConfigure.TWENTY_DB_PASSWORD).toMatch(/^[0-9a-f]{64}$/);
+    expect(sh.flags).toEqual(ON);
   });
 
-  it('fails setup and leaves Twenty uninstalled when the flags cannot be written', async () => {
-    const { deps } = fakeDeps({
-      syncStackFlags: vi.fn(async () => {
-        throw new Error("The stack's sync-profiles.sh exited with code 1: rag is on but NEO4J_PASSWORD not set");
-      }),
+  it('start writes missing Twenty secrets before turning the local instance on', async () => {
+    const files = createFakeStackFiles({ 'stack:.env': 'TWENTY_LOCAL_ENABLED=0\n' });
+    const { deps } = fakeDeps({ files, isInstalled: vi.fn(async () => true) });
+
+    await createAddonInstaller(deps).start('twenty');
+
+    const env = parseEnv(files.files.get('stack:.env')!);
+    expect(env.TWENTY_ENCRYPTION_KEY).toBeTruthy();
+    expect(env.TWENTY_DB_PASSWORD).toBeTruthy();
+  });
+
+  it('fails the start step, before addon.sh runs, when the secrets can’t be written', async () => {
+    const files = createFakeStackFiles({ 'stack:.env': '' });
+    files.writeText = vi.fn(async () => {
+      throw new Error('EACCES: permission denied');
     });
+    const { deps, sh } = fakeDeps({ files });
     const installer = createAddonInstaller(deps);
+
     await installer.install('twenty');
-    const snap = installer.snapshot();
-    expect(snap?.error?.step).toBe('setup');
-    expect(snap?.error?.message).toBe("Twenty CRM is set up, but the stack's .env couldn't record it as on.");
-    expect(snap?.error?.logTail.join(' ')).toContain('NEO4J_PASSWORD');
-    expect(deps.setInstalled).not.toHaveBeenCalled();
+
+    expect(installer.snapshot()?.error?.step).toBe('start');
+    expect(installer.snapshot()?.error?.message).toMatch(/secrets/);
+    expect(sh.calls).toEqual([]);
+    expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
-  it('reports download bytes from compose JSON lines', async () => {
-    const { deps } = fakeDeps({
-      composeStreaming: vi.fn(async (_args: string[], onLine: (l: string) => void) => {
-        onLine('{"id":"aa11","parent_id":"twentycrm/twenty:v2.55.0","text":"Downloading","current":100,"total":1000}');
-        onLine('{"id":"bb22","parent_id":"postgres:16","text":"Downloading","current":50,"total":500}');
-        onLine('not json');
-        return { code: 0 };
-      }),
+  it('shows the init hook’s progress as the setup step’s detail', async () => {
+    const { deps } = fakeDeps();
+    const installer = createAddonInstaller(deps);
+    const details: string[] = [];
+    installer.onChange((s) => {
+      const detail = s.steps.find((step) => step.id === 'setup')?.detail;
+      if (detail && details.at(-1) !== detail) details.push(detail);
     });
+    await installer.install('twenty');
+    expect(details).toEqual(['owner account']);
+    expect(installer.snapshot()?.steps.find((s) => s.id === 'setup')?.detail).toBeUndefined();
+  });
+
+  it('reports download bytes from addon.sh pull lines, summed over services', async () => {
+    const { deps, sh } = fakeDeps();
+    sh.pullLines = [
+      { phase: 'pull', service: 'twenty-server', current: 100, total: 1000 },
+      { phase: 'pull', service: 'twenty-db', current: 50, total: 500 },
+      { phase: 'pull', service: 'twenty-redis' },
+    ];
     const installer = createAddonInstaller(deps);
     const bytes: Array<{ done: number; total: number }> = [];
     installer.onChange((s) => {
@@ -158,10 +177,10 @@ describe('addon installer', () => {
     expect(bytes).toContainEqual({ done: 150, total: 1500 });
   });
 
-  it('stops at setup with the log tail when crm.sh exits 1', async () => {
-    const { deps, state } = fakeDeps();
-    state.setupCode = 1;
-    state.setupLines = Array.from({ length: 25 }, (_, i) => `line ${i + 1}`);
+  it('fails the step addon.sh names, with its log tail, and leaves Twenty uninstalled', async () => {
+    const { deps, sh } = fakeDeps();
+    const tail = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    sh.enableError = { error: 'command_failed', message: 'workspace setup failed', step: 'init', logTail: tail };
     const installer = createAddonInstaller(deps);
 
     await installer.install('twenty');
@@ -169,12 +188,49 @@ describe('addon installer', () => {
     const snap = installer.snapshot();
     expect(statuses(snap).setup).toBe('error');
     expect(statuses(snap).restart).toBe('pending');
-    expect(snap?.error?.step).toBe('setup');
-    expect(snap?.error?.message).toBe("Twenty CRM's first-time setup exited with code 1.");
-    expect(snap?.error?.logTail).toHaveLength(20);
-    expect(snap?.error?.logTail[0]).toBe('line 6');
-    expect(snap?.error?.logTail.at(-1)).toBe('line 25');
+    expect(snap?.error).toEqual({
+      step: 'setup',
+      message: 'Twenty CRM didn’t start: command_failed: workspace setup failed',
+      logTail: tail,
+    });
+    expect(sh.flags).toEqual(OFF);
     expect(deps.setInstalled).not.toHaveBeenCalled();
+  });
+
+  it('fails the start step when compose up fails inside enable', async () => {
+    const { deps, sh } = fakeDeps();
+    sh.enableError = {
+      error: 'compose_failed',
+      message: 'docker compose up failed: twenty-server exited with an error',
+      step: 'start',
+      logTail: ['Error: port is already allocated'],
+    };
+    const installer = createAddonInstaller(deps);
+    await installer.install('twenty');
+    expect(installer.snapshot()?.error?.step).toBe('start');
+    expect(installer.snapshot()?.error?.logTail).toEqual(['Error: port is already allocated']);
+  });
+
+  it('fails the download step when the pull fails', async () => {
+    const { deps, sh } = fakeDeps();
+    sh.enableError = { error: 'compose_failed', message: 'docker compose pull failed for: twenty-server', step: 'pull', logTail: ['manifest unknown'] };
+    const installer = createAddonInstaller(deps);
+    await installer.install('twenty');
+    expect(installer.snapshot()?.error).toEqual({
+      step: 'download',
+      message: 'Twenty CRM didn’t start: compose_failed: docker compose pull failed for: twenty-server',
+      logTail: ['manifest unknown'],
+    });
+  });
+
+  it('fails the download step when configure fails, before enable runs', async () => {
+    const { deps, sh } = fakeDeps();
+    sh.configureCode = 1;
+    const installer = createAddonInstaller(deps);
+    await installer.install('twenty');
+    expect(installer.snapshot()?.error?.step).toBe('download');
+    expect(installer.snapshot()?.error?.message).toContain('Couldn’t change Twenty CRM’s local setting');
+    expect(scriptRuns(sh)).toEqual(['configure:true']);
   });
 
   it('explains a missing python3', async () => {
@@ -182,9 +238,8 @@ describe('addon installer', () => {
       'error: python3 not found. Install Python 3.9+ (macOS: xcode-select --install, or brew install python)',
       'error: python3 is missing, a stub, or older than 3.9 (/usr/bin/python3). Install Python 3.9+',
     ]) {
-      const { deps, state } = fakeDeps();
-      state.setupCode = 1;
-      state.setupLines = ['[crm] starting', text];
+      const { deps, sh } = fakeDeps();
+      sh.enableError = { error: 'command_failed', message: 'hook init failed', step: 'init', logTail: ['[crm] starting', text] };
       const installer = createAddonInstaller(deps);
       await installer.install('twenty');
       expect(installer.snapshot()?.error?.message).toBe(ADDON_PYTHON3_MESSAGE);
@@ -195,101 +250,22 @@ describe('addon installer', () => {
     );
   });
 
-  it('gives up on a server that never turns healthy after 300 s', async () => {
-    const { deps, calls, state } = fakeDeps();
-    state.serverHealth = 'starting';
-    state.serverLogs = 'twenty-server  | Running migrations\ntwenty-server  | still migrating\n';
-    const installer = createAddonInstaller(deps);
-
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(298_000);
-    expect(statuses(installer.snapshot()).answer).toBe('running');
-    await vi.advanceTimersByTimeAsync(4_000);
-    await done;
-
-    const snap = installer.snapshot();
-    expect(statuses(snap).answer).toBe('error');
-    expect(snap?.error?.step).toBe('answer');
-    expect(snap?.error?.message).toBe("twenty-server didn't report healthy within 5 minutes.");
-    expect(snap?.error?.logTail).toEqual(['twenty-server  | Running migrations', 'twenty-server  | still migrating']);
-    expect(calls.at(-1)?.args).toEqual(['--profile', 'crm', 'logs', '--no-color', '--tail', '20', 'twenty-server']);
-    const polls = calls.filter((c) => c.args.includes('ps'));
-    expect(polls.length).toBeGreaterThanOrEqual(150);
-    expect(polls[0].args).toEqual(['--profile', 'crm', 'ps', '--format', 'json', 'twenty-server']);
-    expect(deps.runSetup).not.toHaveBeenCalled();
-    expect(deps.setInstalled).not.toHaveBeenCalled();
-  });
-
-  it('keeps polling until the server turns healthy', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
-    const installer = createAddonInstaller(deps);
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(10_000);
-    state.serverHealth = 'healthy';
-    await vi.advanceTimersByTimeAsync(2_000);
-    await done;
-    expect(statuses(installer.snapshot()).answer).toBe('done');
-    expect(statuses(installer.snapshot()).restart).toBe('waiting');
-  });
-
-  it("doesn't count unhealthy as healthy", async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'unhealthy';
-    const installer = createAddonInstaller(deps);
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(302_000);
-    await done;
-    expect(installer.snapshot()?.error?.step).toBe('answer');
-    // No server logs: the last ps output stands in.
-    expect(installer.snapshot()?.error?.logTail).toEqual([psRow('unhealthy')]);
-  });
-
-  it('stops at start with the compose output when up fails', async () => {
-    const { deps } = fakeDeps({
-      compose: vi.fn(async () => {
-        throw Object.assign(new Error('Command failed'), { stderr: 'Error: port is already allocated\n' });
-      }),
-    });
-    const installer = createAddonInstaller(deps);
-    await installer.install('twenty');
-    const snap = installer.snapshot();
-    expect(snap?.error?.step).toBe('start');
-    expect(snap?.error?.logTail).toEqual(['Error: port is already allocated']);
-    expect(deps.runSetup).not.toHaveBeenCalled();
-  });
-
-  it('stops at download when the pull exits non-zero', async () => {
-    const { deps } = fakeDeps({
-      composeStreaming: vi.fn(async (_a: string[], onLine: (l: string) => void) => {
-        onLine('Error response from daemon: manifest unknown');
-        return { code: 18 };
-      }),
-    });
-    const installer = createAddonInstaller(deps);
-    await installer.install('twenty');
-    const snap = installer.snapshot();
-    expect(snap?.error).toEqual({
-      step: 'download',
-      message: 'The download stopped with exit code 18.',
-      logTail: ['Error response from daemon: manifest unknown'],
-    });
-    expect(deps.compose).not.toHaveBeenCalled();
-  });
-
-  it('undo removes the four containers and leaves data', async () => {
-    const { deps, calls, state } = fakeDeps();
-    state.setupCode = 1;
+  it('undo turns the local instance off, removes the four containers and leaves data', async () => {
+    const { deps, calls, sh } = fakeDeps();
+    sh.enableError = { error: 'command_failed', message: 'x', step: 'init', logTail: [] };
     const installer = createAddonInstaller(deps);
     await installer.install('twenty');
     calls.length = 0;
+    sh.calls.length = 0;
 
     await installer.undo('twenty');
 
-    expect(calls).toEqual([{ args: ['--profile', 'crm', 'rm', '-s', '-f', ...FOUR], env: INSTALL_ENV }]);
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'disable']);
+    expect(calls).toEqual([{ args: ['--profile', 'crm', 'rm', '-s', '-f', ...FOUR], env: undefined }]);
     expect(calls.some((c) => c.args.includes('-v') || c.args.includes('down'))).toBe(false);
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
+    expect(sh.flags).toEqual(OFF);
+    expect(sh.local).toBe(false);
     expect(installer.snapshot()).toBeNull();
   });
 
@@ -317,20 +293,20 @@ describe('addon installer', () => {
 
     await installer.undo('twenty');
 
-    expect(order).toEqual(['rm', 'installed:false', 'reload']);
+    expect(order).toEqual(['installed:false', 'rm', 'reload']);
     expect(installer.snapshot()).toBeNull();
   });
 
   it('undo reloads Hermes when the store says Twenty is installed', async () => {
-    const { deps } = fakeDeps({ isInstalled: vi.fn(() => true) });
+    const { deps } = fakeDeps({ isInstalled: vi.fn(async () => true) });
     await createAddonInstaller(deps).undo('twenty');
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
     expect(deps.reloadHermes).toHaveBeenCalledTimes(1);
   });
 
   it("undo after a failed setup doesn't reload Hermes", async () => {
-    const { deps, state } = fakeDeps();
-    state.setupCode = 1;
+    const { deps, sh } = fakeDeps();
+    sh.enableError = { error: 'command_failed', message: 'x', step: 'init', logTail: [] };
     const installer = createAddonInstaller(deps);
     await installer.install('twenty');
     await installer.undo('twenty');
@@ -355,11 +331,13 @@ describe('addon installer', () => {
     expect(installer.snapshot()).toBeNull();
   });
 
-  it('turn off keeps data, stops and removes the containers, and leaves the reload for later', async () => {
+  it('turn off runs configure then disable, removes the containers, and leaves the reload for later', async () => {
     const order: string[] = [];
-    const { deps, calls } = fakeDeps({
+    const { deps, calls, sh } = fakeDeps({
       setInstalled: vi.fn((_id: string, on: boolean) => void order.push(`installed:${on}`)),
     });
+    sh.flags = { ...ON };
+    sh.local = true;
     (deps.compose as ReturnType<typeof vi.fn>).mockImplementation(async (args: string[]) => {
       order.push(args[2]);
       calls.push({ args });
@@ -369,83 +347,125 @@ describe('addon installer', () => {
 
     await installer.turnOff('twenty');
 
-    expect(calls.map((c) => c.args)).toEqual([
-      ['--profile', 'crm', 'stop', ...FOUR],
-      ['--profile', 'crm', 'rm', '-f', ...FOUR],
-    ]);
-    expect(calls.some((c) => c.args.includes('-v') || c.args.includes('down'))).toBe(false);
-    expect(order).toEqual(['installed:false', 'stop', 'rm']);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'disable']);
+    expect(calls.map((c) => c.args)).toEqual([['--profile', 'crm', 'rm', '-f', ...FOUR]]);
+    expect(order).toEqual(['installed:false', 'rm']);
+    expect(sh.flags).toEqual(OFF);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
+    expect(pending.list).toEqual(['Turn off this Mac’s Twenty: agents drop crm-main']);
   });
 
-  it('start brings up the four containers, waits for health and reloads Hermes', async () => {
+  describe('with a hosted workspace stored', () => {
+    let tmp: string;
+    let root: string;
+    beforeEach(() => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-hosted-'));
+      root = path.join(tmp, 'root');
+      writeTwentyWorkspace(twentyWorkspacesDir(root), 'main', LOCAL_SETTINGS, { keyRw: 'k' });
+      writeTwentyWorkspace(twentyWorkspacesDir(root), 'work', WORK_SETTINGS, { keyRw: 'k' });
+    });
+    afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+    it('turn off runs enable after configure, so TWENTY_MCP_ENABLED stays 1 and the hosted tools stay', async () => {
+      const { deps, sh } = fakeDeps({ stackRoot: root });
+      sh.flags = { ...ON };
+      sh.local = true;
+
+      await createAddonInstaller(deps).turnOff('twenty');
+
+      expect(sh.calls.map((c) => c.args)).toEqual([
+        ['configure', 'twenty'],
+        ['enable', 'twenty', '--json'],
+      ]);
+      expect(sh.calls[0]?.input).toEqual({ local: false });
+      expect(sh.flags).toEqual(HOSTED_ONLY);
+      expect(pending.list).toEqual(['Turn off this Mac’s Twenty: agents drop crm-main and keep crm-work']);
+    });
+
+    it('start after that turn off brings the local instance back', async () => {
+      const { deps, sh } = fakeDeps({ stackRoot: root, isInstalled: vi.fn(async () => true) });
+      sh.flags = { ...ON };
+      sh.local = true;
+      const installer = createAddonInstaller(deps);
+      await installer.turnOff('twenty');
+      await installer.start('twenty');
+      expect(sh.flags).toEqual(ON);
+      expect(sh.local).toBe(true);
+    });
+  });
+
+  it('start turns the local instance on through addon.sh and reloads Hermes after it', async () => {
     const order: string[] = [];
-    const { deps, calls, state } = fakeDeps({
-      isInstalled: vi.fn(() => true),
-      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
-        order.push(`flags:${flags.TWENTY_LOCAL_ENABLED}${flags.TWENTY_MCP_ENABLED}`);
-      }),
+    const { deps, calls, sh } = fakeDeps({
+      isInstalled: vi.fn(async () => true),
       reloadHermes: vi.fn(async () => {
         order.push('reload');
         return { success: true };
       }),
     });
-    state.serverHealth = 'starting';
+    const script = vi.mocked(deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation(async (args, opts) => {
+      order.push(args[0]!);
+      return base(args, opts);
+    });
+    // A Turn off before the stack stored the setting: disable stored local=true.
+    sh.local = undefined;
     const installer = createAddonInstaller(deps);
-    const started = installer.start('twenty');
-    await vi.advanceTimersByTimeAsync(4_000);
-    expect(deps.reloadHermes).not.toHaveBeenCalled();
-    state.serverHealth = 'healthy';
-    await vi.advanceTimersByTimeAsync(2_000);
-    await started;
+    await installer.start('twenty');
 
-    expect(calls[0]).toEqual({ args: ['--profile', 'crm', 'up', '-d', ...FOUR], env: INSTALL_ENV });
-    expect(order).toEqual(['flags:11', 'reload']);
+    expect(order).toEqual(['configure', 'enable', 'reload']);
+    expect(sh.calls[0]?.input).toEqual({ local: true });
+    expect(sh.calls[1]?.args).toEqual(['enable', 'twenty', '--json']);
+    expect(sh.calls[1]?.env).toEqual(OWNER_ENV);
+    expect(sh.flags).toEqual(ON);
+    expect(calls).toEqual([]);
     expect(deps.setInstalled).not.toHaveBeenCalled();
     expect(installer.snapshot()).toBeNull();
   });
 
-  it('start rejects with compose output when up fails, and keeps Twenty installed', async () => {
-    const { deps } = fakeDeps({
-      isInstalled: vi.fn(() => true),
-      compose: vi.fn(async () => {
-        throw Object.assign(new Error('exit 1'), { stderr: 'Error: port 3000 is already allocated' });
-      }),
-    });
+  it('start rejects with addon.sh’s error, and keeps Twenty installed', async () => {
+    const { deps, sh } = fakeDeps({ isInstalled: vi.fn(async () => true) });
+    sh.enableError = {
+      error: 'compose_failed',
+      message: 'docker compose up failed: twenty-server exited with an error',
+      step: 'start',
+      logTail: [],
+    };
     await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow(
-      "Twenty CRM's containers didn't start. Error: port 3000 is already allocated"
+      'Twenty CRM didn’t start: compose_failed: docker compose up failed: twenty-server exited with an error'
     );
     expect(deps.setInstalled).not.toHaveBeenCalled();
     expect(deps.reloadHermes).not.toHaveBeenCalled();
   });
 
-  it('start gives up on a server that stays unhealthy for 300 s', async () => {
-    const { deps, state } = fakeDeps({ isInstalled: vi.fn(() => true) });
-    state.serverHealth = 'unhealthy';
-    const started = createAddonInstaller(deps).start('twenty');
-    const settled = expect(started).rejects.toThrow("twenty-server didn't report healthy within 5 minutes.");
-    await vi.advanceTimersByTimeAsync(302_000);
-    await settled;
-    expect(deps.reloadHermes).not.toHaveBeenCalled();
-  });
-
   it('start refuses an add-on that is not installed', async () => {
-    const { deps, calls } = fakeDeps();
+    const { deps, calls, sh } = fakeDeps();
     await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow("Twenty CRM isn't installed.");
     expect(calls).toEqual([]);
-    expect(deps.syncStackFlags).not.toHaveBeenCalled();
+    expect(sh.calls).toEqual([]);
   });
 
   it('start rejects when the reload fails', async () => {
     const { deps } = fakeDeps({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       reloadHermes: vi.fn(async () => ({ success: false, error: 'Hermes API did not become healthy' })),
     });
     await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow('Hermes API did not become healthy');
   });
 
-  it('turn off leaves the add-on off and rejects when a step fails', async () => {
+  it('turn off leaves the add-on off and rejects when addon.sh fails', async () => {
+    const { deps, sh } = fakeDeps();
+    sh.disableError = { error: 'busy', message: 'another add-on change is running', step: '', logTail: [] };
+    await expect(createAddonInstaller(deps).turnOff('twenty')).rejects.toThrow(
+      'Twenty CRM didn’t turn off: busy: another add-on change is running'
+    );
+    expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
+    expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
+    expect(deps.compose).not.toHaveBeenCalled();
+  });
+
+  it('turn off rejects when removing the containers fails', async () => {
     const { deps } = fakeDeps({
       compose: vi.fn(async () => {
         throw new Error('docker is not running');
@@ -453,19 +473,17 @@ describe('addon installer', () => {
     });
     await expect(createAddonInstaller(deps).turnOff('twenty')).rejects.toThrow('docker is not running');
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
-    expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
   it('turn off rejects while another add-on operation runs', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
+    const { deps, sh } = fakeDeps();
+    sh.holdAt = 'start';
     const installer = createAddonInstaller(deps);
     const first = installer.install('twenty');
     await vi.advanceTimersByTimeAsync(0);
     await expect(installer.turnOff('twenty')).rejects.toThrow('An add-on install is already running.');
     await expect(installer.remove('twenty', { deleteImages: false })).rejects.toThrow('An add-on install is already running.');
-    state.serverHealth = 'healthy';
-    await vi.advanceTimersByTimeAsync(2_000);
+    installer.cancel('twenty');
     await first;
   });
 
@@ -528,7 +546,7 @@ describe('addon installer', () => {
   });
 
   it('refuses to start when the fit verdict is over', async () => {
-    const { deps } = fakeDeps({
+    const { deps, sh } = fakeDeps({
       checkFit: vi.fn(async () => ({ ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024 })),
     });
     const installer = createAddonInstaller(deps);
@@ -539,13 +557,13 @@ describe('addon installer', () => {
     expect(statuses(snap).check).toBe('error');
     expect(snap?.error?.step).toBe('check');
     expect(snap?.error?.message).toBe('Twenty CRM needs 2.2 GB of memory. The engine has 1.0 GB free.');
-    expect(deps.composeStreaming).not.toHaveBeenCalled();
+    expect(sh.calls).toEqual([]);
     expect(deps.compose).not.toHaveBeenCalled();
   });
 
   it('makes room, checks again and installs when asked to', async () => {
     const over = { ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024, suggestedEngineMiB: 8192 };
-    const { deps } = fakeDeps({ checkFit: vi.fn().mockResolvedValueOnce(over).mockResolvedValue(okFit) });
+    const { deps, sh } = fakeDeps({ checkFit: vi.fn().mockResolvedValueOnce(over).mockResolvedValue(okFit) });
     const installer = createAddonInstaller(deps);
 
     await installer.install('twenty', { makeRoom: true });
@@ -553,7 +571,7 @@ describe('addon installer', () => {
     expect(deps.makeRoom).toHaveBeenCalledTimes(1);
     expect(deps.checkFit).toHaveBeenCalledTimes(2);
     expect(statuses(installer.snapshot()).check).toBe('done');
-    expect(deps.composeStreaming).toHaveBeenCalled();
+    expect(scriptRuns(sh)).toEqual(['configure:true', 'enable']);
   });
 
   it('doesn\'t make room unless asked, or when the engine can\'t grow', async () => {
@@ -571,7 +589,7 @@ describe('addon installer', () => {
 
   it('fails the check step with the reason when making room fails', async () => {
     const over = { ...okFit, verdict: 'over' as const, memory: 'over' as const, freeMiB: 1024, suggestedEngineMiB: 8192 };
-    const { deps } = fakeDeps({
+    const { deps, sh } = fakeDeps({
       checkFit: vi.fn(async () => over),
       makeRoom: vi.fn(async () => {
         throw new Error('The engine is back at its old size.');
@@ -581,7 +599,7 @@ describe('addon installer', () => {
     await installer.install('twenty', { makeRoom: true });
     expect(installer.snapshot()?.error?.step).toBe('check');
     expect(installer.snapshot()?.error?.message).toMatch(/back at its old size/);
-    expect(deps.composeStreaming).not.toHaveBeenCalled();
+    expect(sh.calls).toEqual([]);
   });
 
   it('names the port when it is in use', async () => {
@@ -611,29 +629,30 @@ describe('addon installer', () => {
   });
 
   it('rejects a second install while one runs', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
+    const { deps, sh } = fakeDeps();
+    sh.holdAt = 'start';
     const installer = createAddonInstaller(deps);
     const first = installer.install('twenty');
     await vi.advanceTimersByTimeAsync(0);
     await expect(installer.install('twenty')).rejects.toThrow('An add-on install is already running.');
     await expect(installer.undo('twenty')).rejects.toThrow('An add-on install is already running.');
-    state.serverHealth = 'healthy';
-    await vi.advanceTimersByTimeAsync(2_000);
+    installer.cancel('twenty');
     await first;
+    sh.holdAt = null;
     // Try again after the first finishes is allowed.
     await expect(installer.install('twenty')).resolves.toBeUndefined();
   });
 
   it('starts over on Try again after a failure', async () => {
-    const { deps, state } = fakeDeps();
-    state.setupCode = 1;
+    const { deps, sh } = fakeDeps();
+    sh.enableError = { error: 'command_failed', message: 'x', step: 'init', logTail: [] };
     const installer = createAddonInstaller(deps);
     await installer.install('twenty');
-    state.setupCode = 0;
+    sh.enableError = null;
     await installer.install('twenty');
     expect(installer.snapshot()?.error).toBeUndefined();
     expect(statuses(installer.snapshot()).restart).toBe('waiting');
+    expect(sh.flags).toEqual(ON);
   });
 
   it('stops calling a listener after it unsubscribes', async () => {

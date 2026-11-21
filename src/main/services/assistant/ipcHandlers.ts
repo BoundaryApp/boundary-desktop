@@ -12,6 +12,7 @@ import {
   setWebSearchModeRunning,
 } from './AssistantStackService';
 import { createStartupNotifier } from './startupNotice';
+import { getStackCapabilities } from '../stackHost/capabilities';
 import type { AssistantStackLifecycleSnapshot } from '../../../shared/types/assistantStack';
 
 const noticeStartup = createStartupNotifier();
@@ -26,6 +27,8 @@ export function registerAssistantStackHandlers(): void {
   setAssistantStackReadyCallback((ready) => broadcast('assistant-stack:ready', ready));
 
   handle('assistant-stack:get-status', async () => getAssistantStackStatus());
+
+  handle('stack-host:capabilities', async () => getStackCapabilities());
 
   handle('assistant-stack:get-lifecycle', async () => getAssistantStackLifecycle());
 

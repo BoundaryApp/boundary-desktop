@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { pushLlmProxyUpstream, readLlmProxyAdminToken, readLlmProxyStatus } from '../llmProxyAdmin';
 
 const view = {
@@ -24,7 +25,7 @@ describe('llmProxyAdmin', () => {
   it('pushes the chat and LightRAG routes with the bearer token', async () => {
     const fetchImpl = fakeFetch(200, view);
     const result = await pushLlmProxyUpstream(
-      { adminPort: 14001, token: 'admin-token', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: 'http://127.0.0.1:14001', token: 'admin-token', fetchImpl: fetchImpl as unknown as typeof fetch },
       { url: 'https://openrouter.ai/api/v1', apiKey: 'sk-or-secret' }
     );
     expect(result).toEqual({
@@ -54,7 +55,7 @@ describe('llmProxyAdmin', () => {
       proxy: { boot_id: '9f2c', started_at: 1791331200 },
     });
     const result = await readLlmProxyStatus({
-      adminPort: 4001,
+      baseUrl: 'http://127.0.0.1:4001',
       token: 't',
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
@@ -72,7 +73,7 @@ describe('llmProxyAdmin', () => {
   it('never echoes the key or token in an error', async () => {
     const fetchImpl = fakeFetch(500, 'boom sk-or-secret admin-token');
     const result = await pushLlmProxyUpstream(
-      { adminPort: 4001, token: 'admin-token', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: 'http://127.0.0.1:4001', token: 'admin-token', fetchImpl: fetchImpl as unknown as typeof fetch },
       { url: 'https://x', apiKey: 'sk-or-secret' }
     );
     expect(result.ok).toBe(false);
@@ -86,7 +87,7 @@ describe('llmProxyAdmin', () => {
       throw new Error('connect ECONNREFUSED 127.0.0.1:4001');
     });
     const result = await readLlmProxyStatus({
-      adminPort: 4001,
+      baseUrl: 'http://127.0.0.1:4001',
       token: 't',
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
@@ -94,11 +95,12 @@ describe('llmProxyAdmin', () => {
     expect('error' in result ? result.error : '').toMatch(/unreachable/);
   });
 
-  it('reads the admin token from the stack .env', () => {
+  it('reads the admin token from the stack .env', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-token-'));
-    expect(readLlmProxyAdminToken(root)).toBeNull();
+    const files = localStackFiles({ stackRoot: root, userContentRoot: () => root });
+    expect(await readLlmProxyAdminToken(files)).toBeNull();
     fs.writeFileSync(path.join(root, '.env'), 'OTHER=1\nLLM_PROXY_ADMIN_TOKEN=abc123\n');
-    expect(readLlmProxyAdminToken(root)).toBe('abc123');
+    expect(await readLlmProxyAdminToken(files)).toBe('abc123');
     fs.rmSync(root, { recursive: true, force: true });
   });
 });

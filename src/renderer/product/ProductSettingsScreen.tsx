@@ -15,11 +15,13 @@ import { dispatchAppCommand } from './useAppShortcuts';
 import { CirclesProfileSection } from './circles/CirclesProfile';
 import { NotificationsSettingsSection } from './circles/NotificationsSettingsSection';
 import { AssistantRestartSection } from './AssistantRestartSection';
+import { ChatHistorySection } from './ChatHistorySection';
 import { useDesktopAgentSwitch } from './desktopAgent/useDesktopAgentSwitch';
 import { PanelShortcutField } from './desktopAgent/PanelShortcutField';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { Button } from '../components/ui/button';
 import { Switch } from '../components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 
 interface ProductSettingsScreenProps {
   onBack: () => void;
@@ -38,7 +40,7 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
   const [replyText] = useReplyText();
   const [busySend, setBusySend] = useBusySendPref();
   const desktopAgent = useDesktopAgentSwitch();
-  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
+  const [tab, setTab] = useState<SettingsTab>(isSettingsPanelTab(initialTab) ? initialTab : 'general');
   const { status } = useInferenceStatus();
 
   return (
@@ -47,25 +49,18 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
         Back to chat
       </Button>
       <h1>Settings</h1>
-      <div className="wb-settings-tabs" role="tablist" aria-label="Settings sections">
+      <Tabs value={tab} onValueChange={(value) => setTab(value as SettingsTab)}>
+      <TabsList aria-label="Settings sections" className="mt-4 mb-2">
         {SETTINGS_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`settings-tab-${t.id}`}
-            data-guide-anchor={`settings-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls="settings-tabpanel"
-            onClick={() => setTab(t.id)}
-          >
+          <TabsTrigger key={t.id} value={t.id} data-guide-anchor={`settings-${t.id}`}>
             {t.label}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
 
-      <div id="settings-tabpanel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
-        {isSettingsPanelTab(tab) ? (
+      {SETTINGS_TABS.map((t) => (
+      <TabsContent key={t.id} value={t.id}>
+        {t.id !== tab ? null : isSettingsPanelTab(tab) ? (
           SETTINGS_PANELS[tab]({
             request: { tab, agentSlug: initialAgentSlug },
             cloudProvider: appCloudProvider(status),
@@ -159,10 +154,14 @@ export const ProductSettingsScreen: React.FC<ProductSettingsScreenProps> = ({
 
           <AssistantRestartSection />
 
+          <ChatHistorySection />
+
           <CirclesProfileSection />
           </>
         )}
-      </div>
+      </TabsContent>
+      ))}
+      </Tabs>
     </section>
   );
 };

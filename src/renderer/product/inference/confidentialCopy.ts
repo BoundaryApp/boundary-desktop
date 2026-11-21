@@ -153,19 +153,6 @@ export function formatLastThirtyDays(turns: number, cost: number): string {
   return `${count} · ${underACent(cost) ? '' : 'about '}${formatSpendCost(cost)}`;
 }
 
-/**
- * Token counts as the Spend sheet shows them: 1.2M, 840K, 950. The unit is chosen after rounding
- * to one decimal, so 999,950 reads 1M rather than 1000K.
- */
-export function formatTokens(value: number): string {
-  const short = (n: number): string => n.toFixed(1).replace(/\.0$/, '');
-  const whole = Math.round(value);
-  if (whole < 1_000) return String(whole);
-  const thousands = Math.round(value / 100) / 10;
-  if (thousands < 1_000) return `${short(thousands)}K`;
-  return `${short(Math.round(value / 100_000) / 10)}M`;
-}
-
 function sees(name: string, billing: string): SeesLine[] {
   return [
     {

@@ -12,8 +12,8 @@ import { pathToFileURL } from 'node:url';
 
 const MAX_SLIDES = 6;
 const MAX_RELEASES = 10;
-/** Where this repository keeps its own release notes. */
-const DEFAULT_DIR = 'whats-new';
+/** The name of a release notes folder: at the repository root, or one level below it. */
+const NOTES_FOLDER = 'whats-new';
 
 /** Newer first: > 0 when `a` is newer than `b`. A prerelease sorts below its own release. */
 export function compareReleaseVersions(a, b) {
@@ -130,17 +130,35 @@ export function checkReleaseNotes(dir) {
   return problems;
 }
 
+/**
+ * Every folder named whats-new that holds a releases.json, at `root` or in a folder directly
+ * under it, so a build's notes and any other notes kept in the repository are all checked.
+ * Skips dependencies and dot folders.
+ */
+export function findNotesFolders(root) {
+  const candidates = [join(root, NOTES_FOLDER)];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+    candidates.push(join(root, entry.name, NOTES_FOLDER));
+  }
+  return candidates.filter((dir) => existsSync(join(dir, 'releases.json')));
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // Without an argument: what this build would bundle, else the folder this repo ships, so the
   // content is checked on every `bun run check` and not only in the release workflow.
   const named = process.argv[2] ?? process.env.BOUNDARY_RELEASE_NOTES_DIR;
-  const dir = named ?? (existsSync(DEFAULT_DIR) ? DEFAULT_DIR : null);
-  if (!dir) {
+  const dirs = named ? [named] : findNotesFolders('.');
+  if (dirs.length === 0) {
     console.log('No release notes folder to check.');
     process.exit(0);
   }
-  const problems = checkReleaseNotes(dir);
-  for (const problem of problems) console.error(problem);
-  console.log(problems.length ? `${problems.length} problem(s) in ${dir}.` : `Release notes in ${dir} are fit to ship.`);
-  process.exit(problems.length ? 1 : 0);
+  let failed = false;
+  for (const dir of dirs) {
+    const problems = checkReleaseNotes(dir);
+    for (const problem of problems) console.error(problem);
+    console.log(problems.length ? `${problems.length} problem(s) in ${dir}.` : `Release notes in ${dir} are fit to ship.`);
+    failed ||= problems.length > 0;
+  }
+  process.exit(failed ? 1 : 0);
 }

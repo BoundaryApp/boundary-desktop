@@ -3,6 +3,7 @@ import { APP_NAME } from '../../../shared/buildIdentity';
 import { APP_PASSWORD_SLIDES } from './appPasswordSlides';
 import { APP_SPECIFIC, APP_SPECIFIC_FORMAT_WARNING } from './appSpecificPassword';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 
 export interface AppPasswordWalkthroughProps {
   initialPassword?: string;
@@ -70,9 +71,8 @@ export function AppPasswordWalkthrough({ initialPassword = '', onDone, onClose, 
       {slide.id === 'paste' && (
         <div className="wb-cal-walk-field">
           <label htmlFor="wb-cal-walk-password">App-specific password</label>
-          <input
+          <Input
             id="wb-cal-walk-password"
-            className="wb-input"
             value={password}
             autoComplete="off"
             spellCheck={false}

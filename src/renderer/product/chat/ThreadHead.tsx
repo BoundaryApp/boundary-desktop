@@ -11,8 +11,10 @@ import { DmTabs, type DmTab } from './MentionsPane';
 import { ProjectGlyph } from './ProjectGlyph';
 import { formatChannelHead } from './channelHead';
 import { headKindLine } from './conversationKinds';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuNote, MenuTrigger } from '../../components/ui/menu';
 import { Button } from '../../components/ui/button';
+import { InspectorToggle, useInspectorToggle } from './InspectorToggle';
+import { ChannelMembersButton } from './ChannelMembersButton';
 
 export interface ThreadHeadProps {
   kind: HermesConversationKind;
@@ -64,6 +66,7 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
   dmTabs,
 }) => {
   const [titleMenuOpen, setTitleMenuOpen] = useState(false);
+  const inspectorToggle = useInspectorToggle();
   const isChannel = kind === 'channel';
   const isHermesChat = kind === 'hermes';
   const isSideChat = kind === 'side';
@@ -73,18 +76,7 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
     ?? (threadTitle.trim() || agent?.displayName || builtinAgentName(agents));
   // Every head names the kind in words, beside the same mark as the rail row (ADR 0023).
   const headKind = headKindLine({ kind, agents, agentName, startedAt });
-  const menuItem = (label: string, run: () => void) => (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={() => {
-        setTitleMenuOpen(false);
-        run();
-      }}
-    >
-      {label}
-    </button>
-  );
+  const menuItem = (label: string, run: () => void) => <MenuItem onSelect={run}>{label}</MenuItem>;
 
   return (
     <div className="wb-thread-head">
@@ -108,14 +100,9 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
                 /
               </span>
               <span className="wb-title-menu">
-                <Popover open={titleMenuOpen} onOpenChange={setTitleMenuOpen}>
-                  <PopoverTrigger>
-                    <button
-                      type="button"
-                      className={`wb-crumb-title${titleMenuOpen ? ' is-open' : ''}`}
-                      aria-haspopup="menu"
-                      aria-expanded={titleMenuOpen}
-                    >
+                <Menu open={titleMenuOpen} onOpenChange={setTitleMenuOpen}>
+                  <MenuTrigger>
+                    <button type="button" className={`wb-crumb-title${titleMenuOpen ? ' is-open' : ''}`}>
                       <strong className={isChannel ? 'mono' : undefined} title={headTitle}>
                         {headTitle}
                       </strong>
@@ -123,38 +110,22 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
                         ▾
                       </span>
                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="wb-insp-menu wb-title-menu-pop"
-                    role="menu"
-                    side="bottom"
-                    align="start"
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
+                  </MenuTrigger>
+                  <MenuContent side="bottom" align="start">
+                    <MenuItem
                       disabled={!onMoveProject || Boolean(moveDisabledReason)}
                       title={moveDisabledReason ?? undefined}
-                      onClick={() => {
-                        setTitleMenuOpen(false);
-                        onMoveProject?.();
-                      }}
+                      onSelect={() => onMoveProject?.()}
                     >
                       Move to project…
-                    </button>
-                    {moveDisabledReason ? (
-                      <p className="wb-title-menu-note">{moveDisabledReason}</p>
-                    ) : null}
+                    </MenuItem>
+                    {moveDisabledReason ? <MenuNote>{moveDisabledReason}</MenuNote> : null}
                     {isHermesChat && onMakeChannel ? menuItem('Make channel', onMakeChannel) : null}
-                    {isChannel && onRenameChannel
-                      ? menuItem('Rename channel…', onRenameChannel)
-                      : null}
-                    {isChannel && onDeleteChannel
-                      ? menuItem('Delete channel…', onDeleteChannel)
-                      : null}
+                    {isChannel && onRenameChannel ? menuItem('Rename channel…', onRenameChannel) : null}
+                    {isChannel && onDeleteChannel ? menuItem('Delete channel…', onDeleteChannel) : null}
                     {onDeleteChat ? menuItem('Delete chat…', onDeleteChat) : null}
-                  </PopoverContent>
-                </Popover>
+                  </MenuContent>
+                </Menu>
               </span>
             </span>
           ) : (
@@ -181,7 +152,7 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
         </span>
       </div>
       {dmTabs && kind === 'dm' ? (
-        <DmTabs active={dmTabs.active} count={dmTabs.count} onChange={dmTabs.onChange} />
+        <DmTabs count={dmTabs.count} />
       ) : null}
       <span className="wb-grow" aria-hidden="true" />
       <span className="wb-thread-head-actions">
@@ -210,6 +181,14 @@ export const ThreadHead: React.FC<ThreadHeadProps> = ({
             Add to channel
           </Button>
         ) : null}
+        {isChannel && channel && inspectorToggle ? (
+          <ChannelMembersButton
+            channel={channel}
+            agents={agents}
+            onOpen={() => inspectorToggle.openAt('room')}
+          />
+        ) : null}
+        <InspectorToggle />
       </span>
     </div>
   );

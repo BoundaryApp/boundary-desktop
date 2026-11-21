@@ -58,7 +58,7 @@ describe('modelListingDisplay', () => {
       expect(formatContextLength(1_048_576)).toBe('1M');
       expect(formatContextLength(200_000)).toBe('200K');
       expect(formatContextLength(128_000)).toBe('128K');
-      expect(formatContextLength(8192)).toBe('8K');
+      expect(formatContextLength(8192)).toBe('8.2K');
     });
 
     it('returns undefined for missing or invalid values', () => {

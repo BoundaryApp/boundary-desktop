@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -402,19 +403,63 @@ async function walkFiles(root: string): Promise<string[]> {
   return out.sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * The paths (relative to `root`) that git ignores there. Empty when `root` isn't in a
+ * repository or git can't run, so such a folder is indexed in full.
+ */
+function gitIgnored(root: string, rels: readonly string[]): Promise<Set<string>> {
+  return new Promise((resolve) => {
+    if (rels.length === 0) {
+      resolve(new Set());
+      return;
+    }
+    let child: ChildProcess;
+    try {
+      child = spawn('git', ['check-ignore', '--stdin', '-z'], {
+        cwd: root,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+    } catch {
+      resolve(new Set());
+      return;
+    }
+    const chunks: Buffer[] = [];
+    child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.on('error', () => resolve(new Set()));
+    // 0: some ignored, 1: none ignored, 128: not a repository or another fatal error.
+    child.on('close', (code) => {
+      if (code !== 0) {
+        resolve(new Set());
+        return;
+      }
+      resolve(new Set(Buffer.concat(chunks).toString('utf8').split('\0').filter(Boolean)));
+    });
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(`${rels.join('\0')}\0`);
+  });
+}
+
 async function iterSourceFiles(
   sourceRoot: string,
   spec: HermesSourceSpec
 ): Promise<string[]> {
   const files: string[] = [];
+  const rels: string[] = [];
   for (const filePath of await walkFiles(sourceRoot)) {
     const rel = path.relative(sourceRoot, filePath).split(path.sep).join('/');
     if (shouldSkipRel(rel)) continue;
     if (spec.exclude.some((pat) => globMatch(rel, pat))) continue;
     if (!spec.include.some((pat) => globMatch(rel, pat))) continue;
     files.push(filePath);
+    rels.push(rel);
   }
-  return files;
+  // Extra sources leave out what their repository ignores, such as a stack's data folder of
+  // agent profiles and caches. The hub keeps every file: the stack's own freshness check
+  // walks it without git, and the two must list the same files.
+  if (spec.path === '.') return files;
+  const ignored = await gitIgnored(sourceRoot, rels);
+  if (ignored.size === 0) return files;
+  return files.filter((_, i) => !ignored.has(rels[i] ?? ''));
 }
 
 export async function buildCatalog(

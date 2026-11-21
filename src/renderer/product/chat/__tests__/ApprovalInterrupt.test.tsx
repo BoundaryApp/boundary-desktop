@@ -2,6 +2,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HermesChatApprovalEvent } from '../../../../shared/types/hermesChat';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { ApprovalInterrupt } from '../ApprovalInterrupt';
 
 function event(
@@ -59,7 +60,7 @@ describe('ApprovalInterrupt', () => {
       <ApprovalInterrupt approval={event()} queueSize={1} onRespond={onRespond} />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    openMenu(screen.getByRole('button', { name: 'More' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Always allow/ }));
     expect(onRespond).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: /Always allow this command/ })).toBeTruthy();
@@ -75,11 +76,17 @@ describe('ApprovalInterrupt', () => {
     expect(screen.getByText('1 / 2')).toBeTruthy();
   });
 
-  it('runs on Enter in the card but lets Enter press the focused button', () => {
+  it('runs on Enter in the card but lets Enter press the focused button', async () => {
     const onRespond = vi.fn();
     render(<ApprovalInterrupt approval={event()} queueSize={1} onRespond={onRespond} />);
     fireEvent.keyDown(screen.getByRole('button', { name: 'Reject' }), { key: 'Enter' });
+    // Enter on More opens its menu; Escape closes the menu without rejecting.
     fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
+    await flushMenu();
+    expect(screen.getByRole('menu', { name: 'More' })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    await flushMenu();
+    expect(screen.queryByRole('menu')).toBeNull();
     expect(onRespond).not.toHaveBeenCalled();
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Enter' });
     expect(onRespond).toHaveBeenCalledWith('once');

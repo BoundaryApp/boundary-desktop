@@ -2,13 +2,16 @@ import { BOUNDARY_ASSISTANT_COMPOSE_PROFILES, buildComposeProfileArgs } from '..
 import type { AddonCatalogEntry, AddonId } from '../../../shared/types/addons';
 import { getInstalledAddons, setAddonInstalled } from '../assistant/AssistantStackStore';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
+import { stackFilesAt } from '../stackHost/activeStack';
+import type { StackFiles } from '../stackHost/types';
 import { actualAvailable, readActualFlags } from './actualAddon';
 import { bitwardenOffered, readBitwardenEnabled } from './bitwardenAddon';
 import { emailAvailable, readEmailFlags } from './emailAddon';
 import { readVikunjaEnabled, vikunjaAvailable } from './vikunjaAddon';
 import { BUILTIN_ADDON_IDS, builtinAddonAvailable, readBuiltinEnabled } from './builtinAddons';
 import { BITWARDEN_ENTRY, LIGHTRAG_ENTRY, N8N_ENTRY, TWENTY_ENTRY, VIKUNJA_ENTRY } from './addonCatalog';
-import { hasActiveHostedWorkspaces, twentyWorkspacesDir } from './twentyWorkspaces';
+import { hasActiveHostedWorkspaces } from './twentyWorkspaces';
+import { moveFlagsToEnv, type EnvMoveRecord } from './envFlagMove';
 
 /** Entry per add-on id whose compose profile follows its installed state. */
 const ENTRIES: Partial<Record<AddonId, AddonCatalogEntry>> = {
@@ -27,21 +30,23 @@ const ENTRIES: Partial<Record<AddonId, AddonCatalogEntry>> = {
  * `VIKUNJA_MCP_ENABLED` is 1, n8n while `AUTOMATION_ENABLED` is 1 and LightRAG while
  * `LIGHTRAG_MCP_ENABLED` is 1.
  */
-export function installedAddonsHere(): AddonId[] {
+export async function installedAddonsHere(): Promise<AddonId[]> {
   const { root } = tryResolveAssistantRoot();
   return root ? installedAddonsAt(root) : [];
 }
 
 /** `installedAddonsHere` for a root the caller already resolved, such as the store's listing. */
-export function installedAddonsAt(root: string): AddonId[] {
+export async function installedAddonsAt(root: string, files: StackFiles = stackFilesAt(root)): Promise<AddonId[]> {
   const ids: AddonId[] = getInstalledAddons(root).filter(
     (id) => id !== 'actual' && id !== 'bitwarden' && id !== 'email' && id !== 'vikunja' && id !== 'n8n' && id !== 'lightrag'
   );
-  if (actualAvailable(root) && readActualFlags(root).local) ids.push('actual');
-  if (bitwardenOffered(root) && readBitwardenEnabled(root)) ids.push('bitwarden');
-  if (emailAvailable(root) && readEmailFlags(root).enabled) ids.push('email');
-  if (vikunjaAvailable(root) && readVikunjaEnabled(root)) ids.push('vikunja');
-  for (const id of BUILTIN_ADDON_IDS) if (builtinAddonAvailable(root, id) && readBuiltinEnabled(root, id)) ids.push(id);
+  if ((await actualAvailable(files)) && (await readActualFlags(files)).local) ids.push('actual');
+  if ((await bitwardenOffered(files)) && (await readBitwardenEnabled(files))) ids.push('bitwarden');
+  if ((await emailAvailable(files)) && (await readEmailFlags(files)).enabled) ids.push('email');
+  if ((await vikunjaAvailable(files)) && (await readVikunjaEnabled(files))) ids.push('vikunja');
+  for (const id of BUILTIN_ADDON_IDS) {
+    if ((await builtinAddonAvailable(files, id)) && (await readBuiltinEnabled(files, id))) ids.push(id);
+  }
   return ids;
 }
 
@@ -61,19 +66,21 @@ export function setAddonInstalledHere(id: AddonId, installed: boolean): void {
  * Boundary's COMPOSE_PROFILES replaces the one `addon.sh` syncs into
  * `.env`, so the managed stack needs them here.
  */
-export function addonComposeProfiles(): string[] {
-  const profiles = installedAddonsHere().flatMap((id) => {
+export async function addonComposeProfiles(): Promise<string[]> {
+  const { root } = tryResolveAssistantRoot();
+  if (!root) return [];
+  const files = stackFilesAt(root);
+  const profiles = (await installedAddonsAt(root, files)).flatMap((id) => {
     const entry = ENTRIES[id];
     return entry && !(BOUNDARY_ASSISTANT_COMPOSE_PROFILES as readonly string[]).includes(entry.profile) ? [entry.profile] : [];
   });
-  const { root } = tryResolveAssistantRoot();
-  if (root && actualAvailable(root)) {
-    const flags = readActualFlags(root);
+  if (await actualAvailable(files)) {
+    const flags = await readActualFlags(files);
     if (flags.enabled) profiles.push('budget');
     if (flags.local) profiles.push('budget-local');
   }
-  if (root && emailAvailable(root)) {
-    const flags = readEmailFlags(root);
+  if (await emailAvailable(files)) {
+    const flags = await readEmailFlags(files);
     if (flags.enabled) profiles.push('email');
     if (flags.enabled && flags.drafts) profiles.push('email-drafts');
   }
@@ -81,33 +88,52 @@ export function addonComposeProfiles(): string[] {
 }
 
 /**
- * Twenty's two flags. `TWENTY_LOCAL_ENABLED` starts this Mac's Twenty and follows the installed
- * record, and the bootstraps register the local workspace only while it is 1.
- * `TWENTY_MCP_ENABLED` makes them register a `crm-<slug>` per stored workspace; at 0 they remove
- * every `crm-*` entry, so it stays 1 while a hosted workspace is stored even with this Mac's
- * Twenty off.
+ * Twenty's two flags as they follow the installed record and the store, for the one-time move
+ * into `.env`. `TWENTY_LOCAL_ENABLED` starts this Mac's Twenty, and the bootstraps register the
+ * local workspace only while it is 1. `TWENTY_MCP_ENABLED` makes them register a `crm-<slug>` per
+ * stored workspace; at 0 they remove every `crm-*` entry, so it stays 1 while a hosted workspace
+ * is stored even with this Mac's Twenty off. The installer leaves the same values through
+ * `addon.sh` (addonInstaller.ts).
  */
-export function twentyFlags(
+export async function twentyFlags(
   installed: boolean,
-  dir: string
-): { TWENTY_LOCAL_ENABLED: '0' | '1'; TWENTY_MCP_ENABLED: '0' | '1' } {
+  files: StackFiles
+): Promise<{ TWENTY_LOCAL_ENABLED: '0' | '1'; TWENTY_MCP_ENABLED: '0' | '1' }> {
   return {
     TWENTY_LOCAL_ENABLED: installed ? '1' : '0',
-    TWENTY_MCP_ENABLED: installed || hasActiveHostedWorkspaces(dir) ? '1' : '0',
+    TWENTY_MCP_ENABLED: installed || (await hasActiveHostedWorkspaces(files)) ? '1' : '0',
   };
 }
 
-/** Every add-on flag for the stack root this session resolves. Both off while none resolves. */
-export function addonComposeEnv(): Record<string, string> {
-  const { root } = tryResolveAssistantRoot();
-  if (!root) return { TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' };
-  return twentyFlags(getInstalledAddons(root).includes('twenty'), twentyWorkspacesDir(root));
+export interface MoveTwentyFlagsDeps extends EnvMoveRecord {
+  /** Twenty is in Boundary's installed list for `root`. */
+  installed(root: string): boolean;
+}
+
+/**
+ * Writes Twenty's flags into the managed stack's `.env`, once per stack root, with the values
+ * Boundary passed to every compose call before `.env` became their only source. After the move,
+ * a flag missing from `.env` (a stack folder set up again) is written the same way, so compose's
+ * `${TWENTY_*:-0}` default never turns off a Twenty that is installed. Doesn't run the profile
+ * sync: Boundary's compose calls pass COMPOSE_PROFILES, and the next install, Start or Turn off
+ * syncs it. Returns the flags it wrote; none when there's no `.env`, in which case nothing is
+ * marked and it runs again at the next start.
+ */
+export function moveTwentyFlagsToEnv(
+  files: StackFiles,
+  root: string,
+  deps: MoveTwentyFlagsDeps
+): Promise<Record<string, string>> {
+  return moveFlagsToEnv(files, root, deps, async (moved, current) => {
+    const flags = await twentyFlags(deps.installed(root), files);
+    return Object.fromEntries(Object.entries(flags).filter(([flag]) => !moved || !(flag in current)));
+  });
 }
 
 /**
  * `--profile` args for every compose call Boundary makes. The calendar profile reaches the stack
  * through COMPOSE_PROFILES only, not through these args.
  */
-export function boundaryComposeProfileArgs(): string[] {
-  return buildComposeProfileArgs([...BOUNDARY_ASSISTANT_COMPOSE_PROFILES, ...addonComposeProfiles()]);
+export async function boundaryComposeProfileArgs(): Promise<string[]> {
+  return buildComposeProfileArgs([...BOUNDARY_ASSISTANT_COMPOSE_PROFILES, ...(await addonComposeProfiles())]);
 }

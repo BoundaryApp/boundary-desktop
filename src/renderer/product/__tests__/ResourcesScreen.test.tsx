@@ -5,6 +5,7 @@ import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { ComposeInventorySnapshot } from '../../../shared/types/composeInventory';
 import type { HostResourceSnapshot } from '../../../shared/types/hostResources';
 import { ComposeInventoryView, ResourcesScreen, ResourcesView } from '../ResourcesScreen';
+import { setStackCapabilitiesForTests } from '../stackCapabilities';
 
 stubElectronAPI({
   resources: {
@@ -114,6 +115,13 @@ describe('ComposeInventoryView', () => {
     );
     expect(screen.getByText(/Engine is not running/)).toBeTruthy();
     expect(screen.queryByText('boundary-assistant')).toBeNull();
+  });
+
+  it('says the engine is on another computer on a host without engineControl', () => {
+    setStackCapabilitiesForTests({ engineControl: false });
+    render(<ComposeInventoryView inventory={{ engineRunning: false, projects: [] }} />);
+    expect(screen.getByText("Your agent runs on another computer, so Boundary doesn't start or size its container engine.")).toBeTruthy();
+    expect(screen.queryByText(/Engine is not running/)).toBeNull();
   });
 
   it('shows empty-host honesty when the engine is up', () => {

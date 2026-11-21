@@ -1,0 +1,103 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Input, Textarea, NativeSelect and the Radix SelectTrigger (ADR 0063), keyed on data-slot.
+   Two sizes: default (--control-height, 13px text) and data-size='sm' (--control-height-sm,
+   12px text). Focus is the field-focus utility each component adds; the invalid border is in
+   the utilities layer below so it outranks that. The select caret comes from index.css's base
+   layer. */
+
+:is([data-slot='input'], [data-slot='textarea'], [data-slot='native-select'], [data-slot='select-trigger']) {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-0);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-ui);
+  outline: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+:is([data-slot='input'], [data-slot='native-select'], [data-slot='select-trigger']) {
+  height: var(--control-height);
+  padding: 0 var(--space-2-5);
+  line-height: normal;
+}
+
+:is([data-slot='input'], [data-slot='native-select'], [data-slot='select-trigger'])[data-size='sm'] {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--size-xs);
+}
+
+/* A text field fills its column. A select fills it at the default size, as in a sheet field,
+   and sizes to its options when small, as in a toolbar. */
+[data-slot='input'],
+[data-slot='textarea'],
+[data-slot='native-select'] {
+  width: 100%;
+}
+
+[data-slot='native-select'][data-size='sm'] {
+  width: auto;
+}
+
+[data-slot='textarea'][data-variant='field'] {
+  display: block;
+  padding: var(--space-2) var(--space-2-5);
+  min-height: var(--textarea-min-height);
+  line-height: var(--leading-ui);
+  resize: vertical;
+}
+
+/* The container draws the box: a composer. Its own class sets padding, size and height. */
+[data-slot='textarea'][data-variant='bare'] {
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  padding: 0;
+  box-shadow: none;
+  resize: none;
+}
+
+:is([data-slot='input'], [data-slot='textarea'])::placeholder {
+  color: var(--text-faint);
+}
+
+[data-slot='select-trigger'][data-placeholder] {
+  color: var(--text-faint);
+}
+
+[data-slot='select-trigger'] svg {
+  color: var(--text-faint);
+}
+
+:is([data-slot='input'], [data-slot='textarea'])::selection {
+  background: var(--brand-dim);
+}
+
+:is([data-slot='input'], [data-slot='textarea'], [data-slot='native-select'], [data-slot='select-trigger']):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+}
+
+@layer utilities {
+
+/* Invalid keeps its red border while focused: the second selector outranks field-focus. */
+:is([data-slot='input'], [data-slot='textarea'], [data-slot='native-select'], [data-slot='select-trigger'])[aria-invalid='true'],
+:is([data-slot='input'], [data-slot='textarea'], [data-slot='native-select'], [data-slot='select-trigger'])[aria-invalid='true']:focus-visible {
+  border-color: var(--danger);
+}
+
+}

@@ -7,6 +7,12 @@
  * Prem:
  *   BOUNDARY_LIVE_PREM=1 PREM_API_KEY=... bun run test:live
  *
+ * Tinfoil:
+ *   BOUNDARY_LIVE_TINFOIL=1 TINFOIL_API_KEY=... bun run test:live
+ *
+ * Privatemode:
+ *   BOUNDARY_LIVE_PRIVATEMODE=1 PRIVATEMODE_API_KEY=... bun run test:live
+ *
  * One test per assumption in `FAKE_ADAPTER_ASSUMPTIONS`, against the models the dev catalog maps
  * for the provider. Each prints lines of the form
  * `assumption=<id> provider=<id> result=<pass|fail|value> detail=<metadata>`: statuses, hosts,
@@ -18,16 +24,22 @@ import path from 'node:path';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConfidentialAdapter } from '../adapter';
-import { isRecord, parseJson } from '../adapterKit';
+import { parseJson } from '../adapterKit';
 import { providerModelIds } from '../catalog';
 import { loadDevCatalog } from '../devProviders';
 import { FAKE_ADAPTER_ASSUMPTIONS } from '../fakeAdapter';
 import { createNearAdapter } from '../near/nearAdapter';
 import { createPremAdapter } from '../prem/premAdapter';
 import { attestPrem } from '../prem/premAttestation';
+import { createPrivatemodeAdapter } from '../privatemode/privatemodeAdapter';
+import { pinnedFetch } from '../tinfoil/pinnedFetch';
+import { createTinfoilAdapter } from '../tinfoil/tinfoilAdapter';
+import { isRecord } from '../../../../../shared/utils/isRecord';
 
 const liveNear = process.env.BOUNDARY_LIVE_NEAR === '1' && Boolean(process.env.NEAR_API_KEY);
 const livePrem = process.env.BOUNDARY_LIVE_PREM === '1' && Boolean(process.env.PREM_API_KEY);
+const liveTinfoil = process.env.BOUNDARY_LIVE_TINFOIL === '1' && Boolean(process.env.TINFOIL_API_KEY);
+const livePrivatemode = process.env.BOUNDARY_LIVE_PRIVATEMODE === '1' && Boolean(process.env.PRIVATEMODE_API_KEY);
 
 const resourcesDir = path.resolve(__dirname, '../../../../../../resources');
 const CALL_TIMEOUT_MS = 90_000;
@@ -174,13 +186,13 @@ function requestNonce(init: Parameters<typeof fetch>[1]): string | null {
   return isRecord(body) && typeof body.nonce === 'string' ? body.nonce : null;
 }
 
-function createRecorder(): { fetch: typeof fetch; records: WireRecord[] } {
-  const records: WireRecord[] = [];
+/** A fetch that records each call into `records` and sends it through `base`. */
+function recordingFetch(records: WireRecord[], base: typeof fetch): typeof fetch {
   const recorded = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
     const record: WireRecord = { ...requestParts(input, init), status: null, contentType: null };
     records.push(record);
     const sentNonce = requestNonce(init);
-    const res = await originalFetch(input, init);
+    const res = await base(input, init);
     record.status = res.status;
     record.contentType = res.headers.get('content-type');
     if (sentNonce !== null && res.ok && !record.contentType?.includes('text/event-stream')) {
@@ -203,7 +215,12 @@ function createRecorder(): { fetch: typeof fetch; records: WireRecord[] } {
     }
     return res;
   };
-  return { fetch: recorded as typeof fetch, records };
+  return recorded as typeof fetch;
+}
+
+function createRecorder(): { fetch: typeof fetch; records: WireRecord[] } {
+  const records: WireRecord[] = [];
+  return { fetch: recordingFetch(records, originalFetch), records };
 }
 
 function describeRecords(records: WireRecord[]): string {
@@ -286,14 +303,24 @@ interface Built {
   logs: LogEntry[];
 }
 
+/** What a suite's `build` gets: the key, the catalog's models, a recorded fetch and a log. */
+interface BuildContext {
+  apiKey: string;
+  models: string[];
+  fetch: typeof fetch;
+  /** Wraps another fetch (Tinfoil's pinned one) so its calls are recorded too. */
+  record: (base: typeof fetch) => typeof fetch;
+  log: (message: string, data: Record<string, unknown>) => void;
+}
+
 interface ProviderSuite {
-  id: 'near' | 'prem';
+  id: 'near' | 'prem' | 'tinfoil' | 'privatemode';
   apiKey: string;
   /** Path segment of the chat endpoint. */
   chatPath: string;
   /** Path segment of the endpoint `checkKey` reaches with the key. */
   keyCheckPath: string;
-  build: (apiKey: string, models: string[], fetchImpl: typeof fetch, log: (message: string, data: Record<string, unknown>) => void) => ConfidentialAdapter;
+  build: (ctx: BuildContext) => ConfidentialAdapter;
   /** Whether the provider's model list carries a context length; without one it comes from the catalog. */
   listsContext: boolean;
   /** Extra metadata after a model's hardware check: the live model name or workload id. */
@@ -313,12 +340,21 @@ function defineProviderSuite(id: ProviderSuite['id'], enabled: boolean, suite: (
       vi.unstubAllGlobals();
     });
 
-    /** A fresh adapter whose fetches, including any made through the global `fetch` (Reticle's), are recorded. */
+    /**
+     * A fresh adapter whose fetches are recorded, including those made through the global `fetch`
+     * (Reticle's and Privatemode's WebAssembly client's) and through Tinfoil's pinned fetch.
+     */
     function build(apiKey = s.apiKey): Built {
       const recorder = createRecorder();
       vi.stubGlobal('fetch', recorder.fetch);
       const logs: LogEntry[] = [];
-      const adapter = s.build(apiKey, models, recorder.fetch, (message, data) => logs.push({ message, data }));
+      const adapter = s.build({
+        apiKey,
+        models,
+        fetch: recorder.fetch,
+        record: (base) => recordingFetch(recorder.records, base),
+        log: (message, data) => logs.push({ message, data }),
+      });
       return { adapter, records: recorder.records, logs };
     }
 
@@ -507,7 +543,7 @@ defineProviderSuite('near', liveNear, () => ({
   chatPath: '/chat/completions',
   keyCheckPath: '/chat/completions',
   listsContext: true,
-  build: (apiKey, models, fetchImpl, log) => createNearAdapter({ apiKey, models, fetch: fetchImpl, log }),
+  build: ({ apiKey, models, fetch: fetchImpl, log }) => createNearAdapter({ apiKey, models, fetch: fetchImpl, log }),
   attestationDetail: async (model) => `model=${model} live ${await nearModelNames(model)}`,
 }));
 
@@ -520,7 +556,7 @@ defineProviderSuite('prem', livePrem, () => ({
   chatPath: '/rvenc/chat/completions',
   keyCheckPath: '/rvenc/models',
   listsContext: false,
-  build: (apiKey, models, fetchImpl, log) =>
+  build: ({ apiKey, models, fetch: fetchImpl, log }) =>
     createPremAdapter({
       apiKey,
       models,
@@ -536,4 +572,75 @@ defineProviderSuite('prem', livePrem, () => ({
   // The adapter fetches `/publicKey` without the API key, so a 200 there means it needs none.
   attestationDetail: async (model, built) =>
     `model=${model} workloadId=${premWorkloads.get(model) ?? 'none'} publicKeyStatusWithoutKey=${lastStatus(built.records, '/publicKey')}`,
+}));
+
+/** The verified router's release, from the adapter's attestation log. */
+function loggedRelease(built: Built): string {
+  const entry = built.logs.find((l) => l.message === 'confidential attestation');
+  return String(entry?.data.release ?? 'none');
+}
+
+/** Pinned-fetch fingerprints Tinfoil's adapter asked for, kept only to compare with the live check below. */
+let tinfoilPins: string[] = [];
+
+defineProviderSuite('tinfoil', liveTinfoil, () => ({
+  id: 'tinfoil',
+  apiKey: process.env.TINFOIL_API_KEY ?? '',
+  chatPath: '/v1/chat/completions',
+  // No free authenticated endpoint: the key check is a one-token chat.
+  keyCheckPath: '/v1/chat/completions',
+  listsContext: true,
+  build: ({ apiKey, models, fetch: fetchImpl, record, log }) => {
+    tinfoilPins = [];
+    return createTinfoilAdapter({
+      apiKey,
+      models,
+      fetch: fetchImpl,
+      log,
+      pinnedFetch: (fingerprint) => {
+        tinfoilPins.push(fingerprint);
+        const pinned = pinnedFetch(fingerprint);
+        return { fetch: record(pinned.fetch), close: pinned.close };
+      },
+    });
+  },
+  // A keyless request to the model list over a connection pinned to the attested key: 200 means the
+  // key Tinfoil's evidence names is the one inference.tinfoil.sh serves.
+  attestationDetail: async (model, built) => {
+    const pin = tinfoilPins.at(-1);
+    let pinnedStatus = 'no-pin';
+    if (pin) {
+      const pinned = pinnedFetch(pin);
+      try {
+        const res = await pinned.fetch('https://inference.tinfoil.sh/v1/models', { signal: signal() });
+        void res.body?.cancel();
+        pinnedStatus = String(res.status);
+      } catch {
+        pinnedStatus = 'refused';
+      } finally {
+        pinned.close();
+      }
+    }
+    return `model=${model} release=${loggedRelease(built)} pinnedModelListStatus=${pinnedStatus}`;
+  },
+}));
+
+function privatemodePins(): string[] {
+  return loadDevCatalog(resourcesDir)?.providers.find((provider) => provider.id === 'privatemode')?.manifestSha256 ?? [];
+}
+
+defineProviderSuite('privatemode', livePrivatemode, () => ({
+  id: 'privatemode',
+  apiKey: process.env.PRIVATEMODE_API_KEY ?? '',
+  chatPath: '/v1/chat/completions',
+  // The key goes with the attestation call, which is the key check.
+  keyCheckPath: '/privatemode/v1/attest',
+  listsContext: false,
+  // The dev catalog's pins, as the app passes them. A stale pin fails every case as `manifest-unpinned`.
+  build: ({ apiKey, models, fetch: fetchImpl, log }) =>
+    createPrivatemodeAdapter({ apiKey, models, manifestSha256: privatemodePins(), fetch: fetchImpl, log }),
+  attestationDetail: async (model, built) =>
+    `model=${model} clientVersion=${loggedRelease(built)} manifestStatus=${lastStatus(built.records, '/manifest.json')} ` +
+    `manifestSha256=${String(built.logs.find((l) => l.message === 'confidential attestation')?.data.manifestSha256 ?? 'none')} ` +
+    `attestStatus=${lastStatus(built.records, '/privatemode/v1/attest')} secretStatus=${lastStatus(built.records, '/privatemode/v1/secret')}`,
 }));

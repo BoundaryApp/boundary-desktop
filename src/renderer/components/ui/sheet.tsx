@@ -1,7 +1,9 @@
 import * as React from "react"
 
+import { X } from "lucide-react"
+
 import { cn } from "../../lib/utils"
-import { useEscapeToClose } from "./use-dismiss"
+import { EscapeDepthContext, useEscapeToClose } from "./use-dismiss"
 import { Button } from './button'
 
 interface SheetBaseProps {
@@ -15,8 +17,17 @@ interface SheetBaseProps {
   busy?: boolean
   /** False keeps the sheet open on a backdrop click; Escape still closes it. */
   closeOnBackdrop?: boolean
+  /**
+   * `dialog` (default) is the centred sheet. `side` is the full-height panel on the right that
+   * Settings opens over a screen: its header holds `title` as an `h1` and a close button, it
+   * takes focus when it opens and returns it to the opener when it closes, and it leaves out
+   * the kicker. It renders as a `div` only.
+   */
+  variant?: "dialog" | "side"
   /** Id of the element that names the dialog: `title`'s heading, or one in `children`. */
-  titleId: string
+  titleId?: string
+  /** Names the dialog instead of `titleId`, and the side variant's close button ("Close …"). */
+  label?: string
   /** Small line above the title. */
   kicker?: React.ReactNode
   kickerClassName?: string
@@ -43,14 +54,17 @@ type SheetProps = SheetBaseProps &
 
 /**
  * The workbench's modal sheet: backdrop, dialog, kicker, title, body, error line and
- * actions, closed by Escape or a backdrop click unless busy. Content, wording and buttons stay with the caller.
+ * actions, closed by Escape or a backdrop click unless busy. Escape closes only the innermost
+ * open sheet; a busy sheet ignores it and keeps the sheets under it open. Content, wording and buttons stay with the caller.
  */
 function Sheet({
   open,
   onClose,
   busy = false,
   closeOnBackdrop = true,
+  variant = "dialog",
   titleId,
+  label,
   kicker,
   kickerClassName,
   title,
@@ -63,10 +77,20 @@ function Sheet({
   children,
   ...rest
 }: SheetProps) {
-  useEscapeToClose(onClose, busy || !open)
+  const depth = useEscapeToClose(onClose, !open, busy)
   // A click counts only when it both starts and ends on the backdrop, so a text selection
   // dragged out of the dialog doesn't close it.
   const pressedBackdrop = React.useRef(false)
+  const sideRef = React.useRef<HTMLDivElement>(null)
+  const side = variant === "side"
+  React.useEffect(() => {
+    if (!open || !side) return
+    const opener = sideRef.current?.ownerDocument.activeElement
+    sideRef.current?.focus()
+    return () => {
+      if (opener && "focus" in opener && typeof opener.focus === "function") opener.focus()
+    }
+  }, [open, side])
   if (!open) return null
 
   const backdropDismisses = closeOnBackdrop && !busy
@@ -103,8 +127,49 @@ function Sheet({
     className: cn("wb-sheet", className),
     role: "dialog",
     "aria-modal": true,
-    "aria-labelledby": titleId,
+    "aria-label": label,
+    "aria-labelledby": label ? undefined : titleId,
   } as const
+
+  if (side) {
+    return (
+      <div
+        className={cn("wb-settings-sheet-scrim", backdropClassName)}
+        role="presentation"
+        onPointerDown={onBackdropPointerDown}
+        onClick={onBackdropClick}
+      >
+        <div
+          {...dialogProps}
+          ref={sideRef}
+          className={cn("wb-settings-sheet", className)}
+          tabIndex={-1}
+        >
+          <header className="wb-settings-sheet-head">
+            {title == null ? null : <h1 id={titleId}>{title}</h1>}
+            <Button
+              type="button"
+              variant="quiet"
+              size="icon"
+              aria-label={label ? `Close ${label}` : "Close"}
+              onClick={onClose}
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </header>
+          <div className="wb-settings-sheet-body">
+            <EscapeDepthContext.Provider value={depth}>
+              {children}
+              {error ? <p className="wb-sheet-error">{error}</p> : null}
+              {actions ? (
+                <div className={cn("wb-sheet-actions", actionsClassName)}>{actions}</div>
+              ) : null}
+            </EscapeDepthContext.Provider>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -113,13 +178,15 @@ function Sheet({
       onPointerDown={onBackdropPointerDown}
       onClick={onBackdropClick}
     >
-      {rest.as === "form" ? (
-        <form {...dialogProps} onSubmit={rest.onSubmit}>
-          {body}
-        </form>
-      ) : (
-        <div {...dialogProps}>{body}</div>
-      )}
+      <EscapeDepthContext.Provider value={depth}>
+        {rest.as === "form" ? (
+          <form {...dialogProps} onSubmit={rest.onSubmit}>
+            {body}
+          </form>
+        ) : (
+          <div {...dialogProps}>{body}</div>
+        )}
+      </EscapeDepthContext.Provider>
     </div>
   )
 }

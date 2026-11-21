@@ -3,6 +3,7 @@
  * like typing indicators and read marks. This module holds the rules both processes share; the
  * Protomux channel is in signalChannel.ts.
  */
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
 /** The longest payload, as JSON text. */
 export const MAX_SIGNAL_PAYLOAD_BYTES = 4096;
@@ -17,7 +18,6 @@ export const SIGNAL_SEND_RATE = { perSecond: 30, burst: 60 };
 export const SIGNAL_RECEIVE_RATE = { perSecond: 60, burst: 120 };
 
 const TOPIC = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const CIRCLE_KEY = /^[0-9a-f]{64}$/;
 
 export interface CircleSignalFrame {
   circle: string;
@@ -56,7 +56,7 @@ export function decodeSignal(raw: Buffer): CircleSignalFrame | null {
   }
   if (typeof frame !== 'object' || frame === null) return null;
   const { circle, topic, payload } = frame;
-  if (typeof circle !== 'string' || !CIRCLE_KEY.test(circle) || !isSignalTopic(topic) || payload === undefined) return null;
+  if (typeof circle !== 'string' || !HEX_KEY_PATTERN.test(circle) || !isSignalTopic(topic) || payload === undefined) return null;
   return { circle, topic, payload };
 }
 

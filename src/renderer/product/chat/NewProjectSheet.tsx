@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { CodingAgentBusy, CodingFolderInspect } from '../../../shared/types/codingFolders';
 import type { ProjectCreateStep, ProjectCreateWhenBusy } from '../../../shared/types/projectCreate';
 import { Callout } from '../../components/ui/alert';
@@ -9,6 +9,9 @@ import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { stepDetail, stepLook, stepName, stepRight } from './useProjectCreateSteps';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { Button } from '../../components/ui/button';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Switch } from '../../components/ui/switch';
+import { Input } from '../../components/ui/input';
 
 /**
  * Confirm a project made from a folder (0005), with the coding switch from ADR 0028 §12:
@@ -56,6 +59,7 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
   onCreate,
   onCancel,
 }) => {
+  const codingHelpId = useId();
   const open = Boolean(folder?.hostPath);
   const [name, setName] = useState('');
   const [coding, setCoding] = useState(false);
@@ -196,7 +200,7 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
     >
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -210,27 +214,31 @@ export const NewProjectSheet: React.FC<NewProjectSheetProps> = ({
         <span>Folder</span>
         <div className="wb-field-static mono">{displayHostPath(folder.hostPath)}</div>
       </div>
-      <label className={`wb-toggle-row${canCode ? '' : ' is-off'}`}>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={canCode && coding}
-          disabled={busy || !canCode}
-          onChange={(e) => setCoding(e.target.checked)}
-        />
-        <span>
-          <b>Let the coding agent work here</b>
-          <span>
-            {!managed
-              ? `This ${APP_NAME} uses your own stack checkout, which manages coding folders itself.`
-              : folder.refuseMessage
-                ? folder.refuseMessage
-                : folder.isGit
-                  ? 'On because this is a git repo. It can edit files and run commands without asking. You can turn it off from the Project tab.'
-                  : 'Off because this isn’t a git repo, so changes couldn’t be rolled back. It can edit files and run commands without asking.'}
-          </span>
-        </span>
-      </label>
+      <ChoiceRow
+        variant="card"
+        controlAt="end"
+        className="mb-3.5"
+        control={
+          <Switch
+            label="Let the coding agent work here"
+            describedBy={codingHelpId}
+            checked={canCode && coding}
+            disabled={busy || !canCode}
+            onChange={setCoding}
+          />
+        }
+        title="Let the coding agent work here"
+        descriptionId={codingHelpId}
+        description={
+          !managed
+            ? `This ${APP_NAME} uses your own stack checkout, which manages coding folders itself.`
+            : folder.refuseMessage
+              ? folder.refuseMessage
+              : folder.isGit
+                ? 'On because this is a git repo. It can edit files and run commands without asking. You can turn it off from the Project tab.'
+                : 'Off because this isn’t a git repo, so changes couldn’t be rolled back. It can edit files and run commands without asking.'
+        }
+      />
       {codingBusy?.busy && canCode && coding ? (
         <CodingBusyWarning agent={codingBusy} verb="allow" look="sheet" />
       ) : null}

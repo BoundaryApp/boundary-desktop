@@ -273,8 +273,9 @@ export type NetworkToMain =
   | { type: 'record-changed'; change: CircleRecordChange }
   /** New, changed and settled-away messages in one channel. */
   | { type: 'chat-update'; update: CircleChatUpdate }
-  /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
+  /** A Circle was paired or joined here; main keeps its secrets. */
   | { type: 'circle-paired'; secrets: CircleSecrets }
+  /** An admin removed this device from a Circle, which is closed here. Main forgets its secrets. */
   | { type: 'circle-removed'; key: string }
   | { type: 'member-left'; key: string; circle: string; name: string }
   /** A shared folder's view or its mirror changed; main asks for a summary when it needs one. */

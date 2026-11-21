@@ -114,9 +114,13 @@ describe('PodmanMachineService', () => {
     });
 
     const progress: string[] = [];
+    const stages: string[] = [];
     const svc = service(execFile, { env: { CONTAINERS_CONF: '/tmp/c.conf' }, machineImagePath: '/img/machine-os.zst' });
 
-    const result = await svc.ensureRunning((m) => progress.push(m));
+    const result = await svc.ensureRunning((m, stage) => {
+      progress.push(m);
+      if (stage) stages.push(stage);
+    });
     expect(result.apiEndpoint).toBe('unix:///tmp/boundary-podman.sock');
     expect(result.dockerHost).toBe('unix:///tmp/boundary-podman.sock');
     expect(ran('init')).toBe(true);
@@ -135,6 +139,8 @@ describe('PodmanMachineService', () => {
       'Using bundled machine image…',
       'Waiting for container API socket…',
     ]);
+    // The image line belongs to the create stage, so it carries none of its own.
+    expect(stages).toEqual(['create', 'connect']);
   });
 
   it('starts when stopped', async () => {
@@ -144,9 +150,13 @@ describe('PodmanMachineService', () => {
       inspect: `[${inspectJson()}]`,
       info: '/tmp/p.sock\n',
     });
-    const result = await service(execFile).ensureRunning();
+    const stages: string[] = [];
+    const result = await service(execFile).ensureRunning((_m, stage) => {
+      if (stage) stages.push(stage);
+    });
     expect(result.status).toBe('running');
     expect(ran('start')).toBe(true);
+    expect(stages).toEqual(['start', 'connect']);
   });
 
   it('converts a stopped rootless machine to rootful before start', async () => {

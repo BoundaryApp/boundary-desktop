@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readEnvFile } from '../assistant/stackEnv';
-import { localWorkspaceId, twentyWorkspacesDir } from './twentyWorkspaces';
+import { readStackEnv } from '../assistant/stackEnv';
+import { stackFilesAt } from '../stackHost/activeStack';
+import { localWorkspaceId } from './twentyWorkspaces';
+import type { StackEndpoints, StackFiles } from '../stackHost/types';
+import { copyThenClear, type SecretClipboard } from './secretClipboard';
 
-const CLIPBOARD_CLEAR_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_PORT = 3000;
 
@@ -14,8 +16,8 @@ const WARN_REJECTED = 'Twenty didn’t accept the saved owner login, so it opens
 const WARN_DOWN = 'Twenty isn’t answering, so it opens without signing in.';
 
 /** The port Twenty publishes on: `TWENTY_PORT` from the stack's `.env`, 3000 when unset or invalid. */
-export function twentyPort(root: string): number {
-  const port = Number(readEnvFile(path.join(root, '.env')).TWENTY_PORT);
+export async function twentyPort(files: StackFiles): Promise<number> {
+  const port = Number((await readStackEnv(files, 'stack', '.env')).TWENTY_PORT);
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_PORT;
 }
 
@@ -24,19 +26,35 @@ export function twentyPort(root: string): number {
  * `TWENTY_PASSWORD`, or from the file `TWENTY_PASSWORD_FILE` names (relative to `root` unless
  * absolute). Null when either is missing or empty.
  */
-export function readOwnerLogin(root: string): { username: string; password: string } | null {
-  const env = readEnvFile(path.join(root, '.env'));
+export async function readOwnerLogin(
+  root: string,
+  files: StackFiles = stackFilesAt(root)
+): Promise<{ username: string; password: string } | null> {
+  const env = await readStackEnv(files, 'stack', '.env');
   const username = env.TWENTY_USERNAME?.trim();
   let password = env.TWENTY_PASSWORD?.trim();
   const file = env.TWENTY_PASSWORD_FILE?.trim();
   if (!password && file) {
     try {
-      password = fs.readFileSync(path.resolve(root, file), 'utf8').trim();
+      password = (await readPasswordFile(files, root, file)).trim();
     } catch {
       password = undefined;
     }
   }
   return username && password ? { username, password } : null;
+}
+
+/**
+ * The file `TWENTY_PASSWORD_FILE` names. A path inside the stack folder is read through
+ * `files`; an absolute path elsewhere on this Mac can't be, so it is read directly.
+ */
+async function readPasswordFile(files: StackFiles, root: string, file: string): Promise<string> {
+  const resolved = path.resolve(root, file);
+  const rel = path.relative(root, resolved);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return fs.promises.readFile(resolved, 'utf8');
+  const text = await files.readText('stack', rel);
+  if (text === null) throw new Error('The password file is missing.');
+  return text;
 }
 
 /** Why the open isn't signed in: Twenty refused the login (or answered oddly), or didn't answer. */
@@ -51,8 +69,13 @@ export interface TwentyLoginLink {
 
 export interface TwentyLoginLinkDeps {
   root: string;
+  /** Twenty's port as the stack publishes it (`TWENTY_PORT`). */
   port: number;
+  /** Turns `port` into a URL on this machine. */
+  endpoints: Pick<StackEndpoints, 'portUrl'>;
   fetchImpl?: typeof fetch;
+  /** The stack's files; the folder `root` names when omitted. */
+  files?: StackFiles;
 }
 
 /**
@@ -65,9 +88,9 @@ export interface TwentyLoginLinkDeps {
 export async function twentyLoginLink(
   deps: TwentyLoginLinkDeps
 ): Promise<TwentyLoginLink> {
-  const { root, port, fetchImpl = fetch } = deps;
-  const workspace = localWorkspaceId(twentyWorkspacesDir(root));
-  const base = (workspace?.workspaceUrl || `http://localhost:${port}`).replace(/\/+$/, '') + '/';
+  const { root, port, endpoints, fetchImpl = fetch, files = stackFilesAt(root) } = deps;
+  const workspace = await localWorkspaceId(files);
+  const base = (workspace?.workspaceUrl || endpoints.portUrl(port, '', 'localhost')).replace(/\/+$/, '') + '/';
   const plain = (reason: TwentySignInMiss): TwentyLoginLink => ({
     url: base,
     signedIn: false,
@@ -75,12 +98,12 @@ export async function twentyLoginLink(
     reason,
   });
 
-  const login = readOwnerLogin(root);
+  const login = await readOwnerLogin(root, files);
   if (!login || !workspace) return plain('rejected');
 
   let body: unknown;
   try {
-    const response = await fetchImpl(`http://127.0.0.1:${port}/metadata`, {
+    const response = await fetchImpl(endpoints.portUrl(port, '/metadata'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ query: SIGN_IN, variables: { e: login.username, p: login.password } }),
@@ -118,36 +141,20 @@ export async function twentyLoginLink(
 
 export interface CopyOwnerPasswordDeps {
   root: string;
-  /** Electron's `clipboard`. Its typings make `readText` a promise; the main process returns a string, so both are awaited. */
-  clipboard: {
-    writeText(text: string): unknown;
-    readText(): string | Promise<string>;
-  };
-  setTimer?: typeof setTimeout;
+  clipboard: SecretClipboard;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  /** The stack's files; the folder `root` names when omitted. */
+  files?: StackFiles;
 }
 
 /**
  * Puts the owner password on the clipboard and clears it 60 s later, if the clipboard still
  * holds it by then. False when the stack has no owner login.
  */
-export function copyOwnerPassword(deps: CopyOwnerPasswordDeps): boolean {
-  const { root, clipboard, setTimer = setTimeout } = deps;
-  const login = readOwnerLogin(root);
+export async function copyOwnerPassword(deps: CopyOwnerPasswordDeps): Promise<boolean> {
+  const { root, clipboard, setTimer = setTimeout, files = stackFilesAt(root) } = deps;
+  const login = await readOwnerLogin(root, files);
   if (!login) return false;
-  copyThenClear(clipboard, login.password, setTimer);
+  await copyThenClear(clipboard, login.password, setTimer);
   return true;
-}
-
-/** Puts `text` on the clipboard and clears it 60 s later if the clipboard still holds it. */
-export function copyThenClear(
-  clipboard: CopyOwnerPasswordDeps['clipboard'],
-  text: string,
-  setTimer: (fn: () => void, ms: number) => unknown = setTimeout
-): void {
-  clipboard.writeText(text);
-  setTimer(() => {
-    void (async (): Promise<void> => {
-      if ((await clipboard.readText()) === text) clipboard.writeText('');
-    })().catch((): void => undefined);
-  }, CLIPBOARD_CLEAR_MS);
 }

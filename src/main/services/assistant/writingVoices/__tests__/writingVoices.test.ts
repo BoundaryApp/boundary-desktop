@@ -35,15 +35,14 @@ vi.mock('../../../../persistDebugLog', () => ({ persistDebugLog: vi.fn() }));
 const active = vi.hoisted(() => ({ root: '' }));
 vi.mock('../../resolveAssistantRoot', () => ({ resolveActiveAssistantRoot: () => active.root }));
 
-vi.mock('node:fs', async (importOriginal) => {
-  const real = await importOriginal<typeof import('node:fs')>();
-  const copyFile = async (...args: Parameters<typeof real.promises.copyFile>) => {
+vi.mock('../writingVoiceSamples', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../writingVoiceSamples')>();
+  const readLocalSample = async (filePath: string) => {
     h.copies += 1;
     if (h.copyFails?.(h.copies)) throw new Error('disk full');
-    return real.promises.copyFile(...args);
+    return real.readLocalSample(filePath);
   };
-  const promises = { ...real.promises, copyFile };
-  return { ...real, default: { ...real, promises }, promises };
+  return { ...real, readLocalSample };
 });
 
 import { writingVoicesStoreName } from '../../assistantStackIdentity';
@@ -68,6 +67,7 @@ import {
   writingVoiceDir,
   writingVoiceId,
 } from '../writingVoices';
+import { writingVoiceFiles } from '../writingVoicePaths';
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(' ');
 
@@ -323,12 +323,12 @@ describe('hashWritingVoiceSamples', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wv-hash-'));
     fs.writeFileSync(path.join(dir, 'b.md'), 'bb');
     fs.writeFileSync(path.join(dir, 'a.md'), 'a');
-    const first = await hashWritingVoiceSamples(dir);
-    expect(await hashWritingVoiceSamples(dir)).toBe(first);
+    const first = await hashWritingVoiceSamples(writingVoiceFiles(dir), '');
+    expect(await hashWritingVoiceSamples(writingVoiceFiles(dir), '')).toBe(first);
     fs.writeFileSync(path.join(dir, '.DS_Store'), 'finder');
-    expect(await hashWritingVoiceSamples(dir)).toBe(first);
+    expect(await hashWritingVoiceSamples(writingVoiceFiles(dir), '')).toBe(first);
     fs.writeFileSync(path.join(dir, 'c.md'), 'c');
-    expect(await hashWritingVoiceSamples(dir)).not.toBe(first);
+    expect(await hashWritingVoiceSamples(writingVoiceFiles(dir), '')).not.toBe(first);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -352,7 +352,7 @@ describe('voice operations', () => {
       words: 50,
       createdAt: '',
       calibratedAt: '2026-11-11T00:00:00.000Z',
-      sampleHash: await hashWritingVoiceSamples(samples()),
+      sampleHash: await hashWritingVoiceSamples(writingVoiceFiles(root), 'voice/ops/samples'),
       calibrationSessionIds: ['stored-calibration'],
     });
   }

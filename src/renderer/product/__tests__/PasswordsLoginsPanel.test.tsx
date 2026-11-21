@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
+import { openMenu } from '../../__tests__/openMenu';
 import { PasswordsLoginsPanel } from '../PasswordsLoginsPanel';
 
 const vaultApi = {
@@ -83,6 +84,26 @@ describe('PasswordsLoginsPanel', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('picks a known site from the Site field with the arrows and Enter', async () => {
+    render(<PasswordsLoginsPanel />);
+    await screen.findByText('Hermes has no saved logins');
+    fireEvent.click(screen.getAllByRole('button', { name: /Add login/ })[0]);
+
+    const site = screen.getByRole('combobox', { name: 'Site' });
+    fireEvent.change(site, { target: { value: 'link' } });
+    const list = screen.getByRole('listbox', { name: 'Known sites' });
+    expect(site.getAttribute('aria-expanded')).toBe('true');
+    expect(site.getAttribute('aria-controls')).toBe(list.id);
+    // No row is active until an arrow moves to one, so Enter still submits the form.
+    expect(site.hasAttribute('aria-activedescendant')).toBe(false);
+    fireEvent.keyDown(site, { key: 'ArrowDown' });
+    const linkedinRow = screen.getByRole('option', { name: /LinkedIn/ });
+    expect(site.getAttribute('aria-activedescendant')).toBe(linkedinRow.id);
+    fireEvent.keyDown(site, { key: 'Enter' });
+    expect(screen.getByText('https://www.linkedin.com', { selector: '.wb-vault-origin .mono' })).toBeTruthy();
+    expect(screen.queryByRole('listbox', { name: 'Known sites' })).toBeNull();
+  });
+
   it('warns when a pasted URL is not where the sign-in form is', async () => {
     render(<PasswordsLoginsPanel />);
     await screen.findByText('Hermes has no saved logins');
@@ -104,7 +125,7 @@ describe('PasswordsLoginsPanel', () => {
     vaultApi.listLogins.mockResolvedValue({ success: true, logins: [linkedin] });
     vaultApi.removeLogin.mockResolvedValue({ success: true });
     render(<PasswordsLoginsPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More for LinkedIn' }));
+    openMenu(await screen.findByRole('button', { name: 'More for LinkedIn' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Remove/ }));
     expect(screen.getByRole('alertdialog').textContent).toContain('www.linkedin.com');
     fireEvent.click(screen.getByRole('button', { name: 'Remove login' }));
@@ -117,7 +138,7 @@ describe('PasswordsLoginsPanel', () => {
     vaultApi.listLogins.mockResolvedValue({ success: true, logins: [linkedin] });
     vaultApi.replacePassword.mockResolvedValue({ success: true, id: 'v_2' });
     render(<PasswordsLoginsPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More for LinkedIn' }));
+    openMenu(await screen.findByRole('button', { name: 'More for LinkedIn' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Replace password/ }));
     expect(screen.getByLabelText('Email')).toHaveProperty('disabled', true);
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-pw' } });

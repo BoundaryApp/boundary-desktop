@@ -13,6 +13,8 @@ import { openSettings } from '../settingsNavigation';
 import { dispatchAppCommand } from '../useAppShortcuts';
 import { leavePanelForWindow, setPanelCircle, usePanelCircle } from './desktopPanel';
 import '../chat/circle/circleChat.css';
+import { Button } from '../../components/ui/button';
+import { NativeSelect } from '../../components/ui/native-select';
 
 /** General exists before the channels have been read. */
 const GENERAL: CircleChannel = { id: 'general', name: 'General', unread: 0, mentioned: false };
@@ -40,10 +42,11 @@ const PanelCircle: React.FC<{ circle: CircleSnapshot; channels: CircleChannel[] 
   return (
     <div className="wb-panel-circle">
       <div className="wb-agent-panel-bar">
-        <button type="button" className="wb-act" aria-label="All Circles" title="All Circles" onClick={() => setPanelCircle(null)}>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="All Circles" title="All Circles" onClick={() => setPanelCircle(null)}>
           ‹
-        </button>
-        <select
+        </Button>
+        <NativeSelect
+          size="sm"
           className="wb-agent-panel-picker"
           aria-label="Conversation"
           value={peer ? directSlot(peer) : channel.id}
@@ -65,7 +68,7 @@ const PanelCircle: React.FC<{ circle: CircleSnapshot; channels: CircleChannel[] 
               ))}
             </optgroup>
           ) : null}
-        </select>
+        </NativeSelect>
       </div>
       <div className="wb-agent-panel-thread">
         {peer ? (

@@ -15,9 +15,9 @@ import {
   noReplyFor,
   resetHermesChatSessionsForTests,
   startHermesChatStream,
-  TURN_QUIET_MS,
   unstreamedFinalText,
 } from '../hermesChatSessions';
+import { TURN_QUIET_MS } from '../turnQuiet';
 import {
   CONTINUE_PROMPT,
   INTERRUPT_SETTLE_MS,
@@ -495,6 +495,32 @@ describe('a quiet turn (slow local model)', () => {
     }
     expect(getLiveStatus).not.toHaveBeenCalled();
     expect(ended()).toHaveLength(0);
+  });
+
+  // Heartbeats say the session is alive, whichever turn is on it, so a queued send waiting for
+  // the turn ahead counts them too; that turn's text and tools are not this turn's (BD-0021).
+  it('counts heartbeats while a queued send waits for the turn ahead', async () => {
+    getTurnLiveness.mockResolvedValue({ heartbeatS: 30, liveStatus: true });
+    submitPrompt.mockResolvedValue({ status: 'queued' });
+    await startHermesChatStream(sender as never, {
+      requestId: 'req-queued',
+      sessionId: 'sess-1',
+      messages: [{ role: 'user', content: 'and then this' }],
+      queued: true,
+    });
+    await vi.waitFor(() => expect(submitPrompt).toHaveBeenCalled());
+    for (let beat = 0; beat < 10; beat += 1) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      emitGateway('turn.heartbeat', { session_id: 'sess-1', payload: { running: true } });
+      emitGateway('message.delta', { session_id: 'sess-1', payload: { text: 'turn ahead' } });
+    }
+    expect(getLiveStatus).not.toHaveBeenCalled();
+    expect(ended()).toHaveLength(0);
+    expect(sender.send.mock.calls.filter(([channel]) => channel === 'hermes-chat:chunk')).toEqual([]);
+
+    emitGateway('message.start', { session_id: 'sess-1' });
+    emitGateway('message.complete', { session_id: 'sess-1', payload: { status: 'complete' } });
+    await vi.waitFor(() => expect(ended()).toHaveLength(1));
   });
 
   it('asks after about two missed heartbeats, not three minutes', async () => {

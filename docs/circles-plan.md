@@ -12,7 +12,7 @@ Builds [ADR 0032](adr/0032-circles.md) (Circles), [0033](adr/0033-inference-chai
 | 3 Circles: identity, invites, roles, presence | Built; not yet tried in the app or between two Macs | 0 |
 | 4 Shared models | In progress: sharing from Inference with away mode, offers, the provider's gateway, shared entries in the router, the ordered chain editor, the Private and Trusted settings, and a shared model as the app default work, and a project's **Private** switch holds its chat sends to private entries; untrusted providers don't serve until change request 0015; metering and quotas are built, not yet tried between two Macs | 2, 3 |
 | 5 Circle chats | In progress: [ADR 0042](adr/0042-circle-chats.md) and the [Circle chats spec](circle-chats-ux-study/spec.md); format 2 and the chat service (spec phases 1 and 2) are built, and Circles as places in the chat (phase 3) are in progress | 3 |
-| Peer signals | Built; not yet tried between two Macs, and nothing in the app uses them yet | 3 |
+| Peer signals | Done: Circle chats send typing and read marks over them, and calls set up over them; call setup passed between two Macs (the call check's **Test call**, 12 Nov 2026) | 3 |
 | Camera and microphone | Built; macOS prompts and camera and microphone access confirmed in a signed build on two Macs (the call check's **Test call**, 12 Nov 2026); the denied-device steps of the checklist not yet run | |
 
 Phases 0 and 1 can run at the same time, and so can 2 and 3.

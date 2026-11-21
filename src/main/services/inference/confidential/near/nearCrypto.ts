@@ -12,7 +12,8 @@ import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import { isRecord, plainRequest, UnsupportedContent } from '../adapterKit';
+import { plainRequest, plainTopLevel, replyObject, TOOL_CHOICE_MODES, UnsupportedContent } from '../adapterKit';
+import { isRecord } from '../../../../../shared/utils/isRecord';
 
 export interface NearClientKeys {
   /** Ed25519 public key, 64 lowercase hex characters. Sent as `X-Client-Pub-Key`. */
@@ -27,7 +28,6 @@ const NONCE_BYTES = 24;
 const TAG_BYTES = 16;
 const HEX_RE = /^(?:[0-9a-fA-F]{2})*$/;
 const MODEL_KEY_RE = /^[0-9a-fA-F]{64}$/;
-const REPLY_TEXT_FIELDS = ['content', 'reasoning_content', 'reasoning', 'refusal'] as const;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 export function newClientKeys(): NearClientKeys {
@@ -155,71 +155,6 @@ function sealTool(tool: unknown, to: Uint8Array): Record<string, unknown> {
   return out;
 }
 
-/** Top-level fields NEAR gets as numbers or booleans. A value of another type is dropped. */
-const NUMBER_FIELDS = ['temperature', 'top_p', 'max_tokens', 'max_completion_tokens', 'n', 'presence_penalty', 'frequency_penalty', 'seed'];
-const BOOLEAN_FIELDS = ['stream', 'parallel_tool_calls'];
-/** An effort level such as `high`: one lowercase word, so free text can't pass as one. */
-const EFFORT_RE = /^[a-z]{1,16}$/;
-/** `response_format` types that carry no text. `json_schema` would send its schema plain. */
-const PLAIN_RESPONSE_FORMATS = new Set(['text', 'json_object']);
-/** String `tool_choice` values. Any other string is dropped. */
-const TOOL_CHOICE_MODES = new Set(['auto', 'none', 'required']);
-
-function isEffort(value: unknown): value is string {
-  return typeof value === 'string' && EFFORT_RE.test(value);
-}
-
-/** The entries of `value` whose values are booleans or finite numbers, or undefined when there are none. */
-function primitiveFlags(value: unknown): Record<string, boolean | number> | undefined {
-  if (!isRecord(value)) return undefined;
-  const out: Record<string, boolean | number> = {};
-  for (const [key, flag] of Object.entries(value)) {
-    if (typeof flag === 'boolean' || (typeof flag === 'number' && Number.isFinite(flag))) out[key] = flag;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-/**
- * The top-level fields NEAR gets besides `messages`, `tools` and `tool_choice`. NEAR encrypts
- * none of them, so only values that can't carry text pass: listed numbers and booleans, a
- * one-word `reasoning_effort`, `stream_options.include_usage`, `reasoning` as `enabled` and
- * `effort`, the boolean and number entries of `chat_template_kwargs`, and a `response_format`
- * of `text` or `json_object`. Everything else is dropped, so an unexpected field from Hermes
- * doesn't fail the turn. `stop` and any other `response_format` throw `UnsupportedContent`,
- * since dropping them would change the reply without saying so.
- */
-function plainTopLevel(body: Record<string, unknown>): Record<string, unknown> {
-  if (typeof body.model !== 'string') throw new UnsupportedContent();
-  if (isPresent(body.stop)) throw new UnsupportedContent();
-  const out: Record<string, unknown> = { model: body.model };
-  for (const field of NUMBER_FIELDS) {
-    if (typeof body[field] === 'number' && Number.isFinite(body[field])) out[field] = body[field];
-  }
-  for (const field of BOOLEAN_FIELDS) {
-    if (typeof body[field] === 'boolean') out[field] = body[field];
-  }
-  if (isEffort(body.reasoning_effort)) out.reasoning_effort = body.reasoning_effort;
-  if (isRecord(body.stream_options) && typeof body.stream_options.include_usage === 'boolean') {
-    out.stream_options = { include_usage: body.stream_options.include_usage };
-  }
-  if (isRecord(body.reasoning)) {
-    const reasoning: Record<string, unknown> = {};
-    if (typeof body.reasoning.enabled === 'boolean') reasoning.enabled = body.reasoning.enabled;
-    if (isEffort(body.reasoning.effort)) reasoning.effort = body.reasoning.effort;
-    if (Object.keys(reasoning).length > 0) out.reasoning = reasoning;
-  }
-  const templateFlags = primitiveFlags(body.chat_template_kwargs);
-  if (templateFlags) out.chat_template_kwargs = templateFlags;
-  if (isPresent(body.response_format)) {
-    const format = body.response_format;
-    if (!isRecord(format) || typeof format.type !== 'string' || !PLAIN_RESPONSE_FORMATS.has(format.type)) {
-      throw new UnsupportedContent();
-    }
-    out.response_format = { type: format.type };
-  }
-  return out;
-}
-
 /**
  * A copy of a chat request, reduced by `plainRequest` (which drops earlier turns' reasoning and
  * log probabilities) and `plainTopLevel`, with every field NEAR encrypts under
@@ -243,63 +178,12 @@ export function encryptRequest(body: Record<string, unknown>, modelKeyHex: strin
   return out;
 }
 
-function openField(record: Record<string, unknown>, field: string, client: NearClientKeys): void {
-  const value = record[field];
-  if (value === undefined || value === null || value === '') return;
-  if (typeof value !== 'string') throw new Error(`NEAR reply field ${field} isn’t a string`);
-  record[field] = decryptField(value, client);
-}
-
-/** A reply's top-level fields Boundary passes on; they carry no model output. */
-const REPLY_TOP_LEVEL = ['id', 'object', 'created', 'model', 'system_fingerprint', 'service_tier', 'usage'] as const;
-
-/** The listed fields of `record` that are present. */
-function picked(record: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const field of fields) if (field in record) out[field] = record[field];
-  return out;
-}
-
 /**
- * A reply message or delta reduced to `role`, the encrypted text fields (decrypted) and tool calls
- * as `index`, `id`, `type` and `function.{name, arguments}`. Anything else (`function_call`,
- * `nearai_tool_result`, `audio`) is outside what NEAR encrypts, so it is dropped rather than passed
- * on as if the model had sent it.
- */
-function openReplyMessage(message: unknown, client: NearClientKeys): unknown {
-  if (!isRecord(message)) return message;
-  const out = picked(message, ['role', ...REPLY_TEXT_FIELDS]);
-  for (const field of REPLY_TEXT_FIELDS) openField(out, field, client);
-  if (Array.isArray(message.tool_calls)) {
-    out.tool_calls = message.tool_calls.map((call: unknown): unknown => {
-      if (!isRecord(call)) return call;
-      const kept = picked(call, ['index', 'id', 'type']);
-      if (!isRecord(call.function)) return kept;
-      const fn = picked(call.function, ['name', 'arguments']);
-      openField(fn, 'name', client);
-      openField(fn, 'arguments', client);
-      return { ...kept, function: fn };
-    });
-  }
-  return out;
-}
-
-/**
- * A copy of a completion or stream chunk with every encrypted reply field decrypted, keeping only
- * the fields listed here. Each choice keeps `index`, `finish_reason` and its message or delta;
- * `logprobs`, `stop_reason` and other plain fields are dropped.
+ * A copy of a completion or stream chunk with every encrypted reply field decrypted, reduced to
+ * the fields `replyObject` keeps.
  */
 export function decryptReplyObject(obj: Record<string, unknown>, client: NearClientKeys): Record<string, unknown> {
-  const out = picked(obj, REPLY_TOP_LEVEL);
-  if (!Array.isArray(obj.choices)) return out;
-  out.choices = obj.choices.map((choice: unknown): unknown => {
-    if (!isRecord(choice)) return choice;
-    const kept = picked(choice, ['index', 'finish_reason']);
-    if ('message' in choice) kept.message = openReplyMessage(choice.message, client);
-    if ('delta' in choice) kept.delta = openReplyMessage(choice.delta, client);
-    return kept;
-  });
-  return out;
+  return replyObject(obj, (value) => decryptField(value, client));
 }
 
 export function nearHeaders(client: NearClientKeys, modelKeyHex: string): Record<string, string> {

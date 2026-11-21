@@ -9,8 +9,9 @@ import type {
 
 /**
  * Coding grants (ADR 0028 §3). Each record has the host bridge's grant shape (ADR 0027 §7)
- * with coding fields beside it. This is its own store until the bridge's store is on main;
- * then the records move into the bridge's `grants` list unchanged.
+ * with coding fields beside it. The records stay in their own store because they carry
+ * per-folder coding state (ADR 0028), such as the last verify result, which the bridge's `grants`
+ * list has no place for.
  */
 
 interface CodingGrantStoreShape {

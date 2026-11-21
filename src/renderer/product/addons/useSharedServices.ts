@@ -27,13 +27,3 @@ export async function reloadSharedServices(): Promise<void> {
 export function useSharedServices(): SharedServicesView {
   return useIpcStore(view);
 }
-
-/** The line to show when a Circles call fails, or null. */
-export async function circlesFailure(call: () => Promise<{ success: boolean; error?: string }>): Promise<string | null> {
-  try {
-    const result = await call();
-    return result.success ? null : (result.error ?? 'That didn’t work.');
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}

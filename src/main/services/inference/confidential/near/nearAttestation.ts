@@ -13,6 +13,7 @@ import { Quote, getCollateralFromPcs, verify, type VerifiedReport } from '@phala
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { createRemoteJWKSet, customFetch, errors as joseErrors, jwtVerify } from 'jose';
+import { isRecord } from '../../../../../shared/utils/isRecord';
 
 export interface NearQuoteResult {
   status: string;
@@ -406,6 +407,3 @@ function parseJson(text: string): unknown {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}

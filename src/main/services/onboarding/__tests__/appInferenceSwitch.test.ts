@@ -27,18 +27,20 @@ vi.mock('../../windows', () => ({ broadcast }));
 import { cancelAppSwitch, currentAppSwitch, switchAppInference } from '../appInferenceSwitch';
 import {
   clearOpenAiConfig,
+  getOpenAiOnboardingStatus,
+  saveLlmConnection,
+  saveOAuthCredentials,
+  updateLlmModel,
+} from '../OpenAiOnboardingStore';
+import {
   getAppDefaultSlot,
   getAppFallbacks,
   getAppSharedModel,
-  getOpenAiOnboardingStatus,
   readAppInferenceChoice,
   restoreAppInferenceChoice,
-  saveLlmConnection,
-  saveOAuthCredentials,
   setAppDefault,
   setAppSharedModel,
-  updateLlmModel,
-} from '../OpenAiOnboardingStore';
+} from '../../inference/appInferenceChoice';
 import { MANUAL_LLM_CAPABILITIES, OAUTH_LLM_CAPABILITIES } from '../../../../shared/llmConnectionDefaults';
 
 const shared: InferenceChainEntry = {

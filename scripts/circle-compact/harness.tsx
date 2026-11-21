@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import type { CircleMessage, CircleSnapshot } from '../../src/shared/types/circles';
 import type { CircleChatView } from '../../src/renderer/product/circles/useCircleChat';
 import { CircleThread } from '../../src/renderer/product/chat/circle/CircleThread';
-import '../../src/index.css';
+import './harness.css';
 import 'streamdown/styles.css';
 import '../../src/renderer/product/chat/workbench.css';
 import '../../src/renderer/product/circles/circles.css';
@@ -34,6 +34,7 @@ const circle: CircleSnapshot = {
   offers: [],
   needsUpdate: false,
   writable: true,
+  format: 3,
 };
 
 let seq = 0;
@@ -53,6 +54,8 @@ const message = (text: string, extra: Partial<CircleMessage> = {}): CircleMessag
   call: null,
   mine: false,
   reactions: [],
+  mentions: null,
+  reply: null,
   ...extra,
 });
 
@@ -102,8 +105,8 @@ const chat: CircleChatView = {
 };
 
 const channels = [
-  { id: 'general', name: 'General', unread: 0 },
-  { id: 'garden', name: 'Garden plots and the shared shed', unread: 12 },
+  { id: 'general', name: 'General', unread: 0, mentioned: false },
+  { id: 'garden', name: 'Garden plots and the shared shed', unread: 12, mentioned: false },
 ];
 
 createRoot(document.getElementById('root')!).render(

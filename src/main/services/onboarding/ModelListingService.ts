@@ -4,7 +4,7 @@ import {
   lookupAaBenchmarks,
 } from './openrouterAaBenchmarks';
 import { endpointPath, isOpenRouterUrl } from '../../../shared/utils/endpointUrl';
-import { llmAuthorizationHeader } from './llmEndpoint';
+import { llmRequestHeaders } from './llmEndpoint';
 
 const LIST_MODELS_TIMEOUT_MS = 30_000;
 
@@ -60,13 +60,7 @@ function parseOpenAiModelsResponse(body: unknown): ListedModel[] {
 }
 
 function buildRequestHeaders(input: ListEndpointModelsInput): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    ...input.extraHeaders,
-  };
-  const authorization = llmAuthorizationHeader(input);
-  if (authorization) headers.Authorization = authorization;
-  return headers;
+  return { Accept: 'application/json', ...llmRequestHeaders(input, { contentType: false }) };
 }
 
 export async function listEndpointModels(

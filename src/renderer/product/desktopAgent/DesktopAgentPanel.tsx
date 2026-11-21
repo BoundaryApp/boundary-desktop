@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../shared/types/hermesChat';
+import { Button } from '../../components/ui/button';
 import { useOwnerDocument, useOwnerWindow } from '../../components/ui/ownerDocument';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { useBuiltinName } from '../agentButton/agentActivity';
 import { AgentChatPanel } from '../agentPanel/AgentChatPanel';
 import { usePanelChat } from '../agentPanel/agentPanelChat';
@@ -124,42 +126,42 @@ export const DesktopAgentPanel: React.FC = () => {
   useFocusComposer(root, tab);
 
   return (
+    <Tabs value={tab} onValueChange={(value) => setDesktopPanelTab(value as DesktopPanelTab)} asChild>
     <div className="wb-desktop-panel" ref={root}>
       <div className="wb-desktop-panel-bar">
         <span className="wb-desktop-panel-agent">
           <AgentMark agent={{ slug: BUILTIN_ASSISTANT_SLUG, displayName: name, builtIn: true }} size={24} />
           <b>{name}</b>
         </span>
-        <div role="tablist" aria-label="Panel" className="wb-desktop-panel-tabs">
+        {/* -my-2 takes back the bar's padding so the underline meets its bottom edge. */}
+        <TabsList aria-label="Panel" variant="bar" className="-my-2 ml-auto">
           {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.id}
-              className={`wb-desktop-panel-tab${tab === item.id ? ' is-active' : ''}`}
-              onClick={() => setDesktopPanelTab(item.id)}
-            >
+            <TabsTrigger key={item.id} value={item.id}>
               {item.label}
-            </button>
+            </TabsTrigger>
           ))}
-        </div>
-        <button
+        </TabsList>
+        <Button
           type="button"
-          className="wb-act"
+          variant="quiet"
+          size="icon-xs"
           aria-label={`Open in ${APP_NAME}’s window`}
           title={`Open in ${APP_NAME}’s window`}
           onClick={() => (tab === 'agent' ? expand(chatId) : expandCircle())}
         >
           ⤢
-        </button>
-        <button type="button" className="wb-act" aria-label="Close" title="Close · Esc" onClick={close}>
+        </Button>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="Close" title="Close · Esc" onClick={close}>
           ×
-        </button>
+        </Button>
       </div>
-      <div role="tabpanel" className="wb-desktop-panel-body">
-        {tab === 'agent' ? <AgentChatPanel onExpand={onExpand} /> : <CirclesPanelTab />}
-      </div>
+      <TabsContent value="agent" className="wb-desktop-panel-body">
+        <AgentChatPanel onExpand={onExpand} />
+      </TabsContent>
+      <TabsContent value="circles" className="wb-desktop-panel-body">
+        <CirclesPanelTab />
+      </TabsContent>
     </div>
+    </Tabs>
   );
 };

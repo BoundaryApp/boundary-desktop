@@ -1,4 +1,4 @@
-import React, { Profiler, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Profiler, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ComposerPrimitive, ThreadPrimitive } from '@assistant-ui/react';
 import { useAui, useAuiState } from '@assistant-ui/store';
 import type {
@@ -42,7 +42,8 @@ import { displayHostPath, formatPhaseLine, sharedFallbackMarkText } from './chat
 import { ContextMeter } from './ContextMeter';
 import { ThreadEmpty } from './ThreadEmpty';
 import { RunButton } from './RunButton';
-import { BusySendMenu } from './BusySendMenu';
+import { BUSY_SEND_CHOICES, BusySendMenu } from './BusySendMenu';
+import { useListNavigation } from '../../components/ui/use-list-navigation';
 import { QueueChips } from './QueueChips';
 import { useRunQueueControl } from './useRunQueueControl';
 import { projectMarkText } from './projectMove';
@@ -72,12 +73,14 @@ import { poolModelName, useConfidentialState } from '../inference/useConfidentia
 import { ThreadInterrupts } from './ThreadInterrupts';
 import { MentionMenu } from './MentionMenu';
 import { useLiveTurn } from './useLiveTurn';
+import { useOnChatSwitch } from './useOnChatSwitch';
 import { findRunningTurn, isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 import { useChatInterrupts } from './useChatInterrupts';
 import { useMentionMenu } from './useMentionMenu';
 import { useCommandMenu } from './useCommandMenu';
 import { CommandMenu } from './CommandMenu';
 import { KeptVoiceChip, MessageVoiceChip } from './WritingVoiceChips';
+import { useStackCapability } from '../stackCapabilities';
 import { useChatWritingVoice } from './useChatWritingVoice';
 import { useWritingVoiceOptions } from '../writingVoices/useWritingVoiceOptions';
 import { useChatInference } from './useChatInference';
@@ -86,6 +89,8 @@ import { composerBlockFor, composerGate } from './composerGate';
 import { composerSharedHint, sharedFoldersIn, useSharedFoldersOnMac } from './sharedFolderProject';
 import { Button } from '../../components/ui/button';
 import { Switch } from '../../components/ui/switch';
+import { Tabs, TabsContent } from '../../components/ui/tabs';
+import type { PatchProjectInference } from './useProjects';
 
 export interface BranchedFrom {
   parentTitle: string;
@@ -180,8 +185,8 @@ interface WorkbenchThreadProps {
   onCheckReply?: (check: { messageId: string; markdown: string; source: string }) => void;
   /** Sends a project file the agent wrote to the inspector's Check tab. */
   onCheckProjectFile?: (projectId: string, relativePath: string) => void;
-  /** Takes the project list after the chat patches its project (Allow level B). */
-  onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /** Saves the chat's project pin (Allow level B) and updates the project list. */
+  patchInference?: PatchProjectInference;
   /**
    * The agent panel's layout (ADR 0058 §7): no header, since the panel draws its own; no
    * project chip; `placeholder` for the idle composer; Escape left to close the panel rather
@@ -195,6 +200,30 @@ interface WorkbenchThreadProps {
 // Stable default: a fresh `[]` per render would retrigger the mention effect forever.
 const NO_AGENTS: AgentProfile[] = [];
 const NO_PROJECT_MARKS: SessionProjectMark[] = [];
+
+/**
+ * In a DM with tabs, the thread below its header is the Messages panel of the header's tabs.
+ * Elsewhere the header and thread render as they are. A DM is its own session, so the wrapper
+ * only changes when the thread remounts anyway.
+ */
+const DmTabsFrame: React.FC<{
+  tabs: { active: DmTab; onChange: (tab: DmTab) => void } | null | undefined;
+  head: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ tabs, head, children }) =>
+  tabs ? (
+    <Tabs value={tabs.active} onValueChange={(value) => tabs.onChange(value as DmTab)} className="contents">
+      {head}
+      <TabsContent value="messages" className="wb-dm-panel">
+        {children}
+      </TabsContent>
+    </Tabs>
+  ) : (
+    <>
+      {head}
+      {children}
+    </>
+  );
 
 export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   sessionId,
@@ -243,7 +272,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   onShareToCircle,
   onCheckReply,
   onCheckProjectFile,
-  onProjectsUpdated,
+  patchInference,
 }) => {
   // Read when Share is pressed, so the reply carries the model the chip shows then.
   const shareModelRef = useRef<string | null>(null);
@@ -294,7 +323,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   const [findOpen, setFindOpen] = useState(false);
   const ownerDocument = useOwnerDocument();
   const ownerWindow = useOwnerWindow();
-  useEffect(() => setFindOpen(false), [sessionId]);
+  useOnChatSwitch(sessionId, sameChat, () => setFindOpen(false));
   useEffect(() => {
     if (!isDm) return undefined;
     const onKey = (event: KeyboardEvent) => {
@@ -328,7 +357,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   const [voiceChip, setVoiceChip] = useState<string | null>(null);
   const voiceChipRef = useRef<string | null>(null);
   voiceChipRef.current = voiceChip;
-  useEffect(() => setVoiceChip(null), [sessionId]);
+  useOnChatSwitch(sessionId, sameChat, () => setVoiceChip(null));
   /** Before each send: the chip's voice rides in the run config once, then the chip goes. */
   const armSendVoice = useCallback(() => {
     const id = voiceChipRef.current;
@@ -364,7 +393,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
   );
 
   const [previewPath, setPreviewPath] = useState<string | null>(null);
-  useEffect(() => setPreviewPath(null), [sessionId]);
+  useOnChatSwitch(sessionId, sameChat, () => setPreviewPath(null));
   const projectFiles = useMemo<ProjectFiles>(
     () => ({
       project: activeProject,
@@ -374,12 +403,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     }),
     [activeProject, onCheckProjectFile]
   );
-  // Reveal only for a page inside the bound project's folder.
+  // Reveal only for a page inside the bound project's folder, on a host that can see it.
+  const hostFolders = useStackCapability('hostFolders');
   const previewRelative = previewPath
     ? projectRelativePath(previewPath, activeProject?.containerPath)
     : null;
   const revealPreview =
-    activeProject && previewRelative
+    hostFolders && activeProject && previewRelative
       ? () => {
           void window.electronAPI.hermesChat
             .revealProjectFile({ projectId: activeProject.id, relativePath: previewRelative })
@@ -463,10 +493,12 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     agent?.displayName ??
     builtinAgentName(agents);
 
+  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
   const interrupts = useChatInterrupts({
     sessionId,
     sameChat,
     speakerSlug: live.liveSpeakerSlug ?? agent?.slug ?? BUILTIN_AGENT_FALLBACK.slug,
+    knownProjectIds,
   });
   const { approval, chatApprovals, credentialRequest } = interrupts;
 
@@ -501,7 +533,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     sameChat,
     send: sendNow,
     project: activeProject,
-    onProjectsUpdated,
+    patchInference,
     takeNewChatWritingVoice: chatVoice.takeForNewChat,
   });
   const voiceAgent = agent ?? agents.find((a) => a.builtIn) ?? null;
@@ -643,6 +675,29 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
     restoreVoiceChip: setVoiceChip,
   });
   const { pauseQueue, handleKeyDown: handleRunQueueKeyDown } = runQueue;
+
+  // While a list above the composer is open, the composer names it and its active row. The
+  // lists' own hooks keep the keys (handleComposerKeyDown below).
+  const commandListId = useId();
+  const mentionListId = useId();
+  const busyListId = useId();
+  const composerList = command.showing
+    ? { id: commandListId, count: command.items.length, active: command.index }
+    : mention.showing
+      ? { id: mentionListId, count: mention.items.length, active: mention.index }
+      : runQueue.menuIndex !== null
+        ? { id: busyListId, count: BUSY_SEND_CHOICES.length, active: runQueue.menuIndex }
+        : null;
+  const composerNav = useListNavigation({
+    id: composerList?.id ?? mentionListId,
+    open: composerList !== null,
+    count: composerList?.count ?? 0,
+    active: composerList?.active ?? -1,
+    onActiveChange: () => undefined,
+  });
+  // A multi-line composer stays a textbox (combobox is for single-line fields), which takes
+  // aria-controls, aria-autocomplete and aria-activedescendant but not aria-expanded.
+  const { onKeyDown: _navKeys, role: _role, 'aria-expanded': _expanded, ...composerAria } = composerNav.fieldProps;
 
   const { handleMentionKeyDown } = mention;
   const { handleKeyDown: handleCommandKeyDown } = command;
@@ -833,7 +888,9 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       className="relative flex h-full min-h-0 flex-col"
       onKeyDown={onPaneKeyDown}
     >
-      {compact ? null : <ThreadHead
+      <DmTabsFrame
+        tabs={!compact && isDm ? dmTabs : null}
+        head={compact ? null : <ThreadHead
         kind={conversationKind}
         threadTitle={threadTitle}
         agent={agent}
@@ -855,6 +912,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
         onAddAgentToChannel={onAddAgentToChannel}
         dmTabs={dmTabs}
       />}
+      >
 
       {isDm && findOpen ? <DmFindBar onClose={closeFind} /> : null}
 
@@ -962,6 +1020,8 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       >
         {command.showing ? (
           <CommandMenu
+            listId={commandListId}
+            optionId={composerNav.optionId}
             query={command.query}
             items={command.items}
             index={command.index}
@@ -970,7 +1030,13 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             onPick={command.pick}
           />
         ) : mention.showing ? (
-          <MentionMenu items={mention.items} index={mention.index} onPick={mention.insertMention} />
+          <MentionMenu
+            listId={mentionListId}
+            optionId={composerNav.optionId}
+            items={mention.items}
+            index={mention.index}
+            onPick={mention.insertMention}
+          />
         ) : null}
 
         <SelectionQuote onQuote={onQuote} onCheck={onCheckReply} />
@@ -980,14 +1046,15 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             {quote ? (
               <div className="wb-quote">
                 <p>{quote}</p>
-                <button
+                <Button
                   type="button"
-                  className="wb-act"
+                  variant="quiet"
+                  size="icon-xs"
                   aria-label="Remove quote"
                   onClick={() => setQuote(null)}
                 >
                   ×
-                </button>
+                </Button>
               </div>
             ) : null}
             {offlinePrompt ? (
@@ -1045,6 +1112,8 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
             <div className="wb-input-box">
               {runQueue.menuIndex !== null ? (
                 <BusySendMenu
+                  listId={busyListId}
+                  optionId={composerNav.optionId}
                   agentName={speakerName}
                   activeIndex={runQueue.menuIndex}
                   alwaysQueue={runQueue.alwaysQueue}
@@ -1070,6 +1139,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
                 // The pane owns Esc (onPaneKeyDown): open lists close first, and the
                 // double-click guard applies. The input's own Esc-cancel skips both.
                 cancelOnEscape={false}
+                {...composerAria}
                 onKeyDown={handleComposerKeyDown}
                 title={mention.showing ? 'Enter to select mention · Esc to dismiss' : gate.title}
               />
@@ -1146,6 +1216,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
               <button
                 type="button"
                 className="wb-chip"
+                aria-label="Mention"
                 disabled={connecting}
                 onClick={mention.openFromChip}
               >
@@ -1171,6 +1242,7 @@ export const WorkbenchThread: React.FC<WorkbenchThreadProps> = ({
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>
+      </DmTabsFrame>
     </ThreadPrimitive.Root>
   );
 };

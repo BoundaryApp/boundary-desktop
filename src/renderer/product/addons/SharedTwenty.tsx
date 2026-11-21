@@ -3,13 +3,23 @@ import type { ShareLevel } from '../../../shared/serviceOffers';
 import type { TwentyAccess } from '../../../shared/types/addons';
 import type { OfferedService, SharingCircle } from '../../../shared/types/sharedServices';
 import { Pill } from '../../components/ui/badge';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Field } from '../../components/ui/field';
 import { Segmented } from '../../components/ui/segmented';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { Panel } from './AddonPanel';
 import { ACCESS_LABEL } from './addonCopy';
-import { circlesFailure, reloadSharedServices } from './useSharedServices';
+import { reloadSharedServices } from './useSharedServices';
+import { lineFromIpc } from './addonPageActions';
+
+/** What a Circles call shows when it fails without saying why. */
+const CIRCLES_FALLBACK = 'That didn’t work.';
 import { reloadTwenty } from './useTwenty';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
+import { STACK_CAPABILITY_MISSING_TEXT } from '../../../shared/stackCapabilities';
+import { useStackCapability } from '../stackCapabilities';
 
 type MemberChoice = ShareLevel | 'none';
 
@@ -34,8 +44,7 @@ export const ShareSheet: React.FC<{
   const [members, setMembers] = useState<Record<string, MemberChoice>>(() =>
     Object.fromEntries((circle?.members ?? []).map((m) => [m.identity, m.level ?? (circle?.offer ? 'none' : 'read')]))
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useSheetAction();
   if (!circle) return null;
 
   const pick = (key: string) => {
@@ -48,8 +57,7 @@ export const ShareSheet: React.FC<{
   };
 
   const save = async () => {
-    setBusy(true);
-    const problem = await circlesFailure(() =>
+    const problem = await run(() => lineFromIpc(() =>
       window.electronAPI.circles.serviceShare({
         circle: circle.circle,
         write,
@@ -60,9 +68,8 @@ export const ShareSheet: React.FC<{
             choice === 'none' ? null : choice === 'write' && !write ? 'read' : choice,
           ])
         ),
-      })
-    );
-    setBusy(false);
+      }), CIRCLES_FALLBACK
+    ));
     void reloadSharedServices();
     if (problem) setError(problem);
     else onClose();
@@ -96,7 +103,7 @@ export const ShareSheet: React.FC<{
       </p>
       {circles.length > 1 && !initial ? (
         <Field label="Circle" htmlFor="twenty-share-circle">
-          <select
+          <NativeSelect
             id="twenty-share-circle"
             value={circle.circle}
             disabled={busy}
@@ -107,7 +114,7 @@ export const ShareSheet: React.FC<{
                 {c.circleName}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </Field>
       ) : null}
       <Field
@@ -155,10 +162,10 @@ export const ShareSheet: React.FC<{
       ) : (
         <p className="text-xs text-fg-faint">Nobody else is in this Circle yet.</p>
       )}
-      <label className="flex cursor-pointer items-center gap-2 text-xs">
-        <input type="checkbox" checked={away} disabled={busy} onChange={(event) => setAway(event.target.checked)} />
-        <span className="text-fg">Keep this Mac awake while Boundary is open</span>
-      </label>
+      <ChoiceRow
+        control={<Checkbox checked={away} disabled={busy} onChange={(event) => setAway(event.target.checked)} />}
+        title="Keep this Mac awake while Boundary is open"
+      />
     </Sheet>
   );
 };
@@ -168,22 +175,17 @@ export const SharedLine: React.FC<{
   circle: SharingCircle;
   onChange(): void;
 }> = ({ circle, onChange }) => {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run } = useSheetAction();
   const offer = circle.offer!;
   const withAccess = circle.members.filter((m) => m.level);
   const without = circle.members.length - withAccess.length;
 
   const stop = async () => {
-    setBusy(true);
-    setError(
-      await circlesFailure(() =>
-        window.electronAPI.circles.serviceStopSharing({
-          circle: circle.circle,
-        })
+    await run(async () =>
+      setError(
+        await lineFromIpc(() => window.electronAPI.circles.serviceStopSharing({ circle: circle.circle }), CIRCLES_FALLBACK)
       )
     );
-    setBusy(false);
     void reloadSharedServices();
   };
 
@@ -230,29 +232,33 @@ const OfferedRow: React.FC<{
   access: TwentyAccess | null;
   accessSwitch(slug: string, value: TwentyAccess): React.ReactNode;
 }> = ({ offer, access, accessSwitch }) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useSheetAction();
   const used = offer.slug !== null;
+  // Turning one on needs the stack's containers to reach a listener on this machine.
+  const canUse = useStackCapability('hostCallbacks') || used;
 
   const toggle = async (on: boolean, access: TwentyAccess = 'read') => {
-    setBusy(true);
     const ref = {
       circle: offer.circle,
       provider: offer.provider,
       service: offer.service,
     };
-    setError(
-      await circlesFailure(() =>
-        on ? window.electronAPI.circles.serviceUse({ ...ref, access }) : window.electronAPI.circles.serviceStopUsing(ref)
+    await run(async () =>
+      setError(
+        await lineFromIpc(
+          () => (on ? window.electronAPI.circles.serviceUse({ ...ref, access }) : window.electronAPI.circles.serviceStopUsing(ref)),
+          CIRCLES_FALLBACK
+        )
       )
     );
-    setBusy(false);
     void reloadSharedServices();
     void reloadTwenty();
   };
 
   const allows = offer.levels.includes('write') ? 'look things up and make changes' : 'look things up';
-  const line = !offer.available
+  const line = !canUse
+    ? STACK_CAPABILITY_MISSING_TEXT.hostCallbacks
+    : !offer.available
     ? `${offer.providerName} has paused sharing it.`
     : !offer.online
       ? `Calls say ${offer.providerName}’s Mac is offline until it’s back.`
@@ -277,10 +283,10 @@ const OfferedRow: React.FC<{
       </div>
       {offer.slug && access ? <div>{accessSwitch(offer.slug, access)}</div> : null}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-fg-muted">
-        <label className="flex cursor-pointer items-center gap-2">
-          <input type="checkbox" checked={used} disabled={busy} onChange={(event) => void toggle(event.target.checked)} />
-          <span className="text-fg">Use in my agent</span>
-        </label>
+        <ChoiceRow
+          control={<Checkbox checked={used} disabled={busy || !canUse} onChange={(event) => void toggle(event.target.checked)} />}
+          title="Use in my agent"
+        />
         <span>{line}</span>
         {error ? <span className="w-full text-danger">{error}</span> : null}
       </div>

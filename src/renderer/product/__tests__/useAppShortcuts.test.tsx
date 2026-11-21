@@ -23,10 +23,45 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'n', ctrlKey: true }), true)).toBeNull();
   });
 
+  it('maps exactly these ⌘ keys', () => {
+    const keys = [...'abcdefghijklmnopqrstuvwxyz0123456789,.;/[]\\-=`\''];
+    const mapped = Object.fromEntries(
+      keys.flatMap((k) => {
+        const command = matchShortcut(key({ key: k, metaKey: true }), true);
+        return command ? [[k, command]] : [];
+      })
+    );
+    expect(mapped).toEqual({
+      n: 'new-chat',
+      j: 'toggle-agent',
+      '1': 'go-chat',
+      '2': 'go-circles',
+      '3': 'go-inference',
+      '4': 'go-services',
+      '5': 'go-resources',
+      ',': 'go-settings',
+      '[': 'prev-thread',
+      ']': 'next-thread',
+    });
+    expect(matchShortcut(key({ key: 'N', metaKey: true }), true)).toBe('new-chat');
+  });
+
   it('ignores shifted, alt, and unmodified keys', () => {
     expect(matchShortcut(key({ key: 'n', metaKey: true, shiftKey: true }), true)).toBeNull();
     expect(matchShortcut(key({ key: 'n', metaKey: true, altKey: true }), true)).toBeNull();
     expect(matchShortcut(key({ key: 'n' }), true)).toBeNull();
+  });
+
+  it('maps ⌥⌘0 / Ctrl+Alt+0 to the inspector by physical key, since Option changes the character', () => {
+    expect(matchShortcut(key({ key: 'º', code: 'Digit0', metaKey: true, altKey: true }), true)).toBe(
+      'toggle-inspector'
+    );
+    expect(matchShortcut(key({ key: '0', code: 'Digit0', ctrlKey: true, altKey: true }), false)).toBe(
+      'toggle-inspector'
+    );
+    expect(matchShortcut(key({ key: '¡', code: 'Digit1', metaKey: true, altKey: true }), true)).toBeNull();
+    expect(formatShortcut('toggle-inspector', true)).toBe('⌥⌘0');
+    expect(formatShortcut('toggle-inspector', false)).toBe('Ctrl+Alt+0');
   });
 
   it('formats shortcut labels per platform', () => {

@@ -19,6 +19,11 @@ import {
   defaultDockerApiEndpoint,
   dockerodeOptionsFromApiEndpoint,
 } from '../containerRuntime/apiEndpoint';
+import {
+  getRuntimeProvisionStage,
+  onRuntimeProvisionStage,
+  resetRuntimeProvisionProgressForTests,
+} from '../containerRuntime/provisionProgress';
 import { fakeChild } from './fakeChild';
 
 describe('dockerodeOptionsFromApiEndpoint', () => {
@@ -78,6 +83,7 @@ function systemDockerDeps(
 describe('resolveContainerRuntime', () => {
   afterEach(() => {
     resetContainerRuntimeCache();
+    resetRuntimeProvisionProgressForTests();
   });
 
   it('returns a system docker runtime when CLI and daemon respond', async () => {
@@ -113,6 +119,7 @@ describe('resolveContainerRuntime', () => {
     expect(runtime.env.PATH?.split(':')[0]).toBe('/fake/bin');
     expect(runtime.version.cli).toBe('27.0.0');
     expect(runtime.version.compose).toBe('2.29.0');
+    expect(getRuntimeProvisionStage()).toMatchObject({ stage: 'ready', reached: ['docker', 'ready'] });
   });
 
   it('falls back to bundled Podman when Docker is unavailable', async () => {
@@ -151,6 +158,8 @@ describe('resolveContainerRuntime', () => {
       throw new Error(`unexpected ${bin} ${args.join(' ')}`);
     });
 
+    const stages: string[] = [];
+    const stopWatching = onRuntimeProvisionStage((snapshot) => stages.push(snapshot.stage));
     try {
       const runtime = await resolveContainerRuntime({
         execFile: execFile as never,
@@ -173,7 +182,9 @@ describe('resolveContainerRuntime', () => {
       expect(runtime.apiEndpoint).toBe('unix:///tmp/boundary.sock');
       expect(runtime.version.compose).toBe('2.38.2');
       expect(fs.existsSync(paths.containersConfPath)).toBe(true);
+      expect(stages).toEqual(['docker', 'configure', 'ready']);
     } finally {
+      stopWatching();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

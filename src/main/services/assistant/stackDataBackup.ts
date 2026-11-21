@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { requireStackCapability } from '../stackHost/capabilities';
 
 /**
  * Data under the stack's `data/` that a new release may migrate in place, with no way back:
@@ -23,6 +24,7 @@ export async function backupStackDataBeforeUpgrade(options: {
   backupsRoot: string;
   name: string;
 }): Promise<string | null> {
+  requireStackCapability('provision');
   const { dataRoot, backupsRoot, name } = options;
   const present = UPGRADE_BACKUP_DATA_DIRS.filter((dir) => fs.existsSync(path.join(dataRoot, dir)));
   if (present.length === 0) return null;

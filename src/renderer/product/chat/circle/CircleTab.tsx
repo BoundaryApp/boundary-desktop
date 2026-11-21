@@ -132,6 +132,8 @@ const PersonView: React.FC<{
 
 /** The inspector's Circle tab (ADR 0043 §3): the Circle, its channels, its people and its invites. */
 export const CircleTab: React.FC<{
+  /** The aside's id, for the button that opens it. */
+  id?: string;
   circle: CircleSnapshot;
   circles: CirclesState;
   channels: CircleChannel[];
@@ -155,7 +157,7 @@ export const CircleTab: React.FC<{
   onCall?: (identity: string) => void;
   /** Who this window's call is with; they get no **Call**. */
   callWith?: string | null;
-}> = ({ circle, circles, channels, hints, person, onPerson, onClose, onInvite, onConfirm, onChannelSheet, onCallCheck, onRemoveMessages, onMessage, onCall, callWith }) => {
+}> = ({ id, circle, circles, channels, hints, person, onPerson, onClose, onInvite, onConfirm, onChannelSheet, onCallCheck, onRemoveMessages, onMessage, onCall, callWith }) => {
   const admin = circle.myRole === 'admin';
   // Someone who has left the Circle closes their view.
   const member = person ? (circle.members.find((item) => item.identity === person) ?? null) : null;
@@ -163,7 +165,7 @@ export const CircleTab: React.FC<{
   const invites = admin ? openInvites(circle, now) : [];
   const alone = isAlone(circle);
   return (
-    <aside className="wb-right wb-circle-insp" aria-label={member ? member.name : 'Circle details'}>
+    <aside id={id} className="wb-right wb-circle-insp" aria-label={member ? member.name : 'Circle details'}>
       <nav className="wb-insp-tabs" aria-label="Inspector">
         {member ? (
           <button type="button" className="wb-insp-tab wb-circle-insp-back" aria-label={`Back to ${circle.name}`} onClick={() => onPerson(null)}>
@@ -172,9 +174,9 @@ export const CircleTab: React.FC<{
         ) : (
           <span className="wb-insp-tab is-on">Circle</span>
         )}
-        <button type="button" className="wb-act wb-circle-insp-close" aria-label="Close Circle details" onClick={onClose}>
+        <Button type="button" variant="quiet" size="icon-xs" className="wb-circle-insp-close" aria-label="Close Circle details" onClick={onClose}>
           ✕
-        </button>
+        </Button>
       </nav>
       {member ? (
         <PersonView circle={circle} member={member} onConfirm={onConfirm} onMessage={onMessage} onCall={onCall} callWith={callWith} />

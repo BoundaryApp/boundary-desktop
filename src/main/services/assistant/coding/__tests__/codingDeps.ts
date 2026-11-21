@@ -1,12 +1,23 @@
 /**
- * Stands in for the coding grant deps (`CodingGrantDeps`): no compose, git, Trash or audit log.
- * `fakeCodingDeps` installs the fakes with `setCodingGrantDepsForTests` and returns what they
- * were called with. Tests reset with `setCodingGrantDepsForTests(null)`.
+ * Stands in for the coding grant and folder deps (`CodingGrantDeps`, `CodingFolderDeps`): no
+ * compose, git, Trash or audit log. `fakeCodingDeps` installs the fakes with
+ * `setCodingGrantDepsForTests` and `setCodingFolderDepsForTests` and returns what they were
+ * called with. Tests reset with `resetCodingDepsForTests()`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AuditEntry } from '../../../hostBridge/auditLog';
+import { setCodingFolderDepsForTests, type CodingFolderDeps } from '../codingFolderDeps';
 import { setCodingGrantDepsForTests, type CodingGrantDeps } from '../codingGrants';
+
+/** One override per dep, grant or folder. */
+export type CodingDepOverrides = Partial<CodingGrantDeps & CodingFolderDeps>;
+
+/** Put back the real grant and folder deps. */
+export function resetCodingDepsForTests(): void {
+  setCodingGrantDepsForTests(null);
+  setCodingFolderDepsForTests(null);
+}
 
 /** Create `root/...parts` (and its parents) and return its path. */
 export function makeFolder(root: string, ...parts: string[]): string {
@@ -30,7 +41,7 @@ export interface FakeCodingDepsOptions {
   /** Boundary's own data folders for `ruleOptions`. Defaults to `<home>/boundary`. */
   boundaryDataPaths?: string[];
   git?: GitAnswers;
-  overrides?: Partial<CodingGrantDeps>;
+  overrides?: CodingDepOverrides;
 }
 
 export interface CodingDepCalls {
@@ -61,7 +72,7 @@ export function fakeCodingDeps({
     audit: [],
     order: [],
   };
-  const deps: Partial<CodingGrantDeps> = {
+  const deps: CodingDepOverrides = {
     isLocalStack: () => false,
     busy: async () => ({ busy: false, sessions: [] }),
     writeOverlay: () => undefined,
@@ -99,6 +110,8 @@ export function fakeCodingDeps({
     },
     ...overrides,
   };
-  setCodingGrantDepsForTests(deps);
+  const { runGit, gitOutput, gitAvailable, trash, ...grantDeps } = deps;
+  setCodingGrantDepsForTests(grantDeps);
+  setCodingFolderDepsForTests({ runGit, gitOutput, gitAvailable, trash });
   return calls;
 }

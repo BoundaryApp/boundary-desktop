@@ -241,28 +241,6 @@
   gap: var(--space-0-5);
 }
 
-.wb-inf-ico {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.wb-inf-ico:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.wb-inf-ico:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
 .wb-inf-pline {
   display: flex;
   align-items: center;
@@ -523,41 +501,6 @@
   margin-bottom: var(--space-4);
 }
 
-.wb-conf-choice {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: start;
-  gap: var(--space-2-5);
-  width: 100%;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2-5) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-0);
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wb-conf-choice:hover:not(:disabled) {
-  border-color: var(--line-strong);
-}
-
-.wb-conf-choice[aria-pressed='true'] {
-  border-color: var(--brand);
-  background: var(--brand-dim);
-}
-
-.wb-conf-choice:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.wb-conf-choice .wb-inf-row-text b {
-  white-space: normal;
-}
-
 .wb-conf-heading {
   display: flex;
   align-items: center;
@@ -595,53 +538,6 @@
   border-top: 0;
   color: var(--text-faint);
   font-weight: var(--weight-medium);
-}
-
-/* Pool settings sheet (confidential inference spec decision 4). */
-.wb-conf-kicker {
-  margin: var(--space-3) 0 var(--space-1-5);
-  color: var(--text-faint);
-  font-size: var(--size-xs);
-  font-weight: var(--weight-strong);
-}
-
-.wb-conf-radio,
-.wb-conf-switch {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2-5);
-  margin-bottom: var(--space-2);
-  padding: var(--space-2-5) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
-.wb-conf-radio {
-  cursor: pointer;
-}
-
-.wb-conf-radio input {
-  margin-top: var(--space-1);
-}
-
-.wb-conf-switch {
-  justify-content: space-between;
-}
-
-.wb-conf-switch .wb-switch {
-  flex: none;
-  margin-top: var(--space-1);
-}
-
-.wb-conf-radio .wb-inf-row-text b,
-.wb-conf-switch .wb-inf-row-text b {
-  white-space: normal;
-}
-
-.wb-conf-threshold {
-  width: auto;
-  max-width: 160px;
-  margin-top: var(--space-2);
 }
 
 /* A pool's side panel: who serves, cheapest first, and who doesn't (spec decision 4). */

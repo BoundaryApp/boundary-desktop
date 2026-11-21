@@ -5,6 +5,15 @@ import type { AssistantUiServiceCard } from '../../../shared/types/assistantStac
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { AssistantServicesScreen } from '../AssistantServicesScreen';
 import { lightragListing, listing, localWorkspace, n8nListing, stubAddons } from '../addons/__tests__/addonFixtures';
+import { buildAssistantUiServiceCards } from '../../../shared/assistantUiServices';
+import { openMenu } from '../../__tests__/openMenu';
+
+/** n8n, LightRAG and Neo4j as main sends them in the status. */
+function addonServices(ports: Record<string, number>): AssistantUiServiceCard[] {
+  return buildAssistantUiServiceCards((key, path) => `http://127.0.0.1:${ports[key]}${path}`).filter((card) =>
+    ['n8n', 'lightrag', 'neo4j'].includes(card.id)
+  );
+}
 
 let stackReady = true;
 const STACK_PORTS = vi.hoisted(() => ({ n8n: 5678, lightrag: 9621, neo4jHttp: 7474 }));
@@ -13,6 +22,7 @@ vi.mock('../assistantStack', () => ({
   useAssistantStackStatus: () => ({
     ready: stackReady,
     uiServices: uiServices,
+    addonServices: addonServices(STACK_PORTS),
     ports: STACK_PORTS,
   }),
   refreshAssistantStackStatus: async (): Promise<void> => undefined,
@@ -23,7 +33,7 @@ const openUrl = vi.fn();
 stubElectronAPI({
   assistantStack: {
     ensureRunning: () => ensureRunning(),
-    getStatus: async () => ({ ready: true, ports: STACK_PORTS }),
+    getStatus: async () => ({ ready: true, addonServices: addonServices(STACK_PORTS), ports: STACK_PORTS }),
   },
 });
 
@@ -40,7 +50,7 @@ const tile = (name: string) => screen.findByRole('button', { name });
 
 /** Opens a tile's menu from its ⋯ button. */
 async function tileMenu(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name: `More for ${name}` }));
+  openMenu(await screen.findByRole('button', { name: `More for ${name}` }));
   return within(await screen.findByRole('menu', { name }));
 }
 

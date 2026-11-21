@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleMessage, CircleSnapshot } from '../../../../shared/types/circles';
 import { ME, circleMember, circleSnapshot } from '../../../__tests__/circleFixtures';
 import { installElectronAPI } from '../../../__tests__/electronApiFake';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { OwnerDocumentProvider } from '../../../components/ui/ownerDocument';
 import { CircleThread } from '../../chat/circle/CircleThread';
 import type { CircleChatView } from '../../circles/useCircleChat';
@@ -103,18 +104,21 @@ describe('CircleThread in a child window', () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the React popover on a click elsewhere in its own window', () => {
+  it('closes the React popover on a click elsewhere in its own window', async () => {
     const doc = childDocument();
     showInChild(
       doc,
       <CircleThread circle={circle()} channel={{ id: 'general', name: 'General' }} chat={chatOf([message('Hers')])} />
     );
     const body = within(doc.body as HTMLElement);
-    fireEvent.click(body.getByRole('button', { name: 'React' }));
+    openMenu(body.getByRole('button', { name: 'React' }));
+    await flushMenu();
     expect(body.getByRole('menu')).toBeTruthy();
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
+    await flushMenu();
     expect(body.queryByRole('menu')).not.toBeNull();
-    fireEvent.mouseDown(doc.body);
+    fireEvent.pointerDown(doc.body);
+    await flushMenu();
     expect(body.queryByRole('menu')).toBeNull();
   });
 

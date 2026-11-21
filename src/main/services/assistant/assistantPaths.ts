@@ -73,7 +73,7 @@ export function resolveAssistantDataRoot(projectRoot?: string): string {
   return path.join(projectRoot ?? resolveAssistantProjectRoot(), 'data');
 }
 
-export function readAssistantEnvFile(projectRoot: string): Record<string, string> {
+function readAssistantEnvFile(projectRoot: string): Record<string, string> {
   return readEnvFile(path.join(projectRoot, '.env'));
 }
 
@@ -118,12 +118,6 @@ export function resolveAssistantWorkspaceRoot(): string {
 
 export function resolveProvisionMarkerPath(): string {
   return path.join(resolveAssistantStackHome(), '.provision.json');
-}
-
-/** True when root is Boundary's userData project (safe to run setup.sh). */
-export function isBoundaryOwnedAssistantRoot(root: string): boolean {
-  const owned = path.resolve(resolveAssistantProjectRoot());
-  return path.resolve(root) === owned;
 }
 
 /**

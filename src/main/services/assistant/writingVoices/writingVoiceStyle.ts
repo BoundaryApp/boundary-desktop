@@ -1,6 +1,6 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { WritingVoiceStyle } from '../../../../shared/types/writingVoices';
+import type { StackFiles } from '../../stackHost/types';
 
 /**
  * STYLE.md as the stack's write-in-voice skill writes it (templates/STYLE.md): YAML
@@ -16,9 +16,15 @@ function unquote(value: string): string {
   return value.trim().replace(/^(['"])(.*)\1$/, '$2');
 }
 
-function splitFrontmatter(text: string): { front: string; body: string } {
-  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text);
-  return match ? { front: match[1], body: text.slice(match[0].length) } : { front: '', body: text };
+/**
+ * YAML frontmatter and the text after it, both with LF line endings. Every reader of STYLE.md
+ * and of samples splits here, so the prompt, Settings and the sample count agree on where the
+ * body starts.
+ */
+export function splitFrontmatter(text: string): { front: string; body: string } {
+  const normalized = text.replace(/\r\n/g, '\n');
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(normalized);
+  return match ? { front: match[1], body: normalized.slice(match[0].length) } : { front: '', body: normalized };
 }
 
 function readExemplars(front: string): string[] {
@@ -58,8 +64,7 @@ function neverSection(body: string): { start: number; end: number } | null {
 }
 
 export function parseWritingVoiceStyle(text: string): WritingVoiceStyle {
-  const normalized = text.replace(/\r\n/g, '\n');
-  const { front, body } = splitFrontmatter(normalized);
+  const { front, body } = splitFrontmatter(text);
   const section = neverSection(body);
   const neverDoes = section
     ? body
@@ -79,20 +84,22 @@ export function parseWritingVoiceStyle(text: string): WritingVoiceStyle {
   };
 }
 
-export async function readWritingVoiceStyle(voiceDir: string): Promise<WritingVoiceStyle | null> {
+export async function readWritingVoiceStyle(files: StackFiles, voiceRel: string): Promise<WritingVoiceStyle | null> {
   try {
-    return parseWritingVoiceStyle(await fs.promises.readFile(path.join(voiceDir, STYLE_FILE), 'utf8'));
+    const text = await files.readText('userContent', path.posix.join(voiceRel, STYLE_FILE));
+    return text === null ? null : parseWritingVoiceStyle(text);
   } catch {
     return null;
   }
 }
 
-async function isFileInside(voiceDir: string, relative: string): Promise<boolean> {
+async function isFileInside(files: StackFiles, voiceRel: string, relative: string): Promise<boolean> {
   try {
-    const root = await fs.promises.realpath(voiceDir);
-    const target = await fs.promises.realpath(path.resolve(voiceDir, relative));
-    if (!target.startsWith(root + path.sep)) return false;
-    return (await fs.promises.stat(target)).isFile();
+    const root = await files.realpath('userContent', voiceRel);
+    const target = await files.realpath('userContent', path.posix.join(voiceRel, relative));
+    if (root === null || target === null) return false;
+    if (root ? !target.startsWith(`${root}/`) : !target) return false;
+    return (await files.stat('userContent', target))?.kind === 'file';
   } catch {
     return false;
   }
@@ -100,16 +107,17 @@ async function isFileInside(voiceDir: string, relative: string): Promise<boolean
 
 /** Calibration's own check (ADR 0056 §4): STYLE.md exists and each exemplar is a file in the folder. */
 export async function checkWritingVoiceStyle(
-  voiceDir: string
+  files: StackFiles,
+  voiceRel: string
 ): Promise<
   | { ok: true; style: WritingVoiceStyle }
   | { ok: false; reason: 'missing' | 'no-exemplars' | 'exemplar-missing' }
 > {
-  const style = await readWritingVoiceStyle(voiceDir);
+  const style = await readWritingVoiceStyle(files, voiceRel);
   if (!style) return { ok: false, reason: 'missing' };
   if (style.exemplars.length === 0) return { ok: false, reason: 'no-exemplars' };
   for (const exemplar of style.exemplars) {
-    if (!(await isFileInside(voiceDir, exemplar))) return { ok: false, reason: 'exemplar-missing' };
+    if (!(await isFileInside(files, voiceRel, exemplar))) return { ok: false, reason: 'exemplar-missing' };
   }
   return { ok: true, style };
 }
@@ -143,19 +151,16 @@ export function replaceNeverDoes(text: string, lines: string[]): string {
 }
 
 export async function writeNeverDoes(
-  voiceDir: string,
+  files: StackFiles,
+  voiceRel: string,
   lines: string[]
 ): Promise<{ success: true; style: WritingVoiceStyle } | { success: false; error: string }> {
-  const file = path.join(voiceDir, STYLE_FILE);
-  let text: string;
-  try {
-    text = await fs.promises.readFile(file, 'utf8');
-  } catch {
+  const file = path.posix.join(voiceRel, STYLE_FILE);
+  const text = await files.readText('userContent', file).catch((): null => null);
+  if (text === null) {
     return { success: false, error: 'This voice has no style guide yet. Calibrate it first.' };
   }
   const next = replaceNeverDoes(text, lines);
-  const temp = path.join(voiceDir, `.${STYLE_FILE}.saving`);
-  await fs.promises.writeFile(temp, next, 'utf8');
-  await fs.promises.rename(temp, file);
+  await files.writeText('userContent', file, next);
   return { success: true, style: parseWritingVoiceStyle(next) };
 }

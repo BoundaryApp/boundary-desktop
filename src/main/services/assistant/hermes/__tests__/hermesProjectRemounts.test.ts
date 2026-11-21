@@ -38,14 +38,14 @@ vi.mock('../../resolveAssistantRoot', async (importOriginal) => ({
   resolveActiveAssistantRoot: () => envRoot,
 }));
 
-import { readAssistantEnvFile, resolveAssistantUserContentRoot } from '../../assistantPaths';
+import { resolveAssistantUserContentRoot } from '../../assistantPaths';
+import { readEnvFile } from '../../stackEnv';
 import {
   resetCodingRemountQueueForTests,
   scheduleCodingRemount,
-  setCodingGrantDepsForTests,
 } from '../../coding/codingGrants';
 import { resetCodingGrantStoreForTests } from '../../coding/codingGrantStore';
-import { fakeCodingDeps, makeFolder } from '../../coding/__tests__/codingDeps';
+import { fakeCodingDeps, makeFolder, resetCodingDepsForTests } from '../../coding/__tests__/codingDeps';
 import {
   changeHermesProjectFolder,
   createHostFolderHermesProject,
@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setCodingGrantDepsForTests(null);
+  resetCodingDepsForTests();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -192,7 +192,7 @@ describe('source folders write CONTEXT_EXTRA_ROOTS before the recreate (G09-6)',
     const reference = dir('reference');
     const seen: string[] = [];
     recreate.mockImplementation(async () => {
-      seen.push(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS ?? '');
+      seen.push(readEnvFile(path.join(envRoot, '.env')).CONTEXT_EXTRA_ROOTS ?? '');
       return { success: true };
     });
 
@@ -202,13 +202,13 @@ describe('source folders write CONTEXT_EXTRA_ROOTS before the recreate (G09-6)',
 
     const second = dir('second');
     recreate.mockImplementation(async () => {
-      seen.push(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS ?? '');
+      seen.push(readEnvFile(path.join(envRoot, '.env')).CONTEXT_EXTRA_ROOTS ?? '');
       return { success: false, error: 'mount failed' };
     });
     const failed = await addHermesProjectSourceFolder('garden-id', second);
     expect(failed.success).toBe(false);
     expect(seen[1].split(':').filter(Boolean).sort()).toEqual([reference, second].sort());
-    expect(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS).toBe(reference);
+    expect(readEnvFile(path.join(envRoot, '.env')).CONTEXT_EXTRA_ROOTS).toBe(reference);
   });
 });
 
@@ -237,7 +237,7 @@ describe('a failed source mount leaves sources.yaml as it was', () => {
 
     expect(result.success).toBe(false);
     expect(fs.readFileSync(path.join(project.hostPath, SOURCES_NAME), 'utf8')).toBe(before);
-    expect(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS).toBe(reference);
+    expect(readEnvFile(path.join(envRoot, '.env')).CONTEXT_EXTRA_ROOTS).toBe(reference);
   });
 });
 

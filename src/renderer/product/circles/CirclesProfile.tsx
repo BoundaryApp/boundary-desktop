@@ -64,7 +64,7 @@ export function JoinForm({ onJoin }: { onJoin?: (code: string) => void }) {
     >
       <span className="text-title font-medium text-fg">Join with an invite</span>
       <span className="text-xs text-fg-faint">Paste the code someone sent you.</span>
-      <Input className="h-[34px] bg-surface-0" aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
+      <Input aria-label="Invite code" placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
       <CircleButton type="submit" variant="secondary" disabled={join.busy || !code.trim()}>
         {join.busy ? 'Joining…' : 'Join'}
       </CircleButton>

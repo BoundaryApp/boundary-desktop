@@ -1,8 +1,9 @@
-import path from 'node:path';
-import type { AddonStepId } from '../../../shared/types/addons';
-import { parseEnv, readEnvFile, upsertEnvLines } from '../assistant/stackEnv';
-import { enableAddon, readStackFile, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
+import { enableAddon, flagOn, readStackFile, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
 import { SCRIPT_STEP_OF, createEnableRemoveInstaller, type EnableRemoveInstaller, type ScriptAddonDeps } from './scriptAddonInstaller';
+import { stackFilesAt } from '../stackHost/activeStack';
+import { moveFlagsToEnv, type EnvMoveRecord } from './envFlagMove';
 
 // n8n and LightRAG ship in the stack as built-in add-ons (CR 0020 R10, stack 0.3.13): each has an
 // `addons/<id>/addon.json` with a `builtin` block naming the `.env` flag `addon.sh enable` and
@@ -24,13 +25,9 @@ export function isBuiltinAddonId(id: unknown): id is BuiltinAddonId {
 }
 
 /** The stack tree has `addon.sh` and the add-on's manifest with a `builtin` block naming its flag. */
-export function builtinAddonAvailable(
-  root: string,
-  id: BuiltinAddonId,
-  read: (p: string) => string | null = readStackFile
-): boolean {
-  const manifest = read(path.join(root, 'addons', id, 'addon.json'));
-  if (manifest === null || read(path.join(root, 'scripts', 'addon.sh')) === null) return false;
+export async function builtinAddonAvailable(files: StackFiles, id: BuiltinAddonId): Promise<boolean> {
+  const manifest = await readStackFile(files, `addons/${id}/addon.json`);
+  if (manifest === null || (await readStackFile(files, 'scripts/addon.sh')) === null) return false;
   try {
     const m = JSON.parse(manifest) as { builtin?: { flag?: unknown } };
     return m.builtin?.flag === BUILTIN_FLAG[id];
@@ -39,20 +36,14 @@ export function builtinAddonAvailable(
   }
 }
 
-const on = (value: string | undefined): boolean => /^(1|true|yes|on)$/i.test((value ?? '').trim());
-
 /** The add-on's flag in the stack's `.env`. */
-export function readBuiltinEnabled(root: string, id: BuiltinAddonId): boolean {
-  return on(readEnvFile(path.join(root, '.env'))[BUILTIN_FLAG[id]]);
+export async function readBuiltinEnabled(files: StackFiles, id: BuiltinAddonId): Promise<boolean> {
+  return flagOn((await readStackEnv(files, 'stack', '.env'))[BUILTIN_FLAG[id]]);
 }
 
-export interface MoveSwitchesDeps {
-  readFile(p: string): string | null;
-  writeFile(p: string, contents: string): void;
+export interface MoveSwitchesDeps extends EnvMoveRecord {
   /** The old store switches. */
   stored(): Record<BuiltinAddonId, boolean>;
-  moved(root: string): boolean;
-  markMoved(root: string): void;
 }
 
 /**
@@ -62,27 +53,24 @@ export interface MoveSwitchesDeps {
  * from older Boundaries wrote `LIGHTRAG_MCP_ENABLED=1`, and `sync-profiles.sh` seeds
  * `AUTOMATION_ENABLED=1` when `automation` is in `.env`'s COMPOSE_PROFILES. After the move, a flag
  * missing from `.env` (a stack folder set up again) is written as 0, since both are off by
- * default in Boundary. Returns the flags it wrote; none when there's no `.env`.
+ * default in Boundary. Returns the flags it wrote; none when there's no `.env`. `root` keys the
+ * once-only record.
  */
-export function moveBuiltinSwitchesToEnv(root: string, deps: MoveSwitchesDeps): Record<string, string> {
-  const envPath = path.join(root, '.env');
-  const before = deps.readFile(envPath);
-  if (before === null) return {};
-  const moved = deps.moved(root);
-  const current = parseEnv(before);
-  const stored = deps.stored();
-  const values: Record<string, string> = {};
-  for (const id of BUILTIN_ADDON_IDS) {
-    const flag = BUILTIN_FLAG[id];
-    if (!moved) values[flag] = stored[id] ? '1' : '0';
-    else if (!(flag in current)) values[flag] = '0';
-  }
-  if (Object.keys(values).length > 0) {
-    const after = upsertEnvLines(before, values);
-    if (after !== before) deps.writeFile(envPath, after);
-  }
-  if (!moved) deps.markMoved(root);
-  return values;
+export function moveBuiltinSwitchesToEnv(
+  files: StackFiles,
+  root: string,
+  deps: MoveSwitchesDeps
+): Promise<Record<string, string>> {
+  return moveFlagsToEnv(files, root, deps, (moved, current) => {
+    const stored = deps.stored();
+    const values: Record<string, string> = {};
+    for (const id of BUILTIN_ADDON_IDS) {
+      const flag = BUILTIN_FLAG[id];
+      if (!moved) values[flag] = stored[id] ? '1' : '0';
+      else if (!(flag in current)) values[flag] = '0';
+    }
+    return values;
+  });
 }
 
 /**
@@ -115,12 +103,9 @@ export function createBuiltinAddonService(
 ): BuiltinAddonService {
   return {
     enable: (options = {}) => enableAddon(deps, id, { timeoutMs: ENABLE_TIMEOUT_MS, onLine: options.onLine }),
-    refresh: async () => ({ enabled: readBuiltinEnabled(deps.paths().root, id) }),
+    refresh: async () => ({ enabled: await readBuiltinEnabled(stackFilesAt(deps.paths().root), id) }),
   };
 }
-
-/** n8n's `enable` runs `n8n-import` as a one-shot before n8n starts; it reports as `start`. */
-const BUILTIN_STEP_OF: Record<string, AddonStepId> = { ...SCRIPT_STEP_OF };
 
 export interface BuiltinAddonInstallerDeps extends ScriptAddonDeps<BuiltinAddonService> {
   /** After `disable` worked. Never throws. */
@@ -137,9 +122,9 @@ export function createBuiltinAddonInstaller(
   const installer = createEnableRemoveInstaller({
     id,
     name,
-    stepOf: BUILTIN_STEP_OF,
+    stepOf: SCRIPT_STEP_OF,
     deps,
-    isEnabled: () => readBuiltinEnabled(deps.paths().root, id),
+    isEnabled: () => readBuiltinEnabled(stackFilesAt(deps.paths().root), id),
     afterEnable: async () => {},
     afterDisable: deps.afterDisable,
   });

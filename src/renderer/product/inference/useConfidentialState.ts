@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { PoolSettings, TrustLevel } from '../../../shared/types/confidential';
 import type { AddProviderResult, ConfidentialState, PoolRanking } from '../../../shared/types/confidentialState';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
+import { inferenceSlotLabel } from '../../../shared/inferenceDisplay';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
 import type { PoolContext } from './entries';
 
@@ -123,4 +124,9 @@ export function poolContext(
 /** A pool model's name from Boundary's provider list; its id until the list has loaded. */
 export function poolModelName(state: ConfidentialState | null, modelId: string): string {
   return (state?.enabled && state.models.find((model) => model.id === modelId)?.name) || modelId;
+}
+
+/** A pool as chat titles it before a turn is served, named as its rung names it. */
+export function poolTitle(state: ConfidentialState | null, modelId: string): string {
+  return `${inferenceSlotLabel('confidential')} · ${poolModelName(state, modelId)}`;
 }

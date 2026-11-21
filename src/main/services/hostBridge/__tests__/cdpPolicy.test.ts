@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockedMethodReason, blockedUrlReason, DEFAULT_BLOCKED_SITES, normalizeSite } from '../cdpPolicy';
+import { blockedCookiesReason, blockedMethodReason, blockedUrlReason, DEFAULT_BLOCKED_SITES, normalizeSite } from '../cdpPolicy';
 
 describe('blockedMethodReason', () => {
   it('refuses cookie, storage, interception and protocol-exposure methods', () => {
@@ -79,5 +79,56 @@ describe('normalizeSite', () => {
     expect(normalizeSite('*.example.org')).toBe('example.org');
     expect(normalizeSite('sub.example.net')).toBe('sub.example.net');
     expect(normalizeSite('')).toBeNull();
+  });
+});
+
+describe('blockedMethodReason per client (ADR 0065)', () => {
+  const broker = [
+    'Target.getTargetInfo',
+    'Target.attachToTarget',
+    'Target.detachFromTarget',
+    'Runtime.evaluate',
+    'Runtime.callFunctionOn',
+    'Network.setCookies',
+    'Page.reload',
+  ];
+
+  it('allows the credential client what a fill and a handover send, and nothing else', () => {
+    for (const method of broker) expect(blockedMethodReason(method, {}, 'credentials'), method).toBeNull();
+    for (const method of ['Page.navigate', 'Target.createTarget', 'Network.getAllCookies', 'Input.dispatchKeyEvent', 'Fetch.enable', 'Target.setAutoAttach']) {
+      expect(blockedMethodReason(method, {}, 'credentials'), method).toMatch(/credential client/);
+    }
+  });
+
+  it('keeps the cookie write refused for the agent; reload stays the agent\'s, as in the stack gateway', () => {
+    expect(blockedMethodReason('Network.setCookies', {}, 'agent')).toMatch(/doesn't allow/);
+    expect(blockedMethodReason('Network.setCookies')).toMatch(/doesn't allow/);
+    // compose/web-browser/gateway/rules.py refuses Page.reload to neither client; drivers reload pages.
+    expect(blockedMethodReason('Page.reload', {}, 'agent')).toBeNull();
+  });
+});
+
+describe('blockedCookiesReason', () => {
+  const policy = { blocked: ['bank.example'], allowed: [] as string[] };
+  const page = 'https://app.shop.example/account';
+
+  it('takes cookies for the page host and its parent domains', () => {
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: 'app.shop.example' }], page, policy)).toBeNull();
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: '.shop.example' }], page, policy)).toBeNull();
+    expect(blockedCookiesReason([{ name: 'a', value: '1', url: 'https://app.shop.example/' }], page, policy)).toBeNull();
+    expect(blockedCookiesReason([], page, policy)).toBeNull();
+  });
+
+  it('refuses another site, a bare top-level domain, a missing domain and an unknown page', () => {
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: 'other.example' }], page, policy)).toMatch(/only takes cookies/);
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: '.example' }], page, policy)).toMatch(/only takes cookies/);
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: 'com' }], 'https://shop.com/', policy)).toMatch(/only takes cookies/);
+    expect(blockedCookiesReason([{ name: 'a', value: '1' }], page, policy)).toMatch(/only takes cookies/);
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: 'shop.example' }], undefined, policy)).toMatch(/only takes cookies/);
+    expect(blockedCookiesReason('not a list', page, policy)).toMatch(/only takes cookies/);
+  });
+
+  it('applies the site policy to the cookie domain', () => {
+    expect(blockedCookiesReason([{ name: 'a', value: '1', domain: 'login.bank.example' }], 'https://login.bank.example/', policy)).toMatch(/bank.example/);
   });
 });

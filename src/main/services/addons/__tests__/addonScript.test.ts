@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { localRunScript } from '../../stackHost/localScript';
 import { ADDON_SCRIPT_TIMED_OUT, outcomeText, redact, runAddonScript, runAddonScriptPlain, runScriptJson } from '../addonScript';
 
 // A stand-in `scripts/budget.sh` and `scripts/addon.sh` in a temp folder, printing the lines the
@@ -79,7 +80,7 @@ afterAll(() => {
 
 const run = (fake: string, extra: Partial<Parameters<typeof runAddonScript>[0]> = {}, env: Record<string, string> = {}) =>
   runAddonScript({
-    root,
+    runScript: localRunScript(root),
     script: 'budget.sh',
     args: ['budgets', '--json'],
     env: { PATH: process.env.PATH, FAKE: fake, FAKE_DIR: root, ...env },
@@ -168,7 +169,7 @@ describe('runAddonScript with vault.sh', () => {
 
 describe('runScriptJson', () => {
   const runJson = (fake: string) =>
-    runScriptJson({ root, script: 'vault.sh', args: ['status', '--json'], env: { PATH: process.env.PATH, FAKE: fake, FAKE_DIR: root } });
+    runScriptJson({ runScript: localRunScript(root), script: 'vault.sh', args: ['status', '--json'], env: { PATH: process.env.PATH, FAKE: fake, FAKE_DIR: root } });
 
   it('collects every JSON object line, with no phase key needed, and skips the rest', async () => {
     const outcome = await runJson('status');
@@ -192,7 +193,7 @@ describe('runScriptJson', () => {
 describe('runAddonScriptPlain', () => {
   const plain = (fake: string, extra: Partial<Parameters<typeof runAddonScriptPlain>[0]> = {}) =>
     runAddonScriptPlain({
-      root,
+      runScript: localRunScript(root),
       script: 'addon.sh',
       args: ['run', 'email', 'mailboxes'],
       env: { PATH: process.env.PATH, FAKE: fake, FAKE_DIR: root },

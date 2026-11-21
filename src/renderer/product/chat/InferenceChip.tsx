@@ -21,7 +21,7 @@ import { describeChainEntry, entryIsPrivate, entryKey, type ChainContext } from 
 import { CONFIDENTIAL_COPY } from '../inference/confidentialCopy';
 import { LevelBadge } from '../inference/LevelBadge';
 import { LevelStackSheet } from '../inference/LevelStackSheet';
-import { poolContext, poolModelName, useConfidentialState, usePoolPrivacy } from '../inference/useConfidentialState';
+import { poolContext, poolModelName, poolTitle, useConfidentialState, usePoolPrivacy } from '../inference/useConfidentialState';
 
 /** The stack a chat resolves to, first to last: the supplying level's, never merged (ADR 0033 §1). */
 function resolvedStack(resolved: ResolvedSessionInference | null): InferenceChainEntry[] {
@@ -104,7 +104,9 @@ export const InferenceChip: React.FC<InferenceChipProps> = ({
     ? 'No provider'
     : resolved.slot === 'peer'
       ? resolved.providerDisplayName
-      : formatInferenceChipTitle(resolved.slot, resolved.modelId);
+      : resolved.slot === 'confidential'
+        ? poolTitle(confidential, resolved.modelId)
+        : formatInferenceChipTitle(resolved.slot, resolved.modelId);
   // Local's health is probed for this chat; a cloud slot's comes with the status main pushes.
   const primaryHealth =
     resolved?.slot === 'openrouter'

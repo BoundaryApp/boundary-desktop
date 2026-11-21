@@ -29,9 +29,9 @@ const circles: CircleSnapshot[] = Array.from({ length: COUNT }, (_, index) => ({
   key: pad(index + 1).repeat(32).slice(0, 64),
   name: `Circle ${pad(index + 1)} ${heavy(index) ? 'garden plots and the shared shed' : 'book club'}`,
   myRole: 'admin',
-  members: [],
-  invites: [],
-  offers: [],
+  members: [] as CircleSnapshot['members'],
+  invites: [] as CircleSnapshot['invites'],
+  offers: [] as CircleSnapshot['offers'],
   needsUpdate: false,
   writable: true,
   format: 3,
@@ -39,6 +39,32 @@ const circles: CircleSnapshot[] = Array.from({ length: COUNT }, (_, index) => ({
 
 const channelCount = (index: number) => (heavy(index) ? 5 : 2);
 const folderCount = (index: number) => (heavy(index) ? 3 : 0);
+
+/**
+ * The rail's call bar reads the call service, which asks the bridge for Circles state and
+ * subscribes to events. Circles are stopped here, every on* subscription is a no-op and every
+ * other call resolves to null.
+ */
+const stoppedState = {
+  status: 'stopped',
+  displayName: '',
+  snapshot: { identity: '', circles: [] as unknown[] },
+  providers: {},
+  sharing: { models: [] as unknown[], circles: [] as unknown[], paused: false, away: false },
+};
+const unsubscribe = (): void => undefined;
+const namespace = (): unknown =>
+  new Proxy(
+    {},
+    {
+      get: (_target, name) => {
+        if (name === 'getState') return () => Promise.resolve(stoppedState);
+        if (typeof name === 'string' && /^on[A-Z]/.test(name)) return (): (() => void) => unsubscribe;
+        return () => Promise.resolve(null);
+      },
+    }
+  );
+(window as unknown as { electronAPI: unknown }).electronAPI = new Proxy({}, { get: () => namespace() });
 
 declare global {
   interface Window {

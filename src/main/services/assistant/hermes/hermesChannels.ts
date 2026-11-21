@@ -516,7 +516,7 @@ export function buildChannelHeader(
   return `[${parts.join(' · ')}]`;
 }
 
-/** Most of an agent's SOUL.md a room turn carries; the gateway refuses context over 16,000. */
+/** Most of an agent's SOUL.md a room turn carries, well under CLIENT_CONTEXT_MAX_CHARS. */
 export const ROOM_SOUL_MAX_CHARS = 8_000;
 
 /**

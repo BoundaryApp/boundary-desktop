@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { requireStackCapability } from '../stackHost/capabilities';
 
 /**
  * Paths inside the agent-stack tree that hold the user's data or secrets generated on
@@ -17,6 +18,13 @@ const PRESERVED_PROJECT_PATHS: readonly string[] = [
   'compose/hermes/api-server.env',
   'compose/hermes/browser.env',
   'compose/hermes/worker/ssh',
+  // Shared-database service logins (svc_<slug>), e.g. Vikunja's. db-provision turns a role's
+  // login off when its file is gone, and Boundary runs compose without the stack's
+  // `make ensure-local`, which would write a new one.
+  'compose/postgres/services',
+  // Mail and Messages index configs the user writes from the stack's examples.
+  'mail-index.toml',
+  'messages-index.toml',
   // llm-proxy's per-model request defaults (stack v0.3.10).
   'model-defaults/local.json',
   'opencode/opencode.local.json',
@@ -133,6 +141,7 @@ async function finishSwap(paths: ProjectSwapPaths, undo?: UndoStep[]): Promise<v
  * swap; the caller must not delete `nextRoot` while the journal exists.
  */
 export async function swapProjectTreePreservingData(paths: ProjectSwapPaths): Promise<void> {
+  requireStackCapability('provision');
   const { projectRoot, previousRoot, journalPath } = paths;
   // The tree kept from the last upgrade holds only stack code by now.
   await fs.promises.rm(previousRoot, { recursive: true, force: true });
@@ -163,6 +172,7 @@ export async function swapProjectTreePreservingData(paths: ProjectSwapPaths): Pr
 
 /** If a swap was interrupted, finish it. Returns true when there was one to finish. */
 export async function recoverInterruptedProjectSwap(journalPath: string): Promise<boolean> {
+  requireStackCapability('provision');
   if (!exists(journalPath)) return false;
   let paths: ProjectSwapPaths;
   try {

@@ -128,14 +128,12 @@ export interface HermesProjectMove {
   markId: string;
 }
 
-export interface HermesMoveToProjectResult {
-  success: boolean;
+export type HermesMoveToProjectResult = IpcResult<{
   /** Conversations that changed; ones already in the target are left out. */
   moved: HermesProjectMove[];
   /** Set when a turn is running in one of the conversations; nothing moved. */
   errorCode?: 'running' | 'not-found';
-  error?: string;
-}
+}>;
 
 /**
  * The answer to a parked approval or credential prompt. `errorCode: 'not-pending'` means main no
@@ -179,13 +177,11 @@ export interface HermesSaveReplyPayload {
   content: string;
 }
 
-export interface HermesSaveReplyResult {
-  success: boolean;
+export type HermesSaveReplyResult = IpcResult<{
   path?: string;
   /** The user closed the dialog; nothing was written. */
   canceled?: boolean;
-  error?: string;
-}
+}>;
 
 /** Show a file the agent wrote in Finder; only paths inside the project folder. */
 export interface HermesRevealProjectFilePayload {
@@ -341,11 +337,9 @@ export interface HermesMentionRecord {
   unseen: boolean;
 }
 
-export interface HermesMentionsListResult {
-  success: boolean;
+export type HermesMentionsListResult = IpcResult<{
   mentions: HermesMentionRecord[];
-  error?: string;
-}
+}>;
 
 /** Local-first channel user line. Lives in the room overlay until a gateway append exists. */
 export interface ChannelPostRecord {
@@ -421,13 +415,11 @@ export type HermesChatStartErrorCode =
   | 'rewind-stale'
   | 'rewind-unsupported';
 
-export interface HermesChatStartResult {
-  success: boolean;
+export type HermesChatStartResult = IpcResult<{
   requestId: string;
   sessionId?: string;
   /** The stored id behind `sessionId`, which is the id chat lists use. */
   storedSessionId?: string;
-  error?: string;
   errorCode?: HermesChatStartErrorCode;
   /** The chat's shared model can't serve either; `error` says so. */
   sharedUnavailable?: boolean;
@@ -437,7 +429,7 @@ export interface HermesChatStartResult {
   posted?: boolean;
   /** The writing voice this turn's reply is written in, for its details. */
   writingVoiceName?: string;
-}
+}>;
 
 /**
  * Which run control started a send or cut a run short, for the turn debug log only
@@ -491,11 +483,9 @@ export interface HermesChatErrorEvent {
   error: string;
 }
 
-export interface HermesChatListThreadsResult {
-  success: boolean;
+export type HermesChatListThreadsResult = IpcResult<{
   threads: HermesChatThreadSummary[];
-  error?: string;
-}
+}>;
 
 export type HermesChatCreateThreadResult = IpcResult<{ thread?: HermesChatThreadSummary }>;
 
@@ -510,15 +500,13 @@ export interface HermesOpenAgentDmResult extends HermesChatCreateThreadResult {
   created?: boolean;
 }
 
-export interface HermesAgentsListResult {
-  success: boolean;
+export type HermesAgentsListResult = IpcResult<{
   agents: AgentProfile[];
   /** Standing DM session id per agent slug (may be null if none yet). */
   standingDmByAgent: Record<string, string | null>;
   /** The Orchestrator's slug once Boundary has created or adopted it, so the rail can show it before its first DM. */
   orchestratorSlug?: string | null;
-  error?: string;
-}
+}>;
 
 export interface HermesAgentCreatePayload {
   displayName: string;
@@ -526,11 +514,9 @@ export interface HermesAgentCreatePayload {
   role: string;
 }
 
-export interface HermesAgentCreateResult {
-  success: boolean;
+export type HermesAgentCreateResult = IpcResult<{
   agent?: AgentProfile;
-  error?: string;
-}
+}>;
 
 export interface HermesAgentUpdatePayload {
   slug: string;
@@ -539,32 +525,27 @@ export interface HermesAgentUpdatePayload {
   role: string;
 }
 
-export interface HermesAgentUpdateResult {
-  success: boolean;
+export type HermesAgentUpdateResult = IpcResult<{
   agent?: AgentProfile;
   /** SOUL.md had been edited by hand, so the new name and role weren't written into it. */
   soulKept?: boolean;
   /** Saved, but Hermes didn't take the change; or why nothing was saved. */
   error?: string;
-}
+}>;
 
 export interface HermesAgentSoulPayload {
   slug: string;
 }
 
-export interface HermesAgentSoulResult {
-  success: boolean;
+export type HermesAgentSoulResult = IpcResult<{
   excerpt?: string | null;
   canOpen?: boolean;
-  error?: string;
-}
+}>;
 
-export interface HermesChannelsListResult {
-  success: boolean;
+export type HermesChannelsListResult = IpcResult<{
   channels: ChannelRecord[];
   lastOpened?: HermesLastOpened | null;
-  error?: string;
-}
+}>;
 
 export interface HermesChannelCreatePayload {
   title: string;
@@ -601,14 +582,12 @@ export interface HermesChannelDeletePayload {
   channelId: string;
 }
 
-export interface HermesChannelDeleteResult {
-  success: boolean;
+export type HermesChannelDeleteResult = IpcResult<{
   /** The room's sessions, now Hermes chats in its project. */
   sessionIds?: string[];
   /** The project they were filed in, or null for No project. */
   projectId?: string | null;
-  error?: string;
-}
+}>;
 
 export interface HermesMakeChannelFromChatPayload {
   sessionId: string;
@@ -624,11 +603,9 @@ export interface HermesSetLastOpenedPayload {
   id: string;
 }
 
-export interface HermesSetLastOpenedResult {
-  success: boolean;
+export type HermesSetLastOpenedResult = IpcResult<{
   lastOpened?: HermesLastOpened | null;
-  error?: string;
-}
+}>;
 
 /** Proposed agent card from a fenced agent-draft block (0008 draft-from-chat). */
 export interface AgentDraftProposal {
@@ -641,15 +618,13 @@ export interface HermesChatHistoryPayload {
   sessionId: string;
 }
 
-export interface HermesChatHistoryResult {
-  success: boolean;
+export type HermesChatHistoryResult = IpcResult<{
   messages: HermesChatMessage[];
   /** Runtime session id after resume (may differ from the stored id). */
   sessionId?: string;
   /** Set for a branched chat, so the copied messages can be told apart. */
   branch?: HermesChatBranchInfo;
-  error?: string;
-}
+}>;
 
 /** Live usage / phase telemetry pushed during a turn (JSON-RPC) or at finish (HTTP). */
 export type HermesChatPhase =
@@ -803,8 +778,7 @@ export interface HermesSessionInferenceSetPayload {
   fallbacks?: import('./inferenceChain').InferenceChainEntry[];
 }
 
-export interface HermesSessionInferenceResult {
-  success: boolean;
+export type HermesSessionInferenceResult = IpcResult<{
   override: SessionInferenceOverride | null;
   resolved: ResolvedSessionInference | null;
   marks: SessionInferenceMark[];
@@ -812,8 +786,7 @@ export interface HermesSessionInferenceResult {
   poolTurns: PoolServedTurn[];
   /** When each of the chat's turns ran, oldest first, whatever answered it. */
   turnWindows: TurnWindow[];
-  error?: string;
-}
+}>;
 
 export interface HermesChatUsageSnapshot {
   contextUsed?: number | null;
@@ -1012,11 +985,9 @@ export interface HermesChatTurnStats {
   avgTps?: number | null;
 }
 
-export interface HermesChatBreakdownResult {
-  success: boolean;
+export type HermesChatBreakdownResult = IpcResult<{
   breakdown?: HermesChatContextBreakdown;
-  error?: string;
-}
+}>;
 
 /**
  * Project row for Workbench. `kind: 'empty'` is the AssistantData library
@@ -1040,14 +1011,12 @@ export interface HermesProjectRecord {
   updatedAt: string;
 }
 
-export interface HermesProjectsListResult {
-  success: boolean;
+export type HermesProjectsListResult = IpcResult<{
   projects: HermesProjectRecord[];
   activeId: string | null;
   connecting?: boolean;
   rpcAvailable?: boolean;
-  error?: string;
-}
+}>;
 
 export interface HermesProjectCreateHostPayload {
   hostPath: string;
@@ -1081,24 +1050,59 @@ export interface HermesProjectChangeFolderPayload {
   hostPath: string;
 }
 
+export interface HermesProjectRemovePayload {
+  projectId: string;
+  /** The typed project name, when the review asks for it (ADR 0067 §3). */
+  confirmName?: string;
+  /** Stop a running coding task to turn the project's coding off (ADR 0067 §2.1). */
+  stopRunningTask?: boolean;
+}
+
+export interface HermesProjectRemoveResult extends HermesProjectsListResult {
+  /** The project's record is gone. */
+  removed?: boolean;
+  /** A Boundary-made project's folder went to the Trash. */
+  trashed?: boolean;
+  /** Set when the removal was refused because a coding task is running. */
+  busy?: CodingAgentBusy;
+}
+
+/** What the Remove project sheet shows before it asks (ADR 0067 §2, §3). */
+export type HermesProjectRemoveInspect = IpcResult<{
+  projectId: string;
+  name: string;
+  kind: 'host-folder' | 'empty';
+  hostPath: string;
+  /** Why removal isn't possible now: a running reply or a remote stack host. */
+  refusal?: string;
+  /** The folder's contents, for a Boundary-made project only. */
+  files?: number;
+  bytes?: number;
+  lastChanged?: string | null;
+  truncated?: boolean;
+  isGit?: boolean;
+  unpushed?: number;
+  onlyStartCommit?: boolean;
+  dirtyCount?: number;
+  requiresTypedName: boolean;
+}>;
+
 export interface HermesProjectPatchPayload {
   projectId: string;
   inference: ProjectInferencePin;
 }
 
-export interface HermesProjectResult {
-  success: boolean;
+export type HermesProjectResult = IpcResult<{
   project?: HermesProjectRecord;
   projects?: HermesProjectRecord[];
   activeId?: string | null;
   connecting?: boolean;
   rpcAvailable?: boolean;
-  error?: string;
   /** Set when a create with coding was refused because a coding task is running. */
   codingBusy?: CodingAgentBusy;
   /** The project was made, but the coding agent can't open its folder. */
   codingError?: string;
-}
+}>;
 
 export interface HermesCompletePathPayload {
   word?: string;
@@ -1115,11 +1119,9 @@ export interface HermesCompletePathItem {
   agentSlug?: string;
 }
 
-export interface HermesCompletePathResult {
-  success: boolean;
+export type HermesCompletePathResult = IpcResult<{
   items: HermesCompletePathItem[];
-  error?: string;
-}
+}>;
 
 /** Mount honesty for one sources.yaml row (0013). */
 export type HermesSourceVisibility = 'hub' | 'readonly' | 'writable' | 'unmounted';
@@ -1159,12 +1161,10 @@ export interface HermesProjectSourcesInspect {
   nextStep?: HermesSourceNextStep;
 }
 
-export interface HermesProjectSourcesResult {
-  success: boolean;
+export type HermesProjectSourcesResult = IpcResult<{
   inspect?: HermesProjectSourcesInspect;
-  error?: string;
   canceled?: boolean;
-}
+}>;
 
 export interface HermesProjectSourcesInspectPayload {
   projectId: string;

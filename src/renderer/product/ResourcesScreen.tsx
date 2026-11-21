@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { formatBytes } from '../../shared/utils/format';
+import { abbreviateHome, formatBytes } from '../../shared/utils/format';
 import type {
   ComposeInventoryProject,
   ComposeInventorySnapshot,
@@ -7,6 +7,8 @@ import type {
 import type { HostResourceSnapshot, ResourceBucketId } from '../../shared/types/hostResources';
 import './resources.css';
 import { APP_NAME } from '../../shared/buildIdentity';
+import { StackCapabilityNote, useStackCapability } from './stackCapabilities';
+import { errorText } from '../lib/errorText';
 
 const POLL_MS = 1_000;
 
@@ -54,10 +56,6 @@ function shareOf(part: number | null, total: number): number | null {
   return part / total;
 }
 
-function displayPath(value: string): string {
-  return value.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~');
-}
-
 function serviceCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'service' : 'services'}`;
 }
@@ -65,6 +63,15 @@ function serviceCountLabel(count: number): string {
 export const ComposeInventoryView: React.FC<{
   inventory: ComposeInventorySnapshot | null;
 }> = ({ inventory }) => {
+  const engineControl = useStackCapability('engineControl');
+  if (!engineControl) {
+    return (
+      <div className="wb-resources-inventory" aria-label="Compose on this machine">
+        <h2>Compose on this machine</h2>
+        <StackCapabilityNote capability="engineControl" />
+      </div>
+    );
+  }
   return (
     <div className="wb-resources-inventory" aria-label="Compose on this machine">
       <h2>Compose on this machine</h2>
@@ -100,7 +107,7 @@ const ComposeProjectRow: React.FC<{ project: ComposeInventoryProject }> = ({ pro
       <summary>
         <div className="name">
           {project.name}
-          <span>{displayPath(project.path)}</span>
+          <span>{abbreviateHome(project.path)}</span>
         </div>
         <span className={`status ${project.status}`}>{project.status}</span>
         <span className="meta mono">{serviceCountLabel(project.services.length)}</span>
@@ -287,7 +294,7 @@ export const ResourcesScreen: React.FC = () => {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errorText(err));
         }
       } finally {
         inFlight = false;

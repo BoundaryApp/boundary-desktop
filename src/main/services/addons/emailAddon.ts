@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type {
   ActualScriptFailure,
   EmailAccount,
@@ -10,17 +9,21 @@ import type {
   EmailSettingsInput,
 } from '../../../shared/types/addons';
 import { isEmailSlug, plainAllowed } from '../../../shared/emailAccount';
-import { readEnvFile } from '../assistant/stackEnv';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
 import { accountState, parseIndexerLog, type AccountChange, type IndexerLog } from './emailIndexLog';
 import {
   enableAddon,
   findListEntry,
+  flagOn,
   readStackFile,
   scriptFailure,
   type AddonScriptLine,
   type AddonScriptOutcome,
   type PlainOutcome,
 } from './addonScript';
+import { stackFilesAt } from '../stackHost/activeStack';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 // The IMAP email add-on (stack v0.3.13). The stack keeps everything: `addon.sh configure email`
 // stores settings and accounts, `addon.sh run email mailboxes` lists a mailbox, and the
@@ -37,12 +40,9 @@ const ENABLE_TIMEOUT_MS = 1_800_000;
 const BUSY_MESSAGE = 'Another add-on change is running. Try again in a moment.';
 
 /** The stack tree offers email: `addon.sh`, and a manifest with accounts as instances and a mailboxes command. */
-export function emailAvailable(
-  root: string,
-  read: (p: string) => string | null = readStackFile
-): boolean {
-  const manifest = read(path.join(root, 'addons', 'email', 'addon.json'));
-  if (manifest === null || read(path.join(root, 'scripts', 'addon.sh')) === null) return false;
+export async function emailAvailable(files: StackFiles): Promise<boolean> {
+  const manifest = await readStackFile(files, 'addons/email/addon.json');
+  if (manifest === null || (await readStackFile(files, 'scripts/addon.sh')) === null) return false;
   let m: { instances?: { name?: unknown }; commands?: { mailboxes?: unknown } };
   try {
     m = JSON.parse(manifest);
@@ -52,12 +52,10 @@ export function emailAvailable(
   return m.instances?.name === 'accounts' && Boolean(m.commands?.mailboxes);
 }
 
-const on = (value: string | undefined): boolean => /^(1|true|yes|on)$/i.test((value ?? '').trim());
-
 /** Email's flags in the stack's `.env`, which `addon.sh` writes. */
-export function readEmailFlags(root: string): { enabled: boolean; drafts: boolean } {
-  const env = readEnvFile(path.join(root, '.env'));
-  return { enabled: on(env.EMAIL_ENABLED), drafts: on(env.EMAIL_DRAFTS_ENABLED) };
+export async function readEmailFlags(files: StackFiles): Promise<{ enabled: boolean; drafts: boolean }> {
+  const env = await readStackEnv(files, 'stack', '.env');
+  return { enabled: flagOn(env.EMAIL_ENABLED), drafts: flagOn(env.EMAIL_DRAFTS_ENABLED) };
 }
 
 /* Checks on what the renderer sends, before anything reaches a script. */
@@ -128,7 +126,7 @@ export interface EmailServiceDeps {
 type Ok = { ok: true } | ActualScriptFailure;
 
 export interface EmailService {
-  overview(): EmailOverview;
+  overview(): Promise<EmailOverview>;
   refresh(): Promise<EmailOverview>;
   saveAccount(input: EmailAccountInput): Promise<Ok>;
   listMailboxes(slug: string): Promise<EmailMailboxesResult>;
@@ -160,9 +158,6 @@ interface StoredEmail {
 }
 
 const EMPTY_LOG: IndexerLog = { lastPass: null, skipped: {}, passEnds: [], latestAt: null };
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -212,9 +207,11 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
   const changes = new Map<string, AccountChange>();
   const listeners = new Set<(o: EmailOverview) => void>();
 
-  const overview = (): EmailOverview => {
-    const { root } = deps.paths();
-    const flags = readEmailFlags(root);
+  const files = () => stackFilesAt(deps.paths().root);
+
+  const overview = async (): Promise<EmailOverview> => {
+    const flags = await readEmailFlags(files());
+    const available = await emailAvailable(files());
     const accounts = stored.accounts.map((a): EmailAccount => {
       const health = accountState(a.slug, a.host, changes.get(a.slug) ?? null, indexer);
       return { ...a, ...health };
@@ -223,7 +220,7 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
     // Owed: an account Boundary changed is still waiting for a pass that started after the change.
     const passOwed = flags.enabled && accounts.some((a) => changes.has(a.slug) && a.state === 'waiting');
     return {
-      available: emailAvailable(root),
+      available,
       enabled: flags.enabled,
       drafts: flags.drafts,
       since: stored.since,
@@ -235,8 +232,8 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
     };
   };
 
-  function emit(): void {
-    const o = overview();
+  async function emit(): Promise<void> {
+    const o = await overview();
     for (const cb of listeners) cb(o);
   }
 
@@ -258,17 +255,16 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
   const refresh = async (): Promise<EmailOverview> => {
     const parsed = await readStored();
     if (parsed) stored = parsed;
-    const { root } = deps.paths();
     // A failed read keeps what was known; only a successful one replaces it.
     if (parsed) {
-      if (readEmailFlags(root).enabled) {
+      if ((await readEmailFlags(files())).enabled) {
         const text = await deps.indexerLog().catch((): null => null);
         if (text !== null) indexer = parseIndexerLog(text);
       } else {
         indexer = EMPTY_LOG;
       }
     }
-    const o = overview();
+    const o = await overview();
     deps.log('refresh', {
       read: parsed !== null,
       accounts: o.accounts.length,
@@ -276,7 +272,7 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
       passOwed: o.passOwed,
       indexed: o.accounts.filter((a) => a.state === 'indexed').length,
     });
-    emit();
+    await emit();
     return o;
   };
 
@@ -298,21 +294,21 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
     return { ok: false, error: 'command_failed', message: line ?? `addon.sh configure exited with code ${outcome.code}` };
   };
 
-  const enabledNow = (): boolean => readEmailFlags(deps.paths().root).enabled;
+  const enabledNow = async (): Promise<boolean> => (await readEmailFlags(files())).enabled;
 
-  const touch = (slugs: string[]): void => {
+  const touch = async (slugs: string[]): Promise<void> => {
     const at = deps.now().toISOString();
     // While Email is off, email-indexer is stopped, so the next pass starts after this change.
-    const startedAfter = enabledNow() ? null : '';
+    const startedAfter = (await enabledNow()) ? null : '';
     for (const s of slugs) changes.set(s, { at, startedAfter });
-    emit();
+    await emit();
   };
 
   /** Drops an account Boundary removed, so the overview it emits no longer lists it. */
-  const forget = (slug: string): void => {
+  const forget = async (slug: string): Promise<void> => {
     changes.delete(slug);
     stored = { ...stored, accounts: stored.accounts.filter((a) => a.slug !== slug) };
-    emit();
+    await emit();
   };
 
   /**
@@ -356,9 +352,9 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
         if (input.password !== null) stdin.password = input.password;
         const result = await configure('save-account', ['--instance', input.slug], stdin);
         if (!result.ok) return result;
-        touch([input.slug]);
+        await touch([input.slug]);
         // A new password applies from the indexer's next pass; restart so that pass starts now.
-        if (input.password !== null && enabledNow()) {
+        if (input.password !== null && (await enabledNow())) {
           const current = await readStored();
           if (current?.accounts.some((a) => a.slug === input.slug && a.mailboxes.length > 0)) await restartIndexer();
         }
@@ -410,8 +406,8 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
       deps.exclusive(async () => {
         const result = await configure('set-mailboxes', ['--instance', slug], { mailboxes });
         if (!result.ok) return result;
-        touch([slug]);
-        if (enabledNow()) await restartIndexer();
+        await touch([slug]);
+        if (await enabledNow()) await restartIndexer();
         return result;
       }),
 
@@ -424,22 +420,22 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
           return;
         }
         const result = await configure('remove-new', ['--instance', slug, '--remove']);
-        if (result.ok) forget(slug);
+        if (result.ok) await forget(slug);
       }),
 
     removeAccount: (slug) =>
       deps.exclusive(async () => {
         const result = await configure('remove-account', ['--instance', slug, '--remove']);
         if (!result.ok) return result;
-        forget(slug);
-        if (enabledNow()) await restartIndexer();
+        await forget(slug);
+        if (await enabledNow()) await restartIndexer();
         return result;
       }),
 
     setSettings: (input) =>
       deps.exclusive(async () => {
         const before = await readStored();
-        const wasDrafts = readEmailFlags(deps.paths().root).drafts;
+        const wasDrafts = (await readEmailFlags(files())).drafts;
         const result = await configure('settings', [], {
           since: input.since,
           bodies: true,
@@ -449,8 +445,8 @@ export function createEmailService(deps: EmailServiceDeps): EmailService {
         if (!result.ok) return result;
         // Drafts don't change what the indexer reads, so only the window and attachments mark the accounts.
         const indexChanged = !before || before.since !== input.since || before.attachments !== input.attachments;
-        if (indexChanged) touch((before?.accounts ?? stored.accounts).map((a) => a.slug));
-        if (enabledNow()) {
+        if (indexChanged) await touch((before?.accounts ?? stored.accounts).map((a) => a.slug));
+        if (await enabledNow()) {
           if (wasDrafts !== input.drafts) {
             const enabled = await enableUnlocked();
             if (enabled.kind !== 'done') return scriptFailure(enabled);

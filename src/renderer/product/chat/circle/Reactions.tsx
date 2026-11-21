@@ -1,14 +1,12 @@
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { MAX_REACTIONS_PER_MESSAGE, QUICK_REACTIONS } from '../../../../shared/circleReactions';
 import type { CircleMessage, CircleReaction } from '../../../../shared/types/circles';
 import { Icon } from '../MessageActions';
-import { useOwnerDocument } from '../../../components/ui/ownerDocument';
-
-/** "You", "You and Maya", "You, Maya and Sam". */
-function joined(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-}
+import { Chip } from '../../../components/ui/chip';
+import { ChipGroup } from '../../../components/ui/chip-group';
+import { Button } from '../../../components/ui/button';
+import { joinNames } from '../../../../shared/utils/format';
+import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuNote, MenuTrigger } from '../../../components/ui/menu';
 
 /**
  * The pill's people, the user first as main orders them. A reactor who is still a member shows
@@ -16,7 +14,7 @@ function joined(names: string[]): string {
  * reactor's own claim. Only a reactor who has left shows the stored name, tagged `(left)`.
  */
 function people(reaction: CircleReaction, memberName: (identity: string) => string | undefined, withLeft: boolean): string {
-  return joined(
+  return joinNames(
     reaction.people.map((person, index) => {
       if (reaction.mine && index === 0) return 'You';
       const current = memberName(person.identity);
@@ -40,27 +38,22 @@ export const ReactionPills: React.FC<{
 }> = ({ message, onToggle, memberName, readOnly = false }) => {
   if (message.deleted || message.reactions.length === 0) return null;
   return (
-    <div className="wb-react-pills" role="group" aria-label="Reactions">
+    <ChipGroup type="multiple" aria-label="Reactions" className="wb-react-pills">
       {message.reactions.map((reaction) => (
-        <button
+        <Chip
           key={reaction.emoji}
-          type="button"
-          className={`wb-react-pill${reaction.mine ? ' is-mine' : ''}`}
-          aria-pressed={reaction.mine}
-          data-guide-anchor="circle-reactions"
+          pressed={reaction.mine}
+          icon={<span aria-hidden="true">{reaction.emoji}</span>}
+          disabled={readOnly}
           aria-label={`${reaction.emoji} ${reaction.count}, ${people(reaction, memberName, false)}`}
           data-tip={people(reaction, memberName, true)}
-          aria-disabled={readOnly || undefined}
-          tabIndex={readOnly ? -1 : undefined}
-          onClick={readOnly ? undefined : () => onToggle(reaction.emoji, !reaction.mine)}
+          data-guide-anchor="circle-reactions"
+          onPressedChange={(on) => onToggle(reaction.emoji, on)}
         >
-          <span aria-hidden="true">{reaction.emoji}</span>
-          <span className="wb-react-count" aria-hidden="true">
-            {reaction.count}
-          </span>
-        </button>
+          <span className="wb-react-count">{reaction.count}</span>
+        </Chip>
       ))}
-    </div>
+    </ChipGroup>
   );
 };
 
@@ -72,6 +65,19 @@ export const MoreEmojiSheet: React.FC<{ onPick: (emoji: string) => void; onClose
     <EmojiPickerSheet {...props} />
   </Suspense>
 );
+
+/**
+ * The picks sit in a row, so Left and Right move between them as well as Radix's Up and Down.
+ * Radix uses Left and Right only for submenus, which this menu has none of.
+ */
+function stepAcross(event: React.KeyboardEvent<HTMLDivElement>): void {
+  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+  if (!step) return;
+  event.preventDefault();
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([data-disabled])'));
+  const at = items.findIndex((item) => item === event.currentTarget.ownerDocument.activeElement);
+  items[(at + step + items.length) % items.length]?.focus();
+}
 
 const ReactIcon = () => (
   <Icon>
@@ -90,97 +96,41 @@ export const ReactButton: React.FC<{
   onMore?: () => void;
 }> = ({ message, onPick, onMore }) => {
   const [open, setOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const doc = useOwnerDocument();
   const mine = new Set(message.reactions.filter((reaction) => reaction.mine).map((reaction) => reaction.emoji));
   const full = mine.size >= MAX_REACTIONS_PER_MESSAGE;
 
-  const close = (refocus: boolean) => {
-    setOpen(false);
-    if (refocus) buttonRef.current?.focus();
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
-    const away = (event: MouseEvent): void => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) setOpen(false);
-    };
-    doc.addEventListener('mousedown', away);
-    return () => doc.removeEventListener('mousedown', away);
-  }, [open, doc]);
-
-  const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      close(true);
-      return;
-    }
-    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
-    if (!step) return;
-    event.preventDefault();
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? []);
-    const at = items.indexOf(doc.activeElement as HTMLElement);
-    items[(at + step + items.length) % items.length]?.focus();
-  };
-
   return (
     <span className="wb-react-wrap">
-      <button
-        ref={buttonRef}
-        type="button"
-        className="wb-act"
-        aria-label="React"
-        data-tip="React"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
-      >
-        <ReactIcon />
-      </button>
-      {open ? (
-        <div ref={menuRef} className="wb-react-pop" role="menu" aria-label="React" onKeyDown={onKeyDown}>
-          <div className="wb-react-picks">
-            {QUICK_REACTIONS.map((emoji) => {
-              const has = mine.has(emoji);
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  role="menuitemcheckbox"
-                  className="wb-react-pick"
-                  aria-checked={has}
-                  disabled={full && !has}
-                  onClick={() => {
-                    onPick(emoji, !has);
-                    close(true);
-                  }}
-                >
-                  {emoji}
-                </button>
-              );
-            })}
-            {onMore ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="wb-react-pick"
-                aria-label="More emoji"
-                disabled={full}
-                onClick={() => {
-                  close(false);
-                  onMore();
-                }}
-              >
-                +
-              </button>
-            ) : null}
-          </div>
-          {full ? <p className="wb-react-full">You’ve used {MAX_REACTIONS_PER_MESSAGE} reactions on this message</p> : null}
-        </div>
-      ) : null}
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger>
+          <Button type="button" variant="quiet" size="icon-xs" aria-label="React" title="React">
+            <ReactIcon />
+          </Button>
+        </MenuTrigger>
+        <MenuContent
+          aria-label="React"
+          side="bottom"
+          align="end"
+          className="flex w-max flex-wrap"
+          onKeyDown={stepAcross}
+        >
+          {QUICK_REACTIONS.map((emoji) => {
+            const has = mine.has(emoji);
+            return (
+              <MenuCheckboxItem key={emoji} checked={has} disabled={full && !has} onCheckedChange={(on) => onPick(emoji, on)}>
+                {emoji}
+              </MenuCheckboxItem>
+            );
+          })}
+          {onMore ? (
+            <MenuItem disabled={full} onSelect={onMore}>
+              <span aria-hidden="true">+</span>
+              <span className="sr-only">More emoji</span>
+            </MenuItem>
+          ) : null}
+          {full ? <MenuNote className="basis-full">You’ve used {MAX_REACTIONS_PER_MESSAGE} reactions on this message</MenuNote> : null}
+        </MenuContent>
+      </Menu>
     </span>
   );
 };

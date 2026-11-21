@@ -4,6 +4,7 @@ import { BITWARDEN_ENTRY } from './addonCatalog';
 import { StepFailed } from './addonRunState';
 import { readBitwardenEnabled, type BitwardenService } from './bitwardenAddon';
 import { SCRIPT_STEP_OF, createScriptAddonOps, type ScriptAddonDeps, type ScriptAddonRuns } from './scriptAddonInstaller';
+import { stackFilesAt } from '../stackHost/activeStack';
 
 // Get, Turn off and Remove and delete data for Bitwarden (spec decisions 26 and 32), through
 // `addon.sh`. Get only turns the broker on; the person connects an account in the sheet that
@@ -41,7 +42,7 @@ export function createBitwardenInstaller(deps: BitwardenInstallerDeps): Bitwarde
       setStep('disconnect', { status: 'done' });
     }
     setStep('stop', { status: 'running' });
-    if (readBitwardenEnabled(root)) await disable('stop');
+    if (await readBitwardenEnabled(stackFilesAt(root))) await disable('stop');
     setStep('stop', { status: 'done' });
     setStep('delete-data', { status: 'running' });
     check(await deps.run('addon.sh', ['remove', 'bitwarden', '--delete-data', '--json'], { timeoutMs: 600_000 }), 'delete-data');

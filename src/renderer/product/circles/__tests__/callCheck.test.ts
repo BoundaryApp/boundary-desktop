@@ -1,16 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  addSwarmCandidates,
-  readConnectStats,
-  readIceStats,
-  watchIce,
-  readLoadStats,
-  readMediaStats,
-  selectedPairId,
-  stripCandidates,
-  tunnelCandidate,
-  tunnelFields,
-} from '../callCheck';
+import { addSwarmCandidates, readIceStats, watchIce, readLoadStats, stripCandidates, tunnelFields } from '../callCheck';
+import { readConnectStats, readMediaStats, selectedPairId, tunnelCandidate } from '../calls/callStats';
 
 const SDP = [
   'v=0',

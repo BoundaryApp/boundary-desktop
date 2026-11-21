@@ -1,6 +1,7 @@
 import type { BitwardenAccount, BitwardenOverview } from '../../../shared/types/addons';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
 import { useWhenStackReady } from './addonPageActions';
+import { ADDON_SLUG_RULE } from './addonCopy';
 
 // Bitwarden's connected accounts and the agent's access requests, shared by the detail page,
 // the store card, the unlock card and the Services rail dot. Main reads them with
@@ -186,7 +187,7 @@ export function hostOf(url: string): string {
 export function connectErrorText(error: string, slug: string, host: string, retryAfter?: number | null): string {
   switch (error) {
     case 'bad_slug':
-      return 'Start the name with a letter, and use up to 31 lowercase letters, numbers and dashes.';
+      return ADDON_SLUG_RULE;
     case 'exists':
       return `An account named ${slug} is already connected. Choose another name, or replace it.`;
     case 'login_refused':

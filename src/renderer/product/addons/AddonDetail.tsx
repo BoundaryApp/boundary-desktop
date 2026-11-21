@@ -1,14 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Callout } from '../../components/ui/alert';
-import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import {
-  ADDON_LOCAL_REMOVE_MESSAGE,
-  type AddonId,
-  type AddonListing,
-  type TwentyAccess,
-  type TwentyWorkspace,
-} from '../../../shared/types/addons';
+import type { AddonId, AddonListing, TwentyAccess } from '../../../shared/types/addons';
 import { addonPill, engineDown, inProgress, LEFTOVER_TITLE } from './addonCopy';
 import { ActualDetail } from './ActualDetail';
 import { BitwardenDetail } from './BitwardenDetail';
@@ -17,23 +10,23 @@ import { VikunjaDetail, openVikunja } from './VikunjaDetail';
 import { BuiltinAddonDetail } from './BuiltinAddonDetail';
 import { isBuiltinAddon } from './storeItems';
 import { openBuiltinAddon } from './useStoreItems';
-import { AddonHeading, FitChecks, ToolsAndUpdates, WhatItRuns } from './AddonDetailParts';
+import {
+  AddonHeading,
+  AddonSwitchPanel,
+  FitOrStackDown,
+  RemoveDataSheet,
+  ToolsAndUpdates,
+  WhatItRuns,
+} from './AddonDetailParts';
+import { callIpc, switchAddon, useAddonActions } from './addonPageActions';
 import { Panel } from './AddonPanel';
 import { StoppedAddonCallout } from './AddonStoppedAlert';
 import { PendingRestartBar } from './PendingRestartBar';
 import { TwentyConnectSheet } from './TwentyConnectSheet';
 import { TwentyMoveSteps } from './TwentyMoveSteps';
-import { TwentyRemoveSheet } from './TwentyRemoveSheet';
 import { TwentySetupPaths } from './TwentySetupPaths';
 import { TwentyWorkspaces } from './TwentyWorkspaces';
-import {
-  forgetAddonInstall,
-  reloadAddons,
-  startAddonInstall,
-  useAddonInstall,
-  useAddonListing,
-  useRestartWhenIdle,
-} from './useAddons';
+import { startAddonInstall, useAddonInstall, useAddonListing, useRestartWhenIdle } from './useAddons';
 import {
   agentName,
   hostedOf,
@@ -58,102 +51,6 @@ export async function openAddon(listing: AddonListing): Promise<string | null> {
 }
 
 type Dialog = 'off' | 'remove' | null;
-
-const Manage: React.FC<{
-  listing: AddonListing;
-  /** The hosted workspaces agents keep after the local one turns off. */
-  hosted: TwentyWorkspace[];
-  dialog: Dialog;
-  setDialog(next: Dialog): void;
-  onError(message: string | null): void;
-  onRemoveStarted(): void;
-}> = ({ listing, hosted, dialog, setDialog, onError, onRemoveStarted }) => {
-  const { entry } = listing;
-  const on = listing.installed;
-  const [busy, setBusy] = useState(false);
-
-  const close = () => setDialog(null);
-
-  const run = async (work: () => Promise<string | null>) => {
-    setBusy(true);
-    onError(null);
-    let failure: string | null;
-    try {
-      failure = await work();
-    } catch (error) {
-      failure = error instanceof Error ? error.message : String(error);
-    }
-    setBusy(false);
-    close();
-    forgetAddonInstall(entry.id);
-    onError(failure);
-    void reloadAddons();
-    void reloadTwenty();
-  };
-
-  const turnOff = async () => {
-    const result = await window.electronAPI.addons.turnOff(entry.id);
-    return result.success ? null : (result.error ?? `Couldn’t turn off ${entry.name}.`);
-  };
-
-  return (
-    <Panel
-      title="This Mac’s Twenty"
-      lead={
-        on
-          ? 'Turning it off stops its containers, and agents lose crm-main after the next assistant restart. Its data stays, so turning it on again picks up where you left off.'
-          : 'Off. Its data is still on this Mac.'
-      }
-    >
-      <div className="flex flex-wrap gap-2">
-        {on ? (
-          <Button type="button" variant="secondary" onClick={() => setDialog('off')}>
-            Turn off
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="danger"
-          disabled={!listing.canRemoveData}
-          onClick={() => setDialog('remove')}
-        >
-          Remove and delete data
-        </Button>
-      </div>
-      {listing.canRemoveData ? null : <p className="text-xs text-fg-faint">{ADDON_LOCAL_REMOVE_MESSAGE}</p>}
-
-      <Sheet
-        open={dialog === 'off'}
-        onClose={close}
-        busy={busy}
-        titleId="addon-off-title"
-        title="Turn off this Mac’s Twenty?"
-        actions={
-          <SheetConfirmActions
-            busy={busy}
-            onCancel={close}
-            confirmLabel={busy ? 'Turning off…' : 'Turn off'}
-            onConfirm={() => void run(turnOff)}
-          />
-        }
-      >
-        <p className="wb-sheet-lede">
-          {`Its containers stop and agents lose crm-main after the next assistant restart.${
-            hosted.length ? ` Agents keep ${hosted.map(agentName).join(', ')}.` : ''
-          } Its data stays on this Mac, and turning it on again picks up where you left off.`}
-        </p>
-      </Sheet>
-
-      <TwentyRemoveSheet
-        open={dialog === 'remove'}
-        listing={listing}
-        hosted={hosted}
-        onClose={close}
-        onStarted={onRemoveStarted}
-      />
-    </Panel>
-  );
-};
 
 /**
  * Containers of an install that didn't finish keep running and restart with the engine, so
@@ -197,9 +94,8 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
   const workspaces = useTwentyWorkspaces();
   const readError = useTwentyReadError();
   const moveHidden = useMoveStepsHidden();
-  const [error, setError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const { busy, error, act } = useAddonActions(id, reloadTwenty, () => setDialog(null));
   const [connecting, setConnecting] = useState(false);
   const [runHere, setRunHere] = useState(false);
   // An install that makes room, waiting for agent work to finish (ADR 0055 §3).
@@ -250,28 +146,13 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
       .catch(() => start(access));
   };
 
-  const removeLeftover = async () => {
-    setRemoving(true);
-    setError(null);
-    let failure: string | null;
-    try {
-      const result = await window.electronAPI.addons.undo(id);
-      failure = result.success ? null : (result.error ?? `Couldn’t remove ${entry.name}’s containers.`);
-    } catch (e) {
-      failure = e instanceof Error ? e.message : String(e);
-    }
-    setRemoving(false);
-    setError(failure);
-    forgetAddonInstall(id);
-    void reloadAddons();
-  };
+  const removeLeftover = () =>
+    act(async () => {
+      const result = await callIpc(() => window.electronAPI.addons.undo(id), `Couldn’t remove ${entry.name}’s containers.`);
+      return typeof result === 'string' ? result : null;
+    });
 
   const showPaths = loaded && !hasWorkspaces && !running && !leftover;
-  const fitPanel = down ? (
-    <Callout>Start the agent stack to check whether this fits.</Callout>
-  ) : (
-    <FitChecks listing={listing} />
-  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -285,11 +166,11 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
       >
         {leftover ? (
           <>
-            <Button type="button" disabled={!canInstall || removing} onClick={() => install()}>
+            <Button type="button" disabled={!canInstall || busy} onClick={() => install()}>
               Try again
             </Button>
-            <Button type="button" variant="secondary" disabled={removing} onClick={() => void removeLeftover()}>
-              {removing ? 'Removing…' : 'Remove leftover containers'}
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void removeLeftover()}>
+              {busy ? 'Removing…' : 'Remove leftover containers'}
             </Button>
           </>
         ) : null}
@@ -342,13 +223,24 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
                 />
               ) : null}
               {listing.installed || local ? (
-                <Manage
+                <AddonSwitchPanel
                   listing={listing}
-                  hosted={hosted}
-                  dialog={dialog}
-                  setDialog={setDialog}
-                  onError={setError}
-                  onRemoveStarted={onInstallStarted}
+                  title="This Mac’s Twenty"
+                  lead={
+                    listing.installed
+                      ? 'Turning it off stops its containers, and agents lose crm-main after the next assistant restart. Its data stays, so turning it on again picks up where you left off.'
+                      : 'Off. Its data is still on this Mac.'
+                  }
+                  locked={busy || running}
+                  offOpen={dialog === 'off'}
+                  busy={busy}
+                  offTitleId="addon-off-title"
+                  offTitle="Turn off this Mac’s Twenty?"
+                  offText={`Its containers stop and agents lose crm-main after the next assistant restart.${
+                    hosted.length ? ` Agents keep ${hosted.map(agentName).join(', ')}.` : ''
+                  } Its data stays on this Mac, and turning it on again picks up where you left off.`}
+                  onDialog={setDialog}
+                  onTurnOff={() => void act(switchAddon(id, entry.name, false, () => undefined))}
                 />
               ) : null}
               {!listing.installed && !local && runHere ? (
@@ -359,12 +251,12 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
                     onInstall={install}
                     installLabel={installLabel}
                   />
-                  {fitPanel}
+                  <FitOrStackDown listing={listing} down={down} />
                 </>
               ) : null}
             </>
           ) : loaded ? (
-            fitPanel
+            <FitOrStackDown listing={listing} down={down} />
           ) : null}
         </div>
         <div className="flex flex-col gap-4">
@@ -380,6 +272,21 @@ const TwentyDetail: React.FC<DetailProps> = ({ id, onBack, onServices, onInstall
           <ToolsAndUpdates entry={entry} />
         </div>
       </div>
+
+      {dialog === 'remove' ? (
+        <RemoveDataSheet
+          id={id}
+          installed={listing.installed}
+          title="Remove this Mac’s Twenty and delete its data?"
+          images={{ downloadBytes: entry.downloadBytes, again: 'Installing again' }}
+          onClose={() => setDialog(null)}
+          onStarted={onInstallStarted}
+        >
+          {`${listing.installed ? 'Twenty turns off first. ' : ''}This deletes its database, attachments, owner account and the keys agents use for crm-main. It can’t be undone.${
+            hosted.length ? ` ${hosted.map(agentName).join(', ')} stays connected.` : ''
+          }`}
+        </RemoveDataSheet>
+      ) : null}
 
       <TwentyConnectSheet
         open={connecting}

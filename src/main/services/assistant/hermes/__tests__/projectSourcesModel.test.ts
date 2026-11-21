@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -229,6 +230,58 @@ describe('catalog and INDEX', () => {
 
     fs.writeFileSync(path.join(hub, 'notes', 'cover.md'), '# Cover\n');
     expect(await catalogIsFresh(hub, sources)).toBe(false);
+  });
+
+  it('leaves gitignored files of an extra source out of the catalog', async () => {
+    const hub = tmpDir('bd-src-ign-hub-');
+    const repo = tmpDir('bd-src-ign-repo-');
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'data/\n*.local.md\n');
+    fs.mkdirSync(path.join(repo, 'data', 'hermes', 'profiles', 'api-server'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'docs'));
+    fs.mkdirSync(path.join(repo, 'notes'));
+    fs.writeFileSync(path.join(repo, 'notes', 'plan.md'), '# Plan\n');
+    fs.writeFileSync(path.join(repo, 'notes', 'todo.local.md'), '# Todo\n');
+    fs.writeFileSync(path.join(repo, 'data', 'hermes', 'profiles', 'api-server', 'SOUL.md'), '# Soul\n');
+    fs.writeFileSync(path.join(repo, 'docs', 'guide.md'), '# Guide\n');
+    fs.writeFileSync(path.join(repo, 'docs', 'mine.local.md'), '# Mine\n');
+    // A source rooted in a subfolder still follows the repository's rules.
+    const sub = path.join(repo, 'notes');
+    // A folder outside any repository is indexed as before.
+    const plain = tmpDir('bd-src-ign-plain-');
+    fs.writeFileSync(path.join(plain, 'note.md'), '# Note\n');
+    // The hub keeps its ignored files: the stack's freshness check walks it without git.
+    execFileSync('git', ['init', '-q'], { cwd: hub });
+    fs.writeFileSync(path.join(hub, '.gitignore'), 'private.md\n');
+    fs.writeFileSync(path.join(hub, 'private.md'), '# Private\n');
+
+    const spec = (id: string, p: string, exclude: string[] = []) => ({
+      id,
+      path: p,
+      retrieval: 'files' as const,
+      include: ['**/*.md'],
+      exclude,
+    });
+    const sources = [
+      spec('project', '.'),
+      spec('repo', repo, ['notes/**']),
+      spec('sub', sub),
+      spec('plain', plain),
+    ];
+    const { files, warnings } = await buildCatalog(hub, sources);
+    expect(warnings).toEqual([]);
+    expect(files.map((row) => row.path)).toEqual([
+      'private.md',
+      path.resolve(repo, 'docs', 'guide.md'),
+      path.resolve(sub, 'plan.md'),
+      path.resolve(plain, 'note.md'),
+    ]);
+
+    await writeIndex(hub, sources, true);
+    expect(await catalogIsFresh(hub, sources)).toBe(true);
+    // A new ignored file doesn't make the index stale.
+    fs.writeFileSync(path.join(repo, 'data', 'hermes', 'MEMORY.md'), '# Memory\n');
+    expect(await catalogIsFresh(hub, sources)).toBe(true);
   });
 
   it('checks freshness from stats alone and hashes only files whose mtime moved', async () => {

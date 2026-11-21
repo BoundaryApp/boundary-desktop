@@ -5,7 +5,7 @@
  * how often it changed, and loss, bitrate and video freezes over the call.
  */
 import type { CallLogInput } from '../../../../shared/calls/callLog';
-import { readConnectStats, readMediaStats, selectedPairId } from '../callCheck';
+import { readConnectStats, readMediaStats, selectedPairId } from './callStats';
 
 export const LOG_SAMPLE_MS = 5_000;
 

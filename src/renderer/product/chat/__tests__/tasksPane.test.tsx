@@ -99,7 +99,7 @@ describe('TasksPane', () => {
   it('shows every task with All projects, and opens Hermes\'s board', () => {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: board });
     render(<TasksPane agents={agents} project={project} onOpenTask={vi.fn()} onViewChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'All projects' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'All projects' }));
     const running = screen.getByRole('region', { name: 'Running' });
     expect(within(running).getByText('Plan the offsite')).toBeTruthy();
     expect(within(running).getByText(/Running/).textContent).toContain('2');
@@ -119,7 +119,7 @@ describe('TasksPane', () => {
     const { container, rerender } = render(
       <TasksPane agents={agents} project={project} onOpenTask={onOpenTask} onViewChange={onViewChange} />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Board' }));
     expect(onViewChange).toHaveBeenCalledWith('board');
 
     rerender(
@@ -132,7 +132,7 @@ describe('TasksPane', () => {
         boardTaskId="t_2"
       />
     );
-    expect(screen.getByRole('button', { name: 'Board' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('radio', { name: 'Board' }).getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByRole('region', { name: 'Running' })).toBeNull();
     expect(kanbanBoardView).toHaveBeenCalledWith('t_2');
     await waitFor(() => expect(container.querySelector('webview')).not.toBeNull());

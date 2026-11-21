@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Field } from '../../../components/ui/field';
+import { NativeSelect } from '../../../components/ui/native-select';
 
 async function listDevices(): Promise<MediaDeviceInfo[]> {
   try {
@@ -39,14 +40,14 @@ export const DevicePickers: React.FC<{
     const options = devices.filter((device) => device.kind === kind && device.deviceId !== 'default');
     return (
       <Field label={label} htmlFor={id}>
-        <select id={id} value={value ?? ''} onChange={(event) => onPick(event.target.value)}>
+        <NativeSelect id={id} value={value ?? ''} onChange={(event) => onPick(event.target.value)}>
           <option value="">System default</option>
           {options.map((device, index) => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label || `${label} ${index + 1}`}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
     );
   };

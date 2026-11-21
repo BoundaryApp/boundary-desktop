@@ -7,7 +7,7 @@
  * the tunnel endpoint goes in as a remote candidate below any real one (ADR 0044 §9).
  */
 import type { LinkState, PeerLink } from '../../../../shared/calls/callSession';
-import { tunnelCandidate } from '../callCheck';
+import { tunnelCandidate } from './callStats';
 import type { StatsSource } from './callLogger';
 
 const GATHER_MS = 5_000;

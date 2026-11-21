@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Input } from '../../components/ui/input';
 
 interface EmptyProjectSheetProps {
   open: boolean;
@@ -54,7 +55,7 @@ export const EmptyProjectSheet: React.FC<EmptyProjectSheetProps> = ({
       </p>
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {

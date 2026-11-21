@@ -163,7 +163,7 @@ export function createEnableRemoveInstaller<S extends { enable(o?: { onLine?: (l
   name: string;
   stepOf: Record<string, AddonStepId>;
   deps: ScriptAddonDeps<S>;
-  isEnabled(): boolean;
+  isEnabled(): Promise<boolean>;
   afterEnable(): Promise<void>;
   afterDisable(): Promise<void>;
 }): EnableRemoveInstaller {
@@ -174,7 +174,7 @@ export function createEnableRemoveInstaller<S extends { enable(o?: { onLine?: (l
 
   async function runRemoval(): Promise<void> {
     setStep('stop', { status: 'running' });
-    if (isEnabled()) await disable('stop');
+    if (await isEnabled()) await disable('stop');
     setStep('stop', { status: 'done' });
     setStep('delete-data', { status: 'running' });
     check(await deps.run('addon.sh', ['remove', id, '--delete-data', '--json'], { timeoutMs: 600_000, onLine }), 'delete-data');

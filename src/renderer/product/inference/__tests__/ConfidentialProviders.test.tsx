@@ -114,7 +114,7 @@ const dialog = () => screen.getByRole('dialog');
 
 async function walkToKey(name: string) {
   fireEvent.click(within(card()).getByRole('button', { name: 'Add a provider' }));
-  fireEvent.click(within(dialog()).getByRole('button', { name: new RegExp(name) }));
+  fireEvent.click(within(dialog()).getByRole('radio', { name: new RegExp(name) }));
   fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
   fireEvent.click(within(dialog()).getByRole('button', { name: `Add ${name}` }));
 }
@@ -302,11 +302,11 @@ describe('ConfidentialProviders', () => {
       },
     ]);
     fireEvent.click(within(card()).getByRole('button', { name: 'Add a provider' }));
-    expect((within(dialog()).getByRole('button', { name: /Prem · added/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(within(dialog()).getByRole('button', { name: /Chutes/ })).getByText('Below your minimum')).toBeTruthy();
+    expect((within(dialog()).getByRole('radio', { name: /Prem · added/ }) as HTMLInputElement).disabled).toBe(true);
+    expect(within(within(dialog()).getByRole('radio', { name: /Chutes/ }).closest('label') as HTMLElement).getByText('Below your minimum')).toBeTruthy();
     expect((within(dialog()).getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(within(dialog()).getByRole('button', { name: /Privatemode/ }));
+    fireEvent.click(within(dialog()).getByRole('radio', { name: /Privatemode/ }));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
     expect(within(dialog()).getByText('Can’t read')).toBeTruthy();
     expect(within(dialog()).getByText(/Prepaid by card, at Privatemode\./)).toBeTruthy();
@@ -397,9 +397,9 @@ describe('ConfidentialProviders', () => {
     const premNote = 'New Prem accounts can send 38,000 tokens a minute, about two agent steps.';
     await mount(enabled([provider({ note: premNote }), privatemode]));
     fireEvent.click(within(card()).getByRole('button', { name: 'Add a provider' }));
-    const premChoice = within(dialog()).getByRole('button', { name: /Prem/ });
-    expect(premChoice.textContent).toContain('Qwen 3.8 27B $0.015 · DeepSeek V4.1 Flash $0.014 a turn · Prepaid by card');
-    expect(within(dialog()).getByRole('button', { name: /Privatemode/ }).textContent).toContain('GLM 5.3 Flash $0.17 a turn');
+    const premChoice = within(dialog()).getByRole('radio', { name: /Prem/ });
+    expect(premChoice.closest('label')?.textContent).toContain('Qwen 3.8 27B $0.015 · DeepSeek V4.1 Flash $0.014 a turn · Prepaid by card');
+    expect(within(dialog()).getByRole('radio', { name: /Privatemode/ }).closest('label')?.textContent).toContain('GLM 5.3 Flash $0.17 a turn');
     fireEvent.click(premChoice);
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
     expect(within(dialog()).queryByText(premNote)).toBeNull();

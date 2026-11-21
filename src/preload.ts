@@ -85,6 +85,7 @@ const api = {
     acknowledge: invoker('capability:acknowledge'),
     getDebugLog: invoker('capability:get-debug-log'),
     onProgress: listen('capability:progress'),
+    onProvisionStage: listen('capability:provision-stage'),
   },
   setup: {
     getProgress: invoker('setup:get-progress'),
@@ -100,6 +101,7 @@ const api = {
     ensureRunningInBackground: invoker('assistant-stack:ensure-running-background'),
     ensureAndApplyLlm: invoker('assistant-stack:ensure-and-apply-llm'),
     getWebSearchMode: invoker('assistant-stack:get-web-search-mode'),
+    getCapabilities: invoker('stack-host:capabilities'),
     setWebSearchMode: invoker('assistant-stack:set-web-search-mode'),
     onLifecycle: listen('assistant-stack:lifecycle'),
     onReady: listen('assistant-stack:ready'),
@@ -161,6 +163,8 @@ const api = {
     },
     vikunja: {
       open: invoker('addons:vikunja-open'),
+      account: invoker('addons:vikunja-account'),
+      copyPassword: invoker('addons:vikunja-copy-password'),
     },
     bitwarden: {
       overview: invoker('addons:bitwarden-overview'),
@@ -192,14 +196,18 @@ const api = {
     /** Main pushes the inventory only while at least one subscriber is attached. */
     subscribeComposeInventory: (callback: (snapshot: IpcEventChannels['resources:compose-inventory']) => void) => {
       const remove = listen('resources:compose-inventory')(callback);
-      invoker('resources:subscribe-compose-inventory')().catch((error: unknown) =>
-        log('compose inventory subscribe failed: %O', error)
-      );
+      invoker('resources:subscribe-compose-inventory')()
+        .then((result) => {
+          if (!result.success) log('compose inventory subscribe failed: %s', result.error);
+        })
+        .catch((error: unknown) => log('compose inventory subscribe failed: %O', error));
       return () => {
         remove();
-        invoker('resources:unsubscribe-compose-inventory')().catch((error: unknown) =>
-          log('compose inventory unsubscribe failed: %O', error)
-        );
+        invoker('resources:unsubscribe-compose-inventory')()
+          .then((result) => {
+            if (!result.success) log('compose inventory unsubscribe failed: %s', result.error);
+          })
+          .catch((error: unknown) => log('compose inventory unsubscribe failed: %O', error));
       };
     },
   },
@@ -395,6 +403,8 @@ const api = {
     createEmpty: invoker('hermes-projects:create-empty'),
     select: invoker('hermes-projects:select'),
     changeFolder: invoker('hermes-projects:change-folder'),
+    inspectRemove: invoker('hermes-projects:remove-inspect'),
+    remove: invoker('hermes-projects:remove'),
     patch: invoker('hermes-projects:patch'),
     reveal: invoker('hermes-projects:reveal'),
     completePath: invoker('hermes-projects:complete-path'),
@@ -441,6 +451,13 @@ const api = {
     agreeToDetector: invoker('writing-check:detector-agree'),
     readFile: invoker('writing-check:file-read'),
     pickFile: invoker('writing-check:file-pick'),
+  },
+  chatHistory: {
+    status: invoker('chat-history:status'),
+    export: invoker('chat-history:export'),
+    cancel: invoker('chat-history:cancel'),
+    reveal: invoker('chat-history:reveal'),
+    onChanged: listen('chat-history:changed'),
   },
   writingVoices: {
     list: invoker('writing-voices:list'),

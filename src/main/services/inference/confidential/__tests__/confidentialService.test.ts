@@ -253,6 +253,21 @@ describe('ConfidentialService', () => {
     });
   });
 
+  it('says a manifest the catalog doesn’t pin is a release the list doesn’t include yet, at the key and hardware steps', async () => {
+    const unpinned = 'Prem is running a release Boundary’s provider list doesn’t include yet, so its hardware wasn’t checked. Prem isn’t added. Nothing was sent. Try again after Boundary updates its list.';
+    const atKey: AdapterFor = (id, key) => ({
+      ...createDevAdapter(id, catalog, key),
+      checkKey: async () => ({ ok: false, failure: { kind: 'attestation-failed', detail: 'manifest-unpinned' } }),
+    });
+    expect((await setup({ adapterFor: atKey }).service.addProvider('prem', 'key-a')).checks).toEqual([{ step: 'key', ok: false, detail: unpinned }]);
+    const atHardware: AdapterFor = (id, key) => ({
+      ...createDevAdapter(id, catalog, key),
+      verifyAttestation: async () => ({ ok: false, detail: 'manifest-unpinned' }),
+    });
+    const result = await setup({ adapterFor: atHardware }).service.addProvider('prem', 'key-a');
+    expect(result.checks[1]).toEqual({ step: 'attestation', ok: false, detail: unpinned });
+  });
+
   it('adds a provider whose tools don’t work, with the tools check not ok', async () => {
     const { service, raw } = setup();
     const result = await service.addProvider('prem', 'notools-key');
@@ -562,6 +577,87 @@ describe('ConfidentialService', () => {
       release();
       expect(await inFlight).toBeNull();
       expect(await service.adapter('prem')).toBeNull();
+    });
+
+    /** Dev adapters with a `close` spy, each remembering its key and whether the service closed it. */
+    function closable() {
+      const built: { key: string; adapter: ConfidentialAdapter; close: ReturnType<typeof vi.fn> }[] = [];
+      const adapterFor: AdapterFor = (id, key) => {
+        const close = vi.fn();
+        const adapter = { ...createDevAdapter(id, catalog, key), close };
+        built.push({ key, adapter, close });
+        return adapter;
+      };
+      const closedOf = (adapter: ConfidentialAdapter | null) => built.find((b) => b.adapter === adapter)?.close.mock.calls.length ?? -1;
+      return { adapterFor, built, closedOf };
+    }
+
+    it('closes the add flow’s adapter once its checks finish, passed or failed', async () => {
+      const { adapterFor, built } = closable();
+      const { service } = setup({ adapterFor });
+      await service.addProvider('prem', 'key-a');
+      await service.addProvider('prem', 'badkey');
+      expect(built.map((b) => [b.key, b.close.mock.calls.length])).toEqual([
+        ['key-a', 1],
+        ['badkey', 1],
+      ]);
+    });
+
+    it('closes the cached adapter when a re-add or remove drops it, and never the new one', async () => {
+      const { adapterFor, closedOf } = closable();
+      const { service } = setup({ adapterFor });
+      await service.addProvider('prem', 'key-a');
+      const first = await service.adapter('prem');
+      expect(closedOf(first)).toBe(0);
+      await service.addProvider('prem', 'key-b');
+      expect(closedOf(first)).toBe(1);
+      const second = await service.adapter('prem');
+      expect(closedOf(second)).toBe(0);
+      await service.removeProvider('prem');
+      expect(closedOf(second)).toBe(1);
+    });
+
+    it('closes the cached adapter when a refresh finds the key unreadable, and each refresh’s own adapter', async () => {
+      const { adapterFor, built, closedOf } = closable();
+      const { service, raw } = setup({ adapterFor });
+      await service.addProvider('prem', 'key-a');
+      const cached = await service.adapter('prem');
+      await service.refreshLive();
+      const refreshed = built.at(-1);
+      expect(refreshed?.adapter).not.toBe(cached);
+      expect(refreshed?.close).toHaveBeenCalledTimes(1);
+      expect(closedOf(cached)).toBe(0);
+      raw.data.keys = { prem: 'unreadable' };
+      await service.refreshLive();
+      expect(closedOf(cached)).toBe(1);
+    });
+
+    it('closes an adapter built from a key read before a re-add, without caching it', async () => {
+      const { adapterFor, built } = closable();
+      const { service } = setup({ adapterFor });
+      await service.addProvider('prem', 'key-a');
+      const release = held();
+      const inFlight = service.adapter('prem');
+      await service.addProvider('prem', 'key-b');
+      release();
+      const current = await inFlight;
+      const stale = built.filter((b) => b.key === 'key-a' && b.adapter !== current);
+      // The add flow's key-a adapter and the one built from the stale read are both closed.
+      expect(stale.map((b) => b.close.mock.calls.length)).toEqual([1, 1]);
+      expect(built.find((b) => b.adapter === current)?.close).not.toHaveBeenCalled();
+    });
+
+    it('carries on when an adapter’s close throws', async () => {
+      const adapterFor: AdapterFor = (id, key) => ({
+        ...createDevAdapter(id, catalog, key),
+        close: () => {
+          throw new Error('close failed');
+        },
+      });
+      const { service } = setup({ adapterFor });
+      expect((await service.addProvider('prem', 'key-a')).added).toBe(true);
+      expect(await service.adapter('prem')).not.toBeNull();
+      await expect(service.removeProvider('prem')).resolves.toMatchObject({ enabled: true });
     });
 
     it('drops the cached adapter when a refresh finds the key unreadable', async () => {

@@ -7,6 +7,7 @@ import type Hyperbee from 'hyperbee';
 import type { HyperbeeEntry } from 'hyperbee';
 import { MENTIONS_FORMAT, mentionsMe } from '../../../shared/circleMentions';
 import type { CircleChatUpdate, CircleMentions, CircleMessage, CircleMessageRef, CircleReadPosition } from '../../../shared/types/circles';
+import { refKey } from '../../../shared/circleMessageRef';
 import { repliesToMe } from '../../../shared/circleReplies';
 import { chatCountKey, chatIndexKey, chatMessageKey, type CircleMessageRecord } from './circleOps';
 import type { CircleRecordEntry } from './networkMessages';
@@ -36,7 +37,6 @@ export interface ChatReader {
   members: ReadonlySet<string>;
 }
 
-const refKey = (ref: CircleMessageRef): string => `${ref.author}/${ref.id}`;
 const isMessageKey = (key: string): boolean => key.includes('/messages/');
 
 function messagesRange(channel: string): { gte: string; lt: string } {

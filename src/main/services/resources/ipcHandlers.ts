@@ -1,4 +1,4 @@
-import { handle, sendEvent } from '../../ipc';
+import { handle, handleResult, sendEvent } from '../../ipc';
 import type { WebContents } from 'electron';
 import type { ComposeInventorySnapshot } from '../../../shared/types/composeInventory';
 import type { HostResourceSnapshot } from '../../../shared/types/hostResources';
@@ -51,7 +51,7 @@ export function registerResourceHandlers(): void {
     return readComposeInventory();
   });
 
-  handle('resources:subscribe-compose-inventory', async (event) => {
+  handleResult('resources:subscribe-compose-inventory', async (event) => {
     const contents = event.sender;
     const id = contents.id;
     detachInventoryListener(id);
@@ -72,7 +72,7 @@ export function registerResourceHandlers(): void {
     return { success: true };
   });
 
-  handle('resources:unsubscribe-compose-inventory', async (event) => {
+  handleResult('resources:unsubscribe-compose-inventory', async (event) => {
     detachInventoryListener(event.sender.id);
     return { success: true };
   });

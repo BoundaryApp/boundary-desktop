@@ -9,6 +9,7 @@ import type {
   PricePromo,
   TrustLevel,
 } from '../../../../shared/types/confidential';
+import { isRecord } from '../../../../shared/utils/isRecord';
 
 /**
  * Boundary's confidential provider catalog (ADR 0047 §3–4). The catalog is checked field by
@@ -30,9 +31,18 @@ export type CatalogParseResult =
 const LEVELS: readonly TrustLevel[] = ['A', 'B', 'C'];
 const PRECISIONS: readonly Precision[] = ['bf16', 'fp8', 'fp4'];
 const INPUT_TYPES: readonly InputType[] = ['text', 'image', 'video', 'audio'];
+/**
+ * Providers whose hardware check takes its reference values from a manifest Boundary fetches.
+ * Their level A rests on the catalog's manifest pins, so level A without pins is refused.
+ */
+const MANIFEST_PINNED_PROVIDERS: ReadonlySet<string> = new Set(['privatemode']);
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** A non-empty list of distinct lowercase SHA-256 hex digests, or null. */
+function parseManifestPins(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  if (!value.every((pin): pin is string => typeof pin === 'string' && SHA256_HEX.test(pin))) return null;
+  return [...new Set(value)];
 }
 
 function isText(value: unknown): value is string {
@@ -128,6 +138,19 @@ function parseProvider(
     dropped.push({ providerId: id, reason: 'note and runsIn must be text when present' });
     return null;
   }
+  let manifestSha256: string[] | undefined;
+  if (value.manifestSha256 !== undefined) {
+    const pins = parseManifestPins(value.manifestSha256);
+    if (pins === null) {
+      dropped.push({ providerId: id, reason: 'manifestSha256 must be a non-empty list of lowercase SHA-256 hex digests' });
+      return null;
+    }
+    manifestSha256 = pins;
+  }
+  if (value.level === 'A' && MANIFEST_PINNED_PROVIDERS.has(id) && manifestSha256 === undefined) {
+    dropped.push({ providerId: id, reason: 'level A needs manifestSha256 for this provider' });
+    return null;
+  }
   const offers: Record<string, CatalogOffer> = {};
   for (const [modelId, raw] of Object.entries(value.offers)) {
     if (!modelIds.has(modelId)) {
@@ -147,6 +170,7 @@ function parseProvider(
     billing: value.billing,
     ...(value.note === undefined ? {} : { note: value.note as string }),
     ...(value.runsIn === undefined ? {} : { runsIn: value.runsIn as string }),
+    ...(manifestSha256 === undefined ? {} : { manifestSha256 }),
     offers,
   };
 }

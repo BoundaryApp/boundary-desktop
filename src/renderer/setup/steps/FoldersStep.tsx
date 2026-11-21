@@ -9,6 +9,7 @@ import { EmptyProjectSheet } from '../../product/chat/EmptyProjectSheet';
 import { ProjectGlyph } from '../../product/chat/ProjectGlyph';
 import type { FirstRunFolder, FirstRunFolderPick } from '../../../shared/types/setupProgress';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { errorText } from '../../lib/errorText';
 
 type FolderRow =
   | ({ kind: 'host-folder'; key: string } & FirstRunFolderPick)
@@ -45,7 +46,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
         return [...prev, ...added];
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     }
   };
 
@@ -69,7 +70,7 @@ export const FoldersStep: React.FC<SetupStepProps> = ({ title, description }) =>
       }
       updateSetupProgress(result.progress);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }

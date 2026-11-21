@@ -15,10 +15,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isActualFailure } from '../../../../shared/types/addons';
 import { actualAvailable, createActualService, readActualFlags, readActualRows, type ActualService } from '../../addons/actualAddon';
 import { runAddonScript } from '../../addons/addonScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { HermesGatewaySession } from '../hermes/hermesGatewaySession';
 import type { JsonRpcGatewayClient } from '../hermes/vendor';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { probeStack, skipNote } from './stackHarness';
+import { localRunScript } from '../../stackHost/localScript';
 
 const probe = await probeStack();
 const SLUG = 'stack-test';
@@ -26,12 +28,13 @@ const SLUG = 'stack-test';
 const root = probe.ok ? probe.target.root : '';
 // The stack's add-on store follows ASSISTANT_DATA_ROOT, which may sit outside the stack root.
 const dataRoot = root ? resolveAssistantUserContentRoot(root) : '';
+const files = localStackFiles({ stackRoot: root, userContentRoot: () => dataRoot });
 const writes = process.env.BOUNDARY_STACK_WRITES === '1';
 const ready =
   probe.ok &&
-  actualAvailable(root) &&
-  readActualFlags(root).enabled &&
-  readActualFlags(root).local &&
+  (await actualAvailable(files)) &&
+  (await readActualFlags(files)).enabled &&
+  (await readActualFlags(files)).local &&
   fs.existsSync(path.join(dataRoot, 'addons', 'actual', 'secrets', 'server_password'));
 const why = !writes
   ? ' (skipped: set BOUNDARY_STACK_WRITES=1; it connects and disconnects a budget)'
@@ -47,14 +50,15 @@ describe.skipIf(!probe.ok)(`Actual Budget connected budgets${skipNote(probe)}`, 
   beforeAll(() => {
     service = createActualService({
       paths: () => ({ root, dataRoot }),
-      run: (script, args, options = {}) => runAddonScript({ root, env: process.env, script, args, ...options }),
+      files,
+      run: (script, args, options = {}) => runAddonScript({ runScript: localRunScript(root), env: process.env, script, args, ...options }),
       exclusive: (work) => work(),
       log: () => undefined,
     });
   });
 
   afterAll(async () => {
-    if (writes && ready && readActualRows(dataRoot).some((b) => b.slug === SLUG)) await service.disconnect(SLUG);
+    if (writes && ready && (await readActualRows(files)).some((b) => b.slug === SLUG)) await service.disconnect(SLUG);
     session.dispose();
   });
 
@@ -90,7 +94,7 @@ describe.skipIf(!probe.ok)(`Actual Budget connected budgets${skipNote(probe)}`, 
       const access = await service.setAccess(SLUG, 'write');
       if (isActualFailure(access)) throw new Error(`access: ${access.error}: ${access.message}`);
       expect(access.mcp).toEqual([`budget-${SLUG}`]);
-      expect(readActualRows(dataRoot).find((b) => b.slug === SLUG)?.access).toBe('write');
+      expect((await readActualRows(files)).find((b) => b.slug === SLUG)?.access).toBe('write');
 
       expect(await service.disconnect(SLUG)).toEqual({ ok: true });
     }

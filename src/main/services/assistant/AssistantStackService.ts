@@ -28,10 +28,10 @@ import {
 import { isWebSearchMode, type WebSearchModeState } from '../../../shared/webSearchMode';
 import { WEB_SEARCH_MODE_ENV, findWebSearchModeOverrides } from './webSearchModeOverrides';
 import {
-  addonComposeEnv,
   addonComposeProfiles,
   boundaryComposeProfileArgs,
   installedAddonsHere,
+  moveTwentyFlagsToEnv,
 } from '../addons/addonComposeState';
 import { moveBuiltinSwitchesToEnv } from '../addons/builtinAddons';
 import { buildAssistantUiServiceCards } from '../../../shared/assistantUiServices';
@@ -50,12 +50,14 @@ import {
   seedServiceProgress as seedAllServiceProgress,
   startElapsedHeartbeat,
 } from '../../../shared/assistantStackLifecycle';
+import type { AddonId } from '../../../shared/types/addons';
 import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import type {
   ApplyAssistantLlmResult,
   HermesApplyStage,
   AssistantStackLifecycleSnapshot,
   AssistantStackLifecycleStage,
+  AssistantStackPortKey,
   AssistantStackPorts,
   AssistantStackServiceProgress,
   AssistantStackStatus,
@@ -68,17 +70,14 @@ import {
   runCompose,
   runComposeStreaming,
 } from '../containerRuntime';
-import {
-  classifyInferenceSlot,
-  getAppDefaultSlot,
-  getAppSharedModel,
-  getLlmConnection,
-} from '../onboarding/OpenAiOnboardingStore';
+import { classifyInferenceSlot, getLlmConnection } from '../onboarding/OpenAiOnboardingStore';
+import { getAppDefaultSlot, getAppSharedModel } from '../inference/appInferenceChoice';
 import {
   applyLlmConnectionToProjectFiles,
   clearLlmKeysFromProjectEnv,
 } from './applyLlmToProjectEnv';
-import { parseEnv, readEnvFile, upsertEnvLines } from './stackEnv';
+import { projectEnvVia, type ProjectEnv } from './projectEnv';
+import { readStackEnv, STACK_INLINE_COMMENT_KEYS, stripInlineEnvComments, writeStackEnvValues } from './stackEnv';
 import { redactSecrets } from '../secrets/redact';
 import {
   ensureAddonMountSources,
@@ -86,12 +85,11 @@ import {
   ensureAssistantWorkspaceDir,
   ensureOpenCodeConfigFile,
   hermesConfigExists,
-  isBoundaryOwnedAssistantRoot,
-  readAssistantEnvFile,
   removeIncompleteHermesProfiles,
   resolveAssistantDataRoot,
   resolveAssistantWorkspaceRoot,
   resolveAssistantUserContentRoot,
+  resolveAssistantStackHome,
   resolveBoundaryOverlayPath,
 } from './assistantPaths';
 import {
@@ -111,6 +109,9 @@ import {
   setLightragEnabled,
   builtinSwitchesMoved,
   markBuiltinSwitchesMoved,
+  twentyFlagsMoved,
+  getInstalledAddons,
+  markTwentyFlagsMoved,
   getWebSearchMode,
   setWebSearchMode,
 } from './AssistantStackStore';
@@ -119,6 +120,8 @@ import {
   localStackStopSkippedMessage,
   stackMode,
 } from './localStackMode';
+import { hasStackCapability } from '../stackHost/capabilities';
+import { STACK_CAPABILITY_MISSING_TEXT } from '../../../shared/stackCapabilities';
 import { LIVE_STACK_PS_ARGS, liveForeignProjectsAt } from './liveLocalStack';
 import {
   ensureSovereignProjectProvisioned,
@@ -127,7 +130,18 @@ import {
   markImagesBuilt,
   needsImageBuild,
 } from './provisionSovereignStack';
-import { tryResolveAssistantRoot } from './resolveAssistantRoot';
+import { resolveActiveAssistantRoot, tryResolveAssistantRoot } from './resolveAssistantRoot';
+import { createLocalStackHost } from '../stackHost/localStackHost';
+import { localRunScript } from '../stackHost/localScript';
+import {
+  connectedSshStackHost,
+  getStackEndpoints,
+  getStackFiles,
+  selectStackHost,
+  stackFilesAt,
+} from '../stackHost/activeStack';
+import { isRemoteStackLocation } from '../stackHost/stackHostLocation';
+import type { ComposeStreamingOptions, RunScriptOptions, StackCommands, StackFiles, StackHost } from '../stackHost/types';
 import {
   chooseAssistantPorts,
   keepOrReplaceStoredPorts,
@@ -182,7 +196,7 @@ import {
   type ChainPlan,
 } from '../inference/inferenceChainService';
 import {
-  ensureInferenceRouter,
+  ensureInferenceRouterForStack,
   HERMES_ROUTER_PROVIDER_KEY,
   HERMES_ROUTER_SESSION_HEADER,
   inferenceRouterProxyUrl,
@@ -196,7 +210,11 @@ import {
 } from './runSovereignSetup';
 import { syncStackImagePins } from './stackImagePins';
 import { persistDebugLog } from '../../persistDebugLog';
-import { notifyHermesReplaced, runBeforeStackUp } from './hermesLifecycle';
+import {
+  notifyHermesReplaced,
+  runBeforeStackUp,
+  type HermesReplacedReason,
+} from './hermesLifecycle';
 import { ComposeTimeline } from './composeTimeline';
 import { upWithStaleNetworkRetry } from './staleNetworkRetry';
 import { StartTimer } from './startTimer';
@@ -211,6 +229,7 @@ import {
 import { codingStackEnv, currentCodingPathAliases, currentCodingRoots } from './coding/codingMounts';
 import {
   ensureHostBridgeStarted,
+  refreshCredentialClientFiles,
   hostBridgeWakeAccepted,
   type HostBridgeEndpoints,
 } from '../hostBridge/hostBridgeService';
@@ -226,7 +245,7 @@ import {
   hostBridgeCdpUrl,
   profileGetsBoundaryBrowser,
   hostBridgeHermesConfigSets,
-  hermesProfileEnvPath,
+  hermesProfileEnvRel,
   removeEnvValuesFromProfiles,
   writeEnvValuesToProfiles,
   writeHostBridgeTokensToProfiles,
@@ -237,6 +256,8 @@ import {
   writeHermesProjectsOverlay,
   resolveHermesProjectsOverlayPath,
 } from './hermes/hermesProjectsOverlay';
+import { buildEngineOverlayYaml, ENGINE_OVERLAY_FILENAME } from './engineOverlay';
+import type { RuntimeKind } from '../containerRuntime/types';
 import { holdFolderRemounts, recordMountedProjectFolders } from './hermes/projectMountState';
 import { localTerminalService } from './hermes/hermesContextRoots';
 
@@ -276,7 +297,7 @@ export function announceAssistantStackStopping(): void {
   setLifecycle(
     createLifecycleSnapshot('stopping', {
       message: 'Quit requested — stopping assistant containers…',
-      services: seedServiceProgress('working', 'Stopping…', 0.15),
+      services: seedServiceProgressFrom(lastInstalledAddons, 'working', 'Stopping…', 0.15),
     })
   );
 }
@@ -291,7 +312,7 @@ export function announceAssistantStackMakingRoom(message: string): void {
       message,
       stage: 'provision',
       stageStartedAt: Date.now(),
-      services: seedServiceProgress('working', message, 0.1),
+      services: seedServiceProgressFrom(lastInstalledAddons, 'working', message, 0.1),
     })
   );
 }
@@ -387,10 +408,24 @@ const LIGHTRAG_ONLY_CONTAINERS = new Set<string>(['boundary-lightrag', 'boundary
  * The lifecycle's service cards. n8n and the GPT Researcher API have one only while the n8n
  * add-on is on, LightRAG and Neo4j only while the LightRAG add-on is on.
  */
-function seedServiceProgress(
+/**
+ * The installed add-ons as last read from the stack's files, for the quit and make-room
+ * announcements, which must not wait for a read.
+ */
+let lastInstalledAddons: AddonId[] = [];
+
+/** {@link seedServiceProgressFrom} over the add-ons installed now. */
+async function seedServiceProgress(
+  ...args: Parameters<typeof seedAllServiceProgress>
+): Promise<AssistantStackServiceProgress[]> {
+  lastInstalledAddons = await installedAddonsHere();
+  return seedServiceProgressFrom(lastInstalledAddons, ...args);
+}
+
+function seedServiceProgressFrom(
+  installed: readonly AddonId[],
   ...args: Parameters<typeof seedAllServiceProgress>
 ): AssistantStackServiceProgress[] {
-  const installed = installedAddonsHere();
   const n8n = installed.includes('n8n');
   const lightrag = installed.includes('lightrag');
   return seedAllServiceProgress(...args).filter(
@@ -535,16 +570,54 @@ function portsToComposeEnv(ports: AssistantStackPorts): NodeJS.ProcessEnv {
   };
 }
 
-function buildComposeFileArgs(overlayPath: string): string[] {
+function buildComposeFileArgs(overlayPath: string, engineOverlayPath: string | null): string[] {
   const args = ['-f', BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE, '-f', overlayPath];
   if (hermesProjectsOverlayExists()) {
     args.push('-f', resolveHermesProjectsOverlayPath());
   }
+  if (engineOverlayPath) {
+    args.push('-f', engineOverlayPath);
+  }
   return args;
 }
 
-function buildProjectArgs(overlayPath: string): string[] {
-  return ['-p', BOUNDARY_ASSISTANT_PROJECT_NAME, ...buildComposeFileArgs(overlayPath)];
+/**
+ * Writes the engine overlay for `kind` and returns its path, or removes a stale one and returns
+ * null when `kind` needs none (engineOverlay.ts, change request 0041). Runs before every compose
+ * call, so a switch between Docker and Podman, or a pinned stack that no longer needs it, takes
+ * effect at the next call.
+ */
+function syncEngineOverlay(
+  kind: RuntimeKind,
+  root: string,
+  overlayPath = path.join(resolveAssistantStackHome(), ENGINE_OVERLAY_FILENAME)
+): string | null {
+  let composeText = '';
+  try {
+    composeText = fs.readFileSync(path.join(root, BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE), 'utf8');
+  } catch {
+    // No compose file: compose itself reports that.
+  }
+  const yaml = buildEngineOverlayYaml(kind, composeText);
+  if (!yaml) {
+    fs.rmSync(overlayPath, { force: true });
+    return null;
+  }
+  let current: string | null = null;
+  try {
+    current = fs.readFileSync(overlayPath, 'utf8');
+  } catch {
+    // Not written yet.
+  }
+  if (current !== yaml) {
+    fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
+    fs.writeFileSync(overlayPath, yaml, 'utf8');
+  }
+  return overlayPath;
+}
+
+function buildProjectArgs(overlayPath: string, engineOverlayPath: string | null = null): string[] {
+  return ['-p', BOUNDARY_ASSISTANT_PROJECT_NAME, ...buildComposeFileArgs(overlayPath, engineOverlayPath)];
 }
 
 async function httpGetOk(url: string): Promise<boolean> {
@@ -566,7 +639,7 @@ export async function waitUntilAssistantHealthy(
   ports: AssistantStackPorts,
   timeoutMs = ASSISTANT_STACK_HEALTH_TIMEOUT_MS
 ): Promise<void> {
-  const healthUrl = `http://127.0.0.1:${ports.apiServer}/health`;
+  const healthUrl = getStackEndpoints().portUrl(ports.apiServer, '/health');
   const deadline = Date.now() + timeoutMs;
   const waitStarted = Date.now();
   // Keep checklist honest when health runs after configureLlm (post-restart).
@@ -620,7 +693,19 @@ export function buildAssistantStackStatus(partial?: {
   }
 
   const ports = getStoredAssistantPorts();
+  const endpoints = getStackEndpoints();
+  // An SSH host throws for a port it doesn't forward, and before it is connected.
+  const urlOrNull = (key: AssistantStackPortKey, urlPath: string): string | null => {
+    try {
+      return endpoints.url(key, urlPath);
+    } catch {
+      return null;
+    }
+  };
   const isolationMode = getStoredIsolationMode();
+  const serviceCards = buildAssistantUiServiceCards((key, urlPath) => urlOrNull(key, urlPath) ?? '').filter(
+    (card) => card.url !== ''
+  );
 
   return {
     projectName: BOUNDARY_ASSISTANT_PROJECT_NAME,
@@ -637,15 +722,14 @@ export function buildAssistantStackStatus(partial?: {
     overlayPath,
     ports,
     isolationMode,
-    apiBaseUrl: `http://127.0.0.1:${ports.apiServer}/v1`,
-    healthUrl: `http://127.0.0.1:${ports.apiServer}/health`,
+    apiBaseUrl: urlOrNull('apiServer', '/v1') ?? '',
+    healthUrl: urlOrNull('apiServer', '/health') ?? '',
     setupComplete: isAssistantStackSetupComplete(),
     ready: Boolean(partial?.ready),
     lastError: partial?.lastError,
     // n8n, LightRAG and Neo4j open from their add-on pages.
-    uiServices: buildAssistantUiServiceCards(ports).filter(
-      (service) => !OWN_CARD_SERVICE_IDS.has(service.id)
-    ),
+    uiServices: serviceCards.filter((service) => !OWN_CARD_SERVICE_IDS.has(service.id)),
+    addonServices: serviceCards.filter((service) => OWN_CARD_SERVICE_IDS.has(service.id)),
   };
 }
 
@@ -653,8 +737,14 @@ export function buildAssistantStackStatus(partial?: {
 const OWN_CARD_SERVICE_IDS = new Set(['n8n', 'lightrag', 'neo4j']);
 
 export async function isAssistantStackReady(): Promise<boolean> {
-  const ports = getStoredAssistantPorts();
-  const ready = await httpGetOk(`http://127.0.0.1:${ports.apiServer}/health`);
+  let healthUrl: string | null;
+  try {
+    healthUrl = getStackEndpoints().url('apiServer', '/health');
+  } catch {
+    // An SSH host that isn't connected yet.
+    healthUrl = null;
+  }
+  const ready = healthUrl !== null && (await httpGetOk(healthUrl));
   if (ready !== lastReady) {
     lastReady = ready;
     readyCallback?.(ready);
@@ -700,11 +790,13 @@ async function buildBoundaryComposeContext(options: {
     options.openCodeConfigFile ?? (await ensureOpenCodeConfigFile(root, dataRoot));
   const runtime = await getContainerRuntime();
   const ports = getStoredAssistantPorts();
+  // Podman's tmpfs fallback (change request 0041); none on Docker.
+  const engineOverlayPath = syncEngineOverlay(runtime.kind, root);
   return {
     root,
     overlayPath,
     runtime,
-    projectArgs: buildProjectArgs(overlayPath),
+    projectArgs: buildProjectArgs(overlayPath, engineOverlayPath),
     env: {
       ...portsToComposeEnv(ports),
       ...hostUidGidEnv(),
@@ -712,6 +804,10 @@ async function buildBoundaryComposeContext(options: {
       // Shell, file and execute_code tools run in hermes-worker over ssh, which holds no
       // secrets; upstream's terminal-ssh.yml puts the workspace mounts there.
       HERMES_TERMINAL_BACKEND: BOUNDARY_HERMES_TERMINAL_BACKEND,
+      // From stack v0.3.16 the terminal backend mounts an empty folder over this path's data/,
+      // so the agent's tools can't reach state.db, profile .env files or SOUL.md through a coding
+      // root. The stack's scripts/up.sh writes it into .env; Boundary runs compose itself.
+      ASSISTANT_STACK_DIR: root,
       // A second copy beside a developer stack (the stack's docs/extending.md).
       CONTAINER_PREFIX: BOUNDARY_ASSISTANT_CONTAINER_PREFIX,
       IMAGE_PREFIX: BOUNDARY_ASSISTANT_IMAGE_PREFIX,
@@ -722,7 +818,7 @@ async function buildBoundaryComposeContext(options: {
       // Coding folders (ADR 0028 §4, change request 0003): opencode-mcp's allowlist, Hermes's
       // write-safe root, "the app will ask" for coding and context roots, and project aliases.
       ...codingStackEnv(),
-      COMPOSE_PROFILES: boundaryComposeProfilesCsv(),
+      COMPOSE_PROFILES: await boundaryComposeProfilesCsv(),
       // The Hermes bootstraps register the shared database's SQL MCP. setup.sh --db writes
       // this into .env, but an install already on the pinned tag doesn't re-run setup.
       SQL_MCP_ENABLED: '1',
@@ -743,8 +839,6 @@ async function buildBoundaryComposeContext(options: {
       [WEB_SEARCH_MODE_ENV]: getWebSearchMode(),
       // The overlay gives this to caldav-mcp only (calendar spec, Phase 0 S7).
       BOUNDARY_CALDAV_TZ: hostTimeZone(),
-      // Overrides any TWENTY_*_ENABLED in the stack's .env: Boundary decides from what is installed.
-      ...addonComposeEnv(),
       ...options.env,
     },
   };
@@ -886,7 +980,7 @@ async function collectHermesBootstrapLogs(ctx: {
     ctx.runtime,
     [
       ...ctx.projectArgs,
-      ...boundaryComposeProfileArgs(),
+      ...(await boundaryComposeProfileArgs()),
       'logs',
       '--no-color',
       '--tail',
@@ -929,7 +1023,7 @@ async function reconcileFromComposePs(ctx: {
   try {
     const { stdout } = await runCompose(
       ctx.runtime,
-      [...ctx.projectArgs, ...boundaryComposeProfileArgs(), 'ps', '-a', '--format', 'json'],
+      [...ctx.projectArgs, ...(await boundaryComposeProfileArgs()), 'ps', '-a', '--format', 'json'],
       { cwd: ctx.root, timeout: 30_000, env: ctx.env }
     );
     const lines = stdout
@@ -1059,12 +1153,9 @@ async function stopBoundaryContainersForUpgrade(): Promise<void> {
  * Write Boundary's HERMES_TERMINAL_BACKEND into .env. Compose gets it from the process
  * environment either way; this keeps the stack's own scripts in step.
  */
-async function pinTerminalBackendInProjectEnv(root: string): Promise<void> {
-  const envPath = path.join(root, '.env');
-  if (!fs.existsSync(envPath)) return;
-  const contents = await fs.promises.readFile(envPath, 'utf8');
-  const next = upsertEnvLines(contents, { HERMES_TERMINAL_BACKEND: BOUNDARY_HERMES_TERMINAL_BACKEND });
-  if (next !== contents) await fs.promises.writeFile(envPath, next, 'utf8');
+async function pinTerminalBackendInProjectEnv(files: StackFiles, env: ProjectEnv): Promise<void> {
+  if (!(await files.exists('stack', '.env'))) return;
+  await env.set({ HERMES_TERMINAL_BACKEND: BOUNDARY_HERMES_TERMINAL_BACKEND });
 }
 
 /**
@@ -1072,12 +1163,9 @@ async function pinTerminalBackendInProjectEnv(root: string): Promise<void> {
  * Compose gets them from the process environment; `scripts/detector.sh` and the writing
  * check's detector client read `DETECTOR_PORT` from `.env` (stack v0.3.14).
  */
-async function pinHostPortsInProjectEnv(root: string, ports: AssistantStackPorts): Promise<void> {
-  const envPath = path.join(root, '.env');
-  if (!fs.existsSync(envPath)) return;
-  const contents = await fs.promises.readFile(envPath, 'utf8');
-  const next = upsertEnvLines(contents, { DETECTOR_PORT: String(ports.detector) });
-  if (next !== contents) await fs.promises.writeFile(envPath, next, 'utf8');
+async function pinHostPortsInProjectEnv(files: StackFiles, ports: AssistantStackPorts): Promise<void> {
+  if (!(await files.exists('stack', '.env'))) return;
+  await writeStackEnvValues(files, 'stack', '.env', { DETECTOR_PORT: String(ports.detector) });
 }
 
 /** Best-effort prune of dangling volumes labeled for this Compose project. */
@@ -1193,6 +1281,48 @@ async function findLiveForeignProjects(): Promise<{ root: string; projects: stri
   }
 }
 
+/** How long a remote stack's Hermes gets to answer once the SSH host is open. */
+const REMOTE_STACK_HEALTH_TIMEOUT_MS = 60_000;
+
+/**
+ * Opens the SSH host the stored location names and waits for its Hermes to answer through the
+ * forwarded port (remote stack plan, phase 4d). Boundary doesn't install, upgrade or start a
+ * remote stack yet: a stack that isn't at the pin, or isn't running, is reported for the user to
+ * deal with on that computer. Throws with the message the start-up screen shows.
+ */
+async function attachToRemoteStack(): Promise<void> {
+  emitStage('provision', 'Connecting to the agent stack on another computer…');
+  const selected = await selectStackHost();
+  if (selected.kind === 'error') {
+    persistDebugLog('assistant-stack', 'remote stack not opened', {
+      reason: selected.selection?.reason ?? 'invalid_location',
+      hostError: selected.selection?.hostError ?? null,
+      found: selected.selection?.found ?? null,
+    });
+    throw new Error(selected.message);
+  }
+  if (selected.kind === 'local') throw new Error('The stack location changed while connecting. Try again.');
+  const healthUrl = selected.host.endpoints.url('apiServer', '/health');
+  emitStage('health', 'Waiting for Hermes on the other computer…');
+  const deadline = Date.now() + REMOTE_STACK_HEALTH_TIMEOUT_MS;
+  while (!(await httpGetOk(healthUrl))) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `The agent stack on the other computer isn't answering. Start it there (make up in its folder), then try again.`
+      );
+    }
+    await new Promise((r) => setTimeout(r, ASSISTANT_STACK_HEALTH_INTERVAL_MS));
+  }
+  persistDebugLog('assistant-stack', 'remote stack attached', { version: selected.host.status().version });
+  setLifecycle(
+    createLifecycleSnapshot('ready', {
+      message: 'Connected to the agent stack on another computer.',
+      stage: 'ready',
+      services: markStackReadyAfterEnsure(markAllServicesDone(await seedServiceProgress(), 'Ready')),
+    })
+  );
+}
+
 /**
  * When local-stack mode is on and Hermes already answers on default ports,
  * attach without compose up / down (developer `make up` stack).
@@ -1208,7 +1338,7 @@ async function tryAttachToLiveLocalStack(): Promise<boolean> {
     return false;
   }
   const defaults = { ...DEFAULT_ASSISTANT_STACK_PORTS };
-  const healthUrl = `http://127.0.0.1:${defaults.apiServer}/health`;
+  const healthUrl = getStackEndpoints().portUrl(defaults.apiServer, '/health');
   if (!(await httpGetOk(healthUrl))) {
     const { root, projects } = await findLiveForeignProjects();
     if (projects.length === 0) {
@@ -1237,7 +1367,7 @@ async function tryAttachToLiveLocalStack(): Promise<boolean> {
       message: 'Attached to live local assistant stack.',
       stage: 'ready',
       services: markStackReadyAfterEnsure(
-        markAllServicesDone(seedServiceProgress(), 'Ready')
+        markAllServicesDone(await seedServiceProgress(), 'Ready')
       ),
     })
   );
@@ -1272,21 +1402,30 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
   startTimer = new StartTimer(startIsFirstRun ? 'firstRun' : 'relaunch', getStartRuns);
   // Set once this start holds the folder remount queue; released when the start ends.
   let releaseRemounts: (() => void) | null = null;
+  // Boundary's own install (safe to run setup.sh and write its files), not a local checkout.
+  const managed = stackMode().kind === 'managed';
+  // Installing, upgrading and first-run setup are Boundary's only on a host it provisions.
+  const provision = managed && hasStackCapability('provision');
   try {
     setLifecycle(
       createLifecycleSnapshot('starting', {
         message: 'Preparing assistant stack…',
         stage: 'provision',
-        services: seedServiceProgress('pending', 'Waiting…', 0),
+        services: await seedServiceProgress('pending', 'Waiting…', 0),
       })
     );
+
+    if (isRemoteStackLocation()) {
+      await attachToRemoteStack();
+      return { success: true, status: buildAssistantStackStatus({ ready: true }) };
+    }
 
     if (await tryAttachToLiveLocalStack()) {
       const status = buildAssistantStackStatus({ ready: true });
       return { success: true, status };
     }
 
-    if (stackMode().kind === 'managed') {
+    if (provision) {
       emitStage('provision', `Provisioning ${APP_NAME}-managed agent stack…`);
       await ensureSovereignProjectProvisioned({
         onProgress: emitProgress,
@@ -1294,8 +1433,10 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
       });
     }
 
-    const { root, error } = tryResolveAssistantRoot();
+    const { root, error: rootError } = tryResolveAssistantRoot();
     if (!root) {
+      // Without provisioning, a missing stack is one to install on its host.
+      const error = provision || !managed ? rootError : STACK_CAPABILITY_MISSING_TEXT.provision;
       setLifecycle(
         createLifecycleSnapshot('error', {
           message: error,
@@ -1315,9 +1456,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     await ensureAssistantWorkspaceDir(workspaceRoot);
 
     const hostSetupComplete = isHostSetupComplete();
-    const boundaryOwned = isBoundaryOwnedAssistantRoot(root);
-
-    if (!hostSetupComplete && boundaryOwned) {
+    if (!hostSetupComplete && provision) {
       const runtime = await getContainerRuntime();
       const setupEnv: NodeJS.ProcessEnv = {
         ...runtime.env,
@@ -1332,42 +1471,43 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
       persistDebugLog('assistant-stack', 'about to runSovereignSetup', {
         root,
         hostSetupComplete,
-        boundaryOwned,
+        managed,
       });
       await runSovereignSetup({
         projectRoot: root,
         workspaceRoot,
         onProgress: emitProgress,
         env: setupEnv,
+        runScript: stackCommandsAt(root).runScript,
       });
-      await pinTerminalBackendInProjectEnv(root);
-      if (await syncStackImagePins(root)) {
+      await pinTerminalBackendInProjectEnv(stackFilesAt(root), projectEnvAt(root));
+      if (await syncStackImagePins(stackFilesAt(root), projectEnvAt(root))) {
         emitProgress('Moved the agent stack’s image pins to this version.');
       }
       await markHostSetupComplete();
       const llmForEnv = await getLlmConnection();
       if (llmForEnv?.endpointUrl && llmForEnv.apiKey && llmForEnv.modelId) {
         emitProgress(`Writing ${APP_NAME} LLM settings into project .env…`);
-        await applyLlmConnectionToProjectFiles(root, llmForEnv);
+        await applyLlmConnectionToProjectFiles(stackFilesAt(root), projectEnvAt(root), llmForEnv);
       }
     }
 
     // Earlier Boundary versions wrote the real key into .env. The proxy now gets it through
     // its admin API, so a proxy created from an old .env must be recreated to drop it.
-    const proxyHasStaleKey = boundaryOwned && (await clearLlmKeysFromProjectEnv(root));
+    const proxyHasStaleKey = managed && (await clearLlmKeysFromProjectEnv(stackFilesAt(root), projectEnvAt(root)));
 
     // Host folders in the overlay the coming `up` reads; null when there's no overlay.
     let overlayHostPaths: string[] | null = null;
-    if (boundaryOwned) {
+    if (managed) {
       // Wait out any queued remount, then keep remounts off until `up` is done with the overlay.
       releaseRemounts = await holdFolderRemounts();
       // A file written by an older Boundary may restate mounts this stack no longer has.
       const projects = listStoredHermesProjects();
-      writeHermesProjectsOverlay(projects);
+      await writeHermesProjectsOverlay(projects);
       overlayHostPaths = projects
         .filter((project) => project.kind === 'host-folder')
         .map((project) => project.hostPath);
-      ensureProjectMountPoints(projects, path.join(resolveAssistantUserContentRoot(root), 'projects'));
+      await ensureProjectMountPoints(projects, stackFilesAt(root));
       if (await ensureHermesWorkerKey(root)) {
         emitProgress('Created a new SSH key for the tool worker.');
       }
@@ -1376,34 +1516,36 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     emitProgress(`Preparing ${APP_NAME} assistant data directory…`);
     await ensureAssistantDataDirs(dataRoot);
     await ensureAddonMountSources(resolveAssistantUserContentRoot(root));
-    await ensureHermesWebuiSyncToInsights(dataRoot);
+    await ensureHermesWebuiSyncToInsights(stackFilesAt(root));
     const openCodeConfigFile = await ensureOpenCodeConfigFile(root, dataRoot);
 
     const preferStored = isAssistantStackSetupComplete();
     const { ports, isolationMode, portOffset } = await resolveAssistantPorts({ preferStored });
     setStoredAssistantPorts(ports, isolationMode, portOffset);
-    if (!isLocalAssistantStackMode()) await pinHostPortsInProjectEnv(root, ports);
+    if (managed) await pinHostPortsInProjectEnv(stackFilesAt(root), ports);
 
     if (isLightragSettingUnset()) await removeLightragLeftovers({ openCodeConfigFile, workspaceRoot });
-    if (boundaryOwned) moveBuiltinSwitches(root);
+    if (managed) await moveBuiltinSwitches(root);
+    if (managed) await moveTwentyFlags(root);
+    if (managed) await stripStackEnvInlineComments(root);
 
     if (await isAssistantStackReady()) {
       if (proxyHasStaleKey) {
         emitProgress('Recreating the model proxy without the key in its environment…');
         await runBoundaryCompose(
-          [...boundaryComposeProfileArgs(), 'up', '-d', '--no-deps', 'llm-proxy'],
+          [...(await boundaryComposeProfileArgs()), 'up', '-d', '--no-deps', 'llm-proxy'],
           { timeout: 120_000, openCodeConfigFile, workspaceRoot }
         );
       }
       emitProgress('Assistant stack already healthy.');
       // Re-assert WebUI → state.db projection for already-running stacks.
-      await ensureHermesWebuiSyncToInsights(dataRoot);
+      await ensureHermesWebuiSyncToInsights(stackFilesAt(root));
       setLifecycle(
         createLifecycleSnapshot('ready', {
           message: 'Assistant stack already healthy.',
           stage: 'ready',
           services: markStackReadyAfterEnsure(
-            markAllServicesDone(seedServiceProgress(), 'Ready')
+            markAllServicesDone(await seedServiceProgress(), 'Ready')
           ),
         })
       );
@@ -1425,11 +1567,11 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     // Stub profile dirs (e.g. only memories/) make hermes-api-bootstrap skip
     // --clone and then exit 1 on set_yaml_list. Clean again immediately before up, on
     // Boundary's own install only, as prepareHermesHome does.
-    if (!isLocalAssistantStackMode()) await removeIncompleteHermesProfiles(dataRoot);
+    if (managed) await removeIncompleteHermesProfiles(dataRoot);
 
     // After a pin change, rebuild the stack's local images once (stack CHANGELOG upgrade
     // steps). Unchanged images come from the build cache.
-    const buildImages = boundaryOwned && needsImageBuild();
+    const buildImages = managed && needsImageBuild();
     if (buildImages) emitProgress('Building the agent stack’s local images for this version…');
 
     startTimer?.setKind(await startKindBeforeUp());
@@ -1437,10 +1579,10 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
     emitStage('compose', startMessage);
     const upServices = await composeUpServices({ openCodeConfigFile, workspaceRoot });
     await upWithStaleNetworkRetry(
-      (extraArgs) =>
+      async (extraArgs) =>
         runBoundaryComposeWithProgress(
           [
-            ...boundaryComposeProfileArgs(),
+            ...(await boundaryComposeProfileArgs()),
             'up',
             '-d',
             ...(buildImages ? ['--build'] : []),
@@ -1473,7 +1615,7 @@ async function ensureAssistantStackRunningImpl(): Promise<EnsureAssistantStackRe
 
     const baseServices = lifecycleSnapshot.services.length
       ? lifecycleSnapshot.services
-      : seedServiceProgress();
+      : await seedServiceProgress();
     setLifecycle(
       createLifecycleSnapshot('ready', {
         message: 'Assistant stack is ready.',
@@ -1533,7 +1675,7 @@ export async function stopAssistantStack(
       lifecycle(
         createLifecycleSnapshot('stopped', {
           message: 'Assistant root not found; nothing to stop.',
-          services: markAllServicesDone(seedServiceProgress(), 'Stopped'),
+          services: markAllServicesDone(await seedServiceProgress(), 'Stopped'),
         })
       );
       return { success: true };
@@ -1543,7 +1685,7 @@ export async function stopAssistantStack(
     lifecycle(
       createLifecycleSnapshot('stopping', {
         message: `Stopping ${APP_NAME} assistant stack…`,
-        services: seedServiceProgress('working', 'Stopping…', 0.2),
+        services: await seedServiceProgress('working', 'Stopping…', 0.2),
       })
     );
 
@@ -1551,7 +1693,7 @@ export async function stopAssistantStack(
     // start-up patches are already applied, and the named volumes (the uv cache) survive. `up`
     // recreates a container whose config changed, and an upgrade removes them all.
     await runBoundaryComposeWithProgress(
-      [...boundaryComposeProfileArgs(), 'stop', '--timeout', '10'],
+      [...(await boundaryComposeProfileArgs()), 'stop', '--timeout', '10'],
       { timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS }
     );
 
@@ -1561,7 +1703,7 @@ export async function stopAssistantStack(
         services: markAllServicesDone(
           lifecycleSnapshot.services.length
             ? lifecycleSnapshot.services
-            : seedServiceProgress(),
+            : await seedServiceProgress(),
           'Stopped'
         ),
       })
@@ -1597,9 +1739,9 @@ async function composeUpServices(options: {
   openCodeConfigFile: string;
   workspaceRoot: string;
 }): Promise<string[]> {
-  if (installedAddonsHere().includes('n8n')) return [];
+  if ((await installedAddonsHere()).includes('n8n')) return [];
   const { stdout } = await runBoundaryCompose(
-    [...boundaryComposeProfileArgs(), 'config', '--services'],
+    [...(await boundaryComposeProfileArgs()), 'config', '--services'],
     { timeout: 60_000, ...options }
   );
   const skip = new Set<string>(N8N_COMPOSE_SERVICES);
@@ -1617,17 +1759,9 @@ async function composeUpServices(options: {
  * Boundary's old n8n and LightRAG switches, carried into the managed stack's `.env` once, where
  * `addon.sh` and the bootstraps read them. A failure is logged and tried on the next start.
  */
-function moveBuiltinSwitches(root: string): void {
+async function moveBuiltinSwitches(root: string): Promise<void> {
   try {
-    const written = moveBuiltinSwitchesToEnv(root, {
-      readFile: (p) => {
-        try {
-          return fs.readFileSync(p, 'utf8');
-        } catch {
-          return null;
-        }
-      },
-      writeFile: (p, contents) => fs.writeFileSync(p, contents),
+    const written = await moveBuiltinSwitchesToEnv(stackFilesAt(root), root, {
       stored: () => ({ n8n: isN8nEnabled(), lightrag: isLightragEnabled() }),
       moved: builtinSwitchesMoved,
       markMoved: markBuiltinSwitchesMoved,
@@ -1640,10 +1774,53 @@ function moveBuiltinSwitches(root: string): void {
   }
 }
 
+/**
+ * Twenty's flags, carried into the managed stack's `.env` once from Boundary's installed list,
+ * which decided them on each compose call before. A failure is logged and tried on the next start.
+ */
+async function moveTwentyFlags(root: string): Promise<void> {
+  try {
+    const written = await moveTwentyFlagsToEnv(stackFilesAt(root), root, {
+      installed: (r) => getInstalledAddons(r).includes('twenty'),
+      moved: twentyFlagsMoved,
+      markMoved: markTwentyFlagsMoved,
+    });
+    if (Object.keys(written).length > 0) persistDebugLog('assistant-stack', 'twenty flags written', written);
+  } catch (error) {
+    persistDebugLog('assistant-stack', 'twenty flags not written', {
+      error: error instanceof Error ? error.name : 'unknown',
+    });
+  }
+}
+
+/**
+ * Drops the trailing comments a `.env` made from the stack's pre-v0.3.17 example still carries on
+ * five keys (`STACK_INLINE_COMMENT_KEYS`), the step the stack's own v0.3.17 upgrade hook takes.
+ * Leaves the file alone when no such line is left. A failure is logged and tried on the next start.
+ */
+async function stripStackEnvInlineComments(root: string): Promise<void> {
+  try {
+    const files = stackFilesAt(root);
+    const contents = await files.readText('stack', '.env');
+    if (contents === null) return;
+    const next = stripInlineEnvComments(contents, STACK_INLINE_COMMENT_KEYS);
+    if (next === contents) return;
+    await files.writeText('stack', '.env', next);
+    const keys = STACK_INLINE_COMMENT_KEYS.filter(
+      (key) => stripInlineEnvComments(contents, [key]) !== contents
+    );
+    persistDebugLog('assistant-stack', '.env inline comments removed', { keys });
+  } catch (error) {
+    persistDebugLog('assistant-stack', '.env inline comments not removed', {
+      error: error instanceof Error ? error.name : 'unknown',
+    });
+  }
+}
+
 /** `rm -sf` of the `rag` services. Naming the profile lets Compose find them while it is off. */
-function lightragRemoveArgs(): string[] {
+async function lightragRemoveArgs(): Promise<string[]> {
   return [
-    ...boundaryComposeProfileArgs(),
+    ...(await boundaryComposeProfileArgs()),
     '--profile',
     LIGHTRAG_COMPOSE_PROFILE,
     'rm',
@@ -1656,13 +1833,41 @@ function lightragRemoveArgs(): string[] {
 export async function getWebSearchModeState(): Promise<WebSearchModeState> {
   const { root } = tryResolveAssistantRoot();
   const overrides = root
-    ? await findWebSearchModeOverrides(path.join(resolveAssistantDataRoot(root), 'hermes'))
+    ? await findWebSearchModeOverrides(stackFilesAt(root))
     : [];
   return {
     mode: getWebSearchMode(),
     canChange: !stackMode().attachLive,
     overrides,
   };
+}
+
+/**
+ * Replace a running hermes: `run` its compose commands, announce the replacement, then wait for
+ * health. The start path and the settings restart don't use this: start announces after the
+ * health wait, and the settings restart restarts rather than recreates and uses the full
+ * stack-start budget.
+ */
+async function replaceHermes(options: {
+  reason: HermesReplacedReason;
+  run: () => Promise<unknown>;
+  /** Called after the announcement, before the health wait. */
+  onHealthWait?: () => void;
+  /** Runs once hermes is healthy; a throw here fails the replace too. */
+  afterHealthy?: (ports: AssistantStackPorts) => Promise<void>;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await options.run();
+    // hermes is replaced once compose returns, whether or not it gets healthy.
+    notifyHermesReplaced(options.reason);
+    options.onHealthWait?.();
+    const ports = getStoredAssistantPorts();
+    await waitUntilAssistantHealthy(ports, 120_000);
+    await options.afterHealthy?.(ports);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /**
@@ -1685,24 +1890,26 @@ export async function setWebSearchModeRunning(
   const previous = getWebSearchMode();
   if (mode === previous) return { success: true };
   setWebSearchMode(mode);
-  try {
-    if (await isAssistantStackReady()) {
+  if (await isAssistantStackReady()) {
+    const result = await replaceHermes({
+      reason: 'web-search',
       // The changed compose env makes `up` recreate hermes; nothing else reads the value.
-      await runBoundaryCompose([...boundaryComposeProfileArgs(), 'up', '-d', '--no-deps', 'hermes'], {
-        timeout: 180_000,
-      });
-      // hermes is replaced once compose returns, whether or not it gets healthy.
-      notifyHermesReplaced('web-search');
-      await waitUntilAssistantHealthy(getStoredAssistantPorts(), 120_000);
+      run: async () =>
+        runBoundaryCompose([...(await boundaryComposeProfileArgs()), 'up', '-d', '--no-deps', 'hermes'], {
+          timeout: 180_000,
+        }),
+    });
+    if (!result.success) {
+      setWebSearchMode(previous);
+      persistDebugLog('assistant-stack', 'web search mode failed', { mode, error: result.error });
+      return {
+        success: false,
+        error: `Couldn’t restart Hermes with the new setting. ${result.error}`,
+      };
     }
-    persistDebugLog('assistant-stack', 'web search mode set', { mode });
-    return { success: true };
-  } catch (error) {
-    setWebSearchMode(previous);
-    const message = error instanceof Error ? error.message : String(error);
-    persistDebugLog('assistant-stack', 'web search mode failed', { mode, error: message });
-    return { success: false, error: `Couldn’t restart Hermes with the new setting. ${message}` };
   }
+  persistDebugLog('assistant-stack', 'web search mode set', { mode });
+  return { success: true };
 }
 
 /**
@@ -1715,7 +1922,7 @@ async function removeLightragLeftovers(options: {
   workspaceRoot: string;
 }): Promise<void> {
   try {
-    await runBoundaryCompose(lightragRemoveArgs(), {
+    await runBoundaryCompose(await lightragRemoveArgs(), {
       timeout: ASSISTANT_STACK_DOWN_TIMEOUT_MS,
       ...options,
     });
@@ -1733,10 +1940,10 @@ async function removeLightragLeftovers(options: {
  * doesn't use caldav-mcp
  * (docs/calendar-ux-study/spec.md).
  */
-function boundaryComposeProfilesCsv(): string {
+async function boundaryComposeProfilesCsv(): Promise<string> {
   const profiles: string[] = [...BOUNDARY_ASSISTANT_COMPOSE_PROFILES];
   if (hasCalDavAccounts()) profiles.push(CALENDAR_COMPOSE_PROFILE);
-  profiles.push(...addonComposeProfiles());
+  profiles.push(...(await addonComposeProfiles()));
   return profiles.join(',');
 }
 
@@ -1810,53 +2017,50 @@ export async function recreateHermesForProjectMounts(
   const aliasesChanged = aliases !== (getAppliedCodingAliases() ?? '');
   // Local stacks manage coding mounts themselves.
   const codingAgent = Boolean(options.codingAgent) && !isLocalAssistantStackMode();
-  try {
-    emitProgress('Connecting folder…');
-    if (isLocalAssistantStackMode()) {
-      // Match sibling `make up`: cwd .env supplies COMPOSE_PROFILES. Extra
-      // --profile flags reconcile mail/signal/automation and look like a freeze.
-      // Context-root binds sit on the checkout's terminal service, so `up` that too.
-      const { root } = tryResolveAssistantRoot();
-      const terminal = root ? localTerminalService(root) : 'hermes';
-      await runLiveLocalStackCompose(
-        ['up', '-d', '--no-deps', 'hermes', ...(terminal === 'hermes' ? [] : [terminal])],
-        { timeout: 120_000 }
-      );
-    } else {
-      await runBoundaryCompose(
-        [
-          ...boundaryComposeProfileArgs(),
-          'up',
-          '-d',
-          '--no-deps',
-          '--force-recreate',
-          'hermes',
-          'hermes-webui',
-          // Writes and shell commands for project folders run here under ssh.
-          'hermes-worker',
-          // Project aliases changed (a project added, removed or moved): opencode-mcp reads
-          // CODING_PATH_ALIASES at start. Otherwise leave it, so coding tasks keep running.
-          // A new coding folder needs both coding services for its mount.
-          ...(codingAgent ? ['opencode', 'opencode-mcp'] : aliasesChanged ? ['opencode-mcp'] : []),
-        ],
-        { timeout: 180_000 }
-      );
-    }
-    // hermes is replaced once compose returns, whether or not it gets healthy.
-    notifyHermesReplaced('project-mounts');
-    options.onHealthWait?.();
-    const ports = getStoredAssistantPorts();
-    await waitUntilAssistantHealthy(ports, 120_000);
-    if (codingAgent) await waitUntilCodingAgentUp(ports);
-    if (!isLocalAssistantStackMode()) {
-      recordHermesCodingRoots(currentCodingRoots());
-      if (aliasesChanged || codingAgent) recordAppliedCodingAliases(aliases);
-    }
-    return { success: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { success: false, error: message };
-  }
+  return replaceHermes({
+    reason: 'project-mounts',
+    run: async () => {
+      emitProgress('Connecting folder…');
+      if (isLocalAssistantStackMode()) {
+        // Match sibling `make up`: cwd .env supplies COMPOSE_PROFILES. Extra
+        // --profile flags reconcile mail/signal/automation and look like a freeze.
+        // Context-root binds sit on the checkout's terminal service, so `up` that too.
+        const { root } = tryResolveAssistantRoot();
+        const terminal = root ? await localTerminalService(stackFilesAt(root)) : 'hermes';
+        await runLiveLocalStackCompose(
+          ['up', '-d', '--no-deps', 'hermes', ...(terminal === 'hermes' ? [] : [terminal])],
+          { timeout: 120_000 }
+        );
+      } else {
+        await runBoundaryCompose(
+          [
+            ...(await boundaryComposeProfileArgs()),
+            'up',
+            '-d',
+            '--no-deps',
+            '--force-recreate',
+            'hermes',
+            'hermes-webui',
+            // Writes and shell commands for project folders run here under ssh.
+            'hermes-worker',
+            // Project aliases changed (a project added, removed or moved): opencode-mcp reads
+            // CODING_PATH_ALIASES at start. Otherwise leave it, so coding tasks keep running.
+            // A new coding folder needs both coding services for its mount.
+            ...(codingAgent ? ['opencode', 'opencode-mcp'] : aliasesChanged ? ['opencode-mcp'] : []),
+          ],
+          { timeout: 180_000 }
+        );
+      }
+    },
+    onHealthWait: options.onHealthWait,
+    afterHealthy: async (ports) => {
+      if (codingAgent) await waitUntilCodingAgentUp(ports);
+      if (!isLocalAssistantStackMode()) {
+        recordHermesCodingRoots(currentCodingRoots());
+        if (aliasesChanged || codingAgent) recordAppliedCodingAliases(aliases);
+      }
+    },
+  });
 }
 
 /**
@@ -1871,7 +2075,7 @@ export async function recreateCodingAgentForMounts(
     onProgress?.('Restarting the coding agent…');
     await runBoundaryCompose(
       [
-        ...boundaryComposeProfileArgs(),
+        ...(await boundaryComposeProfileArgs()),
         'up',
         '-d',
         '--no-deps',
@@ -1898,7 +2102,7 @@ export async function waitUntilCodingAgentUp(
   ports: AssistantStackPorts,
   timeoutMs = 120_000
 ): Promise<void> {
-  const url = `http://127.0.0.1:${ports.opencode}/`;
+  const url = getStackEndpoints().portUrl(ports.opencode, '/');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -1939,15 +2143,19 @@ export async function isCodingRootVisible(hostPath: string): Promise<boolean> {
  * needs no restart.
  */
 async function provisionHostBridgeTokens(
-  dataRoot: string,
+  files: StackFiles,
   profiles: readonly string[]
 ): Promise<{ bridge: HostBridgeEndpoints | null; envChanged: boolean }> {
+  // Containers on a host without callbacks can't reach a bridge here, so Hermes gets no tokens.
+  if (!hasStackCapability('hostCallbacks')) return { bridge: null, envChanged: false };
   try {
     const bridge = isHostBridgeAgentStopped() ? null : await ensureHostBridgeStarted();
     const tokens = bridge
       ? { mcp: bridge.mcpToken, browser: bridge.browserToken }
       : { mcp: await ensureHostBridgeToken('mcp'), browser: await ensureHostBridgeToken('browser') };
-    const env = await writeHostBridgeTokensToProfiles(dataRoot, profiles, tokens);
+    const env = await writeHostBridgeTokensToProfiles(files, profiles, tokens);
+    // The Bitwarden broker's files for the relay (ADR 0065): the add-on may have been set up since the bridge started.
+    if (bridge) await refreshCredentialClientFiles();
     return { bridge, envChanged: env.changed };
   } catch (error) {
     persistDebugLog('assistant-stack', 'host bridge not provisioned into Hermes', {
@@ -1962,12 +2170,12 @@ async function provisionHostBridgeTokens(
  * entries agents get from it reference (`todos` sends `Bearer ${TODOS_KEY}`), since Hermes
  * resolves them from the agent's own `.env`. Names only reach the log. Never throws.
  */
-async function copyAgentMcpEnv(dataRoot: string, agents: readonly string[]): Promise<{ changed: boolean }> {
+async function copyAgentMcpEnv(files: StackFiles, agents: readonly string[]): Promise<{ changed: boolean }> {
   if (agents.length === 0) return { changed: false };
   try {
-    const names = mcpEnvRefs(defaultMcpServerEntries(readHermesProfileConfig(dataRoot, '')));
-    const values = agentEnvValues(readEnvFile(hermesProfileEnvPath(dataRoot, '')), names);
-    const result = await writeEnvValuesToProfiles(dataRoot, agents, values);
+    const names = mcpEnvRefs(defaultMcpServerEntries(await readHermesProfileConfig(files, '')));
+    const values = agentEnvValues(await readStackEnv(files, 'data', hermesProfileEnvRel('')), names);
+    const result = await writeEnvValuesToProfiles(files, agents, values);
     persistDebugLog('assistant-stack', 'agent MCP env', { names: Object.keys(values), changed: result.changed });
     return result;
   } catch (error) {
@@ -1993,7 +2201,7 @@ function hostBridgeWakeServers(macProfiles: ReadonlySet<string> = macCalendarPro
  */
 async function wakeHermesForHostBridge(): Promise<void> {
   const { apiBaseUrl } = resolveHermesStackEndpoints();
-  const apiKey = resolveApiServerKey();
+  const apiKey = await resolveApiServerKey();
   for (const server of hostBridgeWakeServers()) {
     const result = await wakeHermesBridgeServer({ apiBaseUrl, apiKey, server });
     persistDebugLog('assistant-stack', 'host bridge wake', { server, ...result });
@@ -2111,14 +2319,14 @@ function desiredHermesConfig(input: {
  * what changed.
  */
 async function writeHermesConfig(
-  dataRoot: string,
+  files: StackFiles,
   desired: readonly DesiredHermesProfile[],
   options: { required: readonly string[] }
 ): Promise<{ restart: boolean; profiles: string[] }> {
   const writes: HermesProfileWrites[] = [];
   const missing: string[] = [];
   for (const want of desired) {
-    const current = readHermesProfileConfig(dataRoot, want.profile);
+    const current = await readHermesProfileConfig(files, want.profile);
     if (current === undefined) {
       missing.push(want.profile);
       continue;
@@ -2167,11 +2375,10 @@ export async function applyHostBridgeBrowserToHermes(): Promise<{ success: boole
     if (!(await isAssistantStackReady())) {
       return { success: true }; // The next start provisions it.
     }
-    const { root } = tryResolveAssistantRoot();
     const bridge = await ensureHostBridgeStarted();
     // Hermes reads `cdp_url` on every browser call, so this needs no restart.
     await writeHermesConfig(
-      resolveAssistantDataRoot(root ?? undefined),
+      getStackFiles(),
       allHermesProfiles().map(
         (profile): DesiredHermesProfile => ({ profile, set: [], browserCdpUrl: hermesBrowserCdpUrl(bridge, profile) })
       ),
@@ -2340,13 +2547,13 @@ async function applyLlmConnectionOnce(
   const report = (snapshot: AssistantStackLifecycleSnapshot) => {
     if (showProgress) setLifecycle(snapshot);
   };
-  const reportReady = (local: boolean) =>
+  const reportReady = async (local: boolean) =>
     report(
       createLifecycleSnapshot('ready', {
         message: local ? 'Local stack ready (LLM env files updated when present).' : 'Assistant stack is ready.',
         stage: 'ready',
         services: markStackReadyAfterEnsure(
-          lifecycleSnapshot.services.length ? lifecycleSnapshot.services : seedServiceProgress()
+          lifecycleSnapshot.services.length ? lifecycleSnapshot.services : await seedServiceProgress()
         ),
       })
     );
@@ -2383,7 +2590,7 @@ async function applyLlmConnectionOnce(
     if (routedOnly && (local || plan.kind !== 'routed')) {
       // Nothing can serve yet. The stack is still up, and a send plans again and says why.
       persistDebugLog('assistant-stack', 'Shared model not applied', { slot, local, plan: plan.kind });
-      reportReady(local);
+      await reportReady(local);
       return { success: true };
     }
     const routed = !local && plan.kind === 'routed' ? plan : null;
@@ -2398,7 +2605,8 @@ async function applyLlmConnectionOnce(
     if (root) {
       stage(`Updating project .env and OpenCode for ${APP_NAME} LLM…`);
       await applyLlmConnectionToProjectFiles(
-        root,
+        stackFilesAt(root),
+        projectEnvAt(root),
         { endpointUrl: llm.endpointUrl, apiKey: llm.apiKey, modelId: llm.modelId },
         { localStack: local }
       );
@@ -2412,7 +2620,7 @@ async function applyLlmConnectionOnce(
       // Everything inside the stack talks to the proxy with a placeholder key. A chain sends
       // the proxy to the router instead, which holds the real keys (ADR 0033 §5).
       stage('Updating the model proxy…');
-      const router = routed ? await ensureInferenceRouter() : null;
+      const router = routed ? await ensureInferenceRouterForStack() : null;
       const upstream: LlmProxyUpstream = router
         ? { url: inferenceRouterProxyUrl(router.port), apiKey: router.token }
         : { url: upstreamUrl, apiKey: llm.apiKey };
@@ -2426,7 +2634,7 @@ async function applyLlmConnectionOnce(
           error: proxied.error,
         });
         await runBoundaryCompose(
-          [...boundaryComposeProfileArgs(), 'up', '-d', '--no-deps', 'llm-proxy'],
+          [...(await boundaryComposeProfileArgs()), 'up', '-d', '--no-deps', 'llm-proxy'],
           { timeout: 120_000 }
         );
         proxied = await pushLlmConnectionToProxy(root, upstream, LLM_PROXY_PUSH_RETRY.attempts);
@@ -2442,31 +2650,33 @@ async function applyLlmConnectionOnce(
 
     stepDone('proxy');
     stage('Configuring Hermes inference endpoint…');
-    const dataRoot = resolveAssistantDataRoot(root ?? undefined);
+    const files = getStackFiles();
     const profiles = allHermesProfiles();
-    const provisioned = await provisionHostBridgeTokens(dataRoot, profiles);
+    const provisioned = await provisionHostBridgeTokens(files, profiles);
     const { bridge } = provisioned;
-    const agentEnv = await copyAgentMcpEnv(dataRoot, agentProfileNames());
+    const agentEnv = await copyAgentMcpEnv(files, agentProfileNames());
     const envChanged = provisioned.envChanged || agentEnv.changed;
     // The developer's own stack keeps its model settings (local-stack mode); its agents'
     // profiles are Boundary's, so they still get the limits and MCP servers.
+    const routerEntryProfiles = new Set<string>();
+    for (const profile of profiles) {
+      if (hasHermesRouterEntry(await readHermesProfileConfig(files, profile))) routerEntryProfiles.add(profile);
+    }
     const written = await writeHermesConfig(
-      dataRoot,
+      files,
       desiredHermesConfig({
         profiles,
         agents: agentProfileNames(),
         modelId: local ? undefined : llm.modelId,
-        limits: profileLimitsFor(
-          root,
+        limits: await profileLimitsFor(
+          files,
           routed ? rewriteLlmUrlForContainer(routed.slowestUrl) : upstreamUrl,
           contextLength
         ),
-        defaultConfig: readHermesProfileConfig(dataRoot, ''),
+        defaultConfig: await readHermesProfileConfig(files, ''),
         bridge,
         routed: Boolean(routed),
-        routerEntryProfiles: new Set(
-          profiles.filter((profile) => hasHermesRouterEntry(readHermesProfileConfig(dataRoot, profile)))
-        ),
+        routerEntryProfiles,
         macCalendarProfiles: macCalendarProfiles(),
       }),
       { required: local ? [] : HERMES_CONFIG_PROFILES }
@@ -2529,7 +2739,7 @@ async function applyLlmConnectionOnce(
     }
     void wakeHermesForHostBridge();
 
-    reportReady(local);
+    await reportReady(local);
 
     rememberLastApplied(slot, llm.endpointUrl, llm.modelId, contextLength, Boolean(routed));
     return { success: true };
@@ -2553,9 +2763,9 @@ async function applyLlmConnectionOnce(
 /** Retries for a push right after recreating the proxy, while it starts. */
 export const LLM_PROXY_PUSH_RETRY = { attempts: 10, delayMs: 1_000 };
 
-function llmProxyTarget(root: string | null): LlmProxyTarget | null {
-  const token = root ? readLlmProxyAdminToken(root) : null;
-  return token ? { adminPort: getStoredAssistantPorts().llmProxyAdmin, token } : null;
+async function llmProxyTarget(root: string | null): Promise<LlmProxyTarget | null> {
+  const token = root ? await readLlmProxyAdminToken(stackFilesAt(root)) : null;
+  return token ? { baseUrl: getStackEndpoints().url('llmProxyAdmin'), token } : null;
 }
 
 /** Send the upstream to llm-proxy's admin API (chat and LightRAG routes). */
@@ -2564,7 +2774,7 @@ async function pushLlmConnectionToProxy(
   upstream: LlmProxyUpstream,
   attempts = 1
 ): Promise<{ ok: boolean; error?: string; status?: LlmProxyStatus }> {
-  const target = llmProxyTarget(root);
+  const target = await llmProxyTarget(root);
   if (!target) return { ok: false, error: 'LLM_PROXY_ADMIN_TOKEN is not set in the stack .env' };
   let error: string | undefined;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -2620,12 +2830,12 @@ function agentProfileNames(): string[] {
     .map((agent) => agent.slug);
 }
 
-function profileLimitsFor(
-  root: string | null | undefined,
+async function profileLimitsFor(
+  files: StackFiles,
   upstreamUrl: string,
   contextLength: number | undefined
-): HermesProfileLimits {
-  const env = root ? readAssistantEnvFile(root) : {};
+): Promise<HermesProfileLimits> {
+  const env = await readStackEnv(files, 'stack', '.env');
   return {
     staleTimeoutS: hermesStaleTimeoutFor(upstreamUrl, env.HERMES_PROXY_STALE_TIMEOUT),
     maxTokens: hermesMaxTokensFor(env.HERMES_MAX_TOKENS),
@@ -2641,24 +2851,23 @@ function profileLimitsFor(
 export async function setUpNewHermesProfile(profile: string): Promise<void> {
   if (!(await isAssistantStackReady())) return;
   const last = getLastAppliedLlm();
-  const { root } = tryResolveAssistantRoot();
-  const dataRoot = resolveAssistantDataRoot(root ?? undefined);
-  const { bridge } = await provisionHostBridgeTokens(dataRoot, [profile]);
+  const files = getStackFiles();
+  const { bridge } = await provisionHostBridgeTokens(files, [profile]);
   await writeHermesConfig(
-    dataRoot,
+    files,
     desiredHermesConfig({
       profiles: [profile],
       agents: [profile],
       limits: last
-        ? profileLimitsFor(root, rewriteLlmUrlForContainer(last.endpointUrl), last.contextLength)
+        ? await profileLimitsFor(files, rewriteLlmUrlForContainer(last.endpointUrl), last.contextLength)
         : null,
-      defaultConfig: readHermesProfileConfig(dataRoot, ''),
+      defaultConfig: await readHermesProfileConfig(files, ''),
       bridge,
     }),
     { required: [profile] }
   );
   // A profile Hermes hasn't loaded yet, so it reads the new `.env` when it first serves it.
-  await copyAgentMcpEnv(dataRoot, [profile]);
+  await copyAgentMcpEnv(files, [profile]);
 }
 
 /**
@@ -2670,20 +2879,19 @@ export async function syncAgentMcpServers(): Promise<{ changed: boolean }> {
   if (!(await isAssistantStackReady())) return { changed: false };
   const agents = agentProfileNames();
   if (agents.length === 0) return { changed: false };
-  const { root } = tryResolveAssistantRoot();
-  const dataRoot = resolveAssistantDataRoot(root ?? undefined);
+  const files = getStackFiles();
   const written = await writeHermesConfig(
-    dataRoot,
+    files,
     desiredHermesConfig({
       profiles: agents,
       agents,
       limits: null,
-      defaultConfig: readHermesProfileConfig(dataRoot, ''),
+      defaultConfig: await readHermesProfileConfig(files, ''),
       bridge: null,
     }),
     { required: [] }
   );
-  const env = await copyAgentMcpEnv(dataRoot, agents);
+  const env = await copyAgentMcpEnv(files, agents);
   return { changed: written.restart || env.changed };
 }
 
@@ -2695,7 +2903,7 @@ export async function syncAgentMcpServers(): Promise<{ changed: boolean }> {
 export async function dropAgentMcpEnv(names: readonly string[]): Promise<{ changed: boolean }> {
   const { root } = tryResolveAssistantRoot();
   if (!root) return { changed: false };
-  return removeEnvValuesFromProfiles(resolveAssistantDataRoot(root), agentProfileNames(), names);
+  return removeEnvValuesFromProfiles(getStackFiles(), agentProfileNames(), names);
 }
 
 export interface AssistantStackAccess {
@@ -2727,10 +2935,15 @@ export interface AssistantStackAccess {
    * the same project. `profiles` are added to COMPOSE_PROFILES.
    */
   scriptEnv: (profiles: string[]) => Promise<NodeJS.ProcessEnv>;
-  /** The stack's compose directory. */
-  root: string;
-  /** Host folder holding `hermes/` (each profile's `config.yaml` and `.env`). */
-  dataRoot: string;
+  /** Compose from the stack folder with `scriptEnv(profiles)`. Rejects on a non-zero exit. */
+  scriptCompose: StackCommands['scriptCompose'];
+  /** The container CLI from the stack folder with `scriptEnv([])`. */
+  scriptCli: StackCommands['scriptCli'];
+  /**
+   * Runs `bash <script> <args>` from the stack folder (`script` is relative to it) and resolves
+   * with the exit code: 124 timed out, 127 bash didn't start, 130 cancelled.
+   */
+  runScript: (script: string, args: string[], options: RunScriptOptions) => Promise<number>;
 }
 
 /** `a,b` plus `extra`, without duplicates or empty entries. */
@@ -2740,21 +2953,10 @@ function withComposeProfiles(csv: string | undefined, extra: string[]): string {
   return profiles.join(',');
 }
 
-/** For services that write into Hermes's profiles and run commands in the stack's containers. */
-export function getAssistantStackAccess(): AssistantStackAccess {
-  const { root, error } = tryResolveAssistantRoot();
-  if (!root) throw new Error(error ?? 'Assistant root not found');
+/** Compose and script environment for the stack at `root` on this machine. */
+function localStackCommands(root: string): StackCommands {
   const local = stackMode().kind === 'local';
-  const stream = async (
-    args: string[],
-    options: {
-      timeout?: number;
-      input?: string;
-      env?: NodeJS.ProcessEnv;
-      onLine?: (line: string) => void;
-      signal?: AbortSignal;
-    }
-  ) => {
+  const stream = async (args: string[], options: ComposeStreamingOptions = {}) => {
     const streamOptions = {
       timeout: options.timeout,
       input: options.input,
@@ -2777,91 +2979,154 @@ export function getAssistantStackAccess(): AssistantStackAccess {
       env: ctx.env,
     });
   };
+  const scriptEnv = async (profiles: string[]): Promise<NodeJS.ProcessEnv> => {
+    let env: NodeJS.ProcessEnv;
+    if (local) {
+      const runtime = await getContainerRuntime();
+      // The checkout's .env names its profiles; a COMPOSE_PROFILES set here replaces it.
+      const fileProfiles = (await readStackEnv(stackFilesAt(root), 'stack', '.env')).COMPOSE_PROFILES;
+      env = {
+        ...runtime.env,
+        COMPOSE_PROFILES: withComposeProfiles(runtime.env.COMPOSE_PROFILES ?? fileProfiles, profiles),
+      };
+    } else {
+      const ctx = await buildBoundaryComposeContext();
+      const files: string[] = [];
+      for (let i = 0; i < ctx.projectArgs.length - 1; i += 1) {
+        if (ctx.projectArgs[i] === '-f') files.push(ctx.projectArgs[i + 1]);
+      }
+      env = {
+        ...ctx.runtime.env,
+        ...ctx.env,
+        COMPOSE_PROJECT_NAME: BOUNDARY_ASSISTANT_PROJECT_NAME,
+        COMPOSE_FILE: files.join(path.delimiter),
+        COMPOSE_PROFILES: withComposeProfiles(ctx.env.COMPOSE_PROFILES, profiles),
+      };
+    }
+    // Never write into a developer's checkout: their shim goes in the temp folder.
+    const shimDir = local
+      ? path.join(os.tmpdir(), 'boundary-docker-shim')
+      : path.join(root, '.boundary-bin');
+    return ensureDockerCompatibleCliOnPath(buildSovereignSetupEnv(env), shimDir);
+  };
   return {
     compose: activeStackCompose(),
-    composeWithInput: (args, input, options = {}) =>
-      stream(args, { timeout: options.timeout, input }),
-    composeStreaming: (args, options) => stream(args, options),
-    scriptEnv: async (profiles) => {
-      let env: NodeJS.ProcessEnv;
-      if (local) {
-        const runtime = await getContainerRuntime();
-        // The checkout's .env names its profiles; a COMPOSE_PROFILES set here replaces it.
-        let fileProfiles: string | undefined;
-        try {
-          fileProfiles = parseEnv(fs.readFileSync(path.join(root, '.env'), 'utf8')).COMPOSE_PROFILES;
-        } catch {
-          fileProfiles = undefined;
-        }
-        env = {
-          ...runtime.env,
-          COMPOSE_PROFILES: withComposeProfiles(runtime.env.COMPOSE_PROFILES ?? fileProfiles, profiles),
-        };
-      } else {
-        const ctx = await buildBoundaryComposeContext();
-        const files: string[] = [];
-        for (let i = 0; i < ctx.projectArgs.length - 1; i += 1) {
-          if (ctx.projectArgs[i] === '-f') files.push(ctx.projectArgs[i + 1]);
-        }
-        env = {
-          ...ctx.runtime.env,
-          ...ctx.env,
-          COMPOSE_PROJECT_NAME: BOUNDARY_ASSISTANT_PROJECT_NAME,
-          COMPOSE_FILE: files.join(path.delimiter),
-          COMPOSE_PROFILES: withComposeProfiles(ctx.env.COMPOSE_PROFILES, profiles),
-        };
-      }
-      // Never write into a developer's checkout: their shim goes in the temp folder.
-      const shimDir = local
-        ? path.join(os.tmpdir(), 'boundary-docker-shim')
-        : path.join(root, '.boundary-bin');
-      return ensureDockerCompatibleCliOnPath(buildSovereignSetupEnv(env), shimDir);
+    composeStreaming: stream,
+    runScript: localRunScript(root),
+    scriptEnv,
+    scriptCompose: async (args, options = {}) => {
+      const [env, runtime] = await Promise.all([scriptEnv(options.profiles ?? []), getContainerRuntime()]);
+      return runCompose(runtime, args, { cwd: root, env, timeout: options.timeout });
     },
-    root,
-    dataRoot: resolveAssistantDataRoot(root),
+    scriptCli: async (args, options = {}) => {
+      const [env, runtime] = await Promise.all([scriptEnv([]), getContainerRuntime()]);
+      return runCli(runtime, args, { cwd: root, env, timeout: options.timeout });
+    },
   };
+}
+
+/**
+ * Commands for the stack in the folder `root`, for code that is setting up that folder before
+ * it is the stack this session talks to (`getStackHost` needs a resolvable root). Only the
+ * local host exists (ADR 0062).
+ */
+export function stackCommandsAt(root: string): StackCommands {
+  return localStackCommands(root);
+}
+
+/**
+ * The stack this session talks to, as a stack host (ADR 0062): the SSH host when the stored
+ * location names one (opened by `selectStackHost`; throws `StackHostNotConnected` before
+ * that), otherwise the managed install, or the developer's checkout in local-stack mode.
+ */
+function getStackHost(): StackHost {
+  const ssh = connectedSshStackHost();
+  if (ssh) return ssh;
+  const { root, error } = tryResolveAssistantRoot();
+  if (!root) throw new Error(error ?? 'Assistant root not found');
+  return createLocalStackHost({
+    stackRoot: root,
+    userContentRoot: () => resolveAssistantUserContentRoot(root),
+    ports: getStoredAssistantPorts,
+    commands: localStackCommands(root),
+  });
+}
+
+/**
+ * The project `.env` of the stack this session talks to, changed through the stack's `env.sh`
+ * (remote stack plan, phase 3a). The stack is looked up on each call, so the object can be kept.
+ */
+export function getProjectEnv(): ProjectEnv {
+  // The folder `getStackFiles` finds: before the stack is installed, the managed install's.
+  const current = () =>
+    projectEnvVia(connectedSshStackHost()?.commands ?? localStackCommands(resolveActiveAssistantRoot()), getStackFiles());
+  return { set: (values) => current().set(values), unset: (keys) => current().unset(keys) };
+}
+
+/** The project `.env` of the stack in the folder `root`, for code that is setting it up. */
+export function projectEnvAt(root: string): ProjectEnv {
+  return projectEnvVia(stackCommandsAt(root), stackFilesAt(root));
+}
+
+/** For services that write into Hermes's profiles and run commands in the stack's containers. */
+export function getAssistantStackAccess(): AssistantStackAccess {
+  const host = getStackHost();
+  return {
+    compose: host.commands.compose,
+    composeWithInput: (args, input, options = {}) =>
+      host.commands.composeStreaming(args, { timeout: options.timeout, input }),
+    composeStreaming: (args, options) => host.commands.composeStreaming(args, options),
+    scriptEnv: (profiles) => host.commands.scriptEnv(profiles),
+    scriptCompose: (args, options) => host.commands.scriptCompose(args, options),
+    scriptCli: (args, options) => host.commands.scriptCli(args, options),
+    runScript: (script, args, options) => host.commands.runScript(script, args, options),
+  };
+}
+
+/**
+ * The stack's compose folder and `data/` on this computer. Only the local host has them: on an
+ * SSH host this throws `SshStackHostError` `not_local`, so code that still needs them fails by
+ * name (remote stack plan, phase 4d lists it).
+ */
+export function getLocalStackPaths(): { root: string; dataRoot: string } {
+  const { stack, data } = getStackHost().localPaths;
+  return { root: stack, dataRoot: data };
 }
 
 /**
  * Make Hermes pick up the MCP servers of the installed add-ons, as the stack's
  * `make hermes-reload` does: force both profile bootstraps, then recreate hermes. The add-on
- * flags go on each call because local-stack compose adds none. Chats pause while hermes restarts.
+ * flags come from the stack's `.env`. Chats pause while hermes restarts.
  */
 export async function reloadHermesForAddons(): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { compose } = getAssistantStackAccess();
-    const env = addonComposeEnv();
-    // Local mode follows the checkout's .env profiles and LightRAG flag, as `make hermes-reload`
-    // does. Boundary's own compose env carries the LightRAG flag.
-    const profileArgs = isLocalAssistantStackMode() ? [] : boundaryComposeProfileArgs();
-    await compose(
-      [...profileArgs, 'run', '--rm', '-e', 'HERMES_BOOTSTRAP_FORCE=1', 'hermes-api-bootstrap'],
-      { env, timeout: 300_000 }
-    );
-    await compose(
-      [
-        ...profileArgs,
-        'run',
-        '--rm',
-        '--no-deps',
-        '-e',
-        'HERMES_BOOTSTRAP_FORCE=1',
-        'hermes-browser-bootstrap',
-      ],
-      { env, timeout: 300_000 }
-    );
-    await compose([...profileArgs, 'up', '-d', '--no-deps', '--force-recreate', 'hermes'], {
-      env,
-      timeout: 180_000,
-    });
-    // hermes is replaced once compose returns, whether or not it gets healthy.
-    notifyHermesReplaced('addon-reload');
-    await waitUntilAssistantHealthy(getStoredAssistantPorts(), 120_000);
-    return { success: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { success: false, error: message };
-  }
+  return replaceHermes({
+    reason: 'addon-reload',
+    run: async () => {
+      const { compose } = getAssistantStackAccess();
+      // Local mode follows the checkout's .env profiles and LightRAG flag, as `make hermes-reload`
+      // does. Boundary's own compose env carries the LightRAG flag.
+      const profileArgs = isLocalAssistantStackMode() ? [] : await boundaryComposeProfileArgs();
+      await compose(
+        [...profileArgs, 'run', '--rm', '-e', 'HERMES_BOOTSTRAP_FORCE=1', 'hermes-api-bootstrap'],
+        { timeout: 300_000 }
+      );
+      await compose(
+        [
+          ...profileArgs,
+          'run',
+          '--rm',
+          '--no-deps',
+          '-e',
+          'HERMES_BOOTSTRAP_FORCE=1',
+          'hermes-browser-bootstrap',
+        ],
+        { timeout: 300_000 }
+      );
+      await compose([...profileArgs, 'up', '-d', '--no-deps', '--force-recreate', 'hermes'], {
+        timeout: 180_000,
+      });
+    },
+  });
 }
 
 /**
@@ -2913,7 +3178,7 @@ export async function ensureAssistantStackOnLaunch(): Promise<void> {
   setLifecycle(
     createLifecycleSnapshot('starting', {
       message: 'Starting assistant services…',
-      services: seedServiceProgress('pending', 'Waiting…', 0),
+      services: await seedServiceProgress('pending', 'Waiting…', 0),
     })
   );
   await ensureAssistantStackAndApplyLlm();
@@ -2927,6 +3192,7 @@ export const __test = {
   portsToComposeEnv,
   pinHostPortsInProjectEnv,
   buildProjectArgs,
+  syncEngineOverlay,
   arePortsAvailable,
   buildComposeProfileArgs,
   handleProgressLine,

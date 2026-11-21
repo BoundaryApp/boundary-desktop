@@ -67,4 +67,10 @@ export interface ConfidentialAdapter {
   testToolCall(signal: AbortSignal): Promise<boolean>;
   /** `body` is an OpenAI chat completions request. Resolves at the reply's head. */
   chat(body: string, signal: AbortSignal): Promise<AdapterChatResult>;
+  /**
+   * Releases what the adapter keeps open between calls, such as pooled connections. The service
+   * calls it when it drops a cached adapter (re-add, remove, unreadable key) and after the add
+   * flow's and each refresh's own adapter finish; a call still running finishes.
+   */
+  close?(): void;
 }

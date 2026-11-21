@@ -282,8 +282,8 @@ describe('calibrateWritingVoice', () => {
     const done = calibrateWritingVoice('v', { gateway, contentRoot: root });
     await gateway.untilSubmitted(1);
     const samples = path.join(writingVoiceDir('v', root), 'samples');
-    const { hashWritingVoiceSamples } = await import('../writingVoicePaths');
-    const before = await hashWritingVoiceSamples(samples);
+    const { hashWritingVoiceSamples, writingVoiceFiles } = await import('../writingVoicePaths');
+    const before = await hashWritingVoiceSamples(writingVoiceFiles(root), 'voice/v/samples');
     fs.writeFileSync(path.join(samples, 'added-during.md'), 'more words');
     writeStyle();
     gateway.emit('message.complete', 'rt-1', { status: 'complete' });

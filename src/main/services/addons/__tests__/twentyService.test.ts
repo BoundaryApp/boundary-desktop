@@ -25,11 +25,11 @@ vi.mock('../../assistant/resolveAssistantRoot', () => ({
 import { runExclusive } from '../addonInstaller';
 import { pendingChanges } from '../pendingRestart';
 import { createTwentyService, type TwentyServiceDeps } from '../twentyService';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
 import {
   HOSTED_SETTINGS,
   LOCAL_SETTINGS,
   readTwentyWorkspace,
+  twentyWorkspacesDir,
   writeTwentyWorkspace,
 } from './twentyStoreFixtures';
 
@@ -45,6 +45,8 @@ const input = (over: Partial<TwentyConnectInput> = {}): TwentyConnectInput => ({
   ...over,
 });
 
+const runScript: TwentyServiceDeps['runScript'] = async () => 0;
+
 describe('twenty service', () => {
   let root: string;
   let dir: string;
@@ -55,7 +57,7 @@ describe('twenty service', () => {
     createTwentyService({
       root: () => root,
       baseEnv: async () => ({ PATH: '/usr/bin', TWENTY_WORKSPACE_URL: 'http://localhost:3000' }),
-      isInstalled: () => false,
+      runScript,
       run: async (options) => {
         calls.push(options);
         return result;
@@ -74,19 +76,19 @@ describe('twenty service', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('lists the stored workspaces without their keys, and nothing without a stack root', () => {
+  it('lists the stored workspaces without their keys, and nothing without a stack root', async () => {
     writeTwentyWorkspace(dir, 'work', HOSTED_SETTINGS, { keyRw: 'secret' });
-    const [work] = make().listWorkspaces();
+    const [work] = await make().listWorkspaces();
     expect(work).toMatchObject({ slug: 'work', local: false, hasWriteKey: true });
     expect(JSON.stringify(work)).not.toContain('secret');
-    expect(make({ root: () => null }).listWorkspaces()).toEqual([]);
+    expect(await make({ root: () => null }).listWorkspaces()).toEqual([]);
   });
 
   it('connect runs crm.sh add without TWENTY_WORKSPACE_URL and adds the pending text on success', async () => {
     const service = make();
     expect(await service.connect(input())).toEqual({ ok: true, checks: [] });
     expect(calls[0].args).toEqual(['add', '--slug', 'work', '--url', 'https://crm.example.com']);
-    expect(calls[0].root).toBe(root);
+    expect(calls[0].runScript).toBe(runScript);
     expect(calls[0].env.PATH).toBe('/usr/bin');
     expect('TWENTY_WORKSPACE_URL' in calls[0].env).toBe(false);
     expect(pendingChanges()).toEqual(['Connect crm-work (look things up)']);
@@ -117,6 +119,21 @@ describe('twenty service', () => {
     expect(calls[0].args).toEqual(['remove', '--slug', 'work']);
     expect('TWENTY_WORKSPACE_URL' in calls[0].env).toBe(false);
     expect(pendingChanges()).toEqual(['Disconnect crm-work']);
+  });
+
+  it('disconnect sets TWENTY_MCP_ENABLED in .env for the workspaces left, which crm.sh remove leaves', async () => {
+    writeTwentyWorkspace(dir, 'work', HOSTED_SETTINGS);
+    fs.writeFileSync(path.join(root, '.env'), 'TWENTY_LOCAL_ENABLED=0\nTWENTY_MCP_ENABLED=1\n');
+    // As crm.sh remove does: the instance file goes, the flag stays.
+    const removing = make({
+      run: async (options) => {
+        calls.push(options);
+        fs.rmSync(path.join(dir, 'instances', 'work.json'));
+        return result;
+      },
+    });
+    await removing.disconnect('work');
+    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('TWENTY_LOCAL_ENABLED=0\nTWENTY_MCP_ENABLED=0\n');
   });
 
   it('disconnect refuses the local workspace', async () => {

@@ -45,6 +45,7 @@ describe('setupSteps() assistant-stack gate', () => {
         setupComplete: true,
         ready: true,
         uiServices: [],
+      addonServices: [],
       },
     });
     expect(resolveActiveSetupStep(setupSteps(), ctx)).toBeNull();

@@ -139,7 +139,9 @@ describe('Peer signals over a local DHT', () => {
     expect(ada.net.sendSignal(second, 'typing', { on: true })).toBe(1);
     await fence(ada, bo, second);
     await fence(ada, cy, first);
-    expect(bo.received).toEqual([{ circle: second, from: ada.identity, topic: 'typing', payload: { on: true } }]);
+    expect(bo.received).toEqual([
+      { circle: second, from: ada.identity, device: ada.device, topic: 'typing', payload: { on: true } },
+    ]);
     expect(cy.received).toEqual([]);
     bo.received.length = 0;
   });

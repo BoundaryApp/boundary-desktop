@@ -11,6 +11,8 @@ import type { AgentWritingVoices } from '../../../shared/types/writingVoices';
 import { WritingVoicePicker } from '../writingVoices/WritingVoicePicker';
 import { useWritingVoiceOptions } from '../writingVoices/useWritingVoiceOptions';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Textarea } from '../../components/ui/textarea';
 
 const NO_VOICES: AgentWritingVoices = { chatRepliesVoiceId: null, draftsVoiceId: null };
 
@@ -121,7 +123,7 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       )}
       <label className="wb-field">
         <span>Display name</span>
-        <input
+        <Input
           value={displayName}
           onChange={(e) => {
             setDisplayName(e.target.value);
@@ -133,8 +135,8 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       </label>
       <label className="wb-field">
         <span>Handle</span>
-        <input
-          className="mono"
+        <Input
+          className="font-mono"
           value={handle || derivedHandle}
           onChange={(e) => {
             setHandleTouched(true);
@@ -145,7 +147,7 @@ export const AgentCreateSheet: React.FC<AgentCreateSheetProps> = ({
       </label>
       <label className="wb-field">
         <span>Role</span>
-        <textarea
+        <Textarea
           value={role}
           onChange={(e) => setRole(e.target.value)}
           disabled={busy}

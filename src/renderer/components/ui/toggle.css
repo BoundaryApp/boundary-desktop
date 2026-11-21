@@ -1,0 +1,149 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Segmented, Chip and ChipGroup (ADR 0066), keyed on data-slot, data-size and data-block. They
+   share focus, hover and disabled rules. Colors, sizes and radii come from tokens.css. */
+
+/* Segmented: a --surface-1 track with its segments inside. The track takes the height of a
+   Button or field of its size and the segments fill what the border and padding leave. */
+[data-slot='segmented'] {
+  display: inline-flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  max-width: 100%;
+  height: var(--control-height);
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+[data-slot='segmented'][data-size='sm'] {
+  height: var(--control-height-sm);
+}
+
+/* Block: the track fills its container and the segments share it evenly. */
+[data-slot='segmented'][data-block] {
+  display: flex;
+}
+
+[data-slot='segmented'][data-block] > [data-slot='segmented-item'] {
+  flex: 1;
+  justify-content: center;
+}
+
+[data-slot='segmented-item'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+/* The label truncates inside the flex item; an icon beside it keeps its size. */
+[data-slot='segmented-item'] > [data-slot='segmented-label'] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-slot='segmented-item'] > :not([data-slot='segmented-label']) {
+  flex-shrink: 0;
+}
+
+[data-slot='segmented-item']:hover:where(:not(:disabled)) {
+  color: var(--text-muted);
+}
+
+/* The selection is neutral, not --brand: one option is always on, so it reads as the setting. */
+[data-slot='segmented-item'][aria-checked='true'] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* Chip: a pill that filters or tags. */
+[data-slot='chip-group'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+[data-slot='chip'] {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--control-height-sm);
+  gap: var(--space-1-5);
+  padding: 0 var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--size-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+[data-slot='chip']:hover:where(:not(:disabled)) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+[data-slot='chip'][aria-checked='true'],
+[data-slot='chip'][aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+  background: var(--brand-dim);
+  color: var(--text);
+}
+
+/* Icons in either part are 14px, as Segmented has always drawn them. */
+:is([data-slot='segmented-item'], [data-slot='chip']) svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+:is([data-slot='segmented-item'], [data-slot='chip']):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+[data-slot='chip']:disabled,
+[data-slot='segmented-item']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* A disabled Segmented dims once, as a track; its segments aren't dimmed again. */
+[data-slot='segmented'][aria-disabled='true'] {
+  opacity: 0.5;
+}
+
+[data-slot='segmented'][aria-disabled='true'] > [data-slot='segmented-item'] {
+  opacity: 1;
+}
+
+}

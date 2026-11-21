@@ -1,16 +1,17 @@
-import { app } from 'electron';
+import { BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE } from '../../../shared/assistantStackConstants';
 import { persistDebugLog } from '../../persistDebugLog';
+import { getContainerRuntime } from '../containerRuntime/resolveContainerRuntime';
 import { onBeforeStackUp, onHermesReplaced } from '../assistant/hermesLifecycle';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
+import { getStackFiles, stackFilesAt } from '../stackHost/activeStack';
 import { BITWARDEN_ENTRY } from './addonCatalog';
 import { checkAddonFit } from './addonFitCheck';
 import { runExclusive } from './addonLock';
 import { bitwardenOffered, createBitwardenService, readBitwardenEnabled, type BitwardenService } from './bitwardenAddon';
 import { ensureBitwardenFolders } from './bitwardenFolders';
-import { readBrokerNamespace, type BrokerNamespaceCheck } from './bitwardenBrokerNamespace';
-import { startBrokerWatch } from './bitwardenBrokerWatch';
-import { createHermesFollower, type HermesFollower } from './bitwardenFollowHermes';
+import { removeStaleSignerVolume } from './signerVolume';
+import { refreshCredentialClientFiles } from '../hostBridge/hostBridgeService';
 import { cliOnStack, composeOnStack, runJsonOnStack, runOnStack, runPlainOnStack, stackPaths } from './stackScripts';
 import type { BitwardenInstallerDeps } from './bitwardenInstaller';
 
@@ -25,47 +26,56 @@ let shared: BitwardenService | null = null;
 
 export function getBitwardenService(): BitwardenService {
   shared ??= createBitwardenService({
-    paths,
+    files: getStackFiles(),
     run: runOnStack,
     runJson: runJsonOnStack,
     exclusive: runExclusive,
-    followHermes: () => getHermesFollower().follow('broker-down'),
-    checkBrokerNamespace,
-    ensureFolders: () => ensureBitwardenFolders(stackPaths(), process.env),
+    startBroker,
+    ensureFolders: async () => {
+      await ensureBitwardenFolders(stackPaths(), process.env);
+      await prepareSignerVolume();
+      // The secrets folder may be new: the relay's credential client files go in it (ADR 0065).
+      await refreshCredentialClientFiles();
+    },
     log,
   });
   return shared;
 }
 
 /** True while Bitwarden is offered on this stack and switched on; every `vault.sh` call outside the installer is gated on it. */
-function bitwardenActive(): boolean {
+async function bitwardenActive(): Promise<boolean> {
   const { root } = tryResolveAssistantRoot();
-  return !!root && bitwardenOffered(root) && readBitwardenEnabled(root);
+  if (!root) return false;
+  const files = stackFilesAt(root);
+  return (await bitwardenOffered(files)) && (await readBitwardenEnabled(files));
 }
 
-const NAMESPACE_READ_TIMEOUT_MS = 30_000;
-
-/** doctor.sh's check that the broker shares the running hermes's network namespace, while Bitwarden is active. */
-export function checkBrokerNamespace(): Promise<BrokerNamespaceCheck> {
-  if (!bitwardenActive()) return Promise.resolve({ ok: false, reason: 'inactive' });
-  return readBrokerNamespace({
-    compose: (args) => composeOnStack(args, { profiles: ['bitwarden'], timeoutMs: NAMESPACE_READ_TIMEOUT_MS }),
-    cli: (args) => cliOnStack(args, { timeoutMs: NAMESPACE_READ_TIMEOUT_MS }),
-  });
-}
-
-let follower: HermesFollower | null = null;
-
-/** Moves the broker into hermes's new network namespace after hermes changes; does nothing while Bitwarden is off. */
-export function getHermesFollower(): HermesFollower {
-  follower ??= createHermesFollower({
-    active: bitwardenActive,
-    run: () => runPlainOnStack('vault.sh', ['follow-hermes'], { timeoutMs: 120_000 }),
-    // The follower's own refresh must not repair, or the two would call each other.
-    refresh: () => getBitwardenService().refresh({ repair: false }),
+/**
+ * On bundled Podman, removes a signer volume made before the engine overlay's options (CR 0042 R2,
+ * signerVolume.ts). Local-stack mode runs the checkout's compose files without the overlay, so it
+ * is left alone there.
+ */
+async function prepareSignerVolume(): Promise<void> {
+  if (isLocalAssistantStackMode()) return;
+  await removeStaleSignerVolume({
+    runtimeKind: async () => (await getContainerRuntime()).kind,
+    composeText: async () => (await getStackFiles().readText('stack', BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE)) ?? '',
+    cli: (args) => cliOnStack(args, { timeoutMs: SIGNER_VOLUME_TIMEOUT_MS }),
     log,
   });
-  return follower;
+}
+
+const SIGNER_VOLUME_TIMEOUT_MS = 60_000;
+
+const BROKER_START_TIMEOUT_MS = 120_000;
+
+/**
+ * Starts a stopped broker. From stack v0.3.16 it has its own network namespace and
+ * `restart: unless-stopped`, so this is only for a broker someone stopped; `vault.sh follow-hermes`,
+ * which did this before, is gone.
+ */
+async function startBroker(): Promise<void> {
+  await composeOnStack(['up', '-d', '--no-deps', 'bitwarden-broker'], { profiles: ['bitwarden'], timeoutMs: BROKER_START_TIMEOUT_MS });
 }
 
 /** `vault.sh pre-up` creates the host folders Bitwarden's compose file mounts; `up-hook` reloads the plugins. */
@@ -73,7 +83,8 @@ const PRE_UP_TIMEOUT_MS = 60_000;
 const UP_HOOK_TIMEOUT_MS = 120_000;
 
 async function runPreUp(): Promise<void> {
-  if (!bitwardenActive()) return;
+  if (!(await bitwardenActive())) return;
+  await prepareSignerVolume();
   const started = Date.now();
   const { code } = await runPlainOnStack('vault.sh', ['pre-up'], { timeoutMs: PRE_UP_TIMEOUT_MS });
   log('pre-up', { code, ms: Date.now() - started });
@@ -91,34 +102,20 @@ async function runUpHook(): Promise<void> {
   }
 }
 
-/** Electron's focus event for any of Boundary's windows. */
-function onAnyWindowFocus(listener: () => void): () => void {
-  app.on('browser-window-focus', listener);
-  return () => void app.off('browser-window-focus', listener);
-}
-
 /**
- * Wires Bitwarden into the stack's start: `pre-up` before compose `up`, then `up-hook` and the
- * follower after hermes starts, and the follower alone after later restarts and recreates. Also
- * watches for a hermes recreated outside Boundary (bitwardenBrokerWatch.ts).
- * Call once at startup; the returned function removes the listeners and stops the watch.
+ * Wires Bitwarden into the stack's start: `pre-up` before compose `up`, then `up-hook` after
+ * hermes starts. From stack v0.3.16 the broker doesn't share hermes's network namespace, so a
+ * later restart or recreate of hermes needs nothing from Boundary.
+ * Call once at startup; the returned function removes the listeners.
  */
 export function registerBitwardenStackHooks(): () => void {
   const offBefore = onBeforeStackUp(runPreUp);
   const offReplaced = onHermesReplaced(async (reason) => {
-    if (reason === 'start' && bitwardenActive()) await runUpHook();
-    await getHermesFollower().follow(reason);
-  });
-  const stopWatch = startBrokerWatch({
-    active: bitwardenActive,
-    check: (trigger) => getBitwardenService().repairIfStranded(trigger),
-    onFocus: onAnyWindowFocus,
-    log,
+    if (reason === 'start' && (await bitwardenActive())) await runUpHook();
   });
   return () => {
     offBefore();
     offReplaced();
-    stopWatch();
   };
 }
 
@@ -145,8 +142,8 @@ const REQUEST_TOOL = 'bitwarden_request_access';
 export function noteChatToolCall(toolName: string): void {
   if (toolName !== REQUEST_TOOL) return;
   const { root } = tryResolveAssistantRoot();
-  if (!root || !bitwardenOffered(root)) return;
-  void getBitwardenService()
-    .refreshRequests()
+  if (!root) return;
+  void bitwardenOffered(stackFilesAt(root))
+    .then((offered) => (offered ? getBitwardenService().refreshRequests() : undefined))
     .catch((error: unknown) => log('requests after tool call failed', { error: error instanceof Error ? error.name : 'unknown' }));
 }

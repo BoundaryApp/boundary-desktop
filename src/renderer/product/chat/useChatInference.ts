@@ -10,6 +10,8 @@ import type {
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { useInferenceSendHandlers } from './HermesChatRuntimeProvider';
 import { projectInferenceKey as projectKeyOf } from './projectInferenceKey';
+import { patchProjectInference, type PatchProjectInference } from './useProjects';
+import { useOnChatSwitch } from './useOnChatSwitch';
 
 /**
  * What main resolves for a chat: its inference, the switch marks and the turns a confidential pool
@@ -93,7 +95,7 @@ export function useChatInference({
   sameChat,
   send,
   project = null,
-  onProjectsUpdated,
+  patchInference = patchProjectInference,
   takeNewChatWritingVoice,
 }: {
   sessionId: string | null;
@@ -103,7 +105,8 @@ export function useChatInference({
   send: () => void;
   /** The chat's project, where Allow level B is stored. */
   project?: HermesProjectRecord | null;
-  onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /** Saves the project's pin and updates the project list; defaults to no list. */
+  patchInference?: PatchProjectInference;
   /** A writing voice kept for a chat with no session yet (ADR 0056 §6). */
   takeNewChatWritingVoice?: () => string | null;
 }) {
@@ -153,8 +156,12 @@ export function useChatInference({
   useEffect(() => {
     if (resolvedInference && !resolvedInference.privacyRefused) setRefusedSend(false);
   }, [resolvedInference]);
-  useEffect(() => setRefusedSend(false), [sessionId]);
-  useEffect(() => setAllowLevelBError(null), [sessionId, resolvedInference]);
+  useEffect(() => setAllowLevelBError(null), [resolvedInference]);
+  // A new chat's first send adopting its id is the same chat: a refusal it got stays shown.
+  useOnChatSwitch(sessionId, sameChat, () => {
+    setRefusedSend(false);
+    setAllowLevelBError(null);
+  });
 
   /** False, and the prompt shows, when the chat's local model is known to be unreachable. */
   const checkReachable = useCallback((): boolean => {
@@ -213,26 +220,20 @@ export function useChatInference({
     if (!project || allowingLevelB) return;
     setAllowingLevelB(true);
     setAllowLevelBError(null);
-    try {
-      const result = await window.electronAPI.projects.patch({
-        projectId: project.id,
-        inference: { mode: project.inference?.mode ?? 'inherit', ...project.inference, allowConfidentialLevelB: true },
-      });
-      if (!result.success) {
-        setAllowLevelBError(result.error ?? 'Could not update the project.');
-        return;
-      }
-      if (result.projects) onProjectsUpdated?.(result.projects);
-    } catch {
-      setAllowLevelBError('Could not update the project.');
+    const error = await patchInference(project.id, {
+      mode: project.inference?.mode ?? 'inherit',
+      ...project.inference,
+      allowConfidentialLevelB: true,
+    });
+    setAllowingLevelB(false);
+    if (error) {
+      setAllowLevelBError(error);
       return;
-    } finally {
-      setAllowingLevelB(false);
     }
     void refresh();
     setRefusedSend(false);
     send();
-  }, [allowingLevelB, onProjectsUpdated, project, send, refresh]);
+  }, [allowingLevelB, patchInference, project, send, refresh]);
 
   // Main notes a turn's fallback mark and pool provider once the turn is over, then says so:
   // fetch them then, not on the reply's end, which comes first (ADR 0033 §3, spec decision 9).

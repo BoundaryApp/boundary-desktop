@@ -56,6 +56,14 @@ vi.mock('../../resolveAssistantRoot', () => ({
   resolveActiveAssistantDataRoot: () => dataRoot.dir,
 }));
 
+vi.mock('../../../stackHost/activeStack', async () => {
+  const { localStackFiles } = await import('../../../stackHost/localStackHost');
+  return {
+    getStackFiles: () =>
+      localStackFiles({ stackRoot: path.dirname(dataRoot.dir), userContentRoot: () => dataRoot.dir }),
+  };
+});
+
 vi.mock('../../assistantPaths', () => ({
   resolveAssistantDataRoot: () => '/tmp/boundary-test-assistant-data',
 }));
@@ -189,7 +197,7 @@ describe('createHermesAgent', () => {
   });
 
   it('gives two agents created at once different slugs', async () => {
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-')), 'data');
     const { createHermesAgent } = await import('../hermesAgents');
     const [first, second] = await Promise.all([
       createHermesAgent({ displayName: 'Researcher', role: 'Finds sources.' }),
@@ -200,7 +208,7 @@ describe('createHermesAgent', () => {
   });
 
   it('keeps every row when a create and an update write the registry at once', async () => {
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-')), 'data');
     const { createHermesAgent, updateHermesAgent } = await import('../hermesAgents');
     const first = await createHermesAgent({ displayName: 'Researcher', role: 'Finds sources.' });
     getStoredAgent.mockImplementation((slug: string) =>
@@ -223,7 +231,7 @@ describe('createHermesAgent', () => {
   });
 
   it('lists agents from the registry file alongside stored ones', async () => {
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-')), 'data');
     const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');
     fs.mkdirSync(path.dirname(registry), { recursive: true });
     fs.writeFileSync(registry, JSON.stringify({ agents: [{ name: 'scout', display_name: 'Scout', role: 'Looks ahead.' }] }));
@@ -234,7 +242,7 @@ describe('createHermesAgent', () => {
   });
 
   it('lists only stored agents when the registry file is missing or unreadable', async () => {
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-')), 'data');
     const { listHermesAgents } = await import('../hermesAgents');
     expect((await listHermesAgents()).agents.map((agent) => agent.slug)).toEqual(['assistant']);
     const registry = path.join(dataRoot.dir, 'hermes', 'agents', 'registry.json');
@@ -244,7 +252,7 @@ describe('createHermesAgent', () => {
   });
 
   it('sets up the new profile with what the stack bootstrap never wrote', async () => {
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agents-')), 'data');
     setUpNewHermesProfile.mockClear();
     const { createHermesAgent } = await import('../hermesAgents');
     const result = await createHermesAgent({ displayName: 'Researcher', role: 'Finds sources.' });
@@ -261,6 +269,17 @@ describe('createHermesAgent', () => {
     const soul = (createProfile.mock.calls[0]?.[0] as { soul: string }).soul;
     expect(soul).toContain('## Calendars');
     expect(soul).toContain('Settings → Calendars');
+  });
+
+  it('names only the browser_vault tool and its actions for signing in, including sign_in', async () => {
+    createProfile.mockClear();
+    const { createHermesAgent } = await import('../hermesAgents');
+    await createHermesAgent({ displayName: 'Shopper', role: 'Orders groceries.' });
+    const soul = (createProfile.mock.calls[0]?.[0] as { soul: string }).soul;
+    const section = soul.slice(soul.indexOf('## Signing in to websites'), soul.indexOf('## Calendars'));
+    // Hermes registers one tool, browser_vault (tools/browser_vault_tool.py); the rest are actions.
+    expect(section).not.toMatch(/call browser_vault_/);
+    for (const action of ['list', 'sign_in', 'fill', 'save_login']) expect(section).toContain(`action="${action}"`);
   });
 });
 
@@ -282,7 +301,7 @@ describe('updateHermesAgent (ADR 0010 §4)', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    dataRoot.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agent-edit-'));
+    dataRoot.dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-agent-edit-')), 'data');
     getStoredAgent.mockImplementation((slug: string) => (slug === 'ana' ? ana : null));
     getStandingDmSessionId.mockReturnValue('dm-ana');
     configureProfile.mockResolvedValue({ ok: true });
@@ -291,7 +310,7 @@ describe('updateHermesAgent (ADR 0010 §4)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataRoot.dir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(dataRoot.dir), { recursive: true, force: true });
   });
 
   it('saves the new name, handle and role, and writes them into the profile', async () => {

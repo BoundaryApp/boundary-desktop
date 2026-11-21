@@ -1,8 +1,13 @@
 import React from 'react';
 import { cn } from '../../lib/utils';
 import { Field } from '../../components/ui/field';
+import { Input } from '../../components/ui/input';
 import type { TwentyAccess } from '../../../shared/types/addons';
 import { ACCESS_LABEL, bytesGB } from './addonCopy';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
+import { Radio } from '../../components/ui/radio';
 
 // Form pieces the add-on sheets share.
 
@@ -15,25 +20,16 @@ export const AccessRadios: React.FC<{
   className?: string;
   onChange(value: TwentyAccess): void;
 }> = ({ name, value, help, disabled, className, onChange }) => (
-  <div role="radiogroup" aria-label="What agents may do" className={cn('flex flex-col gap-2', className)}>
-    <span className="text-xs font-medium text-fg">What agents may do</span>
+  <ChoiceGroup label="What agents may do" kind="radio" className={cn('mb-0', className)}>
     {(['read', 'write'] as const).map((option) => (
-      <label key={option} className="flex cursor-pointer items-start gap-2 text-xs">
-        <input
-          type="radio"
-          name={name}
-          className="mt-0.5"
-          checked={value === option}
-          disabled={disabled}
-          onChange={() => onChange(option)}
-        />
-        <span className="flex flex-col gap-0.5">
-          <b className="font-medium text-fg">{ACCESS_LABEL[option]}</b>
-          <span className="text-fg-muted">{help[option]}</span>
-        </span>
-      </label>
+      <ChoiceRow
+        key={option}
+        control={<Radio name={name} checked={value === option} disabled={disabled} onChange={() => onChange(option)} />}
+        title={ACCESS_LABEL[option]}
+        description={help[option]}
+      />
     ))}
-  </div>
+  </ChoiceGroup>
 );
 
 /** The field a removal asks the person to type `delete` into. */
@@ -43,7 +39,7 @@ export const TypeDeleteField: React.FC<{ id: string; value: string; onChange(val
   onChange,
 }) => (
   <Field label={<>Type <b>delete</b> to confirm</>} htmlFor={id}>
-    <input
+    <Input
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -62,13 +58,12 @@ export const DeleteImagesOption: React.FC<{
   again: string;
   onChange(checked: boolean): void;
 }> = ({ checked, downloadBytes, again, onChange }) => (
-  <label className="mb-3.5 flex cursor-pointer items-start gap-2 text-xs">
-    <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    <span className="flex flex-col gap-0.5">
-      <b className="font-medium text-fg">Also delete the downloaded images</b>
-      <span className="text-fg-muted">{`Frees about ${bytesGB(downloadBytes)} GB. ${again} downloads them again.`}</span>
-    </span>
-  </label>
+  <ChoiceRow
+    className="mb-3.5"
+    control={<Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} />}
+    title="Also delete the downloaded images"
+    description={`Frees about ${bytesGB(downloadBytes)} GB. ${again} downloads them again.`}
+  />
 );
 
 /** A row of small figures under a way to set an add-on up. */

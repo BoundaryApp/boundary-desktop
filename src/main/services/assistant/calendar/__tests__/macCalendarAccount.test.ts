@@ -47,6 +47,13 @@ vi.mock('electron-store', () => ({
 
 vi.mock('../../../../persistDebugLog', () => ({ persistDebugLog: h.log }));
 
+vi.mock('../../../stackHost/activeStack', async () => {
+  const { localStackFiles } = await import('../../../stackHost/localStackHost');
+  return {
+    getStackFiles: () => localStackFiles({ stackRoot: path.dirname(h.dataRoot), userContentRoot: () => h.dataRoot }),
+  };
+});
+
 vi.mock('../../AssistantStackService', () => ({
   isAssistantStackReady: async () => true,
   getAssistantStackAccess: () => ({ compose: h.compose, composeWithInput: vi.fn(), dataRoot: h.dataRoot }),
@@ -90,8 +97,8 @@ import {
   requestMacCalendarAccess,
   restartMacCalendarHelper,
   setMacCalendars,
-  syncMacCalendarTokens,
 } from '../macCalendarAccount';
+import { syncMacCalendarTokens } from '../macCalendarTokens';
 import { connectCalendar, recheckCalendar, removeCalendar, runDailyCalendarCheck, setCalendarAccess } from '../calendarService';
 import { MAC_TOKEN_ENV, defaultAllowedCalendarIds } from '../calendarModel';
 import { hasCalDavAccounts, type StoredCalendarAccount } from '../calendarStore';
@@ -137,7 +144,7 @@ const connectMac = (access: Record<string, 'off' | 'read' | 'change'>, allowedCa
   connectMacCalendars({ allowedCalendarIds, access });
 
 beforeEach(() => {
-  h.dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mac-calendar-'));
+  h.dataRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mac-calendar-')), 'data');
   for (const profile of ['researcher', 'writer']) {
     fs.mkdirSync(path.join(h.dataRoot, 'hermes', 'profiles', profile), { recursive: true });
   }
@@ -169,7 +176,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(h.dataRoot, { recursive: true, force: true });
+  fs.rmSync(path.dirname(h.dataRoot), { recursive: true, force: true });
 });
 
 describe('the choose step', () => {

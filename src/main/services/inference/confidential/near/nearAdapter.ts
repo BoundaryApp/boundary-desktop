@@ -10,10 +10,11 @@
 import { bytesToHex, randomBytes } from '@noble/hashes/utils.js';
 import type { Precision } from '../../../../../shared/types/confidential';
 import type { AdapterChatResult, AdapterFailure, ConfidentialAdapter, ListedOffer } from '../adapter';
-import { discard, isRecord, knownEntries, parseJson, postChat, rateLimited, readBounded, receiveReply, serverFailure, sharedMethods, UnsupportedContent } from '../adapterKit';
+import { discard, fetchModelList, knownEntries, mapAccountError, oneTokenKeyCheck, parseJson, postChat, readBounded, receiveReply, sharedMethods, UnsupportedContent } from '../adapterKit';
 import type { SseEvent } from '../sseTransform';
 import { pickVerifiedModelKey, liveNearVerifierDeps, type NearVerifierDeps } from './nearAttestation';
 import { decryptReplyObject, encryptRequest, nearHeaders, newClientKeys, type NearClientKeys } from './nearCrypto';
+import { isRecord } from '../../../../../shared/utils/isRecord';
 
 const BASE_URL = 'https://cloud-api.near.ai/v1';
 /** A verified model key is used for this long, then the model is attested again. */
@@ -24,7 +25,6 @@ const RECENT_CHECK_MS = 60 * 1000;
 const ACCOUNT_FAILURES = new Set<AdapterFailure['kind']>(['bad-key', 'no-balance', 'rate-limited']);
 const REPORT_LIMIT = 8 * 1024 * 1024;
 const REPLY_LIMIT = 16 * 1024 * 1024;
-const MODELS_LIMIT = 8 * 1024 * 1024;
 
 type AttestResult = { ok: true; keyHex: string } | { ok: false; failure: AdapterFailure };
 
@@ -38,13 +38,8 @@ export interface NearAdapterOptions {
   log?: (message: string, data: Record<string, unknown>) => void;
 }
 
-/** A NEAR error reply as a failure kind. The body is read for nothing yet and never logged. */
-export function mapNearError(status: number, body: string, headers: Headers): AdapterFailure {
-  if (status === 401) return { kind: 'bad-key' };
-  if (status === 402) return { kind: 'no-balance' };
-  if (status === 429) return rateLimited(headers);
-  return serverFailure(status, body);
-}
+/** A NEAR error reply as a failure kind. */
+export const mapNearError = mapAccountError;
 
 /** USD per token as a string, to USD per million tokens. Null when missing or not a number. */
 function perMillion(value: unknown): number | null {
@@ -217,33 +212,10 @@ export function createNearAdapter(opts: NearAdapterOptions): ConfidentialAdapter
   return {
     providerId: 'near',
 
-    async checkKey(signal) {
-      const model = opts.models[0];
-      if (!model) return { ok: false, failure: { kind: 'unreachable', detail: 'no model' } };
-      const result = await chat(
-        JSON.stringify({ model, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 1, stream: false }),
-        signal
-      );
-      // A 402 means NEAR accepted the key and the account has no credit; chats learn that as `no-balance`.
-      if (result.ok === false) return result.failure.kind === 'no-balance' ? { ok: true } : { ok: false, failure: result.failure };
-      discard(result.response);
-      return { ok: true };
-    },
+    checkKey: oneTokenKeyCheck(opts.models, chat),
 
     async listModels(signal) {
-      let res: Response;
-      try {
-        res = await fetchImpl(`${BASE_URL}/models`, { headers: { 'x-no-aliasing': 'true' }, signal });
-      } catch {
-        throw new Error('NEAR’s model list couldn’t be reached.');
-      }
-      if (!res.ok) {
-        discard(res);
-        throw new Error('NEAR’s model list couldn’t be read.');
-      }
-      const parsed = parseJson(await readBounded(res, MODELS_LIMIT, signal));
-      const data = isRecord(parsed) ? parsed.data : undefined;
-      if (!Array.isArray(data)) throw new Error('NEAR’s model list couldn’t be read.');
+      const data = await fetchModelList(fetchImpl, `${BASE_URL}/models`, 'NEAR', { headers: { 'x-no-aliasing': 'true' } }, signal);
       return knownEntries(data, opts.models).map(listedOffer);
     },
 

@@ -20,11 +20,13 @@ import {
 } from './ChannelSheets';
 import { AllChatsPane } from './AllChatsPane';
 import { ConversationMark } from './ConversationMark';
+import { Tabs, TabsContent } from '../../components/ui/tabs';
 import { DmTabs, MentionsPane, type DmTab } from './MentionsPane';
 import { TaskPane, type TaskOrigin } from './TaskPane';
 import { TasksPane, type TasksView } from './TasksPane';
 import { clearTaskOpenRequest, useTaskOpenRequest } from './kanbanActivity';
-import { ChatRail, railOrder, type CenterMode } from './ChatRail';
+import { ChatRail, railOrder } from './ChatRail';
+import type { CenterMode } from './centerMode';
 import { headKindLine } from './conversationKinds';
 import { useAppCommand } from '../useAppShortcuts';
 import { useCirclesState } from '../circles/useCircles';
@@ -41,6 +43,7 @@ import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { readChatScreenSnapshot, saveChatScreenSnapshot } from './chatScreenCache';
 import { probeLog } from '../../debug/lagProbe';
 import { useChatIds } from './useChatIds';
+import { useOnChatSwitch } from './useOnChatSwitch';
 import { useChatLists } from './useChatLists';
 import { useConversationNav } from './useConversationNav';
 import { useAgentSheets } from './useAgentSheets';
@@ -48,6 +51,9 @@ import { roomForChat, useRoomSheets } from './useRoomSheets';
 import { useProjects } from './useProjects';
 import { useWritingCheck } from './useWritingCheck';
 import { useProjectSources } from './useProjectSources';
+import { useProjectSourceWarnings } from './projectSourceWarnings';
+import { useInspectorPanel } from './useInspectorPanel';
+import { InspectorToggle, InspectorToggleProvider, type InspectorToggleState } from './InspectorToggle';
 
 const MOVE_RUNNING_REASON = 'A reply is running. Stop it or wait for it to finish, then move.';
 
@@ -146,9 +152,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   const [deletingChat, setDeletingChat] = useState<{ id: string; title: string } | null>(null);
   const [dmTab, setDmTab] = useState<DmTab>('messages');
   // The DM's tab is not remembered: a different conversation opens on Messages.
-  useEffect(() => {
-    setDmTab('messages');
-  }, [activeThreadId]);
+  useOnChatSwitch(activeThreadId, sameChat, () => setDmTab('messages'));
 
   // Each open of All chats starts fresh; "All Hermes chats…" starts on the Hermes chip.
   // "All chats in X…" starts on that project (ADR 0024 §8).
@@ -164,6 +168,42 @@ export const WorkbenchChatScreen: React.FC = () => {
   // opens on a task when a task page's Open in board sent you there.
   const [tasksView, setTasksView] = useState<TasksView>('list');
   const [boardTaskId, setBoardTaskId] = useState<string | null>(null);
+
+  // The inspector starts closed and opens on request (ADR 0069). The board needs its width.
+  const sourceWarnings = useProjectSourceWarnings(activeProject, sources.inspect);
+  const inspectorAvailable = !(centerMode === 'tasks' && tasksView === 'board');
+  const inspector = useInspectorPanel({
+    viewKey: [centerMode, activeThreadId, activeTaskId, activeProject?.id].join('|'),
+    available: inspectorAvailable,
+    warning: sourceWarnings.top?.text ?? null,
+  });
+  const inspectorToggle = useMemo<InspectorToggleState | null>(
+    () =>
+      inspectorAvailable
+        ? {
+            open: inspector.open,
+            warning: sourceWarnings.top?.text ?? null,
+            toggle: inspector.toggle,
+            openAt: inspector.openAt,
+          }
+        : null,
+    [inspectorAvailable, inspector.open, inspector.toggle, inspector.openAt, sourceWarnings.top?.text]
+  );
+  // A writing check shows its result in the Check tab, so asking for one opens the inspector.
+  const requestCheck = useCallback(
+    (check: Parameters<typeof writingCheck.request>[0]) => {
+      inspector.openAt();
+      writingCheck.request(check);
+    },
+    [inspector, writingCheck]
+  );
+  const checkFile = useCallback(
+    (projectId: string, relativePath: string) => {
+      inspector.openAt();
+      return writingCheck.checkFile(projectId, relativePath);
+    },
+    [inspector, writingCheck]
+  );
 
   const runningTurns = useRunningTurns();
   const activeRunning = Boolean(
@@ -349,6 +389,10 @@ export const WorkbenchChatScreen: React.FC = () => {
 
   // ⌘N / ⌘[ / ⌘] from the keyboard or menu bar (useAppShortcuts).
   useAppCommand((command) => {
+    if (command === 'toggle-inspector') {
+      inspectorToggle?.toggle();
+      return;
+    }
     if (command === 'new-chat') {
       void newHermesChat();
       return;
@@ -396,6 +440,7 @@ export const WorkbenchChatScreen: React.FC = () => {
   };
 
   return (
+    <InspectorToggleProvider value={inspectorToggle}>
     <div className="relative flex h-full min-h-0 w-full">
       <ChatRail
         projects={projects.projects}
@@ -452,6 +497,7 @@ export const WorkbenchChatScreen: React.FC = () => {
                   <strong>Mentions</strong>
                 </span>
               </div>
+              <InspectorToggle />
             </div>
             <MentionsPane
               mentions={mentions}
@@ -465,6 +511,7 @@ export const WorkbenchChatScreen: React.FC = () => {
           activeKind === 'dm' &&
           dmTab === 'channels' &&
           activeAgent ? (
+          <Tabs value={dmTab} onValueChange={(value) => setDmTab(value as DmTab)} asChild>
           <div className="wb-recent-pane">
             <div className="wb-thread-head">
               <div className="wb-thread-id">
@@ -481,18 +528,22 @@ export const WorkbenchChatScreen: React.FC = () => {
                   </span>
                 </span>
               </div>
-              <DmTabs active={dmTab} count={activeAgentMentions.length} onChange={setDmTab} />
+              <DmTabs count={activeAgentMentions.length} />
               <span className="wb-grow" aria-hidden="true" />
+              <InspectorToggle />
             </div>
-            <MentionsPane
-              mentions={mentions}
-              agents={agents}
-              channels={channels}
-              lockedAgent={activeAgent}
-              loading={lists.mentionsLoading}
-              {...mentionsPaneActions}
-            />
+            <TabsContent value="channels" className="wb-dm-panel">
+              <MentionsPane
+                mentions={mentions}
+                agents={agents}
+                channels={channels}
+                lockedAgent={activeAgent}
+                loading={lists.mentionsLoading}
+                {...mentionsPaneActions}
+              />
+            </TabsContent>
           </div>
+          </Tabs>
         ) : centerMode === 'task' && activeTaskId ? (
           <TaskPane
             taskId={activeTaskId}
@@ -568,7 +619,7 @@ export const WorkbenchChatScreen: React.FC = () => {
               agents={agents}
               activeProject={conversationProject}
               projects={projects.projects}
-              onProjectsUpdated={projects.setProjects}
+              patchInference={projects.patchInference}
               activeProjectId={conversationProjectId}
               onMoveProject={activeThreadId ? () => projects.move.open([activeThreadId]) : undefined}
               moveDisabledReason={activeRunning ? MOVE_RUNNING_REASON : null}
@@ -612,9 +663,9 @@ export const WorkbenchChatScreen: React.FC = () => {
               onCreateAgentFromDraft={agentSheets.createFromDraft}
               onEditAgentDraft={agentSheets.editDraft}
               onShareToCircle={circles.length ? setShareDraft : undefined}
-              onCheckReply={writingCheck.request}
+              onCheckReply={requestCheck}
               onCheckProjectFile={(projectId, relativePath) =>
-                void writingCheck.checkFile(projectId, relativePath)
+                void checkFile(projectId, relativePath)
               }
             />
           </HermesChatRuntimeProvider>
@@ -622,8 +673,14 @@ export const WorkbenchChatScreen: React.FC = () => {
       </main>
 
       {/* The board needs the inspector's width for its columns. */}
-      {centerMode === 'tasks' && tasksView === 'board' ? null : (
+      {inspector.open && inspector.overlay ? (
+        <div className="wb-insp-scrim" aria-hidden="true" onClick={() => inspector.setOpen(false)} />
+      ) : null}
+      {inspector.open ? (
         <RightInspector
+          overlay={inspector.overlay}
+          onClose={() => inspector.setOpen(false)}
+          tabRequest={inspector.tabRequest}
           centerMode={centerMode}
           kind={activeKind}
           activeChannel={activeChannel}
@@ -642,7 +699,8 @@ export const WorkbenchChatScreen: React.FC = () => {
             onRefreshIndex: sources.refreshIndex,
             onAddFolder: sources.addFolder.show,
             onRemoveSource: sources.removeSource,
-            onProjectsUpdated: projects.setProjects,
+            patchInference: projects.patchInference,
+            onProjectRemoved: (result) => projects.applyProjectsResult(result, true),
             onCheckFile: activeProject
               ? () => void writingCheck.pickFile(activeProject.id)
               : undefined,
@@ -655,7 +713,7 @@ export const WorkbenchChatScreen: React.FC = () => {
           writingCheck={writingCheck.check}
           onCloseCheck={writingCheck.close}
           onShowCheckedReply={writingCheck.showReply}
-          onRecheckFile={(file) => void writingCheck.checkFile(file.projectId, file.relativePath)}
+          onRecheckFile={(file) => void checkFile(file.projectId, file.relativePath)}
           projectRole={
             activeThreadId
               ? {
@@ -672,7 +730,7 @@ export const WorkbenchChatScreen: React.FC = () => {
               : { label: 'This chat will start in' }
           }
         />
-      )}
+      ) : null}
 
       <AgentRosterSheet
         open={agentSheets.roster.open && !agentSheets.create.open && !rooms.create.open}
@@ -841,5 +899,6 @@ export const WorkbenchChatScreen: React.FC = () => {
         onCancel={projects.newProject.cancel}
       />
     </div>
+    </InspectorToggleProvider>
   );
 };

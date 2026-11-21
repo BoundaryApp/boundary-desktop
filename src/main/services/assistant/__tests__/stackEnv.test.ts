@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseEnv, readEnvFile, removeEnvLines, upsertEnvLines, writeEnvValues } from '../stackEnv';
+import {
+  parseEnv,
+  readEnvFile,
+  removeEnvLines,
+  STACK_INLINE_COMMENT_KEYS,
+  stripInlineEnvComments,
+  upsertEnvLines,
+} from '../stackEnv';
 
 describe('parseEnv', () => {
   it('reads KEY=value, strips quotes, and skips comments', () => {
@@ -108,13 +115,56 @@ describe('env files', () => {
     dir = null;
   });
 
-  it('creates the file and folder, then updates it', () => {
+  it('reads a file, and gives {} when it is missing', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-env-'));
-    const envPath = path.join(dir, 'nested', '.env');
+    const envPath = path.join(dir, '.env');
     expect(readEnvFile(envPath)).toEqual({});
-    writeEnvValues(envPath, { A: '1' });
-    writeEnvValues(envPath, { A: '2', B: 'x' });
-    expect(fs.readFileSync(envPath, 'utf8')).toBe('A=2\nB=x\n');
+    fs.writeFileSync(envPath, 'A=2\nB=x\n');
     expect(readEnvFile(envPath)).toEqual({ A: '2', B: 'x' });
+  });
+});
+
+describe('stripInlineEnvComments', () => {
+  const keys = STACK_INLINE_COMMENT_KEYS;
+
+  it('drops the trailing comment the pre-v0.3.17 example left on its five keys', () => {
+    const before = [
+      'LLM_BINDING_API_KEY=local-llm          # any non-empty string for most local servers',
+      'NEO4J_URI=bolt://neo4j:7687 # inside the compose network',
+      'NEO4J_USERNAME=neo4j\t# Neo4j requires the admin user to be neo4j',
+      'NEO4J_PASSWORD=s3cret # change me',
+      'GPTR_MCP_URL=http://gptr-mcp:8000/mcp # GPT Researcher',
+      '',
+    ].join('\n');
+    expect(stripInlineEnvComments(before, keys)).toBe(
+      [
+        'LLM_BINDING_API_KEY=local-llm',
+        'NEO4J_URI=bolt://neo4j:7687',
+        'NEO4J_USERNAME=neo4j',
+        'NEO4J_PASSWORD=s3cret',
+        'GPTR_MCP_URL=http://gptr-mcp:8000/mcp',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('leaves quoted values, a # inside a value, other keys and line endings alone', () => {
+    const before =
+      'NEO4J_PASSWORD="pa ss # word"\r\n' +
+      "NEO4J_URI='bolt://x # y'\n" +
+      'NEO4J_USERNAME=neo#4j\n' +
+      'OTHER_KEY=value # comment\n' +
+      '# NEO4J_USERNAME=neo4j # commented out\n' +
+      'LLM_BINDING_API_KEY=key';
+    expect(stripInlineEnvComments(before, keys)).toBe(before);
+  });
+
+  it('keeps a line whose value would be empty without the comment', () => {
+    const before = 'NEO4J_PASSWORD= # set me\n';
+    expect(stripInlineEnvComments(before, keys)).toBe(before);
+  });
+
+  it('keeps the line ending of a rewritten line', () => {
+    expect(stripInlineEnvComments('NEO4J_USERNAME=neo4j # x\r\nA=1\n', keys)).toBe('NEO4J_USERNAME=neo4j\r\nA=1\n');
   });
 });

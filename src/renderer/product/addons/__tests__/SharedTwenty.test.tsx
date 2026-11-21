@@ -5,6 +5,7 @@ import type { OfferedService, SharedServicesView, SharingCircle } from '../../..
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { AddonDetail } from '../AddonDetail';
 import { FromYourCircles, SharedLine, ShareSheet } from '../SharedTwenty';
+import { setStackCapabilitiesForTests } from '../../stackCapabilities';
 import { listing, localWorkspace, stubAddons } from './addonFixtures';
 
 const ok = async () => ({ success: true as const });
@@ -170,4 +171,20 @@ describe('sharedToolSource', () => {
     expect(sharedToolSource('mcp__crm_main__execute_tool', [used])).toBeNull();
     expect(sharedToolSource('mcp__crm_ada_family__execute_tool', [offer])).toBeNull();
   });
+
+describe('FromYourCircles on a host without hostCallbacks', () => {
+  const props = { accessOf: () => 'read' as const, accessSwitch: () => <span>access switch</span> };
+
+  it('cannot turn a workspace on, says why, and can still turn a used one off', async () => {
+    setStackCapabilitiesForTests({ hostCallbacks: false });
+    const circles = stubCircles();
+    const { rerender } = render(<FromYourCircles offered={[offer]} {...props} />);
+    expect(screen.getByText("Your agent runs on another computer, so it can't reach apps and services on this one.")).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Use in my agent' })).toHaveProperty('disabled', true);
+    rerender(<FromYourCircles offered={[{ ...offer, slug: 'ada-family' }]} {...props} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use in my agent' }));
+    await waitFor(() => expect(circles.serviceStopUsing).toHaveBeenCalled());
+    expect(circles.serviceUse).not.toHaveBeenCalled();
+  });
+});
 });

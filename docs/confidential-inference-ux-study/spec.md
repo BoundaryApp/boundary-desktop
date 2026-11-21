@@ -18,6 +18,7 @@
 | 4 Chat chip, provenance and the private-project stop | Built behind BOUNDARY_CONFIDENTIAL_POOL; live check pending | 3 |
 | 5 Spend log and help page | Built behind BOUNDARY_CONFIDENTIAL_POOL; live check pending | 3 |
 | 6 Prem and NEAR AI adapters against live accounts | Built behind BOUNDARY_CONFIDENTIAL_POOL; live check pending | 2; user's accounts; the six fake-adapter assumptions in ADR 0047 |
+| 7 Tinfoil and Privatemode adapters | Built behind BOUNDARY_CONFIDENTIAL_POOL; Privatemode at level A with its manifest pinned in the catalog; live check pending | 6; user's accounts |
 
 ## Goal
 

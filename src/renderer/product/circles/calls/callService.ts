@@ -23,6 +23,7 @@ import type { CallPart } from '../../../../shared/callSignalParts';
 import { Listeners } from '../../../../shared/calls/listeners';
 import { createWebrtcPeer, type WebrtcPeer } from './webrtcPeer';
 import type { CirclesState } from '../../../../shared/types/circles';
+import { fallsBackToDefault } from './deviceFallback';
 
 type Kind = 'audio' | 'video';
 
@@ -93,8 +94,7 @@ async function openDevice(kind: Kind, deviceId?: string): Promise<MediaStreamTra
     return await open(deviceId ? { deviceId: { exact: deviceId } } : true);
   } catch (error) {
     // A picked device that was unplugged since: the default one is better than no track.
-    const name = (error as { name?: string } | null)?.name;
-    if (!deviceId || (name !== 'OverconstrainedError' && name !== 'NotFoundError')) return null;
+    if (!deviceId || !fallsBackToDefault(error)) return null;
   }
   try {
     return await open(true);

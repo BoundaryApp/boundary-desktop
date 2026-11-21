@@ -1,7 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { InfoTip } from '../components/ui/info-tip';
 import type { WebSearchMode, WebSearchModeState } from '../../shared/webSearchMode';
 import { Button } from '../components/ui/button';
+import { ChoiceGroup } from '../components/ui/choice-group';
+import { ChoiceRow } from '../components/ui/choice-row';
+import { Radio } from '../components/ui/radio';
+import { useBuiltinAgentName } from './settingsPanelHooks';
+import { errorText } from '../lib/errorText';
+import { Callout } from '../components/ui/alert';
 
 /**
  * Settings → Agent browser → Web search: who answers Hermes's web searches and page reads (the
@@ -32,6 +38,8 @@ const OPTIONS: Array<{ mode: WebSearchMode; title: string; sub: string }> = [
 ];
 
 export const WebSearchModeSection: React.FC = () => {
+  const agentName = useBuiltinAgentName();
+  const groupName = useId();
   const [state, setState] = useState<WebSearchModeState | null>(null);
   const [choice, setChoice] = useState<WebSearchMode>('private');
   const [busy, setBusy] = useState(false);
@@ -59,15 +67,15 @@ export const WebSearchModeSection: React.FC = () => {
       setChoice(next.mode);
       setNotice(
         result.success
-          ? { tone: 'ok', text: 'Saved. Hermes uses the new setting.' }
+          ? { tone: 'ok', text: `Saved. ${agentName} uses the new setting.` }
           : { tone: 'warn', text: result.error ?? 'Couldn’t save the setting.' }
       );
     } catch (error) {
-      setNotice({ tone: 'warn', text: error instanceof Error ? error.message : String(error) });
+      setNotice({ tone: 'warn', text: errorText(error) });
     } finally {
       setBusy(false);
     }
-  }, [choice]);
+  }, [agentName, choice]);
 
   if (!state) return null;
 
@@ -79,38 +87,37 @@ export const WebSearchModeSection: React.FC = () => {
       <h3 className="wb-agent-browser-h3">
         Web search
         <InfoTip label="web search">
-          Who answers Hermes’s web searches and page reads. OpenCode, GPT Researcher and n8n always use
+          Who answers {agentName}’s web searches and page reads. OpenCode, GPT Researcher and n8n always use
           your SearXNG.
         </InfoTip>
       </h3>
-      <div className="wb-choices" role="radiogroup" aria-label="Web search">
+      <ChoiceGroup kind="radio" aria-label="Web search">
         {OPTIONS.map((option) => (
-          <button
+          <ChoiceRow
             key={option.mode}
-            type="button"
-            role="radio"
-            aria-checked={choice === option.mode}
-            className={`wb-choice${choice === option.mode ? ' is-sel' : ''}`}
-            disabled={busy || !state.canChange}
-            onClick={() => {
-              setChoice(option.mode);
-              setNotice(null);
-            }}
-          >
-            <span className="wb-radio" aria-hidden="true" />
-            <span className="wb-choice-copy">
-              <b>{option.title}</b>
-              <span>{option.sub}</span>
-            </span>
-          </button>
+            variant="card"
+            control={
+              <Radio
+                name={groupName}
+                checked={choice === option.mode}
+                disabled={busy || !state.canChange}
+                onChange={() => {
+                  setChoice(option.mode);
+                  setNotice(null);
+                }}
+              />
+            }
+            title={option.title}
+            description={option.sub}
+          />
         ))}
-      </div>
+      </ChoiceGroup>
       {!state.canChange ? (
         <p className="wb-settings-hint">The local stack’s .env decides this (HERMES_WEB_SEARCH_MODE).</p>
       ) : null}
 
       {outside ? (
-        <div className="wb-agent-browser-notice is-warn" role="note" aria-label="What leaves this computer">
+        <Callout variant="warn" layout="stacked" size="sm" role="note" aria-label="What leaves this computer">
           <p>
             Outside services are the free tiers of Exa, Parallel, Firecrawl and Keenable, used without an
             account. In this mode, search queries and page addresses from your chats go to them from your
@@ -123,15 +130,17 @@ export const WebSearchModeSection: React.FC = () => {
               the search gate is busy.
             </p>
           ) : null}
-        </div>
+        </Callout>
       ) : null}
 
       {state.overrides.length > 0 ? (
-        <p className="wb-agent-browser-notice is-warn" role="status">
-          {state.overrides.map((file) => `hermes/${file}`).join(', ')} in the data folder{' '}
-          {state.overrides.length === 1 ? 'sets' : 'set'} HERMES_WEB_SEARCH_MODE, which Hermes uses
-          instead of this setting. Remove that line to use the choice here.
-        </p>
+        <Callout variant="warn" size="sm" role="status">
+          <p>
+            {state.overrides.map((file) => `hermes/${file}`).join(', ')} in the data folder{' '}
+            {state.overrides.length === 1 ? 'sets' : 'set'} HERMES_WEB_SEARCH_MODE, which Hermes uses
+            instead of this setting. Remove that line to use the choice here.
+          </p>
+        </Callout>
       ) : null}
 
       {state.canChange ? (
@@ -149,9 +158,9 @@ export const WebSearchModeSection: React.FC = () => {
       ) : null}
 
       {notice ? (
-        <p className={`wb-agent-browser-notice is-${notice.tone}`} role="status">
-          {notice.text}
-        </p>
+        <Callout variant={notice.tone} size="sm" role="status">
+          <p>{notice.text}</p>
+        </Callout>
       ) : null}
     </>
   );

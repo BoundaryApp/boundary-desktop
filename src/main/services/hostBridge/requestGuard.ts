@@ -77,6 +77,31 @@ export function checkBridgeRequest(
   return null;
 }
 
+/** The browser listener's path for the credential client; every other `/devtools/browser/…` path is the agent's. */
+export const CREDENTIALS_BROWSER_PATH = '/devtools/browser/credentials';
+
+/**
+ * The browser listener's checks (ADR 0065). The token picks the client: the agent's token, or one
+ * of the credential client's (the current one, and the previous one during a rotation's grace).
+ * Each token opens only its own path, so a credential token can't be used as the agent's or the
+ * other way round. Every token is compared, so the time taken doesn't depend on which matched.
+ */
+export function checkBrowserRequest(
+  headers: IncomingHttpHeaders,
+  { port, url, agentToken, credentialTokens }: { port: number; url: string | undefined; agentToken: string; credentialTokens: readonly string[] }
+): { role: 'agent' | 'credentials' } | GuardFailure {
+  const caller = checkCaller(headers, port);
+  if (caller) return caller;
+  const presented = bearerToken(headers) ?? queryToken(url);
+  const agent = tokenMatches(presented, agentToken);
+  let credentials = false;
+  for (const token of credentialTokens) if (tokenMatches(presented, token)) credentials = true;
+  const credentialsPath = (url ?? '').split('?')[0] === CREDENTIALS_BROWSER_PATH;
+  if (agent && !credentialsPath) return { role: 'agent' };
+  if (credentials && credentialsPath) return { role: 'credentials' };
+  return INVALID_TOKEN;
+}
+
 /**
  * The same checks against a map of per-agent tokens (token → agent), bearer header only. Every
  * entry is compared, so the time taken doesn't depend on which one matched.

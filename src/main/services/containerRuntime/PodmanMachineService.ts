@@ -10,6 +10,7 @@ import {
 } from './bundledPaths';
 import { writeMachineProviderConf } from './containersConf';
 import { ContainerRuntimeUnavailableError } from './types';
+import type { RuntimeProvisionStage } from '../../../shared/types/capability';
 import { persistDebugLog, serializeError, truncateForLog } from '../../persistDebugLog';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { engineSizeMiB } from '../../../shared/engineSizing';
@@ -26,7 +27,8 @@ export function resetApplehvFallbackGate(): void {
 
 export type MachineStatus = 'missing' | 'stopped' | 'running' | 'unknown';
 
-export type MachineProgressCallback = (message: string) => void;
+/** A status line; with `stage`, the resolve has entered that stage. */
+export type MachineProgressCallback = (message: string, stage?: RuntimeProvisionStage) => void;
 
 export type PodmanMachineDeps = {
   execFile: typeof defaultExecFileAsync;
@@ -264,7 +266,7 @@ export class PodmanMachineService {
   async ensureRunning(
     onProgress?: MachineProgressCallback
   ): Promise<EnsureRunningResult> {
-    const report = (msg: string) => onProgress?.(msg);
+    const report = (msg: string, stage?: RuntimeProvisionStage) => onProgress?.(msg, stage);
     persistDebugLog('podman', 'ensureRunning begin', {
       machineName: this.machineName,
       podmanPath: this.deps.podmanPath,
@@ -280,7 +282,7 @@ export class PodmanMachineService {
     }
 
     if (current === 'missing') {
-      report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`);
+      report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`, 'create');
       try {
         await this.initMachine(report);
       } catch (error) {
@@ -316,7 +318,7 @@ export class PodmanMachineService {
       this.reapLeftoverHelpers();
       await this.ensureRootful(report, false);
       await this.ensureAdequateMemory(report, false);
-      report(`Starting ${APP_NAME} container engine…`);
+      report(`Starting ${APP_NAME} container engine…`, 'start');
       try {
         await this.run(['machine', 'start', this.machineName], { timeout: 300_000 });
       } catch (error) {
@@ -335,7 +337,7 @@ export class PodmanMachineService {
       }
     }
 
-    report('Waiting for container API socket…');
+    report('Waiting for container API socket…', 'connect');
     const { apiEndpoint, dockerHost } = await this.waitForSocket();
     return { status: 'running', apiEndpoint, dockerHost };
   }
@@ -345,7 +347,7 @@ export class PodmanMachineService {
    * refused for another copy's machine, stop it if nothing runs in it. Returns whether it did;
    * a machine with running containers, or one that isn't Boundary's, is left alone.
    */
-  private async freeActiveSlot(detail: string, report: (message: string) => void): Promise<boolean> {
+  private async freeActiveSlot(detail: string, report: MachineProgressCallback): Promise<boolean> {
     const other = activeMachineFromError(detail);
     if (!other || other === this.machineName || !/^boundary(-|$)/.test(other)) return false;
     try {
@@ -383,7 +385,7 @@ export class PodmanMachineService {
     return initArgs;
   }
 
-  private async initMachine(report: (msg: string) => void): Promise<void> {
+  private async initMachine(report: MachineProgressCallback): Promise<void> {
     if (this.deps.machineImagePath) {
       report('Using bundled machine image…');
     } else {
@@ -442,7 +444,7 @@ export class PodmanMachineService {
    * the VM must be stopped for `machine set --rootful`.
    */
   private async ensureRootful(
-    report: (msg: string) => void,
+    report: MachineProgressCallback,
     running: boolean
   ): Promise<'running' | 'stopped'> {
     const info = await this.inspectMachine(running ? 'running rootful check' : 'before start');
@@ -468,7 +470,7 @@ export class PodmanMachineService {
    * stack for nothing, so it waits for the next start.
    */
   private async ensureAdequateMemory(
-    report: (msg: string) => void,
+    report: MachineProgressCallback,
     running: boolean
   ): Promise<'running' | 'stopped'> {
     const info = await this.inspectMachine(running ? 'running memory check' : 'stopped memory check');
@@ -605,7 +607,7 @@ export class PodmanMachineService {
     }
   }
 
-  private async fallBackToApplehv(report: (msg: string) => void): Promise<void> {
+  private async fallBackToApplehv(report: MachineProgressCallback): Promise<void> {
     if (applehvFallbackAttempted) {
       throw new ContainerRuntimeUnavailableError(
         'krunkit failed and Apple Virtualization fallback already ran this session'
@@ -629,7 +631,7 @@ export class PodmanMachineService {
       persistDebugLog('podman', 'machine rm before applehv fallback', serializeError(error));
     }
     this.switchToApplehv();
-    report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`);
+    report(`Creating ${APP_NAME} container engine (first run may take a few minutes)…`, 'create');
     await this.initMachine(report);
   }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { MediaAccessStatus, MediaDevice } from '../../../../shared/types/media';
 import { Sheet } from '../../../components/ui/sheet';
 import { watchLevel } from './audioLevel';
+import { fallsBackToDefault } from './deviceFallback';
 import type { JoinOptions } from './callService';
 import { DevicePickers } from './DevicePickers';
 import { Button } from '../../../components/ui/button';
@@ -12,17 +13,23 @@ const blocked = (status: MediaAccessStatus) => status === 'denied' || status ===
 
 const stopAll = (stream: MediaStream | null) => stream?.getTracks().forEach((track) => track.stop());
 
-/** One device's stream, or null when it can't be opened; the picked device falls back to the default. */
+/**
+ * One device's stream, or null when it can't be opened. A picked device that is gone falls back to
+ * the default, by the same rule the call uses.
+ */
 async function open(kind: 'audio' | 'video', id: string | null): Promise<MediaStream | null> {
-  const attempts: Array<boolean | MediaTrackConstraints> = id ? [{ deviceId: { exact: id } }, true] : [true];
-  for (const constraint of attempts) {
-    try {
-      return await navigator.mediaDevices.getUserMedia(kind === 'audio' ? { audio: constraint } : { video: constraint });
-    } catch {
-      // Try the default device next.
-    }
+  const media = (constraint: boolean | MediaTrackConstraints) =>
+    navigator.mediaDevices.getUserMedia(kind === 'audio' ? { audio: constraint } : { video: constraint });
+  try {
+    return await media(id ? { deviceId: { exact: id } } : true);
+  } catch (error) {
+    if (!id || !fallsBackToDefault(error)) return null;
   }
-  return null;
+  try {
+    return await media(true);
+  } catch {
+    return null;
+  }
 }
 
 const DeniedLine: React.FC<{ device: MediaDevice }> = ({ device }) => (

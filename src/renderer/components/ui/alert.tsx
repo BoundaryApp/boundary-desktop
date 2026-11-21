@@ -71,4 +71,13 @@ function RetryCallout({ message, onRetry }: { message: React.ReactNode; onRetry:
   )
 }
 
-export { Callout, RetryCallout, alertVariants }
+/** A spinner in the space a panel fills once its data has loaded. */
+function LoadingBlock() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="size-8 animate-spin rounded-full border-2 border-line border-t-brand" />
+    </div>
+  )
+}
+
+export { Callout, LoadingBlock, RetryCallout, alertVariants }

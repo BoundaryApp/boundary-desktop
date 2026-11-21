@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CirclesState } from '../../../../shared/types/circles';
 import type { InferenceStack, InferenceStackEntry } from '../../../../shared/types/inferenceChain';
-import { localDay } from '../../../../shared/circleUsage';
+import { localDay } from '../../../../shared/utils/localDay';
 import { CIRCLE_KEY as CIRCLE, circleOffer, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { poolBridge } from '../../../__tests__/confidentialFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
@@ -93,7 +93,7 @@ describe('Inference', () => {
     // The line sits after the last entry a private project may use.
     expect(within(rungs()[0]).getByText('Private projects stop here')).toBeTruthy();
     expect(screen.getAllByText('Private projects stop here')).toHaveLength(1);
-    expect(screen.getByText(/Replies are limited to 8K of context/)).toBeTruthy();
+    expect(screen.getByText(/Replies are limited to 8.2K of context/)).toBeTruthy();
   });
 
   it('saves the fallbacks alone when the first model stays, and switches when it changes', async () => {
@@ -215,7 +215,7 @@ describe('Inference', () => {
     });
     render(<InferenceScreen />);
     const person = await screen.findByRole('region', { name: 'Maya' });
-    expect(await within(person).findByText('You used 3 requests and 4K tokens today.')).toBeTruthy();
+    expect(await within(person).findByText('You used 3 requests and 4.2K tokens today.')).toBeTruthy();
   });
 });
 

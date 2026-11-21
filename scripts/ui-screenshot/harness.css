@@ -2,6 +2,8 @@
    would only find class names used in the harness. */
 @import "../../src/index.css";
 @source "../../src/renderer";
+/* Experiments' screens, where a checkout has them. */
+@source "../../src/experiments";
 
 /* macOS draws the traffic lights over the window at (16, 15); the app leaves room for them. */
 .ui-shot-lights {

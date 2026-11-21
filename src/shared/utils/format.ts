@@ -18,12 +18,30 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * A token count in thousands with the same rounding as formatBytes: "950", "6k", "6.4k",
- * "33k" for 32,768, "128k".
+ * A token count in K or M with the same rounding as formatBytes: "950", "6K", "6.4K", "33K" for
+ * 32,768, "128K", "1.5M". The unit is chosen after rounding, so 999,950 reads "1M", not "1000K".
  */
 export function formatTokenCount(n: number): string {
-  if (n < 1000) return String(Math.round(n));
-  return `${roundForDisplay(n / 1000)}k`;
+  const whole = Math.round(n);
+  if (whole < 1000) return String(whole);
+  const thousands = roundForDisplay(n / 1000);
+  if (Number(thousands) < 1000) return `${thousands}K`;
+  return `${roundForDisplay(n / 1_000_000)}M`;
+}
+
+/** "Maya", "Maya and Sam", "Maya, Sam and Priya" (no comma before the last); "" for none. */
+export function joinNames(names: readonly string[], conjunction = 'and'): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`;
+}
+
+/**
+ * A path with a macOS or Linux home folder (`/Users/<name>`, `/home/<name>`) shortened to `~`:
+ * "/Users/maya/code" reads "~/code". Other paths come back unchanged.
+ */
+export function abbreviateHome(path: string): string {
+  const match = path.match(/^\/(?:Users|home)\/[^/]+(\/.*)?$/);
+  return match ? `~${match[1] ?? ''}` : path;
 }
 
 /** One decimal below 10 with a trailing ".0" dropped; whole numbers from 10 up. */

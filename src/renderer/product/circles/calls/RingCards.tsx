@@ -1,11 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import type { Ring } from '../../../../shared/calls/callRing';
 import type { RingAction, RingAlert } from '../../../../shared/calls/ringAlert';
 import { Avatar } from '../CircleControls';
-import { openCallViewOnJoin } from './callViewState';
-import { JoinCallSheet } from './JoinCallSheet';
-import { LeaveCallSheet } from './LeaveCallSheet';
 import { setRingSound } from './ringSound';
+import { useCallEntry } from './useCallEntry';
 import { useCallNames, type CallNames } from './useCallNames';
 import { useCallService } from './useCallService';
 import { Button } from '../../../components/ui/button';
@@ -26,20 +24,17 @@ import './calls.css';
 export const RingCards: React.FC = () => {
   const { rings, answering: answered, service } = useCallService();
   const names = useCallNames();
-  const [answeringRoom, setAnsweringRoom] = useState<string | null>(null);
-  const answering = answered.find((ring) => ring.room === answeringRoom) ?? null;
-  // The ring whose **Join** waits on leaving the current call; it closes if the ring ends first.
-  const [leaveRoom, setLeaveRoom] = useState<string | null>(null);
-  const leaveFor = rings.find((ring) => ring.room === leaveRoom) ?? null;
-  const answer = (ring: Ring) => {
-    service.answering(ring);
-    setAnsweringRoom(ring.room);
-  };
-  const join = (ring: Ring) => {
-    // A join still opening its devices counts as a call to leave.
-    if (service.current || service.joining) setLeaveRoom(ring.room);
-    else answer(ring);
-  };
+  // Each sheet closes if its ring ends first.
+  const { enter: join, sheets } = useCallEntry<Ring>({
+    then: 'join',
+    title: (ring) => `Call ${names.person(ring.circleKey, ring.from)}`,
+    // A join that fails leaves no call, and the caller's ring ends on its own.
+    join: (ring, options) => service.joinRing(ring, options),
+    onAsk: (ring) => service.answering(ring),
+    onCancel: (ring) => service.decline(ring),
+    liveForLeave: (ring) => rings.find((candidate) => candidate.room === ring.room) ?? null,
+    liveForJoin: (ring) => answered.find((candidate) => candidate.room === ring.room) ?? null,
+  });
 
   useRingAlerts(rings, names);
   const act = useRef<(action: RingAction) => void>(() => undefined);
@@ -84,29 +79,7 @@ export const RingCards: React.FC = () => {
           })}
         </div>
       ) : null}
-      <LeaveCallSheet
-        open={leaveFor !== null}
-        then="join"
-        onLeave={() => {
-          setLeaveRoom(null);
-          if (leaveFor) answer(leaveFor);
-        }}
-        onCancel={() => setLeaveRoom(null)}
-      />
-      {answering ? (
-        <JoinCallSheet
-          title={`Call ${names.person(answering.circleKey, answering.from)}`}
-          onJoin={(options) => {
-            setAnsweringRoom(null);
-            // A join that fails leaves no call, and the caller's ring ends on its own.
-            openCallViewOnJoin(service.joinRing(answering, options));
-          }}
-          onCancel={() => {
-            setAnsweringRoom(null);
-            service.decline(answering);
-          }}
-        />
-      ) : null}
+      {sheets}
     </>
   );
 };

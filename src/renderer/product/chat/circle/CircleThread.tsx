@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   ActionBarPrimitive,
   AssistantRuntimeProvider,
@@ -12,6 +12,7 @@ import { isReactionEmoji } from '../../../../shared/circleReactions';
 import { mentionsMe } from '../../../../shared/circleMentions';
 import { REPLIES_FORMAT, repliesToMe } from '../../../../shared/circleReplies';
 import type { CircleChannel, CircleMessage, CircleMessageRef, CircleSnapshot } from '../../../../shared/types/circles';
+import { messageRowSelector, refKey } from '../../../../shared/circleMessageRef';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
 import { useOwnerDocument } from '../../../components/ui/ownerDocument';
 import { Avatar } from '../../circles/CircleControls';
@@ -31,6 +32,10 @@ import { useReplyTargets } from './useReplyTargets';
 import { CIRCLE_LINK_SAFETY } from './LinkConfirmSheet';
 import { Button } from '../../../components/ui/button';
 import './circleChat.css';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { NativeSelect } from '../../../components/ui/native-select';
+import { Textarea } from '../../../components/ui/textarea';
+import { useListNavigation } from '../../../components/ui/use-list-navigation';
 
 /** Messages from one person this close together share a who-line. */
 const GROUP_MS = 5 * 60_000;
@@ -130,14 +135,13 @@ function useThread(): ThreadContextValue {
 }
 
 /** A message's key in the select-mode picks. */
-const refKey = (message: CircleMessageRef): string => `${message.author}/${message.id}`;
 
 const circleOf = (message: { metadata?: { custom?: Record<string, unknown> } } | undefined): CircleMessage | null =>
   (message?.metadata?.custom?.circle as CircleMessage | undefined) ?? null;
 
 function toThreadMessage(message: CircleMessage): ThreadMessageLike {
   return {
-    id: `${message.author}/${message.id}`,
+    id: refKey(message),
     role: message.mine && !message.agent ? 'user' : 'assistant',
     content: [{ type: 'text', text: message.text }],
     createdAt: new Date(message.at),
@@ -293,19 +297,19 @@ const Actions: React.FC<{ message: CircleMessage }> = ({ message }) => {
       <ReactButton message={message} onPick={(emoji, on) => onReact(message, emoji, on)} onMore={() => onMoreEmoji(message)} />
       <CopyAction />
       {canReply ? (
-        <button type="button" className="wb-act" aria-label="Reply" data-tip="Reply" onClick={() => onReply(message)}>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="Reply" title="Reply" onClick={() => onReply(message)}>
           <ReplyIcon />
-        </button>
+        </Button>
       ) : null}
       {canEdit ? (
-        <button type="button" className="wb-act" aria-label="Edit" data-tip="Edit" onClick={() => setEditing(message.id)}>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="Edit" title="Edit" onClick={() => setEditing(message.id)}>
           <EditIcon />
-        </button>
+        </Button>
       ) : null}
       {canDelete ? (
-        <button type="button" className="wb-act" aria-label="Delete" data-tip="Delete" onClick={() => onDelete(message)}>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="Delete" title="Delete" onClick={() => onDelete(message)}>
           <DeleteIcon />
-        </button>
+        </Button>
       ) : null}
     </ActionBarPrimitive.Root>
   );
@@ -341,8 +345,7 @@ function usePick(message: CircleMessage | null): { line: React.HTMLAttributes<HT
       },
     },
     box: (
-      <input
-        type="checkbox"
+      <Checkbox
         className="wb-circle-pick-box"
         aria-label={`Select ${message.mine ? 'your message' : `${message.name}’s message`} from ${timeLabel(message.at)}`}
         checked={isOn}
@@ -388,7 +391,7 @@ const MessageRow: React.FC = () => {
     (highlighted === refKey(message) ? ' is-highlighted' : '');
   if (message.mine && !message.agent) {
     return (
-      <MessagePrimitive.Root data-message={`${message.author}/${message.id}`} className={`wb-msg is-user wb-circle-msg${grouped ? ' is-cont' : ''}${pending}`}>
+      <MessagePrimitive.Root data-message={refKey(message)} className={`wb-msg is-user wb-circle-msg${grouped ? ' is-cont' : ''}${pending}`}>
         <DayDivider />
         <div className={`wb-circle-line${pick.on}`} {...pick.line}>
           {pick.box}
@@ -407,7 +410,7 @@ const MessageRow: React.FC = () => {
   }
   const name = message.agent ? `${message.name}’s ${message.agent.name}` : message.name;
   return (
-    <MessagePrimitive.Root data-message={`${message.author}/${message.id}`} className={`wb-msg is-assistant wb-circle-msg${grouped ? ' is-cont' : ''}${pending}`}>
+    <MessagePrimitive.Root data-message={refKey(message)} className={`wb-msg is-assistant wb-circle-msg${grouped ? ' is-cont' : ''}${pending}`}>
       <DayDivider />
       <div className={`wb-circle-line wb-circle-row${pick.on}`} {...pick.line}>
         {pick.box}
@@ -508,6 +511,18 @@ const Composer: React.FC<{
       mentions.reset();
     }
   };
+  // The field names the @ list and its active row; useCircleMentions keeps the keys.
+  const mentionListId = useId();
+  const mentionNav = useListNavigation({
+    id: mentionListId,
+    open: mentions.open,
+    count: mentions.items.length,
+    active: mentions.index,
+    onActiveChange: () => undefined,
+  });
+  // A multi-line composer stays a textbox (combobox is for single-line fields), which takes
+  // aria-controls, aria-autocomplete and aria-activedescendant but not aria-expanded.
+  const { onKeyDown: _navKeys, role: _role, 'aria-expanded': _expanded, ...mentionAria } = mentionNav.fieldProps;
   return (
     <div className="wb-composer wb-circle-composer">
       {error ? (
@@ -515,10 +530,12 @@ const Composer: React.FC<{
           {error}
         </p>
       ) : null}
-      {mentions.open ? <MentionMenu items={mentions.items} index={mentions.index} onPick={mentions.pick} /> : null}
+      {mentions.open ? <MentionMenu listId={mentionListId} optionId={mentionNav.optionId} items={mentions.items} index={mentions.index} onPick={mentions.pick} /> : null}
       <div className="wb-input-box">
         {replyTarget ? <ReplyStrip target={replyTarget} onCancel={cancelReply} /> : null}
-        <textarea
+        <Textarea
+          variant="bare"
+          className="wb-circle-composer-input"
           ref={boxRef}
           aria-label={`Message ${circle.name}`}
           rows={1}
@@ -535,6 +552,7 @@ const Composer: React.FC<{
             setText(event.target.value);
             if (event.target.value.trim()) chat.notifyTyping();
           }}
+          {...mentionAria}
           onKeyDown={(event) => {
             if (mentions.onKeyDown(event)) return;
             composerKey(event, replying ? cancelReply : null, () => void send());
@@ -686,7 +704,7 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
   // Scroll to the original once its row is rendered, and drop the highlight after two seconds.
   useEffect(() => {
     if (!highlight) return;
-    const stop = whenRow(doc, `[data-message="${highlight.key}"]`, (row) => row.scrollIntoView({ block: 'center' }));
+    const stop = whenRow(doc, messageRowSelector(highlight.key), (row) => row.scrollIntoView({ block: 'center' }));
     const timer = setTimeout(() => setHighlight(null), HIGHLIGHT_MS);
     return () => {
       stop();
@@ -736,7 +754,7 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
       pendingFocus.current = null;
       return;
     }
-    return whenRow(doc, `[data-message="${ref.author}/${ref.id}"]`, (row) => {
+    return whenRow(doc, messageRowSelector(ref), (row) => {
       row.scrollIntoView({ block: 'center' });
       pendingFocus.current = null;
     });
@@ -852,8 +870,9 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
             <span className="wb-grow" aria-hidden="true" />
             {compact ? (
               channels && onOpenChannel ? (
-                <select
-                  className="wb-circle-pick"
+                <NativeSelect
+                  size="sm"
+                  className="shrink-0 max-w-[45%]"
                   aria-label="Channel"
                   value={channel.id}
                   onChange={(event) => onOpenChannel(event.target.value)}
@@ -864,7 +883,7 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
                       {item.unread && item.id !== channel.id ? ` (${item.unread})` : ''}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               ) : null
             ) : (
               headerEnd
@@ -895,9 +914,9 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
           ) : reactError ? (
             <p className="wb-circle-status is-warn" role="alert">
               {reactError}
-              <button type="button" className="wb-act" onClick={() => setReactError(null)}>
+              <Button type="button" variant="quiet" size="sm" onClick={() => setReactError(null)}>
                 Dismiss
-              </button>
+              </Button>
             </p>
           ) : unconfirmed && !adminOnline ? (
             <p className="wb-circle-status is-warn" role="status">
@@ -919,9 +938,9 @@ export const CircleThread: React.FC<CircleThreadProps> = ({
           ) : goneNotice ? (
             <p className="wb-circle-status" role="status">
               A message from someone no longer in this Circle was dropped when the order settled.
-              <button type="button" className="wb-act" onClick={() => setGoneNotice(false)}>
+              <Button type="button" variant="quiet" size="sm" onClick={() => setGoneNotice(false)}>
                 Dismiss
-              </button>
+              </Button>
             </p>
           ) : null}
 

@@ -5,6 +5,9 @@ import type { TwentyWorkspace } from '../../../shared/types/addons';
 import { Panel } from './AddonPanel';
 import { memGB } from './addonCopy';
 import { agentName, hideMoveSteps, openLocalTwenty } from './useTwenty';
+import { lineFromIpc } from './addonPageActions';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
 
 const Step: React.FC<{
   n: number;
@@ -44,12 +47,7 @@ export const TwentyMoveSteps: React.FC<{
   const [note, setNote] = useState<string | null>(null);
   const name = agentName(hosted);
   const open = async (target: string) => {
-    try {
-      const result = await window.electronAPI.urls.openUrl(target);
-      setNote(result.success ? null : (result.error ?? `Couldn’t open ${name}.`));
-    } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
-    }
+    setNote(await lineFromIpc(() => window.electronAPI.urls.openUrl(target), `Couldn’t open ${name}.`));
   };
   return (
     <Panel title={`Moving to ${name}?`} lead="Agents can use both workspaces while you move. Nothing here moves records for you.">
@@ -69,10 +67,11 @@ export const TwentyMoveSteps: React.FC<{
               {`Open ${name}`}
             </Button>
           </div>
-          <label className="mt-1 flex items-center gap-2 text-xs text-fg">
-            <input type="checkbox" checked={copied} onChange={(e) => setCopied(e.target.checked)} />
-            I’ve copied what I need
-          </label>
+          <ChoiceRow
+            className="mt-1"
+            control={<Checkbox checked={copied} onChange={(e) => setCopied(e.target.checked)} />}
+            title="I’ve copied what I need"
+          />
         </Step>
         <Step n={3} done={false} title="Turn off this Mac’s Twenty">
           <span className="text-xs text-fg-muted">

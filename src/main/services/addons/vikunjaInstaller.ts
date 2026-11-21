@@ -2,6 +2,7 @@ import type { AddonStepId } from '../../../shared/types/addons';
 import { VIKUNJA_ENTRY } from './addonCatalog';
 import { readVikunjaEnabled, type VikunjaService } from './vikunjaAddon';
 import { SCRIPT_STEP_OF, createEnableRemoveInstaller, type EnableRemoveInstaller, type ScriptAddonDeps } from './scriptAddonInstaller';
+import { stackFilesAt } from '../stackHost/activeStack';
 
 // Get, Turn off, Turn on and Remove and delete data for Todo lists (stack 0.3.15), through
 // `addon.sh`. `enable` registers the database schema (hook `prepare`), starts the containers,
@@ -27,7 +28,7 @@ export function createVikunjaInstaller(deps: VikunjaInstallerDeps): VikunjaInsta
     name: VIKUNJA_ENTRY.name,
     stepOf: VIKUNJA_STEP_OF,
     deps,
-    isEnabled: () => readVikunjaEnabled(deps.paths().root),
+    isEnabled: () => readVikunjaEnabled(stackFilesAt(deps.paths().root)),
     afterEnable: deps.afterEnable,
     afterDisable: deps.afterDisable,
   });

@@ -1,7 +1,7 @@
 # 0027. A host bridge gives Hermes the host's browser and capabilities
 
 - Date: 2026-10-07
-- Status: Accepted (2026-10-07), amended 2026-10-07 (route A uses a debugging pipe, not a port)
+- Status: Accepted (2026-10-07), amended 2026-10-07 (route A uses a debugging pipe, not a port), amended by [0065](0065-relay-credential-client.md) (a second client for the credential backend)
 - Parent: [0001](0001-record-architecture-decisions.md)
 - Related: [0026](0026-model-key-lives-in-proxy-memory.md) (secrets pushed from Boundary), [0006](0006-tool-approval-interrupt.md) (approval UI), [prior-art.md](../host-bridge/prior-art.md)
 
@@ -82,6 +82,7 @@ What we know, from research and from local tests on 2026-10-07 (Docker Desktop 4
      - One exception to the `Fetch.*` block: Hermes answers page dialogs (alert, confirm) through a "dialog bridge". A page script requests `http://hermes-dialog-bridge.invalid/`, and Hermes intercepts that request. So `Fetch.enable` passes when every pattern is that fake host and auth interception is off, along with the calls that answer paused requests. Nothing else can be intercepted.
    - It logs every other method it sees, per client connection, to the debug log.
    - Once a release of agent-browser has been traced, the filter becomes an allowlist of what it actually calls.
+   - Amended by [0065](0065-relay-credential-client.md): a second client, the stack's credential backend, connects with its own token and gets an allowlist that includes `Network.setCookies`.
    - `Runtime.evaluate` stays: Playwright needs it, and an origin-scoped gate on it is a follow-up. Until then, site policy (decision 6) and egress (consequences) carry that risk.
 
 6. **Browsing has a site policy owned by Boundary.**

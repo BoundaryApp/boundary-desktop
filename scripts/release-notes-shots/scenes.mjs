@@ -10,9 +10,13 @@
  * ships in the public repository.
  *
  * A step is one of:
- *   { click: '<anchor>' }   click the element with that anchor
- *   { hover: '<anchor>' }   move the pointer onto it
- *   { wait: <ms> }          let something settle
+ *   { click: '<anchor>' }      click the element with that anchor
+ *   { clickText: '<text>' }    click the first element whose text is exactly that
+ *   { clickLabel: '<label>' }  click the first element with that accessible name
+ *   { press: '<key>' }         press a key, as Playwright names it (ArrowDown, Escape)
+ *   { scrollText: '<text>' }   scroll the first element whose text is exactly that into view
+ *   { hover: '<anchor>' }      move the pointer onto it
+ *   { wait: <ms> }             let something settle
  */
 export const SCENES = {
   'rail-tour': {

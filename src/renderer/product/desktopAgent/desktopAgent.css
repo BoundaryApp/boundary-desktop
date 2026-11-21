@@ -129,25 +129,8 @@ body.wb-desktop-panel-doc {
   white-space: nowrap;
 }
 
-.wb-desktop-panel-tabs {
-  display: flex;
-  gap: var(--space-1);
-  margin-left: auto;
-}
 
-.wb-desktop-panel-tab {
-  padding: var(--space-1) var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
 
-.wb-desktop-panel-tab.is-active {
-  background: var(--surface-2);
-  color: var(--text);
-}
 
 .wb-desktop-panel-body {
   display: flex;

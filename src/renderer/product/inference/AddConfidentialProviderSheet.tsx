@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { meetsLevel, type CanonicalModel, type PoolSettings } from '../../../shared/types/confidential';
 import type {
   AddProviderCheck,
@@ -6,7 +6,11 @@ import type {
   ConfidentialProviderView,
 } from '../../../shared/types/confidentialState';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
 import { Field } from '../../components/ui/field';
 import { Sheet } from '../../components/ui/sheet';
 import { StepListRow, type StepLook } from '../../components/ui/step-list';
@@ -73,6 +77,7 @@ export const AddConfidentialProviderSheet: React.FC<AddConfidentialProviderSheet
   addProvider,
   onClose,
 }) => {
+  const providerName = useId();
   const [step, setStep] = useState<Step>('pick');
   const [id, setId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
@@ -115,36 +120,45 @@ export const AddConfidentialProviderSheet: React.FC<AddConfidentialProviderSheet
   if (step === 'pick' || !chosen) {
     body = (
       <>
-        {providers.map((provider) => (
-          <button
-            key={provider.id}
-            type="button"
-            className="wb-conf-choice"
-            aria-pressed={provider.id === id}
-            disabled={provider.added}
-            onClick={() => setId(provider.id)}
-          >
-            <LevelBadge level={provider.level} />
-            <span className="wb-inf-row-text">
-              <b>
-                {provider.name}
-                {provider.added ? ' · added' : ''}
-              </b>
-              <span>
-                {CONFIDENTIAL_COPY.levels[provider.level].short}. {provider.levelReason}
-              </span>
-              <span className="wb-conf-note">
-                {provider.offers
-                  .map((offer) => `${modelName(offer.modelId)} ${offer.turnCost === null ? 'no price' : formatTurnCost(offer.turnCost)}`)
-                  .join(' · ')}{' '}
-                a turn · {provider.billing}
-              </span>
-            </span>
-            {meetsLevel(provider.level, settings.chatFloor) ? null : (
-              <span className="wb-inference-pill is-warn">Below your minimum</span>
-            )}
-          </button>
-        ))}
+        <ChoiceGroup kind="radio" aria-label="Provider">
+          {providers.map((provider) => (
+            <ChoiceRow
+              key={provider.id}
+              variant="card"
+              control={
+                <Radio
+                  name={providerName}
+                  checked={provider.id === id}
+                  disabled={provider.added}
+                  onChange={() => setId(provider.id)}
+                />
+              }
+              title={
+                <span className="inline-flex items-center gap-1.5">
+                  <LevelBadge level={provider.level} />
+                  {provider.name}
+                  {provider.added ? ' · added' : ''}
+                </span>
+              }
+              description={
+                <>
+                  {CONFIDENTIAL_COPY.levels[provider.level].short}. {provider.levelReason}
+                  <span className="wb-conf-note">
+                    {provider.offers
+                      .map((offer) => `${modelName(offer.modelId)} ${offer.turnCost === null ? 'no price' : formatTurnCost(offer.turnCost)}`)
+                      .join(' · ')}{' '}
+                    a turn · {provider.billing}
+                  </span>
+                </>
+              }
+              aside={
+                meetsLevel(provider.level, settings.chatFloor) ? null : (
+                  <span className="wb-inference-pill is-warn">Below your minimum</span>
+                )
+              }
+            />
+          ))}
+        </ChoiceGroup>
         <p className="wb-conf-note">
           Boundary’s provider list sets each level and says why. Adding a provider is the only way it joins your pools.
         </p>
@@ -208,7 +222,7 @@ export const AddConfidentialProviderSheet: React.FC<AddConfidentialProviderSheet
           htmlFor="confidential-api-key"
           hint={keyError ? <span className="text-danger">{keyError}</span> : undefined}
         >
-          <input
+          <Input
             id="confidential-api-key"
             type="password"
             className="font-mono"

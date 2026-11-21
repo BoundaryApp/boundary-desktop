@@ -1,7 +1,7 @@
 import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import { listStoredHermesProjects, replaceStoredHermesProjects } from '../services/assistant/hermes/hermesProjectStore';
 import { circlesKeptByWipe, getProviderSettings } from '../services/circles/circlesStore';
-import { dropAppEntries } from '../services/onboarding/OpenAiOnboardingStore';
+import { dropAppEntries } from '../services/inference/appInferenceChoice';
 import { dropChatFallbacksInEveryStore } from './hermesAgentsStores';
 
 /**

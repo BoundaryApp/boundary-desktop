@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { refKey } from '../../../../shared/circleMessageRef';
 import type { CircleMessage, CircleMessageRef } from '../../../../shared/types/circles';
 
-const keyOf = (ref: CircleMessageRef): string => `${ref.author}/${ref.id}`;
 
 /**
  * Finds the original of each reply in a channel (ADR 0053 §4, §5). A target among `messages` is
@@ -24,12 +24,12 @@ export function useReplyTargets(
   const scope = `${circleKey}/${channel}`;
   const found = fetched.scope === scope ? fetched.found : null;
 
-  const loaded = useMemo(() => new Map(messages.map((message) => [keyOf(message), message])), [messages]);
+  const loaded = useMemo(() => new Map(messages.map((message) => [refKey(message), message])), [messages]);
   // Reply targets that aren't loaded, as a stable string so the effects below run only when the set changes.
   const unloaded = useMemo(() => {
     const keys = new Set<string>();
     for (const message of messages) {
-      if (message.reply && !loaded.has(keyOf(message.reply))) keys.add(keyOf(message.reply));
+      if (message.reply && !loaded.has(refKey(message.reply))) keys.add(refKey(message.reply));
     }
     return [...keys].sort().join(',');
   }, [messages, loaded]);
@@ -76,7 +76,7 @@ export function useReplyTargets(
 
   return useCallback(
     (ref: CircleMessageRef) => {
-      const key = keyOf(ref);
+      const key = refKey(ref);
       const message = loaded.get(key);
       if (message) return message;
       return found?.has(key) ? (found.get(key) ?? null) : undefined;

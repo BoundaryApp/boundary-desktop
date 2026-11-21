@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AddonScript, AddonScriptLine, AddonScriptOutcome } from '../addonScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import type { StackFiles } from '../../stackHost/types';
 
 // A fake of the stack's Actual scripts, built from what was confirmed in the stack's source
 // (main, merge 7b44898, per-instance binding):
@@ -31,6 +33,8 @@ export interface FakeServer {
 export interface ActualFakeStack {
   root: string;
   dataRoot: string;
+  /** The stack's files over `root`, with `dataRoot` as the user-content folder. */
+  files: StackFiles;
   /** Every call, with its stdin. */
   calls: { script: AddonScript; args: string[]; input?: Record<string, unknown> }[];
   servers: Record<string, FakeServer>;
@@ -92,6 +96,7 @@ export function createActualFakeStack(): ActualFakeStack {
   const stack: ActualFakeStack = {
     root,
     dataRoot,
+    files: localStackFiles({ stackRoot: root, userContentRoot: () => dataRoot }),
     calls: [],
     servers: {
       local: { password: '', budgets: [{ syncId: 'local-1', name: 'Budget' }] },

@@ -8,7 +8,7 @@ import { persistDebugLog } from '../../persistDebugLog';
 import { denyAllHostBridgeApprovals, requestHostBridgeApproval, setHostBridgeApprovalSender } from './approvals';
 import { appendAudit, trimForAudit } from './auditLog';
 import type { BridgeToMain, HostToolListing, MainToBridge } from './bridgeMessages';
-import { hasCalendarAccounts, listCalendarAccounts, type StoredCalendarAccount } from '../assistant/calendar/calendarStore';
+import { getMacCalendarAccount, hasCalendarAccounts } from '../assistant/calendar/calendarStore';
 import { callMacCalendarTool, listMacCalendarTools, MAC_CHANGE_TOOLS, MAC_READ_TOOLS } from '../assistant/calendar/macCalendarTools';
 import { getMacCalendarHelper } from '../assistant/calendar/macCalendarHelper';
 import type { ToolCallResult } from './mcpProtocol';
@@ -16,6 +16,12 @@ import type { BoundaryBrowserState, HostToolsState } from '../../../shared/types
 import type { IpcResult } from '../../../shared/ipc/result';
 import { browserRelayConfigFrom, findGoogleChrome, normalizeBrowserSettings, sitePolicyFrom } from './browserConfig';
 import { DEFAULT_BLOCKED_SITES } from './cdpPolicy';
+import {
+  credentialClientUrl,
+  CredentialTokens,
+  removeCredentialClientFiles,
+  writeCredentialClientFiles,
+} from './credentialClient';
 import { heldNotification } from '../notifications';
 import {
   addHostBridgeGrant,
@@ -44,6 +50,7 @@ import {
   nextExpectedClients,
 } from './hostToolsState';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { StackCapabilityMissing, hasStackCapability } from '../stackHost/capabilities';
 
 /**
  * Runs the host bridge (ADR 0027): forks the utilityProcess that owns the loopback listeners,
@@ -93,6 +100,69 @@ let bridgeRun: {
 
 /** Calendar token → agent slug, kept here so a restarted bridge gets it too. */
 let calendarTokens: Record<string, string> = {};
+
+/**
+ * The relay's credential client (ADR 0065): its token for this run of the bridge, the port its
+ * endpoint names, and where its two files go (the Bitwarden add-on's `secrets` folder, or null
+ * with no stack). Writes run one after another, so a removal never lands after a later write.
+ */
+let credentialTokens: CredentialTokens | null = null;
+let credentialPort: number | null = null;
+let credentialFolder: () => Promise<string | null> = async () => null;
+let credentialWrites: Promise<void> = Promise.resolve();
+
+/** Set at registration: the folder comes from the stack's settings, which import this module. */
+export function setCredentialClientFolder(resolve: () => Promise<string | null>): void {
+  credentialFolder = resolve;
+}
+
+/**
+ * Bring the two files in line with the bridge: its endpoint and current token while it runs,
+ * nothing while it doesn't. Nothing is written when the add-on's folder doesn't exist. The log
+ * names the outcome and the port, never a value. Never throws.
+ */
+function syncCredentialFiles(reason: string): Promise<void> {
+  const token = credentialTokens?.current ?? null;
+  const port = credentialPort;
+  credentialWrites = credentialWrites
+    .then(async () => {
+      const dir = await credentialFolder();
+      if (!dir) return;
+      if (!token || port === null) {
+        await removeCredentialClientFiles(dir);
+        persistDebugLog('host-bridge', 'credential client files removed', { reason });
+        return;
+      }
+      const result = await writeCredentialClientFiles(dir, { url: credentialClientUrl(port), token });
+      persistDebugLog('host-bridge', 'credential client files', { reason, result, port });
+    })
+    .catch((err: unknown) => {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      persistDebugLog('host-bridge', 'credential client files not written', {
+        reason,
+        error: code ?? (err instanceof Error ? err.name : 'unknown'),
+      });
+    });
+  return credentialWrites;
+}
+
+/** Write the files again, as after the add-on's folders are made or the stack is applied. */
+export function refreshCredentialClientFiles(): Promise<void> {
+  return syncCredentialFiles('refresh');
+}
+
+/** The credential tokens the running bridge accepts, for masking a report. */
+export async function currentCredentialClientTokens(): Promise<string[]> {
+  return credentialTokens?.accepted ?? [];
+}
+
+/** The bridge is gone: its credential token stops being accepted, so its files go too. */
+function endCredentialClient(reason: string): Promise<void> {
+  credentialTokens?.stop();
+  credentialTokens = null;
+  credentialPort = null;
+  return syncCredentialFiles(reason);
+}
 
 /** Replies the bridge owes main, by request id (browser open / status). */
 let nextRequestId = 1;
@@ -271,11 +341,6 @@ function post(target: UtilityProcess, message: MainToBridge): void {
 
 const STOPPED_RESULT: ToolCallResult = { content: [{ type: 'text', text: AGENT_STOPPED_MESSAGE }], isError: true };
 
-/** The Mac's calendar account, read fresh for each calendar call. */
-function macCalendarAccount(): StoredCalendarAccount | null {
-  return listCalendarAccounts().find((account) => account.provider === 'mac') ?? null;
-}
-
 const CALENDAR_TOOL_NAMES: ReadonlySet<string> = new Set([...MAC_READ_TOOLS, ...MAC_CHANGE_TOOLS]);
 
 /** The tool name for a log line. The agent chooses the name, so anything else is `unknown`. */
@@ -286,7 +351,7 @@ function loggedToolName(name: string): string {
 async function answerCalendarCall(agent: string, name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
   const result = await callMacCalendarTool(agent, name, args, {
     helper: getMacCalendarHelper(),
-    account: macCalendarAccount,
+    account: getMacCalendarAccount,
   });
   persistDebugLog('calendars', 'calendar tool call', { agent, tool: loggedToolName(name), ok: !result.isError });
   return result;
@@ -295,7 +360,7 @@ async function answerCalendarCall(agent: string, name: string, args: Record<stri
 /** The tools an agent sees on `/calendar`. An unreadable account lists none rather than leaving the bridge waiting. */
 function calendarToolsFor(agent: string): ReturnType<typeof listMacCalendarTools> {
   try {
-    const access = macCalendarAccount()?.access;
+    const access = getMacCalendarAccount()?.access;
     return listMacCalendarTools(access && Object.hasOwn(access, agent) ? access[agent] : 'off');
   } catch (err) {
     persistDebugLog('calendars', 'calendar tool list failed', { agent, error: err instanceof Error ? err.name : 'unknown' });
@@ -313,6 +378,20 @@ async function launch(): Promise<HostBridgeEndpoints> {
 
   const proc = utilityProcess.fork(BRIDGE_ENTRY, [], { serviceName: `${APP_NAME} Host Bridge` });
   child = proc;
+  credentialTokens?.stop();
+  const credentials = new CredentialTokens({
+    onChange: (accepted, current) => {
+      if (child === proc) post(proc, { type: 'credential-tokens', tokens: accepted });
+      // The end of a grace period changes only what the bridge accepts, not the file.
+      if (current !== lastWritten) {
+        lastWritten = current;
+        persistDebugLog('host-bridge', 'credential token rotated', {});
+        void syncCredentialFiles('rotated');
+      }
+    },
+  });
+  let lastWritten = credentials.current;
+  credentialTokens = credentials;
 
   return new Promise<HostBridgeEndpoints>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Host bridge did not start in time.')), START_TIMEOUT_MS);
@@ -325,6 +404,11 @@ async function launch(): Promise<HostBridgeEndpoints> {
           readyAt = Date.now();
           setHostBridgePorts({ mcp: message.mcpPort, browser: message.browserPort });
           persistDebugLog('host-bridge', 'ready', { mcpPort: message.mcpPort, browserPort: message.browserPort });
+          if (credentialTokens === credentials) {
+            credentialPort = message.browserPort;
+            credentials.start();
+            void syncCredentialFiles('bridge ready');
+          }
           beginBridgeRun();
           resolve({ mcpPort: message.mcpPort, browserPort: message.browserPort, mcpToken, browserToken });
           return;
@@ -390,6 +474,7 @@ async function launch(): Promise<HostBridgeEndpoints> {
         child = null;
         ready = null;
         endBridgeRun();
+        if (credentialTokens === credentials) void endCredentialClient('bridge exited');
         setHostToolsState(idleHostToolsState());
         // Requests went to this process; fail them now rather than at their timeouts.
         for (const request of pendingRequests.values()) request.reject(new Error('The host bridge stopped.'));
@@ -413,6 +498,7 @@ async function launch(): Promise<HostBridgeEndpoints> {
       type: 'start',
       mcpToken,
       browserToken,
+      credentialTokens: credentials.accepted,
       mcpPort: preferred.mcp,
       browserPort: preferred.browser,
       browser: browserRelayConfigFrom(getHostBridgeBrowserSettings()),
@@ -450,6 +536,8 @@ export function syncHostToolListing(): void {
 /** Start the bridge once; later calls share the same startup. */
 export function ensureHostBridgeStarted(): Promise<HostBridgeEndpoints> {
   if (quitting) return Promise.reject(new Error(`${APP_NAME} is quitting.`));
+  // Containers on a host without callbacks can't reach a bridge on this machine.
+  if (!hasStackCapability('hostCallbacks')) return Promise.reject(new StackCapabilityMissing('hostCallbacks'));
   if (isHostBridgeAgentStopped()) return Promise.reject(new Error(AGENT_STOPPED_MESSAGE));
   if (!ready) {
     stopping = false;
@@ -478,7 +566,9 @@ async function shutDown(reason?: string): Promise<void> {
   ready = null;
   endBridgeRun();
   setHostToolsState(idleHostToolsState());
-  if (!proc) return;
+  const files = endCredentialClient('bridge stopped');
+  if (!proc) return files;
+  await files;
   await stopUtilityProcess(proc, () => post(proc, { type: 'stop', reason }), STOP_TIMEOUT_MS);
 }
 

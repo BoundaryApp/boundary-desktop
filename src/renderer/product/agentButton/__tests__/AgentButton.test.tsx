@@ -6,6 +6,7 @@ import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { setRunningTurnsForTests } from '../../chat/runningTurns';
 import { dispatchAppCommand } from '../../useAppShortcuts';
 import { AgentButton } from '../AgentButton';
+import { flushMenu } from '../../../__tests__/openMenu';
 import { resetAgentButtonSpotForTests } from '../agentButtonSpot';
 
 stubElectronAPI({
@@ -110,6 +111,7 @@ describe('the agent button', () => {
     mount();
     await screen.findByRole('button', { name: 'Ask Marlow' });
     fireEvent.contextMenu(button());
+    await flushMenu();
     const menu = screen.getByRole('menu', { name: 'Move the agent button' });
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       'Bottom right',
@@ -117,15 +119,22 @@ describe('the agent button', () => {
       'Top right',
       'Top left',
     ]);
+    expect(document.activeElement).toBe(menu);
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    await flushMenu();
     expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Bottom right' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Top left' }));
+    await flushMenu();
     expect(stored()).toEqual({ edge: 'top', along: 0 });
     expect(menu.isConnected).toBe(false);
+    expect(document.activeElement).toBe(button());
     expect(button().style.top).toBe('52px');
 
     fireEvent.contextMenu(button());
-    fireEvent.keyDown(document, { key: 'Escape' });
+    await flushMenu();
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
+    await flushMenu();
     expect(document.activeElement).toBe(button());
   });
 

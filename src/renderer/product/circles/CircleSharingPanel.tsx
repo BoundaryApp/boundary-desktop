@@ -10,6 +10,7 @@ import { CircleButton, CircleSwitch } from './CircleControls';
 import { SharingUsage } from './CircleUsage';
 import { useAction, useCirclesState } from './useCircles';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { Checkbox } from '../../components/ui/checkbox';
 
 /**
  * Sharing the local model server with Circles (ADR 0034 §1, §4), on the Circles screen. Models,
@@ -205,7 +206,7 @@ export const CircleSharingPanel: React.FC<{ circles: CirclesState }> = ({ circle
             <legend>Models on your server</legend>
             {listed.map((model) => (
               <label key={model.id} className="flex items-center gap-2 py-[3px]">
-                <input type="checkbox" checked={sharedIds.has(model.id)} onChange={() => toggleModel(model)} />
+                <Checkbox checked={sharedIds.has(model.id)} onChange={() => toggleModel(model)} />
                 <span className="min-w-0 flex-1 font-mono text-xs break-all text-fg">{model.id}</span>
                 {model.contextLength ? <small className="text-xs text-fg-faint">{formatContext(model.contextLength)}</small> : null}
               </label>

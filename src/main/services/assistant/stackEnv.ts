@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import type { StackFiles, StackLocation } from '../stackHost/types';
 
 /**
  * Read and edit dotenv files: the stack's `.env` and the Hermes profiles' `.env`. The
@@ -80,9 +80,68 @@ export function removeEnvLines(contents: string, keys: readonly string[]): strin
     .join('');
 }
 
-/** Set keys in a dotenv file, creating the file and its folder when missing. */
-export function writeEnvValues(envPath: string, values: Record<string, string>): void {
-  const contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-  fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, upsertEnvLines(contents, values), 'utf8');
+/**
+ * Keys the stack's `.env.example` gave a trailing ` # comment` before v0.3.17. Compose drops the
+ * comment, but the stack's `env_get` keeps it, so its host scripts (n8n credential sync, corpus)
+ * read `NEO4J_USERNAME` as `neo4j   # …`. Its `upgrades/v0.3.17.sh` removes them, and Boundary
+ * doesn't run upgrade hooks on a stack it manages.
+ */
+export const STACK_INLINE_COMMENT_KEYS = [
+  'LLM_BINDING_API_KEY',
+  'NEO4J_URI',
+  'NEO4J_USERNAME',
+  'NEO4J_PASSWORD',
+  'GPTR_MCP_URL',
+] as const;
+
+/**
+ * Drop an unquoted trailing comment from the lines that set any of the keys, as the stack's
+ * v0.3.17 hook does: the comment starts at the first whitespace before a `#`, and a value that
+ * would be left empty, or a quoted one, is kept as it is. Other lines stay byte-for-byte.
+ */
+export function stripInlineEnvComments(contents: string, keys: readonly string[]): string {
+  const strip = new Set(keys);
+  return splitLines(contents)
+    .map((line) => {
+      const key = lineKey(line);
+      if (key === undefined || !strip.has(key) || !line.startsWith(`${key}=`)) return line;
+      const ending = /\r?\n$/.exec(line)?.[0] ?? '';
+      const value = line.slice(key.length + 1, line.length - ending.length);
+      if (value.startsWith('"') || value.startsWith("'")) return line;
+      const comment = /\s#/.exec(value);
+      if (!comment) return line;
+      const kept = value.slice(0, comment.index).trimEnd();
+      return kept ? `${key}=${kept}${ending}` : line;
+    })
+    .join('');
+}
+
+/** Parse a dotenv file in the stack; `{}` when it is missing or unreadable. */
+export async function readStackEnv(
+  files: StackFiles,
+  location: StackLocation,
+  relPath: string
+): Promise<Record<string, string>> {
+  try {
+    return parseEnv((await files.readText(location, relPath)) ?? '');
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Set keys in a dotenv file in the stack, creating the file and its folder when missing. The
+ * file is replaced in one step, and not written when nothing changes. Returns whether it was.
+ */
+export async function writeStackEnvValues(
+  files: StackFiles,
+  location: StackLocation,
+  relPath: string,
+  values: Record<string, string>
+): Promise<boolean> {
+  const contents = await files.readText(location, relPath);
+  const next = upsertEnvLines(contents ?? '', values);
+  if (contents !== null && next === contents) return false;
+  await files.writeText(location, relPath, next);
+  return true;
 }

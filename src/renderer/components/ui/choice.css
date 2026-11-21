@@ -1,0 +1,203 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Checkbox, Radio, Switch, ChoiceRow and ChoiceGroup (ADR 0064), keyed on data-slot. Every
+   accent reads --brand, so changing that token recolors every choice control. Sizes come from
+   --choice-size, --choice-border, --switch-width and --switch-height in tokens.css. */
+
+[data-slot='checkbox'],
+[data-slot='radio'] {
+  appearance: none;
+  flex: none;
+  width: var(--choice-size);
+  height: var(--choice-size);
+  margin: 0;
+  border: var(--choice-border) solid var(--line-strong);
+  background: var(--surface-0);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+[data-slot='checkbox'] {
+  border-radius: var(--radius-sm);
+}
+
+[data-slot='radio'] {
+  border-radius: var(--radius-full);
+}
+
+[data-slot='checkbox']:checked {
+  border-color: var(--brand);
+  background: var(--choice-check) center / contain no-repeat var(--brand);
+}
+
+/* The dot: a --brand fill inside a --surface-0 ring. */
+[data-slot='radio']:checked {
+  border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: inset 0 0 0 calc(var(--choice-border) * 2) var(--surface-0);
+}
+
+[data-slot='checkbox'][aria-invalid='true'],
+[data-slot='radio'][aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+/* The ring buttons draw: a 16px box has no edge to recolor. */
+:is([data-slot='checkbox'], [data-slot='radio'], [data-slot='switch']):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+[data-slot='radio']:checked:focus-visible {
+  box-shadow: inset 0 0 0 calc(var(--choice-border) * 2) var(--surface-0), var(--focus-ring);
+}
+
+:is([data-slot='checkbox'], [data-slot='radio'], [data-slot='switch']):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Switch: a track with a thumb that slides to the end while on. */
+[data-slot='switch'] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: var(--switch-width);
+  height: var(--switch-height);
+  padding: var(--space-0-5);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+  cursor: pointer;
+}
+
+[data-slot='switch'][aria-checked='true'] {
+  background: var(--brand);
+}
+
+[data-slot='switch-thumb'] {
+  display: block;
+  width: calc(var(--switch-height) - 2 * var(--space-0-5));
+  height: calc(var(--switch-height) - 2 * var(--space-0-5));
+  border-radius: var(--radius-full);
+  background: var(--on-glyph);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+[data-slot='switch'][aria-checked='true'] > [data-slot='switch-thumb'] {
+  transform: translateX(calc(var(--switch-width) - var(--switch-height)));
+}
+
+/* ChoiceRow: a label holding the control, its title and an optional description. The whole row
+   is one click target. */
+[data-slot='choice-row'] {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--size-xs);
+  line-height: var(--leading-ui);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* The control sits centred on the title's first line. */
+[data-slot='choice-row-control'] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 1lh;
+}
+
+[data-slot='choice-row'][data-control-at='end'] > [data-slot='choice-row-control'] {
+  order: 1;
+}
+
+[data-slot='choice-row-text'] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+[data-slot='choice-row-text']:has([data-slot='choice-row-description']) > [data-slot='choice-row-title'],
+[data-variant='card'] [data-slot='choice-row-title'] {
+  font-weight: var(--weight-medium);
+}
+
+/* A column, so a control in the description (Pool settings' threshold select) sits under the
+   text at its own width. */
+[data-slot='choice-row-description'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+/* A list in a card's description (Add folder's "Coding" and "Read-only" details) is indented
+   under the text and sits one step below it. */
+[data-slot='choice-row-description'] ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+/* An aside (a pill or note) sits after the text, centred on the row. */
+[data-slot='choice-row-aside'] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+}
+
+[data-slot='choice-row'][data-variant='card'] {
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  font-size: inherit;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+[data-slot='choice-row'][data-variant='card']:has(> [data-slot='choice-row-control'] :is(:checked, [aria-checked='true'])) {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+}
+
+[data-slot='choice-row'][data-variant='card'] + [data-slot='choice-row'][data-variant='card'] {
+  margin-top: var(--space-2);
+}
+
+/* A disabled row dims once; its control isn't dimmed again. */
+[data-slot='choice-row']:has(> [data-slot='choice-row-control'] :disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-slot='choice-row']:has(> [data-slot='choice-row-control'] :disabled) :is([data-slot='checkbox'], [data-slot='radio'], [data-slot='switch']) {
+  opacity: 1;
+}
+
+/* ChoiceGroup: .wb-field's caption and bottom margin, with the rows stacked under it. */
+.wb-field[data-slot='choice-group'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+[data-slot='choice-group'] > .wb-field-label {
+  margin-bottom: 0;
+}
+
+[data-slot='choice-group'] > [data-slot='choice-row'][data-variant='card'] + [data-slot='choice-row'][data-variant='card'] {
+  margin-top: 0;
+}
+
+[data-slot='choice-group'] > .wb-field-hint {
+  margin-top: 0;
+}
+
+}

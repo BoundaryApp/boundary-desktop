@@ -13,7 +13,7 @@ import { app, shell, type WebContents } from 'electron';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { cleanCallCheckResult, type CallCheckResult } from '../../../shared/callCheck';
 import { slugify } from '../../../shared/utils/slug';
-import { pickSavePath } from '../saveDialog';
+import { pickSavePath } from '../../host/windows';
 import { circlesDiagnosticsPath, diagnosticsRunId } from './circlesDiagnostics';
 
 export const REPORT_FORMAT = 'boundary-call-check/1';

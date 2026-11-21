@@ -1,10 +1,21 @@
-import fs from 'node:fs';
 import path from 'node:path';
+import { BUILTIN_ASSISTANT_SLUG } from '../../../../shared/types/hermesChat';
+import type { StackFiles } from '../../stackHost/types';
 
 const SOUL_EXCERPT_MAX = 280;
 
+/**
+ * Where an agent's SOUL.md is, relative to the stack's `data` folder. The built-in agent is
+ * Hermes's default profile, whose home is `data/hermes` itself (HERMES_HOME=/opt/data).
+ */
+function soulFileRel(slug: string): string {
+  if (slug === BUILTIN_ASSISTANT_SLUG) return 'hermes/SOUL.md';
+  return `hermes/profiles/${slug}/SOUL.md`;
+}
+
+/** The SOUL.md on this machine, for showing it in the file manager. */
 export function resolveSoulFilePath(dataRoot: string, slug: string): string {
-  return path.join(dataRoot, 'hermes', 'profiles', slug, 'SOUL.md');
+  return path.join(dataRoot, ...soulFileRel(slug).split('/'));
 }
 
 export function excerptSoul(soul: string, max = SOUL_EXCERPT_MAX): string {
@@ -34,10 +45,10 @@ export function excerptSoul(soul: string, max = SOUL_EXCERPT_MAX): string {
   return `${clipped || text.slice(0, max).trim()}…`;
 }
 
-export function readSoulFile(filePath: string): string | null {
+/** The agent's SOUL.md, or null when it is missing or can't be read. */
+export async function readSoulFile(files: StackFiles, slug: string): Promise<string | null> {
   try {
-    if (!fs.existsSync(filePath)) return null;
-    return fs.readFileSync(filePath, 'utf8');
+    return await files.readText('data', soulFileRel(slug));
   } catch {
     return null;
   }

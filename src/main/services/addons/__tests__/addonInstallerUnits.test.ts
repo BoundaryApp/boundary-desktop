@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeSpawn } from '../../__tests__/fakeChild';
 import { fakeDeps } from './addonInstallerFakes';
 
 vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
@@ -16,7 +15,6 @@ import {
   getAddonInstaller,
   readOwnerName,
   routeAddonInstaller,
-  runAddonSetupScript,
   runExclusive,
   type AddonInstaller,
   type AddonInstallSnapshot,
@@ -31,14 +29,13 @@ describe('runExclusive', () => {
   afterEach(() => vi.useRealTimers());
 
   it('refuses other work while an install runs, and an install while other work runs', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
+    const { deps, sh } = fakeDeps();
+    sh.holdAt = 'start';
     const installer = createAddonInstaller(deps);
     const first = installer.install('twenty');
     await vi.advanceTimersByTimeAsync(0);
     await expect(runExclusive(async () => 'connected')).rejects.toThrow('An add-on install is already running.');
-    state.serverHealth = 'healthy';
-    await vi.advanceTimersByTimeAsync(2_000);
+    installer.cancel('twenty');
     await first;
 
     let release!: () => void;
@@ -76,7 +73,7 @@ describe('getAddonInstaller', () => {
   });
 });
 
-describe('Twenty data folders before start', () => {
+describe('Twenty data folders before enable', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -86,14 +83,14 @@ describe('Twenty data folders before start', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  /** Records whether both bind sources exist when `up` runs. */
+  /** Records whether both bind sources exist when `addon.sh enable` runs `up`. */
   function depsSeeingDirs(overrides: Partial<AddonInstallerDeps> = {}) {
     const atUp: boolean[] = [];
-    const made = fakeDeps({ stackPaths: () => ({ root: dir, dataRoot: path.join(dir, 'data') }), ...overrides });
-    const compose = vi.mocked(made.deps.compose);
-    const base = compose.getMockImplementation()!;
-    compose.mockImplementation(async (args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
-      if (args.includes('up')) {
+    const made = fakeDeps({ stackRoot: dir, ...overrides });
+    const script = vi.mocked(made.deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation(async (args, opts) => {
+      if (args[0] === 'enable') {
         atUp.push(['db', 'storage'].every((sub) => fs.existsSync(path.join(dir, 'data', 'twenty', sub))));
       }
       return base(args, opts);
@@ -101,7 +98,7 @@ describe('Twenty data folders before start', () => {
     return { ...made, atUp };
   }
 
-  it('creates data/twenty/db and data/twenty/storage before up in the managed stack', async () => {
+  it('creates data/twenty/db and data/twenty/storage before enable in the managed stack', async () => {
     const { deps, atUp } = depsSeeingDirs();
     await createAddonInstaller(deps).install('twenty');
     expect(atUp).toEqual([true]);
@@ -114,89 +111,16 @@ describe('Twenty data folders before start', () => {
     expect(fs.existsSync(path.join(dir, 'data', 'twenty'))).toBe(false);
   });
 
-  it('stops at start without calling up when a folder cannot be made', async () => {
+  it('stops at start without running addon.sh when a folder cannot be made', async () => {
     fs.writeFileSync(path.join(dir, 'data'), 'a file where the data folder goes');
-    const { deps, atUp } = depsSeeingDirs();
+    const made = depsSeeingDirs();
+    const { deps, atUp } = made;
     const installer = createAddonInstaller(deps);
     await installer.install('twenty');
     expect(atUp).toEqual([]);
+    expect(made.sh.calls).toEqual([]);
     expect(installer.snapshot()?.error?.step).toBe('start');
     expect(installer.snapshot()?.error?.message).toBe("Twenty CRM's data folders couldn't be created.");
-  });
-});
-
-describe('runAddonSetupScript', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('runs bash scripts/crm.sh init in the stack root and passes each line on', async () => {
-    // The second line comes on stderr, split across two chunks.
-    const { impl, calls } = fakeSpawn({
-      stdout: ['[crm] Generated the owner password\n'],
-      stderr: ['[cr', 'm] Next: make hermes-reload\n'],
-    });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({
-      root: '/stack',
-      env: { PATH: '/usr/bin', TWENTY_LOCAL_ENABLED: '1' },
-      onLine: (l) => lines.push(l),
-      spawnImpl: impl,
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 0 });
-    expect(calls[0].command).toBe('bash');
-    expect(calls[0].args).toEqual(['scripts/crm.sh', 'init']);
-    expect(calls[0].options.cwd).toBe('/stack');
-    expect(calls[0].options.env).toEqual({ PATH: '/usr/bin', TWENTY_LOCAL_ENABLED: '1' });
-    expect(lines).toEqual(['[crm] Generated the owner password', '[crm] Next: make hermes-reload']);
-  });
-
-  it('resolves with the exit code of a failing script', async () => {
-    const { impl } = fakeSpawn({ stdout: ['[crm] ERROR: Docker daemon is not running\n'], code: 1 });
-    const run = runAddonSetupScript({ root: '/stack', env: {}, onLine: () => {}, spawnImpl: impl });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 1 });
-  });
-
-  it('reports a missing bash as code 127 with the error as a line', async () => {
-    const { impl } = fakeSpawn({ fail: true });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({ root: '/stack', env: {}, onLine: (l) => lines.push(l), spawnImpl: impl });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 127 });
-    expect(lines).toEqual(['spawn bash ENOENT']);
-  });
-
-  it('stops a script that runs past the timeout', async () => {
-    const { impl, kills } = fakeSpawn({ hang: true });
-    const lines: string[] = [];
-    const run = runAddonSetupScript({
-      root: '/stack',
-      env: {},
-      onLine: (l) => lines.push(l),
-      spawnImpl: impl,
-      timeoutMs: 1_000,
-    });
-    await vi.advanceTimersByTimeAsync(1_001);
-    expect(kills).toEqual(['SIGTERM']);
-    expect(await run).toEqual({ code: 124 });
-    expect(lines.at(-1)).toBe('crm.sh init ran for more than 1 s and was stopped.');
-  });
-
-  it('stops the script when its signal aborts and resolves with 130', async () => {
-    const { impl, kills } = fakeSpawn({ hang: true });
-    const controller = new AbortController();
-    const run = runAddonSetupScript({ root: '/stack', env: {}, onLine: () => {}, spawnImpl: impl, signal: controller.signal });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(kills).toEqual([]);
-    controller.abort();
-    expect(kills).toEqual(['SIGTERM']);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await run).toEqual({ code: 130 });
   });
 });
 

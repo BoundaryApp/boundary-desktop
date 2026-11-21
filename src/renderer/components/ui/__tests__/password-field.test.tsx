@@ -10,12 +10,14 @@ describe('PasswordField', () => {
     render(
       <>
         <label htmlFor="pw">Password</label>
-        <PasswordField id="pw" ref={ref} className="mono" value="" onChange={onChange} />
+        <PasswordField id="pw" ref={ref} className="font-mono" value="" onChange={onChange} />
       </>
     );
     const input = screen.getByLabelText('Password') as HTMLInputElement;
     expect(input.type).toBe('password');
-    expect(input.className).toBe('mono');
+    expect(input.dataset.slot).toBe('input');
+    expect(input.classList.contains('font-mono')).toBe(true);
+    expect(input.classList.contains('pr-9')).toBe(true);
     expect(ref.current).toBe(input);
 
     fireEvent.change(input, { target: { value: 'secret' } });

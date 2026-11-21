@@ -212,6 +212,50 @@ describe('StartupScreen', () => {
     expect(screen.getByLabelText('Memory: waiting')).toBeTruthy();
   });
 
+  describe('tool wheel as a radio group', () => {
+    const tiles = () => screen.getAllByRole('radio');
+    const checked = () => tiles().findIndex((tile) => tile.getAttribute('aria-checked') === 'true');
+
+    it('has one Tab stop, on the highlighted tile', () => {
+      render(<StartupScreen variant="first-run" stage="compose" services={services} />);
+      expect(screen.getByRole('radiogroup', { name: 'Your tools' })).toBeTruthy();
+      expect(tiles().filter((tile) => tile.tabIndex === 0)).toEqual([tiles()[0]]);
+      expect(checked()).toBe(0);
+      act(() => vi.advanceTimersByTime(STORY_CARD_MS));
+      expect(tiles().filter((tile) => tile.tabIndex === 0)).toEqual([tiles()[1]]);
+    });
+
+    it('moves round the wheel with the arrows, picking and focusing each tile', () => {
+      render(<StartupScreen variant="first-run" stage="compose" services={services} />);
+      fireEvent.keyDown(tiles()[0], { key: 'ArrowRight' });
+      expect(checked()).toBe(1);
+      expect(document.activeElement).toBe(tiles()[1]);
+      expect(screen.getByRole('heading', { name: STARTUP_TOOLS[1].title })).toBeTruthy();
+      fireEvent.keyDown(tiles()[1], { key: 'ArrowDown' });
+      expect(checked()).toBe(2);
+      fireEvent.keyDown(tiles()[2], { key: 'ArrowUp' });
+      expect(checked()).toBe(1);
+      expect(document.activeElement).toBe(tiles()[1]);
+    });
+
+    it('wraps from the last tile to the first and back', () => {
+      render(<StartupScreen variant="first-run" stage="compose" services={services} />);
+      const last = tiles().length - 1;
+      fireEvent.keyDown(tiles()[0], { key: 'ArrowLeft' });
+      expect(checked()).toBe(last);
+      expect(document.activeElement).toBe(tiles()[last]);
+      fireEvent.keyDown(tiles()[last], { key: 'ArrowRight' });
+      expect(checked()).toBe(0);
+      expect(document.activeElement).toBe(tiles()[0]);
+    });
+
+    it('is a plain list when the tiles pick nothing', () => {
+      render(<StartupScreen variant="launch" stage="compose" services={services} />);
+      expect(screen.getByRole('list', { name: 'Your tools' })).toBeTruthy();
+      expect(screen.queryAllByRole('radio')).toEqual([]);
+    });
+  });
+
   it('shows the error with details and a retry', () => {
     const onRetry = vi.fn();
     render(
@@ -249,6 +293,19 @@ describe('StartupScreen', () => {
     expect(screen.getByRole('note').textContent).toMatch(/Later launches skip the download/);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('names only the tools that are starting in the first-run popover', () => {
+    const withoutN8n = services.filter((s) => s.containerName !== 'boundary-n8n');
+    render(<StartupScreen variant="first-run" stage="provision" services={withoutN8n} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Why does this take a while?' }));
+    const text = screen.getByRole('note').textContent ?? '';
+    expect(text).not.toMatch(/automations/i);
+    expect(text).toMatch(/long-term memory/);
+    cleanup();
+    render(<StartupScreen variant="first-run" stage="provision" services={services} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Why does this take a while?' }));
+    expect(screen.getByRole('note').textContent).toMatch(/automations/i);
   });
 
   it('opens details in a side panel and closes it', () => {

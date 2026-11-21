@@ -10,6 +10,7 @@ import {
   credentialValueLabel,
   credentialWhy,
 } from './credentialCopy';
+import { Input } from '../../components/ui/input';
 
 interface CredentialInterruptProps {
   request: HermesChatCredentialRequestEvent;
@@ -104,7 +105,7 @@ export const CredentialInterrupt: React.FC<CredentialInterruptProps> = ({
         {isLogin ? (
           <label className="wb-field">
             <span>Username or email</span>
-            <input
+            <Input
               ref={firstRef}
               type="text"
               autoComplete="off"
@@ -117,13 +118,13 @@ export const CredentialInterrupt: React.FC<CredentialInterruptProps> = ({
         ) : null}
         <label className="wb-field">
           <span>{valueLabel}</span>
-          <input
+          <Input
             ref={isLogin ? undefined : firstRef}
             type={isCode ? 'text' : 'password'}
             inputMode={isCode ? 'numeric' : undefined}
             autoComplete={isCode ? 'one-time-code' : 'off'}
             spellCheck={false}
-            className={isCode ? undefined : 'mono'}
+            className={isCode ? undefined : 'font-mono'}
             value={value}
             disabled={busy}
             onChange={(event) => setValue(event.target.value)}

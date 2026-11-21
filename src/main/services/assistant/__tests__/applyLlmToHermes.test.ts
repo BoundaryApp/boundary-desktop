@@ -14,7 +14,10 @@ import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from '../hermesPla
 const runCompose = vi.fn();
 const runComposeStreaming = vi.fn();
 const applyLlmConnectionToProjectFiles = vi.fn();
-const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-apply-'));
+const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-apply-'));
+const dataRoot = path.join(stackRoot, 'data');
+fs.mkdirSync(dataRoot);
+fs.writeFileSync(path.join(stackRoot, '.env'), 'LLM_PROXY_ADMIN_TOKEN=admin-token\n');
 
 vi.mock('../../containerRuntime', async () => {
   const actual = await vi.importActual<typeof import('../../containerRuntime')>('../../containerRuntime');
@@ -23,6 +26,15 @@ vi.mock('../../containerRuntime', async () => {
     getContainerRuntime: async () => ({ kind: 'docker', cliPath: 'docker', composeArgv: ['compose'], env: {} }),
     runCompose: (...args: unknown[]) => runCompose(...args),
     runComposeStreaming: (...args: unknown[]) => runComposeStreaming(...args),
+  };
+});
+
+vi.mock('../../stackHost/activeStack', async (importOriginal) => {
+  const { localStackFiles } = await import('../../stackHost/localStackHost');
+  return {
+    ...(await importOriginal<typeof import('../../stackHost/activeStack')>()),
+    getStackFiles: () => localStackFiles({ stackRoot, userContentRoot: () => dataRoot }),
+    stackFilesAt: () => localStackFiles({ stackRoot, userContentRoot: () => dataRoot }),
   };
 });
 
@@ -37,7 +49,6 @@ vi.mock('../assistantPaths', async (importOriginal) => ({
   resolveAssistantDataRoot: () => dataRoot,
   resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
   ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
-  readAssistantEnvFile: () => ({ LLM_PROXY_ADMIN_TOKEN: 'admin-token' }),
 }));
 
 vi.mock('../applyLlmToProjectEnv', () => ({
@@ -64,6 +75,7 @@ const ensureHostBridgeStarted = vi.fn(async () => bridge);
 vi.mock('../../hostBridge/hostBridgeService', () => ({
   ensureHostBridgeStarted: () => ensureHostBridgeStarted(),
   hostBridgeWakeAccepted: (): void => undefined,
+  refreshCredentialClientFiles: async (): Promise<void> => undefined,
 }));
 vi.mock('../../hostBridge/hostBridgeStore', () => ({
   getHostBridgeBrowserSettings: () => ({ enabled: browserEnabled }),
@@ -262,7 +274,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(dataRoot, { recursive: true, force: true });
+  fs.rmSync(stackRoot, { recursive: true, force: true });
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -538,7 +550,7 @@ describe('single-flight (G04-26)', () => {
 
     // The first apply, then one more with the latest request.
     expect(applyLlmConnectionToProjectFiles).toHaveBeenCalledTimes(2);
-    expect(applyLlmConnectionToProjectFiles.mock.calls[1][1]).toMatchObject({ modelId: 'model-c' });
+    expect(applyLlmConnectionToProjectFiles.mock.calls[1][2]).toMatchObject({ modelId: 'model-c' });
     expect(getPath(readConfig('researcher'), 'model.default')).toBe('model-c');
     expect(counts().restarts).toBe(2);
   });

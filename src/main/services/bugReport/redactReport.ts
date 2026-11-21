@@ -1,4 +1,5 @@
 import type { RedactionKind, ReportRedaction } from '../../../shared/bugReport';
+import { escapeRegExp } from '../../../shared/utils/escapeRegExp';
 import { redactSecrets } from '../secrets/redact';
 
 /** This Mac's names, removed wherever they appear. */
@@ -20,8 +21,6 @@ const LABEL: Record<RedactionKind, string> = {
 /** Hosts a report may name: they say how the app reached its own services. */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', 'host.docker.internal']);
 
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 function mask(kind: RedactionKind, value: string): string {
   return kind === 'key' ? `${value.slice(0, 6)}••••••••` : value;
 }
@@ -38,7 +37,7 @@ function rules(identity: ReportIdentity): Rule[] {
   const list: Rule[] = [];
   // Home paths first, so the user name inside them counts once, as a path.
   if (identity.home) {
-    list.push({ kind: 'path', pattern: new RegExp(`${escape(identity.home)}(?:/[^\\s'"\`)\\]]*)?`, 'g') });
+    list.push({ kind: 'path', pattern: new RegExp(`${escapeRegExp(identity.home)}(?:/[^\\s'"\`)\\]]*)?`, 'g') });
   }
   list.push({ kind: 'path', pattern: /(?:\/Users|\/home)\/[^/\s'"`)\]]+(?:\/[^\s'"`)\]]*)?/g });
   list.push({ kind: 'account', pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g });
@@ -52,7 +51,7 @@ function rules(identity: ReportIdentity): Rule[] {
     { kind: 'key', pattern: /\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g }
   );
   if (identity.host) {
-    list.push({ kind: 'host', pattern: new RegExp(`\\b${escape(identity.host)}\\b`, 'gi') });
+    list.push({ kind: 'host', pattern: new RegExp(`\\b${escapeRegExp(identity.host)}\\b`, 'gi') });
   }
   list.push(
     { kind: 'host', pattern: /\b[a-z][a-z0-9+.-]*:\/\/(?:[^@/\s]+@)?(\[[^\]]+\]|[^/\s:'"`)\]]+)/gi, group: 1, keep: (h) => LOCAL_HOSTS.has(h.toLowerCase()) },
@@ -60,7 +59,7 @@ function rules(identity: ReportIdentity): Rule[] {
     { kind: 'host', pattern: /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home|internal|corp)\b/gi, keep: (h) => LOCAL_HOSTS.has(h.toLowerCase()) }
   );
   if (identity.user && identity.user.length >= 3) {
-    list.push({ kind: 'account', pattern: new RegExp(`\\b${escape(identity.user)}\\b`, 'g') });
+    list.push({ kind: 'account', pattern: new RegExp(`\\b${escapeRegExp(identity.user)}\\b`, 'g') });
   }
   return list;
 }

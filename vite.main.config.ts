@@ -26,6 +26,7 @@ export default defineConfig({
         'dockerode',
         'ssh2',
         '@premai/reticle',
+        'privatemode-ai',
         'fs',
         'path',
         'crypto',

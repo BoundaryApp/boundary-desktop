@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
 import { Field } from '../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { isActualFailure } from '../../../shared/types/addons';
 import { unlockErrorText } from './useBitwarden';
 
@@ -11,25 +13,17 @@ import { unlockErrorText } from './useBitwarden';
 
 const UnlockForm: React.FC<{ slug: string; onClose(): void }> = ({ slug, onClose }) => {
   const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useSheetAction();
 
-  const unlock = async () => {
-    setBusy(true);
-    setError(null);
-    try {
+  const unlock = () =>
+    run(async () => {
       const reply = await window.electronAPI.addons.bitwarden.unlock(slug, password);
       if (!reply.success) setError(reply.error ?? 'Boundary’s add-on service didn’t answer.');
       else if (isActualFailure(reply.result)) {
         setError(unlockErrorText(reply.result.error));
         setPassword('');
       } else onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   return (
     <Sheet
@@ -53,7 +47,7 @@ const UnlockForm: React.FC<{ slug: string; onClose(): void }> = ({ slug, onClose
         assistant restarts or you lock it.
       </p>
       <Field label="Master password" htmlFor="bitwarden-unlock-password">
-        <input
+        <Input
           id="bitwarden-unlock-password"
           type="password"
           value={password}

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
 import { useAuiState } from '@assistant-ui/store';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import type { AgentProfile, HermesSessionWritingVoice } from '../../../../shared/types/hermesChat';
 import type { WritingVoiceView } from '../../../../shared/types/writingVoices';
 
@@ -184,6 +185,18 @@ describe('writing voices in the composer', () => {
     expect(within(menu).queryByText('Plain working')).toBeNull();
   });
 
+  it('names the active voice from the composer as the arrows move', async () => {
+    const { input } = await mount();
+    await type(input, '/');
+    const menu = screen.getByRole('listbox', { name: 'Commands' });
+    const options = within(menu).getAllByRole('option');
+    expect(input.getAttribute('aria-controls')).toBe(menu.id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
+    await key(input, 'ArrowDown');
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1].id);
+    expect(options[1].hasAttribute('data-active')).toBe(true);
+  });
+
   it('puts a chip on the message with Enter and sends its voice once', async () => {
     const { input, runs } = await mount();
     await type(input, '/ne');
@@ -213,9 +226,28 @@ describe('writing voices in the composer', () => {
   it("goes back to the agent's voice from the footer chip", async () => {
     chatVoice = { voiceId: 'news', voiceName: 'News', marks: [] };
     await mount();
-    fireEvent.click(await screen.findByRole('button', { name: '✎ News' }));
+    const chip = await screen.findByRole('button', { name: '✎ News' });
+    openMenu(chip);
+    await flushMenu();
+    let menu = screen.getByRole('menu', { name: 'This chat writes in' });
+    expect(within(menu).getByText('This chat writes in')).toBeTruthy();
+    expect(within(menu).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'News',
+      'Plain working',
+      "Use Marlow's voice",
+    ]);
+    expect(within(menu).getByRole('menuitemradio', { name: 'News' }).getAttribute('aria-checked')).toBe('true');
+    expect(within(menu).getByRole('menuitem', { name: 'Manage voices…' })).toBeTruthy();
+    // Escape closes it and puts focus back on the chip.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await flushMenu();
+    expect(screen.queryByRole('menu', { name: 'This chat writes in' })).toBeNull();
+    expect(document.activeElement).toBe(chip);
+    openMenu(chip);
+    await flushMenu();
+    menu = screen.getByRole('menu', { name: 'This chat writes in' });
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: "Use Marlow's voice" }));
+      fireEvent.click(within(menu).getByRole('menuitemradio', { name: "Use Marlow's voice" }));
     });
     expect(setChat).toHaveBeenCalledWith('s1', null);
     expect(await screen.findByText("Back to Marlow's voice from here")).toBeTruthy();

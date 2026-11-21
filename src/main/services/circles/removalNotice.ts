@@ -7,40 +7,28 @@
  * goes over the encrypted stream. A peer on a build without this channel never opens it, and
  * frames waiting for it go when the connection closes.
  */
-import Protomux, { type ProtomuxMessage } from 'protomux';
 import type { SecretStream } from 'hyperswarm';
-import { frameEncoding } from './signalChannel';
+import { FrameChannel } from './frameChannel';
 
 const REMOVAL_PROTOCOL = 'boundary/circle-removal/1';
+/** Notices held while the channel opens: one small frame per Circle the device was removed from. */
+const MAX_WAITING_NOTICES = 16;
 
 export class RemovalLink {
-  private message: ProtomuxMessage<Buffer> | null = null;
-  private waiting: Buffer[] = [];
-  private isOpen = false;
-
   /** Null when the stream already has this channel or is gone. */
   static attach(connection: SecretStream, onFrame: (circleKey: Buffer) => void): RemovalLink | null {
-    const link = new RemovalLink();
-    const channel = Protomux.from(connection).createChannel({
+    const channel = FrameChannel.attach(connection, {
       protocol: REMOVAL_PROTOCOL,
-      onopen: () => {
-        link.isOpen = true;
-        for (const frame of link.waiting) link.message?.send(frame);
-        link.waiting = [];
-      },
-      onclose: () => {
-        link.isOpen = false;
-        link.waiting = [];
-      },
+      maxWaiting: MAX_WAITING_NOTICES,
+      onframe: onFrame,
     });
-    if (!channel) return null;
-    link.message = channel.addMessage({ encoding: frameEncoding, onmessage: onFrame });
-    channel.open();
-    return link;
+    return channel ? new RemovalLink(channel) : null;
   }
 
-  send(circleKey: Buffer): void {
-    if (this.isOpen) this.message?.send(circleKey);
-    else this.waiting.push(circleKey);
+  private constructor(private readonly channel: FrameChannel) {}
+
+  /** False when the notice was dropped: the channel closed, or it isn't open and is full. */
+  send(circleKey: Buffer): boolean {
+    return this.channel.send(circleKey);
   }
 }

@@ -12,6 +12,7 @@ import {
   readActualRows,
   type ActualService,
 } from '../actualAddon';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
 import { createActualFakeStack, type ActualFakeStack } from './actualFake';
 
 let stack: ActualFakeStack;
@@ -23,6 +24,7 @@ beforeEach(() => {
   logs = [];
   service = createActualService({
     paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+    files: stack.files,
     run: (script, args, options) => stack.run(script, args, options),
     exclusive: (work) => work(),
     log: (message, data) => logs.push({ message, data }),
@@ -53,7 +55,7 @@ describe('connect', () => {
       sync_id: 'home-1',
     });
     expect(connect.args.join(' ')).not.toContain('right-password');
-    expect(service.overview().budgets).toEqual([
+    expect((await service.overview()).budgets).toEqual([
       { slug: 'home', server: 'https://budget.example.com', local: false, syncId: 'home-1', access: 'read', state: 'ok' },
     ]);
   });
@@ -62,7 +64,7 @@ describe('connect', () => {
     expect(await service.connect({ ...remote, access: 'write' })).toEqual({ ok: true, mcp: ['budget-home'] });
     expect(stack.calls.at(-1)!.input).toMatchObject({ bind: { default: 'rw', browser: 'rw', 'api-server': 'ro' } });
     expect(stack.calls.at(-1)!.input).not.toHaveProperty('access');
-    expect(service.overview().budgets[0]!.access).toBe('write');
+    expect((await service.overview()).budgets[0]!.access).toBe('write');
   });
 
   it('sends only the session token when one is given', async () => {
@@ -152,7 +154,7 @@ describe('status', () => {
       ['odd', 'unknown'],
     ]);
     stack.setEnv({ ACTUAL_LOCAL_ENABLED: '1' });
-    expect(service.overview().budgets.find((b) => b.slug === 'mac')!.state).toBe('ok');
+    expect((await service.overview()).budgets.find((b) => b.slug === 'mac')!.state).toBe('ok');
   });
 
   it('says why status failed and keeps the states it had', async () => {
@@ -197,9 +199,9 @@ describe('access and disconnect', () => {
   it('changes access with budget.sh access and returns the one entry', async () => {
     expect(await service.setAccess('home', 'write')).toEqual({ ok: true, mcp: ['budget-home'] });
     expect(stack.calls[0]!.args).toEqual(['access', 'home', 'write', '--json']);
-    expect(service.overview().budgets[0]!.access).toBe('write');
+    expect((await service.overview()).budgets[0]!.access).toBe('write');
     expect(await service.setAccess('home', 'read')).toEqual({ ok: true, mcp: ['budget-home'] });
-    expect(service.overview().budgets[0]!.access).toBe('read');
+    expect((await service.overview()).budgets[0]!.access).toBe('read');
   });
 
   it('disconnects, and reports an unknown slug by name', async () => {
@@ -230,17 +232,17 @@ describe('input from the renderer', () => {
 });
 
 describe('the stack’s files', () => {
-  it('reads the flags, with the default port for a bad one', () => {
+  it('reads the flags, with the default port for a bad one', async () => {
     stack.setEnv({ ACTUAL_MCP_ENABLED: 'true', ACTUAL_LOCAL_ENABLED: '0', ACTUAL_PORT: 'x' });
-    expect(readActualFlags(stack.root)).toEqual({ enabled: true, local: false, port: 5006 });
+    expect(await readActualFlags(stack.files)).toEqual({ enabled: true, local: false, port: 5006 });
   });
 
-  it('reads write access from bind.default only, ignoring an older row’s access field', () => {
+  it('reads write access from bind.default only, ignoring an older row’s access field', async () => {
     stack.addRow('a', { server: 'local', sync_id: 's', bind: { default: 'rw', browser: 'rw', 'api-server': 'ro' } });
     stack.addRow('b', { server: 'local', sync_id: 's', access: 'write', profile: 'default' });
     stack.addRow('c', { server: 'local', sync_id: 's', bind: { default: 'ro', browser: 'rw' } });
     stack.addRow('d', { server: 'local', sync_id: 's', bind: ['rw'] });
-    expect(readActualRows(stack.dataRoot).map((r) => [r.slug, r.access])).toEqual([
+    expect((await readActualRows(stack.files)).map((r) => [r.slug, r.access])).toEqual([
       ['a', 'write'],
       ['b', 'read'],
       ['c', 'read'],
@@ -248,30 +250,29 @@ describe('the stack’s files', () => {
     ]);
   });
 
-  it('skips index files with a bad name or bad JSON', () => {
+  it('skips index files with a bad name or bad JSON', async () => {
     stack.addRow('ok', { server: 'local', sync_id: 's', bind: { default: 'rw' } });
     fs.writeFileSync(path.join(stack.dataRoot, 'addons', 'actual', 'instances', 'Bad.json'), '{}');
     fs.writeFileSync(path.join(stack.dataRoot, 'addons', 'actual', 'instances', 'broken.json'), '{');
-    expect(readActualRows(stack.dataRoot)).toEqual([
+    expect(await readActualRows(stack.files)).toEqual([
       { slug: 'ok', server: 'local', local: true, syncId: 's', access: 'write' },
     ]);
   });
 
-  it('finds the add-on only with addon.sh and a manifest that has both hooks', () => {
-    const files: Record<string, string> = {};
-    const read = (p: string) => files[p] ?? null;
-    expect(actualAvailable('/s', read)).toBe(false);
-    files['/s/scripts/addon.sh'] = '#!';
-    files['/s/addons/actual/addon.json'] = JSON.stringify({ hooks: {} });
-    expect(actualAvailable('/s', read)).toBe(false);
-    files['/s/addons/actual/addon.json'] = JSON.stringify({ hooks: { init: {} }, instances: { connect: {} } });
-    expect(actualAvailable('/s', read)).toBe(true);
+  it('finds the add-on only with addon.sh and a manifest that has both hooks', async () => {
+    const files = createFakeStackFiles();
+    expect(await actualAvailable(files)).toBe(false);
+    files.files.set('stack:scripts/addon.sh', '#!');
+    files.files.set('stack:addons/actual/addon.json', JSON.stringify({ hooks: {} }));
+    expect(await actualAvailable(files)).toBe(false);
+    files.files.set('stack:addons/actual/addon.json', JSON.stringify({ hooks: { init: {} }, instances: { connect: {} } }));
+    expect(await actualAvailable(files)).toBe(true);
   });
 
   it('opens this Mac’s port, or a row’s own http(s) server', () => {
-    expect(actualOpenUrl(null, 5006)).toBe('http://localhost:5006');
-    expect(actualOpenUrl({ local: false, server: 'https://budget.example.com' }, 5006)).toBe('https://budget.example.com/');
-    expect(actualOpenUrl({ local: false, server: 'file:///etc' }, 5006)).toBeNull();
+    expect(actualOpenUrl(null, 'http://localhost:5006')).toBe('http://localhost:5006');
+    expect(actualOpenUrl({ local: false, server: 'https://budget.example.com' }, 'http://localhost:5006')).toBe('https://budget.example.com/');
+    expect(actualOpenUrl({ local: false, server: 'file:///etc' }, 'http://localhost:5006')).toBeNull();
   });
 });
 

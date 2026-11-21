@@ -13,13 +13,13 @@ import { registerOnboardingHandlers } from '../ipcHandlers';
 import { captureIpcHandlers } from '../../__tests__/captureIpcHandlers';
 import {
   clearOpenAiConfig,
-  getAppDefaultSlot,
   getSlotApiKey,
   saveLlmConnection,
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
   updateLlmModel,
 } from '../OpenAiOnboardingStore';
+import { getAppDefaultSlot } from '../../inference/appInferenceChoice';
 import { MANUAL_LLM_CAPABILITIES, OAUTH_LLM_CAPABILITIES } from '../../../../shared/llmConnectionDefaults';
 
 type Handler = (input: unknown) => Promise<any>;

@@ -4,6 +4,7 @@ import { Callout } from '../../components/ui/alert';
 import { Progress } from '../../components/ui/progress';
 import { StepListRow, type StepLook } from '../../components/ui/step-list';
 import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import type {
   AddonCatalogEntry,
   AddonId,
@@ -23,6 +24,7 @@ import {
   waitingForRestart,
 } from './addonCopy';
 import { openAddon } from './AddonDetail';
+import { lineFromIpc } from './addonPageActions';
 import { isBuiltinAddon } from './storeItems';
 import { agentName, hostedOf, useTwentyWorkspaces } from './useTwenty';
 import { budgetName, useActualOverview } from './useActual';
@@ -133,24 +135,15 @@ const Failure: React.FC<{ entry: AddonCatalogEntry; install: AddonInstallSnapsho
   onUndone,
 }) => {
   const error = install.error!;
-  const [busy, setBusy] = useState(false);
-  const [undoError, setUndoError] = useState<string | null>(null);
+  const { busy, error: undoError, setError: setUndoError, run } = useSheetAction();
 
   const undo = async () => {
-    setBusy(true);
-    setUndoError(null);
-    let failure: string | null;
-    try {
-      const result = await window.electronAPI.addons.undo(entry.id);
-      failure = result.success ? null : (result.error ?? 'Undo didn’t finish.');
-    } catch (e) {
-      failure = e instanceof Error ? e.message : String(e);
-    }
-    setBusy(false);
-    if (failure) {
+    const undone = await run(async () => {
+      const failure = await lineFromIpc(() => window.electronAPI.addons.undo(entry.id), 'Undo didn’t finish.');
       setUndoError(failure);
-      return;
-    }
+      return failure === null;
+    });
+    if (!undone) return;
     forgetAddonInstall(entry.id);
     void reloadAddons();
     onUndone();

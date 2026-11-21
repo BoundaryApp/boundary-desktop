@@ -40,4 +40,26 @@ describe('sendOnboardingTestMessage', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('openrouter.ai');
     expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('11434');
   });
+
+  it('accepts a reasoning-only reply, as endpoint verification does', async () => {
+    await saveLocalLlmEndpoint({
+      runtime: 'ollama',
+      endpointUrl: 'http://127.0.0.1:11434/v1/',
+      modelId: 'qwen3:14b',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({ choices: [{ message: { content: '', reasoning_content: 'ready' } }] }),
+      })
+    );
+
+    expect(await sendOnboardingTestMessage('Reply with the word ready.')).toEqual({
+      success: true,
+      content: 'ready',
+    });
+  });
 });

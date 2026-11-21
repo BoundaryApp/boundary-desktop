@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { createStoredValue } from './lib/valueStore';
 import {
   DEFAULT_REPLY_TEXT,
   REPLY_TEXT_STORAGE_KEY,
@@ -9,24 +9,13 @@ import {
 // Reply text lives only in the renderer: nothing in the main process reads it, so localStorage
 // is the store, read synchronously before React mounts so replies never paint at the old size.
 
-const REPLY_TEXT_CHANGE_EVENT = 'boundary:reply-text';
-
-function readStoredReplyText(): ReplyTextPreference {
-  try {
-    const stored = window.localStorage.getItem(REPLY_TEXT_STORAGE_KEY);
-    return stored ? normalizeReplyText(JSON.parse(stored)) : DEFAULT_REPLY_TEXT;
-  } catch {
-    return DEFAULT_REPLY_TEXT;
-  }
-}
-
-function storeReplyText(preference: ReplyTextPreference): void {
-  try {
-    window.localStorage.setItem(REPLY_TEXT_STORAGE_KEY, JSON.stringify(preference));
-  } catch {
-    // Applied for this session; the next launch falls back to the default.
-  }
-}
+const replyText = createStoredValue<ReplyTextPreference>(
+  REPLY_TEXT_STORAGE_KEY,
+  DEFAULT_REPLY_TEXT,
+  // The codec has already made any parsed value valid.
+  (value): value is ReplyTextPreference => typeof value === 'object' && value !== null,
+  { parse: (raw) => normalizeReplyText(JSON.parse(raw)), stringify: JSON.stringify }
+);
 
 /** Sets the prose tokens (tokens.css) on <html> so every .wb-prose picks them up. */
 function applyReplyText(preference: ReplyTextPreference): void {
@@ -40,28 +29,21 @@ function applyReplyText(preference: ReplyTextPreference): void {
   style.setProperty('--weight-prose', String(preference.face === 'sans' ? preference.weight : 400));
 }
 
+const applyOnChange = (): (() => void) => replyText.subscribe(() => applyReplyText(replyText.get()));
+applyOnChange();
+
 export function initReplyText(): void {
-  applyReplyText(readStoredReplyText());
+  // Read storage afresh; the reset drops subscribers, so the apply step subscribes again.
+  replyText.reset();
+  applyOnChange();
+  applyReplyText(replyText.get());
+}
+
+function setReplyText(next: ReplyTextPreference): void {
+  replyText.set(normalizeReplyText(next));
 }
 
 /** Current reply text and a setter that stores and applies it in every mounted control. */
 export function useReplyText(): [ReplyTextPreference, (next: ReplyTextPreference) => void] {
-  const [preference, setPreferenceState] = useState<ReplyTextPreference>(readStoredReplyText);
-
-  useEffect(() => {
-    const onChange = (event: Event) => {
-      setPreferenceState((event as CustomEvent<ReplyTextPreference>).detail);
-    };
-    window.addEventListener(REPLY_TEXT_CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(REPLY_TEXT_CHANGE_EVENT, onChange);
-  }, []);
-
-  const setPreference = useCallback((next: ReplyTextPreference) => {
-    const valid = normalizeReplyText(next);
-    storeReplyText(valid);
-    applyReplyText(valid);
-    window.dispatchEvent(new CustomEvent(REPLY_TEXT_CHANGE_EVENT, { detail: valid }));
-  }, []);
-
-  return [preference, setPreference];
+  return [replyText.use(), setReplyText];
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { RAW_STRING_CODEC, createStoredValue } from '../../lib/valueStore';
 
 // What Enter does while an agent is replying (run-control spec 2.7): ask each time (the
 // menu), or always queue. Only the renderer reads it, so localStorage is the store, as for
@@ -7,34 +7,25 @@ import { useCallback, useEffect, useState } from 'react';
 export type BusySendPref = 'ask' | 'queue';
 
 export const BUSY_SEND_STORAGE_KEY = 'boundary:busy-send';
-const CHANGE_EVENT = 'boundary:busy-send';
+
+// Stored unquoted ("queue"), as it was before this used lib/valueStore.
+const busySend = createStoredValue<BusySendPref>(
+  BUSY_SEND_STORAGE_KEY,
+  'ask',
+  (value): value is BusySendPref => value === 'ask' || value === 'queue',
+  RAW_STRING_CODEC
+);
 
 export function readBusySendPref(): BusySendPref {
-  try {
-    return window.localStorage.getItem(BUSY_SEND_STORAGE_KEY) === 'queue' ? 'queue' : 'ask';
-  } catch {
-    return 'ask';
-  }
+  return busySend.get();
 }
 
 /** The current choice and a setter that stores it and updates every mounted control. */
 export function useBusySendPref(): [BusySendPref, (next: BusySendPref) => void] {
-  const [pref, setPrefState] = useState<BusySendPref>(readBusySendPref);
+  return [busySend.use(), busySend.set];
+}
 
-  useEffect(() => {
-    const onChange = (event: Event) => setPrefState((event as CustomEvent<BusySendPref>).detail);
-    window.addEventListener(CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(CHANGE_EVENT, onChange);
-  }, []);
-
-  const setPref = useCallback((next: BusySendPref) => {
-    try {
-      window.localStorage.setItem(BUSY_SEND_STORAGE_KEY, next);
-    } catch {
-      // Applies for this session; the next launch asks again.
-    }
-    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: next }));
-  }, []);
-
-  return [pref, setPref];
+/** @internal Vitest only: read storage again on next use. */
+export function resetBusySendPrefForTests(): void {
+  busySend.reset();
 }

@@ -11,10 +11,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { runAddonScriptPlain } from '../../addons/addonScript';
 import { emailAvailable } from '../../addons/emailAddon';
 import { probeStack, skipNote } from './stackHarness';
+import { isRecord } from '../../../../shared/utils/isRecord';
+import { localRunScript } from '../../stackHost/localScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
 
 const probe = await probeStack();
 const root = probe.ok ? probe.target.root : '';
-const ready = probe.ok && emailAvailable(root);
+const ready = probe.ok && (await emailAvailable(localStackFiles({ stackRoot: root, userContentRoot: () => `${root}/data` })));
 const note = probe.ok && !ready ? ' (skipped: the stack tree does not offer the email add-on)' : skipNote(probe);
 
 type Spec = Record<string, unknown>;
@@ -23,11 +26,9 @@ interface EmailSchema {
   instances: { name: unknown; settings: Record<string, Spec> };
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** The `email` entry's `schema` and nothing else from the listing. Throws a message with no listing content. */
 async function readSchema(): Promise<EmailSchema> {
-  const outcome = await runAddonScriptPlain({ root, env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
+  const outcome = await runAddonScriptPlain({ runScript: localRunScript(root), env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
   if (outcome.code !== 0) throw new Error(`addon.sh list exited with code ${outcome.code}`);
   let list: unknown;
   try {

@@ -30,6 +30,7 @@ import { PodmanMachineService, createPodmanMachineService } from './PodmanMachin
 import {
   clearRuntimeProvisionProgress,
   setRuntimeProvisionProgress,
+  setRuntimeProvisionStage,
 } from './provisionProgress';
 import {
   fileStatForLog,
@@ -39,6 +40,8 @@ import {
 } from '../../persistDebugLog';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { engineCeilingMiB, engineSizeMiB } from '../../../shared/engineSizing';
+import { hasStackCapability } from '../stackHost/capabilities';
+import { STACK_CAPABILITY_MISSING_TEXT } from '../../../shared/stackCapabilities';
 
 const execFileAsync = promisify(execFile);
 
@@ -271,9 +274,9 @@ async function defaultEnsureBundledMachine(
   env: NodeJS.ProcessEnv
 ): Promise<{ apiEndpoint: string; dockerHost: string }> {
   const service = createPodmanMachineService(paths, env, execFileAsync, await bundledEngineMiB());
-  const result = await service.ensureRunning((message) => {
-    persistDebugLog('runtime', 'podman provision progress', { message });
-    setRuntimeProvisionProgress(message);
+  const result = await service.ensureRunning((message, stage) => {
+    persistDebugLog('runtime', 'podman provision progress', { message, stage: stage ?? null });
+    setRuntimeProvisionProgress(message, stage);
   });
   return { apiEndpoint: result.apiEndpoint, dockerHost: result.dockerHost };
 }
@@ -290,7 +293,7 @@ async function bundledEngineMiB(): Promise<number> {
   try {
     const { engineReservationsMiB } = await import('../addons/engineReservations');
     const { pendingEngineFloorMiB } = await import('../addons/engineMakeRoom');
-    reserved = engineReservationsMiB();
+    reserved = await engineReservationsMiB();
     floorMiB = pendingEngineFloorMiB();
   } catch (error) {
     persistDebugLog('runtime', 'engine reservations unreadable', serializeError(error));
@@ -309,6 +312,10 @@ async function ensureBundledPodman(
     platform: deps.platform,
     arch: deps.arch,
   });
+  // Starting and sizing the engine is Boundary's only on a host it controls.
+  if (!hasStackCapability('engineControl')) {
+    throw new ContainerRuntimeUnavailableError(STACK_CAPABILITY_MISSING_TEXT.engineControl);
+  }
 
   if (deps.platform !== 'darwin') {
     throw new ContainerRuntimeUnavailableError(
@@ -342,7 +349,7 @@ async function ensureBundledPodman(
     );
   }
 
-  setRuntimeProvisionProgress(`Configuring ${APP_NAME} container engine…`);
+  setRuntimeProvisionProgress(`Configuring ${APP_NAME} container engine…`, 'configure');
   await ensureContainersConf(paths, arch);
   persistDebugLog('runtime', 'containers.conf written', {
     path: paths.containersConfPath,
@@ -377,7 +384,7 @@ async function ensureBundledPodman(
       field: 'composeVersion',
     }).catch((): null => null)) || null;
 
-  setRuntimeProvisionProgress(`Provisioned ${APP_NAME} container engine.`);
+  setRuntimeProvisionProgress(`Provisioned ${APP_NAME} container engine.`, 'ready');
 
   return {
     kind: 'podman',
@@ -403,10 +410,12 @@ export async function resolveContainerRuntime(
 ): Promise<ContainerRuntime> {
   const merged: ResolveContainerRuntimeDeps = { ...defaultDeps, ...deps };
 
+  setRuntimeProvisionStage('docker');
   try {
     const runtime = await probeSystemDocker(merged);
     lastResolveError = null;
     logResolved('resolved system Docker', runtime);
+    setRuntimeProvisionStage('ready');
     return runtime;
   } catch (dockerError) {
     persistDebugLog('runtime', 'system Docker failed; trying bundled Podman', serializeError(dockerError));
@@ -486,7 +495,7 @@ export async function stopBundledMachineIfStarted(
   execFileFn: typeof execFileAsync = execFileAsync
 ): Promise<boolean> {
   const started = startedBundledMachine;
-  if (!started) return false;
+  if (!started || !hasStackCapability('engineControl')) return false;
   startedBundledMachine = null;
   const service = new PodmanMachineService({
     execFile: execFileFn,

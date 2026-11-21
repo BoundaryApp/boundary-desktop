@@ -30,7 +30,7 @@ function InlineConfirm({
   /** What happens if they confirm. */
   children: React.ReactNode
 }) {
-  useEscapeToClose(onCancel, busy || escapeDisabled)
+  useEscapeToClose(onCancel, escapeDisabled, busy)
   return (
     <div className="wb-inline-confirm" role="alertdialog" aria-label={label}>
       <p>{children}</p>

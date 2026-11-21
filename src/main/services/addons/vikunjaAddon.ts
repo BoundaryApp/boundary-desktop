@@ -1,15 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readEnvFile } from '../assistant/stackEnv';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
 import {
   enableAddon,
   findListEntry,
+  flagOn,
   readStackFile,
   type AddonScriptLine,
   type AddonScriptOutcome,
   type PlainOutcome,
 } from './addonScript';
 import type { ScriptAddonDeps } from './scriptAddonInstaller';
+import { copyThenClear, type SecretClipboard } from './secretClipboard';
+import { stackFilesAt } from '../stackHost/activeStack';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 // Todo lists (Vikunja, CR 0032, stack 0.3.15). The stack keeps everything: `addon.sh enable
 // vikunja` registers the database schema (hook `prepare`), starts `vikunja` and `vikunja-proxy`,
@@ -21,9 +26,9 @@ const ENABLE_TIMEOUT_MS = 1_800_000;
 const LIST_TIMEOUT_MS = 60_000;
 
 /** The stack tree offers Todo lists: `addon.sh`, and a manifest with the `prepare` hook (0.3.15). */
-export function vikunjaAvailable(root: string, read: (p: string) => string | null = readStackFile): boolean {
-  const manifest = read(path.join(root, 'addons', 'vikunja', 'addon.json'));
-  if (manifest === null || read(path.join(root, 'scripts', 'addon.sh')) === null) return false;
+export async function vikunjaAvailable(files: StackFiles): Promise<boolean> {
+  const manifest = await readStackFile(files, 'addons/vikunja/addon.json');
+  if (manifest === null || (await readStackFile(files, 'scripts/addon.sh')) === null) return false;
   try {
     const m = JSON.parse(manifest) as { hooks?: { prepare?: unknown } };
     return Boolean(m.hooks?.prepare);
@@ -32,11 +37,41 @@ export function vikunjaAvailable(root: string, read: (p: string) => string | nul
   }
 }
 
-const on = (value: string | undefined): boolean => /^(1|true|yes|on)$/i.test((value ?? '').trim());
-
 /** `VIKUNJA_MCP_ENABLED` in the stack's `.env`, which `addon.sh enable` and `disable` write. */
-export function readVikunjaEnabled(root: string): boolean {
-  return on(readEnvFile(path.join(root, '.env')).VIKUNJA_MCP_ENABLED);
+export async function readVikunjaEnabled(files: StackFiles): Promise<boolean> {
+  return flagOn((await readStackEnv(files, 'stack', '.env')).VIKUNJA_MCP_ENABLED);
+}
+
+/**
+ * The account `/login-local` signs in as: `todo.sh init` writes `VIKUNJA_USERNAME` and a generated
+ * `VIKUNJA_PASSWORD` to the stack's `.env` (stack 0.3.15). The username can be an account the
+ * stack adopted, so it's read, not assumed. Null while Todo lists is off or before `init`:
+ * `addon.sh remove` leaves both keys in `.env`, and they'd name an account that's gone.
+ */
+export async function readVikunjaLogin(files: StackFiles): Promise<{ username: string; password: string } | null> {
+  const env = await readStackEnv(files, 'stack', '.env');
+  if (!flagOn(env.VIKUNJA_MCP_ENABLED)) return null;
+  const username = env.VIKUNJA_USERNAME?.trim() ?? '';
+  const password = env.VIKUNJA_PASSWORD ?? '';
+  return username && password ? { username, password } : null;
+}
+
+/** The username to show beside Copy password; the password stays in main. */
+export async function vikunjaAccount(files: StackFiles): Promise<{ username: string } | null> {
+  const login = await readVikunjaLogin(files);
+  return login ? { username: login.username } : null;
+}
+
+/** Copies the account's password, cleared after 60 s. False when there's no login to copy. */
+export async function copyVikunjaPassword(deps: {
+  files: StackFiles;
+  clipboard: SecretClipboard;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+}): Promise<boolean> {
+  const login = await readVikunjaLogin(deps.files);
+  if (!login) return false;
+  await copyThenClear(deps.clipboard, login.password, deps.setTimer);
+  return true;
 }
 
 /**
@@ -46,15 +81,10 @@ export function readVikunjaEnabled(root: string): boolean {
  * Neither alone says it: `todo.sh prepare` creates the folder on every `enable`, before anything
  * can fail, and `remove --delete-data` deletes the folder but keeps `state.json`.
  */
-export function vikunjaDataLeft(
-  root: string,
-  dataRoot: string,
-  read: (p: string) => string | null = readStackFile,
-  exists: (p: string) => boolean = fs.existsSync
-): boolean {
-  const dir = readEnvFile(path.join(root, '.env')).VIKUNJA_FILES_DIR?.trim() || './data/vikunja/files';
-  if (!exists(path.resolve(root, dir))) return false;
-  const state = read(path.join(dataRoot, 'addons', 'vikunja', 'state.json'));
+export async function vikunjaDataLeft(files: StackFiles, root: string): Promise<boolean> {
+  const dir = (await readStackEnv(files, 'stack', '.env')).VIKUNJA_FILES_DIR?.trim() || './data/vikunja/files';
+  if (!(await filesFolderExists(files, root, dir))) return false;
+  const state = await files.readText('userContent', 'addons/vikunja/state.json');
   if (state === null) return false;
   try {
     const parsed = JSON.parse(state) as unknown;
@@ -64,7 +94,16 @@ export function vikunjaDataLeft(
   }
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+/**
+ * Whether the folder `VIKUNJA_FILES_DIR` names exists. A path inside the stack folder is asked of
+ * `files`; one elsewhere on this Mac, which the setting allows, is checked directly.
+ */
+async function filesFolderExists(files: StackFiles, root: string, dir: string): Promise<boolean> {
+  const resolved = path.resolve(root, dir);
+  const rel = path.relative(root, resolved);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return fs.existsSync(resolved);
+  return files.exists('stack', rel);
+}
 
 /** The vikunja entry of `addon.sh list --json`: whether it's on and its `web.url`. Null without one. */
 export function parseVikunjaListing(stdout: string): { enabled: boolean; webUrl: string | null } | null {
@@ -106,7 +145,7 @@ export interface VikunjaService {
 export function createVikunjaService(deps: VikunjaServiceDeps): VikunjaService {
   return {
     enable: (options = {}) => enableAddon(deps, 'vikunja', { timeoutMs: ENABLE_TIMEOUT_MS, onLine: options.onLine }),
-    refresh: async () => ({ enabled: readVikunjaEnabled(deps.paths().root) }),
+    refresh: async () => ({ enabled: await readVikunjaEnabled(stackFilesAt(deps.paths().root)) }),
     webUrl: async () => {
       const outcome = await deps.plain(['list', '--json'], { timeoutMs: LIST_TIMEOUT_MS });
       if (outcome.code !== 0) {

@@ -1,7 +1,9 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
+import { poolBridge } from '../../../__tests__/confidentialFixtures';
+import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 import type { HermesChatBreakdownResult, HermesProjectRecord, PoolServedTurn, TurnWindow } from '../../../../shared/types/hermesChat';
 import type { PoolStop } from '../../../../shared/types/confidentialState';
 import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react';
@@ -83,6 +85,7 @@ afterEach(() => {
 });
 
 import { WorkbenchThread } from '../WorkbenchThread';
+import { patchProjectInference } from '../useProjects';
 import { HostedChatRuntime } from './threadHarness';
 import { takeInferenceStatus } from '../../../onboarding/inferenceStatus';
 import { poolMoveMarks, poolReplyTurns } from '../PoolReplyLine';
@@ -116,7 +119,9 @@ const Harness: React.FC<{
         activeProject={project}
         projects={project ? [project] : []}
         activeProjectId={project?.id ?? null}
-        onProjectsUpdated={onProjectsUpdated}
+        patchInference={
+          onProjectsUpdated ? (id, pin) => patchProjectInference(id, pin, onProjectsUpdated) : undefined
+        }
         toolsEnabled
         onToolsEnabledChange={() => undefined}
         onSelectProject={() => undefined}
@@ -437,6 +442,22 @@ describe('WorkbenchThread when a private project’s pool has no provider at its
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Use Local for this chat' })));
     expect(setSessionInference).toHaveBeenCalledWith({ sessionId: 's1', provider: 'local', modelId: 'qwen3:14b' });
     expect(run).toHaveBeenCalled();
+  });
+
+  it('names the model by its name when no provider is added', async () => {
+    resetIpcStoresForTests();
+    stubElectronAPI({ confidential: poolBridge() });
+    try {
+      main.current = { ...refused, poolStop: { ...stop, providers: [] } };
+      await status(true);
+      await act(async () => void render(<Harness project={project} />));
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(/You haven’t added a provider that carries Qwen 3\.8 27B\./)
+      );
+    } finally {
+      stubElectronAPI({ confidential: { getState: vi.fn(() => new Promise<never>(() => undefined)) } });
+      resetIpcStoresForTests();
+    }
   });
 
   it('disables Use Local and says what to connect when there is no local model', async () => {

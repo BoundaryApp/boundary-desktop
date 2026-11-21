@@ -83,6 +83,18 @@ describe('AddonDetail', () => {
     expect(((await installButton()) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('says the engine is on another computer, and installs without making room', async () => {
+    const addons = stubAddons([
+      listing({ engineMiB: 0, usedMiB: 0, hostMiB: 0, diskFreeBytes: 0, engineResizable: false, measured: false }),
+    ]);
+    renderDetail();
+    expect(await screen.findByText("Your agent runs on another computer, so Boundary doesn't start or size its container engine.")).toBeTruthy();
+    expect(screen.queryByText('Start the agent stack to check whether this fits.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Make room and install' })).toBeNull();
+    fireEvent.click(await installButton());
+    expect(addons.install).toHaveBeenCalledWith('twenty', { access: 'write' });
+  });
+
   it('offers Start and Mark as not installed while installed Twenty is not running', async () => {
     const addons = stubAddons([listing({}, true, true, false, true)]);
     renderDetail();
@@ -152,7 +164,7 @@ describe('AddonDetail', () => {
     expect(remove.disabled).toBe(true);
     expect(
       screen.getByText(
-        "Remove Twenty's data from the stack checkout instead; Boundary doesn't delete files in a local stack."
+        "Remove the add-on's data from the stack checkout instead; Boundary doesn't delete files in a local stack."
       )
     ).toBeTruthy();
     fireEvent.click(remove);

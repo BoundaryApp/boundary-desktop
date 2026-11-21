@@ -10,10 +10,12 @@
  * Kept free of native modules so it can be tested on its own; the signature check is passed in.
  */
 
+import { MAX_MESSAGE_TEXT_BYTES } from '../../../shared/circleDirect';
 import { MENTIONS_FORMAT } from '../../../shared/circleMentions';
-import { cleanReply, IDENTITY_PATTERN, MESSAGE_ID_PATTERN, REPLIES_FORMAT } from '../../../shared/circleReplies';
+import { cleanReply, MESSAGE_ID_PATTERN, REPLIES_FORMAT } from '../../../shared/circleReplies';
 import type { CircleMessageRef, SharedModelOffer } from '../../../shared/types/circles';
 import { type ApplyHost, type ApplyNode, applyEach } from './autobaseApply';
+import { HEX_KEY_PATTERN, HEX_SIGNATURE_PATTERN } from '../../../shared/hexKeys';
 
 export type CircleRole = 'admin' | 'member';
 
@@ -232,8 +234,6 @@ export interface CircleApplyDeps {
   onRemoveMember?(identity: string, byThemselves: boolean): void;
 }
 
-const HEX_KEY = IDENTITY_PATTERN;
-const HEX_SIGNATURE = /^[0-9a-f]{128}$/;
 const MAX_NAME = 80;
 const MAX_OFFERED_MODELS = 32;
 const MAX_MODEL_ID = 200;
@@ -241,9 +241,6 @@ const MAX_CONTEXT = 100_000_000;
 /** The longest record value, as JSON text. */
 export const MAX_RECORD_VALUE_BYTES = 16 * 1024;
 const RECORD_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const MESSAGE_ID = MESSAGE_ID_PATTERN;
-/** The longest message text, as UTF-8. */
-const MAX_MESSAGE_TEXT_BYTES = 12 * 1024;
 /** The longest chat operation, as JSON text. */
 const MAX_CHAT_OP_BYTES = 16 * 1024;
 const MAX_MODEL_NAME = 200;
@@ -269,10 +266,10 @@ function isIntro(value: unknown): value is CircleMemberIntro {
   return (
     typeof intro === 'object' &&
     intro !== null &&
-    HEX_KEY.test(intro.identity) &&
-    HEX_KEY.test(intro.writer) &&
-    HEX_KEY.test(intro.device) &&
-    HEX_SIGNATURE.test(intro.signature) &&
+    HEX_KEY_PATTERN.test(intro.identity) &&
+    HEX_KEY_PATTERN.test(intro.writer) &&
+    HEX_KEY_PATTERN.test(intro.device) &&
+    HEX_SIGNATURE_PATTERN.test(intro.signature) &&
     typeof intro.name === 'string' &&
     intro.name.trim().length > 0 &&
     intro.name.length <= MAX_NAME
@@ -317,7 +314,7 @@ function cleanOffer(value: unknown): CircleOffer | null {
   return { models, available: offer.available, away: offer.away };
 }
 
-export const isMessageId = (id: unknown): id is string => typeof id === 'string' && MESSAGE_ID.test(id);
+export const isMessageId = (id: unknown): id is string => typeof id === 'string' && MESSAGE_ID_PATTERN.test(id);
 
 /** Whether `text` fits; it may be empty only when the message marks a call. */
 export function isMessageText(text: unknown, call: boolean): text is string {
@@ -363,7 +360,7 @@ export function cleanMentions(value: unknown, isMember: (identity: string) => bo
     if (!Array.isArray(members) || members.length < 1 || members.length > MAX_MENTIONED_MEMBERS) return null;
     const seen = new Set<string>();
     for (const identity of members) {
-      if (typeof identity !== 'string' || !HEX_KEY.test(identity) || seen.has(identity) || !isMember(identity)) return null;
+      if (typeof identity !== 'string' || !HEX_KEY_PATTERN.test(identity) || seen.has(identity) || !isMember(identity)) return null;
       seen.add(identity);
     }
     clean.members = [...seen];
@@ -476,7 +473,7 @@ async function applyOne(
     case 'invite': {
       if (authorRole !== 'admin') return 'only admins invite';
       const { id, publicKey, expires } = op.invite ?? ({} as CircleInviteRecord);
-      if (!HEX_KEY.test(id) || !HEX_KEY.test(publicKey) || typeof expires !== 'number') return 'bad invite';
+      if (!HEX_KEY_PATTERN.test(id) || !HEX_KEY_PATTERN.test(publicKey) || typeof expires !== 'number') return 'bad invite';
       if (await view.get(inviteKey(id))) return 'invite exists';
       await view.put(inviteKey(id), { id, publicKey, expires, createdBy: author!.identity });
       return null;
@@ -602,7 +599,7 @@ async function deleteDepartedRecord(
   authorRole: CircleRole
 ): Promise<string | null> {
   if (authorRole !== 'admin') return 'only admins delete another member’s record';
-  if (op.scope !== 'member' || typeof op.identity !== 'string' || !HEX_KEY.test(op.identity)) return 'bad record';
+  if (op.scope !== 'member' || typeof op.identity !== 'string' || !HEX_KEY_PATTERN.test(op.identity)) return 'bad record';
   if (await view.get(memberKey(op.identity))) return 'that member is still in the Circle';
   const key = memberRecordKey(op.identity, op.app, op.key);
   const record = await read<CircleRecord>(view, key);
@@ -713,7 +710,7 @@ async function deleteMessage(
   identity: string,
   role: CircleRole
 ): Promise<string | null> {
-  if (typeof op.author !== 'string' || !HEX_KEY.test(op.author)) return 'bad message';
+  if (typeof op.author !== 'string' || !HEX_KEY_PATTERN.test(op.author)) return 'bad message';
   if (op.author !== identity && role !== 'admin') return 'only the author or an admin deletes';
   const message = await findMessage(view, op.channel, op.author, op.id);
   if (!message) return 'no such message';

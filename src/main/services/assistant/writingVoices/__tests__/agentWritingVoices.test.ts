@@ -57,7 +57,6 @@ import {
   writingVoiceTurnContext,
   clearWritingVoiceFromAgents,
   setAgentWritingVoices,
-  writingVoiceSessionContext,
   writingVoiceUsers,
 } from '../agentWritingVoices';
 
@@ -103,8 +102,8 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-describe('writingVoiceSessionContext', () => {
-  const ctx = (slug: string) => writingVoiceSessionContext(slug, { contentRoot: root });
+describe('the session writing voice text', () => {
+  const ctx = async (slug: string) => (await resolveSessionWritingVoice(slug, { contentRoot: root })).text;
 
   it('is null for an agent with no voices', async () => {
     expect(await ctx('juniper')).toBeNull();
@@ -117,6 +116,12 @@ describe('writingVoiceSessionContext', () => {
       '[Boundary writing voice] Write every reply in this conversation in the writing voice below: ' +
         "the person's own style guide. Hold to its rules, especially \"Never does\".\n\n# Voice: plain\n\nShort.\n"
     );
+  });
+
+  it('sends a CRLF guide with LF line endings and no frontmatter', async () => {
+    voice('plain', style('# Voice: plain\n\nShort.\n').replace(/\n/g, '\r\n'));
+    h.agents = [agent('juniper', { chatRepliesVoiceId: 'plain' })];
+    expect(await ctx('juniper')).toMatch(/"Never does"\.\n\n# Voice: plain\n\nShort\.\n$/);
   });
 
   it('sends the drafts line alone, and after the guide when both are set', async () => {
@@ -206,8 +211,8 @@ describe('voice users', () => {
 });
 
 describe('a voice kept for a chat or picked for a message', () => {
-  const ctx = (slug: string, keptVoiceId: string | null) =>
-    writingVoiceSessionContext(slug, { contentRoot: root, keptVoiceId });
+  const ctx = async (slug: string, keptVoiceId: string | null) =>
+    (await resolveSessionWritingVoice(slug, { contentRoot: root, keptVoiceId })).text;
 
   it('replaces the agent voices with the kept one, drafts included', async () => {
     voice('plain', style('# Voice: plain\n'));

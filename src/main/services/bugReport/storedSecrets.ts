@@ -1,10 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { persistDebugLog } from '../../persistDebugLog';
-import { readAssistantEnvFile, resolveAssistantDataRoot, resolveAssistantProjectRoot } from '../assistant/assistantPaths';
 import { decryptCalendarPassword, listCalendarAccounts } from '../assistant/calendar/calendarStore';
-import { readEnvFile } from '../assistant/stackEnv';
+import { readStackEnv } from '../assistant/stackEnv';
+import { getStackFiles } from '../stackHost/activeStack';
 import { storedHostBridgeTokens } from '../hostBridge/hostBridgeStore';
+import { currentCredentialClientTokens } from '../hostBridge/hostBridgeService';
 import { ConfidentialStore } from '../inference/confidential/confidentialStore';
 import { storedApiKeys } from '../onboarding/OpenAiOnboardingStore';
 import { storedUpdateFeedKey } from '../updates/ipcHandlers';
@@ -28,17 +27,16 @@ function secretEnvValues(env: Record<string, string>): string[] {
 }
 
 /** The stack's `.env`, Hermes's and each Hermes profile's. */
-function stackEnvSecrets(): string[] {
-  const projectRoot = resolveAssistantProjectRoot();
-  const hermesHome = path.join(resolveAssistantDataRoot(projectRoot), 'hermes');
-  const envs = [readAssistantEnvFile(projectRoot), readEnvFile(path.join(hermesHome, '.env'))];
+async function stackEnvSecrets(): Promise<string[]> {
+  const files = getStackFiles();
+  const envs = [await readStackEnv(files, 'stack', '.env'), await readStackEnv(files, 'data', 'hermes/.env')];
   let profiles: string[] = [];
   try {
-    profiles = fs.readdirSync(path.join(hermesHome, 'profiles'));
+    profiles = (await files.list('data', 'hermes/profiles')) ?? [];
   } catch {
     // No profiles yet.
   }
-  for (const profile of profiles) envs.push(readEnvFile(path.join(hermesHome, 'profiles', profile, '.env')));
+  for (const profile of profiles) envs.push(await readStackEnv(files, 'data', `hermes/profiles/${profile}/.env`));
   return envs.flatMap(secretEnvValues);
 }
 
@@ -50,10 +48,11 @@ async function confidentialKeys(): Promise<Array<string | null>> {
 const SECRET_SOURCES: SecretSource[] = [
   { name: 'model keys', read: storedApiKeys },
   { name: 'host bridge tokens', read: storedHostBridgeTokens },
+  { name: 'credential client token', read: currentCredentialClientTokens },
   { name: 'calendar passwords', read: () => Promise.all(listCalendarAccounts().map(decryptCalendarPassword)) },
   { name: 'confidential keys', read: confidentialKeys },
   { name: 'update key', read: async () => [await storedUpdateFeedKey()] },
-  { name: 'stack env', read: async () => stackEnvSecrets() },
+  { name: 'stack env', read: stackEnvSecrets },
 ];
 
 /**

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
-import { getDebugLogPath } from '../../persistDebugLog';
+import { getDebugLogPath } from '../../host/log';
 
 /**
  * Circles diagnostics: one JSON object per line, for reading a test run between two Macs after

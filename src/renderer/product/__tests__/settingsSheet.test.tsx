@@ -108,10 +108,22 @@ describe('Settings panels over the current screen', () => {
     render(<ProductReadyShell view="chat" onNavigate={vi.fn()} />);
     act(() => openSettings({ tab: 'updates' }));
     const dialog = screen.getByRole('dialog', { name: 'Updates' });
+    fireEvent.pointerDown(dialog);
     fireEvent.click(dialog);
     expect(screen.getByRole('dialog', { name: 'Updates' })).toBeTruthy();
+    fireEvent.pointerDown(dialog.parentElement!);
     fireEvent.click(dialog.parentElement!);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('stays open when a text selection is dragged out of the panel onto the backdrop', () => {
+    render(<ProductReadyShell view="chat" onNavigate={vi.fn()} />);
+    act(() => openSettings({ tab: 'updates' }));
+    const dialog = screen.getByRole('dialog', { name: 'Updates' });
+    // The browser fires click on the common ancestor of press and release: the backdrop.
+    fireEvent.pointerDown(dialog);
+    fireEvent.click(dialog.parentElement!);
+    expect(screen.getByRole('dialog', { name: 'Updates' })).toBeTruthy();
   });
 
   it('lets a sheet inside the panel take Escape first', () => {

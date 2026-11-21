@@ -59,6 +59,12 @@ export interface CatalogProvider {
   note?: string;
   /** Where its hardware runs, when the list says. */
   runsIn?: string;
+  /**
+   * SHA-256 (lowercase hex) of each attestation manifest the adapter may accept, over the exact
+   * bytes the provider serves. Set for providers whose reference values come from a manifest
+   * Boundary fetches (Privatemode); the adapter refuses any other manifest.
+   */
+  manifestSha256?: string[];
   /** Keyed by canonical model id. */
   offers: Record<string, CatalogOffer>;
 }

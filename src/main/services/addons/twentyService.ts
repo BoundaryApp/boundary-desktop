@@ -1,6 +1,8 @@
 import type { TwentyAccess, TwentyWorkspace } from '../../../shared/types/addons';
 import { getAssistantStackAccess } from '../assistant/AssistantStackService';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
+import { stackFilesAt } from '../stackHost/activeStack';
+import type { StackCommands } from '../stackHost/types';
 import { runExclusive } from './addonInstaller';
 import {
   connectTwentyWorkspace,
@@ -9,26 +11,21 @@ import {
   type TwentyConnectInput,
   type TwentyConnectResult,
 } from './crmScript';
-import { installedAddonsHere } from './addonComposeState';
 import { addPendingChange, removePendingChanges } from './pendingRestart';
-import {
-  listTwentyWorkspaces,
-  setTwentyWorkspaceAccess,
-  twentyWorkspacesDir,
-} from './twentyWorkspaces';
+import { listTwentyWorkspaces, setTwentyWorkspaceAccess, syncTwentyMcpFlag } from './twentyWorkspaces';
 
 export interface TwentyServiceDeps {
   /** The active stack root, or null while none resolves. */
   root(): string | null;
   /** The environment the stack's scripts run with. */
   baseEnv(): Promise<NodeJS.ProcessEnv>;
-  /** Twenty is recorded as installed on the active stack. */
-  isInstalled(): boolean;
+  /** The stack host's `runScript`. */
+  runScript: StackCommands['runScript'];
   run: typeof runCrmScript;
 }
 
 export interface TwentyService {
-  listWorkspaces(): TwentyWorkspace[];
+  listWorkspaces(): Promise<TwentyWorkspace[]>;
   /** Adds a hosted workspace with crm.sh. Agents get it at the next assistant restart. */
   connect(input: TwentyConnectInput): Promise<TwentyConnectResult>;
   /** Deletes a hosted workspace's file with crm.sh. Refuses this Mac's own workspace. */
@@ -62,15 +59,15 @@ export function createTwentyService(deps: TwentyServiceDeps): TwentyService {
   };
 
   return {
-    listWorkspaces: () => {
+    listWorkspaces: async () => {
       const root = deps.root();
-      return root ? listTwentyWorkspaces(twentyWorkspacesDir(root)) : [];
+      return root ? listTwentyWorkspaces(stackFilesAt(root)) : [];
     },
 
     connect: (input) =>
       runExclusive(async () => {
-        const root = requireRoot();
-        const result = await connectTwentyWorkspace(root, await scriptEnv(), input, deps.run);
+        requireRoot();
+        const result = await connectTwentyWorkspace(deps.runScript, await scriptEnv(), input, deps.run);
         if (result.ok) addPendingChange(`Connect crm-${input.slug} (${ACCESS_LABEL[input.access]})`);
         return result;
       }),
@@ -78,17 +75,19 @@ export function createTwentyService(deps: TwentyServiceDeps): TwentyService {
     disconnect: (slug) =>
       runExclusive(async () => {
         const root = requireRoot();
-        const workspace = listTwentyWorkspaces(twentyWorkspacesDir(root)).find((w) => w.slug === slug);
+        const workspace = (await listTwentyWorkspaces(stackFilesAt(root))).find((w) => w.slug === slug);
         if (workspace?.local) {
           throw new Error(`crm-${slug} is this Mac’s Twenty. Turn it off on its card instead.`);
         }
-        await disconnectTwentyWorkspace(root, await scriptEnv(), slug, deps.run);
+        await disconnectTwentyWorkspace(deps.runScript, await scriptEnv(), slug, deps.run);
+        // crm.sh remove leaves TWENTY_MCP_ENABLED as it was.
+        await syncTwentyMcpFlag(stackFilesAt(root));
         addPendingChange(`Disconnect crm-${slug}`);
       }),
 
     setAccess: (slug, access) =>
       runExclusive(async () => {
-        setTwentyWorkspaceAccess(twentyWorkspacesDir(requireRoot()), slug, access);
+        await setTwentyWorkspaceAccess(stackFilesAt(requireRoot()), slug, access);
         const prefix = `crm-${slug}: `;
         removePendingChanges((text) => text.startsWith(prefix));
         addPendingChange(`${prefix}${ACCESS_LABEL[access]}`);
@@ -103,7 +102,7 @@ export function getTwentyService(): TwentyService {
   shared ??= createTwentyService({
     root: () => tryResolveAssistantRoot().root ?? null,
     baseEnv: () => getAssistantStackAccess().scriptEnv([]),
-    isInstalled: () => installedAddonsHere().includes('twenty'),
+    runScript: (script, args, options) => getAssistantStackAccess().runScript(script, args, options),
     run: runCrmScript,
   });
   return shared;

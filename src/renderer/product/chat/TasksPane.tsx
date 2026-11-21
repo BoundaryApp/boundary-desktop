@@ -17,6 +17,8 @@ import {
 import { TasksBoard } from './TasksBoard';
 import { WorkingDot } from './WorkingDot';
 import { Button } from '../../components/ui/button';
+import { Segmented } from '../../components/ui/segmented';
+import { InspectorToggle } from './InspectorToggle';
 
 const GROUP_ORDER: TaskGroupKey[] = ['needs', 'running', 'next', 'done'];
 
@@ -107,24 +109,16 @@ export const TasksPane: React.FC<{
   const board = view === 'board';
 
   const viewSwitch = (
-    <div className="wb-tasks-scope" role="group" aria-label="Show tasks as">
-      <button
-        type="button"
-        className={board ? '' : 'is-on'}
-        aria-pressed={!board}
-        onClick={() => onViewChange('list')}
-      >
-        List
-      </button>
-      <button
-        type="button"
-        className={board ? 'is-on' : ''}
-        aria-pressed={board}
-        onClick={() => onViewChange('board')}
-      >
-        Board
-      </button>
-    </div>
+    <Segmented
+      size="sm"
+      aria-label="Show tasks as"
+      value={view}
+      options={[
+        { value: 'list', label: 'List' },
+        { value: 'board', label: 'Board' },
+      ]}
+      onChange={onViewChange}
+    />
   );
   const openInBrowser = (
     <Button
@@ -167,27 +161,20 @@ export const TasksPane: React.FC<{
           <h1 className="wb-task-title">Tasks</h1>
           {viewSwitch}
           {project ? (
-            <div className="wb-tasks-scope" role="group" aria-label="Which tasks">
-              <button
-                type="button"
-                className={scoped ? 'is-on' : ''}
-                aria-pressed={scoped}
-                onClick={() => setAllProjects(false)}
-              >
-                {project.name}
-              </button>
-              <button
-                type="button"
-                className={scoped ? '' : 'is-on'}
-                aria-pressed={!scoped}
-                onClick={() => setAllProjects(true)}
-              >
-                All projects
-              </button>
-            </div>
+            <Segmented
+              size="sm"
+              aria-label="Which tasks"
+              value={scoped ? 'project' : 'all'}
+              options={[
+                { value: 'project', label: project.name, title: project.name },
+                { value: 'all', label: 'All projects' },
+              ]}
+              onChange={(next) => setAllProjects(next === 'all')}
+            />
           ) : null}
           <span className="wb-grow" aria-hidden="true" />
           {openInBrowser}
+          <InspectorToggle />
         </header>
 
         {!available ? (

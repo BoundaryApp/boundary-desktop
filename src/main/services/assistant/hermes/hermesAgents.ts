@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { shell } from 'electron';
 import type {
   AgentProfile,
@@ -22,6 +21,7 @@ import {
 } from '../../../../shared/hermesAgentIdentity';
 import { uniqueSlug } from '../../../../shared/utils/slug';
 import { newestFirst } from '../../../../shared/utils/sort';
+import { getStackFiles } from '../../stackHost/activeStack';
 import { resolveActiveAssistantDataRoot } from '../resolveAssistantRoot';
 import { excerptSoul, readSoulFile, resolveSoulFilePath, rewriteSoulIdentity } from './agentSoul';
 import { getHermesGatewaySession } from './hermesGatewaySession';
@@ -42,6 +42,7 @@ import {
 } from './hermesAgentStore';
 import { APP_NAME } from '../../../../shared/buildIdentity';
 import { createSerialQueue } from '../../../../shared/utils/serialQueue';
+import { hasStackCapability, stackCapabilityRefusal } from '../../stackHost/capabilities';
 
 const RESERVED_SLUGS = new Set([
   BUILTIN_ASSISTANT_SLUG,
@@ -51,9 +52,8 @@ const RESERVED_SLUGS = new Set([
   'default',
 ]);
 
-function registryPath(): string {
-  return path.join(resolveActiveAssistantDataRoot(), 'hermes', 'agents', 'registry.json');
-}
+/** Relative to the stack's `data` folder. */
+const REGISTRY_REL = 'hermes/agents/registry.json';
 
 /**
  * Agents in Hermes's registry.json. Async: the agent list asks for this often, and a local
@@ -62,13 +62,13 @@ function registryPath(): string {
  */
 async function readRegistryAgents(): Promise<AgentProfile[]> {
   try {
-    const file = registryPath();
-    let text: string;
+    let text: string | null;
     try {
-      text = await fs.promises.readFile(file, 'utf8');
+      text = await getStackFiles().readText('data', REGISTRY_REL);
     } catch {
       return [];
     }
+    if (text === null) return [];
     const raw = JSON.parse(text) as {
       agents?: Array<{
         name?: string;
@@ -105,12 +105,11 @@ const registryQueue = createSerialQueue();
 function upsertRegistry(agent: AgentProfile): Promise<void> {
   return registryQueue(async () => {
     try {
-      const file = registryPath();
-      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      const files = getStackFiles();
       let data: { agents: Array<Record<string, unknown>> } = { agents: [] };
       let text: string | null = null;
       try {
-        text = await fs.promises.readFile(file, 'utf8');
+        text = await files.readText('data', REGISTRY_REL);
       } catch {
         text = null;
       }
@@ -137,7 +136,7 @@ function upsertRegistry(agent: AgentProfile): Promise<void> {
       } else {
         data.agents.push(row);
       }
-      await fs.promises.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+      await files.writeText('data', REGISTRY_REL, `${JSON.stringify(data, null, 2)}\n`);
     } catch {
       /* registry is best-effort — electron-store is source of truth for UI */
     }
@@ -197,8 +196,9 @@ function soulForRole(displayName: string, role: string): string {
     'Room posts without @ are for later reading. Do not reply in a channel unless you are @mentioned or added and addressed.',
     '',
     '## Signing in to websites',
-    '- Call browser_vault_list. If it has a login for the site, open the sign-in page, type the username, then call browser_vault_fill.',
-    '- If it has none, open the site’s sign-in page first, then call browser_vault_save_login. The owner gets a form for it; do not ask for the login in chat.',
+    '- Follow the browser-login skill. Logins come from one tool, browser_vault, with an action; there are no browser_vault_list or browser_vault_fill tools.',
+    '- Open the site’s sign-in page first, then call browser_vault with action="list". For a login marked sign_in_only, call action="sign_in" with its handle. Otherwise type the username and call action="fill".',
+    '- If there is no login, call action="save_login". The owner gets a form for it; do not ask for the login in chat.',
     '- Never type or ask for a password yourself.',
     '',
     '## Calendars',
@@ -438,7 +438,7 @@ export async function updateHermesAgent(
     try {
       const gateway = getHermesGatewaySession();
       const current =
-        readSoulFile(resolveSoulFilePath(resolveActiveAssistantDataRoot(), agent.slug)) ??
+        (await readSoulFile(getStackFiles(), agent.slug)) ??
         (await gateway.describeProfile(agent.slug)).soul ??
         null;
       const soul = current ? rewriteSoulIdentity(current, agent, next) : null;
@@ -491,8 +491,7 @@ export async function getHermesAgentSoul(
     return { success: false, error: 'Unknown agent.' };
   }
 
-  const filePath = resolveSoulFilePath(resolveActiveAssistantDataRoot(), slug);
-  const fileSoul = readSoulFile(filePath);
+  const fileSoul = await readSoulFile(getStackFiles(), slug);
   let described: string | null;
   try {
     const snapshot = await getHermesGatewaySession().describeProfile(
@@ -512,7 +511,8 @@ export async function getHermesAgentSoul(
   return {
     success: true,
     excerpt,
-    canOpen: Boolean(fileSoul),
+    // Opening it in Finder needs the file on this machine.
+    canOpen: Boolean(fileSoul) && hasStackCapability('hostFolders'),
   };
 }
 
@@ -520,16 +520,18 @@ export async function getHermesAgentSoul(
  * The SOUL.md of an agent Boundary created, from its profile folder, or null for the built-in
  * agent (its soul is the default profile's system prompt) and for a missing or empty file.
  */
-export function readAgentSoul(slug: string): string | null {
+export async function readAgentSoul(slug: string): Promise<string | null> {
   const agent = getStoredAgent(slug);
   if (!agent || agent.builtIn) return null;
-  const soul = readSoulFile(resolveSoulFilePath(resolveActiveAssistantDataRoot(), slug))?.trim();
+  const soul = (await readSoulFile(getStackFiles(), slug))?.trim();
   return soul || null;
 }
 
 export function revealHermesAgentSoul(
   payload: HermesAgentSoulPayload
 ): { success: boolean; error?: string } {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   const slug = payload.slug.trim();
   const filePath = resolveSoulFilePath(resolveActiveAssistantDataRoot(), slug);
   if (!fs.existsSync(filePath)) {

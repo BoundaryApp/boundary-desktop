@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useDismiss, useEscapeToClose } from '../use-dismiss';
+import { EscapeDepthContext, useDismiss, useEscapeToClose } from '../use-dismiss';
 
 describe('useEscapeToClose', () => {
   it('closes on Escape unless disabled', () => {
@@ -29,6 +29,60 @@ describe('useEscapeToClose', () => {
     event.preventDefault();
     window.dispatchEvent(event);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  function Layer({
+    onClose,
+    paused = false,
+    children,
+  }: {
+    onClose: () => void;
+    paused?: boolean;
+    children?: React.ReactNode;
+  }) {
+    const depth = useEscapeToClose(onClose, false, paused);
+    return <EscapeDepthContext.Provider value={depth}>{children}</EscapeDepthContext.Provider>;
+  }
+
+  it('closes only the innermost layer, even when it mounted first', () => {
+    const outer = vi.fn();
+    const inner = vi.fn();
+    // Children's effects run before their parent's, so the inner layer registers first.
+    render(
+      <Layer onClose={outer}>
+        <Layer onClose={inner} />
+      </Layer>
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(outer).not.toHaveBeenCalled();
+  });
+
+  it('keeps the outer layer open while the inner one is paused', () => {
+    const outer = vi.fn();
+    const inner = vi.fn();
+    render(
+      <Layer onClose={outer}>
+        <Layer onClose={inner} paused />
+      </Layer>
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(inner).not.toHaveBeenCalled();
+    expect(outer).not.toHaveBeenCalled();
+  });
+
+  it('hands Escape to the outer layer once the inner one closes', () => {
+    const outer = vi.fn();
+    const inner = vi.fn();
+    const { rerender } = render(
+      <Layer onClose={outer}>
+        <Layer onClose={inner} />
+      </Layer>
+    );
+    rerender(<Layer onClose={outer} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(outer).toHaveBeenCalledTimes(1);
+    expect(inner).not.toHaveBeenCalled();
   });
 });
 

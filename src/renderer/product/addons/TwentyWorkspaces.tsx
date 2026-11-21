@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Pill } from '../../components/ui/badge';
+import { Segmented } from '../../components/ui/segmented';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import type { AddonListing, TwentyAccess, TwentyWorkspace } from '../../../shared/types/addons';
 import { Panel } from './AddonPanel';
 import { ACCESS_LABEL, keysText, OWNER_PASSWORD_COPIED } from './addonCopy';
 import { agentName, openLocalTwenty, reloadTwenty } from './useTwenty';
 import { FromYourCircles, SharedLine, ShareSheet, usedSlugs } from './SharedTwenty';
 import { useSharedServices } from './useSharedServices';
+import { lineFromIpc } from './addonPageActions';
 
 const ACCESS_ORDER: TwentyAccess[] = ['read', 'write'];
 
@@ -19,35 +21,21 @@ const AccessSwitch: React.FC<{
   missing?: Partial<Record<TwentyAccess, string>>;
   disabled?: boolean;
 }> = ({ value, onChange, missing = {}, disabled }) => (
-  <div
-    role="radiogroup"
+  <Segmented
+    size="sm"
     aria-label="What agents may do"
-    className="inline-flex items-center gap-0.5 rounded-md border border-line bg-surface-1 p-0.5"
-  >
-    {ACCESS_ORDER.map((access) => {
-      const selected = value === access;
-      const blocked = missing[access];
-      return (
-        <button
-          key={access}
-          type="button"
-          role="radio"
-          aria-checked={selected}
-          disabled={disabled || Boolean(blocked)}
-          title={blocked}
-          onClick={() => {
-            if (!selected) onChange(access);
-          }}
-          className={cn(
-            'cursor-pointer rounded px-2.5 py-1 text-xs outline-none focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:opacity-50',
-            selected ? 'bg-surface-hover font-medium text-fg' : 'text-fg-muted hover:text-fg'
-          )}
-        >
-          {ACCESS_LABEL[access]}
-        </button>
-      );
-    })}
-  </div>
+    value={value}
+    disabled={disabled}
+    options={ACCESS_ORDER.map((access) => ({
+      value: access,
+      label: ACCESS_LABEL[access],
+      disabled: Boolean(missing[access]),
+      title: missing[access],
+    }))}
+    onChange={(next) => {
+      if (next !== value) onChange(next);
+    }}
+  />
 );
 
 const MonoName: React.FC<{ workspace: TwentyWorkspace }> = ({ workspace }) => (
@@ -81,16 +69,6 @@ const Row: React.FC<{
   </li>
 );
 
-/** Runs a call that answers with a result, and returns the line to show when it fails. */
-async function failure(call: () => Promise<{ success: boolean; error?: string }>, fallback: string): Promise<string | null> {
-  try {
-    const result = await call();
-    return result.success ? null : (result.error ?? fallback);
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
 const LocalRow: React.FC<{ listing: AddonListing; workspace: TwentyWorkspace; onTurnOn(): void }> = ({
   listing,
   workspace,
@@ -106,11 +84,11 @@ const LocalRow: React.FC<{ listing: AddonListing; workspace: TwentyWorkspace; on
   const port = listing.entry.port?.default;
 
   const setAccess = async (access: TwentyAccess) => {
-    setError(await failure(() => window.electronAPI.addons.twenty.setAccess(workspace.slug, access), 'The change didn’t save.'));
+    setError(await lineFromIpc(() => window.electronAPI.addons.twenty.setAccess(workspace.slug, access), 'The change didn’t save.'));
     void reloadTwenty();
   };
   const copyPassword = async () => {
-    const problem = await failure(() => window.electronAPI.addons.twenty.copyPassword(), 'Couldn’t copy the password.');
+    const problem = await lineFromIpc(() => window.electronAPI.addons.twenty.copyPassword(), 'Couldn’t copy the password.');
     setError(problem);
     setNote(problem ? null : OWNER_PASSWORD_COPIED);
   };
@@ -183,12 +161,12 @@ const HostedRow: React.FC<{ workspace: TwentyWorkspace; onDisconnect(): void }> 
   const [error, setError] = useState<string | null>(null);
 
   const setAccess = async (access: TwentyAccess) => {
-    setError(await failure(() => window.electronAPI.addons.twenty.setAccess(workspace.slug, access), 'The change didn’t save.'));
+    setError(await lineFromIpc(() => window.electronAPI.addons.twenty.setAccess(workspace.slug, access), 'The change didn’t save.'));
     void reloadTwenty();
   };
   const open = async () => {
     const target = workspace.workspaceUrl || workspace.url;
-    setError(await failure(() => window.electronAPI.urls.openUrl(target), 'Couldn’t open the workspace.'));
+    setError(await lineFromIpc(() => window.electronAPI.urls.openUrl(target), 'Couldn’t open the workspace.'));
   };
 
   return (
@@ -234,22 +212,18 @@ const DisconnectSheet: React.FC<{
   last: boolean;
   onClose(): void;
 }> = ({ workspace, last, onClose }) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run, dismiss } = useSheetAction();
   if (!workspace) return null;
   const name = agentName(workspace);
 
-  const close = () => {
-    setError(null);
-    onClose();
-  };
+  const close = () => dismiss(onClose);
   const confirm = async () => {
-    setBusy(true);
-    const problem = await failure(() => window.electronAPI.addons.twenty.disconnect(workspace.slug), `Couldn’t disconnect ${name}.`);
-    setBusy(false);
+    const problem = await run(() =>
+      lineFromIpc(() => window.electronAPI.addons.twenty.disconnect(workspace.slug), `Couldn’t disconnect ${name}.`)
+    );
     void reloadTwenty();
     if (problem) setError(problem);
-    else close();
+    else onClose();
   };
 
   return (

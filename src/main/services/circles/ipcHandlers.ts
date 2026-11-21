@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { shell } from 'electron';
-import { handle, handleResult } from '../../ipc';
-import { broadcast } from '../windows';
+import { handle, handleResult } from '../../host/ipc';
+import { broadcast } from '../../host/windows';
 import { circlesDiagnosticsPath, diag } from './circlesDiagnostics';
 import {
   callCheckEnabled,

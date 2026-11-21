@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkReleaseNotes } from '../../../scripts/check-release-notes.mjs';
+import { checkReleaseNotes, findNotesFolders } from '../../../scripts/check-release-notes.mjs';
 
 const made: string[] = [];
 afterEach(() => {
@@ -155,5 +155,28 @@ describe('checkReleaseNotes', () => {
 
   it('passes a folder with no content at all', () => {
     expect(checkReleaseNotes(folder({}))).toEqual([]);
+  });
+});
+
+describe('findNotesFolders', () => {
+  function tree(paths: string[]): string {
+    const root = mkdtempSync(join(tmpdir(), 'notes-tree-'));
+    made.push(root);
+    for (const path of paths) {
+      mkdirSync(join(root, path), { recursive: true });
+      writeFileSync(join(root, path, 'releases.json'), '[]');
+    }
+    return root;
+  }
+
+  it('finds the root folder and folders one level down, and skips dependencies and dot folders', () => {
+    const root = tree(['whats-new', 'extra/whats-new', 'node_modules/whats-new', '.cache/whats-new', 'a/b/whats-new']);
+    expect(findNotesFolders(root).sort()).toEqual([join(root, 'extra/whats-new'), join(root, 'whats-new')]);
+  });
+
+  it('skips a folder with no releases.json', () => {
+    const root = tree([]);
+    mkdirSync(join(root, 'whats-new'));
+    expect(findNotesFolders(root)).toEqual([]);
   });
 });

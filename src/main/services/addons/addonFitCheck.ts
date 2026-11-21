@@ -3,6 +3,7 @@ import type { AddonCatalogEntry, AddonId } from '../../../shared/types/addons';
 import { getAssistantStackAccess, getAssistantStackLifecycle } from '../assistant/AssistantStackService';
 import { installedAddonsHere } from './addonComposeState';
 import { readAddonHostFacts } from './addonHostFacts';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 const PS_TIMEOUT_MS = 30_000;
 
@@ -16,7 +17,7 @@ export interface AddonFitCheck {
 }
 
 export interface AddonFitCheckDeps {
-  isInstalled(id: AddonId): boolean;
+  isInstalled(id: AddonId): Promise<boolean>;
   /** With `leftover`, the add-on's own containers hold its port and memory. */
   readFacts(entry: AddonCatalogEntry, options: { leftover: boolean }): Promise<AddonHostFacts>;
   ps(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }>;
@@ -28,18 +29,18 @@ export interface AddonFitCheckDeps {
  * Before the store says an add-on is installed, Boundary's compose env sets its flags to 0
  * (and local-stack compose sets none). Every install-time call passes them as '1'.
  */
-export function addonInstallEnv(entry: AddonCatalogEntry): Record<string, string> {
+function addonInstallEnv(entry: AddonCatalogEntry): Record<string, string> {
   return Object.fromEntries(entry.flags.map((flag) => [flag, '1']));
 }
 
 /** Rows of `compose ps --format json`: one object per line (Compose 2.21+) or one array. */
-export function parseComposePsRows(stdout: string): Array<Record<string, unknown>> {
+function parseComposePsRows(stdout: string): Array<Record<string, unknown>> {
   const trimmed = stdout.trim();
   if (!trimmed) return [];
   if (trimmed.startsWith('[')) {
     try {
       const rows = JSON.parse(trimmed) as unknown;
-      return Array.isArray(rows) ? rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object') : [];
+      return Array.isArray(rows) ? rows.filter(isRecord) : [];
     } catch {
       return [];
     }
@@ -48,7 +49,7 @@ export function parseComposePsRows(stdout: string): Array<Record<string, unknown
   for (const line of trimmed.split('\n')) {
     try {
       const row = JSON.parse(line) as unknown;
-      if (row && typeof row === 'object' && !Array.isArray(row)) rows.push(row as Record<string, unknown>);
+      if (isRecord(row)) rows.push(row);
     } catch {
       /* not a row */
     }
@@ -56,7 +57,7 @@ export function parseComposePsRows(stdout: string): Array<Record<string, unknown
   return rows;
 }
 
-export const psRowService = (row: Record<string, unknown>): unknown => row.Service ?? row.service;
+const psRowService = (row: Record<string, unknown>): unknown => row.Service ?? row.service;
 
 /** Services of the add-on that this project's `compose ps` lists as running. */
 async function runningServices(
@@ -86,7 +87,7 @@ async function containerState(
   entry: AddonCatalogEntry,
   deps: Pick<AddonFitCheckDeps, 'isInstalled' | 'ps' | 'stackReady'>
 ): Promise<{ leftover: boolean; stopped: boolean }> {
-  const installed = deps.isInstalled(entry.id);
+  const installed = await deps.isInstalled(entry.id);
   if (installed && !deps.stackReady()) return { leftover: false, stopped: false };
   let running: Set<string>;
   try {
@@ -119,7 +120,7 @@ export async function checkAddonFit(
 
 function defaultAddonFitCheckDeps(): AddonFitCheckDeps {
   return {
-    isInstalled: (id) => installedAddonsHere().includes(id),
+    isInstalled: async (id) => (await installedAddonsHere()).includes(id),
     readFacts: (entry, options) => readAddonHostFacts(entry, undefined, options),
     ps: (args, env) => getAssistantStackAccess().compose(args, { env, timeout: PS_TIMEOUT_MS }),
     stackReady: () => getAssistantStackLifecycle().phase === 'ready',

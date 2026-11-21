@@ -12,6 +12,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTwentyWorkspace, disconnectTwentyWorkspace } from '../../addons/crmScript';
 import { defaultStackRoot } from './stackHarness';
+import { localRunScript } from '../../stackHost/localScript';
 
 const root = process.env.BOUNDARY_ASSISTANT_ROOT?.trim() || defaultStackRoot();
 const hasScript = !!root && fs.existsSync(path.join(root, 'scripts', 'crm.sh'));
@@ -94,7 +95,7 @@ describe.skipIf(!hasScript)(
         access: 'write' as const,
         replace: false,
       };
-      const added = await connectTwentyWorkspace(root!, env, input);
+      const added = await connectTwentyWorkspace(localRunScript(root!), env, input);
       expect(added).toEqual({ ok: true, checks: ['[crm] TWENTY_KEY_RW: Twenty accepts it'] });
       const store = path.join(tmp, 'addons', 'twenty');
       const file = path.join(store, 'instances', 'stack-test.json');
@@ -102,23 +103,23 @@ describe.skipIf(!hasScript)(
       expect(fs.readFileSync(path.join(store, 'secrets', 'stack-test.key_rw'), 'utf8').trim()).toBe(GOOD_KEY);
       expect(fs.readFileSync(path.join(tmp, '.env'), 'utf8')).toContain('TWENTY_MCP_ENABLED=1');
 
-      expect(await connectTwentyWorkspace(root!, env, input)).toMatchObject({ ok: false, reason: 'exists' });
+      expect(await connectTwentyWorkspace(localRunScript(root!), env, input)).toMatchObject({ ok: false, reason: 'exists' });
 
-      const rejected = await connectTwentyWorkspace(root!, env, { ...input, slug: 'bad', keyRw: BAD_KEY });
+      const rejected = await connectTwentyWorkspace(localRunScript(root!), env, { ...input, slug: 'bad', keyRw: BAD_KEY });
       expect(rejected).toMatchObject({ ok: false, reason: 'rejected', key: 'RW', status: 401 });
       expect(fs.existsSync(path.join(store, 'instances', 'bad.json'))).toBe(false);
 
-      const noCatalog = await connectTwentyWorkspace(root!, env, { ...input, slug: 'meta', keyRw: NO_CATALOG_KEY });
+      const noCatalog = await connectTwentyWorkspace(localRunScript(root!), env, { ...input, slug: 'meta', keyRw: NO_CATALOG_KEY });
       expect(noCatalog).toMatchObject({ ok: false, reason: 'no-catalog' });
       expect(fs.existsSync(path.join(store, 'instances', 'meta.json'))).toBe(false);
 
       // stdin is ignored, so the script reports the missing terminal before the missing key.
-      const noKey = await connectTwentyWorkspace(root!, env, { ...input, slug: 'nokey', keyRw: '' });
+      const noKey = await connectTwentyWorkspace(localRunScript(root!), env, { ...input, slug: 'nokey', keyRw: '' });
       expect(noKey).toMatchObject({ ok: false, reason: 'invalid', message: expect.stringContaining('TWENTY_KEY_RW') });
 
-      await disconnectTwentyWorkspace(root!, env, 'stack-test');
+      await disconnectTwentyWorkspace(localRunScript(root!), env, 'stack-test');
       expect(fs.existsSync(file)).toBe(false);
-      await expect(disconnectTwentyWorkspace(root!, env, 'stack-test')).rejects.toThrow(/no workspace 'stack-test'/);
+      await expect(disconnectTwentyWorkspace(localRunScript(root!), env, 'stack-test')).rejects.toThrow(/no workspace 'stack-test'/);
     });
   }
 );

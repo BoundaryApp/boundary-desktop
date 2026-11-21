@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import type { PoolMoveReason, TrustLevel } from '../../../../shared/types/confidential';
 import type { InferenceChainEntryState, PeerModelRef } from '../../../../shared/types/inferenceChain';
 import type { PoolSendResult } from '../confidential/poolSender';
+import { llmRequestHeaders } from '../../onboarding/llmEndpoint';
 import { checkBridgeRequest, readLimitedBody } from '../../hostBridge/requestGuard';
 import {
   opensNewTurn,
@@ -14,6 +15,8 @@ import {
   type ChainAttemptRecord,
 } from '../chain/chainAttempts';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { shortChainKey } from '../../../../shared/inferenceChainKey';
+import { endpointPath } from '../../../../shared/utils/endpointUrl';
 
 /**
  * The inference router (ADR 0033 §5–8). llm-proxy's chat and LightRAG routes point here when a
@@ -37,6 +40,12 @@ export interface RouterUpstream {
   /** OpenAI-compatible base URL as seen from the host, ending before `/chat/completions`. */
   baseUrl: string;
   apiKey?: string;
+  /** How `apiKey` is sent; the connection's own scheme, so a fallback gets the header it was verified with. */
+  authScheme?: 'bearer' | 'api-key';
+  /** The connection's extra headers. */
+  extraHeaders?: Record<string, string>;
+  /** The connection's provider; Baseten gets `Api-Key` whatever its scheme says. */
+  provider?: string;
   modelId: string;
   /** A member's shared model, reached through the Circles network instead of `baseUrl`. */
   peer?: PeerModelRef;
@@ -106,11 +115,6 @@ export interface ChainRouterOptions {
   log?: (message: string, data?: Record<string, unknown>) => void;
   /** Diagnostics events (metadata only): each request's attempts, timings and reply size. */
   diag?: (event: string, data: Record<string, unknown>) => void;
-}
-
-/** Entry keys name a shared model's Circle and provider in full; diagnostics keep 8 characters. */
-function shortKey(key: string): string {
-  return key.startsWith('peer:') ? key.replace(/[0-9a-f]{64}/g, (hex) => hex.slice(0, 8)) : key;
 }
 
 export interface ChainRouter {
@@ -201,7 +205,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     }
     const receivedAt = Date.now();
     const inFlightAtStart = Object.fromEntries(
-      [...inFlight].map(([key, count]) => [shortKey(key), count])
+      [...inFlight].map(([key, count]) => [shortChainKey(key), count])
     );
     const messages = Array.isArray(body.messages) ? (body.messages as Array<{ role?: unknown }>) : [];
     // An estimate decides which entry to skip; with one entry the server decides.
@@ -225,7 +229,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       const started = Date.now();
       const outcome = await attempt(state);
       timings.push({
-        key: shortKey(state.key),
+        key: shortChainKey(state.key),
         ms: Date.now() - started,
         outcome: outcome.kind,
         ...(outcome.kind === 'status' ? { status: outcome.status } : {}),
@@ -270,12 +274,9 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
           }
           response = await options.peerFetch(upstream.peer, payload, signal);
         } else {
-          response = await fetchImpl(`${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+          response = await fetchImpl(endpointPath(upstream.baseUrl, 'chat/completions'), {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(upstream.apiKey ? { Authorization: `Bearer ${upstream.apiKey}` } : {}),
-            },
+            headers: llmRequestHeaders(upstream),
             body: payload,
             signal,
           });
@@ -328,13 +329,13 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
       stream: body.stream === true,
       tools: Array.isArray(body.tools) ? body.tools.length : null,
       chain: chain.entries.map((state) => ({
-        key: shortKey(state.key),
+        key: shortChainKey(state.key),
         stale: state.stale,
         usable: Boolean(chain.upstreams[state.key]),
       })),
-      sticky: sticky.get(sessionKey) ? shortKey(sticky.get(sessionKey)!) : null,
+      sticky: sticky.get(sessionKey) ? shortChainKey(sticky.get(sessionKey)!) : null,
       attempts: timings,
-      served: result.ok ? shortKey(result.served.key) : null,
+      served: result.ok ? shortChainKey(result.served.key) : null,
       fellBack: result.ok ? result.served.key !== chain.entries[0]?.key : null,
       ms: Date.now() - receivedAt,
     });
@@ -386,7 +387,7 @@ export async function startChainRouter(options: ChainRouterOptions): Promise<Cha
     const finish = (how: string): void => {
       options.diag?.('router.reply', {
         req: requestId,
-        served: result.ok ? shortKey(result.served.key) : null,
+        served: result.ok ? shortChainKey(result.served.key) : null,
         status: response.status,
         how,
         bytes: replyBytes,

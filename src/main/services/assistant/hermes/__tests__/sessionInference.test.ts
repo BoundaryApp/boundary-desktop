@@ -6,10 +6,8 @@ import {
   clearOpenAiConfig,
   saveLlmConnection,
   saveLocalLlmEndpoint,
-  setAppDefault,
-  setAppFallbacks,
-  setAppSharedModel,
 } from '../../../onboarding/OpenAiOnboardingStore';
+import { setAppDefault, setAppFallbacks, setAppSharedModel } from '../../../inference/appInferenceChoice';
 import type { ProjectInferencePin } from '../../../../../shared/types/hermesChat';
 import type { InferenceChainEntry } from '../../../../../shared/types/inferenceChain';
 import { setConversationProjectId } from '../hermesChatProjects';

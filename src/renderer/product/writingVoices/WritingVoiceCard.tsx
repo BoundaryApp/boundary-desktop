@@ -4,9 +4,8 @@ import { Badge } from '../../components/ui/badge';
 import type { WritingVoiceStep, WritingVoiceView } from '../../../shared/types/writingVoices';
 import { DeleteWritingVoiceSheet } from './DeleteWritingVoiceSheet';
 import { Button } from '../../components/ui/button';
-
-/** The stack's limit on client context (change request 0010): longer guides can't reach chat. */
-const MAX_STYLE_CHARS = 16_000;
+import { Input } from '../../components/ui/input';
+import { CLIENT_CONTEXT_MAX_CHARS } from '../../../shared/assistantStackConstants';
 
 const STEPS: Array<{ step: WritingVoiceStep; label: string }> = [
   { step: 'waiting', label: 'Waiting for another calibration' },
@@ -124,7 +123,9 @@ export const WritingVoiceCard: React.FC<{
             <b>{voice.name}</b>
           ) : (
             <span className="wb-voice-rename">
-              <input
+              <Input
+                size="sm"
+                className="min-w-0 flex-1"
                 aria-label="Voice name"
                 value={renaming}
                 maxLength={60}
@@ -174,9 +175,9 @@ export const WritingVoiceCard: React.FC<{
         <p className="wb-voice-error">{voice.lastError}</p>
       ) : null}
 
-      {voice.style && voice.style.chars > MAX_STYLE_CHARS ? (
+      {voice.style && voice.style.chars > CLIENT_CONTEXT_MAX_CHARS ? (
         <p className="wb-voice-error">
-          Too long for chat replies (over 16,000 characters). Shorten STYLE.md.
+          Too long for chat replies (over {count(CLIENT_CONTEXT_MAX_CHARS)} characters). Shorten STYLE.md.
         </p>
       ) : null}
 
@@ -194,7 +195,9 @@ export const WritingVoiceCard: React.FC<{
             <ul className="wb-voice-never is-editing">
               {editing.map((line, i) => (
                 <li key={i}>
-                  <input
+                  <Input
+                    size="sm"
+                    className="min-w-0 flex-1"
                     aria-label="Never does"
                     value={line}
                     placeholder="Never …"
@@ -217,15 +220,16 @@ export const WritingVoiceCard: React.FC<{
             <li key={file.name}>
               <span className="wb-voice-file">{file.name}</span>
               <small>{count(file.words)} words</small>
-              <button
+              <Button
                 type="button"
-                className="wb-voice-file-remove"
+                variant="quiet"
+                size="icon-xs"
                 aria-label={`Remove ${file.name}`}
                 disabled={busy}
                 onClick={() => removeSample(file.name)}
               >
                 <X aria-hidden="true" />
-              </button>
+              </Button>
             </li>
           ))}
           <li>

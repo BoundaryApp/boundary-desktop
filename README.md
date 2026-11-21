@@ -41,8 +41,18 @@ covers running both stacks side by side.
 ```bash
 bun run test          # main-process and renderer unit suites
 bun run test:shuffle  # the same suites in random order; prints the seed that repeats it
-bun run type-check    # app code, then test files and their fakes (tsconfig.test.json)
+bun run type-check    # app code, test files and their fakes (tsconfig.test.json), then root configs and scripts (tsconfig.tooling.json)
 ```
+
+`bun run check` runs the same steps as the Test Build workflow: type checking, lint and the static
+checks at the same time (lint on several threads), then the unit tests. It runs every step even
+after a failure and ends with a table of step times. The layout checks
+(`bun run check:layout`: Circles rail, compact Circle thread and sheet layout) drive headless
+Chromium and are not part of either; run them after changing those screens' CSS or markup.
+
+`bun run check:imports` fails on an import between areas (services, product UI folders, shared
+layers) that its allow list does not name; [ADR 0071](docs/adr/0071-import-boundaries-between-areas.md)
+says what an area is and when to add an edge.
 
 ## Packaging
 

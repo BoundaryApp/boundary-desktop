@@ -2,6 +2,7 @@
 // would refuse. Provider hosts and steps are the ones each provider documents for app passwords.
 
 import type { EmailMailbox, EmailProviderId } from './types/addons';
+import { localDay } from './utils/localDay';
 import { ADDON_SLUG } from './utils/slug';
 
 export interface EmailProviderPreset {
@@ -92,19 +93,13 @@ export const EVERYTHING_SINCE = '1970-01-01';
 
 export type EmailWindowChoice = '90d' | '30d' | '1y' | 'all';
 
-function ymd(date: Date): string {
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${m}-${d}`;
-}
-
 /** The local `YYYY-MM-DD` a window starts on, counted back from `today`. */
 export function sinceFor(choice: EmailWindowChoice, today: Date): string {
   if (choice === 'all') return EVERYTHING_SINCE;
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   if (choice === '1y') start.setFullYear(start.getFullYear() - 1);
   else start.setDate(start.getDate() - (choice === '90d' ? 90 : 30));
-  return ymd(start);
+  return localDay(start);
 }
 
 /** The window a stored `since` equals exactly; any other date is `'date'`. */

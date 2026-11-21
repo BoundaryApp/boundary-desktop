@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import type { CircleSnapshot } from '../../../../shared/types/circles';
 import type { SharedFolderChange, SharedFolderFile, SharedFolderListing } from '../../../../shared/types/sharedFolders';
-import { formatBytes } from '../../../../shared/utils/format';
+import { formatBytes, joinNames } from '../../../../shared/utils/format';
 import { Avatar } from '../../circles/CircleControls';
 import { displayHostPath } from '../chatTelemetryFormat';
 import {
@@ -10,7 +10,6 @@ import {
   dayLabel,
   folderState,
   myRole,
-  namesLine,
   personName,
   sizeLine,
   unsharedReason,
@@ -19,6 +18,7 @@ import {
 } from './sharedFolderView';
 import { useFolderReload } from './useSharedFolders';
 import { Button } from '../../../components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 
 const api = () => window.electronAPI.circles;
 
@@ -107,7 +107,7 @@ const Strip: React.FC<{
           <span className="wb-folder-strip-copy">
             <span>
               {state.copies.length === 1 ? '1 conflict' : `${state.copies.length} conflicts`} in{' '}
-              <b>{namesLine([...new Set(state.copies.map(originalOf))])}</b>
+              <b>{joinNames([...new Set(state.copies.map(originalOf))])}</b>
             </span>
             <small>Two edits were made from the same version. Both are in the folder until you pick one.</small>
           </span>
@@ -122,7 +122,7 @@ const Strip: React.FC<{
           <ClockIcon label="Waiting" />
           <span className="wb-folder-strip-copy">
             <span>
-              {state.changes} {state.changes === 1 ? 'change is' : 'changes are'} waiting for {namesLine(state.managers)}
+              {state.changes} {state.changes === 1 ? 'change is' : 'changes are'} waiting for {joinNames(state.managers)}
             </span>
             <small>Everyone online already has them. Their order is final once enough managers’ Macs are back.</small>
           </span>
@@ -411,19 +411,20 @@ export const FolderView: React.FC<{
               {displayHostPath(local.root)}
               {local.summary ? ` · ${sizeLine(local.summary.files, local.summary.bytes)}` : ''}
             </p>
-            <div className="wb-folder-tabs" role="tablist" aria-label="Folder">
-              <button type="button" role="tab" aria-selected={tab === 'activity'} onClick={() => setTab('activity')}>
-                Activity
-              </button>
-              <button type="button" role="tab" aria-selected={tab === 'files'} onClick={() => setTab('files')}>
-                Files{files ? <span className="wb-folder-count">{files.length}</span> : null}
-              </button>
-            </div>
-            {tab === 'activity' ? (
-              <Activity circle={circle} changes={activity} onFile={onFile} />
-            ) : (
-              <FilesTable folder={folder} circle={circle} files={files} selected={selectedFile} onFile={onFile} />
-            )}
+            <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+              <TabsList aria-label="Folder" className="mt-3 mb-2">
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+                <TabsTrigger value="files" count={files?.length}>
+                  Files
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="activity">
+                <Activity circle={circle} changes={activity} onFile={onFile} />
+              </TabsContent>
+              <TabsContent value="files">
+                <FilesTable folder={folder} circle={circle} files={files} selected={selectedFile} onFile={onFile} />
+              </TabsContent>
+            </Tabs>
           </div>
         ) : (
           <NotAdded folder={folder} circle={circle} onAdd={onAdd} />

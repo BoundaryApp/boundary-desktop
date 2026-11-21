@@ -85,7 +85,7 @@ describe('llmProxyKeyKeeper', () => {
   it('pushes the key again after the proxy restarted without it', async () => {
     const proxy = fakeProxy({ url: upstream.url, api_key_set: false });
     keepLlmProxyUpstream(
-      () => ({ adminPort: 4001, token: 't', fetchImpl: proxy.fetchImpl }),
+      () => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: proxy.fetchImpl }),
       upstream
     );
     expect(await checkLlmProxyUpstream()).toBe('repushed');
@@ -100,7 +100,7 @@ describe('llmProxyKeyKeeper', () => {
   it('leaves a healthy proxy alone', async () => {
     const proxy = fakeProxy({ url: upstream.url, api_key_set: true });
     keepLlmProxyUpstream(
-      () => ({ adminPort: 4001, token: 't', fetchImpl: proxy.fetchImpl }),
+      () => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: proxy.fetchImpl }),
       upstream
     );
     expect(await checkLlmProxyUpstream()).toBe('ok');
@@ -111,12 +111,12 @@ describe('llmProxyKeyKeeper', () => {
     const down = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
     }) as unknown as typeof fetch;
-    keepLlmProxyUpstream(() => ({ adminPort: 4001, token: 't', fetchImpl: down }), upstream);
+    keepLlmProxyUpstream(() => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: down }), upstream);
     expect(await checkLlmProxyUpstream()).toBe('unreachable');
 
     const refusing = fakeProxy({ url: upstream.url, api_key_set: false }, 401);
     keepLlmProxyUpstream(
-      () => ({ adminPort: 4001, token: 't', fetchImpl: refusing.fetchImpl }),
+      () => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: refusing.fetchImpl }),
       upstream
     );
     expect(await checkLlmProxyUpstream()).toBe('failed');
@@ -132,7 +132,7 @@ describe('llmProxyKeyKeeper', () => {
     vi.useFakeTimers();
     const proxy = fakeProxy({ url: upstream.url, api_key_set: false });
     keepLlmProxyUpstream(
-      () => ({ adminPort: 4001, token: 't', fetchImpl: proxy.fetchImpl }),
+      () => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: proxy.fetchImpl }),
       upstream,
       1_000
     );
@@ -158,7 +158,7 @@ describe('llmProxyKeyKeeper', () => {
 
   it('pushes again after a restart, and only then', async () => {
     const proxy = bootingProxy();
-    keepLlmProxyUpstream(() => ({ adminPort: 4001, token: 't', fetchImpl: proxy.fetchImpl }), {
+    keepLlmProxyUpstream(() => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: proxy.fetchImpl }), {
       url: upstream.url,
       apiKey: '',
     });
@@ -175,7 +175,7 @@ describe('llmProxyKeyKeeper', () => {
   it('takes the boot_id from the push made during a model change', async () => {
     const proxy = bootingProxy();
     keepLlmProxyUpstream(
-      () => ({ adminPort: 4001, token: 't', fetchImpl: proxy.fetchImpl }),
+      () => ({ baseUrl: 'http://127.0.0.1:4001', token: 't', fetchImpl: proxy.fetchImpl }),
       upstream
     );
     await proxy.fetchImpl('x', { method: 'POST', body: '{}' });

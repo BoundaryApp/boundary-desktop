@@ -13,6 +13,8 @@ vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
     slotReads.push(slot);
     return connections[slot] ?? null;
   },
+}));
+vi.mock('../appInferenceChoice', () => ({
   getAppDefaultSlot: () => 'local',
   getAppFallbacks: () => appFallbacks,
   getAppSharedModel: () => appShared,

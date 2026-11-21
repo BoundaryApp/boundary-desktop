@@ -67,6 +67,16 @@ function messageText(content: unknown): string {
     .join('');
 }
 
+/** What a send asks of the open chat's screen; the screen registers them (useInferenceSendHandlers). */
+export interface InferenceSendHandlers {
+  onLocalUnreachable: () => void;
+  onPrivateRefused: () => void;
+  /** The inference a new chat's first send carries (Send via OpenRouter), taken once. */
+  takeNewChatInference: () => SessionInferenceOverride | null;
+  /** A writing voice kept for a chat with no session yet (ADR 0056 §6); taken by its first send. */
+  takeNewChatWritingVoice: () => string | null;
+}
+
 /**
  * Maps Hermes chat IPC deltas into LocalRuntime cumulative text yields.
  * Credentials and tickets never enter the renderer.
@@ -77,17 +87,13 @@ export function createHermesChatModelAdapter(
     onSessionResolved?: (sessionId: string, storedId?: string) => void;
     getToolsEnabled?: () => boolean;
     getAgentSlug?: () => string | null;
-    onLocalUnreachable?: () => void;
-    onPrivateRefused?: () => void;
-    /** The inference a new chat's first send carries (Send via OpenRouter), taken once. */
-    takeNewChatInference?: () => SessionInferenceOverride | null;
+    /** The screen's send handlers, read when a send needs one; null while none is registered. */
+    getSendHandlers?: () => InferenceSendHandlers | null;
     /**
      * What Hermes holds for the mounted runtime; decides whether a run appends or
      * replaces (Edit / Retry). A getter, because each runtime mount has its own.
      */
     getServerPath?: () => ServerPath | null;
-    /** A writing voice kept for a chat with no session yet (ADR 0056 §6); taken by its first send. */
-    takeNewChatWritingVoice?: () => string | null;
   }
 ): ChatModelAdapter {
   return {
@@ -225,8 +231,8 @@ export function createHermesChatModelAdapter(
       };
 
       const sessionId = getSessionId();
-      const inference = sessionId ? null : (opts?.takeNewChatInference?.() ?? null);
-      const keptWritingVoiceId = sessionId ? null : (opts?.takeNewChatWritingVoice?.() ?? null);
+      const inference = sessionId ? null : (opts?.getSendHandlers?.()?.takeNewChatInference() ?? null);
+      const keptWritingVoiceId = sessionId ? null : (opts?.getSendHandlers?.()?.takeNewChatWritingVoice() ?? null);
       let start: Awaited<ReturnType<typeof window.electronAPI.hermesChat.startChat>>;
       try {
         start = await window.electronAPI.hermesChat.startChat({
@@ -266,7 +272,7 @@ export function createHermesChatModelAdapter(
           },
         };
         if (start.errorCode === 'local-unreachable') {
-          opts?.onLocalUnreachable?.();
+          opts?.getSendHandlers?.()?.onLocalUnreachable();
           if (start.sharedUnavailable) yield unreachableNote;
           return;
         }
@@ -275,7 +281,7 @@ export function createHermesChatModelAdapter(
           return;
         }
         if (start.errorCode === 'private-refused') {
-          opts?.onPrivateRefused?.();
+          opts?.getSendHandlers?.()?.onPrivateRefused();
           return;
         }
         throw new Error(start.error ?? 'Failed to start chat');

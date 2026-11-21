@@ -4,7 +4,6 @@ import {
   CONFIDENTIAL_COPY,
   exclusionText,
   formatLastThirtyDays,
-  formatTokens,
   formatTurnCost,
 } from '../confidentialCopy';
 
@@ -60,21 +59,6 @@ describe('formatTurnCost', () => {
   it('shows three decimals under ten cents and two above', () => {
     expect(formatTurnCost(0.015)).toBe('$0.015');
     expect(formatTurnCost(0.17)).toBe('$0.17');
-  });
-});
-
-describe('formatTokens', () => {
-  it('shows whole counts under a thousand, then K and M to one decimal', () => {
-    expect(formatTokens(950)).toBe('950');
-    expect(formatTokens(3_100)).toBe('3.1K');
-    expect(formatTokens(840_000)).toBe('840K');
-    expect(formatTokens(1_200_000)).toBe('1.2M');
-  });
-
-  it('picks the unit after rounding, so it never reads 1000K or 1000', () => {
-    expect(formatTokens(999_950)).toBe('1M');
-    expect(formatTokens(999_949)).toBe('999.9K');
-    expect(formatTokens(999.6)).toBe('1K');
   });
 });
 

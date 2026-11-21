@@ -8,11 +8,12 @@ import React, {
   useState,
 } from 'react';
 import { useAuiState } from '@assistant-ui/store';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { formatShortDate } from '../../../shared/messageTime';
 import { dmDays, matchOffsets, stepMatch } from './dmThreadIndex';
 import { formatTokenCount } from '../../../shared/utils/format';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 
 /** Message text the find bar searches: prompts and replies, not times or action rows. */
 const SEARCHABLE = '.wb-log .wb-msg .wb-bubble-body, .wb-log .wb-msg .wb-prose';
@@ -75,7 +76,6 @@ export const DmLogHead: React.FC<{ startedAt?: string | null; onSearch: () => vo
   if (messages.length === 0) return null;
 
   const jump = (key: string) => {
-    setOpen(false);
     const divider = [...document.querySelectorAll<HTMLElement>('.wb-log .wb-day')].find(
       (el) => el.dataset.day === key
     );
@@ -84,58 +84,44 @@ export const DmLogHead: React.FC<{ startedAt?: string | null; onSearch: () => vo
 
   return (
     <div className="wb-dm-earlier">
-      <Popover open={open} onOpenChange={setOpen}>
+      <Menu open={open} onOpenChange={setOpen}>
         {sinceMs != null ? <span>Ongoing since {formatShortDate(sinceMs)}</span> : null}
         {days.length > 0 ? (
           <>
             {sinceMs != null ? ' · ' : null}
-            <PopoverTrigger>
-              <button
-                ref={triggerRef}
-                type="button"
-                className="wb-link"
-                aria-haspopup="listbox"
-                aria-expanded={open}
-              >
+            <MenuTrigger>
+              <button ref={triggerRef} type="button" className="wb-link">
                 Jump to date
               </button>
-            </PopoverTrigger>
+            </MenuTrigger>
           </>
         ) : null}
         {' · '}
         <button type="button" className="wb-link" onClick={onSearch} title="Search this DM (⌘F)">
           Search this DM
       </button>
-        <PopoverContent
-          className="wb-dm-days"
-          role="listbox"
+        <MenuContent
           aria-label="Jump to date"
           side="bottom"
           align="center"
-          sideOffset={4}
           // The trigger sits at the top of the log: focus it without scrolling away from
           // the day the user jumped to.
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            if (document.activeElement === document.body) {
+            const active = document.activeElement;
+            const menu = event.target instanceof Node ? event.target : null;
+            if (!active || active === document.body || menu?.contains(active)) {
               triggerRef.current?.focus({ preventScroll: true });
             }
           }}
         >
           {days.map((day) => (
-            <button
-              key={day.key}
-              type="button"
-              role="option"
-              aria-selected={false}
-              className="wb-dm-day"
-              onClick={() => jump(day.key)}
-            >
+            <MenuItem key={day.key} onSelect={() => jump(day.key)}>
               {day.label}
-            </button>
+            </MenuItem>
           ))}
-        </PopoverContent>
-      </Popover>
+        </MenuContent>
+      </Menu>
     </div>
   );
 };
@@ -195,10 +181,11 @@ export const DmFindBar: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   return (
     <div className="wb-find" role="search" aria-label="Search this DM">
-      <input
+      <Input
         ref={inputRef}
         type="search"
-        className="wb-find-input"
+        size="sm"
+        className="min-w-0 flex-1"
         placeholder="Search this DM"
         aria-label="Search this DM"
         value={query}

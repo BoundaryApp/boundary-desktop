@@ -1,4 +1,5 @@
-import { clipboard, shell } from 'electron';
+import { registerStackTokenSources } from './stackTokenSourcesRuntime';
+import { shell } from 'electron';
 import type {
   AddonId,
   AddonListing,
@@ -8,7 +9,8 @@ import type {
 import { handle, handleResult } from '../../ipc';
 import { persistDebugLog } from '../../persistDebugLog';
 import { broadcast } from '../windows';
-import { getAssistantStackAccess, reloadHermesForAddons } from '../assistant/AssistantStackService';
+import { getLocalStackPaths, reloadHermesForAddons } from '../assistant/AssistantStackService';
+import { getStackEndpoints, getStackFiles, stackFilesAt } from '../stackHost/activeStack';
 import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
 import { runningWork } from '../runningWork';
@@ -18,6 +20,7 @@ import { checkAddonFit } from './addonFitCheck';
 import { getAddonInstaller, runExclusive } from './addonInstaller';
 import { applyPendingChanges, onPendingChanges, pendingChanges } from './pendingRestart';
 import { copyOwnerPassword, twentyLoginLink, twentyPort } from './twentySignIn';
+import { electronSecretClipboard } from './secretClipboard';
 import { getTwentyService } from './twentyService';
 import { ADDON_SLUG } from '../../../shared/utils/slug';
 import { actualConnectInput, actualServerInput } from './actualAddon';
@@ -27,8 +30,7 @@ import { getBitwardenService, registerBitwardenStackHooks } from './bitwardenRun
 import { isEmailSlug } from '../../../shared/emailAccount';
 import { emailAccountInput, emailSettingsInput } from './emailAddon';
 import { getEmailService } from './emailRuntime';
-import { resolveAssistantUserContentRoot } from '../assistant/assistantPaths';
-import { vikunjaDataLeft } from './vikunjaAddon';
+import { copyVikunjaPassword, vikunjaAccount, vikunjaDataLeft } from './vikunjaAddon';
 import { getVikunjaService } from './vikunjaRuntime';
 import { n8nDataLeft } from './builtinAddons';
 import { cliOnStack } from './stackScripts';
@@ -67,16 +69,17 @@ async function inspectVolume(volume: string): Promise<void> {
 
 async function readListings(root: string, localStack: boolean): Promise<AddonListing[]> {
   // Actual and Bitwarden record themselves in the stack's .env, not Boundary's store.
-  const installed = installedAddonsAt(root);
+  const files = stackFilesAt(root);
+  const installed = await installedAddonsAt(root, files);
   // The installer refuses removal in local stack mode, so the page offers it only outside it.
   const canRemoveData = !localStack;
   return Promise.all(
-    availableAddons(root).map(async (entry) => {
+    (await availableAddons(files)).map(async (entry) => {
       // The installer's check uses the same function, so Try again sees the same fit.
       const { fit, facts, leftover, stopped } = await checkAddonFit(entry);
       const dataLeft =
         entry.id === 'vikunja'
-          ? { dataLeft: vikunjaDataLeft(root, resolveAssistantUserContentRoot(root)) }
+          ? { dataLeft: await vikunjaDataLeft(files, root) }
           : // A local stack's volume belongs to its own project; there is no Remove there anyway.
             entry.id === 'n8n' && !localStack && !installed.includes('n8n')
             ? { dataLeft: await n8nDataLeft(inspectVolume, BOUNDARY_ASSISTANT_PROJECT_NAME) }
@@ -87,9 +90,9 @@ async function readListings(root: string, localStack: boolean): Promise<AddonLis
 }
 
 /** Rejects an id the active stack has no add-on for, before the installer sees it. */
-function knownId(id: unknown): AddonId {
+async function knownId(id: unknown): Promise<AddonId> {
   const { root } = tryResolveAssistantRoot();
-  if (root && availableAddons(root).some((entry) => entry.id === id)) return id as AddonId;
+  if (root && (await availableAddons(stackFilesAt(root))).some((entry) => entry.id === id)) return id as AddonId;
   throw new Error(`This stack has no add-on called ${String(id)}.`);
 }
 
@@ -103,8 +106,9 @@ const NO_OWNER_LOGIN = 'This stack has no saved Twenty owner login.';
  * message on failure and the link never leaves main.
  */
 async function openTwenty(): Promise<{ success: boolean; error?: string; warning?: string }> {
-  const { root } = getAssistantStackAccess();
-  const { url, signedIn, warning, reason } = await twentyLoginLink({ root, port: twentyPort(root) });
+  const { root } = getLocalStackPaths();
+  const files = getStackFiles();
+  const { url, signedIn, warning, reason } = await twentyLoginLink({ root, port: await twentyPort(files), endpoints: getStackEndpoints(), files });
   // Metadata only: never the link, its token or the password.
   const log = (opened: boolean) =>
     persistDebugLog('addons', 'twenty open', { signedIn, warning: reason ?? null, opened });
@@ -129,10 +133,8 @@ function removeOptions(opts: unknown): { deleteImages: boolean } {
   return { deleteImages };
 }
 
-const SLUG = /^[a-z0-9-]+$/;
-
 function knownSlug(slug: unknown): string {
-  if (typeof slug === 'string' && SLUG.test(slug)) return slug;
+  if (typeof slug === 'string' && ADDON_SLUG.test(slug)) return slug;
   throw new Error(`crm-${String(slug)} is not a workspace name.`);
 }
 
@@ -146,7 +148,7 @@ function connectInput(input: unknown): TwentyConnectInput {
   const i = (input ?? {}) as Record<string, unknown>;
   const ok =
     typeof i.slug === 'string' &&
-    SLUG.test(i.slug) &&
+    ADDON_SLUG.test(i.slug) &&
     typeof i.url === 'string' &&
     typeof i.keyRw === 'string' &&
     typeof i.keyRo === 'string' &&
@@ -182,11 +184,13 @@ function emailMailboxes(value: unknown): string[] {
   return value as string[];
 }
 
+const NO_VIKUNJA_LOGIN = 'This stack has no saved Todo lists login. Turn Todo lists on first.';
 const NO_SERVER_PASSWORD = 'This stack has no stored password for this Mac’s Actual server.';
 const ACTUAL_OPEN_FAILED = 'Couldn’t open Actual.';
 
 export function registerAddonHandlers(): void {
   registerBitwardenStackHooks();
+  registerStackTokenSources();
   const installer = getAddonInstaller();
   installer.onChange((snapshot) => broadcast('addons:progress', snapshot));
 
@@ -215,8 +219,8 @@ export function registerAddonHandlers(): void {
   });
   handleResult('addons:twenty-open', () => openTwenty());
   handleResult('addons:twenty-copy-password', async () => {
-    const { root } = getAssistantStackAccess();
-    if (!copyOwnerPassword({ root, clipboard })) throw new Error(NO_OWNER_LOGIN);
+    const { root } = getLocalStackPaths();
+    if (!(await copyOwnerPassword({ root, clipboard: electronSecretClipboard(), files: getStackFiles() }))) throw new Error(NO_OWNER_LOGIN);
     return { success: true };
   });
   handle('addons:actual-overview', () => getActualService().overview());
@@ -238,7 +242,7 @@ export function registerAddonHandlers(): void {
     return { success: true, result };
   });
   handleResult('addons:actual-open', async (_event, slug) => {
-    const url = actualOpenTarget(slug === null ? null : actualSlug(slug));
+    const url = await actualOpenTarget(slug === null ? null : actualSlug(slug));
     if (!url) return { success: false, error: ACTUAL_OPEN_FAILED };
     try {
       await shell.openExternal(url);
@@ -257,8 +261,14 @@ export function registerAddonHandlers(): void {
     }
     return { success: true };
   });
-  handleResult('addons:actual-copy-password', () => {
-    if (!copyActualServerPassword(clipboard)) throw new Error(NO_SERVER_PASSWORD);
+  handle('addons:vikunja-account', () => vikunjaAccount(getStackFiles()));
+  handleResult('addons:vikunja-copy-password', async () => {
+    const copied = await copyVikunjaPassword({ files: getStackFiles(), clipboard: electronSecretClipboard() });
+    if (!copied) throw new Error(NO_VIKUNJA_LOGIN);
+    return { success: true };
+  });
+  handleResult('addons:actual-copy-password', async () => {
+    if (!(await copyActualServerPassword(electronSecretClipboard()))) throw new Error(NO_SERVER_PASSWORD);
     return { success: true };
   });
   getBitwardenService().onChange((overview) => broadcast('addons:bitwarden-changed', overview));
@@ -321,7 +331,7 @@ export function registerAddonHandlers(): void {
       email?: unknown;
       makeRoom?: unknown;
     };
-    const addon = knownId(id);
+    const addon = await knownId(id);
     // Only a literal true asks the installer to restart the engine larger (ADR 0055 §3).
     const room = makeRoom === true ? { makeRoom: true } : {};
     if (email !== undefined) {
@@ -337,28 +347,28 @@ export function registerAddonHandlers(): void {
     } else await installer.install(addon, { access: knownAccess(access), ...room });
     return { success: true };
   });
-  handleResult('addons:cancel', (_event, id) => {
-    installer.cancel(knownId(id));
+  handleResult('addons:cancel', async (_event, id) => {
+    installer.cancel(await knownId(id));
     return { success: true };
   });
   handleResult('addons:undo', async (_event, id) => {
-    await installer.undo(knownId(id));
+    await installer.undo(await knownId(id));
     return { success: true };
   });
   handleResult('addons:restart', async (_event, id) => {
-    await installer.restart(knownId(id));
+    await installer.restart(await knownId(id));
     return { success: true };
   });
   handleResult('addons:start', async (_event, id) => {
-    await installer.start(knownId(id));
+    await installer.start(await knownId(id));
     return { success: true };
   });
   handleResult('addons:turn-off', async (_event, id) => {
-    await installer.turnOff(knownId(id));
+    await installer.turnOff(await knownId(id));
     return { success: true };
   });
   handleResult('addons:remove', async (_event, id, opts) => {
-    await installer.remove(knownId(id), removeOptions(opts));
+    await installer.remove(await knownId(id), removeOptions(opts));
     return { success: true };
   });
 }

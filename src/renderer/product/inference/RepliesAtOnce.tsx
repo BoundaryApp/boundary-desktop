@@ -72,7 +72,8 @@ export const RepliesAtOnceRow: React.FC<{ endpointUrl?: string; modelId?: string
           type="number"
           min={1}
           max={16}
-          className="h-[26px] w-[56px]"
+          size="sm"
+          className="w-[56px]"
           title="Chats the local model answers together. A send beyond this waits in Boundary until a reply ends."
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

@@ -94,26 +94,27 @@ export function useChatIds(cached: ChatScreenSnapshot | null) {
    */
   const adoptResolvedId = useCallback(
     (resolvedId: string, rename: (from: string, to: string) => void, storedId?: string) => {
-      setActiveThreadId((current) => {
-        if (!current) {
-          setToolsOff((prev) => {
-            if (!prev['']) return prev;
-            const { ['']: _empty, ...rest } = prev;
-            return { ...rest, [resolvedId]: true };
-          });
-        } else if (current !== resolvedId) {
-          rename(current, resolvedId);
-        }
-        setIdAliases((prev) => {
-          const root = current ? (prev[current] ?? current) : resolvedId;
-          const added = [resolvedId, storedId].filter(
-            (id): id is string => Boolean(id) && id !== root && prev[id!] !== root
-          );
-          if (added.length === 0) return prev;
-          return { ...prev, ...Object.fromEntries(added.map((id) => [id, root])) };
+      // Read once and set outside an updater: React may run an updater twice.
+      const current = activeThreadIdRef.current;
+      if (!current) {
+        setToolsOff((prev) => {
+          if (!prev['']) return prev;
+          const { ['']: _empty, ...rest } = prev;
+          return { ...rest, [resolvedId]: true };
         });
-        return resolvedId;
+      } else if (current !== resolvedId) {
+        rename(current, resolvedId);
+      }
+      setIdAliases((prev) => {
+        const root = current ? (prev[current] ?? current) : resolvedId;
+        const added = [resolvedId, storedId].filter(
+          (id): id is string => Boolean(id) && id !== root && prev[id!] !== root
+        );
+        if (added.length === 0) return prev;
+        return { ...prev, ...Object.fromEntries(added.map((id) => [id, root])) };
       });
+      activeThreadIdRef.current = resolvedId;
+      setActiveThreadId(resolvedId);
     },
     []
   );

@@ -1,9 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { AddonStepId } from '../../../shared/types/addons';
 import { getContainerRuntime } from '../containerRuntime/resolveContainerRuntime';
 import { runCli } from '../containerRuntime/runCli';
-import { twentyWorkspacesDir } from './twentyWorkspaces';
+import type { StackFiles } from '../stackHost/types';
+import { TWENTY_STORE } from './twentyWorkspaces';
 
 // Pieces of "Remove and delete data" that don't touch the installer's snapshot. The installer
 // runs the steps (addonInstaller.ts).
@@ -57,16 +56,14 @@ function removeEnvKeys(content: string, keys: string[]): string {
  * owner login `crm.sh init` wrote to the stack's `.env`. Hosted workspaces stay. Missing files
  * are not an error.
  */
-export function deleteTwentyKeys(root: string): void {
-  const dir = twentyWorkspacesDir(root);
+export async function deleteTwentyKeys(files: StackFiles): Promise<void> {
   for (const file of ['instances/main.json', 'secrets/main.key_ro', 'secrets/main.key_rw']) {
-    fs.rmSync(path.join(dir, file), { force: true });
+    await files.remove('userContent', `${TWENTY_STORE}/${file}`);
   }
-  const envFile = path.join(root, '.env');
-  if (!fs.existsSync(envFile)) return;
-  const before = fs.readFileSync(envFile, 'utf8');
+  const before = await files.readText('stack', '.env');
+  if (before === null) return;
   const after = removeEnvKeys(before, ['TWENTY_USERNAME', 'TWENTY_PASSWORD']);
-  if (after !== before) fs.writeFileSync(envFile, after);
+  if (after !== before) await files.writeText('stack', '.env', after);
 }
 
 function failureText(error: unknown): string {

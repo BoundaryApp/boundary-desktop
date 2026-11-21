@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
-import { checkAgentRequest, checkBridgeRequest, readLimitedBody, type GuardFailure } from './requestGuard';
+import { checkAgentRequest, checkBridgeRequest, checkBrowserRequest, readLimitedBody, type GuardFailure } from './requestGuard';
+import type { CdpClientRole } from './cdpPolicy';
 import { handleMcpMessage, isReply, parseJsonRpc, type CallTool, type ListTools, type ToolCallResult } from './mcpProtocol';
 import type { HostToolDefinition } from './toolCatalog';
 import { APP_NAME } from '../../../shared/buildIdentity';
@@ -18,7 +19,9 @@ import { APP_NAME } from '../../../shared/buildIdentity';
  *   host-tool clients.
  * - Browser listener: WebSocket upgrades on `/devtools/browser/…` go to the browser relay
  *   (Boundary's Chrome). Its token may also come as `?token=`, because Hermes hands its CDP
- *   driver a URL rather than headers. There are no discovery endpoints (`/json/…`).
+ *   driver a URL rather than headers. There are no discovery endpoints (`/json/…`). The agent's
+ *   token opens any of those paths but `/devtools/browser/credentials`, which only the credential
+ *   client's token opens (ADR 0065).
  */
 
 const MCP_PATH = '/mcp';
@@ -28,6 +31,11 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 export interface BridgeServerOptions {
   mcpToken: string;
   browserToken: string;
+  /**
+   * The credential client's accepted tokens, read on every upgrade so a rotation needs no
+   * restart. None: the credential path is refused.
+   */
+  credentialTokens?: () => readonly string[];
   /** Preferred ports; 0 or a busy port falls back to a random free one. */
   mcpPort?: number;
   browserPort?: number;
@@ -67,7 +75,7 @@ interface RpcRoute {
 /** What the browser listener needs from the relay (`BrowserRelay` in the bridge process). */
 export interface BrowserUpgradeTarget {
   unavailableReason(): string | null;
-  handleUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void>;
+  handleUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer, role: CdpClientRole): Promise<void>;
 }
 
 const BROWSER_PATH_PREFIX = '/devtools/browser/';
@@ -234,11 +242,16 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
   };
 
   const browserGuard = (req: http.IncomingMessage) =>
-    checkBridgeRequest(req.headers, { port: portOf(browser), token: options.browserToken, url: req.url });
+    checkBrowserRequest(req.headers, {
+      port: portOf(browser),
+      url: req.url,
+      agentToken: options.browserToken,
+      credentialTokens: options.credentialTokens?.() ?? [],
+    });
 
   const browser = http.createServer((req, res) => {
     const guard = browserGuard(req);
-    if (guard) {
+    if ('status' in guard) {
       rejectGuard(res, guard);
       return;
     }
@@ -246,7 +259,7 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
   });
   browser.on('upgrade', (req, socket, head) => {
     const guard = browserGuard(req);
-    if (guard) {
+    if ('status' in guard) {
       log('browser upgrade rejected', { status: guard.status, reason: guard.reason });
       rejectUpgrade(socket, guard.status, guard.reason);
       return;
@@ -261,9 +274,9 @@ export async function startBridgeServers(options: BridgeServerOptions): Promise<
       rejectUpgrade(socket, 503, unavailable ?? `${APP_NAME}'s browser is not set up.`);
       return;
     }
-    relay.handleUpgrade(req, socket, head).catch((err: unknown) => {
+    relay.handleUpgrade(req, socket, head, guard.role).catch((err: unknown) => {
       const reason = err instanceof Error ? err.message : String(err);
-      log('browser upgrade failed', { reason });
+      log('browser upgrade failed', { client: guard.role, reason });
       if (!socket.destroyed) rejectUpgrade(socket, 503, reason);
     });
   });

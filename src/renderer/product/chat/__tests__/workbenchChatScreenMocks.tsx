@@ -1,9 +1,10 @@
 import React from 'react';
+import { InspectorToggle } from '../InspectorToggle';
 
 /**
  * Stand-ins for the chat runtime and thread under WorkbenchChatScreen's tests: the thread shows
  * its title, kind, handed-down draft, quote and focus as text, and a button for each callback
- * the screen passes it. Load each with `vi.mock('../WorkbenchThread', () => import('./workbenchChatScreenMocks'))`.
+ * the screen passes it, and the real inspector toggle its header draws. Load each with `vi.mock('../WorkbenchThread', () => import('./workbenchChatScreenMocks'))`.
  */
 export const HermesChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => (
   <>{children}</>
@@ -22,7 +23,9 @@ export const WorkbenchThread = ({
   onDeleteChat,
   toolsEnabled,
   onToolsEnabledChange,
+  onCheckReply,
 }: {
+  onCheckReply?: (check: { messageId: string; markdown: string; source: string }) => void;
   toolsEnabled?: boolean;
   onToolsEnabledChange?: (enabled: boolean) => void;
   threadTitle: string;
@@ -37,6 +40,7 @@ export const WorkbenchThread = ({
   onDeleteChat?: () => void;
 }) => (
   <div>
+    <InspectorToggle />
     thread:{threadTitle}
     {kind === 'side' ? ' side' : ''}
     {kind === 'channel' ? ' channel' : ''}
@@ -73,6 +77,14 @@ export const WorkbenchThread = ({
         }
       >
         Create drafted agent
+      </button>
+    ) : null}
+    {onCheckReply ? (
+      <button
+        type="button"
+        onClick={() => onCheckReply({ messageId: 'm1', markdown: 'A reply to check.', source: 'Reply' })}
+      >
+        Check writing
       </button>
     ) : null}
     {dmTabs ? (

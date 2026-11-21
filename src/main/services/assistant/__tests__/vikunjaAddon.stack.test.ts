@@ -10,13 +10,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { runAddonScriptPlain } from '../../addons/addonScript';
 import { loopbackWebUrl, vikunjaAvailable } from '../../addons/vikunjaAddon';
 import { probeStack, skipNote } from './stackHarness';
+import { isRecord } from '../../../../shared/utils/isRecord';
+import { localRunScript } from '../../stackHost/localScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
 
 const probe = await probeStack();
 const root = probe.ok ? probe.target.root : '';
-const ready = probe.ok && vikunjaAvailable(root);
+const ready = probe.ok && (await vikunjaAvailable(localStackFiles({ stackRoot: root, userContentRoot: () => `${root}/data` })));
 const note = probe.ok && !ready ? ' (skipped: the stack tree does not offer Todo lists)' : skipNote(probe);
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 interface Entry {
   enabled: unknown;
@@ -26,7 +27,7 @@ interface Entry {
 }
 
 async function readEntry(): Promise<Entry> {
-  const outcome = await runAddonScriptPlain({ root, env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
+  const outcome = await runAddonScriptPlain({ runScript: localRunScript(root), env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
   if (outcome.code !== 0) throw new Error(`addon.sh list exited with code ${outcome.code}`);
   let list: unknown;
   try {

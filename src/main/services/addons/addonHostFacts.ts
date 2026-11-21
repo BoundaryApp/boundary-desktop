@@ -10,6 +10,7 @@ import {
   sampleStackContainersMemoryBytes,
 } from '../resources/HostResourceAttribution';
 import { userDataVolumeStats } from '../userDataVolume';
+import { hasStackCapability } from '../stackHost/capabilities';
 
 const MIB = 1024 * 1024;
 
@@ -92,6 +93,10 @@ export async function readAddonHostFacts(
   options: { leftover?: boolean } = {},
 ): Promise<AddonHostFacts> {
   const leftover = options.leftover === true;
+  // The engine, its disk and ports are on a host Boundary doesn't control: nothing to measure here.
+  if (!hasStackCapability('engineControl')) {
+    return { engineMiB: 0, usedMiB: 0, hostMiB: 0, diskFreeBytes: 0, portInUse: false, engineResizable: false, measured: false };
+  }
   const [engine, used, diskFreeBytes, portInUse] = await Promise.all([
     deps.engineBytes(),
     orZero('stack container usage', () => deps.stackContainersUsageBytes(leftover ? entry.services : [])),

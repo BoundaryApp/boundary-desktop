@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { limitFor, localDay, usedToday } from '../../../shared/circleUsage';
+import { limitFor, usedToday } from '../../../shared/circleUsage';
+import { localDay } from '../../../shared/utils/localDay';
+import { formatTokenCount } from '../../../shared/utils/format';
 import type { CircleLimit, CircleLimits, CirclesState } from '../../../shared/types/circles';
 import { Input } from '../../components/ui/input';
 import { CircleButton } from './CircleControls';
 import { useAction } from './useCircles';
+import { NativeSelect } from '../../components/ui/native-select';
 
 /**
  * Usage and limits (ADR 0034 §5). A provider sees every member's day; a member sees only their
@@ -12,14 +15,10 @@ import { useAction } from './useCircles';
 
 const NO_LIMITS: CircleLimits = { everyone: {}, members: {} };
 
-function formatTokens(tokens: number): string {
-  return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens);
-}
-
 function describeLimit(limit: CircleLimit): string {
   const parts = [
     limit.requestsPerDay ? `${limit.requestsPerDay} requests` : null,
-    limit.tokensPerDay ? `${formatTokens(limit.tokensPerDay)} tokens` : null,
+    limit.tokensPerDay ? `${formatTokenCount(limit.tokensPerDay)} tokens` : null,
     limit.concurrent ? `${limit.concurrent} at once` : null,
   ].filter(Boolean);
   return parts.length ? parts.join(', ') : 'None';
@@ -53,7 +52,7 @@ function LimitFields({ name, limit, onSave, busy }: { name: string; limit: Circl
             type="number"
             min={1}
             aria-label={`${label} for ${name}`}
-            className="h-[30px]"
+            size="sm"
             placeholder="No limit"
             value={draft[field]}
             onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
@@ -106,7 +105,7 @@ export function SharingUsage({ circles }: { circles: CirclesState }) {
                   <td className="py-1">{names.get(identity) ?? 'Former member'}</td>
                   <td className={`py-1 ${status === 'Running' ? 'text-ok' : 'text-warn'}`}>{status}</td>
                   <td className="py-1 text-right">{used.requests}</td>
-                  <td className="py-1 text-right">{formatTokens(used.tokens)}</td>
+                  <td className="py-1 text-right">{formatTokenCount(used.tokens)}</td>
                   <td className="py-1 text-right text-fg-faint">{describeLimit(limitFor(limits, identity))}</td>
                 </tr>
               );
@@ -185,8 +184,9 @@ function OnePersonLimit({ circles }: { circles: CirclesState }) {
     <div className="flex flex-col gap-2">
       <label className="flex flex-col gap-1.5 text-xs text-fg-faint">
         Limit for one person
-        <select
-          className="h-[30px] max-w-[260px] rounded-md border bg-surface-1 px-2 text-ui text-fg"
+        <NativeSelect
+          size="sm"
+          className="max-w-[260px]"
           value={chosen}
           onChange={(event) => setChosen(event.target.value)}
         >
@@ -196,7 +196,7 @@ function OnePersonLimit({ circles }: { circles: CirclesState }) {
               {identity in own ? `${person} · own limit` : person}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       {name ? <MemberLimit key={chosen} identity={chosen} name={name} circles={circles} /> : null}
     </div>
@@ -209,7 +209,7 @@ export function YourUsage({ identity, circles }: { identity: string; circles: Ci
   if (!used.requests) return null;
   return (
     <p className="text-xs text-fg-faint">
-      You used {used.requests} {used.requests === 1 ? 'request' : 'requests'} and {formatTokens(used.tokens)} tokens today.
+      You used {used.requests} {used.requests === 1 ? 'request' : 'requests'} and {formatTokenCount(used.tokens)} tokens today.
     </p>
   );
 }

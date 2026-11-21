@@ -5,6 +5,8 @@ import { APP_NAME } from '../shared/buildIdentity';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const KEEP_BYTES = 1024 * 1024;
+/** How much a session appends between size checks, so one session can't grow the file unbounded. */
+const ROTATE_CHECK_BYTES = 256 * 1024;
 const MAX_FIELD_CHARS = 8_000;
 
 const DEBUG_LOG_FILENAME = 'boundary-debug.log';
@@ -13,6 +15,7 @@ const sessionId = `${Date.now().toString(36)}-${process.pid}`;
 
 let cachedPath: string | null = null;
 let sessionHeaderWritten = false;
+let bytesSinceRotateCheck = 0;
 
 /**
  * Finder-reachable log for packaged-app debugging on another Mac.
@@ -170,6 +173,11 @@ export function persistDebugLog(
         message,
         data,
       }) + '\n';
+    bytesSinceRotateCheck += line.length;
+    if (bytesSinceRotateCheck >= ROTATE_CHECK_BYTES) {
+      bytesSinceRotateCheck = 0;
+      rotateIfNeeded(filePath);
+    }
     fs.appendFileSync(filePath, line, 'utf8');
   } catch {
     /* logging must never take down the app */

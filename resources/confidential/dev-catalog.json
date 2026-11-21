@@ -158,22 +158,22 @@
       "id": "tinfoil",
       "name": "Tinfoil",
       "level": "B",
-      "levelReason": "TLS ends inside the enclave and builds are reproducible. Pinning which build runs is in beta, so it’s level B until that ships.",
+      "levelReason": "Your Mac checks Tinfoil’s hardware and that it runs a published, reproducible build, then sends only over TLS to the key that check names. Tinfoil calls this check beta, so it’s level B until that changes.",
       "keyUrl": "https://tinfoil.sh",
       "billing": "Prepaid by card",
       "runsIn": "US",
       "offers": {
         "dsflash": {
-          "providerModelId": "deepseek-v4.1-flash",
+          "providerModelId": "deepseek-v4-1-flash",
           "precision": null,
           "contextLength": 1048576,
           "inputTypes": [
             "text"
           ],
           "price": {
-            "inputPerM": 0.75,
-            "cachedInputPerM": null,
-            "outputPerM": 1.6
+            "inputPerM": 0.6,
+            "cachedInputPerM": 0.01,
+            "outputPerM": 1.45
           }
         }
       }
@@ -182,10 +182,11 @@
       "id": "privatemode",
       "name": "Privatemode",
       "level": "A",
-      "levelReason": "Encrypts on your Mac; its proxy checks the hardware and the build against reproducible reference values. Audited (BSI C5, ISO 27001).",
+      "levelReason": "Your Mac checks Privatemode’s hardware against the reference values in Privatemode’s published release, and only a release Boundary’s list names by its fingerprint. Each chat is then encrypted to a key only that checked deployment holds. After Privatemode ships a new release, Boundary won’t use it until the list is updated. Audited (BSI C5, ISO 27001).",
       "keyUrl": "https://privatemode.ai",
       "billing": "Billed monthly in euros",
       "runsIn": "EU",
+      "manifestSha256": ["d63eb5cf91cb3079fe25a848573a4d0e9d869f462dab4f71fd02bdb372f8e833"],
       "offers": {
         "glmflash": {
           "providerModelId": "glm-5.3-flash",

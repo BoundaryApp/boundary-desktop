@@ -11,10 +11,7 @@
     "baseUrl": ".",
     "outDir": "dist",
     "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "paths": {
-      "@/*": ["./src/renderer/*"]
-    }
+    "resolveJsonModule": true
   },
   "include": [
     "src/**/*",

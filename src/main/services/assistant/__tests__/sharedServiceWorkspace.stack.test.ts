@@ -12,7 +12,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { twentyWorkspacesDir, writeTwentyWorkspace } from '../../addons/twentyWorkspaces';
+import { writeTwentyWorkspace } from '../../addons/twentyWorkspaces';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import { checkAgentRequest, readLimitedBody } from '../../hostBridge/requestGuard';
 import { startServiceListener, type ServiceListener } from '../../circles/serviceListener';
 import { listenerUrl } from '../../circles/usedServices';
 import { defaultStackRoot } from './stackHarness';
@@ -43,6 +45,7 @@ describe.skipIf(!hasPlanner)(
     beforeAll(async () => {
       tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-service-stack-test-'));
       listener = await startServiceListener({
+        guard: { check: checkAgentRequest, readBody: readLimitedBody },
         port: 0,
         tokens: { read: READ, write: WRITE },
         service: 'twenty.main',
@@ -52,11 +55,10 @@ describe.skipIf(!hasPlanner)(
           return Response.json({ jsonrpc: '2.0', id: 1, result: {} });
         },
       });
-      // twentyWorkspacesDir resolves under the stack's data root; point it at the temp folder.
-      const dir = path.join(tmp, 'addons', 'twenty');
-      expect(twentyWorkspacesDir(root!)).toMatch(/addons[/\\]twenty$/);
-      writeTwentyWorkspace(dir, 'ada-family', { url: listenerUrl(listener.port), access: 'read' }, { ro: READ, rw: WRITE });
-      writeTwentyWorkspace(dir, 'bo-family', { url: listenerUrl(listener.port), access: 'write' }, { ro: READ, rw: WRITE });
+      // The temp folder stands in for the user-content location the store lives under.
+      const files = localStackFiles({ stackRoot: root!, userContentRoot: () => tmp });
+      await writeTwentyWorkspace(files, 'ada-family', { url: listenerUrl(listener.port), access: 'read' }, { ro: READ, rw: WRITE });
+      await writeTwentyWorkspace(files, 'bo-family', { url: listenerUrl(listener.port), access: 'write' }, { ro: READ, rw: WRITE });
     });
 
     afterAll(async () => {

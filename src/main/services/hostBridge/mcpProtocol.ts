@@ -2,8 +2,9 @@ import { isHostToolName, listedHostTools, type HostToolDefinition } from './tool
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
- * The slice of MCP the host bridge speaks: Streamable HTTP, POST only, one JSON-RPC message per
- * request, answered with `application/json` (no SSE stream, no session id). That is enough for
+ * The slice of MCP the host bridge speaks: Streamable HTTP with POST and DELETE, one JSON-RPC message per
+ * request, answered with `application/json` (no SSE stream). `bridgeServer` issues an
+ * `mcp-session-id` on `initialize` and ends the session on DELETE. That is enough for
  * initialize, ping, tools/list and tools/call, and keeps the security-critical surface small.
  */
 

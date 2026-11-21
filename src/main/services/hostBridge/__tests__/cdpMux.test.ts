@@ -72,9 +72,9 @@ beforeEach(async () => {
   await mux.start();
 });
 
-function connect(): FakeClient {
+function connect(role: 'agent' | 'credentials' = 'agent'): FakeClient {
   const client = new FakeClient();
-  mux.addClient(client);
+  mux.addClient(client, role);
   return client;
 }
 
@@ -259,5 +259,100 @@ describe('CdpMux', () => {
     mux.handleClientMessage(a, 'not json');
     mux.handleClientMessage(a, JSON.stringify({ method: 'Page.enable' }));
     expect(a.inbox).toHaveLength(0);
+  });
+});
+
+describe('CdpMux credential client (ADR 0065)', () => {
+  /** What the Bitwarden broker sends for a handover (stack broker/cdp.py), up to the session. */
+  function attach(client: FakeClient, targetId = 'T1'): string | undefined {
+    cmd(client, 1, 'Target.getTargetInfo', { targetId });
+    cmd(client, 2, 'Target.attachToTarget', { targetId, flatten: true });
+    return client.replyTo(2)?.result?.sessionId;
+  }
+
+  it('runs a fill and a handover on a page the agent can reach', () => {
+    const broker = connect('credentials');
+    const session = attach(broker);
+    expect(session).toBeTruthy();
+    cmd(broker, 3, 'Runtime.evaluate', { expression: 'document' }, session);
+    cmd(broker, 4, 'Runtime.callFunctionOn', { objectId: 'o1', functionDeclaration: 'function(){}' }, session);
+    cmd(broker, 5, 'Network.setCookies', { cookies: [{ name: 'sid', value: 'v', domain: '.example.com' }] }, session);
+    cmd(broker, 6, 'Page.reload', { ignoreCache: false }, session);
+    cmd(broker, 7, 'Target.detachFromTarget', { sessionId: session });
+    for (const id of [1, 2, 3, 4, 5, 6, 7]) expect(broker.replyTo(id)?.error, `reply ${id}`).toBeUndefined();
+    expect(chrome.sent('Network.setCookies')).toHaveLength(1);
+    expect(chrome.sent('Page.reload')).toHaveLength(1);
+  });
+
+  it('refuses the agent the cookie write the credential client may make', async () => {
+    const agent = connect();
+    cmd(agent, 1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
+    await flush();
+    const session = agent.events('Target.attachedToTarget')[0].params.sessionId;
+    cmd(agent, 2, 'Network.setCookies', { cookies: [{ name: 'sid', value: 'v', domain: 'example.com' }] }, session);
+    expect(agent.replyTo(2)?.error?.message).toMatch(/doesn't allow Network.setCookies/);
+    cmd(agent, 3, 'Page.reload', {}, session);
+    expect(agent.replyTo(3)?.error).toBeUndefined();
+    expect(chrome.sent('Network.setCookies')).toHaveLength(0);
+  });
+
+  it('refuses everything outside its allowlist, and page methods without its own session', () => {
+    const broker = connect('credentials');
+    cmd(broker, 1, 'Page.navigate', { url: 'https://example.com/' });
+    cmd(broker, 2, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
+    cmd(broker, 3, 'Runtime.evaluate', { expression: 'document' });
+    cmd(broker, 4, 'Network.setCookies', { cookies: [] });
+    expect(broker.replyTo(1)?.error?.message).toMatch(/credential client/);
+    expect(broker.replyTo(2)?.error?.message).toMatch(/credential client/);
+    expect(broker.replyTo(3)?.error?.message).toMatch(/needs a session/);
+    expect(broker.replyTo(4)?.error?.message).toMatch(/needs a session/);
+    expect(chrome.received.filter((m) => ['Page.navigate', 'Runtime.evaluate', 'Network.setCookies'].includes(m.method))).toHaveLength(0);
+  });
+
+  it("can't use the agent's session", async () => {
+    const agent = connect();
+    const broker = connect('credentials');
+    cmd(agent, 1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
+    await flush();
+    const session = agent.events('Target.attachedToTarget')[0].params.sessionId;
+    cmd(broker, 2, 'Runtime.evaluate', { expression: 'document' }, session);
+    expect(broker.replyTo(2)?.error?.message).toMatch(/No session/);
+  });
+
+  it('writes cookies only for the page its session is on', () => {
+    const broker = connect('credentials');
+    const session = attach(broker);
+    cmd(broker, 3, 'Network.setCookies', { cookies: [{ name: 'sid', value: 'v', domain: 'other.example' }] }, session);
+    expect(broker.replyTo(3)?.error?.message).toMatch(/only takes cookies/);
+    expect(chrome.sent('Network.setCookies')).toHaveLength(0);
+  });
+
+  it('keeps the site policy: no attach to, and no description of, a page on a blocked site', () => {
+    policy = { blocked: ['bank.example'], allowed: [] };
+    const broker = connect('credentials');
+    const blocked = { targetId: 'T9', type: 'page', url: 'https://login.bank.example/' };
+    chrome.targets.push(blocked);
+    mux.handleChromeMessage({ method: 'Target.targetCreated', params: { targetInfo: blocked } });
+    cmd(broker, 1, 'Target.getTargetInfo', { targetId: 'T9' });
+    cmd(broker, 2, 'Target.attachToTarget', { targetId: 'T9', flatten: true });
+    expect(broker.replyTo(1)?.error?.message).toMatch(/No target/);
+    expect(broker.replyTo(2)?.error?.message).toMatch(/bank.example/);
+    expect(chrome.sent('Target.getTargetInfo')).toHaveLength(0);
+    expect(chrome.sent('Target.attachToTarget').filter((m) => m.params.targetId === 'T9' && m.id < 2_000_000_000)).toHaveLength(0);
+  });
+
+  it('labels each client by role in the mux log', () => {
+    const agent = connect();
+    const broker = connect('credentials');
+    expect(log).toHaveBeenCalledWith('cdp client connected', { client: 'agent-1' });
+    expect(log).toHaveBeenCalledWith('cdp client connected', { client: 'credentials-2' });
+    cmd(broker, 1, 'Page.navigate', { url: 'https://example.com/' });
+    mux.removeClient(broker);
+    mux.removeClient(agent);
+    expect(log).toHaveBeenCalledWith('cdp client closed', {
+      client: 'credentials-2',
+      methods: { 'Page.navigate': 1 },
+      blocked: { 'Page.navigate': 1 },
+    });
   });
 });

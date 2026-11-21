@@ -27,6 +27,8 @@ await build({
   root,
   configFile: false,
   logLevel: 'warn',
+  // The harness bundles no release notes; the alias still has to resolve (ADR 0059).
+  resolve: { alias: { '@release-notes': path.resolve(root, '..', '..', 'src', 'release-notes-empty') } },
   plugins: [react(), tailwindcss()],
   define: { __BOUNDARY_APP_NAME__: '""', __BOUNDARY_INSTANCE__: '""', global: 'globalThis' },
   build: { outDir: path.join(outDir, 'site'), emptyOutDir: true },
@@ -119,7 +121,7 @@ try {
     console.log(`${theme} area: header at ${tops[0].header}px, first channel at ${tops[0].channel}px in ${OPENED.length} Circles${moved ? ' (differ)' : ''}`);
 
     // A long name ends before the ⋯ button.
-    const gap = await page.evaluate(() => document.querySelector('.wb-circles-more').getBoundingClientRect().left - document.querySelector('.wb-circle-area-name').getBoundingClientRect().right);
+    const gap = await page.evaluate(() => document.querySelector('.wb-circles-row-more').getBoundingClientRect().left - document.querySelector('.wb-circle-area-name').getBoundingClientRect().right);
     if (gap < 0) fail(`${theme} header: the Circle name runs ${-gap}px under the ⋯ button`);
     else console.log(`${theme} header: the name ends ${gap}px before the ⋯ button`);
 

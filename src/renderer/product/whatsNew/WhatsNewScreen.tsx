@@ -4,6 +4,7 @@ import { loadGuide } from './content';
 import { ReleaseShot } from './ReleaseShot';
 import { useWhatsNew } from './state';
 import './whatsNew.css';
+import { Switch } from '../../components/ui/switch';
 
 const shortVersion = (version: string) => version.replace(/^\d+\.\d+\.\d+-/, '');
 
@@ -114,13 +115,7 @@ export const WhatsNewScreen: React.FC<{
           {state ? (
             <label className="wn-switch">
               Show new releases on launch
-              <button
-                type="button"
-                role="switch"
-                aria-checked={state.popups}
-                aria-label="Show new releases on launch"
-                onClick={() => state.setPopups(!state.popups)}
-              />
+              <Switch label="Show new releases on launch" checked={state.popups} onChange={state.setPopups} />
             </label>
           ) : null}
         </div>

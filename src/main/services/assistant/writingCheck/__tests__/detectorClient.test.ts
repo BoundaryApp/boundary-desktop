@@ -8,6 +8,12 @@ vi.mock('../../../../persistDebugLog', () => ({ persistDebugLog: log }));
 
 import { checkWithDetector, detectorStatus, type DetectorDeps } from '../detectorClient';
 
+import { localStackEndpoints, localStackFiles } from '../../../stackHost/localStackHost';
+import { createFakeStackFiles } from '../../../stackHost/fakeStackFiles';
+import { DEFAULT_ASSISTANT_STACK_PORTS } from '../../../../../shared/assistantStackConstants';
+
+const endpoints = localStackEndpoints(() => DEFAULT_ASSISTANT_STACK_PORTS);
+
 const TEXT = 'word '.repeat(60).trim();
 const MANIFEST = {
   id: 'io.github.kaxline.stack.detector',
@@ -41,8 +47,8 @@ describe('detector client', () => {
     consented = new Set();
     log.mockClear();
     deps = {
-      stackRoot: () => root,
-      dataRoot: (r) => path.join(r, 'data'),
+      files: localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') }),
+      endpoints,
       fetch: vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         calls.push({ url: String(url), init: init ?? {} });
         const next = replies.shift();
@@ -83,7 +89,7 @@ describe('detector client', () => {
     });
 
     it.each([
-      ['no stack', () => (deps.stackRoot = () => null)],
+      ['no stack', () => (deps.files = createFakeStackFiles())],
       ['a stack without the add-on', () => fs.rmSync(path.join(root, 'addons'), { recursive: true })],
       ['no token file', () => fs.rmSync(tokenPath())],
       ['a health check that fails', () => replies.push(new TypeError('fetch failed'))],

@@ -33,6 +33,7 @@ vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
+import { openMenu } from '../../../__tests__/openMenu';
 import type {
   AgentProfile,
   ChannelRecord,
@@ -140,7 +141,7 @@ describe('thread header names the kind (ADR 0023)', () => {
     const h = handlers();
     render(<Head kind="hermes" title="Plan the launch" agent={hermes} handlers={h} filed />);
     expect(screen.queryByRole('button', { name: 'Make channel' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Plan the launch/ }));
+    openMenu(screen.getByRole('button', { name: /Plan the launch/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Make channel' }));
     expect(h.makeChannel).toHaveBeenCalledTimes(1);
   });
@@ -345,7 +346,7 @@ describe('@ someone not in the room adds them (ADR 0010 §5)', () => {
     const menu = await screen.findByRole('listbox', { name: 'Mention' });
     const row = within(menu).getByRole('option', { name: /Ana.*Not in channel/ });
     await act(async () => {
-      fireEvent.mouseDown(row);
+      fireEvent.click(row);
     });
     return box;
   }

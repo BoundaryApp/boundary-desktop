@@ -243,6 +243,33 @@ describe('ProductIconRail What’s new button', () => {
     expect(button.querySelector('.wb-attention-dot')).toBeTruthy();
   });
 
+  it('keeps the rail order, shortcuts and guide anchors', async () => {
+    whatsNewBundled.releases = [
+      { version: '0.0.1-rc.11', date: 'Nov 13', slides: [{ title: 'A', body: 'B' }], guides: [] },
+    ];
+    railWith();
+    await screen.findByLabelText('What’s new');
+    const buttons = screen.getAllByRole('button').map((b) => [
+      b.getAttribute('aria-label'),
+      b.getAttribute('title'),
+      b.getAttribute('aria-keyshortcuts'),
+      b.getAttribute('data-guide-anchor'),
+      b.classList.contains('end'),
+    ]);
+    expect(buttons).toEqual([
+      ['Chat', 'Chat  Ctrl+1', 'Control+1', 'rail-chat', false],
+      ['Circles', 'Circles  Ctrl+2', 'Control+2', 'rail-circles', false],
+      ['Inference', 'Inference  Ctrl+3', 'Control+3', 'rail-inference', false],
+      ['Services', 'Services  Ctrl+4', 'Control+4', 'rail-services', false],
+      ['Resources', 'Resources  Ctrl+5', 'Control+5', 'rail-resources', false],
+      ['Demo', 'Demo', null, null, false],
+      ['Plain', 'Plain', null, null, false],
+      ['What’s new', 'What’s new', null, 'rail-whats-new', true],
+      ['Report a bug', 'Report a bug  Ctrl+Shift+B', 'Control+Shift+B', 'rail-bug', false],
+      ['Settings', 'Settings  Ctrl+,', 'Control+,', 'rail-settings', false],
+    ]);
+  });
+
   it('drops the dot once everything has been seen', async () => {
     whatsNewBundled.releases = [
       {

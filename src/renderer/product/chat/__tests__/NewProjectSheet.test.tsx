@@ -26,9 +26,11 @@ describe('NewProjectSheet', () => {
   it('creates with coding on for a git repo, and the switch says why', () => {
     const onCreate = vi.fn();
     render(<NewProjectSheet folder={repo} managed onCreate={onCreate} onCancel={() => undefined} />);
-    const toggle = screen.getByRole('switch') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByRole('switch') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(screen.getByText(/On because this is a git repo/)).toBeTruthy();
+    // The reason is the switch's description, so a screen reader hears why it's on or off.
+    expect(document.getElementById(toggle.getAttribute('aria-describedby')!)?.textContent).toMatch(/On because this is a git repo/);
     fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
     expect(onCreate).toHaveBeenCalledWith({ name: 'contact-api', coding: true });
   });
@@ -45,9 +47,9 @@ describe('NewProjectSheet', () => {
     render(
       <NewProjectSheet folder={repo} managed={false} onCreate={() => undefined} onCancel={() => undefined} />
     );
-    const toggle = screen.getByRole('switch') as HTMLInputElement;
+    const toggle = screen.getByRole('switch') as HTMLButtonElement;
     expect(toggle.disabled).toBe(true);
-    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 
   it('renders nothing without a folder', () => {

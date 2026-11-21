@@ -146,6 +146,35 @@ describe('holding turns for the local model', () => {
     expect(listRunningTurns().map((t) => t.requestId)).toEqual(['req-a']);
   });
 
+  it('Stop on running A keeps it listed while it winds down, then frees its slot once', async () => {
+    await send('req-a', 'sess-a');
+    await vi.waitFor(() => expect(submittedSessions()).toEqual(['sess-a']));
+    await send('req-b', 'sess-b');
+    await send('req-c', 'sess-c');
+    await vi.waitFor(() => expect(logLines('turn held')).toHaveLength(2));
+
+    handleHermesChatCancel({ requestId: 'req-a', reason: 'stopped' });
+    // Stopped but not yet ended: windows still see it, and Stop by its chat finds nothing more.
+    expect(listRunningTurns().map((t) => t.requestId)).toEqual(['req-a', 'req-b', 'req-c']);
+    handleHermesChatCancel({ requestId: 'unknown', sessionId: 'sess-a', reason: 'interrupted' });
+
+    await vi.waitFor(() => expect(submittedSessions()).toEqual(['sess-a', 'sess-b']));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(submittedSessions()).toEqual(['sess-a', 'sess-b']);
+    expect(logLines('turn admitted').map((l) => l.requestId)).toEqual(['req-a', 'req-b']);
+    expect(logLines('turn end').find((l) => l.requestId === 'req-a')).toMatchObject({ outcome: 'stopped' });
+    expect(listRunningTurns().map((t) => [t.requestId, t.admission])).toEqual([
+      ['req-b', 'running'],
+      ['req-c', 'held'],
+    ]);
+
+    // Let B and C finish, so nothing of theirs is left waiting for the next test.
+    emitGateway('message.complete', { session_id: 'sess-b', payload: { status: 'complete', text: 'b' } });
+    await vi.waitFor(() => expect(submittedSessions()).toEqual(['sess-a', 'sess-b', 'sess-c']));
+    emitGateway('message.complete', { session_id: 'sess-c', payload: { status: 'complete', text: 'c' } });
+    await vi.waitFor(() => expect(listRunningTurns()).toEqual([]));
+  });
+
   it('Run now starts held B while A runs', async () => {
     await send('req-a', 'sess-a');
     await vi.waitFor(() => expect(submittedSessions()).toEqual(['sess-a']));

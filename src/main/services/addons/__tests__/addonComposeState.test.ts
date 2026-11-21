@@ -23,17 +23,17 @@ vi.mock('../../assistant/resolveAssistantRoot', () => ({
 }));
 
 import {
-  addonComposeEnv,
   addonComposeProfiles,
   boundaryComposeProfileArgs,
   installedAddonsAt,
   installedAddonsHere,
+  moveTwentyFlagsToEnv,
   setAddonInstalledHere,
   twentyFlags,
 } from '../addonComposeState';
 import { BOUNDARY_ASSISTANT_COMPOSE_PROFILES } from '../../../../shared/assistantStackConstants';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { HOSTED_SETTINGS, LOCAL_SETTINGS, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { stackFilesAt } from '../../stackHost/activeStack';
+import { HOSTED_SETTINGS, LOCAL_SETTINGS, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
 
 describe('addonComposeState', () => {
   beforeEach(() => {
@@ -50,7 +50,7 @@ describe('addonComposeState', () => {
     expect(() => setAddonInstalledHere('twenty', false)).toThrow('no stack here');
   });
 
-  it('takes Actual’s profiles and installed state from the stack’s .env, which addon.sh writes', () => {
+  it('takes Actual’s profiles and installed state from the stack’s .env, which addon.sh writes', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'actual-profiles-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -64,20 +64,20 @@ describe('addonComposeState', () => {
       // A stale record in Boundary's store doesn't count for Actual.
       installed.ids = ['actual'];
       fs.writeFileSync(path.join(root, '.env'), 'ACTUAL_MCP_ENABLED=1\nACTUAL_LOCAL_ENABLED=0\n');
-      expect(addonComposeProfiles()).toEqual(['budget']);
-      expect(installedAddonsHere()).toEqual([]);
+      expect(await addonComposeProfiles()).toEqual(['budget']);
+      expect(await installedAddonsHere()).toEqual([]);
       fs.writeFileSync(path.join(root, '.env'), 'ACTUAL_MCP_ENABLED=1\nACTUAL_LOCAL_ENABLED=1\n');
-      expect(addonComposeProfiles()).toEqual(['budget', 'budget-local']);
-      expect(installedAddonsHere()).toEqual(['actual']);
+      expect(await addonComposeProfiles()).toEqual(['budget', 'budget-local']);
+      expect(await installedAddonsHere()).toEqual(['actual']);
       // Without the manifest (stack 0.3.12 and earlier) the flags aren't Boundary's to follow.
       fs.rmSync(path.join(root, 'addons'), { recursive: true });
-      expect(addonComposeProfiles()).toEqual([]);
+      expect(await addonComposeProfiles()).toEqual([]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('addonComposeProfiles adds email and email-drafts from the stack’s .env', () => {
+  it('addonComposeProfiles adds email and email-drafts from the stack’s .env', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'email-profiles-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -90,17 +90,17 @@ describe('addonComposeState', () => {
       installed.root = root;
       installed.ids = ['email'];
       fs.writeFileSync(path.join(root, '.env'), 'EMAIL_ENABLED=0\nEMAIL_DRAFTS_ENABLED=1\n');
-      expect(addonComposeProfiles()).toEqual([]);
+      expect(await addonComposeProfiles()).toEqual([]);
       fs.writeFileSync(path.join(root, '.env'), 'EMAIL_ENABLED=1\nEMAIL_DRAFTS_ENABLED=0\n');
-      expect(addonComposeProfiles()).toEqual(['email']);
+      expect(await addonComposeProfiles()).toEqual(['email']);
       fs.writeFileSync(path.join(root, '.env'), 'EMAIL_ENABLED=1\nEMAIL_DRAFTS_ENABLED=1\n');
-      expect(addonComposeProfiles()).toEqual(['email', 'email-drafts']);
+      expect(await addonComposeProfiles()).toEqual(['email', 'email-drafts']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('installedAddonsAt lists email while EMAIL_ENABLED is 1', () => {
+  it('installedAddonsAt lists email while EMAIL_ENABLED is 1', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'email-installed-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -113,15 +113,15 @@ describe('addonComposeState', () => {
       // A stale record in Boundary's store doesn't count for email.
       installed.ids = ['email'];
       fs.writeFileSync(path.join(root, '.env'), 'EMAIL_ENABLED=0\n');
-      expect(installedAddonsAt(root)).toEqual([]);
+      expect(await installedAddonsAt(root)).toEqual([]);
       fs.writeFileSync(path.join(root, '.env'), 'EMAIL_ENABLED=1\n');
-      expect(installedAddonsAt(root)).toEqual(['email']);
+      expect(await installedAddonsAt(root)).toEqual(['email']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('adds the bitwarden profile while BITWARDEN_ENABLED is 1 and the stack ships the add-on', () => {
+  it('adds the bitwarden profile while BITWARDEN_ENABLED is 1 and the stack ships the add-on', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitwarden-profiles-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -134,16 +134,16 @@ describe('addonComposeState', () => {
       );
       installed.root = root;
       fs.writeFileSync(path.join(root, '.env'), 'BITWARDEN_ENABLED=0\n');
-      expect(addonComposeProfiles()).toEqual([]);
+      expect(await addonComposeProfiles()).toEqual([]);
       fs.writeFileSync(path.join(root, '.env'), 'BITWARDEN_ENABLED=1\n');
-      expect(addonComposeProfiles()).toEqual(['bitwarden']);
-      expect(installedAddonsAt(root)).toEqual(['bitwarden']);
+      expect(await addonComposeProfiles()).toEqual(['bitwarden']);
+      expect(await installedAddonsAt(root)).toEqual(['bitwarden']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('lists Todo lists and adds the todo profile while VIKUNJA_MCP_ENABLED is 1', () => {
+  it('lists Todo lists and adds the todo profile while VIKUNJA_MCP_ENABLED is 1', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vikunja-installed-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -157,53 +157,50 @@ describe('addonComposeState', () => {
       // A stale record in Boundary's store doesn't count for Todo lists.
       installed.ids = ['vikunja'];
       fs.writeFileSync(path.join(root, '.env'), 'VIKUNJA_MCP_ENABLED=0\n');
-      expect(installedAddonsAt(root)).toEqual([]);
-      expect(addonComposeProfiles()).toEqual([]);
+      expect(await installedAddonsAt(root)).toEqual([]);
+      expect(await addonComposeProfiles()).toEqual([]);
       fs.writeFileSync(path.join(root, '.env'), 'VIKUNJA_MCP_ENABLED=1\n');
-      expect(installedAddonsAt(root)).toEqual(['vikunja']);
-      expect(addonComposeProfiles()).toEqual(['todo']);
+      expect(await installedAddonsAt(root)).toEqual(['vikunja']);
+      expect(await addonComposeProfiles()).toEqual(['todo']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('reads no add-ons while no stack root resolves', () => {
+  it('reads no add-ons while no stack root resolves', async () => {
     installed.ids = ['twenty'];
     installed.root = null;
-    expect(addonComposeProfiles()).toEqual([]);
+    expect(await addonComposeProfiles()).toEqual([]);
     expect(installed.roots).toEqual([]);
   });
 
-  it("reads the active stack root's list", () => {
+  it("reads the active stack root's list", async () => {
     installed.ids = ['twenty'];
-    addonComposeProfiles();
-    addonComposeEnv();
+    await addonComposeProfiles();
+    await installedAddonsHere();
     expect(installed.roots).toEqual(['/stacks/active', '/stacks/active']);
   });
 
-  it('adds crm and the Twenty flags when Twenty is installed', () => {
+  it('adds crm when Twenty is installed', async () => {
     installed.ids = ['twenty'];
-    expect(addonComposeProfiles()).toEqual(['crm']);
-    expect(addonComposeEnv()).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
-    expect(boundaryComposeProfileArgs()).toEqual(
+    expect(await addonComposeProfiles()).toEqual(['crm']);
+    expect(await boundaryComposeProfileArgs()).toEqual(
       [...BOUNDARY_ASSISTANT_COMPOSE_PROFILES, 'crm'].flatMap((p) => ['--profile', p]),
     );
   });
 
-  it("sets both Twenty flags to 0 when it isn't", () => {
-    expect(addonComposeEnv()).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' });
-    expect(boundaryComposeProfileArgs()).toEqual(
+  it("adds no crm when it isn't", async () => {
+    expect(await boundaryComposeProfileArgs()).toEqual(
       BOUNDARY_ASSISTANT_COMPOSE_PROFILES.flatMap((p) => ['--profile', p]),
     );
   });
 
-  it('treats Twenty as not installed when nothing is stored, even mid-install', () => {
+  it('treats Twenty as not installed when nothing is stored, even mid-install', async () => {
     installed.ids = [];
-    expect(addonComposeProfiles()).toEqual([]);
-    expect(addonComposeEnv()).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' });
+    expect(await addonComposeProfiles()).toEqual([]);
   });
 
-  it('follows n8n’s and LightRAG’s flags in the stack’s .env, adding rag but not automation again', () => {
+  it('follows n8n’s and LightRAG’s flags in the stack’s .env, adding rag but not automation again', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'builtin-profiles-'));
     try {
       fs.mkdirSync(path.join(root, 'scripts'));
@@ -216,15 +213,15 @@ describe('addonComposeState', () => {
       // A record in Boundary's store doesn't count for either.
       installed.ids = ['n8n', 'lightrag'];
       fs.writeFileSync(path.join(root, '.env'), 'AUTOMATION_ENABLED=0\nLIGHTRAG_MCP_ENABLED=0\n');
-      expect(installedAddonsHere()).toEqual([]);
-      expect(boundaryComposeProfileArgs()).toEqual(BOUNDARY_ASSISTANT_COMPOSE_PROFILES.flatMap((p) => ['--profile', p]));
+      expect(await installedAddonsHere()).toEqual([]);
+      expect(await boundaryComposeProfileArgs()).toEqual(BOUNDARY_ASSISTANT_COMPOSE_PROFILES.flatMap((p) => ['--profile', p]));
       fs.writeFileSync(path.join(root, '.env'), 'AUTOMATION_ENABLED=1\nLIGHTRAG_MCP_ENABLED=1\n');
-      expect(installedAddonsHere()).toEqual(['n8n', 'lightrag']);
+      expect(await installedAddonsHere()).toEqual(['n8n', 'lightrag']);
       expect(BOUNDARY_ASSISTANT_COMPOSE_PROFILES).toContain('automation');
-      expect(addonComposeProfiles()).toEqual(['rag']);
+      expect(await addonComposeProfiles()).toEqual(['rag']);
       // Without the manifests (stack 0.3.12 and earlier) the flags aren't Boundary's to follow.
       fs.rmSync(path.join(root, 'addons'), { recursive: true });
-      expect(installedAddonsHere()).toEqual([]);
+      expect(await installedAddonsHere()).toEqual([]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -245,24 +242,81 @@ describe('twentyFlags', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('turns both on while Twenty is installed', () => {
-    expect(twentyFlags(true, dir)).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
+  it('turns both on while Twenty is installed', async () => {
+    expect(await twentyFlags(true, stackFilesAt(tmp))).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
   });
 
-  it('keeps MCP on for a stored hosted workspace while Twenty is not installed', () => {
+  it('keeps MCP on for a stored hosted workspace while Twenty is not installed', async () => {
     writeTwentyWorkspace(dir, 'work', HOSTED_SETTINGS);
-    expect(twentyFlags(false, dir)).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '1' });
+    expect(await twentyFlags(false, stackFilesAt(tmp))).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '1' });
   });
 
-  it('turns both off when the only stored workspace is local and Twenty is not installed', () => {
+  it('turns both off when the only stored workspace is local and Twenty is not installed', async () => {
     writeTwentyWorkspace(dir, 'main', LOCAL_SETTINGS);
-    expect(twentyFlags(false, dir)).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' });
+    expect(await twentyFlags(false, stackFilesAt(tmp))).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '0' });
+  });
+});
+
+describe('moveTwentyFlagsToEnv', () => {
+  let tmp: string;
+  let dir: string;
+  let movedRoots: string[];
+  const deps = (twentyInstalled: boolean) => ({
+    installed: (root: string) => {
+      expect(root).toBe(tmp);
+      return twentyInstalled;
+    },
+    moved: (root: string) => movedRoots.includes(root),
+    markMoved: (root: string): void => {
+      movedRoots.push(root);
+    },
+  });
+  const readEnv = () => fs.readFileSync(path.join(tmp, '.env'), 'utf8');
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'twenty-move-'));
+    dir = twentyWorkspacesDir(tmp);
+    movedRoots = [];
+  });
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('gives compose the same values for the active stack root', () => {
+  it('writes both flags on for an installed Twenty, over stale values, and marks the root', async () => {
+    fs.writeFileSync(path.join(tmp, '.env'), 'COMPOSE_PROFILES=core\nTWENTY_LOCAL_ENABLED=0\n');
+    const written = await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(true));
+    expect(written).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
+    expect(readEnv()).toBe('COMPOSE_PROFILES=core\nTWENTY_LOCAL_ENABLED=1\nTWENTY_MCP_ENABLED=1\n');
+    expect(movedRoots).toEqual([tmp]);
+  });
+
+  it('keeps MCP on for a hosted workspace with Twenty not installed, as compose got before', async () => {
+    fs.writeFileSync(path.join(tmp, '.env'), 'TWENTY_MCP_ENABLED=0\n');
     writeTwentyWorkspace(dir, 'work', HOSTED_SETTINGS);
-    expect(addonComposeEnv()).toEqual({ TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '1' });
-    installed.ids = ['twenty'];
-    expect(addonComposeEnv()).toEqual({ TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' });
+    await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(false));
+    expect(readEnv()).toBe('TWENTY_MCP_ENABLED=1\nTWENTY_LOCAL_ENABLED=0\n');
+  });
+
+  it('writes both off with nothing installed or stored', async () => {
+    fs.writeFileSync(path.join(tmp, '.env'), 'TWENTY_LOCAL_ENABLED=1\nTWENTY_MCP_ENABLED=1\n');
+    await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(false));
+    expect(readEnv()).toBe('TWENTY_LOCAL_ENABLED=0\nTWENTY_MCP_ENABLED=0\n');
+  });
+
+  it('leaves values already moved, and fills only a flag missing from a .env set up again', async () => {
+    fs.writeFileSync(path.join(tmp, '.env'), 'TWENTY_LOCAL_ENABLED=0\nTWENTY_MCP_ENABLED=0\n');
+    movedRoots = [tmp];
+    expect(await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(true))).toEqual({});
+    expect(readEnv()).toBe('TWENTY_LOCAL_ENABLED=0\nTWENTY_MCP_ENABLED=0\n');
+    fs.writeFileSync(path.join(tmp, '.env'), 'TWENTY_MCP_ENABLED=0\n');
+    expect(await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(true))).toEqual({ TWENTY_LOCAL_ENABLED: '1' });
+    expect(readEnv()).toBe('TWENTY_MCP_ENABLED=0\nTWENTY_LOCAL_ENABLED=1\n');
+    expect(movedRoots).toEqual([tmp]);
+  });
+
+  it('writes nothing and marks nothing without a .env, so the next start tries again', async () => {
+    expect(await moveTwentyFlagsToEnv(stackFilesAt(tmp), tmp, deps(true))).toEqual({});
+    expect(fs.existsSync(path.join(tmp, '.env'))).toBe(false);
+    expect(movedRoots).toEqual([]);
   });
 });

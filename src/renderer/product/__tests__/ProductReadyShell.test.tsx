@@ -47,6 +47,18 @@ vi.mock('../ResourcesScreen', () => ({
   ResourcesScreen: () => <div>resources-screen</div>,
 }));
 
+vi.mock('../circles/CirclesScreen', () => ({
+  CirclesScreen: () => <div>circles-screen</div>,
+}));
+
+vi.mock('../whatsNew/WhatsNewScreen', () => ({
+  WhatsNewScreen: ({ scrollTo }: { scrollTo?: string }) => <div>whats-new-screen:{scrollTo ?? 'top'}</div>,
+}));
+
+vi.mock('../whatsNew/GuideScreen', () => ({
+  GuideScreen: ({ guideId }: { guideId: string }) => <div>guide-screen:{guideId}</div>,
+}));
+
 vi.mock('../../experiments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../experiments')>()),
   rendererExperiments: [{ Overlay: () => <div>experiment-overlay</div> }],
@@ -134,6 +146,38 @@ describe('ProductReadyShell navigation', () => {
     expect(onNavigate).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     expect(onNavigate).toHaveBeenLastCalledWith('settings');
+  });
+
+  it('renders each destination’s screen', () => {
+    const { rerender } = render(<ProductReadyShell view="chat" onNavigate={vi.fn()} />);
+    const screens: [Parameters<typeof ProductReadyShell>[0]['view'], string][] = [
+      ['chat', 'chat-screen'],
+      ['circles', 'circles-screen'],
+      ['inference', 'inference-screen:none'],
+      ['services', 'services-screen'],
+      ['resources', 'resources-screen'],
+      ['settings', 'settings-screen'],
+      ['whats-new', 'whats-new-screen:top'],
+    ];
+    for (const [view, text] of screens) {
+      rerender(<ProductReadyShell view={view} onNavigate={vi.fn()} />);
+      expect(screen.getByText(text), view).toBeTruthy();
+    }
+    rerender(
+      <ProductReadyShell view="whats-new" onNavigate={vi.fn()} whatsNewRequest={{ seq: 1, guide: 'g1' }} />
+    );
+    expect(screen.getByText('guide-screen:g1')).toBeTruthy();
+    rerender(
+      <ProductReadyShell view="whats-new" onNavigate={vi.fn()} whatsNewRequest={{ seq: 2, version: 'v2' }} />
+    );
+    expect(screen.getByText('whats-new-screen:v2')).toBeTruthy();
+  });
+
+  it('switches to Chat from ⌘1 on another destination', () => {
+    const onNavigate = vi.fn();
+    render(<ProductReadyShell view="resources" onNavigate={onNavigate} />);
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true });
+    expect(onNavigate).toHaveBeenLastCalledWith('chat');
   });
 
   it('opens Inference at a person from a link about their model', () => {

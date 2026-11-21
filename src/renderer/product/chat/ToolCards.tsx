@@ -5,7 +5,8 @@ import {
   toHostRelativePath,
   uniquePreserveOrder,
 } from '../../../shared/hermesToolPaths';
-import { FileActions, projectPathsOf } from './MessageActions';
+import { FileActions } from './MessageActions';
+import { projectPathsOf } from './projectPaths';
 import { sharedToolSource } from '../addons/SharedTwenty';
 import { useSharedServices } from '../addons/useSharedServices';
 
@@ -14,7 +15,6 @@ export type ToolCardState = HermesChatToolEvent & {
   /** Paths inside the active project's mount, relative to it: these can be revealed. */
   projectPaths?: string[];
 };
-
 
 /**
  * Adds a tool event to the live turn's cards. A later event for the same tool keeps the
@@ -54,6 +54,29 @@ export function withToolEvent(
           collapsed: event.status === 'done' ? true : (existing.collapsed ?? false),
         }
       : c
+  );
+}
+
+/**
+ * Gives finished cards with no paths the turn's context files (`rawPaths`, as the stack
+ * reports them), with Reveal for those inside the project.
+ */
+export function withContextFiles(
+  cards: ToolCardState[],
+  rawPaths: string[],
+  containerPath?: string | null
+): ToolCardState[] {
+  const paths = rawPaths.map((p) => toHostRelativePath(p, containerPath));
+  if (paths.length === 0) return cards;
+  const projectPaths = projectPathsOf(rawPaths, containerPath);
+  return cards.map((card) =>
+    card.status === 'done' && (!card.paths || card.paths.length === 0)
+      ? {
+          ...card,
+          paths: uniquePreserveOrder([...(card.paths ?? []), ...paths]),
+          projectPaths: uniquePreserveOrder([...(card.projectPaths ?? []), ...projectPaths]),
+        }
+      : card
   );
 }
 

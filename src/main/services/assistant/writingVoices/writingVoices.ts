@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type {
   WritingVoiceActionResult,
@@ -15,7 +14,8 @@ import type {
 import { BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE } from '../../../../shared/assistantStackConstants';
 import { slugify, uniqueSlug } from '../../../../shared/utils/slug';
 import { persistDebugLog } from '../../../persistDebugLog';
-import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
+import { getStackFiles } from '../../stackHost/activeStack';
+import type { StackFiles } from '../../stackHost/types';
 import {
   isWritingVoiceCalibrating,
   resetInterruptedCalibrations,
@@ -24,10 +24,12 @@ import {
 import {
   hashWritingVoiceSamples,
   listWritingVoiceFiles,
+  WRITING_VOICE_ROOT,
   writingVoiceDir,
-  writingVoiceRoot,
+  writingVoiceFiles,
+  writingVoiceRel,
 } from './writingVoicePaths';
-import { checkWritingVoiceSamples } from './writingVoiceSamples';
+import { checkStackSamples, checkWritingVoiceSamples, readLocalSample } from './writingVoiceSamples';
 import {
   listWritingVoiceRecords,
   removeWritingVoiceRecord,
@@ -72,20 +74,22 @@ function checkName(raw: string, self?: string): { name: string } | { error: stri
   return clash ? { error: `A voice called ${clash.name} already exists.` } : { name };
 }
 
-/** Copy used samples into `samplesDir`, never over a file already there. */
-async function copySamples(used: WritingVoiceSampleCheck[], samplesDir: string): Promise<void> {
+const samplesOf = (voiceRel: string) => `${voiceRel}/samples`;
+
+/** Copy used samples into `samplesRel`, never over a file already there. */
+async function copySamples(files: StackFiles, used: WritingVoiceSampleCheck[], samplesRel: string): Promise<void> {
   const names = new Set(
-    (await fs.promises.readdir(samplesDir).catch((): string[] => [])).map((n) => n.toLowerCase())
+    ((await files.list('userContent', samplesRel)) ?? []).map((n) => n.toLowerCase())
   );
   let pasted = 0;
   for (const sample of used) {
     if (sample.source.kind === 'pasted') {
       pasted += 1;
       const target = uniqueName(`pasted-text-${pasted}.md`, names);
-      await fs.promises.writeFile(path.join(samplesDir, target), sample.source.text, 'utf8');
+      await files.writeText('userContent', `${samplesRel}/${target}`, sample.source.text);
     } else {
       const target = uniqueName(path.basename(sample.source.path), names);
-      await fs.promises.copyFile(sample.source.path, path.join(samplesDir, target));
+      await files.writeBytes('userContent', `${samplesRel}/${target}`, await readLocalSample(sample.source.path));
     }
   }
 }
@@ -95,11 +99,12 @@ function getRecord(id: string): WritingVoiceRecord | null {
 }
 
 async function toView(record: WritingVoiceRecord, deps: Deps): Promise<WritingVoiceView> {
-  const dir = writingVoiceDir(record.id, deps.contentRoot);
-  const hash = await hashWritingVoiceSamples(path.join(dir, 'samples')).catch((): null => null);
+  const files = writingVoiceFiles(deps.contentRoot);
+  const rel = writingVoiceRel(record.id);
+  const hash = await hashWritingVoiceSamples(files, samplesOf(rel)).catch((): null => null);
   return {
     ...record,
-    style: await readWritingVoiceStyle(dir),
+    style: await readWritingVoiceStyle(files, rel),
     samplesChanged: record.status === 'ready' && hash !== null && hash !== record.sampleHash,
     step: writingVoiceStep(record.id),
   };
@@ -136,10 +141,7 @@ async function createWritingVoiceNamed(
 ): Promise<WritingVoiceCreateResult> {
   // Before setup, the stack's folder doesn't exist yet; making data/ there would send the first
   // install down the upgrade path.
-  if (
-    !deps.contentRoot &&
-    !fs.existsSync(path.join(resolveActiveAssistantRoot(), BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE))
-  ) {
+  if (!deps.contentRoot && !(await getStackFiles().exists('stack', BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE))) {
     return { success: false, error: 'Set up the assistant before creating a voice.' };
   }
   const summary = await checkWritingVoiceSamples(payload.sources);
@@ -148,39 +150,38 @@ async function createWritingVoiceNamed(
     return { success: false, error: 'Add at least one sample in a text format.' };
   }
 
-  const root = writingVoiceRoot(deps.contentRoot);
-  await fs.promises.mkdir(root, { recursive: true });
+  const files = writingVoiceFiles(deps.contentRoot);
+  await files.mkdir('userContent', WRITING_VOICE_ROOT);
+  const folders = (await files.list('userContent', WRITING_VOICE_ROOT)) ?? [];
   // Lowercased: the Mac's file system treats Mine/ and mine/ as one folder.
   const taken = new Set(
-    [...listWritingVoiceRecords().map((v) => v.id), ...(await fs.promises.readdir(root)), ...creatingIds].map(
-      (n) => n.toLowerCase()
-    )
+    [...listWritingVoiceRecords().map((v) => v.id), ...folders, ...creatingIds].map((n) => n.toLowerCase())
   );
   const id = writingVoiceId(name, taken);
   creatingIds.add(id);
   try {
-    return await createWritingVoiceFolder(id, name, summary, used, root, deps);
+    return await createWritingVoiceFolder(files, id, name, summary, used, deps);
   } finally {
     creatingIds.delete(id);
   }
 }
 
 async function createWritingVoiceFolder(
+  files: StackFiles,
   id: string,
   name: string,
   summary: WritingVoiceCheckSummary,
   used: WritingVoiceSampleCheck[],
-  root: string,
   deps: Deps & { now?: () => Date }
 ): Promise<WritingVoiceCreateResult> {
   const started = Date.now();
-  const staging = path.join(root, `.${id}.creating`);
-  const samples = path.join(staging, 'samples');
+  const staging = `${WRITING_VOICE_ROOT}/.${id}.creating`;
+  const samples = samplesOf(staging);
   try {
     // A create that crashed part way leaves this folder behind; its files aren't this voice's.
-    await fs.promises.rm(staging, { recursive: true, force: true });
-    await fs.promises.mkdir(samples, { recursive: true });
-    await copySamples(used, samples);
+    await files.remove('userContent', staging);
+    await files.mkdir('userContent', samples);
+    await copySamples(files, used, samples);
     const record: WritingVoiceRecord = {
       id,
       name,
@@ -189,9 +190,9 @@ async function createWritingVoiceFolder(
       words: summary.words,
       createdAt: (deps.now ?? (() => new Date()))().toISOString(),
       calibratedAt: null,
-      sampleHash: await hashWritingVoiceSamples(samples),
+      sampleHash: await hashWritingVoiceSamples(files, samples),
     };
-    await fs.promises.rename(staging, path.join(root, id));
+    await files.rename('userContent', staging, writingVoiceRel(id));
     upsertWritingVoiceRecord(record);
     persistDebugLog('writing-voices', 'created', {
       id,
@@ -201,7 +202,7 @@ async function createWritingVoiceFolder(
     });
     return { success: true, voice: record };
   } catch (error) {
-    await fs.promises.rm(staging, { recursive: true, force: true });
+    await files.remove('userContent', staging).catch((): undefined => undefined);
     persistDebugLog('writing-voices', 'create failed', {
       id,
       errorName: error instanceof Error ? error.name : typeof error,
@@ -213,12 +214,11 @@ async function createWritingVoiceFolder(
 const NO_VOICE = { success: false as const, error: 'No such voice.' };
 
 async function sampleChecks(id: string, deps: Deps) {
-  const samples = path.join(writingVoiceDir(id, deps.contentRoot), 'samples');
-  const files = await listWritingVoiceFiles(samples);
-  const summary = await checkWritingVoiceSamples(
-    files.map((f) => ({ kind: 'file' as const, path: path.join(samples, f.rel) }))
-  );
-  return { samples, files, summary };
+  const stackFiles = writingVoiceFiles(deps.contentRoot);
+  const samples = samplesOf(writingVoiceRel(id));
+  const files = await listWritingVoiceFiles(stackFiles, samples);
+  const summary = await checkStackSamples(stackFiles, samples, files.map((f) => f.rel));
+  return { stackFiles, samples, files, summary };
 }
 
 /** Recount pieces and words from the folder and save them. */
@@ -247,9 +247,10 @@ export async function addWritingVoiceSamples(
   if (!record) return NO_VOICE;
   const used = (await checkWritingVoiceSamples(sources)).files.filter((f) => f.refused === null);
   if (used.length === 0) return { success: false, error: 'Add at least one sample in a text format.' };
-  const samples = path.join(writingVoiceDir(id, deps.contentRoot), 'samples');
-  await fs.promises.mkdir(samples, { recursive: true });
-  await copySamples(used, samples);
+  const files = writingVoiceFiles(deps.contentRoot);
+  const samples = samplesOf(writingVoiceRel(id));
+  await files.mkdir('userContent', samples);
+  await copySamples(files, used, samples);
   const voice = await recount(record, deps);
   persistDebugLog('writing-voices', 'samples added', { id, added: used.length, pieces: voice.pieces, words: voice.words });
   return { success: true, voice };
@@ -262,10 +263,10 @@ export async function removeWritingVoiceSample(
 ): Promise<WritingVoiceViewResult> {
   const record = getRecord(id);
   if (!record) return NO_VOICE;
-  const { samples, files } = await sampleChecks(id, deps);
+  const { stackFiles, samples, files } = await sampleChecks(id, deps);
   if (!files.some((f) => f.rel === name)) return { success: false, error: 'No such sample.' };
   if (files.length <= 1) return { success: false, error: 'A voice needs at least one sample.' };
-  await fs.promises.rm(path.join(samples, name));
+  await stackFiles.remove('userContent', `${samples}/${name}`);
   const voice = await recount(record, deps);
   persistDebugLog('writing-voices', 'sample removed', { id, pieces: voice.pieces, words: voice.words });
   return { success: true, voice };
@@ -288,12 +289,15 @@ export async function setWritingVoiceNeverDoes(
 ): Promise<WritingVoiceViewResult> {
   const record = getRecord(id);
   if (!record) return NO_VOICE;
-  const written = await writeNeverDoes(writingVoiceDir(id, deps.contentRoot), lines);
+  const written = await writeNeverDoes(writingVoiceFiles(deps.contentRoot), writingVoiceRel(id), lines);
   if ('error' in written) return { success: false, error: written.error };
   return { success: true, voice: await toView(record, deps) };
 }
 
-/** Move the voice's folder to the Trash, then forget it (ADR 0056 §10). */
+/**
+ * Move the voice's folder to the Trash, then forget it (ADR 0056 §10). The Trash is on this
+ * machine, so `trash` gets the folder's local path.
+ */
 export async function deleteWritingVoice(
   id: string,
   deps: Deps & { trash: (folder: string) => Promise<void>; calibrating?: (id: string) => boolean }
@@ -302,9 +306,10 @@ export async function deleteWritingVoice(
   if ((deps.calibrating ?? isWritingVoiceCalibrating)(id)) {
     return { success: false, error: 'Wait for calibration to finish.' };
   }
-  const dir = writingVoiceDir(id, deps.contentRoot);
   try {
-    if (fs.existsSync(dir)) await deps.trash(dir);
+    if (await writingVoiceFiles(deps.contentRoot).exists('userContent', writingVoiceRel(id))) {
+      await deps.trash(writingVoiceDir(id, deps.contentRoot));
+    }
   } catch {
     return { success: false, error: "The voice's folder couldn't be moved to the Trash." };
   }

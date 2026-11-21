@@ -21,9 +21,6 @@ const PopoverTrigger = React.forwardRef<
 >((props, ref) => <PopoverPrimitive.Trigger ref={ref} asChild {...props} />)
 PopoverTrigger.displayName = "PopoverTrigger"
 
-/** Places the menu against something other than its trigger (`virtualRef` or a child). */
-const PopoverAnchor = PopoverPrimitive.Anchor
-
 interface PopoverContentProps
   extends React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> {
   /** Pointer-downs inside this element don't close the menu (a confirm beside it). */
@@ -77,5 +74,5 @@ const PopoverContent = React.forwardRef<
 )
 PopoverContent.displayName = "PopoverContent"
 
-export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }
+export { Popover, PopoverTrigger, PopoverContent }
 export type { PopoverContentProps }

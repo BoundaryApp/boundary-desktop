@@ -38,56 +38,6 @@
   margin-left: auto;
 }
 
-.wb-circles-menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 4px);
-  right: 0;
-  width: 200px;
-  padding: var(--space-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.16));
-}
-
-.wb-circles-menu > button {
-  display: block;
-  width: 100%;
-  padding: var(--space-1-5) var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wb-circles-menu > button:hover,
-.wb-circles-menu > button:focus-visible {
-  outline: none;
-  background: var(--surface-hover);
-}
-
-.wb-circles-search {
-  display: block;
-  width: calc(100% - 2 * var(--space-2));
-  margin: 0 var(--space-2) var(--space-1-5);
-  padding: var(--space-1-5) var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--size-xs);
-}
-
-.wb-circles-search:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .wb-circles-row.is-static {
   cursor: default;
 }
@@ -96,42 +46,23 @@
   background: transparent;
 }
 
-/* A Circle row's ⋯ (Circles screen spec decision 20): shown on hover, on focus and while its
-   menu is open, in place of the row's count. */
+/* A Circle row's ⋯ (Circles screen spec decision 20), a Button size="icon-xs": shown on hover, on
+   focus and while its menu is open, in place of the row's count. */
 .wb-circles-row-wrap {
   position: relative;
 }
 
-.wb-circles-more {
+.wb-circles-row-more {
   position: absolute;
   top: 50%;
   right: var(--space-3);
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--surface-hover);
-  color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
   transform: translateY(-50%);
 }
 
-.wb-circles-more:hover {
-  color: var(--text);
-}
-
-.wb-circles-more:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.wb-circles-row-wrap:hover .wb-circles-more,
-.wb-circles-row-wrap:focus-within .wb-circles-more,
-.wb-circles-row-wrap.is-menu-open .wb-circles-more {
+.wb-circles-row-wrap:hover .wb-circles-row-more,
+.wb-circles-row-wrap:focus-within .wb-circles-row-more,
+.wb-circles-row-wrap.is-menu-open .wb-circles-row-more {
   opacity: 1;
 }
 
@@ -139,26 +70,6 @@
 .wb-circles-row-wrap:focus-within .wb-rail-count,
 .wb-circles-row-wrap.is-menu-open .wb-rail-count {
   visibility: hidden;
-}
-
-.wb-circles-row-levels {
-  padding-left: var(--space-3);
-}
-
-.wb-circles-row-menu [role='menuitemradio'][aria-checked='true']::after {
-  content: '✓';
-  float: right;
-  color: var(--text-muted);
-}
-
-.wb-circles-row-menu button.is-danger {
-  color: var(--danger);
-}
-
-.wb-circles-row-menu button:disabled {
-  background: none;
-  color: var(--text-faint);
-  cursor: default;
 }
 
 .wb-circles-row-line {
@@ -195,7 +106,7 @@
   align-items: center;
   gap: var(--space-2);
   height: 48px;
-  --more-width: 22px;
+  --more-width: var(--control-height-xs);
   /* Room on the right for the absolutely placed ⋯ button, so a long name ends before it. */
   padding: 0 calc(var(--space-2) * 2 + var(--more-width)) 0 var(--space-3);
   border-bottom: 1px solid var(--line);
@@ -206,9 +117,8 @@
   font-size: 9px;
 }
 
-.wb-circle-area-head .wb-circles-more {
+.wb-circle-area-head .wb-circles-row-more {
   right: var(--space-2);
-  width: var(--more-width);
   opacity: 1;
 }
 
@@ -495,7 +405,7 @@
 }
 
 /* Select mode (decision 10): an admin picks messages to remove. Each live line makes room on
-   its left for a round checkbox, the whole line is the click target, and a picked line keeps
+   its left for a checkbox, the whole line is the click target, and a picked line keeps
    a brand fill. */
 .wb-circle-thread.is-selecting .wb-circle-line:has(> .wb-circle-pick-box) {
   padding-left: calc(var(--space-2) + var(--space-6));
@@ -511,30 +421,11 @@
   background: var(--brand-dim);
 }
 
+/* The select box is a Checkbox (components/ui); this rule only places it. */
 .wb-circle-pick-box {
   position: absolute;
   top: var(--space-1-5);
   left: var(--space-2);
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  border: 1.5px solid var(--line-strong);
-  border-radius: var(--radius-full);
-  background: var(--surface-1);
-  appearance: none;
-  cursor: pointer;
-}
-
-.wb-circle-pick-box:checked {
-  border-color: var(--brand);
-  background:
-    radial-gradient(circle, var(--surface-1) 0 2.5px, transparent 3px),
-    var(--brand);
-}
-
-.wb-circle-pick-box:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
 }
 
 .wb-circle-select-bar {
@@ -778,18 +669,6 @@ button.wb-circle-name:hover {
   font-style: italic;
 }
 
-.wb-circle-edit textarea {
-  width: 100%;
-  min-width: 280px;
-  padding: var(--space-2) var(--space-2-5);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  color: var(--text);
-  font: inherit;
-  resize: vertical;
-}
-
 .wb-circle-edit-row {
   display: flex;
   align-items: center;
@@ -949,19 +828,6 @@ button.wb-circle-quote:focus-visible {
   background: var(--surface-1);
 }
 
-.wb-circle-composer .wb-input-box textarea {
-  min-height: 0;
-  padding: var(--space-3) 14px var(--space-1);
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: var(--text);
-  font-size: var(--size-body);
-  line-height: 1.45;
-  overflow-y: auto;
-  resize: none;
-}
-
 .wb-circle-tools {
   display: flex;
   align-items: center;
@@ -974,10 +840,6 @@ button.wb-circle-quote:focus-visible {
   width: 30px;
   height: 30px;
   margin-left: auto;
-}
-
-.wb-circle-composer .wb-input-box textarea:focus {
-  outline: none;
 }
 
 .wb-circle-tools .wb-circle-audience {
@@ -1208,20 +1070,6 @@ button.wb-circle-insp-row:hover {
   font-size: var(--size-xs);
 }
 
-.wb-circle-share select,
-.wb-circle-share textarea {
-  padding: var(--space-1-5) var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  color: var(--text);
-  font: inherit;
-}
-
-.wb-circle-share textarea {
-  resize: vertical;
-}
-
 .wb-circle-share-left,
 .wb-circle-share-from {
   margin: 0;
@@ -1270,18 +1118,6 @@ button.wb-circle-insp-row:hover {
   white-space: nowrap;
 }
 
-.wb-circle-pick {
-  flex-shrink: 0;
-  max-width: 45%;
-  padding: 3px var(--space-1-5);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--size-xs);
-}
-
 .wb-circle-thread.is-compact .wb-log {
   padding: var(--space-4) var(--space-3) var(--space-6);
 }
@@ -1290,10 +1126,6 @@ button.wb-circle-insp-row:hover {
   max-width: 100%;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.wb-circle-thread.is-compact .wb-circle-edit textarea {
-  min-width: 0;
 }
 
 .wb-circle-thread.is-compact .wb-circle-composer {
@@ -1337,6 +1169,11 @@ button.wb-circle-insp-row:hover {
 
 .wb-circle-check .wb-field {
   margin-bottom: 0;
+}
+
+/* The test call sits under the connection check; the sheet body adds no gap between them. */
+.wb-circle-check + .wb-circle-check {
+  margin-top: var(--space-4);
 }
 
 .wb-circle-check-actions {
@@ -1411,8 +1248,18 @@ button.wb-circle-insp-row:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.wb-react-pill[data-tip]:hover::after,
-.wb-react-pill[data-tip]:focus-visible::after {
+/* A pill's chip carries its tooltip; positioned so the tooltip sits above it. In select mode the
+   pills are disabled and let a click through to the message line, which picks it. */
+.wb-react-pills > [data-slot='chip'] {
+  position: relative;
+}
+
+.wb-react-pills > [data-slot='chip']:disabled {
+  pointer-events: none;
+}
+
+.wb-react-pills > [data-slot='chip'][data-tip]:hover::after,
+.wb-react-pills > [data-slot='chip'][data-tip]:focus-visible::after {
   content: attr(data-tip);
   position: absolute;
   z-index: 4;
@@ -1431,62 +1278,6 @@ button.wb-circle-insp-row:hover {
 
 .wb-react-wrap {
   display: inline-flex;
-}
-
-/* The popover opens below the toolbar, right-aligned to it (the wrap is not positioned, so the
-   absolutely placed .wb-circle-bar is the containing block). The picks wrap onto a second row
-   rather than run past the left edge of a 320px thread. */
-.wb-react-pop {
-  position: absolute;
-  width: max-content;
-  max-width: min(280px, calc(100vw - var(--space-8)));
-  z-index: 5;
-  top: calc(100% + var(--space-1));
-  right: 0;
-  padding: var(--space-1);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-popover);
-}
-
-.wb-react-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-0-5);
-}
-
-.wb-react-pick {
-  min-width: 32px;
-  padding: var(--space-1) var(--space-1-5);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--size-title);
-  cursor: pointer;
-}
-
-.wb-react-pick:hover:not(:disabled),
-.wb-react-pick:focus-visible {
-  background: var(--surface-hover);
-}
-
-.wb-react-pick[aria-checked='true'] {
-  background: var(--brand-dim);
-}
-
-.wb-react-pick:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.wb-react-full {
-  margin: var(--space-1) var(--space-1) 0;
-  max-width: 240px;
-  color: var(--text-muted);
-  font-size: var(--size-xs);
 }
 
 /* The full picker. The sheet is never wider than the window less the backdrop gutters. */
@@ -1551,8 +1342,27 @@ button.wb-circle-insp-row:hover {
 }
 
 /* Keep the toolbar up while its popover is open. */
-.wb-circle-bar:has(.wb-react-pop) {
+.wb-circle-bar:has(.wb-react-wrap [data-slot='menu-content']) {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* The Textarea components that replace the fenced rules above (ADR 0063). The extra
+   selectors outrank the .wb-composer textarea rule and control.css. */
+.wb-circle-composer .wb-input-box .wb-circle-composer-input {
+  display: block;
+  min-height: 0;
+  padding: var(--space-3) 14px var(--space-1);
+  font-size: var(--size-body);
+  line-height: 1.45;
+  overflow-y: auto;
+}
+
+.wb-circle-edit .wb-circle-edit-input {
+  min-width: 280px;
+}
+
+.wb-circle-thread.is-compact .wb-circle-edit .wb-circle-edit-input {
+  min-width: 0;
 }
 }

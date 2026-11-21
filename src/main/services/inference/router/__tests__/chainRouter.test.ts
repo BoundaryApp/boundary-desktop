@@ -74,6 +74,26 @@ const userTurn = [{ role: 'user', content: 'hi' }];
 const toolStep = [...userTurn, { role: 'assistant' }, { role: 'tool', content: 'result' }];
 
 describe('chain router', () => {
+  it('sends a fallback the header its connection was verified with', async () => {
+    const baseten: RouterChain = {
+      ...chain,
+      entries: [state('baseten', { private: false })],
+      upstreams: {
+        baseten: {
+          baseUrl: 'http://baseten.test/v1',
+          apiKey: 'bt-key',
+          authScheme: 'api-key',
+          extraHeaders: { 'X-Team': 'blue' },
+          modelId: 'deepseek',
+        },
+      },
+    };
+    const fake = upstreams({ 'baseten.test': ok('from baseten') });
+    await start({ fetchImpl: fake.fetchImpl, getChain: () => baseten });
+    await post(userTurn);
+    expect(fake.calls[0].init.headers).toMatchObject({ Authorization: 'Api-Key bt-key', 'X-Team': 'blue' });
+  });
+
   it('refuses requests without the token or with an Origin', async () => {
     await start();
     const url = `http://127.0.0.1:${router!.port}/v1/models`;

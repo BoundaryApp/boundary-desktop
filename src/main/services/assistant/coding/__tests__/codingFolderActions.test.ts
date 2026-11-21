@@ -25,17 +25,19 @@ import {
   removeCodingFolder,
   walkFolder,
 } from '../codingFolderActions';
-import {
-  resetCodingRemountQueueForTests,
-  setCodingGrantDepsForTests,
-  type CodingGrantDeps,
-} from '../codingGrants';
+import { resetCodingRemountQueueForTests } from '../codingGrants';
 import {
   addCodingGrantRecord,
   findCodingGrant,
   resetCodingGrantStoreForTests,
 } from '../codingGrantStore';
-import { fakeCodingDeps, makeFolder, type GitAnswers } from './codingDeps';
+import {
+  fakeCodingDeps,
+  makeFolder,
+  resetCodingDepsForTests,
+  type CodingDepOverrides,
+  type GitAnswers,
+} from './codingDeps';
 
 let home: string;
 let hub: string;
@@ -47,7 +49,7 @@ function folder(...parts: string[]): string {
 let audit: AuditEntry[] = [];
 
 /** Fake deps with no Boundary data folders; returns the recreate and Trash order. */
-function fakeDeps(overrides: Partial<CodingGrantDeps> = {}, git: GitAnswers = {}) {
+function fakeDeps(overrides: CodingDepOverrides = {}, git: GitAnswers = {}) {
   const calls = fakeCodingDeps({ home, boundaryDataPaths: [], git, overrides });
   audit = calls.audit;
   return calls.order;
@@ -83,7 +85,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setCodingGrantDepsForTests(null);
+  resetCodingDepsForTests();
   fs.rmSync(home, { recursive: true, force: true });
 });
 

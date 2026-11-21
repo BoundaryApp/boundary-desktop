@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import Store from 'electron-store';
-import { persistDebugLog } from '../../persistDebugLog';
-import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
+import { persistDebugLog } from '../../host/log';
+import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../../host/storage';
 import type {
   CircleDayUsage,
   CircleNotifyGlobal,

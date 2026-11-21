@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Sheet } from '../../components/ui/sheet';
 import { useAction } from './useCircles';
+import { joinNames } from '../../../shared/utils/format';
 
 /**
  * Invites to one Circle. Main keeps a code on the device that made it until the invite is over,
@@ -142,7 +143,7 @@ function adminNames(circle: CircleSnapshot): string {
     .filter((member) => member.role === 'admin')
     .sort((a, b) => Number(b.isMe) - Number(a.isMe))
     .map((member) => (member.isMe ? 'you' : member.name));
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? 'an admin');
+  return names.length > 0 ? joinNames(names, 'or') : 'an admin';
 }
 
 export function InviteSheet({
@@ -206,7 +207,6 @@ export function InviteSheet({
           <div className="flex gap-2">
             <Input
               id="circle-invite-label"
-              className="h-[34px]"
               value={label}
               maxLength={80}
               placeholder="Optional. Only you see this."

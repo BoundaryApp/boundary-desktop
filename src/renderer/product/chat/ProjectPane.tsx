@@ -16,6 +16,8 @@ import { inProject } from './projectMove';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { RunningTurnDot } from './WorkingDot';
 import { Button } from '../../components/ui/button';
+import { Textarea } from '../../components/ui/textarea';
+import { InspectorToggle } from './InspectorToggle';
 
 interface ProjectPaneProps {
   /** The project the rail shows; null is No project. */
@@ -88,11 +90,14 @@ export const ProjectPane: React.FC<ProjectPaneProps> = ({
             </Button>
           </span>
         ) : null}
+        <InspectorToggle />
       </div>
 
       <div className="wb-recent-list wb-project-page">
         <div className="wb-project-start">
-          <textarea
+          <Textarea
+            variant="bare"
+            className="wb-project-start-input"
             rows={2}
             value={draft}
             aria-label={project ? `Start a chat in ${name}` : 'Start a chat with no project'}

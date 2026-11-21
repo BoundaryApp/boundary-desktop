@@ -4,6 +4,7 @@ import type { Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
 import { dockerodeOptionsFromApiEndpoint, getContainerRuntime } from './containerRuntime';
+import { hasStackCapability } from './stackHost/capabilities';
 
 export interface DockerComposeConfig {
   id: string;
@@ -72,6 +73,10 @@ class DockerService extends EventEmitter {
 
   private async initializeDocker() {
     if (this.isConnected && this.docker) {
+      return;
+    }
+    // The engine isn't on this machine: nothing to connect to.
+    if (!hasStackCapability('engineControl')) {
       return;
     }
     if (this.initPromise) {

@@ -5,6 +5,51 @@ import { Sheet } from '../sheet';
 import { errorText, useSheetAction } from '../use-sheet-action';
 
 describe('Sheet', () => {
+  it('closes only the inner sheet on Escape, and keeps both open while the inner one is busy', () => {
+    const outer = vi.fn();
+    const inner = vi.fn();
+    const { rerender } = render(
+      <Sheet open onClose={outer} titleId="o" title="Outer">
+        <Sheet open busy onClose={inner} titleId="i" title="Inner" />
+      </Sheet>
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(inner).not.toHaveBeenCalled();
+    expect(outer).not.toHaveBeenCalled();
+    rerender(
+      <Sheet open onClose={outer} titleId="o" title="Outer">
+        <Sheet open onClose={inner} titleId="i" title="Inner" />
+      </Sheet>
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(outer).not.toHaveBeenCalled();
+  });
+
+  it('side variant: names itself by label, has a close button and returns focus', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <Sheet open variant="side" onClose={onClose} label="Updates" title="Updates">
+        body
+      </Sheet>
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Updates' });
+    expect(document.activeElement).toBe(dialog);
+    expect(screen.getByRole('heading', { level: 1, name: 'Updates' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Updates' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    rerender(
+      <Sheet open={false} variant="side" onClose={onClose} label="Updates" title="Updates">
+        body
+      </Sheet>
+    );
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
   it('renders nothing while closed', () => {
     render(
       <Sheet open={false} onClose={vi.fn()} titleId="t" title="Rename">

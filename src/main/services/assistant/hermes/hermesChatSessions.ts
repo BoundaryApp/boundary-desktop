@@ -29,6 +29,7 @@ import type {
 } from '../../../../shared/types/hermesChat';
 import type { MessageCompletePayload } from './vendor/gateway-contract.generated';
 import { BUILTIN_ASSISTANT_SLUG } from '../../../../shared/types/hermesChat';
+import type { IpcResult } from '../../../../shared/ipc/result';
 import { BOUNDARY_SESSION_SOURCE, getHermesGatewaySession } from './hermesGatewaySession';
 import { isWritingVoiceCalibrationSession } from '../writingVoices/writingVoiceStore';
 import {
@@ -38,9 +39,16 @@ import {
   writingVoiceTurnContext,
 } from '../writingVoices/agentWritingVoices';
 import { mapUsageSnapshot } from './hermesUsageMap';
-import { extractPathsFromToolArgs } from '../../../../shared/hermesToolPaths';
 import { ensureHermesWebuiSyncToInsights } from './hermesWebuiSync';
-import { beginRunningTurn, endRunningTurn, setRunningTurnAdmission } from './hermesRunningTurns';
+import {
+  abortTurn,
+  beginRunningTurn,
+  endRunningTurn,
+  markEnded,
+  openTurn,
+  resetRunningTurnsForTests,
+  setRunningTurnAdmission,
+} from './hermesRunningTurns';
 import {
   heldTurnRequestIds,
   requestTurnSlot,
@@ -49,7 +57,7 @@ import {
   type TurnSlot,
 } from './workloadScheduler';
 import { localTurnServer } from './workloadLimits';
-import { buildCodingAccessRequest } from '../coding/codingAccessRequests';
+import { onToolComplete, toolPayload } from './hermesToolReactions';
 import {
   applyConversationFolder,
   conversationProjectId,
@@ -150,29 +158,10 @@ import {
 import { getLastAppliedLlm } from '../AssistantStackStore';
 import { parseRecoveryNotice } from './hermesRecoveryNotice';
 import { createStreamCadence } from './streamCadence';
+import { TURN_QUIET_MS } from './turnQuiet';
 import { persistDebugLog } from '../../../persistDebugLog';
+import { CLIENT_CONTEXT_MAX_CHARS } from '../../../../shared/assistantStackConstants';
 import { logPostWithoutTurn, logTurnGate, startTurnLog, turnOutcome, type TurnLogFields } from './hermesTurnLog';
-
-/** Hermes's Bitwarden plugin tool for a login the agent can't reach (stack addons/bitwarden/addon.json). */
-const BITWARDEN_REQUEST_TOOL = 'bitwarden_request_access';
-
-/**
- * Running turns by request id, with the chat ids each covers. Not tied to a window: a turn
- * finishes when the window that started it closes (decision D4), and any window can stop it.
- * `endedAt` is the time a finished turn's end event carried, which also ends its turn window.
- */
-const activeStreams = new Map<string, { controller: AbortController; sessionIds: string[]; endedAt?: number }>();
-
-/**
- * The time a finished turn's end event carries. Kept on the turn's stream too, so its window ends
- * at the same instant and a reply stamped with it falls inside that window.
- */
-function stampTurnEnd(requestId: string): number {
-  const endedAt = Date.now();
-  const stream = activeStreams.get(requestId);
-  if (stream) stream.endedAt = endedAt;
-  return endedAt;
-}
 
 const CONTINUE_UNSUPPORTED_MESSAGE =
   'Continue needs the local assistant stack, and is not available in channels.';
@@ -305,7 +294,7 @@ async function gateResolvedInference(
 const heldTurnTasks = new Map<string, Promise<void>>();
 
 /** **Run now** on a held turn: it starts over its server's limit. */
-export function runHermesHeldTurnNow(payload: { requestId: string }): { success: boolean } {
+export function runHermesHeldTurnNow(payload: { requestId: string }): IpcResult {
   return { success: runHeldTurnNow(payload.requestId) };
 }
 
@@ -315,11 +304,7 @@ export function runHermesHeldTurnNow(payload: { requestId: string }): { success:
  */
 export async function withdrawHeldTurnsForQuit(): Promise<number> {
   const ids = heldTurnRequestIds();
-  for (const requestId of ids) {
-    const stream = activeStreams.get(requestId);
-    stream?.controller.abort('quit');
-    activeStreams.delete(requestId);
-  }
+  for (const requestId of ids) abortTurn({ requestId }, 'quit');
   await Promise.all(ids.map((id) => heldTurnTasks.get(id)).filter(Boolean));
   return ids.length;
 }
@@ -337,11 +322,6 @@ const TURN_LOGGED_EVENTS = [
   'error',
 ];
 
-/**
- * How long a turn may go without a Hermes event before Boundary asks whether it is still
- * running, on a gateway that sends no `turn.heartbeat`.
- */
-export const TURN_QUIET_MS = 3 * 60 * 1000;
 /** Missed `turn.heartbeat` intervals before Boundary asks, on a gateway that sends them. */
 const TURN_QUIET_HEARTBEATS = 2.5;
 /** Unanswered status checks in a row before a quiet turn is given up on. */
@@ -351,8 +331,6 @@ const TURN_QUIET_CHECK_FAILURES = 2;
 const CONTEXT_TURN_RUNNING = 4082;
 /** The stack refused client context as invalid (CR 0010 R1). */
 const CONTEXT_INVALID = 4080;
-/** The stack's cap on client context (client_context.py MAX_CONTEXT_CHARS). */
-const ROOM_CONTEXT_MAX_CHARS = 16_000;
 
 async function runJsonRpcTurn(
   sender: WebContents,
@@ -496,7 +474,7 @@ async function runJsonRpcTurn(
         sessionId,
         finishReason,
         ...(noReply ? { noReply } : {}),
-        ...(finishReason === 'stop' ? { endedAt: stampTurnEnd(requestId) } : {}),
+        ...(finishReason === 'stop' ? { endedAt: markEnded(requestId) } : {}),
       });
     }
     resolveTurn?.();
@@ -553,18 +531,50 @@ async function runJsonRpcTurn(
     return { assistantText, ...(noReply ? { noReply } : {}), submitted: false };
   }
 
+  const unsubscribe: Array<() => void> = [];
+  /**
+   * Listen for `name` on this turn's session only (an event with no session id counts). Each
+   * listener states its guards: `skipWhileDraining` ignores the event while a queued send waits
+   * for the turn ahead, whose events these are; `skipAfterEnd` ignores it once the turn was
+   * stopped or ended; `rearm` restarts the quiet timer.
+   */
+  const onTurnEvent = (
+    name: string,
+    guards: { skipWhileDraining: boolean; skipAfterEnd: boolean; rearm: boolean },
+    handler: (event: { session_id?: string; payload?: unknown }) => void
+  ): void => {
+    unsubscribe.push(
+      gateway.on(name, (event) => {
+        if (guards.skipWhileDraining && waitingForDrain) return;
+        if (guards.skipAfterEnd && (signal.aborted || ended)) return;
+        if (event.session_id && event.session_id !== sessionId) return;
+        if (guards.rearm) armQuiet();
+        handler(event);
+      })
+    );
+  };
+  /** A phase event with the fields every phase of this turn carries. */
+  const phase = (name: HermesChatPhaseEvent['phase'], extra: Partial<HermesChatPhaseEvent> = {}): void =>
+    sendPhase(sender, {
+      requestId,
+      sessionId,
+      phase: name,
+      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
+      maxTurns: maxTurns ?? undefined,
+      ...extra,
+    });
+
   // Which Hermes event a turn saw last, so a stuck turn's log says where it stopped.
-  const unsubSeen = TURN_LOGGED_EVENTS.map((name) =>
-    gateway.on(name, (event) => {
-      if (event.session_id && event.session_id !== sessionId) return;
+  for (const name of TURN_LOGGED_EVENTS) {
+    onTurnEvent(name, { skipWhileDraining: false, skipAfterEnd: false, rearm: false }, () => {
       lastEvent = name;
       lastEventAt = Date.now();
       if (name === 'error') {
         hermesErrors += 1;
         turnLog.note('turn hermes error event', { visibleTokens });
       }
-    })
-  );
+    });
+  }
 
   if (agentSlug) {
     send(sender, 'hermes-chat:speaker', {
@@ -575,16 +585,11 @@ async function runJsonRpcTurn(
     });
   }
 
-  sendPhase(sender, {
-    requestId,
-    sessionId,
-    phase: 'preparing',
-    elapsedSec: 0,
-    maxTurns: maxTurns ?? undefined,
-  });
+  phase('preparing', { elapsedSec: 0 });
 
-  const unsubStart = gateway.on('message.start', (event) => {
-    if (!waitingForDrain || (event.session_id && event.session_id !== sessionId)) return;
+  // A queued send's own turn starts: from here the session's events are this turn's.
+  onTurnEvent('message.start', { skipWhileDraining: false, skipAfterEnd: false, rearm: false }, () => {
+    if (!waitingForDrain) return;
     waitingForDrain = false;
     turnLog.note('queued turn started', {});
   });
@@ -598,72 +603,41 @@ async function runJsonRpcTurn(
     send(sender, 'hermes-chat:chunk', { requestId, delta, agentSlug });
   };
 
-  const unsubDelta = gateway.on('message.delta', (event) => {
-    // A queued send: these belong to the turn still running ahead of it.
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
+  // The guards most of this turn's events take.
+  const live = { skipWhileDraining: true, skipAfterEnd: true, rearm: true };
+
+  onTurnEvent('message.delta', live, (event) => {
     const payload = event.payload as { text?: string } | undefined;
     const delta = payload?.text ?? '';
     if (!delta) return;
     takeText(delta);
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: 'generating',
-      visibleTokens,
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      maxTurns: maxTurns ?? undefined,
-      usage: latestUsage,
-    });
+    phase('generating', { visibleTokens, usage: latestUsage });
   });
 
-  const unsubComplete = gateway.on('message.complete', (event) => {
-    if (waitingForDrain) return;
-    if (event.session_id && event.session_id !== sessionId) return;
+  // Also after Stop: Hermes's completion of a stopped turn still sends the final phase, and
+  // endOnce runs only once. The quiet timer stops with the turn, so nothing to rearm.
+  onTurnEvent('message.complete', { skipWhileDraining: true, skipAfterEnd: false, rearm: false }, (event) => {
     const complete = event.payload as MessageCompletePayload | undefined;
     const finalText = unstreamedFinalText(complete);
     if (visibleTokens === 0 && finalText && !ended && !signal.aborted) takeText(finalText);
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: 'done',
-      visibleTokens,
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      maxTurns: maxTurns ?? undefined,
-      usage: latestUsage,
-    });
+    phase('done', { visibleTokens, usage: latestUsage });
     endOnce('stop', complete);
   });
 
-  const unsubUsage = gateway.on('session.usage', (event) => {
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
+  onTurnEvent('session.usage', live, (event) => {
     const payload = event.payload as { usage?: Record<string, unknown> } | undefined;
     const usage: HermesChatUsageSnapshot | undefined = payload?.usage
       ? mapUsageSnapshot(payload.usage)
       : undefined;
     if (usage) latestUsage = usage;
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: visibleTokens > 0 && !recovery ? 'generating' : 'preparing',
+    phase(visibleTokens > 0 && !recovery ? 'generating' : 'preparing', {
       visibleTokens,
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      maxTurns: maxTurns ?? undefined,
       usage,
       ...recoveryField(),
     });
   });
 
-  const unsubStatus = gateway.on('status.update', (event) => {
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
+  onTurnEvent('status.update', live, (event) => {
     const notice = parseRecoveryNotice(event.payload);
     if (!notice) return;
     const applied = getLastAppliedLlm();
@@ -676,76 +650,41 @@ async function runJsonRpcTurn(
         : {}),
     };
     turnLog.note('turn recovery wait', { cycle: notice.cycle, total: notice.total, waitS: notice.retryInSec });
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: 'preparing',
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      maxTurns: maxTurns ?? undefined,
-      usage: latestUsage,
-      ...recoveryField(),
-    });
+    phase('preparing', { usage: latestUsage, ...recoveryField() });
   });
 
-  // The model is answering after a wait; its thinking comes before any text.
-  const unsubReasoning = gateway.on('reasoning.delta', (event) => {
-    if (waitingForDrain) return;
-    if (event.session_id && event.session_id !== sessionId) return;
+  // The model is answering after a wait; its thinking comes before any text. Skipping it after
+  // Stop or the end changes nothing: only the ticker and phases read `recovery`, and they stop
+  // with the turn. It doesn't rearm the quiet timer, as before (BD-0021 left that as it was).
+  onTurnEvent('reasoning.delta', { skipWhileDraining: true, skipAfterEnd: true, rearm: false }, () => {
     recovery = null;
   });
 
   // Hermes ends a turn idle for too long itself, so a heartbeat only says the stream is alive.
-  const unsubHeartbeat = gateway.on('turn.heartbeat', (event) => {
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
-  });
+  // That holds while a queued send waits for the turn ahead too: the session is alive, so the
+  // heartbeat counts while draining, on purpose.
+  onTurnEvent('turn.heartbeat', { skipWhileDraining: false, skipAfterEnd: true, rearm: true }, () => undefined);
 
-  const unsubToolStart = gateway.on('tool.start', (event) => {
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
+  onTurnEvent('tool.start', live, (event) => {
     recovery = null;
     markFirstEvent();
     toolTurn += 1;
-    const payload = event.payload as {
-      tool_id?: string;
-      name?: string;
-      args?: Record<string, unknown> | null;
-    } | undefined;
-    const toolId = payload?.tool_id ?? `tool-${toolTurn}`;
-    const name = payload?.name ?? 'tool';
-    const args = payload?.args ?? undefined;
-    const paths = extractPathsFromToolArgs(args ?? null);
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: 'tool',
-      toolName: name,
-      toolTurn,
-      maxTurns: maxTurns ?? undefined,
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      usage: latestUsage,
-    });
+    const tool = toolPayload(event.payload, toolTurn);
+    phase('tool', { toolName: tool.name, toolTurn, usage: latestUsage });
     sendTool(sender, {
       requestId,
       sessionId,
-      toolId,
-      name,
+      toolId: tool.toolId,
+      name: tool.name,
       status: 'running',
       turn: toolTurn,
       maxTurns: maxTurns ?? undefined,
-      args: args ?? undefined,
-      paths,
+      args: tool.args,
+      paths: tool.paths,
     });
   });
 
-  const unsubToolGenerating = gateway.on('tool.generating', (event) => {
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
+  onTurnEvent('tool.generating', live, (event) => {
     const payload = event.payload as { name?: string } | undefined;
     sendTool(sender, {
       requestId,
@@ -758,52 +697,23 @@ async function runJsonRpcTurn(
     });
   });
 
-  const unsubToolComplete = gateway.on('tool.complete', (event) => {
-    if (waitingForDrain) return;
-    if (signal.aborted || ended) return;
-    if (event.session_id && event.session_id !== sessionId) return;
-    armQuiet();
-    const payload = event.payload as {
-      tool_id?: string;
-      name?: string;
-      args?: Record<string, unknown> | null;
-      duration_s?: number | null;
-      summary?: string | null;
-      result_text?: string | null;
-    } | undefined;
-    const toolId = payload?.tool_id ?? `tool-${toolTurn}`;
-    const name = payload?.name ?? 'tool';
-    const args = payload?.args ?? undefined;
-    const paths = extractPathsFromToolArgs(args ?? null);
+  onTurnEvent('tool.complete', live, (event) => {
+    const tool = toolPayload(event.payload, toolTurn);
     sendTool(sender, {
       requestId,
       sessionId,
-      toolId,
-      name,
+      toolId: tool.toolId,
+      name: tool.name,
       status: 'done',
       turn: toolTurn || undefined,
       maxTurns: maxTurns ?? undefined,
-      args: args ?? undefined,
-      summary: payload?.summary ?? payload?.result_text ?? undefined,
-      result: payload?.result_text ?? undefined,
-      durationSec:
-        typeof payload?.duration_s === 'number' ? payload.duration_s : undefined,
-      paths,
+      args: tool.args,
+      summary: tool.summary ?? tool.resultText,
+      result: tool.resultText,
+      durationSec: tool.durationSec,
+      paths: tool.paths,
     });
-    // A coding task outside the coding folders: ask the user, don't hint at make (ADR 0028 §9).
-    const access = buildCodingAccessRequest({
-      toolName: name,
-      resultText: payload?.result_text ?? payload?.summary ?? null,
-      args: args ?? null,
-      sessionId,
-      requestId,
-      projectId: conversationProjectId(sessionId),
-    });
-    if (access) send(sender, 'coding-folders:access-request', access);
-    // The agent asked for a Bitwarden login: show the request on Bitwarden's page (decision 30).
-    if (name === BITWARDEN_REQUEST_TOOL) {
-      void import('../../addons/bitwardenRuntime').then((m): void => m.noteChatToolCall(name)).catch((): void => undefined);
-    }
+    onToolComplete({ sender, requestId, sessionId, tool });
   });
 
   const onAbort = () => {
@@ -821,15 +731,7 @@ async function runJsonRpcTurn(
 
   const preparingTicker = setInterval(() => {
     if (ended || signal.aborted || (visibleTokens > 0 && !recovery)) return;
-    sendPhase(sender, {
-      requestId,
-      sessionId,
-      phase: 'preparing',
-      elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
-      maxTurns: maxTurns ?? undefined,
-      usage: latestUsage,
-      ...recoveryField(),
-    });
+    phase('preparing', { usage: latestUsage, ...recoveryField() });
   }, 1000);
 
   armQuiet();
@@ -866,17 +768,7 @@ async function runJsonRpcTurn(
     if (quietTimer) clearTimeout(quietTimer);
     clearInterval(preparingTicker);
     signal.removeEventListener('abort', onAbort);
-    for (const unsub of unsubSeen) unsub();
-    unsubStart();
-    unsubDelta();
-    unsubComplete();
-    unsubUsage();
-    unsubHeartbeat();
-    unsubStatus();
-    unsubReasoning();
-    unsubToolStart();
-    unsubToolGenerating();
-    unsubToolComplete();
+    for (const unsub of unsubscribe) unsub();
   }
 
   if (agentSlug && assistantText.trim()) {
@@ -981,7 +873,7 @@ async function runChannelWakeTurns(
     const promptText = isFirst
       ? buildChannelWakePrompt(backlog, userText)
       : `@${display} — please respond to the room.`;
-    const soul = readAgentSoul(slug);
+    const soul = await readAgentSoul(slug);
     const soulHash = soul ? createHash('sha256').update(soul).digest('hex').slice(0, 16) : null;
     const soulIsNew = soulHash !== null && getRoomSoulSent(roomKey, slug) !== soulHash;
     const base = [
@@ -989,14 +881,14 @@ async function runChannelWakeTurns(
       ...(soul ? [buildMemberSoulContext(speaker, soulIsNew ? soul : null)] : []),
       ...(getOrchestratorRecord()?.slug === slug ? [buildOrchestratorRoomNote(speaker)] : []),
     ].join('\n\n');
-    // The member's voice gets what is left under the stack's cap (16,000, client_context.py).
+    // The member's voice gets what is left under the stack's cap on client context.
     const voice = await writingVoiceRoomPart({
       roomKey,
       memberSlug: slug,
       memberName: display,
       chipVoiceId: voices.chipVoiceId,
       keptVoiceId: voices.keptVoiceId,
-      budget: ROOM_CONTEXT_MAX_CHARS - base.length - 2,
+      budget: CLIENT_CONTEXT_MAX_CHARS - base.length - 2,
     });
     const context = voice.text ? `${base}\n\n${voice.text}` : base;
     voiceNames.push(voice.voiceName);
@@ -1040,7 +932,7 @@ async function runChannelWakeTurns(
     queue.push(...next);
   }
 
-  send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'stop', endedAt: stampTurnEnd(requestId) });
+  send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'stop', endedAt: markEnded(requestId) });
   return voiceNames;
 }
 
@@ -1800,7 +1692,7 @@ async function keepFailedSend(
 }
 
 /** Removes a chat that exists only as Boundary's record of a failed send. */
-export function deleteHermesFailedChat(sessionId: string): { success: boolean } {
+export function deleteHermesFailedChat(sessionId: string): IpcResult {
   deleteFailedChat(sessionId);
   localThreads.delete(sessionId);
   broadcastSessionsChanged();
@@ -1835,33 +1727,23 @@ async function startChatTurn(
   payload: HermesChatStartPayload
 ): Promise<HermesChatStartResult> {
   const requestId = payload.requestId ?? randomUUID();
-  const key = requestId;
   // When the send reached main: it bounds the pool turn before it, even if it never gets a reply.
   const sentAt = Date.now();
   const toolsEnabled = payload.toolsEnabled !== false;
 
-  const existing = activeStreams.get(key);
-  if (existing) {
-    existing.controller.abort();
-    activeStreams.delete(key);
-  }
-
-  const controller = new AbortController();
-  const stream: { controller: AbortController; sessionIds: string[]; endedAt?: number } = {
-    controller,
-    sessionIds: payload.sessionId ? [payload.sessionId] : [],
-  };
-  activeStreams.set(key, stream);
+  // Held from now, so Stop finds it while the chat is still being resolved.
+  const chatTurn = openTurn(requestId, [payload.sessionId]);
+  const { controller } = chatTurn;
 
   // Continue sends Boundary's hidden instruction rather than the user's last turn.
   const continuing = payload.continue === true;
   const userText = continuing ? CONTINUE_PROMPT : lastUserText(payload);
   if (!userText) {
-    activeStreams.delete(key);
+    endRunningTurn(requestId, chatTurn);
     return { success: false, requestId, error: 'Empty message' };
   }
   if (continuing && (!payload.sessionId || resolveChannel(payload.sessionId))) {
-    activeStreams.delete(key);
+    endRunningTurn(requestId, chatTurn);
     return { success: false, requestId, error: CONTINUE_UNSUPPORTED_MESSAGE };
   }
 
@@ -1882,7 +1764,7 @@ async function startChatTurn(
     appendChannelPost(channelEarly.sessionId, { content: userText, delivery: 'posted' });
     touchChannelUpdatedAt(channelEarly);
     logPostWithoutTurn(requestId, sessionId);
-    activeStreams.delete(key);
+    endRunningTurn(requestId, chatTurn);
     return {
       success: true,
       requestId,
@@ -2091,7 +1973,7 @@ async function startChatTurn(
           } as const)
         : await planRewindForSession(sessionId, payload.rewind);
       if (plan.kind === 'refuse') {
-        activeStreams.delete(key);
+        endRunningTurn(requestId, chatTurn);
         return { success: false, requestId, sessionId, errorCode: plan.code, error: plan.error };
       }
       if (plan.kind === 'truncate') {
@@ -2107,13 +1989,13 @@ async function startChatTurn(
     }
     const { blocked, restarted, resolved } = await gateResolvedInference(sender, requestId, sessionId);
     if (blocked) {
-      activeStreams.delete(key);
+      endRunningTurn(requestId, chatTurn);
       endWindowUnrun();
       return blocked;
     }
     // Stop can land during the restart above, which runs before the turn exists.
     if (controller.signal.aborted) {
-      activeStreams.delete(key);
+      endRunningTurn(requestId, chatTurn);
       endWindowUnrun();
       sendPhase(sender, { requestId, sessionId, phase: 'done' });
       send(sender, 'hermes-chat:end', { requestId, sessionId, finishReason: 'cancel' });
@@ -2124,7 +2006,7 @@ async function startChatTurn(
     // A turn runs in its own project's folder.
     await applyConversationFolder(sessionId, [payload.sessionId, channel?.sessionId]);
     const turnSessionIds = [payload.sessionId, sessionId, sessionId ? durableSessionId(sessionId) : null];
-    stream.sessionIds = turnSessionIds.filter((id): id is string => Boolean(id));
+    chatTurn.sessionIds = [...new Set(turnSessionIds.filter((id): id is string => Boolean(id)))];
     const turnStartedAt = Date.now();
     let replied = false;
     let roomVoiceNotes: { startedAt: number; names: Array<string | null> } | null = null;
@@ -2153,7 +2035,7 @@ async function startChatTurn(
         if (server) {
           slot = await requestTurnSlot({
             requestId,
-            sessionIds: stream.sessionIds,
+            sessionIds: chatTurn.sessionIds,
             server: server.server,
             limit: server.limit,
             signal: controller.signal,
@@ -2262,10 +2144,9 @@ async function startChatTurn(
         await keepFailedSend(payload, sessionId, { reason: 'unreachable', error });
         send(sender, 'hermes-chat:error', { requestId, error });
       } finally {
-        activeStreams.delete(key);
         heldTurnTasks.delete(requestId);
         if (slot?.kind === 'admitted') slot.release();
-        endRunningTurn(requestId);
+        endRunningTurn(requestId, chatTurn);
         if (withdrawn) {
           // No turn ran, so its window ends at its start, as a refused send's does.
           endWindowUnrun();
@@ -2273,10 +2154,10 @@ async function startChatTurn(
           if (sessionId) noteFallbackServed(sessionId, turnStartedAt, replied, windowSessionId ? sentAt : null);
           if (windowSessionId) {
             const ids = [...new Set([sessionId, windowSessionId].filter((id): id is string => Boolean(id)))];
-            noteTurnEnded(ids, sentAt, stream.endedAt ?? Date.now());
+            noteTurnEnded(ids, sentAt, chatTurn.endedAt ?? Date.now());
           }
           // After the record is written and the window ended, so a refresh it prompts finds both.
-          if (sessionId) broadcastInferenceNoted(stream.sessionIds);
+          if (sessionId) broadcastInferenceNoted(chatTurn.sessionIds);
           // After the turn has ended, so a voiced reply never holds up the next send.
           if (sessionId && replied && writingVoiceName) {
             void recordReplyWritingVoice(
@@ -2297,7 +2178,7 @@ async function startChatTurn(
 
     return { success: true, requestId, sessionId, ...(writingVoiceName ? { writingVoiceName } : {}) };
   } catch (err) {
-    activeStreams.delete(key);
+    endRunningTurn(requestId, chatTurn);
     endWindowUnrun();
     return {
       success: false,
@@ -2312,19 +2193,14 @@ async function startChatTurn(
 }
 
 /** Stop a turn by its request id, or every turn of a chat when `sessionId` is given. */
-export function handleHermesChatCancel(payload: HermesChatCancelPayload): { success: boolean } {
+export function handleHermesChatCancel(payload: HermesChatCancelPayload): IpcResult {
   persistDebugLog('chat-turn', 'turn cancel', {
     requestId: payload.requestId,
     reason: payload.reason ?? 'stopped',
     ...(payload.via ? { via: payload.via } : {}),
   });
-  for (const [key, stream] of activeStreams) {
-    const sessionId = payload.sessionId;
-    if (key !== payload.requestId && !(sessionId && stream.sessionIds.includes(sessionId))) continue;
-    // The reason rides on the signal so the turn can note how its reply ended.
-    stream.controller.abort(payload.reason ?? 'stopped');
-    activeStreams.delete(key);
-  }
+  // The reason rides on the signal so the turn can note how its reply ended.
+  abortTurn({ requestId: payload.requestId, sessionId: payload.sessionId }, payload.reason ?? 'stopped');
   return { success: true };
 }
 
@@ -2333,7 +2209,7 @@ export function handleHermesChatCancel(payload: HermesChatCancelPayload): { succ
  * Running turns are dropped without aborting them, the same as discarding the module.
  */
 export function resetHermesChatSessionsForTests(): void {
-  activeStreams.clear();
+  resetRunningTurnsForTests();
   heldTurnTasks.clear();
   localThreads.clear();
   dmPlaceholderIds.clear();

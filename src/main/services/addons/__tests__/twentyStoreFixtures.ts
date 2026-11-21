@@ -1,11 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveAssistantUserContentRoot } from '../../assistant/assistantPaths';
+import { TWENTY_STORE } from '../twentyWorkspaces';
 
 /**
  * Twenty workspaces in the add-on store as `crm.sh` writes them (stack v0.3.13):
  * `instances/<slug>.json` holds the settings, `secrets/<slug>.key_ro` and `.key_rw` the keys.
  * A local workspace points at the stack's own twenty-server; a hosted one at a Twenty elsewhere.
  */
+
+/** The store's folder on disk for the stack in `root`. */
+export function twentyWorkspacesDir(root: string): string {
+  return path.join(resolveAssistantUserContentRoot(root), TWENTY_STORE);
+}
 
 export interface TwentyStoreSettings {
   url?: string;

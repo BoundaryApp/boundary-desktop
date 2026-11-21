@@ -3,9 +3,11 @@ import type { HostBridgeGrant } from '../../shared/types/hostBridge';
 import { InfoTip } from '../components/ui/info-tip';
 import { errorText } from '../components/ui/use-sheet-action';
 import { APP_NAME } from '../../shared/buildIdentity';
-import { Callout } from '../components/ui/alert';
+import { Callout, LoadingBlock } from '../components/ui/alert';
 import { SettingsRow, SettingsSection } from '../components/settings/SettingsSection';
 import { Button } from '../components/ui/button';
+import { useBuiltinAgentName } from './settingsPanelHooks';
+import { StackCapabilityNote, useStackCapability } from './stackCapabilities';
 
 /**
  * Settings → Computer access: Stop agent, Rotate tokens (ADR 0027 §3), and the host-bridge
@@ -43,6 +45,7 @@ function when(grant: HostBridgeGrant): string {
 }
 
 export const ComputerAccessPanel: React.FC = () => {
+  const agentName = useBuiltinAgentName();
   const [grants, setGrants] = useState<HostBridgeGrant[] | null>(null);
   const [agent, setAgent] = useState<AgentState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,11 +101,18 @@ export const ComputerAccessPanel: React.FC = () => {
     }
   }, []);
 
+  const hostCallbacks = useStackCapability('hostCallbacks');
+  if (!hostCallbacks) {
+    return (
+      <SettingsSection id="settings-computer-access" className="wb-computer-access" title="Computer access">
+        <StackCapabilityNote capability="hostCallbacks" />
+      </SettingsSection>
+    );
+  }
+
   if (!grants || !agent) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="size-8 animate-spin rounded-full border-2 border-line border-t-brand" />
-      </div>
+      <LoadingBlock />
     );
   }
 
@@ -115,7 +125,7 @@ export const ComputerAccessPanel: React.FC = () => {
             Computer access
             <InfoTip label="computer access">
               <p>
-                Hermes can ask {APP_NAME} to show notifications, open pages in your browser, use the clipboard,
+                {agentName} can ask {APP_NAME} to show notifications, open pages in your browser, use the clipboard,
                 and read or save files you choose. Each one asks you first. Reading the clipboard and saving
                 files always ask.
               </p>
@@ -131,7 +141,7 @@ export const ComputerAccessPanel: React.FC = () => {
       {agent.stopped ? (
         <Callout variant="warn" layout="row" size="sm" className="wb-inference-callout" role="status">
           <p>
-            Agent stopped. Hermes can’t show notifications, open links, use your files or clipboard, or
+            Agent stopped. {agentName} can’t show notifications, open links, use your files or clipboard, or
             drive {APP_NAME}’s browser. This stays off after you restart {APP_NAME}, until you turn access
             back on here.
           </p>
@@ -149,7 +159,7 @@ export const ComputerAccessPanel: React.FC = () => {
       ) : (
         <SettingsRow
           label="Stop agent"
-          hint={`Cuts Hermes off from this computer and ${APP_NAME}’s browser now, and keeps it off until you turn access back on. Its tokens are replaced, so Hermes restarts.`}
+          hint={`Cuts ${agentName} off from this computer and ${APP_NAME}’s browser now, and keeps it off until you turn access back on. Its tokens are replaced, so Hermes restarts.`}
         >
           <Button variant="secondary" type="button" disabled={busy} onClick={() => void setStopped(true)}>
             Stop agent
@@ -174,7 +184,7 @@ export const ComputerAccessPanel: React.FC = () => {
       {agent.stopped ? null : (
         <SettingsRow
           label="Replace tokens"
-          hint={`Replaces the tokens Hermes uses to reach this computer and ${APP_NAME}’s browser. The old ones stop working at once. Hermes restarts to pick up the new ones, which ends replies in progress, and ${APP_NAME}’s browser closes.`}
+          hint={`Replaces the tokens ${agentName} uses to reach this computer and ${APP_NAME}’s browser. The old ones stop working at once. Hermes restarts to pick up the new ones, which ends replies in progress, and ${APP_NAME}’s browser closes.`}
         >
           <Button variant="secondary" type="button" disabled={busy} onClick={() => void rotate()}>
             {rotation?.status === 'running' ? 'Replacing…' : 'Replace tokens'}
@@ -192,11 +202,11 @@ export const ComputerAccessPanel: React.FC = () => {
         </Callout>
       ) : null}
 
-      <p className="wb-inference-lead">What you’ve said Hermes can always do on this computer.</p>
+      <p className="wb-inference-lead">What you’ve said {agentName} can always do on this computer.</p>
 
       {grants.length === 0 ? (
         <div className="wb-settings-row">
-          <p className="wb-settings-hint">Nothing is always allowed. Hermes asks each time.</p>
+          <p className="wb-settings-hint">Nothing is always allowed. {agentName} asks each time.</p>
         </div>
       ) : (
         <>

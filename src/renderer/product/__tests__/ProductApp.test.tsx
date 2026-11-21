@@ -2,6 +2,8 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLifecycleSnapshot, seedServiceProgress } from '../../../shared/assistantStackLifecycle';
+import type { ProductDestination } from '../destinations';
+import { ProductApp, READY_HOLD_MS, reportScreenName } from '../ProductApp';
 
 const useSetup = vi.fn();
 const useAssistantStackLifecycle = vi.fn();
@@ -55,7 +57,6 @@ describe('ProductApp gating', () => {
     });
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('idle'));
 
-    const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('setup-flow')).toBeTruthy();
   });
@@ -74,7 +75,6 @@ describe('ProductApp gating', () => {
       })
     );
 
-    const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('starting-screen')).toBeTruthy();
     expect(screen.queryByText('chat-workbench')).toBeNull();
@@ -90,7 +90,6 @@ describe('ProductApp gating', () => {
     });
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('ready'));
 
-    const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('chat-workbench')).toBeTruthy();
   });
@@ -103,7 +102,6 @@ describe('ProductApp gating', () => {
     });
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('starting'));
 
-    const { ProductApp, READY_HOLD_MS } = await import('../ProductApp');
     const { rerender } = render(<ProductApp />);
     expect(screen.getByText('starting-screen')).toBeTruthy();
 
@@ -131,7 +129,6 @@ describe('ProductApp gating', () => {
     });
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('stopping'));
 
-    const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('quit-overlay')).toBeTruthy();
     expect(screen.getByText('chat-workbench')).toBeTruthy();
@@ -159,7 +156,6 @@ describe('ProductApp gating', () => {
     useSetup.mockReturnValue(pending);
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('ready'));
 
-    const { ProductApp } = await import('../ProductApp');
     const { rerender } = render(<ProductApp />);
     expect(screen.getByText('starting-screen')).toBeTruthy();
     expect(applyFirstRunFolders).toHaveBeenCalledTimes(1);
@@ -189,9 +185,45 @@ describe('ProductApp gating', () => {
     });
     useAssistantStackLifecycle.mockReturnValue(createLifecycleSnapshot('starting'));
 
-    const { ProductApp } = await import('../ProductApp');
     render(<ProductApp />);
     expect(screen.getByText('starting-screen')).toBeTruthy();
     expect(applyFirstRunFolders).not.toHaveBeenCalled();
+  });
+});
+
+type PublicDestination = Exclude<ProductDestination, `experiment:${string}`>;
+
+// A Record over the union, so adding a public destination fails type-check until it is listed here.
+const PUBLIC_DESTINATIONS: Record<PublicDestination, true> = {
+  chat: true,
+  circles: true,
+  inference: true,
+  services: true,
+  resources: true,
+  'whats-new': true,
+  settings: true,
+};
+
+describe('reportScreenName', () => {
+  it('names every public destination', () => {
+    for (const id of Object.keys(PUBLIC_DESTINATIONS)) {
+      expect(reportScreenName(`ready:${id}`), id).not.toBe('Other');
+    }
+  });
+
+  it('keeps the existing names', () => {
+    expect(reportScreenName('setup')).toBe('Setup');
+    expect(reportScreenName('starting')).toBe('Start-up');
+    expect(reportScreenName('ready:chat')).toBe('Chat');
+    expect(reportScreenName('ready:circles')).toBe('Circles');
+    expect(reportScreenName('ready:inference')).toBe('Inference');
+    expect(reportScreenName('ready:services')).toBe('Services');
+    expect(reportScreenName('ready:resources')).toBe('Resources');
+    expect(reportScreenName('ready:whats-new')).toBe('What’s new');
+    expect(reportScreenName('ready:settings')).toBe('Settings');
+  });
+
+  it('reads "Other" for experiments', () => {
+    expect(reportScreenName('ready:experiment:demo')).toBe('Other');
   });
 });

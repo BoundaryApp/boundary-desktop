@@ -4,6 +4,7 @@ import type {
   HermesChatThreadSummary,
   HermesProjectMove,
   HermesProjectRecord,
+  ProjectInferencePin,
   SessionProjectMark,
 } from '../../../shared/types/hermesChat';
 import type { CodingAgentBusy, CodingFolderInspect } from '../../../shared/types/codingFolders';
@@ -20,6 +21,34 @@ import type { ChatLists } from './useChatLists';
 import { keepIfEqual } from './useChatLists';
 
 const PROJECT_TOAST_MS = 8000;
+
+const PATCH_FAILED = 'Could not update the project.';
+
+/** Saves a project's inference pin. Resolves to the error to show, or null when saved. */
+export type PatchProjectInference = (
+  projectId: string,
+  inference: ProjectInferencePin
+) => Promise<string | null>;
+
+/**
+ * Sends a project's inference pin to main and hands the updated list to `onProjects`. A
+ * rejected call resolves to an error like a refused one. Views without the project list
+ * (the agent panel) call it with no `onProjects`.
+ */
+export async function patchProjectInference(
+  projectId: string,
+  inference: ProjectInferencePin,
+  onProjects?: (projects: HermesProjectRecord[]) => void
+): Promise<string | null> {
+  try {
+    const result = await window.electronAPI.projects.patch({ projectId, inference });
+    if (!result.success) return result.error ?? PATCH_FAILED;
+    if (result.projects) onProjects?.(result.projects);
+    return null;
+  } catch {
+    return PATCH_FAILED;
+  }
+}
 
 export interface ProjectToast {
   text: string;
@@ -82,6 +111,11 @@ export function useProjects({
     }
     setRpcAvailable(result.rpcAvailable !== false);
   }, []);
+
+  const patchInference = useCallback<PatchProjectInference>(
+    (projectId, inference) => patchProjectInference(projectId, inference, setProjects),
+    []
+  );
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -375,7 +409,7 @@ export function useProjects({
 
   return {
     projects,
-    setProjects,
+    patchInference,
     activeProjectId,
     connecting,
     setConnecting,

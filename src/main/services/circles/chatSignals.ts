@@ -6,14 +6,14 @@
 import type { CircleChatMark, CircleMessageRef } from '../../../shared/types/circles';
 import { isMessageId, isRecordName } from './circleOps';
 import { onCircleSignal, sendCircleSignal } from './circlesService';
-import { broadcast } from '../windows';
+import { broadcast } from '../../host/windows';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
 const TYPING_TOPIC = 'chat.typing';
 const READ_TOPIC = 'chat.read';
-/** Circle chats spec phase 4. */
+/** The shortest gap between sends: typing every 3 s, read marks every 1 s. */
 const TYPING_EVERY_MS = 3_000;
 const READ_EVERY_MS = 1_000;
-const HEX_KEY = /^[0-9a-f]{64}$/;
 
 const lastTyping = new Map<string, number>();
 const lastRead = new Map<string, number>();
@@ -62,7 +62,7 @@ export function presenceOf(topic: string, payload: unknown): CircleChatMark | nu
   const { channel, author, id } = (payload ?? {}) as { channel?: unknown; author?: unknown; id?: unknown };
   if (!isRecordName(channel)) return null;
   if (topic === TYPING_TOPIC) return { channel, kind: 'typing' };
-  if (typeof author !== 'string' || !HEX_KEY.test(author) || !isMessageId(id)) return null;
+  if (typeof author !== 'string' || !HEX_KEY_PATTERN.test(author) || !isMessageId(id)) return null;
   return { channel, kind: 'read', ref: { author, id } };
 }
 

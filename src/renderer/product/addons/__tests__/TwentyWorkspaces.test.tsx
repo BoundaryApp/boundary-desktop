@@ -342,7 +342,7 @@ describe('hosted only', () => {
 
 describe('Twenty off with its data kept', () => {
   it('shows an Off row with Turn on and no access switch', async () => {
-    const addons = stubAddons([listing()], { workspaces: [localWorkspace({ parked: true })] });
+    const addons = stubAddons([listing()], { workspaces: [localWorkspace()] });
     const started = renderDetail();
     const local = await screen.findByRole('listitem', { name: 'On this Mac crm-main' });
     expect(within(local).getByText('Off')).toBeTruthy();

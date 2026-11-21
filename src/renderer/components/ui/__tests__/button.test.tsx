@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '../button';
 
 const rendered = (props: React.ComponentProps<typeof Button>) => {
@@ -29,17 +29,23 @@ type Variant = NonNullable<React.ComponentProps<typeof Button>['variant']>;
 type Size = NonNullable<React.ComponentProps<typeof Button>['size']>;
 
 // What each variant/size pair renders. The look comes from these classes in button.css.
+const icons = (look: string[]) => ({
+  icon: [...look, 'is-icon'],
+  'icon-sm': [...look, 'is-icon', 'is-icon-sm'],
+  'icon-xs': [...look, 'is-icon', 'is-icon-xs'],
+});
+
 const expected: Record<Variant, Record<Size, string[]>> = {
-  primary: { default: ['wb-btn-solid'], sm: ['wb-btn-solid', 'is-sm'], icon: ['wb-btn-solid', 'is-icon'] },
-  secondary: { default: ['wb-btn-ghost'], sm: ['wb-btn-tiny', 'is-sm'], icon: ['wb-btn-ghost', 'is-icon'] },
+  primary: { default: ['wb-btn-solid'], sm: ['wb-btn-solid', 'is-sm'], ...icons(['wb-btn-solid']) },
+  secondary: { default: ['wb-btn-ghost'], sm: ['wb-btn-tiny', 'is-sm'], ...icons(['wb-btn-ghost']) },
   danger: {
     default: ['wb-btn-danger'],
     sm: ['wb-btn-tiny', 'is-danger', 'is-sm'],
-    icon: ['wb-btn-danger', 'is-icon'],
+    ...icons(['wb-btn-danger']),
   },
-  quiet: { default: ['wb-btn-quiet'], sm: ['wb-btn-quiet', 'is-sm'], icon: ['wb-btn-quiet', 'is-icon'] },
-  brand: { default: ['wb-btn-brand'], sm: ['wb-btn-brand', 'is-sm'], icon: ['wb-btn-brand', 'is-icon'] },
-  link: { default: ['wb-btn-link'], sm: ['wb-btn-link', 'is-sm'], icon: ['wb-btn-link', 'is-icon'] },
+  quiet: { default: ['wb-btn-quiet'], sm: ['wb-btn-quiet', 'is-sm'], ...icons(['wb-btn-quiet']) },
+  brand: { default: ['wb-btn-brand'], sm: ['wb-btn-brand', 'is-sm'], ...icons(['wb-btn-brand']) },
+  link: { default: ['wb-btn-link'], sm: ['wb-btn-link', 'is-sm'], ...icons(['wb-btn-link']) },
 };
 
 const pairs = (Object.keys(expected) as Variant[]).flatMap((variant) =>
@@ -92,5 +98,69 @@ describe('Button classes', () => {
   it('lets the Inference screen size its danger buttons with its other buttons', () => {
     const inference = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../product/inference/inference.css'), 'utf8');
     expect(inference).toMatch(/\.wb-inf \.wb-btn-danger[,\s][^{]*\{[^}]*width: auto;[^}]*font-size: var\(--size-small\);/);
+  });
+});
+
+// Icon buttons (ADR 0061, amended): three square sizes, an accessible name, and an open look.
+describe('icon Button', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const icon = (props: React.ComponentProps<typeof Button>) =>
+    render(
+      <Button variant="quiet" {...props}>
+        <svg />
+      </Button>,
+    ).container.querySelector('button')!;
+
+  it.each(['icon', 'icon-sm', 'icon-xs'] as const)('size="%s" renders data-size', (size) => {
+    expect(icon({ size, 'aria-label': 'Close' }).dataset.size).toBe(size);
+  });
+
+  it('draws a 14px icon at icon-xs and 16px at the other sizes', () => {
+    const svgClass = (size: Size) => icon({ size, 'aria-label': 'Close' }).className;
+    expect(svgClass('icon-xs')).toContain("[&_svg:not([class*='size-'])]:size-3.5");
+    expect(svgClass('icon-xs')).not.toContain("[&_svg:not([class*='size-'])]:size-4");
+    expect(svgClass('icon-sm')).toContain("[&_svg:not([class*='size-'])]:size-4");
+  });
+
+  it('logs an error in development when an icon button has no accessible name', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    icon({ size: 'icon-sm' });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toMatch(/aria-label/);
+  });
+
+  it('logs nothing when an icon button is named by aria-label or aria-labelledby', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    icon({ size: 'icon', 'aria-label': 'Close' });
+    icon({ size: 'icon-xs', 'aria-labelledby': 'x' });
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('button.css sizes each icon size from a token', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.is-icon-sm\)[^{]*\{[^}]*var\(--control-height-sm\)/);
+    expect(css).toMatch(/\.is-icon-xs\)[^{]*\{[^}]*var\(--control-height-xs\)/);
+    expect(css).toMatch(/\.is-icon\)[^{]*\{[^}]*var\(--control-height\)/);
+  });
+
+  it('button.css draws the open look on aria-expanded and Radix data-state=open', () => {
+    const css = readCss();
+    expect(css).toMatch(/\[aria-expanded='true'\],\s*\[data-state='open'\]/);
+  });
+
+  it('button.css puts the open look after the looks, so its --text beats the quiet --text-muted', () => {
+    // Every rule in the utilities block has zero specificity, so source order decides.
+    const css = readCss();
+    const open = css.indexOf("[aria-expanded='true']");
+    for (const look of [':where(.wb-btn-quiet) {', ':where(.wb-btn-quiet:hover) {', ':where(.wb-btn-link) {']) {
+      expect(css.indexOf(look), look).toBeGreaterThan(-1);
+      expect(open, look).toBeGreaterThan(css.indexOf(look));
+    }
+  });
+
+  it('tokens.css defines --control-height-xs as 24px', () => {
+    const tokens = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../styles/tokens.css'), 'utf8');
+    expect(tokens).toMatch(/--control-height-xs: 24px;/);
   });
 });

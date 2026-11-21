@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE, SOVEREIGN_AGENT_STACK_GITHUB_URL } from '../../../shared/assistantStackConstants';
-import { getAssistantRootOverride } from './AssistantStackStore';
 import { resolveAssistantDataRoot, resolveAssistantProjectRoot } from './assistantPaths';
+import { stackMode } from './localStackMode';
 import { APP_NAME } from '../../../shared/buildIdentity';
+import { remoteStackFolderRefusal } from '../stackHost/stackHostLocation';
 
 export class AssistantRootError extends Error {
   constructor(message: string) {
@@ -52,40 +53,28 @@ export function forgetAssistantRootChecks(): void {
 }
 
 /**
- * Resolve the Boundary-managed (or explicitly overridden) agent stack compose directory.
- * Precedence: BOUNDARY_ASSISTANT_ROOT → electron-store override → userData/assistant-stack/project.
- * Does not fall back to a sibling ../assistant checkout (developer stacks stay separate).
+ * The stack root {@link stackMode} picked (BOUNDARY_ASSISTANT_ROOT, then the stored override,
+ * then the managed install), once its compose file is there. Does not fall back to a sibling
+ * ../assistant checkout (developer stacks stay separate). Throws when the stored stack location
+ * is another computer, so code still on local paths fails by name instead of using a folder here.
  */
 export function resolveAssistantRoot(): string {
-  const fromEnv = process.env.BOUNDARY_ASSISTANT_ROOT?.trim();
-  if (fromEnv) {
-    const resolved = path.resolve(fromEnv);
-    if (!looksLikeAssistantRoot(resolved)) {
-      throw new AssistantRootError(
-        `BOUNDARY_ASSISTANT_ROOT is set but ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE} was not found at ${resolved}`
-      );
-    }
-    return resolved;
+  const remote = remoteStackFolderRefusal();
+  if (remote) throw new AssistantRootError(remote);
+  const { root, source } = stackMode();
+  if (looksLikeAssistantRoot(root)) return root;
+  if (source === 'BOUNDARY_ASSISTANT_ROOT') {
+    throw new AssistantRootError(
+      `BOUNDARY_ASSISTANT_ROOT is set but ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE} was not found at ${root}`
+    );
   }
-
-  const fromStore = getAssistantRootOverride();
-  if (fromStore) {
-    const resolved = path.resolve(fromStore);
-    if (!looksLikeAssistantRoot(resolved)) {
-      throw new AssistantRootError(
-        `Configured assistant root is missing ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE}: ${resolved}`
-      );
-    }
-    return resolved;
+  if (source === 'stored-override') {
+    throw new AssistantRootError(
+      `Configured assistant root is missing ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE}: ${root}`
+    );
   }
-
-  const projectRoot = resolveAssistantProjectRoot();
-  if (looksLikeAssistantRoot(projectRoot)) {
-    return projectRoot;
-  }
-
   throw new AssistantRootError(
-    `Could not find the ${APP_NAME}-managed agent stack at ${projectRoot} ` +
+    `Could not find the ${APP_NAME}-managed agent stack at ${root} ` +
       `(expected ${BOUNDARY_ASSISTANT_BASE_COMPOSE_FILE} from ${SOVEREIGN_AGENT_STACK_GITHUB_URL}). ` +
       'Start the assistant stack from Setup to download it, or set BOUNDARY_ASSISTANT_ROOT for a local override.'
   );
@@ -105,9 +94,12 @@ export function tryResolveAssistantRoot(): { root: string | null; error?: string
 /**
  * The stack this session talks to: the resolved root (local checkout or managed install),
  * else the managed install path. Every Hermes-state path should derive from this, so a
- * local-stack session never reads or writes the userData install.
+ * local-stack session never reads or writes the userData install. Throws when the stack is on
+ * another computer.
  */
 export function resolveActiveAssistantRoot(): string {
+  const remote = remoteStackFolderRefusal();
+  if (remote) throw new AssistantRootError(remote);
   const { root } = tryResolveAssistantRoot();
   return root ?? resolveAssistantProjectRoot();
 }

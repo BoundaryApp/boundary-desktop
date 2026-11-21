@@ -4,7 +4,10 @@ import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
 type Listener = (list: string[]) => void;
 const listeners = new Set<Listener>();
 
-/** Changes to Twenty that take effect at the next assistant restart, for the active stack root. */
+/**
+ * Add-on changes (Twenty, Todo lists, Actual, Circles) that take effect at the next assistant
+ * restart, for the active stack root.
+ */
 export function pendingChanges(): string[] {
   const { root } = tryResolveAssistantRoot();
   return root ? getPendingAddonChanges(root) : [];

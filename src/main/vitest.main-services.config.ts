@@ -31,7 +31,14 @@ export default defineConfig({
     // The stack contract suite needs a running stack: `bun run test:stack` (vitest.stack.config.ts).
     // Circles network tests run a local DHT: `bun run test:circles` (vitest.circles.config.ts).
     // Live tests reach outside services: `bun run test:live` (vitest.live.config.ts).
-    exclude: [...configDefaults.exclude, '**/*.stack.test.ts', '**/*.net.test.ts', '**/*.live.test.ts'],
+    // The Podman check starts the stack on bundled Podman: `bun run test:podman` (vitest.podman.config.ts).
+    exclude: [
+      ...configDefaults.exclude,
+      '**/*.stack.test.ts',
+      '**/*.net.test.ts',
+      '**/*.live.test.ts',
+      '**/*.podman.test.ts',
+    ],
     setupFiles: ['src/__tests__/setupOfflineFetch.ts', 'src/main/services/__tests__/electron-mock-setup.ts'],
     server: {
       deps: {
@@ -49,12 +56,5 @@ export default defineConfig({
     unstubGlobals: true,
     unstubEnvs: true,
     pool: 'forks',
-  },
-  resolve: {
-    alias: {
-      '@': resolve(import.meta.dirname, '..'),
-      '@shared': resolve(import.meta.dirname, '../shared'),
-      '@main': resolve(import.meta.dirname, '.'),
-    },
   },
 });

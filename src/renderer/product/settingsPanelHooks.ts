@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { builtinAgentName } from '../../shared/hermesAgentIdentity';
 import type { AgentProfile } from '../../shared/types/hermesChat';
 
 /** The stored agents, loaded once on mount. Empty until they arrive, and if the call fails. */
@@ -17,6 +18,11 @@ export function useStoredAgents(): AgentProfile[] {
     };
   }, []);
   return agents;
+}
+
+/** Display name of the built-in agent, from its stored record (ADR 0023 §8). */
+export function useBuiltinAgentName(): string {
+  return builtinAgentName(useStoredAgents());
 }
 
 /** A toast message that clears itself four seconds after it is set. */

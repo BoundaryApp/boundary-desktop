@@ -1,0 +1,4 @@
+/* The app's stylesheet, with Tailwind told to scan the app's source: from this folder it
+   would only find class names used in the harness. */
+@import "../../src/index.css";
+@source "../../src/renderer";

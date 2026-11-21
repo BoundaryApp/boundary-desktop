@@ -1,20 +1,21 @@
 import * as React from "react"
 import { Eye, EyeOff } from "lucide-react"
 
+import { cn } from "../../lib/utils"
+import { Input } from "./input"
+
 /**
- * A password input with a show/hide button inside its right edge. The input takes every prop a
- * plain `<input>` does except `type`, which the button controls. Put it inside a `Field` for the
- * caption; the input's look comes from `.wb-field input`.
+ * A password Input with a show/hide button inside its right edge. It takes every prop Input does
+ * except `type`, which the button controls. Put it inside a `Field` for the caption.
  */
 function PasswordField({
   className,
-  ref,
   ...props
-}: Omit<React.ComponentProps<"input">, "type">) {
+}: Omit<React.ComponentProps<typeof Input>, "type">) {
   const [shown, setShown] = React.useState(false)
   return (
     <div className="wb-password-field">
-      <input ref={ref} type={shown ? "text" : "password"} className={className} {...props} />
+      <Input type={shown ? "text" : "password"} className={cn("pr-9", className)} {...props} />
       <button
         type="button"
         aria-label={shown ? "Hide password" : "Show password"}

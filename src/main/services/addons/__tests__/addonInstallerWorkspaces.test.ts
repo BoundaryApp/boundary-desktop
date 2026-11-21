@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pendingChanges } from '../pendingRestart';
-import { OFF, ON, fakeDeps, pending } from './addonInstallerFakes';
+import { HOSTED_ONLY, OFF, ON, fakeDeps, pending, scriptRuns } from './addonInstallerFakes';
 
 vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
 vi.mock('../../assistant/AssistantStackStore', async () => (await import('./addonInstallerFakes')).storeMock());
@@ -12,8 +12,7 @@ vi.mock('../../assistant/localStackMode', async () => (await import('./addonInst
 vi.mock('../addonHostFacts', async () => (await import('./addonInstallerFakes')).addonHostFactsMock());
 
 import { createAddonInstaller, type AddonInstallerDeps } from '../addonInstaller';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { HOSTED_SETTINGS, LOCAL_SETTINGS, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { HOSTED_SETTINGS, LOCAL_SETTINGS, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
 
 describe('Twenty workspaces', () => {
   let tmp: string;
@@ -36,52 +35,58 @@ describe('Twenty workspaces', () => {
   const writeHosted = (slug: string) => writeTwentyWorkspace(dir, slug, HOSTED_SETTINGS, { keyRw: 'k' });
 
   const depsInStack = (overrides: Partial<AddonInstallerDeps> = {}) =>
-    fakeDeps({ stackPaths: () => ({ root: tmp, dataRoot: path.join(tmp, 'data') }), ...overrides });
+    fakeDeps({ stackRoot: tmp, ...overrides });
 
-  it('turnOff with a hosted workspace keeps TWENTY_MCP_ENABLED=1, stops and removes the containers, does not reload, and adds the pending text', async () => {
+  it('turnOff with a hosted workspace keeps TWENTY_MCP_ENABLED=1, removes the containers, does not reload, and adds the pending text', async () => {
     writeLocal();
     writeHosted('work');
     writeHosted('sales');
-    const { deps, calls } = depsInStack();
+    const { deps, calls, sh } = depsInStack();
+    sh.flags = { ...ON };
 
     await createAddonInstaller(deps).turnOff('twenty');
 
     expect(stored()).toEqual(['main.json', 'sales.json', 'work.json']);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', { TWENTY_LOCAL_ENABLED: '0', TWENTY_MCP_ENABLED: '1' });
-    expect(calls.map((c) => c.args[2])).toEqual(['stop', 'rm']);
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'enable']);
+    expect(sh.flags).toEqual(HOSTED_ONLY);
+    expect(calls.map((c) => c.args[2])).toEqual(['rm']);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
     expect(pendingChanges()).toEqual([`${TURN_OFF} and keep crm-sales, crm-work`]);
   });
 
   it('turnOff with no hosted workspace turns MCP off and adds the pending text', async () => {
     writeLocal();
-    const { deps } = depsInStack();
+    const { deps, sh } = depsInStack();
+    sh.flags = { ...ON };
 
     await createAddonInstaller(deps).turnOff('twenty');
 
     expect(stored()).toEqual(['main.json']);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'disable']);
+    expect(sh.flags).toEqual(OFF);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
     expect(pendingChanges()).toEqual([TURN_OFF]);
   });
 
-  it('undo writes 0/0 with no hosted workspace', async () => {
+  it('undo disables Twenty with no hosted workspace', async () => {
     writeLocal();
-    const { deps } = depsInStack({ isInstalled: vi.fn(() => true) });
+    const { deps, sh } = depsInStack({ isInstalled: vi.fn(async () => true) });
+    sh.flags = { ...ON };
     await createAddonInstaller(deps).undo('twenty');
     expect(stored()).toEqual(['main.json']);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
+    expect(scriptRuns(sh)).toEqual(['configure:false', 'disable']);
+    expect(sh.flags).toEqual(OFF);
   });
 
   it('start turns both flags on, reloads at once and clears the pending list', async () => {
     writeLocal();
     pending.list = [`${TURN_OFF}`, 'Connect crm-work (look things up)'];
-    const { deps, calls } = depsInStack({ isInstalled: vi.fn(() => true) });
+    const { deps, sh } = depsInStack({ isInstalled: vi.fn(async () => true) });
 
     await createAddonInstaller(deps).start('twenty');
 
-    expect(calls.some((c) => c.args.includes('up'))).toBe(true);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', ON);
+    expect(scriptRuns(sh)).toEqual(['configure:true', 'enable']);
+    expect(sh.flags).toEqual(ON);
     expect(deps.reloadHermes).toHaveBeenCalledTimes(1);
     expect(pending.list).toEqual([]);
   });
@@ -89,7 +94,7 @@ describe('Twenty workspaces', () => {
   it('start keeps the pending list when the reload fails', async () => {
     pending.list = [TURN_OFF];
     const { deps } = depsInStack({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       reloadHermes: vi.fn(async () => ({ success: false, error: 'Hermes API did not become healthy' })),
     });
     await expect(createAddonInstaller(deps).start('twenty')).rejects.toThrow('Hermes API did not become healthy');
@@ -112,7 +117,7 @@ describe('Twenty workspaces', () => {
 
   it('undo clears the pending list after its reload', async () => {
     pending.list = ['Disconnect crm-work'];
-    const { deps } = depsInStack({ isInstalled: vi.fn(() => true) });
+    const { deps } = depsInStack({ isInstalled: vi.fn(async () => true) });
     await createAddonInstaller(deps).undo('twenty');
     expect(pending.list).toEqual([]);
   });

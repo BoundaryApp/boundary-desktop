@@ -26,6 +26,12 @@ import { RunningTurnDot } from './WorkingDot';
 import { conversationAgent, conversationMeta, conversationTitle } from './conversationKinds';
 import { groupThreadsByRecency } from './groupThreadsByRecency';
 import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
+import { Input } from '../../components/ui/input';
+import { NativeSelect } from '../../components/ui/native-select';
+import { InspectorToggle } from './InspectorToggle';
 
 interface AllChatsPaneProps {
   threads: HermesChatThreadSummary[];
@@ -135,39 +141,42 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
             <strong>All chats</strong>
           </span>
         </div>
+        <InspectorToggle />
       </div>
 
       <div className="wb-recent-list">
         <div className="wb-all-tools">
-          <input
+          <Input
             type="search"
-            className="wb-all-search"
             placeholder="Search titles, agents and rooms"
             aria-label="Search all chats"
             value={filter.query}
             onChange={(e) => set({ query: e.target.value })}
           />
           <div className="wb-all-filters" role="toolbar" aria-label="Filter chats">
-            <div className="wb-all-chips" role="radiogroup" aria-label="Kind">
+            <ChipGroup
+              type="single"
+              aria-label="Kind"
+              value={filter.kind}
+              onValueChange={(kind) => set({ kind: kind as typeof filter.kind })}
+            >
               {kindChips.map((chip) => (
-                <button
+                <Chip
                   key={chip.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={filter.kind === chip.id}
-                  className={`wb-all-chip${filter.kind === chip.id ? ' is-on' : ''}`}
-                  onClick={() => set({ kind: chip.id })}
+                  value={chip.id}
+                  icon={
+                    chip.mark ? (
+                      <ConversationMark kind={chip.mark} size={14} className={chip.mark === 'dm' || chip.mark === 'side' ? 'is-neutral' : undefined} />
+                    ) : undefined
+                  }
                 >
-                  {chip.mark ? (
-                    <ConversationMark kind={chip.mark} size={14} className={chip.mark === 'dm' || chip.mark === 'side' ? 'is-neutral' : undefined} />
-                  ) : null}
                   {chip.label}
-                </button>
+                </Chip>
               ))}
-            </div>
+            </ChipGroup>
             <span className="wb-all-sep" aria-hidden="true" />
-            <select
-              className="wb-all-select"
+            <NativeSelect
+              size="sm" className="max-w-[180px]"
               aria-label="Agent"
               title={
                 agentChoices.find((a) => a.slug === filter.agentSlug)?.displayName ?? 'Any agent'
@@ -181,10 +190,10 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                   {a.displayName}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {showProjects ? (
-              <select
-                className="wb-all-select"
+              <NativeSelect
+                size="sm" className="max-w-[180px]"
                 aria-label="Project"
                 title={
                   filter.project === NO_PROJECT_FILTER
@@ -201,11 +210,11 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                   </option>
                 ))}
                 <option value={NO_PROJECT_FILTER}>No project</option>
-              </select>
+              </NativeSelect>
             ) : null}
             {sources.length > 1 || filter.source ? (
-              <select
-                className="wb-all-select"
+              <NativeSelect
+                size="sm" className="max-w-[180px]"
                 aria-label="Source"
                 title={filter.source ?? 'Any source'}
                 value={filter.source ?? ''}
@@ -217,7 +226,7 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                     {s}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             ) : null}
           </div>
         </div>
@@ -251,8 +260,7 @@ export const AllChatsPane: React.FC<AllChatsPaneProps> = ({
                       role="listitem"
                     >
                     {selectable ? (
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         className="wb-all-check"
                         checked={isSelected}
                         aria-label={`Select ${conversationTitle(thread, agents)}`}

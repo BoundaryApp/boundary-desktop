@@ -34,8 +34,14 @@
   --leading-body: 1.5;
   --reading-column: 680px;
   --settings-sheet-width: 600px;
-  --control-height: 34px; /* buttons and settings controls */
-  --control-height-sm: 28px; /* small buttons: wb-btn-tiny, Button size="sm" */
+  --control-height: 34px; /* buttons and form controls */
+  --control-height-sm: 28px; /* small buttons and controls: Button, Input, NativeSelect size="sm" */
+  --control-height-xs: 24px; /* icon buttons in rows and chips: Button size="icon-xs" */
+  --textarea-min-height: 88px; /* Textarea in a field */
+  --choice-size: 16px; /* Checkbox and Radio boxes */
+  --choice-border: 1.5px; /* their border; a checked radio's inner ring is twice it */
+  --switch-width: 32px; /* Switch track */
+  --switch-height: 18px;
   --row-min-height: 58px;
 
   --leading-ui: 1.45;
@@ -138,6 +144,8 @@
 
   /* Text on colored agent/project glyphs */
   --on-glyph: #fff;
+  /* The check drawn on a checked Checkbox; white on --brand in both themes, like --on-glyph. */
+  --choice-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23fff' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.25 3 3 6-6.5'/%3E%3C/svg%3E");
 
   /* Focus ----------------------------------------------------------------- */
   --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px color-mix(in srgb, var(--brand) 75%, transparent);

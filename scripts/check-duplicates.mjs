@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** @type {Array<{ files: [string] | [string, string]; reason: string }>} */
 const allow = [
@@ -27,10 +28,6 @@ const allow = [
     reason: 'Project actions end by activating on the gateway and listing projects, varying in the connecting flag and when the id is written; two check the host folder the same way.',
   },
   {
-    files: ['src/main/services/onboarding/OpenAiOnboardingStore.ts'],
-    reason: 'Each connection kind’s save repeats the encryption check and the status reply around a different write.',
-  },
-  {
     files: ['src/renderer/product/chat/AllChatsPane.tsx', 'src/renderer/product/chat/ChatRail.tsx'],
     reason: 'One list icon drawn at 20px with a 1.4 stroke and at 16px with a 1.5 stroke.',
   },
@@ -44,7 +41,7 @@ const allow = [
   },
 ];
 
-const root = resolve(dirname(new URL(import.meta.url).pathname), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Private experiments keep their own entries, in the same form, beside their code. */
 const experimentAllowances = join(root, 'src', 'experiments', 'drift-allowances.json');

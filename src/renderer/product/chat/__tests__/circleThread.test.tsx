@@ -12,6 +12,7 @@ import type {
 import { ME, circleMember, circleSnapshot } from '../../../__tests__/circleFixtures';
 import { installElectronAPI, stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { CircleThread } from '../circle/CircleThread';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { applyChatUpdate, mergeTail, useCircleChat, type CircleChatView } from '../../circles/useCircleChat';
 
 // The real picker needs layout (ResizeObserver, row heights) that jsdom lacks. Its data and Frimousse
@@ -292,13 +293,12 @@ describe('CircleThread reactions', () => {
         }),
       ])
     );
-    const pills = within(row('Chapter 3?')).getAllByRole('button', { pressed: undefined }).filter((b) => b.classList.contains('wb-react-pill'));
+    const pills = within(within(row('Chapter 3?')).getByRole('group', { name: 'Reactions' })).getAllByRole('button');
     expect(pills.map((pill) => pill.textContent)).toEqual(['👍2', '🎉1']);
+    expect(pills.every((pill) => pill.getAttribute('data-slot') === 'chip')).toBe(true);
     expect(pills[0].getAttribute('aria-pressed')).toBe('true');
-    expect(pills[0].classList.contains('is-mine')).toBe(true);
     expect(pills[0].getAttribute('aria-label')).toBe('👍 2, You and Maya');
     expect(pills[1].getAttribute('aria-pressed')).toBe('false');
-    expect(pills[1].classList.contains('is-mine')).toBe(false);
   });
 
   it('puts pills under the body of others’ messages and under the user’s own bubble', () => {
@@ -369,16 +369,37 @@ describe('CircleThread reactions', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('keeps the popover inside a narrow thread: placed against the toolbar, picks wrap', () => {
+  it('lays the picks out in a wrapping row and keeps the toolbar up while the picker is open', async () => {
+    show(circle(), chatOf([message('Hers')]));
+    openMenu(within(row('Hers')).getByRole('button', { name: 'React' }));
+    await flushMenu();
+    expect(screen.getByRole('menu', { name: 'React' }).className).toContain('flex-wrap');
     const css = readFileSync(resolve(__dirname, '../circle/circleChat.css'), 'utf8');
-    const rule = (selector: string): string => css.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
-    expect(rule('.wb-react-wrap')).not.toContain('position');
-    expect(rule('.wb-react-pop')).toMatch(/right:\s*0/);
-    expect(rule('.wb-react-pop')).toContain('max-width');
-    expect(rule('.wb-react-picks')).toContain('flex-wrap: wrap');
+    expect(css).toContain(".wb-circle-bar:has(.wb-react-wrap [data-slot='menu-content'])");
   });
 
-  it('the React popover adds a quick pick and takes back one I have', () => {
+  it('moves between picks with Left and Right as well as Up and Down, wrapping at the ends', async () => {
+    show(circle(), chatOf([message('Hers')]));
+    openMenu(within(row('Hers')).getByRole('button', { name: 'React' }));
+    await flushMenu();
+    const menu = screen.getByRole('menu', { name: 'React' });
+    const picks = within(menu).getAllByRole('menuitemcheckbox');
+    const more = within(menu).getByRole('menuitem', { name: 'More emoji' });
+    picks[0].focus();
+    fireEvent.keyDown(picks[0], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(picks[1]);
+    fireEvent.keyDown(picks[1], { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(picks[0]);
+    fireEvent.keyDown(picks[0], { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(more);
+    fireEvent.keyDown(more, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(picks[0]);
+    fireEvent.keyDown(picks[0], { key: 'ArrowDown' });
+    await flushMenu();
+    expect(document.activeElement).toBe(picks[1]);
+  });
+
+  it('the React popover adds a quick pick and takes back one I have', async () => {
     const chat = chatOf([message('Hers', { reactions: [reaction('❤️', [{ identity: ME, name: 'Ada' }], true)] })]);
     show(circle(), chat);
     const target = chat.messages[0];
@@ -387,7 +408,8 @@ describe('CircleThread reactions', () => {
       within(row('Hers')).getAllByRole('button').indexOf(within(row('Hers')).getByRole('button', { name: 'Copy' }))
     );
     expect(open.getAttribute('aria-haspopup')).toBe('menu');
-    fireEvent.click(open);
+    openMenu(open);
+    await flushMenu();
     const menu = screen.getByRole('menu');
     const items = within(menu).getAllByRole('menuitemcheckbox');
     expect(items.map((item) => item.textContent)).toEqual(['👍', '❤️', '😂', '😮', '😢', '🙏']);
@@ -396,9 +418,11 @@ describe('CircleThread reactions', () => {
     expect(within(menu).getByRole('menuitem', { name: 'More emoji' })).toBeTruthy();
     fireEvent.click(items[0]);
     expect(chat.react).toHaveBeenCalledWith({ author: target.author, id: target.id }, '👍', true);
+    await flushMenu();
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(open);
-    fireEvent.click(open);
+    openMenu(open);
+    await flushMenu();
     fireEvent.click(within(screen.getByRole('menu')).getAllByRole('menuitemcheckbox')[1]);
     expect(chat.react).toHaveBeenCalledWith({ author: target.author, id: target.id }, '❤️', false);
   });
@@ -408,7 +432,8 @@ describe('CircleThread reactions', () => {
     show(circle(), chat);
     const target = chat.messages[0];
     const more = async () => {
-      fireEvent.click(within(row('Hers')).getByRole('button', { name: 'React' }));
+      openMenu(within(row('Hers')).getByRole('button', { name: 'React' }));
+      await flushMenu();
       fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'More emoji' }));
       expect(screen.queryByRole('menu')).toBeNull();
       return screen.findByRole('dialog', { name: 'Add a reaction' });
@@ -428,30 +453,35 @@ describe('CircleThread reactions', () => {
     expect(chat.react).not.toHaveBeenCalled();
   });
 
-  it('closes the popover on Escape, returning focus, and on an outside click', () => {
+  it('closes the popover on Escape, returning focus, and on an outside click', async () => {
     show(circle(), chatOf([message('Hers')]));
     const open = within(row('Hers')).getByRole('button', { name: 'React' });
-    fireEvent.click(open);
-    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    openMenu(open);
+    await flushMenu();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await flushMenu();
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(open);
-    fireEvent.click(open);
-    fireEvent.mouseDown(document.body);
+    openMenu(open);
+    await flushMenu();
+    fireEvent.pointerDown(document.body);
+    await flushMenu();
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('at 20 reactions the popover says so and adds nothing new', () => {
+  it('at 20 reactions the popover says so and adds nothing new', async () => {
     const many = Array.from({ length: 20 }, (_, index) => reaction(String.fromCodePoint(0x1f600 + index), [{ identity: ME, name: 'Ada' }], true));
     many[0] = reaction('👍', [{ identity: ME, name: 'Ada' }], true);
     const chat = chatOf([message('Hers', { reactions: many })]);
     show(circle(), chat);
-    fireEvent.click(within(row('Hers')).getByRole('button', { name: 'React' }));
+    openMenu(within(row('Hers')).getByRole('button', { name: 'React' }));
+    await flushMenu();
     const menu = screen.getByRole('menu');
     expect(within(menu).getByText('You’ve used 20 reactions on this message')).toBeTruthy();
     const items = within(menu).getAllByRole('menuitemcheckbox');
     const [thumbs, heart] = [items[0], items[1]];
-    expect(thumbs.hasAttribute('disabled')).toBe(false);
-    expect(heart.hasAttribute('disabled')).toBe(true);
+    expect(thumbs.getAttribute('aria-disabled')).toBeNull();
+    expect(heart.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(heart);
     expect(chat.react).not.toHaveBeenCalled();
     fireEvent.click(thumbs);
@@ -580,8 +610,9 @@ describe('CircleThread select mode', () => {
     select(admin(), chat);
     expect(within(row('Hers')).queryByRole('button', { name: 'React' })).toBeNull();
     const pill = within(row('Hers')).getByRole('button', { name: '👍 1, Maya' });
-    expect(pill.getAttribute('aria-disabled')).toBe('true');
-    fireEvent.click(pill);
+    expect(pill.hasAttribute('disabled')).toBe(true);
+    // A disabled button takes no click in the app; CSS lets the click through to the line.
+    fireEvent.click(pill.parentElement as HTMLElement);
     expect(chat.react).not.toHaveBeenCalled();
     expect(box('Hers').checked).toBe(true);
   });
@@ -793,6 +824,8 @@ describe('the @ menu in the Circle composer', () => {
     const box = typeInto('@');
     fireEvent.keyDown(box, { key: 'ArrowDown' });
     expect(screen.getAllByRole('option')[1].getAttribute('aria-selected')).toBe('true');
+    expect(box.getAttribute('aria-controls')).toBe(screen.getByRole('listbox').id);
+    expect(box.getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[1].id);
     fireEvent.keyDown(box, { key: 'ArrowUp' });
     fireEvent.keyDown(box, { key: 'ArrowDown' });
     fireEvent.keyDown(box, { key: 'Enter' });
@@ -810,7 +843,7 @@ describe('the @ menu in the Circle composer', () => {
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
     typeInto('@M');
-    fireEvent.mouseDown(screen.getAllByRole('option')[1]);
+    fireEvent.click(screen.getAllByRole('option')[1]);
     expect(box.value).toBe('@Marcus ');
   });
 

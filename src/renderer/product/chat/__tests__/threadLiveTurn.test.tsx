@@ -13,21 +13,26 @@ vi.mock('streamdown', () => import('../../../__tests__/streamdownMock'));
 
 let bridge: FakeBridge;
 let contextFiles: HermesChatContextFile[] = [];
+/** Set to make the next breakdown call reject, as a failed IPC call does. */
+let breakdownFails = false;
 
 function installBridge() {
   ({ bridge } = installChatBridge('s1', {
     hermesChat: {
-      getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => ({
-        success: true,
-        breakdown: {
-          categories: [],
-          contextUsed: 10,
-          contextMax: 100,
-          contextPercent: 10,
-          contextEstimated: false,
-          contextFiles,
-        },
-      }),
+      getContextBreakdown: async (): Promise<HermesChatBreakdownResult> => {
+        if (breakdownFails) throw new Error('main went away');
+        return {
+          success: true,
+          breakdown: {
+            categories: [],
+            contextUsed: 10,
+            contextMax: 100,
+            contextPercent: 10,
+            contextEstimated: false,
+            contextFiles,
+          },
+        };
+      },
     },
   }));
 }
@@ -68,6 +73,7 @@ describe('WorkbenchThread live tool cards', () => {
   afterEach(() => {
     cleanup();
     contextFiles = [];
+    breakdownFails = false;
     expect(bridge.unfaked).toEqual([]);
   });
 
@@ -90,6 +96,24 @@ describe('WorkbenchThread live tool cards', () => {
     await bridge.emit('hermes-chat:phase', { ...turn, phase: 'restarting' });
     const path = await screen.findByText('plan.md');
     expect(within(path.closest('li')!).getByText('Reveal')).toBeTruthy();
+  });
+
+  it('leaves no unhandled rejection when the breakdown after a turn fails', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      render(<Harness />);
+      await bridge.emit('hermes-chat:phase', { ...turn, phase: 'preparing' });
+      await bridge.emit('hermes-chat:tool', { ...turn, toolId: 't1', name: 'read_file', status: 'done' });
+      breakdownFails = true;
+      await bridge.emit('hermes-chat:phase', { ...turn, phase: 'done' });
+      // Node reports unhandled rejections once the microtask queue drains, before this.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('shows Hermes’s recovery wait in place of Preparing, and drops it when the turn ends', async () => {

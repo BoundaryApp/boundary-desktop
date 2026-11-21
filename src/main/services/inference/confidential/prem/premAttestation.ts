@@ -9,6 +9,7 @@
  * The evidence commits to the nonce and the workload manifest only, not to the key a prompt is
  * encrypted to, so this is a floor and Prem stays at trust level C.
  */
+import { settleOrAbort } from '../adapterKit';
 
 /** The ownership-taking calls (`with_authorization`, `build`, `with`, `set_query`) consume their receiver or argument, as Reticle's wasm-bindgen glue does. */
 interface ReticleClientBuilder {
@@ -69,33 +70,6 @@ function release(object: { free(): void } | undefined): void {
   } catch {
     // A failed free leaves nothing to undo.
   }
-}
-
-/** Resolves with `work`'s result, or with `aborted` as soon as `signal` aborts. Never rejects. */
-export function settleOrAbort<T>(
-  work: Promise<T>,
-  signal: AbortSignal,
-): Promise<{ kind: 'done'; value: T } | { kind: 'failed' } | { kind: 'aborted' }> {
-  return new Promise((resolve) => {
-    const onAbort = (): void => resolve({ kind: 'aborted' });
-    if (signal.aborted) {
-      // `work` may still reject later; it is the caller's to clean up.
-      work.catch((): undefined => undefined);
-      onAbort();
-      return;
-    }
-    signal.addEventListener('abort', onAbort, { once: true });
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve({ kind: 'done', value });
-      },
-      () => {
-        signal.removeEventListener('abort', onAbort);
-        resolve({ kind: 'failed' });
-      },
-    );
-  });
 }
 
 /**

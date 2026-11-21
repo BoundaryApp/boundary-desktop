@@ -2,6 +2,7 @@ import type { InferenceChainEntry } from '../../shared/types/inferenceChain';
 import type { InferenceProvidersStatus } from '../../shared/types/onboarding';
 import { emptyInferenceProvidersStatus } from '../../shared/types/onboarding';
 import { createIpcStore, useIpcStore } from '../lib/ipcStore';
+import { errorText } from '../lib/errorText';
 
 /**
  * The app's one copy of `InferenceProvidersStatus`: setup, Settings and the chat read it. It is
@@ -48,7 +49,7 @@ export async function refreshInferenceStatus(): Promise<void> {
     store.set({
       status: emptyInferenceProvidersStatus(false),
       loading: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   }
 }

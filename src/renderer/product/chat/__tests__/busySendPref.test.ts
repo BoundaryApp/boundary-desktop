@@ -1,8 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BUSY_SEND_STORAGE_KEY, readBusySendPref, useBusySendPref } from '../busySendPref';
+import { BUSY_SEND_STORAGE_KEY, readBusySendPref, resetBusySendPrefForTests, useBusySendPref } from '../busySendPref';
 
-afterEach(() => window.localStorage.removeItem(BUSY_SEND_STORAGE_KEY));
+afterEach(() => {
+  window.localStorage.removeItem(BUSY_SEND_STORAGE_KEY);
+  resetBusySendPrefForTests();
+});
 
 describe('busySendPref (run-control spec 2.7)', () => {
   it('asks by default', () => {
@@ -18,11 +21,16 @@ describe('busySendPref (run-control spec 2.7)', () => {
 
     expect(window.localStorage.getItem(BUSY_SEND_STORAGE_KEY)).toBe('queue');
     expect(menu.result.current[0]).toBe('queue');
-    // A fresh mount, as after a restart, reads it back.
+    // A fresh mount reads it back.
     expect(renderHook(() => useBusySendPref()).result.current[0]).toBe('queue');
 
     act(() => menu.result.current[1]('ask'));
     expect(settings.result.current[0]).toBe('ask');
+  });
+
+  it('loads Always queue saved unquoted, as earlier builds stored it', () => {
+    window.localStorage.setItem(BUSY_SEND_STORAGE_KEY, 'queue');
+    expect(renderHook(() => useBusySendPref()).result.current[0]).toBe('queue');
   });
 
   it('reads anything unexpected as ask', () => {

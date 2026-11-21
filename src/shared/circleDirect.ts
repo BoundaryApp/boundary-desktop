@@ -6,6 +6,9 @@
 /** A DM's longest text in bytes, counted as it is escaped inside the signal's JSON. */
 export const MAX_DIRECT_TEXT_BYTES = 3 * 1024;
 
+/** The longest Circle channel message text in bytes, as UTF-8 (ADR 0042 §3). `apply` enforces it. */
+export const MAX_MESSAGE_TEXT_BYTES = 12 * 1024;
+
 const encoder = new TextEncoder();
 
 /**

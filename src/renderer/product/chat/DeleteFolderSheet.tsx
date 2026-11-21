@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { CodingDeleteInspect } from '../../../shared/types/codingFolders';
-import { formatBytes } from '../../../shared/utils/format';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { displayHostPath } from './chatTelemetryFormat';
+import { contentsLine, formatWhen } from './folderContents';
 import { runCodingChange } from './codingFoldersStore';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { Callout } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { TypedNameField } from './TypedNameField';
 
 /**
  * Review before Boundary moves a coding folder to the Trash (ADR 0028 §11, mock flow 5).
@@ -20,27 +21,6 @@ interface DeleteFolderSheetProps {
   projectName?: string | null;
   onClose: () => void;
   onDeleted: (name: string) => void;
-}
-
-function formatWhen(iso: string | null | undefined, now = new Date()): string {
-  if (!iso) return 'Unknown';
-  const when = new Date(iso);
-  const sameDay = when.toDateString() === now.toDateString();
-  const time = when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return `Today, ${time}`;
-  return when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function contentsLine(facts: CodingDeleteInspect): string {
-  const files = `${facts.truncated ? 'At least ' : ''}${(facts.files ?? 0).toLocaleString()} ${
-    facts.files === 1 ? 'file' : 'files'
-  }`;
-  const size = formatBytes(facts.bytes ?? 0);
-  const deps =
-    facts.nodeModulesBytes && facts.nodeModulesBytes > 0
-      ? `, of which ${formatBytes(facts.nodeModulesBytes)} is node_modules`
-      : '';
-  return `${files} · ${size}${deps}`;
 }
 
 function addedLine(facts: CodingDeleteInspect, projectName?: string | null): string {
@@ -242,22 +222,13 @@ export const DeleteFolderSheet: React.FC<DeleteFolderSheetProps> = ({
             it back from the Trash in Finder until you empty it. {APP_NAME} never empties the Trash.
           </p>
           {facts.requiresTypedName ? (
-            <label className="wb-field">
-              <span>
-                Type <span className="mono">{name}</span> to confirm
-              </span>
-              <input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void moveToTrash();
-                }}
-                disabled={deleting || busy}
-                autoComplete="off"
-                spellCheck={false}
-                aria-label={`Type ${name} to confirm`}
-              />
-            </label>
+            <TypedNameField
+              name={name}
+              value={typed}
+              onChange={setTyped}
+              onEnter={() => void moveToTrash()}
+              disabled={deleting || busy}
+            />
           ) : null}
         </>
       ) : null}

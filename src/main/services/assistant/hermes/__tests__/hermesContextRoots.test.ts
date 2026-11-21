@@ -10,10 +10,15 @@ import {
   persistContextExtraRoots,
   upsertHermesContextOverrideBinds,
 } from '../hermesContextRoots';
+import { localStackFiles } from '../../../stackHost/localStackHost';
+import { projectEnvViaFiles } from '../../projectEnv';
 import { writeSourcesYamlToHub } from '../projectSourcesModel';
 import { addCodingGrantRecord, resetCodingGrantStoreForTests } from '../../coding/codingGrantStore';
 
 const temps: string[] = [];
+
+const filesAt = (stackRoot: string) =>
+  localStackFiles({ stackRoot, userContentRoot: () => path.join(stackRoot, 'data') });
 
 function tmpDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -60,7 +65,7 @@ afterEach(() => {
 });
 
 describe('hermesContextRoots', () => {
-  it('unions env and sources.yaml extras and skips coding-covered paths', () => {
+  it('unions env and sources.yaml extras and skips coding-covered paths', async () => {
     const envRoot = tmpDir('bd-ctx-env-');
     const hubA = tmpDir('bd-ctx-hub-a-');
     const hubB = tmpDir('bd-ctx-hub-b-');
@@ -77,16 +82,16 @@ describe('hermesContextRoots', () => {
       'utf8'
     );
 
-    const roots = collectContextExtraRoots({
+    const roots = await collectContextExtraRoots({
       projects: [project(hubA, 'job'), project(hubB, 'notes')],
-      envRoot,
+      files: filesAt(envRoot),
       home: os.homedir(),
     });
     expect(roots).toEqual([path.resolve(extraA), path.resolve(extraB)].sort());
     expect(roots).not.toContain(path.resolve(underCoding));
   });
 
-  it('leaves out a folder the coding agent was granted (ADR 0028)', () => {
+  it('leaves out a folder the coding agent was granted (ADR 0028)', async () => {
     const envRoot = tmpDir('bd-ctx-grant-');
     const hub = tmpDir('bd-ctx-hub-grant-');
     const extra = tmpDir('bd-ctx-extra-grant-');
@@ -95,14 +100,14 @@ describe('hermesContextRoots', () => {
     addCodingGrantRecord({ hostPath: extra, projectId: 'job', origin: 'add', createdByBoundary: false });
     try {
       expect(
-        collectContextExtraRoots({ projects: [project(hub, 'job')], envRoot, home: os.homedir() })
+        await collectContextExtraRoots({ projects: [project(hub, 'job')], files: filesAt(envRoot), home: os.homedir() })
       ).toEqual([]);
     } finally {
       resetCodingGrantStoreForTests();
     }
   });
 
-  it('drops a root only when asked, even if it is still in env', () => {
+  it('drops a root only when asked, even if it is still in env', async () => {
     const envRoot = tmpDir('bd-ctx-drop-');
     const hub = tmpDir('bd-ctx-hub-drop-');
     const extra = tmpDir('bd-ctx-extra-drop-');
@@ -112,22 +117,22 @@ describe('hermesContextRoots', () => {
       `CONTEXT_EXTRA_ROOTS=${extra}\n`,
       'utf8'
     );
-    const kept = collectContextExtraRoots({
+    const kept = await collectContextExtraRoots({
       projects: [project(hub, 'job')],
-      envRoot,
+      files: filesAt(envRoot),
       home: os.homedir(),
     });
     expect(kept).toEqual([path.resolve(extra)]);
-    const dropped = collectContextExtraRoots({
+    const dropped = await collectContextExtraRoots({
       projects: [project(hub, 'job')],
-      envRoot,
+      files: filesAt(envRoot),
       drop: [extra],
       home: os.homedir(),
     });
     expect(dropped).toEqual([]);
   });
 
-  it('keeps a path listed by another project in listed extras', () => {
+  it('keeps a path listed by another project in listed extras', async () => {
     const hubA = tmpDir('bd-ctx-share-a-');
     const hubB = tmpDir('bd-ctx-share-b-');
     const extra = tmpDir('bd-ctx-share-extra-');
@@ -140,7 +145,7 @@ describe('hermesContextRoots', () => {
     expect(listed.filter((item) => item === path.resolve(extra)).length).toBe(2);
   });
 
-  it('persists CONTEXT_EXTRA_ROOTS without touching HERMES_WRITE_SAFE_ROOT', () => {
+  it('persists CONTEXT_EXTRA_ROOTS without touching HERMES_WRITE_SAFE_ROOT', async () => {
     const envRoot = tmpDir('bd-ctx-persist-');
     const extra = tmpDir('bd-ctx-persist-extra-');
     fs.writeFileSync(
@@ -148,21 +153,22 @@ describe('hermesContextRoots', () => {
       'HERMES_WRITE_SAFE_ROOT=/opt/data:/opt/projects\nCONTEXT_EXTRA_ROOTS=\n',
       'utf8'
     );
-    persistContextExtraRoots([extra], envRoot);
+    await persistContextExtraRoots([extra], projectEnvViaFiles(filesAt(envRoot)));
     const text = fs.readFileSync(path.join(envRoot, '.env'), 'utf8');
     expect(text).toContain(`CONTEXT_EXTRA_ROOTS=${extra}`);
     expect(text).toContain('HERMES_WRITE_SAFE_ROOT=/opt/data:/opt/projects');
   });
 
-  it('quotes identity binds with spaces in docker-compose.override.yml', () => {
+  it('quotes identity binds with spaces in docker-compose.override.yml', async () => {
     const root = tmpDir('bd-ctx-override-');
     const extra = '/Users/you/Documents/Work/Acme/Acme Notes';
-    const overridePath = upsertHermesContextOverrideBinds([extra], root);
+    await upsertHermesContextOverrideBinds([extra], filesAt(root));
+    const overridePath = path.join(root, 'docker-compose.override.yml');
     const text = fs.readFileSync(overridePath, 'utf8');
     expect(text).toContain(
       '"/Users/you/Documents/Work/Acme/Acme Notes:/Users/you/Documents/Work/Acme/Acme Notes:ro"'
     );
-    upsertHermesContextOverrideBinds([extra], root);
+    await upsertHermesContextOverrideBinds([extra], filesAt(root));
     const again = fs.readFileSync(overridePath, 'utf8');
     expect(again.split(extra).length - 1).toBe(2);
   });
@@ -183,7 +189,7 @@ describe('hermesContextRoots', () => {
     return out;
   }
 
-  it('binds on hermes-worker, the ssh terminal service, as the stack does', () => {
+  it('binds on hermes-worker, the ssh terminal service, as the stack does', async () => {
     const root = tmpDir('bd-ctx-override-');
     fs.writeFileSync(path.join(root, '.env'), 'HERMES_TERMINAL_BACKEND=ssh\n', 'utf8');
     fs.writeFileSync(
@@ -192,7 +198,8 @@ describe('hermesContextRoots', () => {
       'utf8'
     );
     const extra = '/Users/you/Notes';
-    const text = fs.readFileSync(upsertHermesContextOverrideBinds([extra], root), 'utf8');
+    await upsertHermesContextOverrideBinds([extra], filesAt(root));
+    const text = fs.readFileSync(path.join(root, 'docker-compose.override.yml'), 'utf8');
     expect(serviceVolumes(text, 'hermes-worker')).toEqual([
       '"/Users/you/Notes:/Users/you/Notes:ro"',
       '/srv/a:/srv/a:ro',
@@ -200,7 +207,7 @@ describe('hermesContextRoots', () => {
     expect(serviceVolumes(text, 'hermes')).toEqual([]);
   });
 
-  it('adds the worker bind even when an older Boundary put it on hermes', () => {
+  it('adds the worker bind even when an older Boundary put it on hermes', async () => {
     const root = tmpDir('bd-ctx-override-');
     const extra = '/Users/you/Notes';
     fs.writeFileSync(
@@ -208,16 +215,18 @@ describe('hermesContextRoots', () => {
       `services:\n  hermes:\n    volumes:\n      - "${extra}:${extra}:ro"\n`,
       'utf8'
     );
-    const text = fs.readFileSync(upsertHermesContextOverrideBinds([extra], root), 'utf8');
+    await upsertHermesContextOverrideBinds([extra], filesAt(root));
+    const text = fs.readFileSync(path.join(root, 'docker-compose.override.yml'), 'utf8');
     expect(serviceVolumes(text, 'hermes-worker')).toEqual([`"${extra}:${extra}:ro"`]);
   });
 
-  it('picks the terminal service from the checkout’s HERMES_TERMINAL_BACKEND', () => {
+  it('picks the terminal service from the checkout’s HERMES_TERMINAL_BACKEND', async () => {
     const root = tmpDir('bd-ctx-backend-');
-    expect(localTerminalService(root)).toBe('hermes-worker');
+    expect(await localTerminalService(filesAt(root))).toBe('hermes-worker');
     fs.writeFileSync(path.join(root, '.env'), 'HERMES_TERMINAL_BACKEND=local\n', 'utf8');
-    expect(localTerminalService(root)).toBe('hermes');
-    const text = fs.readFileSync(upsertHermesContextOverrideBinds(['/Users/you/Notes'], root), 'utf8');
+    expect(await localTerminalService(filesAt(root))).toBe('hermes');
+    await upsertHermesContextOverrideBinds(['/Users/you/Notes'], filesAt(root));
+    const text = fs.readFileSync(path.join(root, 'docker-compose.override.yml'), 'utf8');
     expect(serviceVolumes(text, 'hermes')).toEqual(['"/Users/you/Notes:/Users/you/Notes:ro"']);
   });
 });

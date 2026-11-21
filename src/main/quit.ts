@@ -25,6 +25,9 @@ const UPDATE_INSTALL_DEADLINE_MS = 30_000;
 /** How long an uncaught exception waits for the quit teardown before exiting anyway. */
 const FATAL_TEARDOWN_DEADLINE_MS = 5_000;
 
+/** Exceptions logged after the fatal one, so a loop of them can't fill the disk. */
+const ERRORS_LOGGED_AFTER_FATAL = 10;
+
 /** How long the renderer gets to paint the quit screen before teardown starts. */
 const QUIT_SCREEN_PAINT_MS = 150;
 
@@ -82,17 +85,54 @@ export function runQuitTeardown(): Promise<Record<string, number>> {
 }
 
 /**
+ * A write to a closed terminal or pipe fails with EPIPE, emitted as an `error` event on the
+ * stream. Without a listener it becomes an uncaught exception. The first failure is logged and
+ * the rest are ignored.
+ */
+/** Marks a guarded stream; `Symbol.for` so a reloaded module (tests) doesn't guard it twice. */
+const STDIO_GUARDED = Symbol.for('boundary.stdioWriteErrorsIgnored');
+
+export function ignoreStdioWriteErrors(streams: Array<Pick<NodeJS.EventEmitter, 'on'>>): void {
+  let logged = false;
+  const onError = (error: unknown) => {
+    if (logged) return;
+    logged = true;
+    persistDebugLog('startup', 'stdio write failed; ignoring further errors', {
+      code: (error as { code?: unknown } | null)?.code,
+      ...serializeError(error),
+    });
+  };
+  for (const stream of streams) {
+    const marked = stream as { [STDIO_GUARDED]?: true };
+    if (marked[STDIO_GUARDED]) continue;
+    marked[STDIO_GUARDED] = true;
+    stream.on('error', onError);
+  }
+}
+
+/**
  * Process error and signal hooks. An unhandled rejection is logged and the app keeps running.
  * After an uncaught exception main's state is unknown, so it stops the host bridge and the stack
  * (bounded by a deadline) and exits.
  */
 export function registerShutdownHooks(): void {
+  ignoreStdioWriteErrors([process.stdout, process.stderr]);
   let fatalExitStarted = false;
+  let errorsAfterFatal = 0;
   const onProcessError = (kind: 'uncaughtException' | 'unhandledRejection', reason: unknown) => {
     const error = reason instanceof Error ? reason : new Error(String(reason));
+    if (fatalExitStarted) {
+      // No console here: if the console is what throws, each write raises the next exception,
+      // and with a synchronous log write per exception the exit timer below never runs.
+      errorsAfterFatal += 1;
+      if (errorsAfterFatal <= ERRORS_LOGGED_AFTER_FATAL) {
+        persistDebugLog('startup', kind, { ...serializeError(error), afterFatal: errorsAfterFatal });
+      }
+      return;
+    }
     persistDebugLog('startup', kind, serializeError(error));
     console.error(`Main process ${kind}:`, reason);
-    if (kind === 'unhandledRejection' || fatalExitStarted) return;
+    if (kind === 'unhandledRejection') return;
     fatalExitStarted = true;
     const deadline = new Promise<'deadline'>((resolve) =>
       setTimeout(() => resolve('deadline'), FATAL_TEARDOWN_DEADLINE_MS)

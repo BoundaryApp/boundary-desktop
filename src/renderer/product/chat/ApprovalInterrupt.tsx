@@ -11,12 +11,7 @@ import {
 } from './approvalCopy';
 import { calendarApprovalCopy, calendarSlugFromServer } from './calendarApprovalCopy';
 import { InterruptCard, InterruptConfirm } from '../../components/ui/interrupt-card';
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from '../../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 
 interface ApprovalInterruptProps {
   approval: HermesChatApprovalEvent;
@@ -107,8 +102,7 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
   };
 
   return (
-    <Popover open={menuOpen && hasMore} onOpenChange={setMenuOpen}>
-      <PopoverAnchor virtualRef={hostRef} />
+    <Menu open={menuOpen && hasMore} onOpenChange={setMenuOpen}>
       <InterruptCard
         hostRef={hostRef}
         className={menuOpen ? 'is-menu' : undefined}
@@ -197,56 +191,39 @@ export const ApprovalInterrupt: React.FC<ApprovalInterruptProps> = ({
             </button>
           ) : null}
           {hasMore ? (
-            <PopoverTrigger>
-              <button
-                type="button"
-                className="more"
-                disabled={busy}
-                aria-expanded={menuOpen}
-                aria-haspopup="menu"
-              >
+            <MenuTrigger>
+              <button type="button" className="more" disabled={busy}>
                 More
               </button>
-            </PopoverTrigger>
+            </MenuTrigger>
           ) : null}
         </div>
         {hasMore ? (
-          <PopoverContent
-            className="wb-approve-menu"
-            role="menu"
-            side="top"
-            align="end"
-            sideOffset={8}
-            alignOffset={16}
-          >
+          <MenuContent side="top" align="end">
             {canSession ? (
-              <button
-                type="button"
-                role="menuitem"
+              <MenuItem
                 disabled={busy}
-                onClick={() => respond('session')}
+                description="Same pattern until this chat ends."
+                onSelect={() => respond('session')}
               >
                 Allow this session
-                <em>Same pattern until this chat ends.</em>
-              </button>
+              </MenuItem>
             ) : null}
             {canAlways ? (
-              <button
-                type="button"
-                role="menuitem"
+              <MenuItem
                 disabled={busy}
-                onClick={() => {
+                description="Durable allowlist. Confirm next."
+                onSelect={() => {
                   setMenuOpen(false);
                   setConfirmAlways(true);
                 }}
               >
                 Always allow…
-                <em>Durable allowlist. Confirm next.</em>
-              </button>
+              </MenuItem>
             ) : null}
-          </PopoverContent>
+          </MenuContent>
         ) : null}
       </InterruptCard>
-    </Popover>
+    </Menu>
   );
 };

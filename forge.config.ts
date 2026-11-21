@@ -28,6 +28,8 @@ const VITE_EXTERNAL_PACKAGE_ROOTS = [
   'ssh2',
   // Prem's attestation verifier; loads reticle_bg.wasm from its own folder.
   '@premai/reticle',
+  // Privatemode's client; loads dist/wasm.js and privatemode.wasm from its own folder by path.
+  'privatemode-ai',
   // The Circles network process (vite.circlesNetwork.config.ts).
   'autobase',
   'blind-pairing',

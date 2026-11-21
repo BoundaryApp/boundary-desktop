@@ -229,13 +229,23 @@ describe('InferenceChip', () => {
       stubElectronAPI({ confidential: poolBridge() });
       getSessionInference.mockResolvedValue(poolFirst([{ slot: 'local' }]));
       render(<InferenceChip sessionId="s1" />);
-      fireEvent.click(await screen.findByRole('button', { name: /Inference · Confidential · qwen/ }));
+      // Before a turn is served the chip names the pool by its model, as the rung does.
+      fireEvent.click(await screen.findByRole('button', { name: /Inference · Confidential · Qwen 3\.8 27B/ }));
       await screen.findByText('This chat tries, in order');
       expect(order().map((row) => row.textContent)).toEqual([
-        expect.stringMatching(/Confidential · qwen.*confidential/),
+        expect.stringMatching(/Confidential · Qwen 3\.8 27B.*confidential/),
         expect.stringMatching(/Local · qwen3:14b.*on this machine/),
       ]);
       expect(probeSlotHealth).not.toHaveBeenCalled();
+    });
+
+    it('names a pool the catalog doesn’t list by its id', async () => {
+      resetIpcStoresForTests();
+      stubElectronAPI({ confidential: poolBridge() });
+      const listed = poolFirst();
+      getSessionInference.mockResolvedValue({ ...listed, resolved: { ...listed.resolved!, modelId: 'unlisted' } });
+      render(<InferenceChip sessionId="s1" />);
+      expect(await screen.findByRole('button', { name: /Inference · Confidential · unlisted/ })).toBeTruthy();
     });
 
     it('names the provider that answered the newest pool turn, with its level badge', async () => {

@@ -23,10 +23,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@renderer': resolve('src/renderer/src'),
       // The release notes a build bundles, or an empty folder (ADR 0059).
       '@release-notes': resolve(process.env.BOUNDARY_RELEASE_NOTES_DIR || 'src/release-notes-empty'),
-      '@': resolve('src/renderer/src'),
     },
   },
   build: {

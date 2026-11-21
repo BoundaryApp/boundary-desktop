@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CdpMux, type CdpClient } from './cdpMux';
-import type { SitePolicy } from './cdpPolicy';
+import type { CdpClientRole, SitePolicy } from './cdpPolicy';
 import { ChromePipe, type ChromeLaunchConfig } from './chromePipe';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
@@ -58,8 +58,14 @@ export class BrowserRelay {
     return { running: Boolean(this.pipe?.running), clients: this.mux?.clientCount ?? 0 };
   }
 
-  /** Accept an authenticated WebSocket upgrade and attach it to Chrome. */
-  async handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+  /**
+   * Accept an authenticated WebSocket upgrade and attach it to Chrome. The credential client only
+   * writes into a page the agent already opened, so it never starts Chrome.
+   */
+  async handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer, role: CdpClientRole = 'agent'): Promise<void> {
+    if (role === 'credentials' && !(this.mux && this.pipe?.running)) {
+      throw new Error(`${APP_NAME}'s browser isn't open, so there is no page to fill.`);
+    }
     const mux = await this.ensureChrome();
     this.wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
       const client: CdpClient = {
@@ -68,7 +74,7 @@ export class BrowserRelay {
         },
         close: () => ws.close(),
       };
-      mux.addClient(client);
+      mux.addClient(client, role);
       ws.on('message', (data) => mux.handleClientMessage(client, data.toString()));
       ws.on('close', () => mux.removeClient(client));
       ws.on('error', () => ws.close());

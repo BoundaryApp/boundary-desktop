@@ -55,7 +55,48 @@ function isDialogBridgeFetchEnable(params: Record<string, unknown> | undefined):
   );
 }
 
-export function blockedMethodReason(method: string, params?: Record<string, unknown>): string | null {
+/**
+ * Who a relay connection belongs to, chosen by the token it presented (ADR 0065).
+ *
+ * - `agent`: Hermes's driver and dialog supervisor. The denylist above applies.
+ * - `credentials`: the stack's credential backend (the Bitwarden broker), which writes a login or
+ *   a sign-in session into a page the agent already opened. It gets an allowlist instead.
+ */
+export type CdpClientRole = 'agent' | 'credentials';
+
+/**
+ * The credential client's whole vocabulary, the same as the stack's own browser gateway
+ * (`compose/web-browser/gateway/rules.py`, `_CREDENTIALS_ALLOWED`): find the page, attach,
+ * run the fill function, write the handover's cookies, reload, detach. `Browser.close` is
+ * answered by the relay for every client.
+ */
+const CREDENTIAL_METHODS = new Set([
+  'Target.getTargetInfo',
+  'Target.attachToTarget',
+  'Target.detachFromTarget',
+  'Runtime.evaluate',
+  'Runtime.callFunctionOn',
+  'Network.setCookies',
+  'Page.reload',
+  'Browser.close',
+]);
+
+/** Of those, the ones that act on a page and so must name a session the client attached. */
+export const CREDENTIAL_SESSION_METHODS: ReadonlySet<string> = new Set([
+  'Runtime.evaluate',
+  'Runtime.callFunctionOn',
+  'Network.setCookies',
+  'Page.reload',
+]);
+
+export function blockedMethodReason(
+  method: string,
+  params?: Record<string, unknown>,
+  role: CdpClientRole = 'agent'
+): string | null {
+  if (role === 'credentials') {
+    return CREDENTIAL_METHODS.has(method) ? null : `${APP_NAME}'s browser doesn't allow ${method} for the credential client.`;
+  }
   if (method === 'Fetch.enable' && isDialogBridgeFetchEnable(params)) return null;
   if (FETCH_ANSWERS.has(method)) return null;
   if (BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((prefix) => method.startsWith(prefix))) {
@@ -120,6 +161,45 @@ export function normalizeSite(entry: string): string | null {
 
 function hostMatches(host: string, site: string): boolean {
   return host === site || host.endsWith(`.${site}`);
+}
+
+/**
+ * `null` when the credential client may write `cookies` into a page at `pageUrl`, otherwise why
+ * not. Each cookie's domain (or its `url`'s host) must be the page's host or a parent of it, as
+ * the broker itself selects them (`cookie_domain_allowed` in its `origins.py`), and must pass the
+ * site policy. A handover can then only add to the session of the page it signs in to.
+ */
+export function blockedCookiesReason(cookies: unknown, pageUrl: string | undefined, policy: SitePolicy): string | null {
+  const refused = `${APP_NAME}'s browser only takes cookies for the page they are written into.`;
+  let pageHost: string;
+  try {
+    pageHost = new URL(pageUrl ?? '').hostname.toLowerCase();
+  } catch {
+    return refused;
+  }
+  if (!pageHost || !Array.isArray(cookies)) return refused;
+  for (const cookie of cookies) {
+    if (!cookie || typeof cookie !== 'object') return refused;
+    const { domain, url } = cookie as { domain?: unknown; url?: unknown };
+    let host: string;
+    if (typeof domain === 'string' && domain) {
+      host = domain.toLowerCase().replace(/^\./, '');
+    } else if (typeof url === 'string') {
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch {
+        return refused;
+      }
+    } else {
+      return refused;
+    }
+    // A parent domain needs a dot of its own: "com" would cover every .com site.
+    const related = host === pageHost || (host.includes('.') && pageHost.endsWith(`.${host}`));
+    if (!related) return refused;
+    const reason = blockedUrlReason(`https://${host}/`, policy);
+    if (reason) return reason;
+  }
+  return null;
 }
 
 /** `null` when the agent may open `url`, otherwise why not. */

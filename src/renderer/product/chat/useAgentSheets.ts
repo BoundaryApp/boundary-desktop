@@ -29,7 +29,7 @@ export function useAgentSheets({
     async (slug: string, voices: AgentWritingVoices | undefined, before: AgentWritingVoices) => {
       if (!voices || sameVoices(voices, before)) return;
       const result = await window.electronAPI.agents.setWritingVoices(slug, voices);
-      if ('error' in result) setThreadError(result.error);
+      if (!result.success) setThreadError(result.error);
     },
     [setThreadError]
   );

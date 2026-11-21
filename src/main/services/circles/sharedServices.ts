@@ -10,11 +10,22 @@
  */
 import { parseServiceOffer, type ServiceOfferRecord, type ShareLevel } from '../../../shared/serviceOffers';
 import { createSerialQueue } from '../../../shared/utils/serialQueue';
-import type { MemberKeys, MintedKey } from '../addons/twentyMemberKeys';
 import type { ServiceGrantEntry, ServiceSharing } from './networkMessages';
 import type { ServiceUpstream } from './serviceGateway';
 
 /** One member's access to one service in one Circle, with the keys minted for it. */
+/** A key a service minted for one member. */
+export interface MintedKey {
+  id: string;
+  token: string;
+}
+
+/** A grant's keys. A `write` grant has both, so unattended runs keep a read key. */
+export interface MemberKeys {
+  read: MintedKey;
+  write?: MintedKey;
+}
+
 export interface StoredServiceGrant {
   circle: string;
   service: string;
@@ -37,7 +48,7 @@ export interface SharedServicesDeps {
   mintKeys(name: string, level: ShareLevel): Promise<MemberKeys>;
   revokeKeys(ids: string[]): Promise<void>;
   /** Where the gateway reaches a service on this Mac, or null when it can't be served now. */
-  upstreamFor(service: string): ServiceUpstream | null;
+  upstreamFor(service: string): Promise<ServiceUpstream | null>;
   setOffer(circle: string, service: string, offer: ServiceOfferRecord): Promise<void>;
   deleteOffer(circle: string, service: string): Promise<void>;
   /** Hands the gateway what it serves. Does nothing while Circles aren't running. */
@@ -61,10 +72,13 @@ const KEY_NAME_MAX = 100;
 /** The service id of this Mac's own Twenty workspace, the one the stack runs (slug `main`). */
 const LOCAL_TWENTY_SERVICE = 'twenty.main';
 
-/** Where the gateway reaches a service on this Mac: only the local Twenty's MCP endpoint for now. */
-export function localServiceUpstream(service: string, twentyPort: number | null): ServiceUpstream | null {
-  if (service !== LOCAL_TWENTY_SERVICE || twentyPort === null) return null;
-  return { mcpUrl: `http://127.0.0.1:${twentyPort}/mcp` };
+/**
+ * Where the gateway reaches a service on this Mac: only the local Twenty's MCP endpoint for now.
+ * `twentyUrl` is Twenty's address on this machine, without a path.
+ */
+export function localServiceUpstream(service: string, twentyUrl: string | null): ServiceUpstream | null {
+  if (service !== LOCAL_TWENTY_SERVICE || twentyUrl === null) return null;
+  return { mcpUrl: `${twentyUrl}/mcp` };
 }
 
 const sameGrant = (grant: StoredServiceGrant, circle: string, service: string, identity?: string): boolean =>
@@ -80,10 +94,13 @@ export function memberKeyName(memberName: string, circleName: string): string {
 }
 
 /** What the gateway needs: an upstream for each granted service it can reach, and the keys. */
-function sharingFor(grants: StoredServiceGrant[], upstreamFor: (service: string) => ServiceUpstream | null): ServiceSharing {
+async function sharingFor(
+  grants: StoredServiceGrant[],
+  upstreamFor: (service: string) => Promise<ServiceUpstream | null>
+): Promise<ServiceSharing> {
   const upstreams: Record<string, ServiceUpstream> = {};
   for (const service of new Set(grants.map((grant) => grant.service))) {
-    const upstream = upstreamFor(service);
+    const upstream = await upstreamFor(service);
     if (upstream) upstreams[service] = upstream;
   }
   const entries: ServiceGrantEntry[] = grants.map((grant) => ({
@@ -99,7 +116,7 @@ function sharingFor(grants: StoredServiceGrant[], upstreamFor: (service: string)
 export function createSharedServices(deps: SharedServicesDeps) {
   const serial = createSerialQueue();
 
-  const push = (state: ServiceGrantsState) => deps.push(sharingFor(state.grants, deps.upstreamFor));
+  const push = async (state: ServiceGrantsState) => deps.push(await sharingFor(state.grants, deps.upstreamFor));
 
   /** Revokes `ids` in Twenty; any that fail are kept in `state.revoke` for the next sync. */
   async function revokeOrKeep(state: ServiceGrantsState, ids: string[]): Promise<void> {

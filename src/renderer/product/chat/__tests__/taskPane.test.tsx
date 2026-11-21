@@ -22,6 +22,7 @@ stubElectronAPI({
 });
 
 import { TaskPane } from '../TaskPane';
+import { openMenu } from '../../../__tests__/openMenu';
 import { setKanbanSnapshotForTests } from '../kanbanActivity';
 
 const nowS = Math.floor(Date.now() / 1000);
@@ -294,7 +295,7 @@ describe('TaskPane controls', () => {
     const run: KanbanTaskRun = { id: 7, outcome: null, endedAt: null, error: null };
     show(running, { runs: [run] });
     await waitFor(() => expect(kanbanTask).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: 'Run ▾' }));
+    openMenu(screen.getByRole('button', { name: 'Run ▾' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Stop run…' }));
     expect(kanbanTaskAction).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Stop run' }));

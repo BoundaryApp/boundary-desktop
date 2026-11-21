@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Check, Lock, Plus } from 'lucide-react';
 import type { AgentProfile } from '../../shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../shared/types/hermesChat';
-import { builtinAgent } from '../../shared/hermesAgentIdentity';
-import { useStoredAgents, useToast } from './settingsPanelHooks';
+import { builtinAgent, builtinAgentName } from '../../shared/hermesAgentIdentity';
+import { useBuiltinAgentName, useStoredAgents, useToast } from './settingsPanelHooks';
 import type {
   CalendarAccess,
   CalendarAccountView,
@@ -32,9 +32,15 @@ import { InfoTip } from '../components/ui/info-tip';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { Callout, RetryCallout } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
+import { ChoiceGroup } from '../components/ui/choice-group';
+import { ChoiceRow } from '../components/ui/choice-row';
+import { Radio } from '../components/ui/radio';
+import { Segmented } from '../components/ui/segmented';
 import { Field } from '../components/ui/field';
 import { InlineConfirm } from '../components/ui/inline-confirm';
 import { PasswordField } from '../components/ui/password-field';
+import { StackCapabilityNote, useStackCapability } from './stackCapabilities';
+import { Input } from '../components/ui/input';
 
 /** Settings → Calendars (docs/calendar-ux-study/spec.md, Phases 1 and 2). */
 
@@ -104,10 +110,10 @@ const PROVIDER_URL: Partial<Record<CalendarProvider, string>> = {
 
 const UNSAFE_PASSWORD = /[\s'"\\#$]/;
 
-const STEP_LABELS: Array<{ step: CalendarProgressStep; label: string }> = [
+const stepLabels = (agentName: string): Array<{ step: CalendarProgressStep; label: string }> => [
   { step: 'saving', label: 'Checked and saved the sign-in' },
   { step: 'access', label: 'Gave the agents access' },
-  { step: 'checking', label: 'Checking Hermes can read it' },
+  { step: 'checking', label: `Checking ${agentName} can read it` },
 ];
 
 const ACCESS_LEVELS: Array<{ level: CalendarAccess; label: string }> = [
@@ -318,6 +324,7 @@ function AccountCard({
   const provider = providerOf(account.provider);
   const isMac = account.provider === 'mac';
   const mac = useMacStatus(isMac);
+  const hostCallbacks = useStackCapability('hostCallbacks');
   // The Mac card follows the helper's live answer (re-checked on focus) once it has one.
   const live = isMac ? macCardState(mac.status) : null;
   const check = account.lastCheck;
@@ -409,6 +416,8 @@ function AccountCard({
 
       {working ? (
         <ProgressList step={working} />
+      ) : isMac && !hostCallbacks ? (
+        <StackCapabilityNote capability="hostCallbacks" size="sm" />
       ) : isMac ? (
         <MacCardDetails account={account} agents={agents} mac={mac} />
       ) : (
@@ -510,11 +519,20 @@ function CalendarTags({ calendars }: { calendars: CalendarInfo[] }) {
   );
 }
 
+/** What a new account's saved message says about the built-in agent's access. */
+function accessSentence(access: CalendarAccess | undefined, agentName: string): string {
+  if (access === 'change') return `. ${agentName} can read it and asks before changes.`;
+  if (access === 'read') return `. ${agentName} can read it.`;
+  return '.';
+}
+
 function ProgressList({ step }: { step: CalendarProgressStep }) {
-  const at = STEP_LABELS.findIndex((s) => s.step === step);
+  const agentName = useBuiltinAgentName();
+  const labels = stepLabels(agentName);
+  const at = labels.findIndex((s) => s.step === step);
   return (
     <ul className="wb-cal-progress" aria-live="polite">
-      {STEP_LABELS.map((s, i) => {
+      {labels.map((s, i) => {
         const state = i < at ? 'is-done' : i === at ? 'is-now' : '';
         return (
           <li key={s.step} className={state}>
@@ -550,10 +568,13 @@ function ConnectSheet({
 }) {
   const editing = state.mode === 'access' ? state.account : null;
   const replacing = state.mode === 'password' ? state.account : null;
+  const agentName = builtinAgentName(agents);
   const [step, setStep] = useState<1 | 2 | 3>(editing ? 3 : replacing ? 2 : 1);
-  const hasMac = takenSlugs.includes('mac');
+  const hostCallbacks = useStackCapability('hostCallbacks');
+  // Taken, or out of reach: the stack's containers can't call the Mac calendar helper here.
+  const macUnavailable = takenSlugs.includes('mac') || !hostCallbacks;
   // Calendars on this Mac needs no password, so it is the default until a Mac account exists.
-  const [provider, setProvider] = useState<CalendarProvider>(replacing?.provider ?? (hasMac ? 'icloud' : 'mac'));
+  const [provider, setProvider] = useState<CalendarProvider>(replacing?.provider ?? (macUnavailable ? 'icloud' : 'mac'));
   const [server, setServer] = useState(replacing?.url ?? '');
   const [username, setUsername] = useState(replacing?.username ?? '');
   const [password, setPassword] = useState('');
@@ -606,6 +627,7 @@ function ConnectSheet({
     : null;
   const ready = Boolean(username.trim() && password && !passwordProblem && !nameProblem && (!option.needsServer || server.trim()));
 
+  const providerName = useId();
   const pickProvider = (id: CalendarProvider) => {
     setProvider(id);
     setServer('');
@@ -616,11 +638,11 @@ function ConnectSheet({
   // Opened from the chat before the account list loaded: a Mac account turned up, so the provider
   // step can't offer Calendars on this Mac any more.
   useEffect(() => {
-    if (hasMac && step === 1 && provider === 'mac') {
+    if (macUnavailable && step === 1 && provider === 'mac') {
       setProvider('icloud');
       if (!nameTouched) setName(providerOf('icloud').defaultName);
     }
-  }, [hasMac, step, provider, nameTouched]);
+  }, [macUnavailable, step, provider, nameTouched]);
 
   const runTest = async (skipFormat: boolean) => {
     if (!ready) return;
@@ -651,11 +673,11 @@ function ConnectSheet({
           setError(result.error ?? 'Couldn’t connect the calendars on this Mac.');
           return;
         }
-        const hermes = result.account?.access[BUILTIN_ASSISTANT_SLUG];
+        const agentAccess = result.account?.access[BUILTIN_ASSISTANT_SLUG];
         onDone(
           result.account,
           result.success
-            ? `This Mac connected${hermes === 'change' ? '. Hermes can read it and asks before changes.' : hermes === 'read' ? '. Hermes can read it.' : '.'}`
+            ? `This Mac connected${accessSentence(agentAccess, agentName)}`
             : 'This Mac saved',
           result.error
         );
@@ -701,11 +723,11 @@ function ConnectSheet({
         return;
       }
       setPassword('');
-      const hermes = result.account?.access[BUILTIN_ASSISTANT_SLUG];
+      const agentAccess = result.account?.access[BUILTIN_ASSISTANT_SLUG];
       onDone(
         result.account,
         `${name.trim()} connected${
-          hermes === 'change' ? '. Hermes can read it and asks before changes.' : hermes === 'read' ? '. Hermes can read it.' : '.'
+          accessSentence(agentAccess, agentName)
         }`,
         result.error
       );
@@ -742,7 +764,7 @@ function ConnectSheet({
           titleId="wb-cal-sheet-title"
           initialPassword={password}
           onUseMac={
-            replacing || hasMac
+            replacing || macUnavailable
               ? undefined
               : () => {
                   setWalkthrough(false);
@@ -764,38 +786,32 @@ function ConnectSheet({
         <>
           <h2 id="wb-cal-sheet-title">Where is your calendar?</h2>
           <p className="wb-sheet-lede">You can connect more than one. Each shows up in chat under its own name.</p>
-          <div className="wb-cal-choices" role="radiogroup" aria-label="Provider">
-            {PROVIDERS.filter((p) => !(p.id === 'mac' && hasMac)).map((p) => (
-              <button
+          <ChoiceGroup kind="radio" aria-label="Provider">
+            {PROVIDERS.filter((p) => !(p.id === 'mac' && macUnavailable)).map((p) => (
+              <ChoiceRow
                 key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={provider === p.id}
-                className={`wb-inference-choice ${provider === p.id ? 'is-on' : ''}`}
-                onClick={() => pickProvider(p.id)}
-              >
-                <span className="wb-inference-radio" aria-hidden="true" />
-                <span>
-                  <b>{p.label}</b>
-                  <span>{p.id === 'icloud' && !hasMac ? 'Needs an app-specific password, or use Calendars on this Mac' : p.hint}</span>
-                </span>
-              </button>
+                variant="card"
+                control={<Radio name={providerName} checked={provider === p.id} onChange={() => pickProvider(p.id)} />}
+                title={p.label}
+                description={p.id === 'icloud' && !macUnavailable ? 'Needs an app-specific password, or use Calendars on this Mac' : p.hint}
+              />
             ))}
-          </div>
+          </ChoiceGroup>
+          {hostCallbacks ? null : <StackCapabilityNote capability="hostCallbacks" size="sm" />}
           <h3 className="wb-vault-label">Not supported yet</h3>
           <ul className="wb-cal-unsupported">
             <li>
               <UnsupportedItem
                 title="Google Calendar."
                 reason={`Google’s CalDAV needs a Google sign-in, which ${APP_NAME} can’t do yet.`}
-                onUseMac={hasMac ? null : () => pickProvider('mac')}
+                onUseMac={macUnavailable ? null : () => pickProvider('mac')}
               />
             </li>
             <li>
               <UnsupportedItem
                 title="Outlook and Microsoft 365."
                 reason="Microsoft doesn’t offer CalDAV."
-                onUseMac={hasMac ? null : () => pickProvider('mac')}
+                onUseMac={macUnavailable ? null : () => pickProvider('mac')}
               />
             </li>
           </ul>
@@ -845,9 +861,9 @@ function ConnectSheet({
 
           {option.needsServer && !replacing ? (
             <Field label="Server address" htmlFor="wb-cal-server">
-              <input
+              <Input
                 id="wb-cal-server"
-                className="mono"
+                className="font-mono"
                 value={server}
                 autoComplete="off"
                 placeholder={provider === 'nextcloud' ? 'cloud.example.com' : 'dav.example.com'}
@@ -859,7 +875,7 @@ function ConnectSheet({
             </Field>
           ) : null}
           <Field label={option.userLabel} htmlFor="wb-cal-user">
-            <input
+            <Input
               id="wb-cal-user"
               value={username}
               autoFocus={!replacing}
@@ -878,7 +894,7 @@ function ConnectSheet({
           >
             <PasswordField
               id="wb-cal-password"
-              className="mono"
+              className="font-mono"
               autoFocus={Boolean(replacing)}
               value={password}
               autoComplete="new-password"
@@ -902,7 +918,7 @@ function ConnectSheet({
                 )
               }
             >
-              <input
+              <Input
                 id="wb-cal-name"
                 value={name}
                 autoComplete="off"
@@ -921,9 +937,9 @@ function ConnectSheet({
                 htmlFor="wb-cal-server-adv"
                 hint="Change this only if your provider gave you a different address."
               >
-                <input
+                <Input
                   id="wb-cal-server-adv"
-                  className="mono"
+                  className="font-mono"
                   value={server}
                   autoComplete="off"
                   placeholder={PROVIDER_URL[provider]}
@@ -983,19 +999,14 @@ function ConnectSheet({
                     {a.builtIn ? 'Your main agent' : a.role}
                   </span>
                 </span>
-                <div className="wb-vault-seg" role="group" aria-label={`${a.displayName} access`}>
-                  {ACCESS_LEVELS.map(({ level, label }) => (
-                    <button
-                      key={level}
-                      type="button"
-                      aria-pressed={(access[a.slug] ?? 'off') === level}
-                      disabled={busy}
-                      onClick={() => setAccess((prev) => ({ ...prev, [a.slug]: level }))}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  size="sm"
+                  aria-label={`${a.displayName} access`}
+                  options={ACCESS_LEVELS.map(({ level, label }) => ({ value: level, label }))}
+                  value={access[a.slug] ?? 'off'}
+                  disabled={busy}
+                  onChange={(level) => setAccess((prev) => ({ ...prev, [a.slug]: level }))}
+                />
               </li>
             ))}
           </ul>

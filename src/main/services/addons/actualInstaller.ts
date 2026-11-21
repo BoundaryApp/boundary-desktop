@@ -7,8 +7,9 @@ import { slugFromName } from '../../../shared/actualSlug';
 import { ADDON_SLUG } from '../../../shared/utils/slug';
 import { readActualFlags, type ActualService, type ActualServiceDeps } from './actualAddon';
 import { Cancelled, StepFailed, createAddonRunState } from './addonRunState';
-import { outcomeText, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
-import { readEnvFile } from '../assistant/stackEnv';
+import { outcomeText, pullByteTotals, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
 
 // Get, Turn off, Turn on and Remove and delete data for Actual Budget (spec decisions 19 and 24),
 // through `addon.sh`. The steps report in the installer's snapshot shape, so the progress view
@@ -37,6 +38,8 @@ export interface ActualInstallerDeps {
   service: ActualService;
   run: ActualServiceDeps['run'];
   paths(): { root: string; dataRoot: string };
+  /** The stack's files: its `.env` and the add-on's store. */
+  files: StackFiles;
   checkFit(): Promise<AddonFit>;
   isLocalStack(): boolean;
   /** The images of Actual's services, from compose config. */
@@ -44,8 +47,6 @@ export interface ActualInstallerDeps {
   removeImages(images: string[]): Promise<{ removed: string[]; kept: string[] }>;
   /** Deletes a folder and everything in it; a missing folder is not an error. */
   deleteDir(dir: string): Promise<void>;
-  /** Deletes one file; a missing file is not an error. */
-  deleteFile(file: string): Promise<void>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   log(message: string, data: Record<string, unknown>): void;
 }
@@ -68,9 +69,12 @@ export interface ActualInstaller {
   onChange(cb: (s: AddonInstallSnapshot) => void): () => void;
 }
 
-/** `ACTUAL_DATA_DIR` from the stack's `.env`, else the manifest's default, made absolute against the stack root. */
-export function actualDataDir(root: string): string {
-  const configured = readEnvFile(path.join(root, '.env')).ACTUAL_DATA_DIR?.trim();
+/**
+ * `ACTUAL_DATA_DIR` from the stack's `.env`, else the manifest's default, made absolute against the stack root.
+ * The folder can sit anywhere on this Mac, so it is deleted with `deleteDir`, not through the stack's files.
+ */
+export async function actualDataDir(files: StackFiles, root: string): Promise<string> {
+  const configured = (await readStackEnv(files, 'stack', '.env')).ACTUAL_DATA_DIR?.trim();
   const dir = configured || './data/actual/server';
   const home = process.env.HOME ?? '';
   const expanded = dir === '~' ? home : dir.startsWith('~/') ? path.join(home, dir.slice(2)) : dir;
@@ -84,21 +88,12 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
 
   /** Sums `pull` lines over services into the download step's bytes. */
   const pullTracker = () => {
-    const bytes = new Map<string, { current: number; total: number }>();
+    const pullBytes = pullByteTotals();
     return (line: AddonScriptLine) => {
       if (line.phase === 'pull') {
         advanceTo('download');
-        const service = typeof line.service === 'string' ? line.service : '';
-        if (typeof line.current === 'number' && typeof line.total === 'number') {
-          bytes.set(service, { current: line.current, total: line.total });
-          let done = 0;
-          let total = 0;
-          for (const b of bytes.values()) {
-            done += b.current;
-            total += b.total;
-          }
-          setStep('download', { bytes: { done, total } });
-        }
+        const bytes = pullBytes(line);
+        if (bytes) setStep('download', { bytes });
         return;
       }
       if (line.phase === 'setup' && typeof line.step === 'string') {
@@ -140,7 +135,7 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
     state.markDone(['download', 'start', 'setup']);
 
     setStep('connect', { status: 'running' });
-    const overview = deps.service.overview();
+    const overview = await deps.service.overview();
     const already = overview.budgets.filter((b) => b.local);
     if (already.length) {
       setStep('connect', { status: 'done', detail: `Already connected as ${already.map((b) => `budget-${b.slug}`).join(', ')}` });
@@ -200,7 +195,7 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
 
   /** Stops this Mac's server. Remote budgets stay connected, so the add-on stays on while any exist. */
   async function stopLocal(step: AddonStepId): Promise<void> {
-    const remote = deps.service.overview().budgets.some((b) => !b.local);
+    const remote = (await deps.service.overview()).budgets.some((b) => !b.local);
     if (remote) {
       await setLocal(false, step);
       check(await deps.service.enable(), step);
@@ -222,7 +217,7 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
     }
     if (remote) {
       setStep('disconnect', { status: 'running' });
-      for (const b of deps.service.overview().budgets.filter((row) => row.local)) {
+      for (const b of (await deps.service.overview()).budgets.filter((row) => row.local)) {
         const result = await deps.service.disconnectUnlocked(b.slug);
         if (isActualFailure(result) && result.error !== 'not_found') {
           throw new StepFailed('disconnect', `Couldn’t disconnect budget-${b.slug}: ${result.error}: ${result.message}`, []);
@@ -233,14 +228,13 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
       await stopLocal('stop');
       setStep('stop', { status: 'done' });
       setStep('delete-data', { status: 'running' });
-      const { root, dataRoot } = deps.paths();
       // addon.sh remove would delete the remote budgets' tokens too (plan gap 5).
-      await deps.deleteDir(actualDataDir(root));
-      await deps.deleteFile(path.join(dataRoot, 'addons', 'actual', 'secrets', 'server_password'));
+      await deps.deleteDir(await actualDataDir(deps.files, deps.paths().root));
+      await deps.files.remove('userContent', 'addons/actual/secrets/server_password');
       setStep('delete-data', { status: 'done' });
     } else {
       setStep('stop', { status: 'running' });
-      if (readActualFlags(deps.paths().root).enabled) {
+      if ((await readActualFlags(deps.files)).enabled) {
         check(await deps.run('addon.sh', ['disable', 'actual', '--json'], { timeoutMs: 600_000 }), 'stop');
       }
       setStep('stop', { status: 'done' });
@@ -298,18 +292,14 @@ export function createActualInstaller(deps: ActualInstallerDeps): ActualInstalle
 
     turnOff: () =>
       deps.exclusive(async () => {
-        try {
-          await stopLocal('stop');
-        } catch (error) {
-          throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
-        }
+        await stopLocal('stop');
         if (state.current()?.done) state.clear();
       }),
 
     remove: ({ deleteImages }) =>
       deps.exclusive(async () => {
         if (deps.isLocalStack()) throw new Error(ADDON_LOCAL_REMOVE_MESSAGE);
-        const remote = deps.service.overview().budgets.some((b) => !b.local);
+        const remote = (await deps.service.overview()).budgets.some((b) => !b.local);
         const steps: AddonStepId[] = [
           ...(remote ? (['disconnect'] as const) : []),
           'stop',

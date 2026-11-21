@@ -29,4 +29,20 @@ describe('SetupShell on the Model step', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Set up later' }));
     await waitFor(() => expect(skipStep).toHaveBeenCalledWith('llm-onboarding'));
   });
+
+  it('places the buttons right after the content, inside the scrolling area', () => {
+    const { container } = render(
+      <SetupShell title="Choose a model" actions={<button type="button">Continue</button>}>
+        <p>Step body</p>
+      </SetupShell>
+    );
+    const main = screen.getByRole('main');
+    // A <footer> inside <main> has no landmark role, so find it by tag.
+    const footer = container.querySelector('footer') as HTMLElement;
+    expect(main.contains(footer)).toBe(true);
+    expect(footer.className).toContain('sticky');
+    const body = screen.getByText('Step body');
+    expect(body.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(footer.contains(screen.getByRole('button', { name: 'Continue' }))).toBe(true);
+  });
 });
