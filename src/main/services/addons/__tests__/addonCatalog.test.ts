@@ -1,13 +1,18 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
 import { availableAddons } from '../addonCatalog';
 
+/** Stack files holding `addon.sh` and the given files, keyed by path in the stack folder. */
+const tree = (stackFiles: Record<string, unknown>) =>
+  createFakeStackFiles(
+    Object.fromEntries(
+      Object.entries(stackFiles).map(([p, v]) => [`stack:${p}`, typeof v === 'string' ? v : JSON.stringify(v)])
+    )
+  );
+
 describe('availableAddons', () => {
-  it('lists Twenty when the stack has scripts/crm.sh', () => {
-    const root = '/stack';
-    const entries = availableAddons(root, (p) => p === path.join(root, 'scripts', 'crm.sh'));
+  it('lists Twenty when the stack has scripts/crm.sh', async () => {
+    const entries = await availableAddons(tree({ 'scripts/crm.sh': '' }));
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       id: 'twenty',
@@ -25,14 +30,18 @@ describe('availableAddons', () => {
     });
   });
 
-  it('lists nothing for a stack without crm.sh', () => {
-    expect(availableAddons('/stack', () => false)).toEqual([]);
+  it('lists nothing for a stack without crm.sh', async () => {
+    expect(await availableAddons(tree({}))).toEqual([]);
   });
 
-  it('availableAddons offers Email only when the tree has the email manifest', () => {
-    const none = () => false;
-    expect(availableAddons('/stack', none, none, none, none).map((e) => e.id)).toEqual([]);
-    const withEmail = availableAddons('/stack', none, none, none, () => true);
+  it('availableAddons offers Email only when the tree has the email manifest', async () => {
+    expect((await availableAddons(tree({ 'scripts/addon.sh': '' }))).map((e) => e.id)).toEqual([]);
+    const withEmail = await availableAddons(
+      tree({
+        'scripts/addon.sh': '',
+        'addons/email/addon.json': { instances: { name: 'accounts' }, commands: { mailboxes: {} } },
+      })
+    );
     expect(withEmail).toHaveLength(1);
     expect(withEmail[0]).toMatchObject({
       id: 'email',
@@ -50,29 +59,20 @@ describe('availableAddons', () => {
     });
   });
 
-  it('lists Bitwarden by default only when the tree has its manifest with connect and disconnect', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalog-bitwarden-'));
-    try {
-      fs.mkdirSync(path.join(root, 'scripts'));
-      fs.mkdirSync(path.join(root, 'addons', 'bitwarden'), { recursive: true });
-      fs.writeFileSync(path.join(root, 'scripts', 'addon.sh'), '');
-      fs.writeFileSync(path.join(root, 'scripts', 'vault.sh'), '');
-      const manifest = path.join(root, 'addons', 'bitwarden', 'addon.json');
-      const none = () => false;
-      const ids = () => availableAddons(root, none, none).map((e) => e.id);
-      fs.writeFileSync(manifest, JSON.stringify({ instances: {} }));
-      expect(ids()).toEqual([]);
-      fs.writeFileSync(manifest, JSON.stringify({ instances: { connect: {}, disconnect: {} } }));
-      expect(ids()).toEqual(['bitwarden']);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
+  it('lists Bitwarden by default only when the tree has its manifest with connect and disconnect', async () => {
+    const ids = async (manifest: unknown) =>
+      (await availableAddons(tree({ 'scripts/addon.sh': '', 'scripts/vault.sh': '', 'addons/bitwarden/addon.json': manifest }))).map(
+        (e) => e.id
+      );
+    expect(await ids({ instances: {} })).toEqual([]);
+    expect(await ids({ instances: { connect: {}, disconnect: {} } })).toEqual(['bitwarden']);
   });
 
-  it('availableAddons offers Todo lists only when the tree has the 0.3.15 manifest', () => {
-    const none = () => false;
-    expect(availableAddons('/stack', none, none, none, none, none)).toEqual([]);
-    const withTodos = availableAddons('/stack', none, none, none, none, () => true);
+  it('availableAddons offers Todo lists only when the tree has the 0.3.15 manifest', async () => {
+    expect(await availableAddons(tree({ 'scripts/addon.sh': '', 'addons/vikunja/addon.json': { hooks: {} } }))).toEqual([]);
+    const withTodos = await availableAddons(
+      tree({ 'scripts/addon.sh': '', 'addons/vikunja/addon.json': { hooks: { prepare: {} } } })
+    );
     expect(withTodos).toHaveLength(1);
     expect(withTodos[0]).toMatchObject({
       id: 'vikunja',

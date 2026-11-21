@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CalendarsPanel } from '../CalendarsPanel';
+import { setStackCapabilitiesForTests } from '../stackCapabilities';
 import { calendarsApi, macAccount, macCalendars, openMacAllow, openSignIn, stubCalendars, urlsApi } from './calendarsHarness';
 
 describe('CalendarsPanel', () => {
@@ -12,15 +13,16 @@ describe('CalendarsPanel', () => {
     render(<CalendarsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
     const radios = screen.getAllByRole('radio');
-    expect(radios[0].textContent).toContain('Calendars on this Mac');
-    expect(radios[0].textContent).toContain('No password. iCloud, Google, Microsoft 365 and other accounts in System Settings');
+    const firstCard = radios[0].closest('label')?.textContent;
+    expect(firstCard).toContain('Calendars on this Mac');
+    expect(firstCard).toContain('No password. iCloud, Google, Microsoft 365 and other accounts in System Settings');
     expect(screen.getByText('Needs an app-specific password, or use Calendars on this Mac')).toBeTruthy();
     const google = screen.getByRole('button', { name: /Google Calendar/ });
     expect(google.textContent).toContain('Use Calendars on this Mac');
     fireEvent.click(google);
-    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /^Calendars on this Mac/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Outlook and Microsoft 365/ }));
-    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /^Calendars on this Mac/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('asks macOS for access, then shows the calendars grouped by account with defaults ticked', async () => {
@@ -29,7 +31,7 @@ describe('CalendarsPanel', () => {
     calendarsApi.macConnect.mockResolvedValue({ success: true, account: macAccount });
     await openMacAllow();
     expect(await screen.findByText('Agents you choose will see the events in the calendars you tick.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow calendar access' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow calendar access' }));
     expect(await screen.findByRole('group', { name: 'iCloud' })).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Work Exchange' })).toBeTruthy();
     expect((screen.getByRole('checkbox', { name: /Home/ }) as HTMLInputElement).checked).toBe(true);
@@ -241,5 +243,14 @@ describe('CalendarsPanel', () => {
     await waitFor(() => expect(calendarsApi.macSetCalendars).toHaveBeenCalled());
     expect(await within(dialog).findByText(/helper timeout|Couldn’t save/)).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('offers no Calendars on this Mac, and says why, on a host without hostCallbacks', async () => {
+    setStackCapabilitiesForTests({ hostCallbacks: false });
+    render(<CalendarsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
+    expect(screen.queryByRole('radio', { name: /^Calendars on this Mac/ })).toBeNull();
+    expect(screen.getByText("Your agent runs on another computer, so it can't reach apps and services on this one.")).toBeTruthy();
+    expect(screen.queryByText('Use Calendars on this Mac')).toBeNull();
   });
 });

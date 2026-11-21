@@ -16,12 +16,6 @@ import { CircleNetwork } from './circleNetwork';
 import type { SharedModelResponse } from './inferenceChannel';
 import { FolderRuntime, handleFolderRequest } from './folderRuntime';
 import type {
-  CallContext,
-  CallTunnelReply,
-  CircleChatReply,
-  CirclePublicAddress,
-  CircleRecordEntry,
-  CircleSecrets,
   CirclesRequest,
   FolderReply,
   FolderRequest,
@@ -242,50 +236,53 @@ async function handleFolder(request: FolderRequest): Promise<FolderReply> {
 
 const isFolderRequest = (request: CirclesRequest): request is FolderRequest => request.op.startsWith('folder-');
 
-/** Runs one request; a created or joined Circle returns its secrets, an invite its code. */
-async function handleCircles(
-  request: Exclude<CirclesRequest, FolderRequest>
-): Promise<
-  | CircleSecrets
-  | { id: string; code: string; expires: number }
-  | CircleRecordEntry[]
-  | { chat: CircleChatReply }
-  | { address: CirclePublicAddress }
-  | { tunnel: CallTunnelReply }
-  | { context: CallContext }
-  | void
-> {
+/** The fields a successful `circles-reply` carries besides its type, id and `ok`. */
+type CirclesReplyFields = Omit<Extract<NetworkToMain, { type: 'circles-reply'; ok: true }>, 'type' | 'id' | 'ok'>;
+
+/** Runs one request and names the reply field its result goes in; most requests reply with none. */
+async function handleCircles(request: Exclude<CirclesRequest, FolderRequest>): Promise<CirclesReplyFields> {
   const net = circles;
   if (!net) throw new Error('Circles are not running.');
   switch (request.op) {
     case 'create':
-      return net.createCircle(request.name);
+      return { secrets: await net.createCircle(request.name) };
     case 'join':
-      return net.joinCircle(request.code);
+      return { secrets: await net.joinCircle(request.code) };
     case 'join-cancel':
-      return net.cancelJoin();
+      net.cancelJoin();
+      return {};
     case 'invite':
-      return net.createInvite(request.key, request.expiresAt);
+      return { invite: await net.createInvite(request.key, request.expiresAt) };
     case 'revoke-invite':
-      return net.revokeInvite(request.key, request.inviteId);
+      await net.revokeInvite(request.key, request.inviteId);
+      return {};
     case 'set-role':
-      return net.setRole(request.key, request.identity, request.role);
+      await net.setRole(request.key, request.identity, request.role);
+      return {};
     case 'remove-member':
-      return net.removeMember(request.key, request.identity);
+      await net.removeMember(request.key, request.identity);
+      return {};
     case 'leave':
-      return net.leaveCircle(request.key);
+      await net.leaveCircle(request.key);
+      return {};
     case 'delete':
-      return net.deleteCircle(request.key);
+      await net.deleteCircle(request.key);
+      return {};
     case 'set-name':
-      return net.setName(request.name);
+      net.setName(request.name);
+      return {};
     case 'publish-offer':
-      return net.publishOffer(request.key, request.offer);
+      await net.publishOffer(request.key, request.offer);
+      return {};
     case 'withdraw-offer':
-      return net.withdrawOffer(request.key);
+      await net.withdrawOffer(request.key);
+      return {};
     case 'share-upstream':
-      return net.setShareUpstream(request.upstream, request.limits);
+      net.setShareUpstream(request.upstream, request.limits);
+      return {};
     case 'service-sharing':
-      return net.setServiceSharing(request.sharing);
+      net.setServiceSharing(request.sharing);
+      return {};
     case 'public-address':
       return { address: net.publicAddress() };
     case 'call-context':
@@ -296,11 +293,13 @@ async function handleCircles(
         tunnel: { stats: net.callTunnelStats(request.key, request.to, request.tunnel, { close: request.action === 'close' }) },
       };
     case 'record-set':
-      return net.setRecord(request.key, request.app, request.scope, request.record, request.value, { keep: request.keep });
+      await net.setRecord(request.key, request.app, request.scope, request.record, request.value, { keep: request.keep });
+      return {};
     case 'record-del':
-      return net.deleteRecord(request.key, request.app, request.scope, request.record, request.identity);
+      await net.deleteRecord(request.key, request.app, request.scope, request.record, request.identity);
+      return {};
     case 'records-list':
-      return net.listRecords(request.key, request.app);
+      return { records: await net.listRecords(request.key, request.app) };
     case 'chat-channels':
       return { chat: { channels: await net.listChannels(request.key, request.reads, request.channelMentions) } };
     case 'chat-messages':
@@ -310,11 +309,14 @@ async function handleCircles(
     case 'chat-message':
       return { chat: { message: await net.getMessage(request.key, request.channel, request.ref) } };
     case 'chat-edit':
-      return net.editMessage(request.key, request.channel, request.id, request.text, request.mentions);
+      await net.editMessage(request.key, request.channel, request.id, request.text, request.mentions);
+      return {};
     case 'chat-delete':
-      return net.deleteMessage(request.key, request.channel, request.author, request.id);
+      await net.deleteMessage(request.key, request.channel, request.author, request.id);
+      return {};
     case 'chat-react':
-      return net.reactMessage(request.key, request.channel, { author: request.author, id: request.id }, request.emoji, request.on);
+      await net.reactMessage(request.key, request.channel, { author: request.author, id: request.id }, request.emoji, request.on);
+      return {};
   }
 }
 
@@ -391,18 +393,7 @@ port.on('message', (event: { data: MainToNetwork }) => {
         return;
       }
       handleCircles(request).then(
-        (result) => {
-          const extra = !result
-            ? {}
-            : Array.isArray(result)
-              ? { records: result }
-              : 'chat' in result || 'address' in result || 'tunnel' in result || 'context' in result
-                ? result
-                : 'code' in result
-                  ? { invite: result }
-                  : { secrets: result };
-          post({ type: 'circles-reply', id, ok: true, ...extra });
-        },
+        (fields) => post({ type: 'circles-reply', id, ok: true, ...fields }),
         (err: unknown) => post({ type: 'circles-reply', id, ok: false, error: errorMessage(err) })
       );
       return;

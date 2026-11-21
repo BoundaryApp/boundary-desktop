@@ -56,8 +56,8 @@ const SOVEREIGN_AGENT_STACK_REPO = 'kaxline/sovereign-agent-stack';
  * so a moved tag can't change what installs get. Read the stack's CHANGELOG.md before
  * bumping; a minor version can add services, required keys, host requirements or mounts.
  */
-export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.15';
-export const SOVEREIGN_AGENT_STACK_REF = 'b54ee111037deb1f243fea0a390da06a578db56c';
+export const SOVEREIGN_AGENT_STACK_VERSION = 'v0.3.17';
+export const SOVEREIGN_AGENT_STACK_REF = '3e11babf21f65ccff18d4f3dbaf72a4697a2da8f';
 
 /**
  * SHA-256 of the GitHub zip for SOVEREIGN_AGENT_STACK_REF; a download that doesn't match is
@@ -65,7 +65,15 @@ export const SOVEREIGN_AGENT_STACK_REF = 'b54ee111037deb1f243fea0a390da06a578db5
  *   curl -sL https://github.com/kaxline/sovereign-agent-stack/archive/<ref>.zip | shasum -a 256
  */
 export const SOVEREIGN_AGENT_STACK_ARCHIVE_SHA256 =
-  '9393901db66b02403c29c3d5c2c17d199aa899c92727b7072086fa94f706f055';
+  'c7262558632b0d5d12e4199b8a281c1f004d911e996f08a0a06596f246db3f0e';
+
+/**
+ * SHA-256 of the release tarball for SOVEREIGN_AGENT_STACK_VERSION
+ * (`sovereign-agent-stack-<version>.tar.gz`, a GitHub release asset), which a stack host reached
+ * over SSH installs from. Bump it with the version, from the release's `.sha256` asset.
+ */
+export const SOVEREIGN_AGENT_STACK_RELEASE_SHA256 =
+  '44ebb6a616e19eebb1782afa411a53278cb716069b53f469d52e0f938065980a';
 
 /**
  * Second-copy settings from the stack's docs/extending.md, passed in the compose
@@ -95,6 +103,17 @@ export function sovereignAgentStackArchiveUrl(
   ref: string = SOVEREIGN_AGENT_STACK_REF
 ): string {
   return `https://github.com/${SOVEREIGN_AGENT_STACK_REPO}/archive/${encodeURIComponent(ref)}.zip`;
+}
+
+/** The release tarball's name, which is also its top-level folder: `sovereign-agent-stack-v0.3.17`. */
+export function sovereignAgentStackReleaseName(version: string = SOVEREIGN_AGENT_STACK_VERSION): string {
+  return `sovereign-agent-stack-${version}`;
+}
+
+/** Where a release's tarball is published, as the stack's `install.sh` downloads it. */
+export function sovereignAgentStackReleaseUrl(version: string = SOVEREIGN_AGENT_STACK_VERSION): string {
+  const v = encodeURIComponent(version);
+  return `https://github.com/${SOVEREIGN_AGENT_STACK_REPO}/releases/download/${v}/${sovereignAgentStackReleaseName(version)}.tar.gz`;
 }
 
 /** Non-interactive setup.sh workspace defaults for Boundary-managed installs. */
@@ -188,3 +207,9 @@ export function buildComposeProfileArgs(
 ): string[] {
   return profiles.flatMap((profile) => ['--profile', profile]);
 }
+
+/**
+ * The stack's cap on client context (`compose/hermes/client_context.py` MAX_CONTEXT_CHARS):
+ * longer context is refused, so a writing voice or room context has to fit under it.
+ */
+export const CLIENT_CONTEXT_MAX_CHARS = 16_000;

@@ -4,6 +4,8 @@
  * the records can move into the bridge's store once it lands on main.
  */
 
+import type { IpcResult } from '../ipc/result';
+
 export type CodingGrantOrigin = 'add' | 'project-folder' | 'chat' | 'new-folder';
 
 export interface CodingGrant {
@@ -46,8 +48,7 @@ export interface CodingAgentBusy {
   sessions: string[];
 }
 
-export interface CodingFoldersResult {
-  success: boolean;
+export type CodingFoldersResult = IpcResult<{
   /** False in local-stack mode: the developer's own stack manages coding roots (ADR 0028 §13). */
   managed: boolean;
   grants: CodingGrantRow[];
@@ -55,8 +56,7 @@ export interface CodingFoldersResult {
   busy?: CodingAgentBusy;
   /** The command to run instead, in local-stack mode. */
   command?: string;
-  error?: string;
-}
+}>;
 
 export interface CodingGrantPayload {
   projectId: string | null;
@@ -88,16 +88,14 @@ export interface CodingCreateFolderPayload {
 }
 
 /** Live validation for the New folder… form. */
-export interface CodingNewFolderCheck {
-  success: boolean;
+export type CodingNewFolderCheck = IpcResult<{
   hostPath?: string;
   exists?: boolean;
   isDirectory?: boolean;
   isGit?: boolean;
   /** Top-level entries in an existing folder, capped at 10,000. */
   entries?: number;
-  error?: string;
-}
+}>;
 
 export interface CodingNewFolderDefaults {
   defaultParent: string;
@@ -107,8 +105,7 @@ export interface CodingNewFolderDefaults {
 }
 
 /** What the add sheet needs to know about a folder before choosing access. */
-export interface CodingFolderInspect {
-  success: boolean;
+export type CodingFolderInspect = IpcResult<{
   canceled?: boolean;
   hostPath?: string;
   name?: string;
@@ -116,8 +113,7 @@ export interface CodingFolderInspect {
   /** Why it can't be a coding folder; it may still be added as read-only reference. */
   refuseMessage?: string | null;
   managed?: boolean;
-  error?: string;
-}
+}>;
 
 export interface CodingCreateFolderResult extends CodingFoldersResult {
   hostPath?: string;
@@ -134,9 +130,7 @@ export interface CodingRemoveFolderPayload {
 }
 
 /** What the delete review shows before the user accepts (ADR 0028 §11). */
-export interface CodingDeleteInspect {
-  success: boolean;
-  error?: string;
+export type CodingDeleteInspect = IpcResult<{
   hostPath?: string;
   name?: string;
   projectId?: string | null;
@@ -162,7 +156,7 @@ export interface CodingDeleteInspect {
   /** The user must type the folder name to confirm. */
   requiresTypedName?: boolean;
   busy?: CodingAgentBusy;
-}
+}>;
 
 export interface CodingDeleteFolderPayload {
   hostPath: string;

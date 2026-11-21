@@ -10,6 +10,7 @@ import {
   type EmailService,
 } from '../emailAddon';
 import type { EmailAccountInput } from '../../../../shared/types/addons';
+import { stackFilesAt } from '../../stackHost/activeStack';
 import { createEmailFakeStack, type EmailFakeStack } from './emailFake';
 
 let stack: EmailFakeStack;
@@ -91,17 +92,17 @@ describe('emailSettingsInput', () => {
 });
 
 describe('emailAvailable and flags', () => {
-  it('needs addon.sh and a manifest with accounts and a mailboxes command', () => {
-    expect(emailAvailable(stack.root)).toBe(true);
+  it('needs addon.sh and a manifest with accounts and a mailboxes command', async () => {
+    expect(await emailAvailable(stackFilesAt(stack.root))).toBe(true);
     fs.writeFileSync(path.join(stack.root, 'addons', 'email', 'addon.json'), JSON.stringify({ instances: { name: 'accounts' } }));
-    expect(emailAvailable(stack.root)).toBe(false);
+    expect(await emailAvailable(stackFilesAt(stack.root))).toBe(false);
     fs.rmSync(path.join(stack.root, 'scripts', 'addon.sh'));
-    expect(emailAvailable(stack.root)).toBe(false);
+    expect(await emailAvailable(stackFilesAt(stack.root))).toBe(false);
   });
-  it('reads the flags from .env', () => {
-    expect(readEmailFlags(stack.root)).toEqual({ enabled: false, drafts: false });
+  it('reads the flags from .env', async () => {
+    expect(await readEmailFlags(stackFilesAt(stack.root))).toEqual({ enabled: false, drafts: false });
     stack.setEnabled(true, true);
-    expect(readEmailFlags(stack.root)).toEqual({ enabled: true, drafts: true });
+    expect(await readEmailFlags(stackFilesAt(stack.root))).toEqual({ enabled: true, drafts: true });
   });
 });
 
@@ -240,7 +241,7 @@ describe('removeNewAccount', () => {
     service.onChange((o) => seen.push(o.accounts.map((a) => a.slug)));
     await service.removeNewAccount('work');
     expect(seen.at(-1)).toEqual([]);
-    expect(service.overview().accounts).toEqual([]);
+    expect((await service.overview()).accounts).toEqual([]);
   });
 });
 
@@ -344,7 +345,7 @@ describe('setSettings', () => {
     expect(configure.args).toEqual(['configure', 'email']);
     expect(configure.input).toEqual({ since: '2026-08-13', bodies: true, attachments: false, drafts: true });
     expect(stack.calls.at(-1)).toMatchObject({ kind: 'run', args: ['enable', 'email', '--json'] });
-    expect(readEmailFlags(stack.root).drafts).toBe(true);
+    expect((await readEmailFlags(stackFilesAt(stack.root))).drafts).toBe(true);
     expect(restarts).toBe(0);
 
     await service.setSettings({ since: '2026-01-01', attachments: false, drafts: true });

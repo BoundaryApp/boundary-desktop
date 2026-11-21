@@ -6,6 +6,15 @@ import { parseCatalog, type CatalogDrop } from './catalog';
 import { createSerialQueue } from '../../../../shared/utils/serialQueue';
 
 /**
+ * NOT WIRED YET. Nothing outside tests constructs `CatalogStore`: `createConfidentialService`
+ * serves the bundled dev catalog with a fixed snapshot, so the service's `stale` and
+ * `signatureFailed` states can't occur in the app. Turning it on needs a catalog URL and its
+ * signature URL, the pinned Ed25519 public key, a store directory under user data, and a
+ * `refresh()` on start-up (and on a timer) feeding `ConfidentialService`'s catalog snapshot.
+ * Wire it before the pool is on by default in packaged builds (ADR 0047 §4).
+ */
+
+/**
  * Fetches, verifies and keeps Boundary's signed confidential provider catalog (ADR 0047 §4).
  * Only a catalog whose detached Ed25519 signature matches the pinned key, that parses, and that
  * is newer than the one kept is written. The copy on disk is verified again when loaded, so an

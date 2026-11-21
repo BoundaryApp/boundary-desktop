@@ -76,7 +76,7 @@ vi.mock('../../chat/HermesChatRuntimeProvider', () => ({
 import { CirclesScreen } from '../CirclesScreen';
 import { openCircle, openDirect, resetCirclesOpenForTests } from '../circlesNavigation';
 import { placeDirect } from '../useDirectChat';
-import { quoteLine } from '../../chat/circle/DirectThread';
+import { replyQuoteText } from '../../../../shared/circleReplies';
 import { useCircleNotificationClicks } from '../useCircleViewing';
 
 const WithClicks: React.FC = () => {
@@ -168,7 +168,7 @@ describe('direct messages on the Circles destination', () => {
     dmMessages.mockResolvedValue({ success: true, state: running, messages: [], more: false });
     openCircle(KEY);
     render(<CirclesScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Circle details' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Message Sam' }));
     expect(await findInMain('This is the start of your conversation with Sam')).toBeTruthy();
     expect(within(main()).getByText('Away')).toBeTruthy();
@@ -188,6 +188,25 @@ describe('direct messages on the Circles destination', () => {
       expect(dmSend).toHaveBeenCalledWith({ key: KEY, peer: MAYA, text: 'I will bring them', reply: { author: MAYA, id: '0123456789abcdef' } })
     );
     await waitFor(() => expect(within(main()).queryByText('Replying to')).toBeNull());
+  });
+
+  it('quotes the original above a reply: author, first line, and a link to it', async () => {
+    dmMessages.mockResolvedValue({
+      success: true,
+      state: running,
+      messages: [
+        dm('**Snacks** Thursday?\nsecond line'),
+        dm('Sure', { id: '1111111111111111', author: ME, mine: true, delivery: 'delivered', reply: { author: MAYA, id: '0123456789abcdef' } }),
+        dm('Gone', { id: '2222222222222222', reply: { author: MAYA, id: 'ffffffffffffffff' } }),
+      ],
+      more: false,
+    });
+    openDirect(KEY, MAYA);
+    render(<CirclesScreen />);
+    await findInMain('Sure');
+    const quote = await within(main()).findByRole('button', { name: "Go to Maya's message" });
+    expect(quote.textContent).toBe('MayaSnacks Thursday?');
+    expect(await findInMain('Original message not available')).toBeTruthy();
   });
 
   it('cancels a reply with Escape', async () => {
@@ -378,8 +397,9 @@ describe('direct messages on the Circles destination', () => {
 
 describe('direct message helpers', () => {
   it('quotes the first line with Markdown marks removed, cut to 120 characters', () => {
-    expect(quoteLine('\n**Bold** _start_\nsecond line')).toBe('Bold start');
-    expect(quoteLine('x'.repeat(200))).toHaveLength(120);
+    const quote = (text: string) => replyQuoteText({ text, deleted: false }).text;
+    expect(quote('\n**Bold** _start_\nsecond line')).toBe('Bold start');
+    expect(quote('x'.repeat(200))).toBe(`${'x'.repeat(120)}…`);
   });
 
   it('puts a changed message in place and a new one last', () => {

@@ -20,8 +20,13 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 // @premai/reticle@0.6.2 ships no licence file or `license` field. Its source repository,
 // github.com/prem-research/reticle, is MIT (LICENSE at the 0.6.2 version bump, commit cc426a8).
+// privatemode-ai@1.64.0 declares MIT but ships no licence file. The MIT text is from its source
+// repository, github.com/edgelesssys/privatemode-public (commit 3c98e0a). Its privatemode.wasm also
+// contains the Contrast SDK v1.26.2 (version from the module's Go build info), whose BUSL-1.1 text
+// with its Additional Use Grant is from github.com/edgelesssys/contrast at v1.26.2.
 const LICENSE_FILES = {
-  '@premai/reticle': { license: 'MIT', file: 'premai-reticle.txt' }
+  '@premai/reticle': { license: 'MIT', file: 'premai-reticle.txt' },
+  'privatemode-ai': { license: 'MIT AND BUSL-1.1', file: 'privatemode-ai.txt' }
 };
 
 function findPackageJson(name, fromDir) {

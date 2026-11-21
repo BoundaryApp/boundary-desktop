@@ -172,7 +172,7 @@ describe('board webview guards', () => {
     expect(wrongPage.preventDefault).toHaveBeenCalled();
   });
 
-  it('sends other dashboard pages and new windows to the browser', () => {
+  it('sends other dashboard pages and new windows to the browser', async () => {
     handoffSecret = SECRET;
     const { contents } = attach();
     const stay = { preventDefault: vi.fn() };
@@ -182,6 +182,7 @@ describe('board webview guards', () => {
     const leave = { preventDefault: vi.fn() };
     contents.emit('will-navigate', leave, `${BASE}/config`);
     expect(leave.preventDefault).toHaveBeenCalled();
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalled());
     const url = new URL(openExternal.mock.calls[0][0] as string);
     expect(decodePayload(url.searchParams.get('code') ?? '').next).toBe('/config');
 
@@ -191,10 +192,10 @@ describe('board webview guards', () => {
     expect(openExternal).toHaveBeenCalledTimes(2);
   });
 
-  it('undoes a client-side route away from the board', () => {
+  it('undoes a client-side route away from the board', async () => {
     const { contents } = attach();
     contents.emit('did-navigate-in-page', {}, `${BASE}/sessions`, true);
-    expect(openExternal).toHaveBeenCalledWith(`${BASE}/sessions`);
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith(`${BASE}/sessions`));
     expect(contents.navigationHistory.goBack).toHaveBeenCalled();
   });
 

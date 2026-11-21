@@ -33,7 +33,7 @@ describe('CalendarsPanel', () => {
   it('selects Calendars on this Mac by default and leaves the calendar service alone', async () => {
     render(<CalendarsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: /Connect calendar/ }));
-    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /^Calendars on this Mac/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText('Google Calendar.')).toBeTruthy();
     await act(async () => undefined);
     expect(calendarsApi.prepare).not.toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe('CalendarsPanel', () => {
     calendarsApi.macStatus.mockResolvedValue({ access: 'granted', calendars: macCalendars });
     render(<CalendarsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: 'Connect another calendar' }));
-    expect(screen.getByRole('radio', { name: /^iCloud/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /^iCloud/ }) as HTMLInputElement).checked).toBe(true);
     await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalledTimes(1));
   });
 
@@ -64,9 +64,9 @@ describe('CalendarsPanel', () => {
     calendarsApi.list.mockReturnValue(new Promise((resolve) => (answer = resolve)));
     calendarsApi.macStatus.mockResolvedValue({ access: 'granted', calendars: macCalendars });
     render(<CalendarsPanel onConnectFromChatClosed={vi.fn()} />);
-    expect(screen.getByRole('radio', { name: /^Calendars on this Mac/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /^Calendars on this Mac/ }) as HTMLInputElement).checked).toBe(true);
     await act(async () => answer({ success: true, accounts: [macAccount] }));
-    await waitFor(() => expect(screen.getByRole('radio', { name: /^iCloud/ }).getAttribute('aria-checked')).toBe('true'));
+    await waitFor(() => expect((screen.getByRole('radio', { name: /^iCloud/ }) as HTMLInputElement).checked).toBe(true));
     expect(screen.queryByRole('radio', { name: /^Calendars on this Mac/ })).toBeNull();
     await waitFor(() => expect(calendarsApi.prepare).toHaveBeenCalledTimes(1));
   });
@@ -152,10 +152,10 @@ describe('CalendarsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByText('Who can use Personal?')).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Hermes access' }).querySelector('[aria-pressed="true"]')?.textContent).toBe(
+    expect(within(screen.getByRole('radiogroup', { name: 'Hermes access' })).getByRole('radio', { checked: true }).textContent).toBe(
       'Read and change'
     );
-    expect(screen.getByRole('group', { name: 'Researcher access' }).querySelector('[aria-pressed="true"]')?.textContent).toBe('Off');
+    expect(within(screen.getByRole('radiogroup', { name: 'Researcher access' })).getByRole('radio', { checked: true }).textContent).toBe('Off');
 
     calendarsApi.list.mockResolvedValue({ success: true, accounts: [personal] });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
@@ -176,9 +176,9 @@ describe('CalendarsPanel', () => {
     calendarsApi.setAccess.mockResolvedValue({ success: true, account: personal });
     render(<CalendarsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: 'Change access' }));
-    const group = screen.getByRole('group', { name: 'Researcher access' });
-    expect(Array.from(group.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Off', 'Read', 'Read and change']);
-    fireEvent.click(within(group).getByRole('button', { name: 'Read and change' }));
+    const group = screen.getByRole('radiogroup', { name: 'Researcher access' });
+    expect(within(group).getAllByRole('radio').map((b) => b.textContent)).toEqual(['Off', 'Read', 'Read and change']);
+    fireEvent.click(within(group).getByRole('radio', { name: 'Read and change' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
       expect(calendarsApi.setAccess).toHaveBeenCalledWith({ slug: 'personal', access: { assistant: 'read', researcher: 'change' } })

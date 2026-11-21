@@ -2,6 +2,7 @@ import React from 'react';
 import { cn } from '../../lib/utils';
 import type { AddonHostFacts } from '../../../shared/addonFit';
 import { memGB } from './addonCopy';
+import { StackCapabilityNote } from '../stackCapabilities';
 
 /** The container engine's memory, with an add-on's reservation drawn after what's in use. */
 export const EngineMemoryBar: React.FC<{
@@ -11,6 +12,10 @@ export const EngineMemoryBar: React.FC<{
   compact?: boolean;
   className?: string;
 }> = ({ facts, adding, compact, className }) => {
+  // The engine runs on a host Boundary doesn't control, so there is nothing measured to draw.
+  if (facts.measured === false) {
+    return <StackCapabilityNote capability="engineControl" size="sm" className={className} />;
+  }
   const { engineMiB, usedMiB } = facts;
   const usedPct = Math.min(100, (usedMiB / engineMiB) * 100);
   const addPct = adding ? Math.min((adding.reserveMiB / engineMiB) * 100, 100 - usedPct) : 0;

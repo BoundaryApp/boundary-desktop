@@ -1,7 +1,7 @@
 import { persistDebugLog } from '../../persistDebugLog';
 
-/** Why the `hermes` container was started, restarted or recreated (or its network namespace lost). */
-export type HermesReplacedReason = 'start' | 'settings-restart' | 'web-search' | 'project-mounts' | 'addon-reload' | 'broker-down';
+/** Why the `hermes` container was started, restarted or recreated. */
+export type HermesReplacedReason = 'start' | 'settings-restart' | 'web-search' | 'project-mounts' | 'addon-reload';
 
 type HermesReplacedListener = (reason: HermesReplacedReason) => void | Promise<void>;
 type BeforeStackUpListener = () => Promise<void>;

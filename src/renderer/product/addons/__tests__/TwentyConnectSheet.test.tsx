@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TwentyConnectSheet } from '../TwentyConnectSheet';
+import { ADDON_SLUG_RULE } from '../addonCopy';
 import { stubAddons, listing } from './addonFixtures';
 
 function open(existing: string[] = [], onClose = vi.fn()) {
@@ -36,6 +37,12 @@ describe('TwentyConnectSheet', () => {
     fill('https://crm.example.com', 'Work!', 'rw-key');
     expect(submit().disabled).toBe(true);
     fill('https://crm.example.com', 'main', 'rw-key');
+    expect(submit().disabled).toBe(true);
+    // The add-on store's rule: a letter first, at most 31 characters.
+    fill('https://crm.example.com', '2024-crm', 'rw-key');
+    expect(submit().disabled).toBe(true);
+    expect(within(dialog).getByText(ADDON_SLUG_RULE)).toBeTruthy();
+    fill('https://crm.example.com', `w${'x'.repeat(31)}`, 'rw-key');
     expect(submit().disabled).toBe(true);
     fill('https://crm.example.com', 'work', 'rw-key');
     expect(submit().disabled).toBe(false);

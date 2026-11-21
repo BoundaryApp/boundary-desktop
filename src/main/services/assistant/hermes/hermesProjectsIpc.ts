@@ -5,6 +5,7 @@ import type {
   HermesProjectCreateEmptyPayload,
   HermesProjectCreateHostPayload,
   HermesProjectPatchPayload,
+  HermesProjectRemovePayload,
   HermesProjectSelectPayload,
   HermesProjectSourcesAddPayload,
   HermesProjectSourcesInspectPayload,
@@ -22,6 +23,7 @@ import {
   revealHermesProjectInFinder,
   selectHermesProject,
 } from './hermesProjects';
+import { inspectHermesProjectForRemove, removeHermesProject } from './hermesProjectRemove';
 import {
   addHermesProjectSourceFolder,
   countHermesProjectExtraSources,
@@ -52,6 +54,14 @@ export function registerProjectHandlers(): void {
   handleResult(
     'hermes-projects:change-folder',
     async (_event, payload: HermesProjectChangeFolderPayload) => changeHermesProjectFolder(payload)
+  );
+
+  handleResult('hermes-projects:remove-inspect', async (_event, payload: { projectId: string }) =>
+    inspectHermesProjectForRemove(payload.projectId)
+  );
+
+  handleResult('hermes-projects:remove', async (_event, payload: HermesProjectRemovePayload) =>
+    removeHermesProject(payload)
   );
 
   handleResult('hermes-projects:patch', async (_event, payload: HermesProjectPatchPayload) =>

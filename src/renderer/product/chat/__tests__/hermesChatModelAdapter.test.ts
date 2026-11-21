@@ -13,6 +13,7 @@ import {
   CONTINUE_RUN_CONFIG,
   createHermesChatModelAdapter,
   DIVERGED_MESSAGE,
+  type InferenceSendHandlers,
 } from '../hermesChatModelAdapter';
 import { ServerPath } from '../serverPath';
 import { isOwnedRunningTurn } from '../runningTurns';
@@ -73,6 +74,17 @@ beforeEach(() => {
 /** The adapter makes the turn's request id; tests pick it so their events match. */
 function useRequestId(id: string): void {
   vi.spyOn(crypto, 'randomUUID').mockReturnValue(id as ReturnType<typeof crypto.randomUUID>);
+}
+
+/** The screen's send handlers, doing nothing unless the test gives one. */
+function sendHandlers(given: Partial<InferenceSendHandlers>): InferenceSendHandlers {
+  return {
+    onLocalUnreachable: () => undefined,
+    onPrivateRefused: () => undefined,
+    takeNewChatInference: () => null,
+    takeNewChatWritingVoice: () => null,
+    ...given,
+  };
 }
 
 describe('createHermesChatModelAdapter', () => {
@@ -412,7 +424,7 @@ describe('createHermesChatModelAdapter', () => {
     useRequestId('req-voice');
     startChat.mockResolvedValue({ success: true, requestId: 'req-voice', sessionId: 's9', writingVoiceName: 'News' });
     const adapter = createHermesChatModelAdapter(() => null, {
-      takeNewChatWritingVoice: () => 'plain',
+      getSendHandlers: () => sendHandlers({ takeNewChatWritingVoice: () => 'plain' }),
     });
     const results: ChatModelRunResult[] = [];
     for await (const r of runTurn(adapter, {
@@ -513,7 +525,9 @@ describe('createHermesChatModelAdapter', () => {
       errorCode: 'private-refused',
       error: 'This project is private and this chat’s model isn’t, so your message wasn’t sent.',
     });
-    const adapter = createHermesChatModelAdapter(() => 's1', { onPrivateRefused });
+    const adapter = createHermesChatModelAdapter(() => 's1', {
+      getSendHandlers: () => sendHandlers({ onPrivateRefused }),
+    });
     const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
       abortSignal: new AbortController().signal,
@@ -534,7 +548,9 @@ describe('createHermesChatModelAdapter', () => {
       error,
     });
 
-    const adapter = createHermesChatModelAdapter(() => 's1', { onLocalUnreachable });
+    const adapter = createHermesChatModelAdapter(() => 's1', {
+      getSendHandlers: () => sendHandlers({ onLocalUnreachable }),
+    });
     const gen = runTurn(adapter, {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] } as never],
       abortSignal: new AbortController().signal,
@@ -568,7 +584,9 @@ describe('createHermesChatModelAdapter', () => {
       error: 'Local model unreachable. Retry, or send this message via OpenRouter.',
     });
 
-    const adapter = createHermesChatModelAdapter(() => 's1', { onLocalUnreachable });
+    const adapter = createHermesChatModelAdapter(() => 's1', {
+      getSendHandlers: () => sendHandlers({ onLocalUnreachable }),
+    });
     const abort = new AbortController();
     const gen = runTurn(adapter, {
       messages: [

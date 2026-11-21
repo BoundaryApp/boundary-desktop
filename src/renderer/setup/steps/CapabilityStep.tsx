@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import { useSetup } from '../SetupContext';
 import type { SetupStepProps } from '../types';
 import { DebugLogCopy } from '../../components/settings/DebugLogCopy';
+import { errorText } from '../../lib/errorText';
 
 export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description }) => {
   const {
@@ -33,7 +34,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
         setAckError(result.error ?? 'Unable to continue.');
       }
     } catch (err) {
-      setAckError(err instanceof Error ? err.message : String(err));
+      setAckError(errorText(err));
     } finally {
       setAcknowledging(false);
     }
@@ -57,7 +58,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
             autoAdvanceStarted.current = false;
           }
         } catch (err) {
-          setAckError(err instanceof Error ? err.message : String(err));
+          setAckError(errorText(err));
           autoAdvanceStarted.current = false;
         } finally {
           setAcknowledging(false);
@@ -71,7 +72,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
     };
   }, [acknowledgeCapability, capabilityAssessment?.stackAlreadyRunning]);
 
-  const errorText = ackError ?? capabilityError;
+  const shownError = ackError ?? capabilityError;
 
   if (capabilityLoading || !capabilityAssessment) {
     return (
@@ -91,7 +92,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
           <CheckCircle2 className="size-5 text-ok" aria-label="Assistant stack is running" />
           <span>{acknowledging ? 'Continuing…' : 'Continuing in a few seconds…'}</span>
         </div>
-        {errorText && <Callout variant="destructive">{errorText}</Callout>}
+        {shownError && <Callout variant="destructive">{shownError}</Callout>}
       </SetupShell>
     );
   }
@@ -136,7 +137,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
           </>
         }
       >
-        {errorText && <Callout variant="destructive">{errorText}</Callout>}
+        {shownError && <Callout variant="destructive">{shownError}</Callout>}
         {checks}
         <DebugLogCopy path={capabilityStatus?.debugLogPath} />
       </SetupShell>
@@ -153,7 +154,7 @@ export const CapabilityStep: React.FC<SetupStepProps> = ({ title, description })
         </Button>
       }
     >
-      {errorText && <Callout variant="destructive">{errorText}</Callout>}
+      {shownError && <Callout variant="destructive">{shownError}</Callout>}
       {provisionProgress &&
         !capabilityAssessment.checks.some((check) => check.detail === provisionProgress) && (
           <Callout variant="ok">{provisionProgress}</Callout>

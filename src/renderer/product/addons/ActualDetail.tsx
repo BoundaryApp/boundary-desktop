@@ -1,24 +1,23 @@
 import React, { useState } from 'react';
 import { Button } from '../../components/ui/button';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Callout } from '../../components/ui/alert';
 import { Pill } from '../../components/ui/badge';
-import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import {
   isActualFailure,
   type ActualAccess,
   type ActualBudget,
   type AddonId,
-  type AddonListing,
 } from '../../../shared/types/addons';
 import { ACCESS_LABEL, addonPill, engineDown, hereFacts, inProgress, SETUP_WAYS } from './addonCopy';
 import { ActualConnectSheet, type ActualConnectPreset } from './ActualConnectSheet';
-import { DeleteImagesOption, Facts, SETUP_WAY_TITLE, SetupPath, TypeDeleteField } from './addonFormParts';
+import { Facts, SETUP_WAY_TITLE, SetupPath } from './addonFormParts';
 import {
   AddonPageTop,
+  AddonSwitchPanel,
   ConfirmSheet,
   FitOrStackDown,
-  LocalRemoveNote,
-  RemoveDataButton,
+  RemoveDataSheet,
   ToolsAndUpdates,
   WhatItRuns,
 } from './AddonDetailParts';
@@ -36,12 +35,7 @@ import {
   stateMessage,
   useActualOverview,
 } from './useActual';
-import {
-  startAddonInstall,
-  startAddonRemoval,
-  useAddonInstall,
-  useAddonListing,
-} from './useAddons';
+import { startAddonInstall, useAddonInstall, useAddonListing } from './useAddons';
 
 // Actual Budget's page (spec decisions 18–24): one row per connected budget under the name agents
 // use, Get for this Mac's server and Connect a budget for one the person already runs. Rows come
@@ -76,7 +70,8 @@ const BudgetRow: React.FC<{
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-fg-muted">
           What agents may do
-          <select
+          <NativeSelect
+            className="w-auto"
             aria-label={`What agents may do with ${budgetName(budget)}`}
             value={budget.access}
             disabled={busy}
@@ -87,7 +82,7 @@ const BudgetRow: React.FC<{
                 {ACCESS_LABEL[value]}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         {canSignInAgain(budget.state) ? (
           <Button type="button" size="sm" disabled={busy} onClick={onSignInAgain}>
@@ -110,51 +105,6 @@ const BudgetRow: React.FC<{
         </Button>
       </div>
     </li>
-  );
-};
-
-const RemoveSheet: React.FC<{
-  listing: AddonListing;
-  remote: ActualBudget[];
-  onClose(): void;
-  onStarted(): void;
-}> = ({ listing, remote, onClose, onStarted }) => {
-  const [typed, setTyped] = useState('');
-  const [images, setImages] = useState(true);
-  return (
-    <Sheet
-      open
-      onClose={onClose}
-      titleId="actual-remove-title"
-      title="Remove this Mac’s Actual server and delete its budgets?"
-      actions={
-        <SheetConfirmActions
-          tone="danger"
-          onCancel={onClose}
-          confirmLabel="Remove and delete data"
-          confirmDisabled={typed.trim().toLowerCase() !== 'delete'}
-          onConfirm={() => {
-            startAddonRemoval('actual', listing.installed, images);
-            onClose();
-            onStarted();
-          }}
-        />
-      }
-    >
-      <p className="wb-sheet-lede">
-        {
-          'This Mac’s budgets have no other copy. Removing deletes the server’s data folder, its password and every budget on it. It can’t be undone.'
-        }
-        {remote.length ? ` ${remote.map(budgetName).join(', ')} stays connected.` : ''}
-      </p>
-      <DeleteImagesOption
-        checked={images}
-        downloadBytes={listing.entry.downloadBytes}
-        again="Getting it again"
-        onChange={setImages}
-      />
-      <TypeDeleteField id="actual-remove-confirm" value={typed} onChange={setTyped} />
-    </Sheet>
   );
 };
 
@@ -330,16 +280,32 @@ export const ActualDetail: React.FC<{
             </Panel>
           ) : null}
           {serverSetUp ? (
-            <Panel
+            <AddonSwitchPanel
+              listing={listing}
               title="This Mac’s server"
               lead={
                 serverOn
                   ? 'Turning it off stops the server. Its budgets stay on this Mac and come back when you turn it on. Budgets on other servers stay connected.'
                   : 'Off. Its budgets are still on this Mac.'
               }
-            >
-              <div className="flex flex-wrap gap-2">
-                {serverOn ? (
+              locked={busy || running}
+              canTurnOn={canGet}
+              offOpen={dialog?.kind === 'off'}
+              busy={busy}
+              offTitleId="actual-off-title"
+              offTitle="Turn off this Mac’s Actual server?"
+              offText={`The server stops. ${
+                !local.length
+                  ? ''
+                  : remote.length
+                    ? `Agents still see ${local.map(budgetName).join(', ')}, but its tools fail until you turn the server on again. `
+                    : `${local.map(budgetName).join(', ')} can’t be used until you turn it on again. `
+              }${remote.length ? `${remote.map(budgetName).join(', ')} stays connected. ` : ''}Its budgets stay on this Mac.`}
+              onDialog={(kind) => setDialog(kind && { kind })}
+              onTurnOff={() => void turnOff()}
+              onTurnOn={get}
+              actions={
+                serverOn ? (
                   <>
                     <Button
                       type="button"
@@ -349,37 +315,19 @@ export const ActualDetail: React.FC<{
                     >
                       Open Actual
                     </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busy || running}
-                      onClick={() => void copyPassword()}
-                    >
+                    <Button type="button" variant="secondary" disabled={busy || running} onClick={() => void copyPassword()}>
                       Copy password
                     </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busy || running}
-                      onClick={() => setDialog({ kind: 'off' })}
-                    >
-                      Turn off
-                    </Button>
                   </>
-                ) : (
-                  <Button type="button" disabled={busy || running || !canGet} onClick={get}>
-                    Turn on
-                  </Button>
-                )}
-                <RemoveDataButton listing={listing} busy={busy || running} onClick={() => setDialog({ kind: 'remove' })} />
-              </div>
+                ) : null
+              }
+            >
               {serverOn ? (
                 <p className="text-xs text-fg-faint">
                   Actual’s web app asks for the server password. Copy password puts it on the clipboard.
                 </p>
               ) : null}
-              <LocalRemoveNote listing={listing} />
-            </Panel>
+            </AddonSwitchPanel>
           ) : null}
           {!serverSetUp && !running ? <FitOrStackDown listing={listing} down={down} /> : null}
         </div>
@@ -398,27 +346,6 @@ export const ActualDetail: React.FC<{
       </div>
 
       <ConfirmSheet
-        open={dialog?.kind === 'off'}
-        busy={busy}
-        titleId="actual-off-title"
-        title="Turn off this Mac’s Actual server?"
-        confirmLabel="Turn off"
-        busyLabel="Turning off…"
-        onCancel={() => setDialog(null)}
-        onConfirm={() => void turnOff()}
-      >
-        {`The server stops. ${
-          !local.length
-            ? ''
-            : remote.length
-              ? `Agents still see ${local.map(budgetName).join(', ')}, but its tools fail until you turn the server on again. `
-              : `${local.map(budgetName).join(', ')} can’t be used until you turn it on again. `
-        }${
-          remote.length ? `${remote.map(budgetName).join(', ')} stays connected. ` : ''
-        }Its budgets stay on this Mac.`}
-      </ConfirmSheet>
-
-      <ConfirmSheet
         open={dialog?.kind === 'disconnect'}
         busy={busy}
         titleId="actual-disconnect-title"
@@ -434,7 +361,18 @@ export const ActualDetail: React.FC<{
       </ConfirmSheet>
 
       {dialog?.kind === 'remove' ? (
-        <RemoveSheet listing={listing} remote={remote} onClose={() => setDialog(null)} onStarted={onInstallStarted} />
+        <RemoveDataSheet
+          id="actual"
+          installed={listing.installed}
+          title="Remove this Mac’s Actual server and delete its budgets?"
+          images={{ downloadBytes: entry.downloadBytes, again: 'Getting it again' }}
+          onClose={() => setDialog(null)}
+          onStarted={onInstallStarted}
+        >
+          {`This Mac’s budgets have no other copy. Removing deletes the server’s data folder, its password and every budget on it. It can’t be undone.${
+            remote.length ? ` ${remote.map(budgetName).join(', ')} stays connected.` : ''
+          }`}
+        </RemoveDataSheet>
       ) : null}
 
       <ActualConnectSheet

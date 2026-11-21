@@ -14,6 +14,7 @@ import { isPathUnder } from '../../hostPaths';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
 import { listStoredHermesProjects } from './hermesProjectStore';
+import { stackCapabilityRefusal } from '../../stackHost/capabilities';
 
 /**
  * Reads an HTML page an agent wrote, for the preview sheet (message-actions spec,
@@ -86,6 +87,8 @@ export async function readHtmlPreview(
   payload: HermesHtmlPreviewPayload,
   roots: PreviewRoots = defaultRoots(),
 ): Promise<HermesHtmlPreviewResult> {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   const containerPath = payload.containerPath;
   if (!isPreviewablePath(containerPath)) {
     return { success: false, error: 'Only .html pages can be previewed.' };

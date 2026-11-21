@@ -40,6 +40,7 @@ import type {
   AgentProfile,
   HermesChatCredentialRequestEvent,
 } from '../../../../shared/types/hermesChat';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { localDayKey } from '../../../../shared/messageTime';
 
 const hermes: AgentProfile = {
@@ -133,14 +134,17 @@ describe('DM long-thread tools (chat types Phase 7a)', () => {
     render(<Dm />);
     await screen.findByText('Two more.');
     expect(screen.getByText(/Ongoing since/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Jump to date' }));
-    const list = screen.getByRole('listbox', { name: 'Jump to date' });
-    const options = within(list).getAllByRole('option');
-    expect(options).toHaveLength(2);
-    fireEvent.click(options[0]);
+    const trigger = screen.getByRole('button', { name: 'Jump to date' });
+    openMenu(trigger);
+    const menu = screen.getByRole('menu', { name: 'Jump to date' });
+    const days = within(menu).getAllByRole('menuitem');
+    expect(days).toHaveLength(2);
+    fireEvent.click(days[0]);
     const key = localDayKey(Date.parse('2026-09-22T09:00:00'));
     expect(scrolled.some((el) => el.getAttribute('data-day') === key)).toBe(true);
-    expect(screen.queryByRole('listbox', { name: 'Jump to date' })).toBeNull();
+    expect(screen.queryByRole('menu', { name: 'Jump to date' })).toBeNull();
+    await flushMenu();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('Search this DM counts matches and steps through them, newest first', async () => {
@@ -194,13 +198,13 @@ describe('DM long-thread tools (chat types Phase 7a)', () => {
     render(<Dm />);
     await screen.findByText('Two more.');
     const line = await screen.findByRole('separator', {
-      name: 'Ana’s next reply sees from here down · about 6.1k of 8k tokens',
+      name: 'Ana’s next reply sees from here down · about 6.1K of 8K tokens',
     });
     expect(line.closest('.wb-msg')?.textContent).toContain('Any new pricing pages?');
     const dimmed = [...document.querySelectorAll('.wb-msg.is-beyond-horizon')];
     expect(dimmed).toHaveLength(2);
     expect(dimmed[0].textContent).toContain('Keep a list of pricing sources.');
-    expect(screen.getByText('Context: recent · 8k')).toBeTruthy();
+    expect(screen.getByText('Context: recent · 8K')).toBeTruthy();
     expect(getContextBreakdown).toHaveBeenCalledWith({ sessionId: 's-dm' });
   });
 
@@ -215,7 +219,7 @@ describe('DM long-thread tools (chat types Phase 7a)', () => {
     render(<Dm />);
     expect(
       await screen.findByRole('separator', {
-        name: 'Earlier messages are summarised for Ana · about 7.9k of 8k tokens',
+        name: 'Earlier messages are summarised for Ana · about 7.9K of 8K tokens',
       })
     ).toBeTruthy();
   });
@@ -239,7 +243,7 @@ describe('DM long-thread tools (chat types Phase 7a)', () => {
       },
     });
     render(<Dm />);
-    expect(await screen.findByText('Context: recent · 8k')).toBeTruthy();
+    expect(await screen.findByText('Context: recent · 8K')).toBeTruthy();
     expect(document.querySelector('.wb-horizon')).toBeNull();
   });
 

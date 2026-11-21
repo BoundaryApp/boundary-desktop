@@ -1,4 +1,5 @@
 import { formatInferenceChipTitle, sharedModelLabel } from '../../../shared/inferenceDisplay';
+import { chainEntryKey } from '../../../shared/inferenceChainKey';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { CirclesState } from '../../../shared/types/circles';
 import type { InferenceSlotId, LlmSlotStatus } from '../../../shared/types/onboarding';
@@ -50,12 +51,7 @@ const SKIPPED_NOTE: Record<ChainPlace, string> = {
   candidate: 'Can’t be used yet.',
 };
 
-export function entryKey(entry: InferenceChainEntry): string {
-  const model = entry.modelId?.trim() ?? '';
-  return entry.slot === 'peer'
-    ? `peer:${entry.peer?.circleId ?? ''}:${entry.peer?.providerId ?? ''}:${model}`
-    : `${entry.slot}:${model}`;
-}
+export const entryKey = chainEntryKey;
 
 /** A pool's model name, or its id when the catalog doesn't name it. */
 function poolModelName(modelId: string, pools: PoolContext | undefined): string {

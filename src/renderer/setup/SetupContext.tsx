@@ -10,6 +10,7 @@ import type {
   AcknowledgeCapabilityResult,
   CapabilityAssessment,
   CapabilityStatus,
+  RuntimeProvisionSnapshot,
 } from '../../shared/types/capability';
 import type { DiscoveredLocalLlm } from '../../shared/types/onboarding';
 import type {
@@ -29,6 +30,7 @@ import {
   type SetupStepDefinition,
   type SetupStepId,
 } from './types';
+import { errorText } from '../lib/errorText';
 
 interface SetupContextValue {
   loading: boolean;
@@ -40,6 +42,8 @@ interface SetupContextValue {
   capabilityLoading: boolean;
   capabilityError: string | null;
   provisionProgress: string | null;
+  /** Where resolving the container runtime has got to; null until a resolve reports. */
+  provisionStage: RuntimeProvisionSnapshot | null;
   /** Local LLM servers found on this Mac, kept current by main's `local-llm:changed`. */
   localLlms: DiscoveredLocalLlm[];
   discoverLocalLlms: () => Promise<void>;
@@ -83,6 +87,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [capabilityLoading, setCapabilityLoading] = useState(true);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [provisionProgress, setProvisionProgress] = useState<string | null>(null);
+  const [provisionStage, setProvisionStage] = useState<RuntimeProvisionSnapshot | null>(null);
   const [localLlms, setLocalLlms] = useState<DiscoveredLocalLlm[]>([]);
   const assistantStackStatus = useAssistantStackStatus();
   const assistantStackLoaded = useAssistantStackStatusLoaded();
@@ -125,7 +130,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setSetupProgress(result.progress);
       return result;
     } catch (err) {
-      setFirstRunFolderError(err instanceof Error ? err.message : String(err));
+      setFirstRunFolderError(errorText(err));
       // Drop the local picks so the app moves on to chat with the error.
       setSetupProgress((prev) => (prev ? { ...prev, pendingFolders: [] } : prev));
       return null;
@@ -158,7 +163,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setProvisionProgress(stickyProvisionProgress(status, assessment));
       return assessment;
     } catch (err) {
-      setCapabilityError(err instanceof Error ? err.message : String(err));
+      setCapabilityError(errorText(err));
       return null;
     } finally {
       setCapabilityLoading(false);
@@ -168,6 +173,12 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     return window.electronAPI.capability.onProgress((message) => {
       setProvisionProgress(message);
+    });
+  }, []);
+
+  useEffect(() => {
+    return window.electronAPI.capability.onProvisionStage((snapshot) => {
+      setProvisionStage(snapshot);
     });
   }, []);
 
@@ -202,11 +213,13 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       status = await window.electronAPI.capability.getStatus();
     } catch (err) {
-      setCapabilityError(err instanceof Error ? err.message : String(err));
+      setCapabilityError(errorText(err));
       setCapabilityLoading(false);
       return;
     }
     setCapabilityStatus(status);
+    // A resolve the stack started before this window may already be under way.
+    if (status.provisionStage) setProvisionStage(status.provisionStage);
     if (!status.acknowledged) {
       await assessCapability();
       return;
@@ -266,6 +279,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       capabilityLoading,
       capabilityError,
       provisionProgress,
+      provisionStage,
       localLlms,
       discoverLocalLlms,
       setupProgress,
@@ -293,6 +307,7 @@ export const SetupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       capabilityStatus,
       loading,
       provisionProgress,
+      provisionStage,
       localLlms,
       discoverLocalLlms,
       snapshot,

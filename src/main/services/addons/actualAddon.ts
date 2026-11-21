@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type {
   ActualAccess,
   ActualBudget,
@@ -14,8 +12,10 @@ import type {
 } from '../../../shared/types/addons';
 import { isActualFailure } from '../../../shared/types/addons';
 import { ADDON_SLUG } from '../../../shared/utils/slug';
-import { readEnvFile } from '../assistant/stackEnv';
-import { outcomeText, readStackFile, scriptFailure, type AddonScript, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
+import { flagOn, outcomeText, readStackFile, scriptFailure, type AddonScript, type AddonScriptLine, type AddonScriptOutcome } from './addonScript';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 // Actual Budget's connected budgets (spec decisions 18–25, CR 0026). The stack keeps everything:
 // `addon.sh connect actual` stores the session token, `instances/<slug>.json` holds the
@@ -48,12 +48,9 @@ const STATUS_TIMEOUT_MS = 600_000;
 const ENABLE_TIMEOUT_MS = 1_800_000;
 
 /** The stack tree can run Actual as an add-on: `addon.sh`, and a manifest with the init and connect hooks. */
-export function actualAvailable(
-  root: string,
-  read: (p: string) => string | null = readStackFile
-): boolean {
-  if (read(path.join(root, 'scripts', 'addon.sh')) === null) return false;
-  const manifest = read(path.join(root, 'addons', 'actual', 'addon.json'));
+export async function actualAvailable(files: StackFiles): Promise<boolean> {
+  if ((await readStackFile(files, 'scripts/addon.sh')) === null) return false;
+  const manifest = await readStackFile(files, 'addons/actual/addon.json');
   if (!manifest) return false;
   try {
     const m = JSON.parse(manifest) as { hooks?: { init?: unknown }; instances?: { connect?: unknown } };
@@ -63,8 +60,6 @@ export function actualAvailable(
   }
 }
 
-const on = (value: string | undefined): boolean => /^(1|true|yes|on)$/i.test((value ?? '').trim());
-
 export interface ActualFlags {
   enabled: boolean;
   local: boolean;
@@ -72,39 +67,38 @@ export interface ActualFlags {
 }
 
 /** Actual's settings in the stack's `.env`, which `addon.sh` writes in both stack modes. */
-export function readActualFlags(root: string): ActualFlags {
-  const env = readEnvFile(path.join(root, '.env'));
+export async function readActualFlags(files: StackFiles): Promise<ActualFlags> {
+  const env = await readStackEnv(files, 'stack', '.env');
   const port = Number(env.ACTUAL_PORT);
   return {
-    enabled: on(env.ACTUAL_MCP_ENABLED),
-    local: on(env.ACTUAL_LOCAL_ENABLED),
+    enabled: flagOn(env.ACTUAL_MCP_ENABLED),
+    local: flagOn(env.ACTUAL_LOCAL_ENABLED),
     port: Number.isInteger(port) && port > 0 && port < 65536 ? port : ACTUAL_DEFAULT_PORT,
   };
 }
 
-/** `<data root>/addons/actual`, the add-on's store. */
-const actualStoreDir = (dataRoot: string): string => path.join(dataRoot, 'addons', 'actual');
+/** The add-on's store, under the user-content location. */
+const ACTUAL_STORE = 'addons/actual';
 
 /**
  * The connected budgets from the index rows. A row carries no secret; an unreadable one is
  * left out. Write access is `bind.default` set to `rw`, as `budget.sh status` derives it; a row
  * with no `bind` is read-only, and an `access` field left from an older stack is ignored.
  */
-export function readActualRows(dataRoot: string): Omit<ActualBudget, 'state'>[] {
-  const dir = path.join(actualStoreDir(dataRoot), 'instances');
-  let names: string[];
+export async function readActualRows(files: StackFiles): Promise<Omit<ActualBudget, 'state'>[]> {
+  let names: string[] | null;
   try {
-    names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+    names = await files.list('userContent', `${ACTUAL_STORE}/instances`);
   } catch {
     return [];
   }
   const rows: Omit<ActualBudget, 'state'>[] = [];
-  for (const name of names) {
+  for (const name of (names ?? []).filter((n) => n.endsWith('.json')).sort()) {
     const slug = name.slice(0, -'.json'.length);
     if (!ADDON_SLUG.test(slug)) continue;
     let row: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as unknown;
+      const parsed = JSON.parse((await files.readText('userContent', `${ACTUAL_STORE}/instances/${name}`)) ?? '') as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
       row = parsed as Record<string, unknown>;
     } catch {
@@ -123,25 +117,26 @@ export function readActualRows(dataRoot: string): Omit<ActualBudget, 'state'>[] 
 }
 
 function bindsWrite(bind: unknown): boolean {
-  return Boolean(bind) && typeof bind === 'object' && !Array.isArray(bind) && (bind as Record<string, unknown>).default === 'rw';
+  return isRecord(bind) && bind.default === 'rw';
 }
 
-/** This Mac's server has the password `init --server-only` stored. */
-function localServerSetUp(dataRoot: string): boolean {
+const SERVER_PASSWORD = `${ACTUAL_STORE}/secrets/server_password`;
+
+/** The server password `init --server-only` generated, for Copy password. Null when there is none. */
+export async function readLocalServerPassword(files: StackFiles): Promise<string | null> {
   try {
-    return fs.statSync(path.join(actualStoreDir(dataRoot), 'secrets', 'server_password')).size > 0;
+    return ((await files.readText('userContent', SERVER_PASSWORD)) ?? '').trim() || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** The server password `init --server-only` generated, for Copy password. Null when there is none. */
-export function readLocalServerPassword(dataRoot: string): string | null {
+/** This Mac's server has the password `init --server-only` stored. */
+async function localServerSetUp(files: StackFiles): Promise<boolean> {
   try {
-    const value = fs.readFileSync(path.join(actualStoreDir(dataRoot), 'secrets', 'server_password'), 'utf8').trim();
-    return value || null;
+    return ((await files.readText('userContent', SERVER_PASSWORD)) ?? '') !== '';
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -199,6 +194,8 @@ function serverInput(input: ActualServerInput): Record<string, unknown> {
 
 export interface ActualServiceDeps {
   paths(): { root: string; dataRoot: string };
+  /** The stack's files: the add-on's store and its server password. */
+  files: StackFiles;
   /** Runs a stack script with the stack's script environment, in the stack root. */
   run(
     script: AddonScript,
@@ -212,7 +209,7 @@ export interface ActualServiceDeps {
 }
 
 export interface ActualService {
-  overview(): ActualOverview;
+  overview(): Promise<ActualOverview>;
   /** Runs `budget.sh status --json` and keeps each row's state. Resolves with the new overview. */
   refreshStatus(): Promise<ActualOverview>;
   /** The budgets the credential can open, from `budget.sh budgets --json`. Writes nothing. */
@@ -233,10 +230,9 @@ export function createActualService(deps: ActualServiceDeps): ActualService {
   const states = new Map<string, ActualBudgetState>();
   let statusError: string | null = null;
 
-  const overview = (): ActualOverview => {
-    const { root, dataRoot } = deps.paths();
-    const flags = readActualFlags(root);
-    const budgets = readActualRows(dataRoot).map((row): ActualBudget => {
+  const overview = async (): Promise<ActualOverview> => {
+    const flags = await readActualFlags(deps.files);
+    const budgets = (await readActualRows(deps.files)).map((row): ActualBudget => {
       // A row on this Mac's server while it's off can't sign in, whatever status said last.
       const state = row.local && !flags.local ? 'server_off' : (states.get(row.slug) ?? null);
       return { ...row, state };
@@ -244,7 +240,7 @@ export function createActualService(deps: ActualServiceDeps): ActualService {
     return {
       enabled: flags.enabled,
       local: flags.local,
-      localSetUp: localServerSetUp(dataRoot),
+      localSetUp: await localServerSetUp(deps.files),
       budgets,
       statusError,
     };
@@ -270,7 +266,7 @@ export function createActualService(deps: ActualServiceDeps): ActualService {
   };
 
   const connectUnlocked = async (input: ActualConnectInput): Promise<ActualConnectResult> => {
-    if (!readActualFlags(deps.paths().root).enabled) {
+    if (!(await readActualFlags(deps.files)).enabled) {
       // A budget connected while the add-on is off is stored, but Hermes registers none.
       const enabled = await enable();
       if (enabled.kind !== 'done') return failure(enabled);
@@ -366,9 +362,12 @@ export function createActualService(deps: ActualServiceDeps): ActualService {
   };
 }
 
-/** Where Open Actual goes for a row: this Mac's port, or the row's own server. Null for anything not http(s). */
-export function actualOpenUrl(budget: Pick<ActualBudget, 'local' | 'server'> | null, port: number): string | null {
-  if (!budget || budget.local) return `http://localhost:${port}`;
+/**
+ * Where Open Actual goes for a row: `localUrl` (this Mac's server), or the row's own server. Null
+ * for anything not http(s).
+ */
+export function actualOpenUrl(budget: Pick<ActualBudget, 'local' | 'server'> | null, localUrl: string): string | null {
+  if (!budget || budget.local) return localUrl;
   try {
     const url = new URL(budget.server);
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;

@@ -22,6 +22,8 @@ const pendingCalls = new Map<number, (result: ToolCallResult) => void>();
 const pendingCalendarLists = new Map<number, (tools: HostToolDefinition[]) => void>();
 /** Calendar token → agent slug. Main sends the whole map whenever it changes. */
 let calendarTokens: Record<string, string> = {};
+/** The credential client's accepted tokens (ADR 0065); main replaces them on rotation. */
+let credentialTokens: string[] = [];
 
 function post(message: BridgeToMain): void {
   port.postMessage(message);
@@ -105,6 +107,7 @@ port.on('message', (event: { data: MainToBridge }) => {
     case 'start':
       if (servers) return;
       listing = message.listing;
+      credentialTokens = message.credentialTokens;
       relay = new BrowserRelay(message.browser, log);
       hermesSessions = new LiveHermesSessions(message.sessionIdleMs);
       sweepTimer = setInterval(() => postHermesClients(hermesSessions?.sweep()), message.sessionIdleMs / 2);
@@ -112,6 +115,7 @@ port.on('message', (event: { data: MainToBridge }) => {
       startBridgeServers({
         mcpToken: message.mcpToken,
         browserToken: message.browserToken,
+        credentialTokens: () => credentialTokens,
         mcpPort: message.mcpPort,
         browserPort: message.browserPort,
         callTool,
@@ -140,6 +144,9 @@ port.on('message', (event: { data: MainToBridge }) => {
     }
     case 'calendar-tokens':
       calendarTokens = message.tokens;
+      return;
+    case 'credential-tokens':
+      credentialTokens = message.tokens;
       return;
     case 'calendar-tool-list-result': {
       const resolve = pendingCalendarLists.get(message.id);

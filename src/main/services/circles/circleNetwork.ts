@@ -1,7 +1,7 @@
 /**
  * The Circles runtime inside the network utilityProcess (ADR 0032). It holds one Corestore and one
  * Hyperswarm, and opens an Autobase for each Circle in its own Corestore namespace. Main hands it
- * the user's seeds and each Circle's secrets, and keeps them; this side keeps nothing but blocks.
+ * the user's seeds and each Circle's secrets, and keeps them; this side keeps blocks and the list of removed devices (`removed-devices.json`).
  *
  * Replication is limited to known people: a connection replicates only when its device is a
  * member of one of this user's Circles, or while a Circle is still joining and knows no one yet.
@@ -74,8 +74,6 @@ import { addressClass } from './addressClass';
 import { beeView } from './autobaseApply';
 import { CallTunnels, tunnelSample, type CallTunnelStats } from './callTunnel';
 
-/** How often tunnels are sampled while open. */
-const TUNNEL_SAMPLE_MS = 5_000;
 import { decodeSignal, encodeSignal, SignalStats, type CircleSignal } from './circleSignals';
 import type {
   CircleChannel,
@@ -87,8 +85,9 @@ import type {
   CircleReadPosition,
   CircleServing,
 } from '../../../shared/types/circles';
-import { onInferenceOpen, openInferenceLink, type InferenceLink, type SharedModelResponse } from './inferenceChannel';
-import { InferenceGateway, type GatewayUpstream } from './inferenceGateway';
+import { INFERENCE_LINK, type InferenceLink, type SharedModelResponse } from './inferenceChannel';
+import { GatewayLink, onLinkOpen, type LinkGateway, type LinkSpec } from './gatewayLink';
+import { InferenceGateway, type GatewayRequest, type GatewayUpstream } from './inferenceGateway';
 import type {
   CirclePublicAddress,
   CircleRecordChange,
@@ -102,9 +101,12 @@ import type {
 } from './networkMessages';
 import { RemovalLink } from './removalNotice';
 import { SharedFolders } from './sharedFolders';
-import { onServiceOpen, openServiceLink, type ServiceLink } from './serviceChannel';
+import { SERVICE_LINK, type ServiceLink } from './serviceChannel';
 import { ServiceGateway, type ServiceGrantKeys, type ServiceRequest, type ServiceUpstream } from './serviceGateway';
 import { onSignalOpen, SignalLink } from './signalChannel';
+
+/** How often tunnels are sampled while open. */
+const TUNNEL_SAMPLE_MS = 5_000;
 
 export interface CircleNetworkOptions {
   storageDir: string;
@@ -233,6 +235,31 @@ const REPLIES_NEED_UPDATE = 'Replies need this Circle to be updated first.';
 /** Thrown when a post or edit carries mentions to a Circle still on an older format. */
 const MENTIONS_NEED_UPDATE = 'Mentions need this Circle updated.';
 
+/** A connected device, as `CircleNetwork.peers` keeps it. */
+interface Peer {
+  connection: SecretStream;
+  replicating: boolean;
+  inference: InferenceLink | null;
+  services: ServiceLink | null;
+  signals: SignalLink | null;
+  removal: RemovalLink | null;
+  /** Circles this connection has been told it was removed from. */
+  noticed: Set<string>;
+  dropTimer: NodeJS.Timeout | null;
+  connectedAt: number;
+}
+
+/**
+ * One kind of gateway link a peer can have: its spec, this side's gateway, and the peer's slot
+ * for it. Diagnostics events take their prefixes from `spec.events`.
+ */
+interface LinkKind<R extends { id: number; circle: string }> {
+  spec: LinkSpec<R>;
+  gateway: LinkGateway<R>;
+  get(peer: Peer): GatewayLink<R> | null;
+  set(peer: Peer, link: GatewayLink<R> | null): void;
+}
+
 export class CircleNetwork {
   readonly identity: { publicKey: Buffer; secretKey: Buffer };
   readonly device: { publicKey: Buffer; secretKey: Buffer };
@@ -246,29 +273,18 @@ export class CircleNetwork {
   private readonly reactQueues = new Map<string, Promise<void>>();
   /**
    * Connected devices, by device key: whether this side is replicating with each, and the
-   * inference and signal channels, which open alongside replication.
+   * inference, service, signal and removal channels, which open alongside replication.
    */
-  private readonly peers = new Map<
-    string,
-    {
-      connection: SecretStream;
-      replicating: boolean;
-      link: InferenceLink | null;
-      services: ServiceLink | null;
-      signals: SignalLink | null;
-      removal: RemovalLink | null;
-      /** Circles this connection has been told it was removed from. */
-      noticed: Set<string>;
-      dropTimer: NodeJS.Timeout | null;
-      connectedAt: number;
-    }
-  >();
+  private readonly peers = new Map<string, Peer>();
   /** Devices removed from each Circle, by Circle key, kept so one offline then hears on return. */
   private readonly removedDevices: Map<string, Set<string>>;
   private readonly gateway: InferenceGateway;
   /** This user's model server, when they share; main sets it. */
   private shareUpstream: GatewayUpstream | null = null;
   private readonly serviceGateway: ServiceGateway;
+  /** The inference link (ADR 0034 §2) and the service link (ADR 0048 §1), which work alike. */
+  private readonly inferenceLink: LinkKind<GatewayRequest>;
+  private readonly serviceLink: LinkKind<ServiceRequest>;
   /** Members' keys for this user's services, by `circle/service/identity`; main sets them. */
   private serviceGrants = new Map<string, ServiceGrantKeys>();
   private serviceUpstreams = new Map<string, ServiceUpstream>();
@@ -328,6 +344,22 @@ export class CircleNetwork {
       usage: options.serviceUsage,
       onUsage: (served) => options.onServiceUsage?.(served),
     });
+    this.inferenceLink = {
+      spec: INFERENCE_LINK,
+      gateway: this.gateway,
+      get: (peer) => peer.inference,
+      set: (peer, link) => {
+        peer.inference = link;
+      },
+    };
+    this.serviceLink = {
+      spec: SERVICE_LINK,
+      gateway: this.serviceGateway,
+      get: (peer) => peer.services,
+      set: (peer, link) => {
+        peer.services = link;
+      },
+    };
   }
 
   async ready(): Promise<void> {
@@ -377,7 +409,7 @@ export class CircleNetwork {
       peers: [...this.peers.entries()].map(([device, peer]) => ({
         device: short(device),
         replicating: peer.replicating,
-        link: peer.link ? (peer.link.closed ? 'closed' : 'open') : null,
+        link: peer.inference ? (peer.inference.closed ? 'closed' : 'open') : null,
         ageS: Math.round((Date.now() - peer.connectedAt) / 1000),
         rttMs: peer.connection.rawStream?.rtt ?? null,
         addr: addressClass(peer.connection.rawStream?.remoteHost),
@@ -423,7 +455,7 @@ export class CircleNetwork {
     this.peers.set(device, {
       connection,
       replicating: false,
-      link: null,
+      inference: null,
       services: null,
       signals: null,
       removal,
@@ -439,8 +471,9 @@ export class CircleNetwork {
       replaced,
       peers: this.peers.size,
     });
-    onInferenceOpen(connection, () => this.attachInference(device, 'remote'));
-    onServiceOpen(connection, () => this.attachService(device, 'remote'));
+    for (const kind of [this.inferenceLink, this.serviceLink] as const) {
+      onLinkOpen(connection, kind.spec.protocol, () => this.attachLink(kind, device, 'remote'));
+    }
     onSignalOpen(connection, () => this.attachSignals(device));
     this.tunnels.attach(device, connection);
     connection.on('error', (err: unknown) => {
@@ -493,8 +526,8 @@ export class CircleNetwork {
           this.store.replicate(peer.connection);
           this.diag('peer.replicate', { device: short(device), known: known.has(device), joining });
         }
-        this.attachInference(device, 'local');
-        this.attachService(device, 'local');
+        this.attachLink(this.inferenceLink, device, 'local');
+        this.attachLink(this.serviceLink, device, 'local');
         this.attachSignals(device);
       } else if (peer.replicating) {
         // It was replicating, so it was known: it has since been removed everywhere we meet.
@@ -517,8 +550,8 @@ export class CircleNetwork {
       const me = circle?.state.members.find((member) => member.identity === this.identityHex);
       if (me?.role !== 'admin' || !peer.removal) continue;
       peer.noticed.add(key);
-      peer.removal.send(Buffer.from(key, 'hex'));
-      this.diag('removal.notice-sent', { circle: short(key), device: short(device) });
+      const sent = peer.removal.send(Buffer.from(key, 'hex'));
+      this.diag(sent ? 'removal.notice-sent' : 'removal.notice-dropped', { circle: short(key), device: short(device) });
     }
     return peer.noticed.size > 0;
   }
@@ -585,47 +618,29 @@ export class CircleNetwork {
     writeFileSync(this.removedDevicesFile(), JSON.stringify(stored));
   }
 
-  /** Open the inference channel with a known device, unless it is already open. */
-  private attachInference(device: string, opener: 'local' | 'remote'): void {
+  /** Open a gateway link of `kind` with a known device, unless it is already open. */
+  private attachLink<R extends { id: number; circle: string }>(kind: LinkKind<R>, device: string, opener: 'local' | 'remote'): void {
+    const event = kind.spec.events.link;
     const peer = this.peers.get(device);
     if (!peer?.replicating) {
       // A remote open from a device not known here is turned down by Protomux.
-      if (opener === 'remote') this.diag('link.refused-unknown', { device: short(device), connected: Boolean(peer) });
+      if (opener === 'remote') this.diag(`${event}.refused-unknown`, { device: short(device), connected: Boolean(peer) });
       return;
     }
-    if (peer.link && !peer.link.closed) return;
-    const link = openInferenceLink(
+    const current = kind.get(peer);
+    if (current && !current.closed) return;
+    const link = GatewayLink.attach(
+      kind.spec,
       peer.connection,
       device,
-      this.gateway,
+      kind.gateway,
       () => {
-        if (peer.link === link) peer.link = null;
+        if (kind.get(peer) === link) kind.set(peer, null);
       },
-      (event, data) => this.diag(event, data)
+      (name, data) => this.diag(name, data)
     );
-    if (link) this.diag('link.attach', { device: short(device), opener });
-    peer.link = link;
-  }
-
-  /** Open the service channel with a known device, unless it is already open. */
-  private attachService(device: string, opener: 'local' | 'remote'): void {
-    const peer = this.peers.get(device);
-    if (!peer?.replicating) {
-      if (opener === 'remote') this.diag('service-link.refused-unknown', { device: short(device), connected: Boolean(peer) });
-      return;
-    }
-    if (peer.services && !peer.services.closed) return;
-    const link = openServiceLink(
-      peer.connection,
-      device,
-      this.serviceGateway,
-      () => {
-        if (peer.services === link) peer.services = null;
-      },
-      (event, data) => this.diag(event, data)
-    );
-    if (link) this.diag('service-link.attach', { device: short(device), opener });
-    peer.services = link;
+    if (link) this.diag(`${event}.attach`, { device: short(device), opener });
+    kind.set(peer, link);
   }
 
   /** Who a device belongs to in a Circle this device has open, or null. */
@@ -675,12 +690,12 @@ export class CircleNetwork {
     this.options.onSignal?.({ ...frame, from: sender.identity, device });
   }
 
-  /** The topics to deliver through `onSignal`; replaces the previous list. */
   /** The apps `onRecord` reports. Records of other apps still replicate and stay in the view. */
   setRecordApps(apps: string[]): void {
     this.recordApps = new Set(apps);
   }
 
+  /** The topics to deliver through `onSignal`; replaces the previous list. */
   setSignalTopics(topics: string[]): void {
     this.signalTopics = new Set(topics);
   }
@@ -1653,30 +1668,30 @@ export class CircleNetwork {
     request: Omit<ServiceRequest, 'id' | 'circle'>,
     signal?: AbortSignal
   ): Promise<SharedModelResponse> {
-    const member = this.circle(key).state.members.find((candidate) => candidate.identity === provider);
-    const link = (member ? this.peers.get(member.device) : undefined)?.services ?? null;
-    if (!link) {
-      this.diag('service-call.no-link', { circle: short(key), provider: short(provider), member: Boolean(member) });
-      return Promise.reject(new Error('The provider is not connected.'));
-    }
-    return link.request({ ...request, circle: key }, signal);
+    return this.requestLink(this.serviceLink, key, provider, request, signal);
   }
 
   /**
    * Ask a member's gateway for one of their shared models. Rejects when they aren't connected;
    * the router treats that as unreachable (ADR 0033 §6).
    */
-  requestSharedModel(
+  requestSharedModel(key: string, provider: string, request: SharedModelCall, signal?: AbortSignal): Promise<SharedModelResponse> {
+    return this.requestLink(this.inferenceLink, key, provider, request, signal);
+  }
+
+  /** Send `request` over the `kind` link to `provider`'s device in Circle `key`. */
+  private requestLink<R extends { id: number; circle: string }>(
+    kind: LinkKind<R>,
     key: string,
     provider: string,
-    request: SharedModelCall,
+    request: Omit<R, 'id' | 'circle'>,
     signal?: AbortSignal
   ): Promise<SharedModelResponse> {
     const member = this.circle(key).state.members.find((candidate) => candidate.identity === provider);
     const peer = member ? this.peers.get(member.device) : undefined;
-    const link = peer?.link ?? null;
+    const link = peer ? kind.get(peer) : null;
     if (!link) {
-      this.diag('shared.no-link', {
+      this.diag(`${kind.spec.events.call}.no-link`, {
         circle: short(key),
         provider: short(provider),
         member: Boolean(member),
@@ -1685,7 +1700,7 @@ export class CircleNetwork {
       });
       return Promise.reject(new Error('The provider is not connected.'));
     }
-    return link.request({ ...request, circle: key }, signal);
+    return link.request({ ...request, circle: key } as Omit<R, 'id'>, signal);
   }
 
   /**

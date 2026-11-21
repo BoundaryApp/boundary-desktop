@@ -1,4 +1,5 @@
-import { readAssistantEnvFile } from './assistantPaths';
+import type { StackFiles } from '../stackHost/types';
+import { readStackEnv } from './stackEnv';
 import { redactSecrets } from '../secrets/redact';
 
 /**
@@ -35,14 +36,15 @@ export interface LlmProxyStatus {
 }
 
 export interface LlmProxyTarget {
-  adminPort: number;
+  /** The admin API's address on this machine, without a path. */
+  baseUrl: string;
   token: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
 
-export function readLlmProxyAdminToken(projectRoot: string): string | null {
-  const token = readAssistantEnvFile(projectRoot).LLM_PROXY_ADMIN_TOKEN?.trim();
+export async function readLlmProxyAdminToken(files: StackFiles): Promise<string | null> {
+  const token = (await readStackEnv(files, 'stack', '.env')).LLM_PROXY_ADMIN_TOKEN?.trim();
   return token || null;
 }
 
@@ -57,7 +59,7 @@ async function call(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), target.timeoutMs ?? 5_000);
   try {
-    const response = await fetchImpl(`http://127.0.0.1:${target.adminPort}/admin/upstreams`, {
+    const response = await fetchImpl(`${target.baseUrl}/admin/upstreams`, {
       method,
       headers: {
         Authorization: `Bearer ${target.token}`,

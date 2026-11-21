@@ -11,11 +11,12 @@
  * kind and a fixed detail; their text may quote a URL or body.
  */
 import type { AdapterChatResult, AdapterFailure, ConfidentialAdapter, ListedOffer } from '../adapter';
-import { discard, isRecord, knownEntries, parseJson, plainRequest, postChat, rateLimited, readBounded, receiveReply, serverFailure, sharedMethods } from '../adapterKit';
+import { discard, knownEntries, parseJson, plainRequest, postChat, rateLimited, readBounded, receiveReply, serverFailure, settleOrAbort, sharedMethods } from '../adapterKit';
 import type { SseEvent } from '../sseTransform';
 import { loadReticle } from './loadReticle';
-import { attestPrem, settleOrAbort, type ReticleLike } from './premAttestation';
+import { attestPrem, type ReticleLike } from './premAttestation';
 import { isPremPublicKey, openFrame, openResponse, sealRequest, type PremSealed } from './premCrypto';
+import { isRecord } from '../../../../../shared/utils/isRecord';
 
 const GATEWAY = 'https://gateway.prem.io';
 const PUBLIC_KEY_URL = 'https://conf-engine.prem.io/publicKey';

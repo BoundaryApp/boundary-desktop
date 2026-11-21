@@ -167,13 +167,11 @@ export interface ProbeSlotHealthInput {
   slot: InferenceSlotId;
 }
 
-export interface ProbeSlotHealthResult {
-  success: boolean;
+export type ProbeSlotHealthResult = IpcResult<{
   health: LlmSlotHealth;
   status?: InferenceProvidersStatus;
   lastSeenAt?: string;
-  error?: string;
-}
+}>;
 
 export interface ClearLlmSlotInput {
   slot: InferenceSlotId;
@@ -183,11 +181,9 @@ export interface ListConfiguredEndpointModelsInput {
   slot?: InferenceSlotId;
 }
 
-export interface SendLlmTestMessageResult {
-  success: boolean;
+export type SendLlmTestMessageResult = IpcResult<{
   content?: string;
-  error?: string;
-}
+}>;
 
 export interface ListEndpointModelsInput {
   baseUrl: string;
@@ -197,11 +193,9 @@ export interface ListEndpointModelsInput {
   extraHeaders?: Record<string, string>;
 }
 
-export interface ListEndpointModelsResult {
-  success: boolean;
+export type ListEndpointModelsResult = IpcResult<{
   models: ListedModel[];
-  error?: string;
-}
+}>;
 
 export interface OAuthConnectionProviderSummary {
   id: OAuthConnectionProviderId;
@@ -209,11 +203,9 @@ export interface OAuthConnectionProviderSummary {
   description: string;
 }
 
-export interface ListOAuthProvidersResult {
-  success: boolean;
+export type ListOAuthProvidersResult = IpcResult<{
   providers: OAuthConnectionProviderSummary[];
-  error?: string;
-}
+}>;
 
 export interface StartOAuthPkceInput {
   providerId: OAuthConnectionProviderId;
@@ -230,11 +222,9 @@ export interface OAuthPkceCredentialsBundle {
   extraHeaders?: Record<string, string>;
 }
 
-export interface StartOAuthPkceResult {
-  success: boolean;
+export type StartOAuthPkceResult = IpcResult<{
   credentials?: OAuthPkceCredentialsBundle;
-  error?: string;
-}
+}>;
 
 export type CancelOAuthPkceResult = IpcResult;
 
@@ -256,11 +246,9 @@ export interface DiscoveredLocalLlm {
   models: DiscoveredLocalLlmModel[];
 }
 
-export interface DiscoverLocalLlmsResult {
-  success: boolean;
+export type DiscoverLocalLlmsResult = IpcResult<{
   endpoints: DiscoveredLocalLlm[];
-  error?: string;
-}
+}>;
 
 export interface AdoptLocalLlmInput {
   runtime: LocalLlmRuntime;

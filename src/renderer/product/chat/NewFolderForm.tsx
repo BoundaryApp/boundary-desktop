@@ -10,6 +10,10 @@ import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { Callout } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
+import { Input } from '../../components/ui/input';
+import { Segmented } from '../../components/ui/segmented';
 
 /**
  * New folder… in the add sheet (ADR 0028 §8, mock flow 1 "New folder" and "Name taken"):
@@ -137,7 +141,7 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
       <h2 id="wb-add-folder-title">Create a folder on this Mac</h2>
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           ref={nameInput}
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -196,44 +200,35 @@ export const NewFolderForm: React.FC<NewFolderFormProps> = ({
           </div>
         </Callout>
       ) : null}
-      <label className={`wb-check-row${defaults && !defaults.gitAvailable ? ' is-off' : ''}`}>
-        <input
-          type="checkbox"
-          checked={initGit}
-          disabled={busy || !defaults?.gitAvailable}
-          onChange={(e) => setInitGit(e.target.checked)}
-        />
-        <span>
-          <b>Start a git repo</b>
-          <span>
-            {defaults && !defaults.gitAvailable
-              ? `Git isn’t installed on this Mac, so ${APP_NAME} can’t start a repo. Installing the Xcode command line tools adds it.`
-              : 'Adds an empty first commit, so every change the coding agent makes can be undone.'}
-          </span>
-        </span>
-      </label>
-      <div className="wb-seg" role="radiogroup" aria-label="Access">
-        <button
-          type="button"
-          role="radio"
-          aria-checked={access === 'code'}
-          className={access === 'code' ? 'is-on' : ''}
-          disabled={!codeAllowed || busy}
-          onClick={() => setAccess('code')}
-        >
-          Code in it
-        </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={access === 'reference'}
-          className={access === 'reference' ? 'is-on' : ''}
-          disabled={busy}
-          onClick={() => setAccess('reference')}
-        >
-          Use as reference
-        </button>
-      </div>
+      <ChoiceRow
+        variant="card"
+        className="mb-2.5"
+        control={
+          <Checkbox
+            checked={initGit}
+            disabled={busy || !defaults?.gitAvailable}
+            onChange={(e) => setInitGit(e.target.checked)}
+          />
+        }
+        title="Start a git repo"
+        description={
+          defaults && !defaults.gitAvailable
+            ? `Git isn’t installed on this Mac, so ${APP_NAME} can’t start a repo. Installing the Xcode command line tools adds it.`
+            : 'Adds an empty first commit, so every change the coding agent makes can be undone.'
+        }
+      />
+      <Segmented<FolderAccess>
+        block
+        className="mb-2.5"
+        aria-label="Access"
+        disabled={busy}
+        value={access}
+        options={[
+          { value: 'code', label: 'Code in it', disabled: !codeAllowed },
+          { value: 'reference', label: 'Use as reference' },
+        ]}
+        onChange={setAccess}
+      />
       {access === 'code' ? (
         <div className="wb-grant">
           <ul>

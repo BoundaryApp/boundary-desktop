@@ -6,11 +6,15 @@ import { EMPTY_RANKING, QWEN_RANKING, poolBridge } from '../../../__tests__/conf
 import { resetIpcStoresForTests } from '../../../lib/ipcStore';
 import type {
   HermesProjectRecord,
+  HermesProjectRemoveResult,
   HermesProjectSourcesInspect,
 } from '../../../../shared/types/hermesChat';
+import type { CirclesState } from '../../../../shared/types/circles';
 import { replied } from '../../../__tests__/mockReplies';
 import { ProjectSourcesRail } from '../ProjectSourcesRail';
+import { patchProjectInference } from '../useProjects';
 import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { takeInferenceStatus } from '../../../onboarding/inferenceStatus';
 
 const getStatus = vi.fn();
@@ -18,6 +22,8 @@ const patchProject = vi.fn();
 const listCodingFolders = vi.fn();
 const codingAgentBusy = vi.fn();
 const setProjectFolderCoding = vi.fn();
+const inspectRemove = vi.fn();
+const removeProject = vi.fn();
 
 stubElectronAPI({
   onboarding: {
@@ -25,6 +31,8 @@ stubElectronAPI({
   },
   projects: {
     patch: (...args: unknown[]) => patchProject(...args),
+    inspectRemove: (...args: unknown[]) => inspectRemove(...args),
+    remove: (...args: unknown[]) => removeProject(...args),
   },
   codingFolders: {
     list: (...args: unknown[]) => listCodingFolders(...args),
@@ -140,7 +148,7 @@ describe('ProjectSourcesRail', () => {
 
   it('lists the Chat stack it inherits, and saves its own stack from Edit stack', async () => {
     const onProjectsUpdated = vi.fn();
-    renderRail({ onProjectsUpdated });
+    renderRail({ patchInference: (id, pin) => patchProjectInference(id, pin, onProjectsUpdated) });
     await waitFor(() => expect(stackRows()).toEqual(['1Local · qwen3:14bOn this Mac']));
     expect(screen.getByText('Chats here use the Chat stack, in order')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Back to Chat stack' })).toBeNull();
@@ -165,6 +173,7 @@ describe('ProjectSourcesRail', () => {
       rail({ mode: 'local', modelId: 'qwen3:14b' });
       await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
       const toggle = screen.getByRole('switch', { name: /^Private/ });
+      expect(document.getElementById(toggle.getAttribute('aria-describedby')!)?.textContent).toMatch(/local model/);
       expect(toggle.getAttribute('aria-checked')).toBe('false');
       fireEvent.click(toggle);
       await waitFor(() => {
@@ -173,6 +182,16 @@ describe('ProjectSourcesRail', () => {
           inference: { mode: 'local', modelId: 'qwen3:14b', privacyLocalOnly: true },
         });
       });
+    });
+
+    it('shows an error when the switch’s pin call rejects, and can be pressed again', async () => {
+      patchProject.mockRejectedValueOnce(new Error('IPC gone'));
+      rail({ mode: 'local', modelId: 'qwen3:14b' });
+      await waitFor(() => expect(stackRows()[0]).toMatch(/Local · qwen3:14b/));
+      const toggle = screen.getByRole('switch', { name: /^Private/ });
+      fireEvent.click(toggle);
+      expect(await screen.findByText('Could not update the project.')).toBeTruthy();
+      expect(toggle.hasAttribute('disabled')).toBe(false);
     });
 
     it('says when the stack starts on the cloud, and lets only Local come first', async () => {
@@ -273,6 +292,37 @@ describe('ProjectSourcesRail', () => {
         expect(confidential.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'A' });
         expect(screen.queryByText('Level B providers allowed')).toBeNull();
       });
+
+      it('sends from an inherited stack that starts with a pool while one serves it, as main does', async () => {
+        const confidential = bridge();
+        stubElectronAPI({ confidential });
+        getStatus.mockResolvedValue({ ...bothConfigured, appSharedModel: pool });
+        const inherits = { mode: 'inherit' as const, privacyLocalOnly: true, allowConfidentialLevelB: true };
+        const { rerender } = rail(inherits);
+        await waitFor(() => expect(confidential.rank).toHaveBeenCalledWith({ modelId: 'qwen', privateProject: true, projectFloor: 'B' }));
+        await waitFor(() => expect(stackRows()[0]).toMatch(/Confidential · Qwen 3\.8 27B/));
+        expect(stackRows()[0]).not.toMatch(/Not used: this project is private/);
+        expect(screen.queryByText(/isn’t private/)).toBeNull();
+
+        rerender(railElement({ project: { ...project, inference: { ...inherits, allowConfidentialLevelB: false } } }));
+        expect(await screen.findByText(/Confidential · Qwen 3\.8 27B isn’t private, so chats here can’t send/)).toBeTruthy();
+      });
+    });
+
+    it('sends from a shared model whose provider is marked private', async () => {
+      const peer = { slot: 'peer' as const, modelId: 'llama', peer: { circleId: 'c1', providerId: 'bo' } };
+      const circlesState: CirclesState = {
+        status: 'running',
+        displayName: 'Ada',
+        snapshot: { identity: 'ada', circles: [] },
+        providers: { bo: { private: true, trusted: true } },
+        sharing: { models: [], circles: [], paused: false, away: false },
+      };
+      stubElectronAPI({ circles: { getState: vi.fn().mockResolvedValue(circlesState), onState: () => () => {} } });
+      getStatus.mockResolvedValue({ ...bothConfigured, appSharedModel: peer });
+      rail({ mode: 'inherit', privacyLocalOnly: true });
+      await waitFor(() => expect(stackRows()[0]).toMatch(/llama/));
+      expect(screen.queryByText(/isn’t private/)).toBeNull();
     });
 
     it('shows a cloud fallback as not used', async () => {
@@ -407,20 +457,51 @@ describe('ProjectSourcesRail', () => {
   it('offers Check a file… in the project menu when the screen can show a check', () => {
     const onCheckFile = vi.fn();
     renderRail({ onCheckFile });
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Check a file…' }));
     expect(onCheckFile).toHaveBeenCalledTimes(1);
   });
 
   it('has no Check a file… without a place to show it', () => {
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
     expect(screen.queryByRole('menuitem', { name: 'Check a file…' })).toBeNull();
+  });
+
+  it('the menu has Remove project… and it opens the sheet', async () => {
+    inspectRemove.mockResolvedValue({
+      success: true,
+      projectId: 'p1',
+      name: 'Job Search',
+      kind: 'host-folder',
+      hostPath: project.hostPath,
+      requiresTypedName: false,
+    });
+    const result: HermesProjectRemoveResult = { success: true, removed: true, projects: [], activeId: null };
+    removeProject.mockResolvedValue(result);
+    const onProjectRemoved = vi.fn();
+    renderRail({ onProjectRemoved });
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
+    const items = screen.getAllByRole('menuitem');
+    expect(items.at(-1)?.textContent).toBe('Remove project…');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove project…' }));
+
+    expect(await screen.findByRole('heading', { name: 'Remove Job Search?' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove project' }));
+
+    await waitFor(() => expect(onProjectRemoved).toHaveBeenCalledWith(result));
+    expect(screen.queryByRole('heading', { name: 'Remove Job Search?' })).toBeNull();
+  });
+
+  it('the Remove project… item is disabled while connecting', () => {
+    renderRail({ connecting: true });
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Remove project…' }).getAttribute('aria-disabled')).toBe('true');
   });
 
   it('hides Refresh index for hub-only', () => {
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
     expect(screen.queryByRole('menuitem', { name: 'Refresh index' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Change folder' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Open in Finder' })).toBeTruthy();
@@ -429,19 +510,20 @@ describe('ProjectSourcesRail', () => {
   it('closes the project actions menu on an outside click and on Escape', async () => {
     renderRail();
     const more = screen.getByRole('button', { name: 'Project actions' });
-    fireEvent.click(more);
+    openMenu(more);
     expect(screen.getByRole('menu')).toBeTruthy();
-    // Radix listens for outside presses a tick after opening, and dismisses on the click.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    // Radix listens for outside presses a tick after opening.
+    await flushMenu();
     const outside = screen.getByText('project');
     fireEvent.pointerDown(outside);
     fireEvent.click(outside);
     expect(screen.queryByRole('menu')).toBeNull();
 
-    fireEvent.click(more);
+    openMenu(more);
+    await flushMenu();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await flushMenu();
     expect(document.activeElement).toBe(more);
   });
 
@@ -488,7 +570,7 @@ describe('ProjectSourcesRail', () => {
     ).toBe(true);
     expect(screen.getByText('Index is behind the files.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions' }));
+    openMenu(screen.getByRole('button', { name: 'Project actions' }));
     expect(screen.getByRole('menuitem', { name: 'Refresh index' })).toBeTruthy();
   });
 

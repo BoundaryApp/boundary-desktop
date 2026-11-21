@@ -164,6 +164,7 @@ import { AREA_MIN_PX, DOCK_DEFAULT_PX, DOCK_MIN_PX, ROW_PX } from '../dockHeight
 import { openCircle, resetCirclesOpenForTests, showJoiningPage } from '../circlesNavigation';
 import { dispatchAppCommand, useAppCommand } from '../../useAppShortcuts';
 import { useCircleNotificationClicks } from '../useCircleViewing';
+import { flushMenu, openMenu } from '../../../__tests__/openMenu';
 import { resetCallCheckForTests } from '../useCallCheck';
 
 function emit(update: Partial<CircleChatUpdate>) {
@@ -445,7 +446,8 @@ describe('the Circles destination', () => {
     render(<CirclesScreen />);
     await findInRail('heading', { name: 'Book club' });
     const area = circlesRail().querySelector('.wb-circle-area') as HTMLElement;
-    fireEvent.click(within(area).getByRole('button', { name: 'More for Book club' }));
+    openMenu(within(area).getByRole('button', { name: 'More for Book club' }));
+    await flushMenu();
     const menu = screen.getByRole('menu', { name: 'Book club' });
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       'Circle details',
@@ -641,7 +643,7 @@ describe('the Circles destination', () => {
     expect(await findInRail('button', { name: 'Garden, 3 unread, mentions you' })).toBeTruthy();
     const reads = chatChannels.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     fireEvent.click(await screen.findByRole('switch', { name: '@channel notifies me' }));
 
     await waitFor(() => expect(row().className).not.toContain('is-mentioned'));
@@ -665,10 +667,10 @@ describe('the Circles destination', () => {
     expect(screen.getByPlaceholderText('Message Book club · 2 people')).toBeTruthy();
     expect(screen.getByText('Everyone in Book club gets a copy')).toBeTruthy();
     expect(screen.queryByRole('switch', { name: 'Tools' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '@' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mention' })).toBeNull();
     // The panel starts closed, and the header's button opens it.
     expect(screen.queryByRole('complementary', { name: 'Circle details' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     expect(screen.getByRole('complementary', { name: 'Circle details' })).toBeTruthy();
 
     await waitFor(() => expect(chatRead).toHaveBeenCalledWith({
@@ -683,7 +685,7 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     const { unmount } = render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     expect(screen.getByRole('complementary', { name: 'Circle details' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add a channel' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Rename General' })).toBeNull();
@@ -693,7 +695,7 @@ describe('the Circles destination', () => {
     getState.mockResolvedValue(runningCircles({ circles: [admin] }));
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     const tab = screen.getByRole('complementary', { name: 'Circle details' });
     expect(within(tab).getByRole('button', { name: 'Rename General' })).toBeTruthy();
     expect(within(tab).queryByRole('button', { name: 'Remove General' })).toBeNull();
@@ -704,14 +706,14 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     const { unmount } = render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     expect(screen.queryByRole('button', { name: 'Remove messages' })).toBeNull();
     unmount();
 
     getState.mockResolvedValue(runningCircles({ circles: [{ ...circle, myRole: 'admin' as const }] }));
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     fireEvent.click(within(screen.getByRole('complementary', { name: 'Circle details' })).getByRole('button', { name: 'Remove messages' }));
     expect(screen.getAllByRole('checkbox')).toHaveLength(1);
     fireEvent.click(within(circlesRail()).getByRole('button', { name: /^Garden/ }));
@@ -776,7 +778,7 @@ describe('the Circles destination', () => {
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     const tab = screen.getByRole('complementary', { name: 'Circle details' });
     fireEvent.click(within(tab).getByRole('button', { name: 'Invite someone' }));
     expect(screen.getByRole('dialog', { name: 'Invite to Book club' })).toBeTruthy();
@@ -793,7 +795,7 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     const { unmount } = render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     // Members get no invite controls.
     expect(screen.queryByRole('button', { name: 'Invite someone' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Leave Book club' }));
@@ -805,7 +807,7 @@ describe('the Circles destination', () => {
     getState.mockResolvedValue(runningCircles({ circles: [{ ...circle, myRole: 'admin', members: [circle.members[0]] }] }));
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     expect(screen.queryByRole('button', { name: 'Leave Book club' })).toBeNull();
     deleteCircle.mockResolvedValue({ success: true, state: running });
     fireEvent.click(screen.getByRole('button', { name: 'Delete Book club' }));
@@ -821,7 +823,7 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     fireEvent.click(screen.getByRole('button', { name: 'Leave Book club' }));
     const sheet = screen.getByRole('dialog', { name: 'Leave Book club?' });
     expect(within(sheet).getByText(/If no admin is online, the leave finishes the next time one is/)).toBeTruthy();
@@ -836,13 +838,14 @@ describe('the Circles destination', () => {
 
   describe('a Circle row’s ⋯ menu', () => {
     /** The row's ⋯ in the dock; the open Circle's header has its own. */
-    const openMenu = async (name: string) => {
+    const openRowMenu = async (name: string) => {
       const more = await waitFor(() =>
         within(within(circlesRail()).getByRole('group', { name: 'Circle list' })).getByRole('button', {
           name: `More for ${name}`,
         })
       );
-      fireEvent.click(more);
+      openMenu(more);
+      await flushMenu();
       return screen.getByRole('menu', { name });
     };
     const items = (menu: HTMLElement) => within(menu).getAllByRole('menuitem').map((item) => item.textContent);
@@ -857,7 +860,7 @@ describe('the Circles destination', () => {
       threeCircles();
       openCircle(ATTIC);
       const { unmount } = render(<CirclesScreen />);
-      expect(items(await openMenu('Book club'))).toEqual(['Circle details', 'Notifications', 'Leave…']);
+      expect(items(await openRowMenu('Book club'))).toEqual(['Circle details', 'Notifications', 'Leave…']);
       unmount();
 
       const state = runningCircles({
@@ -869,13 +872,14 @@ describe('the Circles destination', () => {
       });
       getState.mockResolvedValue(state);
       render(<CirclesScreen />);
-      const admin = await openMenu('Book club');
+      const admin = await openRowMenu('Book club');
       expect(items(admin)).toEqual(['Invite someone…', 'Circle details', 'Notifications', 'Leave…']);
-      expect(within(admin).getByRole('menuitem', { name: 'Invite someone…' }).hasAttribute('disabled')).toBe(false);
+      expect(within(admin).getByRole('menuitem', { name: 'Invite someone…' }).getAttribute('aria-disabled')).toBeNull();
       fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
-      const readOnly = await openMenu('Choir');
-      expect(within(readOnly).getByRole('menuitem', { name: 'Invite someone…' }).hasAttribute('disabled')).toBe(true);
-      expect(within(readOnly).getByRole('menuitem', { name: 'Leave…' }).hasAttribute('disabled')).toBe(true);
+      await flushMenu();
+      const readOnly = await openRowMenu('Choir');
+      expect(within(readOnly).getByRole('menuitem', { name: 'Invite someone…' }).getAttribute('aria-disabled')).toBe('true');
+      expect(within(readOnly).getByRole('menuitem', { name: 'Leave…' }).getAttribute('aria-disabled')).toBe('true');
     });
 
     it('opens another Circle at the invite sheet, the Circle tab and the leave sheet, as the tab’s controls do', async () => {
@@ -884,19 +888,19 @@ describe('the Circles destination', () => {
       openCircle(ATTIC);
       render(<CirclesScreen />);
 
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Invite someone…' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Invite someone…' }));
       expect(await screen.findByRole('dialog', { name: 'Invite to Book club' })).toBeTruthy();
       expect(within(circlesRail()).getAllByRole('button', { name: 'Book club' })[0].getAttribute('aria-current')).toBe('true');
       fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
       openCircle(ATTIC);
-      fireEvent.click(within(await openMenu('Choir')).getByRole('menuitem', { name: 'Circle details' }));
+      fireEvent.click(within(await openRowMenu('Choir')).getByRole('menuitem', { name: 'Circle details' }));
       const tab = await screen.findByRole('complementary', { name: 'Circle details' });
       expect(within(tab).getByText('Choir')).toBeTruthy();
       expect(within(circlesRail()).getAllByRole('button', { name: 'Choir' })[0].getAttribute('aria-current')).toBe('true');
 
       openCircle(ATTIC);
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Leave…' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Leave…' }));
       const sheet = await screen.findByRole('dialog', { name: 'Leave Book club?' });
       fireEvent.click(within(sheet).getByRole('button', { name: 'Leave' }));
       await waitFor(() => expect(leave).toHaveBeenCalledWith({ key: KEY }));
@@ -908,15 +912,15 @@ describe('the Circles destination', () => {
       render(<CirclesScreen />);
       await screen.findByText('Chapter 3 tonight?');
 
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Circle details' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Circle details' }));
       const tab = await screen.findByRole('complementary', { name: 'Circle details' });
       fireEvent.click(within(tab).getByRole('button', { name: 'Close Circle details' }));
 
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Invite someone…' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Invite someone…' }));
       expect(await screen.findByRole('dialog', { name: 'Invite to Book club' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Leave…' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Leave…' }));
       expect(await screen.findByRole('dialog', { name: 'Leave Book club?' })).toBeTruthy();
     });
 
@@ -924,7 +928,7 @@ describe('the Circles destination', () => {
       getState.mockResolvedValue(runningCircles({ circles: [{ ...circle, myRole: 'admin', members: [circle.members[0]] }] }));
       openCircle(KEY);
       render(<CirclesScreen />);
-      fireEvent.click(within(await openMenu('Book club')).getByRole('menuitem', { name: 'Delete Circle…' }));
+      fireEvent.click(within(await openRowMenu('Book club')).getByRole('menuitem', { name: 'Delete Circle…' }));
       expect(await screen.findByRole('dialog', { name: 'Delete Book club?' })).toBeTruthy();
     });
 
@@ -934,11 +938,12 @@ describe('the Circles destination', () => {
       setNotifyPrefs.mockResolvedValue(undefined);
       openCircle(ATTIC);
       render(<CirclesScreen />);
-      const menu = await openMenu('Choir');
+      const menu = await openRowMenu('Choir');
       const notifications = await within(menu).findByRole('menuitem', { name: 'Notifications Default' });
       expect(notifyPrefs).toHaveBeenCalledWith({ key: CHOIR });
       fireEvent.click(notifications);
-      const levels = within(menu).getByRole('menu', { name: 'Notifications' });
+      await flushMenu();
+      const levels = within(menu).getByRole('menu', { name: 'Notifications Default' });
       expect(within(levels).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
         'Default',
         'All',
@@ -963,7 +968,7 @@ describe('the Circles destination', () => {
       await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
       fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
       expect(screen.queryByRole('menu', { name: 'Choir' })).toBeNull();
-      const more = row.parentElement?.querySelector('.wb-circles-more');
+      const more = row.parentElement?.querySelector('.wb-circles-row-more');
       await waitFor(() => expect(document.activeElement).toBe(more));
     });
   });
@@ -977,7 +982,7 @@ describe('the Circles destination', () => {
     expect(within(circlesRail()).queryByRole('searchbox')).toBeNull();
     expect(within(circlesRail()).queryByText('All Circles')).toBeNull();
 
-    fireEvent.click(within(circlesRail()).getByRole('button', { name: 'Start or join a Circle' }));
+    openMenu(within(circlesRail()).getByRole('button', { name: 'Start or join a Circle' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Start a Circle…' }));
     const sheet = screen.getByRole('dialog', { name: 'Start a Circle' });
     // The user has a name, so the sheet doesn't ask for one.
@@ -1013,7 +1018,7 @@ describe('the Circles destination', () => {
     getState.mockResolvedValue(empty);
     join.mockReturnValue(new Promise(() => undefined));
     const { unmount } = render(<CirclesScreen />);
-    fireEvent.click(await findInRail('button', { name: 'Start or join a Circle' }));
+    openMenu(await findInRail('button', { name: 'Start or join a Circle' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Join with an invite…' }));
     const sheet = screen.getByRole('dialog', { name: 'Join with an invite' });
     fireEvent.change(within(sheet).getByLabelText('Invite code'), { target: { value: ' yrb7ei1ng ' } });
@@ -1163,7 +1168,7 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     await act(async () => {});
     expect(screen.queryByRole('button', { name: 'Call check…' })).toBeNull();
   });
@@ -1176,7 +1181,7 @@ describe('the Circles destination', () => {
     openCircle(KEY);
     render(<CirclesScreen />);
     await screen.findByText('Chapter 3 tonight?');
-    fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Call check…' }));
     expect(screen.getByRole('combobox', { name: 'Member' })).toHaveProperty('value', MAYA);
     fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));

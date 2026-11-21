@@ -1,21 +1,72 @@
-import { useEffect, useRef, type RefObject } from "react"
+import { createContext, useContext, useEffect, useRef, type RefObject } from "react"
 import { useOwnerDocument, useOwnerWindow } from "./ownerDocument"
 
-/** Esc closes the open sheet or dialog (ignored while `disabled`, e.g. saving). */
-export function useEscapeToClose(onClose: () => void, disabled = false): void {
+/**
+ * How deep the UI under it is nested in sheets. `Sheet` provides its own depth to its
+ * children, so a sheet opened inside another one ranks above it whichever mounted first.
+ */
+export const EscapeDepthContext = createContext(0)
+
+interface EscapeEntry {
+  depth: number
+  order: number
+}
+
+const escapeStacks = new WeakMap<Window, Set<EscapeEntry>>()
+let nextOrder = 0
+
+function escapeStack(win: Window): Set<EscapeEntry> {
+  let stack = escapeStacks.get(win)
+  if (!stack) {
+    stack = new Set()
+    escapeStacks.set(win, stack)
+  }
+  return stack
+}
+
+/** The deepest entry, and of those the one registered last. */
+function topEntry(stack: Set<EscapeEntry>): EscapeEntry | undefined {
+  let top: EscapeEntry | undefined
+  for (const entry of stack) {
+    if (!top || entry.depth > top.depth || (entry.depth === top.depth && entry.order > top.order)) {
+      top = entry
+    }
+  }
+  return top
+}
+
+/**
+ * Esc closes the open sheet or dialog. Only the innermost one that uses this hook acts on a
+ * given Escape: a sheet opened inside another closes alone. `disabled` (closed) takes it off
+ * the stack; `paused` (saving) keeps its place but ignores Escape, so the sheet under it
+ * stays open too. Returns the depth to provide to nested content through
+ * `EscapeDepthContext`.
+ */
+export function useEscapeToClose(onClose: () => void, disabled = false, paused = false): number {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
+  const depth = useContext(EscapeDepthContext) + 1
   const win = useOwnerWindow()
   useEffect(() => {
     if (disabled) return
+    const stack = escapeStack(win)
+    const entry: EscapeEntry = { depth, order: nextOrder++ }
+    stack.add(entry)
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return
+      if (topEntry(stack) !== entry || pausedRef.current) return
       event.preventDefault()
       closeRef.current()
     }
     win.addEventListener("keydown", onKeyDown)
-    return () => win.removeEventListener("keydown", onKeyDown)
-  }, [disabled, win])
+    return () => {
+      stack.delete(entry)
+      win.removeEventListener("keydown", onKeyDown)
+    }
+  }, [depth, disabled, win])
+  return depth
 }
 
 interface DismissOptions {

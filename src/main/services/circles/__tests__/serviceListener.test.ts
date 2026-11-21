@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import net from 'node:net';
 import type { ServiceCall } from '../networkMessages';
+import { checkAgentRequest, readLimitedBody } from '../../hostBridge/requestGuard';
 import { startServiceListener, type ServiceListener } from '../serviceListener';
+import type { AgentRequestGuard } from '../sharingConfig';
 
 const READ = 'read-token-for-the-listener-test';
 const WRITE = 'write-token-for-the-listener-test';
+const guard: AgentRequestGuard = { check: checkAgentRequest, readBody: readLimitedBody };
 const INIT = JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'initialize', params: {} });
 
 let listener: ServiceListener | null = null;
@@ -14,9 +17,10 @@ afterEach(async () => {
   listener = null;
 });
 
-async function start(call: (request: ServiceCall, signal: AbortSignal) => Promise<Response>) {
+async function start(call: (request: ServiceCall, signal: AbortSignal) => Promise<Response>, withGuard = guard) {
   const spy = vi.fn(call);
   listener = await startServiceListener({
+    guard: withGuard,
     port: 0,
     tokens: { read: READ, write: WRITE },
     service: 'twenty.main',
@@ -187,10 +191,19 @@ describe('startServiceListener', () => {
     expect(signal.aborted).toBe(true);
   });
 
+  it("refuses with the guard's status and reason", async () => {
+    const { spy, url } = await start(ok, { ...guard, check: () => ({ status: 403, reason: 'nope' }) });
+    const response = await post(url);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { message: 'nope' } });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('rejects with EADDRINUSE when the kept port is taken', async () => {
     await start(ok);
     await expect(
       startServiceListener({
+        guard,
         port: listener!.port,
         tokens: { read: READ, write: WRITE },
         service: 'twenty.main',

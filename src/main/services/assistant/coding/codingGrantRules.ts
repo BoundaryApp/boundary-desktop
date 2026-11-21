@@ -161,6 +161,74 @@ export function envShadowTargets(
     .sort((left, right) => left.localeCompare(right));
 }
 
+/** Folders the stack's `make doctor` skips when it looks for stack checkouts. */
+const CHECKOUT_SCAN_SKIP = new Set(['node_modules', '.git', 'worktrees']);
+/** `make doctor` finds `data/hermes` within four levels, so a checkout at most two below. */
+const CHECKOUT_SCAN_DEPTH = 2;
+
+function isFile(candidate: string): boolean {
+  try {
+    return fs.statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDir(candidate: string): boolean {
+  try {
+    return fs.statSync(candidate).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The `data/` folder of every sovereign-agent-stack checkout at or below a mounted folder: a
+ * folder holding `docker-compose.yml` and `data/hermes`, found the way the stack's
+ * `make doctor` looks (CR 0040 stack reply). That folder holds Hermes's `state.db`, each
+ * profile's `.env` and `SOUL.md`, so Boundary mounts an empty read-only folder over it.
+ */
+export function stackCheckoutDataDirs(folder: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    const data = path.join(dir, 'data');
+    const isCheckout =
+      isFile(path.join(dir, 'docker-compose.yml')) && isDir(path.join(data, 'hermes'));
+    if (isCheckout) found.push(data);
+    if (depth >= CHECKOUT_SCAN_DEPTH) return;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || CHECKOUT_SCAN_SKIP.has(entry.name)) continue;
+      if (isCheckout && entry.name === 'data') continue;
+      walk(path.join(dir, entry.name), depth + 1);
+    }
+  };
+  walk(path.resolve(folder), 0);
+  return found.filter((target) => !/[:\n\r]/.test(target)).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Where each checkout `data/` folder under a bind lands in the container. A bind of `hostPath`
+ * at `containerPath` shows `<hostPath>/x/data` at `<containerPath>/x/data`.
+ */
+export function stackDataMaskTargets(
+  hostPath: string,
+  containerPath: string,
+  dataDirs: readonly string[]
+): string[] {
+  const host = path.resolve(hostPath);
+  return dataDirs
+    .filter((dir) => isPathUnder(dir, host) && !samePath(dir, host))
+    .map((dir) =>
+      path.posix.join(containerPath, ...path.relative(host, path.resolve(dir)).split(path.sep))
+    );
+}
+
 /** Characters the alias format uses as separators, plus a quote that would break `.env`. */
 const ALIAS_UNSAFE = /[;=\n\r']/;
 

@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto';
 import type { ResolvedSessionInference } from '../../../shared/types/hermesChat';
 import type { InferenceChainSlot } from '../../../shared/types/inferenceChain';
 import type { InferenceSlotId } from '../../../shared/types/onboarding';
+import { endpointPath } from '../../../shared/utils/endpointUrl';
 import { resolveAppDefault } from '../assistant/hermes/resolveSessionInference';
-import { llmAuthorizationHeader } from '../onboarding/llmEndpoint';
+import { llmRequestHeaders } from '../onboarding/llmEndpoint';
 import { getSlotLlmConnection, type LlmConnection } from '../onboarding/OpenAiOnboardingStore';
 import { planAppInferenceChain, type ChainPlan } from './inferenceChainService';
 import { ensureInferenceRouter, routeOnce, type InferenceRouterEndpoint } from './inferenceRouterService';
@@ -105,13 +106,10 @@ async function planTarget(deps: OnceDeps, resolved: ResolvedSessionInference): P
   if (resolved.slot === 'peer' || resolved.slot === 'confidential') return fail('no-model', NO_MODEL);
   const connection = await deps.connection(resolved.slot);
   if (!connection) return fail('no-model', NO_MODEL);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  // The same header the connection was verified with in Inference.
-  const authorization = llmAuthorizationHeader(connection);
-  if (authorization) headers.Authorization = authorization;
-  Object.assign(headers, connection.extraHeaders);
+  // The same headers the connection was verified with in Inference.
+  const headers = llmRequestHeaders(connection);
   return {
-    url: `${connection.endpointUrl.replace(/\/+$/, '')}/chat/completions`,
+    url: endpointPath(connection.endpointUrl, 'chat/completions'),
     headers,
     model: connection.modelId,
     slot: resolved.slot,

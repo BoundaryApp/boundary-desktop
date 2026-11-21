@@ -32,6 +32,7 @@ import { registerAgentHandlers } from './services/assistant/hermes/hermesAgentsI
 import { registerChannelHandlers } from './services/assistant/hermes/hermesChannelsIpc';
 import { registerProjectHandlers } from './services/assistant/hermes/hermesProjectsIpc';
 import { registerCodingFolderHandlers } from './services/assistant/coding/codingIpc';
+import { registerChatHistoryHandlers } from './services/assistant/chatHistory/chatHistoryIpc';
 import { registerWritingVoiceHandlers } from './services/assistant/writingVoices/writingVoicesIpc';
 import { registerWritingCheckHandlers } from './services/assistant/writingCheck/writingCheckIpc';
 import { registerHermesVaultHandlers } from './services/assistant/hermes/hermesVaultIpc';
@@ -55,8 +56,9 @@ import { createPoolSender } from './services/inference/confidential/poolSender';
 import { SpendLog } from './services/inference/confidential/spendLog';
 import { startCirclesNetworkSpike } from './services/circles/networkSpike';
 import { startCirclesIfMember } from './services/circles/circlesService';
-import { getUsedServices } from './services/circles/usedServicesRuntime';
+import { startUsedServices } from './services/circles/usedServicesRuntime';
 import { registerCirclesHandlers } from './services/circles/ipcHandlers';
+import { configureCircleSharing } from './services/circleSharing/circleSharing';
 import { ensureAssistantStackOnLaunch } from './services/assistant/AssistantStackService';
 import { startLocalLlmWatcher } from './services/onboarding/LocalLlmWatcher';
 import { registerExperiments, startExperimentsBeforeWindow } from './experiments';
@@ -198,6 +200,7 @@ function boot(): void {
   registerProjectHandlers();
   registerCodingFolderHandlers();
   registerWritingVoiceHandlers();
+  registerChatHistoryHandlers();
   registerWritingCheckHandlers();
   registerHermesVaultHandlers();
   registerCalendarHandlers();
@@ -215,6 +218,7 @@ function boot(): void {
       })
     );
   }
+  configureCircleSharing();
   registerCirclesHandlers();
   registerUpdateHandlers(() => stopStackThen(installUpdate), createAppMenu);
   registerWhatsNewHandlers();
@@ -298,11 +302,9 @@ function boot(): void {
       startCirclesIfMember();
       // Listeners for services used from a Circle, so their workspaces answer, if only to say the
       // provider is offline (ADR 0048 §11).
-      void getUsedServices()
-        .startAll()
-        .catch((error: unknown) => {
-          persistDebugLog('circles', 'used services did not start', { error: error instanceof Error ? error.name : 'unknown' });
-        });
+      void startUsedServices().catch((error: unknown) => {
+        persistDebugLog('circles', 'used services did not start', { error: error instanceof Error ? error.name : 'unknown' });
+      });
     } catch (error) {
       persistDebugLog('startup', 'ready try/catch quitting app (first-launch candidate)', {
         ...serializeError(error),

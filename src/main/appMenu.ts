@@ -85,6 +85,8 @@ export function createAppMenu(): void {
     {
       label: 'View',
       submenu: [
+        commandItem('toggle-inspector'),
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },

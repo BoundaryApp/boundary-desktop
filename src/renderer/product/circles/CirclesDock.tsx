@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CircleChannel, CircleJoinState, CircleSnapshot } from '../../../shared/types/circles';
-import { useDismiss } from '../../components/ui/use-dismiss';
+import { Button } from '../../components/ui/button';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { AtMark } from '../chat/circle/AtMark';
 import { openSettings } from '../settingsNavigation';
 import { keyHue } from './CircleControls';
@@ -8,6 +9,7 @@ import { CircleRowMenu } from './CircleRowMenu';
 import type { CircleAction } from './circlesNavigation';
 import { hiddenUnread, type HiddenUnread } from './unreadChip';
 import { circleMentioned, circleUnread } from './useCircleChat';
+import { Input } from '../../components/ui/input';
 import '../chat/circle/circleChat.css';
 
 export const CircleTile: React.FC<{ circle: CircleSnapshot; size?: number }> = ({ circle, size = 26 }) => (
@@ -38,37 +40,21 @@ function joiningLine(join: CircleJoinState): string {
 /** The list's `+`: a small menu with the start and join sheets (ADR 0043 §7). */
 const AddMenu: React.FC<{ onStart: () => void; onJoin: () => void }> = ({ onStart, onJoin }) => {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useDismiss(rootRef, open, () => setOpen(false));
-  const choose = (run: () => void) => {
-    setOpen(false);
-    run();
-  };
   return (
-    <div className="wb-circles-add" ref={rootRef}>
-      <button
-        type="button"
-        className="wb-sect-add"
-        title="Start or join a Circle"
-        aria-label="Start or join a Circle"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open ? (
-        <div className="wb-circles-menu" role="menu" aria-label="Start or join">
-          <button type="button" role="menuitem" onClick={() => choose(onStart)}>
-            Start a Circle…
-          </button>
-          <button type="button" role="menuitem" onClick={() => choose(onJoin)}>
-            Join with an invite…
-          </button>
-        </div>
-      ) : null}
+    <div className="wb-circles-add">
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger>
+          <Button type="button" variant="quiet" size="icon-sm" title="Start or join a Circle" aria-label="Start or join a Circle">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </Button>
+        </MenuTrigger>
+        <MenuContent aria-label="Start or join" side="bottom" align="end">
+          <MenuItem onSelect={onStart}>Start a Circle…</MenuItem>
+          <MenuItem onSelect={onJoin}>Join with an invite…</MenuItem>
+        </MenuContent>
+      </Menu>
     </div>
   );
 };
@@ -255,9 +241,10 @@ export const CirclesDock: React.FC<CirclesDockProps> = ({
         <AddMenu onStart={onStart} onJoin={onJoin} />
       </div>
       {circles.length ? (
-        <input
+        <Input
           type="search"
-          className="wb-circles-search"
+          size="sm"
+          className="mx-2 mb-1.5 w-[calc(100%-1rem)]"
           placeholder="Search Circles"
           aria-label="Search Circles"
           value={query}

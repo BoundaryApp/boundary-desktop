@@ -15,6 +15,8 @@ import type {
 } from '../../../shared/types/circles';
 import { MAX_DIRECT_TEXT_BYTES, directTextBytes } from '../../../shared/circleDirect';
 import { MAX_SIGNAL_PAYLOAD_BYTES } from './circleSignals';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
+import { MESSAGE_ID_PATTERN } from '../../../shared/circleReplies';
 
 export const DIRECT_TOPICS = {
   message: 'dm.message',
@@ -55,18 +57,16 @@ const TOO_LONG = 'That message is too long to send directly.';
 /** The latest time a `Date` can hold, in ms. A later `at` can't be shown, so it is dropped. */
 const MAX_DATE_MS = 8.64e15;
 
-const HEX_KEY = /^[0-9a-f]{64}$/;
-const ID = /^[0-9a-f]{16,32}$/;
 
-const isDirectId = (id: unknown): id is string => typeof id === 'string' && ID.test(id);
+const isDirectId = (id: unknown): id is string => typeof id === 'string' && MESSAGE_ID_PATTERN.test(id);
 
 /** A Circle key as logs carry it: its first 8 hex characters. */
 const short = (circleKey: string) => circleKey.slice(0, 8);
 
 /** Throws unless the arguments from the renderer have the shapes of a Circle key, a person and message ids. */
 function checkInput(circleKey: unknown, peer?: unknown, ...ids: unknown[]): void {
-  if (typeof circleKey !== 'string' || !HEX_KEY.test(circleKey)) throw new Error('That isn’t a Circle key.');
-  if (peer !== undefined && (typeof peer !== 'string' || !HEX_KEY.test(peer))) throw new Error('That isn’t a person in a Circle.');
+  if (typeof circleKey !== 'string' || !HEX_KEY_PATTERN.test(circleKey)) throw new Error('That isn’t a Circle key.');
+  if (peer !== undefined && (typeof peer !== 'string' || !HEX_KEY_PATTERN.test(peer))) throw new Error('That isn’t a person in a Circle.');
   if (!ids.every(isDirectId)) throw new Error('That isn’t a message id.');
 }
 
@@ -110,7 +110,7 @@ export function directPayloadOf(topic: string, payload: unknown): DirectPayload 
       let reply: CircleMessageRef | null = null;
       if (p.reply !== undefined) {
         const { author, id } = (p.reply ?? {}) as { author?: unknown; id?: unknown };
-        if (typeof author !== 'string' || !HEX_KEY.test(author) || !isDirectId(id)) return null;
+        if (typeof author !== 'string' || !HEX_KEY_PATTERN.test(author) || !isDirectId(id)) return null;
         reply = { author, id };
       }
       return { topic, op: p.op, id: p.id, text: p.text, at: p.at as number, reply };
@@ -455,7 +455,7 @@ export class DirectMessages {
   }
 
   typing(circleKey: string, peer: string): void {
-    if (!HEX_KEY.test(circleKey) || !HEX_KEY.test(peer)) return;
+    if (!HEX_KEY_PATTERN.test(circleKey) || !HEX_KEY_PATTERN.test(peer)) return;
     const key = `${circleKey}/${peer}`;
     const now = this.deps.now();
     if (now - (this.lastTyping.get(key) ?? -Infinity) < TYPING_EVERY_MS) return;

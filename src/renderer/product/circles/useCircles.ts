@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CirclesResult, CirclesState } from '../../../shared/types/circles';
+import type { CirclesState } from '../../../shared/types/circles';
 
 const STOPPED: CirclesState = {
   status: 'stopped',
@@ -26,22 +26,31 @@ export function useCirclesState(): CirclesState {
   return state;
 }
 
+/** What `useAction().run` takes: a Circles result, or any other call's success flag and error. */
+export type ActionResult = { success: boolean; error?: string };
+
 /** A result's error, or null when it succeeded. */
-function resultError(result: CirclesResult<object>): string | null {
+function resultError(result: ActionResult, fallback: string): string | null {
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.
-  return result.success === false ? result.error : null;
+  return result.success === false ? result.error || fallback : null;
 }
 
-/** Runs a Circles call with a busy flag and the error it returns. */
+/**
+ * Runs a call with a busy flag and the error it returns or throws. A failed result comes back
+ * as is; a throw comes back as null. `fallback` is shown when a failure has no error text.
+ */
 export function useAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const run = async <T extends object>(call: () => Promise<CirclesResult<T>>): Promise<CirclesResult<T> | null> => {
+  const run = async <R extends ActionResult>(
+    call: () => Promise<R>,
+    fallback = 'Something went wrong.'
+  ): Promise<R | null> => {
     setBusy(true);
     setError(null);
     try {
       const result = await call();
-      setError(resultError(result));
+      setError(resultError(result, fallback));
       return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

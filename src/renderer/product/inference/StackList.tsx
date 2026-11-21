@@ -3,12 +3,14 @@ import type { TrustLevel } from '../../../shared/types/confidential';
 import type { InferenceChainEntry, InferenceStack, InferenceStackEntry } from '../../../shared/types/inferenceChain';
 import type { CirclesState } from '../../../shared/types/circles';
 import type { LlmSlotStatus } from '../../../shared/types/onboarding';
+import { formatTokenCount } from '../../../shared/utils/format';
 import { Sheet } from '../../components/ui/sheet';
 import { ProviderClaims } from '../circles/PersonPanel';
 import { describeChainEntry, entryKey, type ChainContext, type ChainEntryView } from './entries';
 import { PoolDetails } from './PoolDetails';
 import { entryState, moveEntry, skipReason, type DryRunStep } from './stack';
 import { Button } from '../../components/ui/button';
+import { testSlot } from '../../onboarding/modelConnection';
 import './inference.css';
 
 /**
@@ -16,10 +18,6 @@ import './inference.css';
  * the app's Chat stack in Inference, a project's stack in its inspector, a chat's own from the
  * composer chip. Each level passes its list, how its entries are described, and how it saves.
  */
-
-export function formatContext(tokens: number): string {
-  return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens);
-}
 
 /** Who stands behind an entry, for "Trust Maya" and the skip reasons. */
 function providerName(entry: InferenceChainEntry, circles: CirclesState): string {
@@ -175,26 +173,28 @@ export const StackList: React.FC<StackListProps> = ({
                   <span className={`wb-inf-status${rung.reason ? ' is-warn' : ' is-ok'}`}>{rung.reason ?? 'Ready'}</span>
                 )}
                 <span className="wb-inf-acts">
-                  <button
+                  <Button
                     type="button"
-                    className="wb-inf-ico"
+                    variant="quiet"
+                    size="icon-sm"
                     aria-label={`Move ${rung.view.label} up`}
                     title={moveRefusal(index, -1) ?? undefined}
                     disabled={locked || !canMove(index, -1)}
                     onClick={() => onChange(moveEntry(list, index, -1))}
                   >
                     ↑
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="wb-inf-ico"
+                    variant="quiet"
+                    size="icon-sm"
                     aria-label={`Move ${rung.view.label} down`}
                     title={moveRefusal(index, 1) ?? undefined}
                     disabled={locked || !canMove(index, 1)}
                     onClick={() => onChange(moveEntry(list, index, 1))}
                   >
                     ↓
-                  </button>
+                  </Button>
                 </span>
               </div>
               {afterRung?.(index)}
@@ -262,8 +262,7 @@ export function EntryDetails({
     if (entry.slot === 'peer' || entry.slot === 'confidential') return;
     setTest({ busy: true, result: null });
     const started = performance.now();
-    const result = await window.electronAPI.onboarding
-      .sendLlmTestMessage({ slot: entry.slot, message: 'Reply with the word ready.' })
+    const result = await testSlot(entry.slot)
       .catch((err: unknown) => ({ success: false as const, error: err instanceof Error ? err.message : 'Test failed.' }));
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     setTest({ busy: false, result: result.success ? `Replied in ${seconds}s` : (result.error ?? 'Test failed.') });
@@ -271,9 +270,9 @@ export function EntryDetails({
   const head = (
     <div className="wb-inf-side-head">
       <h2>{view.label}</h2>
-      <button type="button" className="wb-inf-ico" aria-label="Close details" onClick={onClose}>
+      <Button type="button" variant="quiet" size="icon-sm" aria-label="Close details" onClick={onClose}>
         ×
-      </button>
+      </Button>
     </div>
   );
   const removeButton = (
@@ -301,7 +300,7 @@ export function EntryDetails({
         <dt>Source</dt>
         <dd>{source}</dd>
         <dt>Context</dt>
-        <dd>{state?.contextLength ? formatContext(state.contextLength) : 'Unknown'}</dd>
+        <dd>{state?.contextLength ? formatTokenCount(state.contextLength) : 'Unknown'}</dd>
         <dt>Status</dt>
         <dd>{reason ?? 'Ready'}</dd>
         <dt>Private projects</dt>

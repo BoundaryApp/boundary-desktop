@@ -5,6 +5,7 @@ import type {
   AssistantStackStatus,
 } from '../../shared/types/assistantStack';
 import { createIpcStore, useIpcStore } from '../lib/ipcStore';
+import { errorText } from '../lib/errorText';
 
 /**
  * The assistant stack as the renderer sees it: the lifecycle main pushes, and the status
@@ -115,7 +116,7 @@ export function useStackStart(): {
       if (result.status) takeStatus(result.status);
       else await refreshAssistantStackStatus();
     } catch (err) {
-      failure = err instanceof Error ? err.message : String(err);
+      failure = errorText(err);
     }
     if (mounted.current) {
       setError(failure);

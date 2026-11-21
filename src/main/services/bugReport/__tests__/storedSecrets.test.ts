@@ -4,6 +4,7 @@ const persistDebugLog = vi.fn();
 vi.mock('../../../persistDebugLog', () => ({ persistDebugLog: (...args: unknown[]) => persistDebugLog(...args) }));
 // The real sources read electron-store and the keychain; these tests pass their own.
 vi.mock('../../assistant/assistantPaths', () => ({}));
+vi.mock('../../stackHost/activeStack', () => ({ getStackFiles: vi.fn() }));
 vi.mock('../../assistant/calendar/calendarStore', () => ({ decryptCalendarPassword: vi.fn(), listCalendarAccounts: vi.fn() }));
 vi.mock('../../hostBridge/hostBridgeStore', () => ({ storedHostBridgeTokens: vi.fn() }));
 vi.mock('../../inference/confidential/confidentialStore', () => ({}));

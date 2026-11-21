@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
 import type { CirclesState } from '../../../shared/types/circles';
+import { formatTokenCount } from '../../../shared/utils/format';
 import { AppSwitchProgress } from '../AppSwitchProgress';
 import { useAppSwitch } from '../../onboarding/appSwitch';
 import { Avatar } from '../circles/CircleControls';
@@ -11,11 +12,12 @@ import { YourUsage } from '../circles/CircleUsage';
 import { chainCandidates, entryKey, type ChainContext } from './entries';
 import { ModelConnections } from './ModelConnections';
 import { dryRun, removeEntry, shownStack } from './stack';
-import { AddModelSheet, buildRungs, EntryDetails, formatContext, StackList } from './StackList';
+import { AddModelSheet, buildRungs, EntryDetails, StackList } from './StackList';
 import { useAppStack } from './useAppStack';
 import { poolContext, usePoolRankings, useConfidentialState } from './useConfidentialState';
 import { Button } from '../../components/ui/button';
 import './inference.css';
+import { Checkbox } from '../../components/ui/checkbox';
 
 /** Model sources sit under the stack; connecting and signing in happen there. */
 function showSources(): void {
@@ -158,7 +160,7 @@ export const InferenceScreen: React.FC<{
               <div className="wb-inf-try">
                 <strong>Try a request</strong>
                 <label className="wb-inf-check">
-                  <input type="checkbox" checked={privateProject} onChange={(event) => setPrivateProject(event.target.checked)} />
+                  <Checkbox checked={privateProject} onChange={(event) => setPrivateProject(event.target.checked)} />
                   From a private project
                 </label>
                 <Button
@@ -196,7 +198,7 @@ export const InferenceScreen: React.FC<{
               />
               {smallest && rungs.length > 1 ? (
                 <p className="wb-inf-foot">
-                  Replies are limited to {formatContext(smallest)} of context
+                  Replies are limited to {formatTokenCount(smallest)} of context
                   {contextOwner ? `, set by ${contextOwner.view.label}, the smallest here` : ''}.
                 </p>
               ) : null}

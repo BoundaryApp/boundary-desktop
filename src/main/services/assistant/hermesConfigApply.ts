@@ -1,8 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { loadYaml } from '../loadYaml';
-import { hermesProfileConfigPath, isBoundaryCdpUrl } from '../hostBridge/hermesProvision';
+import { hermesProfileConfigRel, isBoundaryCdpUrl } from '../hostBridge/hermesProvision';
+import type { StackFiles } from '../stackHost/types';
 
 /**
  * Boundary's one path for writing Hermes profile settings. Boundary works out what each profile
@@ -57,18 +57,19 @@ const HERMES_LIVE_ENTRIES = new Set(['providers.boundary-chain']);
  * A profile's parsed `config.yaml`: `{}` when the folder exists without one, `null` when it
  * can't be read or parsed, `undefined` when the profile's folder doesn't exist.
  */
-export function readHermesProfileConfig(
-  dataRoot: string,
+export async function readHermesProfileConfig(
+  files: StackFiles,
   profile: string
-): Record<string, unknown> | null | undefined {
-  const configPath = hermesProfileConfigPath(dataRoot, profile);
-  if (!fs.existsSync(path.dirname(configPath))) return undefined;
-  let text: string;
+): Promise<Record<string, unknown> | null | undefined> {
+  const configRel = hermesProfileConfigRel(profile);
+  if (!(await files.exists('data', path.posix.dirname(configRel)))) return undefined;
+  let text: string | null;
   try {
-    text = fs.readFileSync(configPath, 'utf8');
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? {} : null;
+    text = await files.readText('data', configRel);
+  } catch {
+    return null;
   }
+  if (text === null) return {};
   try {
     const parsed = loadYaml(text);
     if (parsed === undefined || parsed === null) return {};

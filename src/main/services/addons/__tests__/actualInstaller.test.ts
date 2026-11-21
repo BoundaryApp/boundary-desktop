@@ -25,6 +25,7 @@ beforeEach(() => {
   const run = (...args: Parameters<ActualFakeStack['run']>) => stack.run(...args);
   const service = createActualService({
     paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+    files: stack.files,
     run,
     exclusive: (work) => work(),
     log: () => undefined,
@@ -33,12 +34,12 @@ beforeEach(() => {
     service,
     run,
     paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+    files: stack.files,
     checkFit: async () => fit,
     isLocalStack: () => localStack,
     images: async () => ['actualbudget/actual-server:26.11.0', 'boundary-actual-mcp:local'],
     removeImages,
     deleteDir: (dir) => fs.promises.rm(dir, { recursive: true, force: true }),
-    deleteFile: (file) => fs.promises.rm(file, { force: true }),
     exclusive: (work) => work(),
     log: () => undefined,
   });
@@ -241,7 +242,7 @@ describe('Remove and delete data', () => {
     stack.setEnv({ ACTUAL_MCP_ENABLED: '1', ACTUAL_LOCAL_ENABLED: '1' });
     stack.addRow('mac', { server: 'local', sync_id: 'local-1' });
     stack.addRow('home', { server: 'https://budget.example.com', sync_id: 'home-1' });
-    const serverDir = actualDataDir(stack.root);
+    const serverDir = await actualDataDir(stack.files, stack.root);
     fs.mkdirSync(serverDir, { recursive: true });
     fs.writeFileSync(path.join(serverDir, 'account.sqlite'), 'x');
     const password = path.join(stack.dataRoot, 'addons', 'actual', 'secrets', 'server_password');
@@ -273,9 +274,9 @@ describe('Remove and delete data', () => {
 });
 
 describe('actualDataDir', () => {
-  it('reads ACTUAL_DATA_DIR from .env, relative to the stack root', () => {
-    expect(actualDataDir(stack.root)).toBe(path.join(stack.root, 'data', 'actual', 'server'));
+  it('reads ACTUAL_DATA_DIR from .env, relative to the stack root', async () => {
+    expect(await actualDataDir(stack.files, stack.root)).toBe(path.join(stack.root, 'data', 'actual', 'server'));
     stack.setEnv({ ACTUAL_DATA_DIR: './elsewhere' });
-    expect(actualDataDir(stack.root)).toBe(path.join(stack.root, 'elsewhere'));
+    expect(await actualDataDir(stack.files, stack.root)).toBe(path.join(stack.root, 'elsewhere'));
   });
 });

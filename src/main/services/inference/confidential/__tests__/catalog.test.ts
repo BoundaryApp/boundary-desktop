@@ -132,6 +132,47 @@ describe('parseCatalog', () => {
     expect(result.catalog.providers.map((p) => p.id)).toEqual(['chutes']);
   });
 
+  describe('manifestSha256', () => {
+    const pin = 'd63eb5cf91cb3079fe25a848573a4d0e9d869f462dab4f71fd02bdb372f8e833';
+    const other = 'a'.repeat(64);
+
+    it('keeps the pins, without repeats, and leaves the field out when absent', () => {
+      const result = parseCatalog(catalogFixture({ providers: [provider({ manifestSha256: [pin, other, pin] }), provider({ id: 'near' })] }));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.dropped).toEqual([]);
+      expect(result.catalog.providers[0].manifestSha256).toEqual([pin, other]);
+      expect('manifestSha256' in result.catalog.providers[1]).toBe(false);
+    });
+
+    it.each([
+      ['an empty list', []],
+      ['a string', pin],
+      ['upper-case hex', [pin.toUpperCase()]],
+      ['a short digest', [pin.slice(2)]],
+      ['a non-string entry', [pin, 1]],
+    ])('drops a provider whose pins are %s', (_label, value) => {
+      const result = parseCatalog(catalogFixture({ providers: [provider({ manifestSha256: value })] }));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.catalog.providers).toEqual([]);
+      expect(result.dropped).toEqual([{ providerId: 'prem', reason: expect.stringContaining('manifestSha256') }]);
+    });
+
+    it('drops Privatemode at level A without pins and keeps it at level A with them', () => {
+      const bare = parseCatalog(catalogFixture({ providers: [provider({ id: 'privatemode', level: 'A' })] }));
+      expect(bare.ok && bare.catalog.providers).toEqual([]);
+      expect(bare.ok && bare.dropped).toEqual([{ providerId: 'privatemode', reason: 'level A needs manifestSha256 for this provider' }]);
+      const pinned = parseCatalog(catalogFixture({ providers: [provider({ id: 'privatemode', level: 'A', manifestSha256: [pin] })] }));
+      expect(pinned.ok && pinned.catalog.providers.map((p) => [p.id, p.level])).toEqual([['privatemode', 'A']]);
+    });
+
+    it('keeps Privatemode at level B without pins, and other providers at level A without them', () => {
+      const result = parseCatalog(catalogFixture({ providers: [provider({ id: 'privatemode' }), provider({ id: 'near', level: 'A' })] }));
+      expect(result.ok && result.catalog.providers.map((p) => [p.id, p.level])).toEqual([['privatemode', 'B'], ['near', 'A']]);
+    });
+  });
+
   it('keeps the first of two providers with the same id', () => {
     const result = parseCatalog(catalogFixture({ providers: [provider(), provider({ name: 'Prem again' })] }));
     expect(result.ok).toBe(true);

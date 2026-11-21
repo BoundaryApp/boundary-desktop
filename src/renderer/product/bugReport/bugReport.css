@@ -17,12 +17,6 @@
   margin-bottom: var(--space-1);
 }
 
-.wb-report-body {
-  min-height: 240px;
-  font-family: var(--font-mono);
-  font-size: var(--size-xs);
-}
-
 .wb-report-callouts {
   display: grid;
   gap: var(--space-2);

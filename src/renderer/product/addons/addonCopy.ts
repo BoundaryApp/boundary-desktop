@@ -13,6 +13,9 @@ import type {
 // Words and figures for the Add-ons screens (docs/addons-ux-study/prototype.html). Memory is
 // in GiB, as the engine's size is set; downloads and disk are decimal GB, as Finder shows them.
 
+/** The add-on store's name rule (ADDON_SLUG), as every connect sheet words it. */
+export const ADDON_SLUG_RULE = 'Start the name with a letter, and use up to 31 lowercase letters, numbers and dashes.';
+
 /** One decimal: `2208` MiB → `2.2`. */
 export const memGB = (mib: number): string => (Math.round((mib / 1024) * 10) / 10).toFixed(1);
 export const bytesGB = (bytes: number): string => (Math.round(bytes / 1e8) / 10).toFixed(1);
@@ -146,7 +149,9 @@ const restartStep = (s: AddonInstallSnapshot) => s.steps.find((step) => step.id 
 export const waitingForRestart = (s: AddonInstallSnapshot | null): boolean =>
   Boolean(s && !s.error && restartStep(s)?.status === 'waiting');
 
-export const engineDown = (listing: AddonListing): boolean => listing.facts.engineMiB === 0;
+/** No engine figures from a running engine. An engine on a host Boundary doesn't control has none to give. */
+export const engineDown = (listing: AddonListing): boolean =>
+  listing.facts.measured !== false && listing.facts.engineMiB === 0;
 
 /** The card and detail pill: the install's state first, then installed, then the fit. */
 export function addonPill(

@@ -44,4 +44,3 @@ export const EMAIL_OFF_ROW = 'Email is off.';
 
 export const EMAIL_SETTINGS_SET = 'These apply to every account. Change them on the Email page.';
 
-export const EMAIL_SLUG_RULE = 'Start with a lowercase letter, then use up to 30 lowercase letters, numbers and dashes.';

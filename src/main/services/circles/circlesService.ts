@@ -2,15 +2,14 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess } from 'electron';
 import { openInvitesNamed, isOpenInvite } from '../../../shared/circleInvites';
-import { addUsage, localDay } from '../../../shared/circleUsage';
-import { persistDebugLog } from '../../persistDebugLog';
-import { getSlotLlmConnection } from '../onboarding/OpenAiOnboardingStore';
+import { addUsage } from '../../../shared/circleUsage';
+import { localDay } from '../../../shared/utils/localDay';
+import { persistDebugLog } from '../../host/log';
 import { setAwayBlocker } from './awayMode';
 import { isMessageId, isRecordName, type CircleMessageShared, type CircleRecordScope } from './circleOps';
 import { encodeSignal, isSignalTopic, type CircleSignal } from './circleSignals';
 import { diag, short } from './circlesDiagnostics';
-import { showWindowNotification } from '../notifications';
-import { broadcast } from '../windows';
+import { broadcast, showWindowNotification } from '../../host/windows';
 import type {
   CircleChannel,
   CircleChatUpdate,
@@ -30,7 +29,7 @@ import type {
   DirectMessage,
 } from '../../../shared/types/circles';
 import type { PeerModelRef } from '../../../shared/types/inferenceChain';
-import { stopUtilityProcess } from '../stopUtilityProcess';
+import { stopUtilityProcess } from '../../host/processes';
 import {
   forgetCircle,
   getCircleSharing,
@@ -67,13 +66,12 @@ import {
 } from './circlesStore';
 import { keptMentions } from '../../../shared/circleMentions';
 import { NETWORK_ENTRY } from './networkEntry';
+import { createKeyedRegistry, createRegistry, errorKind } from './handlerRegistry';
 import { createCircleNotifier, type CircleMessageChange, type Viewing } from './circleNotifier';
 import { circleNotifierDeps } from './circleNotifications';
 import { SERVICES_APP } from '../../../shared/serviceOffers';
-import { mintMemberKeys, revokeMemberKeys, TwentyKeyError, type TwentyKeyDeps } from '../addons/twentyMemberKeys';
-import { twentyPort } from '../addons/twentySignIn';
-import { tryResolveAssistantRoot } from '../assistant/resolveAssistantRoot';
-import { createSharedServices, localServiceUpstream } from './sharedServices';
+import { createSharedServices } from './sharedServices';
+import { circlesSharing } from './sharingConfig';
 import type {
   CallContext,
   CallTunnelAction,
@@ -93,6 +91,7 @@ import { captureStderr } from './stderrTail';
 import { UsageTail } from './usageTail';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { slugify } from '../../../shared/utils/slug';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
 /**
  * Main's side of Circles (ADR 0032 §1): it owns the user's keys and choices and runs the network
@@ -132,18 +131,24 @@ interface SharedCall {
 }
 const sharedCalls = new Map<number, SharedCall>();
 
-type CircleSignalHandler = (signal: { circleKey: string; fromIdentity: string; fromDevice: string; payload: unknown }) => void;
-const signalHandlers = new Map<string, Set<CircleSignalHandler>>();
+type CircleSignalEvent = { circleKey: string; fromIdentity: string; fromDevice: string; payload: unknown };
+type CircleSignalHandler = (signal: CircleSignalEvent) => void;
+const signalHandlers = createKeyedRegistry<CircleSignalEvent>(() => postSignalTopics());
 type CircleRecordHandler = (change: CircleRecordChange) => void;
-const folderChangeHandlers = new Set<(key: string) => void>();
-const readyHandlers = new Set<() => void>();
-const snapshotHandlers = new Set<(snapshot: CirclesSnapshot) => void>();
-const removedHandlers = new Set<(key: string) => void>();
-const leavingHandlers = new Set<(key: string) => void>();
-const recordHandlers = new Map<string, Set<CircleRecordHandler>>();
+const folderChangeHandlers = createRegistry<string>();
+const readyHandlers = createRegistry<void>();
+const snapshotHandlers = createRegistry<CirclesSnapshot>();
+const removedHandlers = createRegistry<string>();
+const leavingHandlers = createRegistry<string>();
+const recordHandlers = createKeyedRegistry<CircleRecordChange>(() => postRecordApps());
+
+/** For handlers whose events carry nothing private: logs which registry and the error's class. */
+function handlerFailed(registry: string): (error: unknown) => void {
+  return (error) => diag('main.handler-failed', { registry, error: errorKind(error) });
+}
 
 export type { CircleMessageChange } from './circleNotifier';
-const messageHandlers = new Set<(message: CircleMessage) => void>();
+const messageHandlers = createRegistry<CircleMessage>();
 /** Present while the network process runs; turns new messages into notifications. */
 let notifier: ReturnType<typeof createCircleNotifier> | null = null;
 let stopNotifier: (() => void)[] = [];
@@ -156,7 +161,7 @@ function stopNotifying(): void {
   notifier?.dispose();
   notifier = null;
 }
-const messageChangeHandlers = new Set<(change: CircleMessageChange) => void>();
+const messageChangeHandlers = createRegistry<CircleMessageChange>();
 /** Messages a read returns when the caller doesn't say. */
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 200;
@@ -180,13 +185,6 @@ let state: CirclesState = {
   used: getUsedUsage(),
 };
 
-/** Reaches this Mac's Twenty as its owner, for members' keys. */
-function twentyKeyDeps(): TwentyKeyDeps {
-  const { root } = tryResolveAssistantRoot();
-  if (!root) throw new TwentyKeyError('no-login', 'The agent stack isn’t on this Mac.');
-  return { root, port: twentyPort(root) };
-}
-
 /**
  * The services this user shares with their Circles (ADR 0048). Members' keys stay in main,
  * encrypted, and in the network process's memory while it runs.
@@ -194,12 +192,10 @@ function twentyKeyDeps(): TwentyKeyDeps {
 const sharedServices = createSharedServices({
   load: loadServiceGrants,
   save: saveServiceGrants,
-  mintKeys: (name, level) => mintMemberKeys(twentyKeyDeps(), name, level),
-  revokeKeys: (ids) => revokeMemberKeys(twentyKeyDeps(), ids),
-  upstreamFor: (service) => {
-    const { root } = tryResolveAssistantRoot();
-    return localServiceUpstream(service, root ? twentyPort(root) : null);
-  },
+  // Read at call time: this runs at import, before the app configures Circles.
+  mintKeys: (name, level) => circlesSharing().services.mintKeys(name, level),
+  revokeKeys: (ids) => circlesSharing().services.revokeKeys(ids),
+  upstreamFor: (service) => circlesSharing().services.upstreamFor(service),
   setOffer: (circle, service, offer) =>
     requestOrThrow({ op: 'record-set', key: circle, app: SERVICES_APP, scope: 'member', record: service, value: offer }),
   deleteOffer: (circle, service) =>
@@ -278,7 +274,7 @@ async function start(): Promise<void> {
           postSignalTopics();
           postRecordApps();
           resolve();
-          for (const handler of readyHandlers) handler();
+          readyHandlers.emit(undefined, handlerFailed('ready'));
           syncSharing().catch((error: unknown) => {
             persistDebugLog('circles', 'sharing sync failed', { error: error instanceof Error ? error.message : String(error) });
           });
@@ -315,11 +311,11 @@ async function start(): Promise<void> {
           return;
         case 'circle-removed':
           forgetCircle(message.key);
-          for (const handler of removedHandlers) handler(message.key);
+          removedHandlers.emit(message.key, handlerFailed('removed'));
           setState({ inviteCodeIds: getInviteCodeIds() });
           break;
         case 'folder-changed':
-          for (const handler of folderChangeHandlers) handler(message.key);
+          folderChangeHandlers.emit(message.key, handlerFailed('folder-change'));
           return;
         case 'member-left':
           showWindowNotification({ title: message.circle, body: `${message.name} left the Circle.` });
@@ -381,7 +377,7 @@ async function start(): Promise<void> {
 }
 
 function onSnapshot(snapshot: CirclesSnapshot): void {
-  for (const handler of snapshotHandlers) handler(snapshot);
+  snapshotHandlers.emit(snapshot, handlerFailed('snapshot'));
   const caughtUp = snapshot.circles.some(
     (circle) => circle.writable && state.snapshot.circles.find((before) => before.key === circle.key)?.writable === false
   );
@@ -555,19 +551,16 @@ function startSharedCall(
 }
 
 function postSignalTopics(): void {
-  if (child && state.status === 'running') post(child, { type: 'signal-topics', topics: [...signalHandlers.keys()] });
+  if (child && state.status === 'running') post(child, { type: 'signal-topics', topics: signalHandlers.keys() });
 }
 
 function onSignalReceived(signal: CircleSignal): void {
-  for (const handler of signalHandlers.get(signal.topic) ?? []) {
-    try {
-      handler({ circleKey: signal.circle, fromIdentity: signal.from, fromDevice: signal.device, payload: signal.payload });
-    } catch (error) {
-      // The topic only: an error from a handler can quote the payload.
-      persistDebugLog('circles', 'signal handler failed', { topic: signal.topic });
-      diag('main.signal-handler-failed', { topic: signal.topic, error: error instanceof Error ? error.name : typeof error });
-    }
-  }
+  const event = { circleKey: signal.circle, fromIdentity: signal.from, fromDevice: signal.device, payload: signal.payload };
+  signalHandlers.emit(signal.topic, event, (error) => {
+    // The topic only: an error from a handler can quote the payload.
+    persistDebugLog('circles', 'signal handler failed', { topic: signal.topic });
+    diag('main.signal-handler-failed', { topic: signal.topic, error: errorKind(error) });
+  });
 }
 
 /**
@@ -577,16 +570,7 @@ function onSignalReceived(signal: CircleSignal): void {
  */
 export function onCircleSignal(topic: string, handler: CircleSignalHandler): () => void {
   if (!isSignalTopic(topic)) throw new Error('That isn’t a signal topic.');
-  const handlers = signalHandlers.get(topic) ?? new Set<CircleSignalHandler>();
-  signalHandlers.set(topic, handlers);
-  handlers.add(handler);
-  postSignalTopics();
-  return () => {
-    handlers.delete(handler);
-    if (handlers.size > 0 || signalHandlers.get(topic) !== handlers) return;
-    signalHandlers.delete(topic);
-    postSignalTopics();
-  };
+  return signalHandlers.add(topic, handler);
 }
 
 /**
@@ -613,7 +597,7 @@ function cleanLimit(input: CircleLimit | undefined): CircleLimit {
 }
 
 function cleanLimits(input: CircleLimits): CircleLimits {
-  const members = Object.entries(input.members ?? {}).filter(([identity]) => /^[0-9a-f]{64}$/.test(identity));
+  const members = Object.entries(input.members ?? {}).filter(([identity]) => HEX_KEY_PATTERN.test(identity));
   return {
     everyone: cleanLimit(input.everyone),
     members: Object.fromEntries(members.map(([identity, limit]) => [identity, cleanLimit(limit)])),
@@ -635,7 +619,7 @@ async function syncSharing(): Promise<void> {
   const me = state.snapshot.identity;
   const sharingAny = models.length > 0 && state.snapshot.circles.some((circle) => circles.includes(circle.key));
   // Upstream first, so a member who sees the new offer can use it straight away.
-  const local = sharingAny ? await getSlotLlmConnection('local') : null;
+  const local = sharingAny ? await circlesSharing().localModel() : null;
   diag('main.sharing-sync', { ...sharingSummary(), sharingAny, localConnected: Boolean(local) });
   await requestOrThrow({
     op: 'share-upstream',
@@ -681,7 +665,7 @@ export async function setCircleSharingSettings(input: CircleSharing): Promise<Ci
   const limits = input.limits ?? state.sharing.limits;
   const sharing: CircleSharing = {
     models: cleaned,
-    circles: [...new Set((Array.isArray(input.circles) ? input.circles : []).filter((key) => /^[0-9a-f]{64}$/.test(key)))],
+    circles: [...new Set((Array.isArray(input.circles) ? input.circles : []).filter((key) => HEX_KEY_PATTERN.test(key)))],
     paused: input.paused === true,
     away: input.away === true,
     ...(limits ? { limits: cleanLimits(limits) } : {}),
@@ -699,7 +683,7 @@ export async function setCircleSharingSettings(input: CircleSharing): Promise<Ci
 
 /** Set what the user accepts from one provider; the next send plans with it (ADR 0033 §9). */
 export function setProviderSettings(identity: string, settings: CircleProviderSettings): CirclesResult {
-  if (!/^[0-9a-f]{64}$/.test(identity)) return fail(new Error('That isn’t a member’s identity.'));
+  if (!HEX_KEY_PATTERN.test(identity)) return fail(new Error('That isn’t a member’s identity.'));
   if (identity === state.snapshot.identity) return fail(new Error('Your own models need no settings.'));
   diag('main.provider-settings', { provider: short(identity), private: settings.private === true, trusted: settings.trusted === true });
   storeProviderSettings(identity, { private: settings.private === true, trusted: settings.trusted === true });
@@ -795,19 +779,15 @@ function sharingSummary(): Record<string, unknown> {
 }
 
 function postRecordApps(): void {
-  if (child && state.status === 'running') post(child, { type: 'record-apps', apps: [...recordHandlers.keys()] });
+  if (child && state.status === 'running') post(child, { type: 'record-apps', apps: recordHandlers.keys() });
 }
 
 function onRecordChanged(change: CircleRecordChange): void {
-  for (const handler of recordHandlers.get(change.app) ?? []) {
-    try {
-      handler(change);
-    } catch (error) {
-      // The app only: an error from a handler can quote the value.
-      persistDebugLog('circles', 'record handler failed', { app: change.app });
-      diag('main.record-handler-failed', { app: change.app, error: error instanceof Error ? error.name : typeof error });
-    }
-  }
+  recordHandlers.emit(change.app, change, (error) => {
+    // The app only: an error from a handler can quote the value.
+    persistDebugLog('circles', 'record handler failed', { app: change.app });
+    diag('main.record-handler-failed', { app: change.app, error: errorKind(error) });
+  });
 }
 
 /**
@@ -817,16 +797,7 @@ function onRecordChanged(change: CircleRecordChange): void {
  */
 export function onCircleRecord(app: string, handler: CircleRecordHandler): () => void {
   if (!isRecordName(app)) throw new Error('That isn’t a record name.');
-  const handlers = recordHandlers.get(app) ?? new Set<CircleRecordHandler>();
-  recordHandlers.set(app, handlers);
-  handlers.add(handler);
-  postRecordApps();
-  return () => {
-    handlers.delete(handler);
-    if (handlers.size > 0 || recordHandlers.get(app) !== handlers) return;
-    recordHandlers.delete(app);
-    postRecordApps();
-  };
+  return recordHandlers.add(app, handler);
 }
 
 /**
@@ -882,23 +853,17 @@ export function getCircleRecords(circleKey: string, app: string): Promise<Circle
   return run({ op: 'records-list', key: circleKey, app }, (reply) => ({ records: reply.records ?? [] }));
 }
 
-function callChatHandlers<T>(handlers: Set<(event: T) => void>, event: T): void {
-  for (const handler of handlers) {
-    try {
-      handler(event);
-    } catch (error) {
-      // No message content: an error from a handler can quote it.
-      diag('main.chat-handler-failed', { error: error instanceof Error ? error.name : typeof error });
-    }
-  }
+/** No message content: an error from a handler can quote it. */
+function chatHandlerFailed(error: unknown): void {
+  diag('main.chat-handler-failed', { error: errorKind(error) });
 }
 
 function onChatUpdate(update: CircleChatUpdate): void {
   broadcast('circles:chat-event', update);
-  for (const message of update.added) callChatHandlers(messageHandlers, message);
-  for (const message of update.changed) callChatHandlers(messageChangeHandlers, { kind: 'changed', message });
+  for (const message of update.added) messageHandlers.emit(message, chatHandlerFailed);
+  for (const message of update.changed) messageChangeHandlers.emit({ kind: 'changed', message }, chatHandlerFailed);
   for (const ref of update.gone) {
-    callChatHandlers(messageChangeHandlers, { kind: 'gone', circleKey: update.circleKey, channel: update.channel, ...ref });
+    messageChangeHandlers.emit({ kind: 'gone', circleKey: update.circleKey, channel: update.channel, ...ref }, chatHandlerFailed);
   }
 }
 
@@ -908,14 +873,12 @@ function onChatUpdate(update: CircleChatUpdate): void {
  * offline do. Returns a function that stops listening.
  */
 export function onCircleMessage(handler: (message: CircleMessage) => void): () => void {
-  messageHandlers.add(handler);
-  return () => messageHandlers.delete(handler);
+  return messageHandlers.add(handler);
 }
 
 /** Edits, deletes, confirmations and messages that disappear when their order settles. */
 export function onCircleMessageChange(handler: (change: CircleMessageChange) => void): () => void {
-  messageChangeHandlers.add(handler);
-  return () => messageChangeHandlers.delete(handler);
+  return messageChangeHandlers.add(handler);
 }
 
 /** A Circle's channels, `general` first, with what's unread after this device's read positions. */
@@ -1060,13 +1023,13 @@ export function markCircleChannelRead(circleKey: string, channel: string, positi
   return { success: true, state };
 }
 
-/** What this device is showing, so a focused channel stays silent. Null when no channel is open. */
 /** A direct message from `peer` reached this device, or changed: it may notify (ADR 0054 §10). */
 export function notifyDirect(circleKey: string, peer: string, name: string, message: DirectMessage, kind: 'new' | 'change'): void {
   if (kind === 'new') notifier?.onDirect(circleKey, peer, name, message);
   else notifier?.onDirectChange(circleKey, peer, name, message);
 }
 
+/** What this device is showing, so a focused channel stays silent. Null when no channel is open. */
 export function setCircleViewing(next: Viewing | null): void {
   viewing = next;
   notifier?.setViewing(next);
@@ -1079,20 +1042,17 @@ export function circlePeople(circleKey: string): number {
 
 /** Hear when a shared folder's view or mirror changed (ADR 0049). Returns a function that stops. */
 export function onSharedFolderChange(handler: (key: string) => void): () => void {
-  folderChangeHandlers.add(handler);
-  return () => folderChangeHandlers.delete(handler);
+  return folderChangeHandlers.add(handler);
 }
 
 /** Hear each time the Circles network has started and opened every Circle. Returns a function that stops. */
 export function onCirclesReady(handler: () => void): () => void {
-  readyHandlers.add(handler);
-  return () => readyHandlers.delete(handler);
+  return readyHandlers.add(handler);
 }
 
 /** Hear each new snapshot from the network: members, roles and presence. Returns a function that stops. */
 export function onCirclesSnapshot(handler: (snapshot: CirclesSnapshot) => void): () => void {
-  snapshotHandlers.add(handler);
-  return () => snapshotHandlers.delete(handler);
+  return snapshotHandlers.add(handler);
 }
 
 /**
@@ -1100,14 +1060,12 @@ export function onCirclesSnapshot(handler: (snapshot: CirclesSnapshot) => void):
  * leave. What only this device kept for the Circle can go then. Returns a function that stops.
  */
 export function onCircleLeaving(handler: (key: string) => void): () => void {
-  leavingHandlers.add(handler);
-  return () => leavingHandlers.delete(handler);
+  return leavingHandlers.add(handler);
 }
 
 /** Hear when this device left or was removed from a Circle and closed it. Returns a function that stops. */
 export function onCircleRemoved(handler: (key: string) => void): () => void {
-  removedHandlers.add(handler);
-  return () => removedHandlers.delete(handler);
+  return removedHandlers.add(handler);
 }
 
 /** Send one shared folder request; throws with the network's error. */
@@ -1285,7 +1243,7 @@ export function removeCircleMember(key: string, identity: string): Promise<Circl
 export function leaveCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'leave', key }, (): object => {
     markCircleLeaving(key);
-    for (const handler of leavingHandlers) handler(key);
+    leavingHandlers.emit(key, handlerFailed('leaving'));
     setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });
@@ -1294,7 +1252,7 @@ export function leaveCircle(key: string): Promise<CirclesResult> {
 export function deleteCircle(key: string): Promise<CirclesResult> {
   return run({ op: 'delete', key }, (): object => {
     forgetCircle(key);
-    for (const handler of leavingHandlers) handler(key);
+    leavingHandlers.emit(key, handlerFailed('leaving'));
     setState({ inviteCodeIds: getInviteCodeIds() });
     return {};
   });

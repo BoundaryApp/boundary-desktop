@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { app } from 'electron';
-import { persistDebugLog } from '../../persistDebugLog';
+import { persistDebugLog } from '../../host/log';
 import type {
   CircleMessageRef,
   CirclesResult,
@@ -28,8 +28,9 @@ import { short } from './circlesDiagnostics';
 import { circlesKeptByWipe } from './circlesStore';
 import { DIRECT_TOPICS, DirectMessages, type DirectPerson } from './directMessages';
 import { directStore } from './directStore';
+import { createRegistry } from './handlerRegistry';
 
-const handlers = new Set<(event: DirectEvent) => void>();
+const handlers = createRegistry<DirectEvent>();
 
 /** The Circle's other members, or null while it isn't open and caught up on this device. */
 function people(circleKey: string): DirectPerson[] | null {
@@ -57,13 +58,7 @@ const dms = new DirectMessages({
       const name = people(event.circleKey)?.find((person) => person.identity === event.peer)?.name ?? '';
       notifyDirect(event.circleKey, event.peer, name, event.message, event.kind === 'message' ? 'new' : 'change');
     }
-    for (const handler of handlers) {
-      try {
-        handler(event);
-      } catch {
-        persistDebugLog('circles', 'dm handler failed', { kind: event.kind });
-      }
-    }
+    handlers.emit(event, () => persistDebugLog('circles', 'dm handler failed', { kind: event.kind }));
   },
   log: (event, data) => persistDebugLog('circles', event, data),
 });
@@ -138,6 +133,5 @@ export function sendDirectTyping(circleKey: string, peer: string): void {
 
 /** Every DM event: arrivals, changes, unsent deletes, typing and ended conversations. */
 export function onDirectEvent(handler: (event: DirectEvent) => void): () => void {
-  handlers.add(handler);
-  return () => handlers.delete(handler);
+  return handlers.add(handler);
 }

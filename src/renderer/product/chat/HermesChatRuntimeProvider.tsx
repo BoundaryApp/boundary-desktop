@@ -8,15 +8,13 @@ import React, {
   useState,
 } from 'react';
 import { AssistantRuntimeProvider, type ChatModelAdapter } from '@assistant-ui/react';
-import { createHermesChatModelAdapter } from './hermesChatModelAdapter';
-import type {
-  HermesChatMessage,
-  SessionInferenceOverride,
-} from '../../../shared/types/hermesChat';
+import { createHermesChatModelAdapter, type InferenceSendHandlers } from './hermesChatModelAdapter';
+import type { HermesChatMessage } from '../../../shared/types/hermesChat';
 import type { ServerPath } from './serverPath';
 import { toServerEntries, toThreadMessage } from './chatHistoryMessages';
 import { findRunningTurn, isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 import { useHostedChatRuntime, type ChatRuntimeCore } from './chatRuntimeHost';
+import { ChatAdoptionContext, type IsAdoption } from './useOnChatSwitch';
 
 const ServerPathContext = createContext<ServerPath | null>(null);
 
@@ -35,32 +33,18 @@ export function useServerPath(): ServerPath | null {
   return useContext(ServerPathContext);
 }
 
-interface InferenceSendHandlers {
-  onLocalUnreachable: () => void;
-  onPrivateRefused: () => void;
-  /** The inference a chat with no session yet sends its first turn with, taken once. */
-  takeNewChatInference?: () => SessionInferenceOverride | null;
-  /** The writing voice a chat with no session yet keeps, taken once by its first send. */
-  takeNewChatWritingVoice?: () => string | null;
-}
+/** Reads the screen's current send handlers; registered once per mounted thread. */
+type GetSendHandlers = () => InferenceSendHandlers;
 
 const InferenceSendContext = createContext<{
-  register: (handlers: InferenceSendHandlers) => () => void;
+  register: (get: GetSendHandlers) => () => void;
 } | null>(null);
 
 export function useInferenceSendHandlers(handlers: InferenceSendHandlers): void {
   const ctx = useContext(InferenceSendContext);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
-  useEffect(() => {
-    if (!ctx) return undefined;
-    return ctx.register({
-      onLocalUnreachable: () => handlersRef.current.onLocalUnreachable(),
-      onPrivateRefused: () => handlersRef.current.onPrivateRefused(),
-      takeNewChatInference: () => handlersRef.current.takeNewChatInference?.() ?? null,
-      takeNewChatWritingVoice: () => handlersRef.current.takeNewChatWritingVoice?.() ?? null,
-    });
-  }, [ctx]);
+  useEffect(() => ctx?.register(() => handlersRef.current), [ctx]);
 }
 
 interface HermesChatRuntimeProviderProps {
@@ -100,6 +84,13 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
   // and dropping it. `from` is null for a new chat.
   const [mountKey, setMountKey] = useState<string>(sessionId ?? 'none');
   const adoptedRef = useRef<{ from: string | null; to: string } | null>(null);
+  // The last adoption, kept after the effect below has handled it: the thread's per-chat
+  // state reads it to tell adoption from a switch (useOnChatSwitch).
+  const lastAdoptionRef = useRef<{ from: string | null; to: string } | null>(null);
+  const isAdoption = useCallback<IsAdoption>((from, to) => {
+    const last = lastAdoptionRef.current;
+    return last !== null && last.from === from && last.to === to;
+  }, []);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const adopting =
@@ -112,12 +103,12 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
   agentSlugRef.current = agentSlug;
   const onSessionResolvedRef = useRef(onSessionResolved);
   onSessionResolvedRef.current = onSessionResolved;
-  const sendHandlersRef = useRef<InferenceSendHandlers | null>(null);
+  const sendHandlersRef = useRef<GetSendHandlers | null>(null);
 
-  const register = useCallback((handlers: InferenceSendHandlers) => {
-    sendHandlersRef.current = handlers;
+  const register = useCallback((get: GetSendHandlers) => {
+    sendHandlersRef.current = get;
     return () => {
-      if (sendHandlersRef.current === handlers) {
+      if (sendHandlersRef.current === get) {
         sendHandlersRef.current = null;
       }
     };
@@ -216,13 +207,13 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
         getAgentSlug: () => agentSlugRef.current,
         onSessionResolved: (id, storedId) => {
           const from = sessionIdRef.current;
-          if (from !== id) adoptedRef.current = { from, to: id };
+          if (from !== id) {
+            adoptedRef.current = { from, to: id };
+            lastAdoptionRef.current = { from, to: id };
+          }
           onSessionResolvedRef.current?.(id, storedId);
         },
-        onLocalUnreachable: () => sendHandlersRef.current?.onLocalUnreachable(),
-        onPrivateRefused: () => sendHandlersRef.current?.onPrivateRefused(),
-        takeNewChatInference: () => sendHandlersRef.current?.takeNewChatInference?.() ?? null,
-        takeNewChatWritingVoice: () => sendHandlersRef.current?.takeNewChatWritingVoice?.() ?? null,
+        getSendHandlers: () => sendHandlersRef.current?.() ?? null,
         getServerPath: () => serverPathRef.current,
       }),
     [sessionId]
@@ -237,20 +228,22 @@ export const HermesChatRuntimeProvider: React.FC<HermesChatRuntimeProviderProps>
 
   return (
     <InferenceSendContext.Provider value={sendContext}>
-      <HistoryRefreshingContext.Provider value={refreshing}>
-        <HermesChatRuntimeInner
-          key={`${mountKey}:${agentSlug ?? ''}`}
-          adapter={adapter}
-          history={history}
-          refreshed={refreshed}
-          serverPathRef={serverPathRef}
-          ids={[mountKey === 'none' ? null : mountKey, sessionId]}
-          agentSlug={agentSlug}
-          sameChat={sameChat}
-        >
-          {children}
-        </HermesChatRuntimeInner>
-      </HistoryRefreshingContext.Provider>
+      <ChatAdoptionContext.Provider value={isAdoption}>
+        <HistoryRefreshingContext.Provider value={refreshing}>
+          <HermesChatRuntimeInner
+            key={`${mountKey}:${agentSlug ?? ''}`}
+            adapter={adapter}
+            history={history}
+            refreshed={refreshed}
+            serverPathRef={serverPathRef}
+            ids={[mountKey === 'none' ? null : mountKey, sessionId]}
+            agentSlug={agentSlug}
+            sameChat={sameChat}
+          >
+            {children}
+          </HermesChatRuntimeInner>
+        </HistoryRefreshingContext.Provider>
+      </ChatAdoptionContext.Provider>
     </InferenceSendContext.Provider>
   );
 };

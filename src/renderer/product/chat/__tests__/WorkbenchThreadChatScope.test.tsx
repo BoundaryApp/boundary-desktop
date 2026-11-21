@@ -230,11 +230,11 @@ describe('WorkbenchThread @ chip', () => {
   it('inserts the mention picked from the list it opens', async () => {
     const { container } = render(<Harness sessionId="b" />);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '@' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Mention' }));
     });
     const option = await screen.findByRole('option', { name: /Scout/ });
     await act(async () => {
-      fireEvent.mouseDown(option);
+      fireEvent.click(option);
     });
     expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('@Scout ');
   });
@@ -251,11 +251,11 @@ describe('WorkbenchThread @ chip', () => {
       fireEvent.input(input);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '@' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Mention' }));
     });
     const option = await screen.findByRole('option', { name: /Scout/ });
     await act(async () => {
-      fireEvent.mouseDown(option);
+      fireEvent.click(option);
     });
     expect(input.value).toBe('ask @Scout ');
   });

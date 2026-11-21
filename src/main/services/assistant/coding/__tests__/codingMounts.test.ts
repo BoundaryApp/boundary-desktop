@@ -9,7 +9,14 @@ import {
 } from '../../hermes/hermesProjectStore';
 import { codingPathAliases } from '../codingGrantRules';
 import { addCodingGrantRecord, resetCodingGrantStoreForTests } from '../codingGrantStore';
-import { codingStackEnv, persistCodingStackEnv } from '../codingMounts';
+import { localStackFiles } from '../../../stackHost/localStackHost';
+import { projectEnvViaFiles } from '../../projectEnv';
+import {
+  codingStackEnv,
+  currentStackDataMasks,
+  ensureStackDataMaskSource,
+  persistCodingStackEnv,
+} from '../codingMounts';
 
 function project(partial: Partial<HermesProjectRecord>): HermesProjectRecord {
   return {
@@ -85,15 +92,49 @@ describe('persistCodingStackEnv', () => {
   });
   afterEach(() => fs.rmSync(envRoot, { recursive: true, force: true }));
 
-  it('writes the variables to .env, quoting values with spaces, and keeps other lines', () => {
+  it('writes the variables to .env, quoting values with spaces, and keeps other lines', async () => {
     fs.writeFileSync(path.join(envRoot, '.env'), 'OPENCODE_SERVER_PASSWORD=pw\n');
     upsertStoredHermesProject(project({ hostPath: '/Users/ada/My Site' }));
-    persistCodingStackEnv(['/Users/ada/Code/api'], envRoot);
+    await persistCodingStackEnv(
+      projectEnvViaFiles(localStackFiles({ stackRoot: envRoot, userContentRoot: () => envRoot })),
+      ['/Users/ada/Code/api']
+    );
     const env = fs.readFileSync(path.join(envRoot, '.env'), 'utf8');
     expect(env).toContain('OPENCODE_SERVER_PASSWORD=pw');
     expect(env).toContain('CODING_EXTRA_ROOTS=:/Users/ada/Code/api');
     expect(env).toContain('CODING_ROOTS_APP_MANAGED=1');
     expect(env).toContain('CONTEXT_ROOTS_APP_MANAGED=1');
     expect(env).toContain("CODING_PATH_ALIASES='/opt/projects/portfolio=/Users/ada/My Site'");
+  });
+});
+
+describe('currentStackDataMasks', () => {
+  const temps: string[] = [];
+  afterEach(() => {
+    for (const dir of temps.splice(0)) {
+      fs.chmodSync(dir, 0o755);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('scans every mounted folder once and lists each checkout data/ once', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-masks-'));
+    temps.push(root);
+    const stack = path.join(root, 'assistant');
+    fs.mkdirSync(path.join(stack, 'data', 'hermes'), { recursive: true });
+    fs.writeFileSync(path.join(stack, 'docker-compose.yml'), '');
+    const masks = currentStackDataMasks([root, stack, `${root}/`]);
+    expect(masks.dataDirs).toEqual([path.join(stack, 'data')]);
+    expect(path.basename(masks.source)).toBe('empty-dir');
+  });
+
+  it('makes the mask source an empty read-only folder', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-mask-src-'));
+    const source = path.join(root, 'coding', 'empty-dir');
+    temps.push(source, root);
+    ensureStackDataMaskSource(source);
+    ensureStackDataMaskSource(source);
+    expect(fs.readdirSync(source)).toEqual([]);
+    expect(fs.statSync(source).mode & 0o777).toBe(0o555);
   });
 });

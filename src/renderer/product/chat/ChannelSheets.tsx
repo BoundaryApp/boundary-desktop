@@ -6,9 +6,12 @@ import {
   type ChannelRecord,
 } from '../../../shared/types/hermesChat';
 import { builtinAgentName } from '../../../shared/hermesAgentIdentity';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { InfoTip } from '../../components/ui/info-tip';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 
 interface ChannelCreateSheetProps {
   open: boolean;
@@ -92,7 +95,7 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       </p>
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
@@ -105,8 +108,8 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       </label>
       <label className="wb-field">
         <span>Slug</span>
-        <input
-          className="mono"
+        <Input
+          className="font-mono"
           value={slug || derivedSlug}
           onChange={(e) => {
             setSlugTouched(true);
@@ -117,26 +120,18 @@ export const ChannelCreateSheet: React.FC<ChannelCreateSheetProps> = ({
       </label>
       <div className="wb-field">
         <span>Initial members</span>
-        <div className="wb-member-picks">
-          {[...agents].sort((a, b) => Number(b.builtIn) - Number(a.builtIn)).map((agent) => {
-            const on = memberSlugs.includes(agent.slug);
-            return (
-              <Button
-                variant="secondary"
-                size="sm"
-                key={agent.slug}
-                type="button"
-                className={`${on ? ' is-on' : ''}`}
-                aria-pressed={on}
-                disabled={busy}
-                onClick={() => toggleMember(agent.slug)}
-              >
-                {on ? '✓ ' : ''}
-                {agent.displayName}
-              </Button>
-            );
-          })}
-        </div>
+        <ChipGroup type="multiple" aria-label="Initial members" className="wb-member-picks">
+          {[...agents].sort((a, b) => Number(b.builtIn) - Number(a.builtIn)).map((agent) => (
+            <Chip
+              key={agent.slug}
+              pressed={memberSlugs.includes(agent.slug)}
+              onPressedChange={() => toggleMember(agent.slug)}
+              disabled={busy}
+            >
+              {agent.displayName}
+            </Chip>
+          ))}
+        </ChipGroup>
       </div>
     </Sheet>
   );
@@ -203,7 +198,7 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
       </p>
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
@@ -215,8 +210,8 @@ export const MakeChannelSheet: React.FC<MakeChannelSheetProps> = ({
       </label>
       <label className="wb-field">
         <span>Slug</span>
-        <input
-          className="mono"
+        <Input
+          className="font-mono"
           value={slug || derivedSlug}
           onChange={(e) => {
             setSlugTouched(true);
@@ -356,7 +351,7 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
       <p className="wb-sheet-lede">Members and the transcript stay as they are.</p>
       <label className="wb-field">
         <span>Name</span>
-        <input
+        <Input
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
@@ -368,8 +363,8 @@ export const ChannelRenameSheet: React.FC<ChannelRenameSheetProps> = ({
       </label>
       <label className="wb-field">
         <span>Slug</span>
-        <input
-          className="mono"
+        <Input
+          className="font-mono"
           value={slug || derivedSlug}
           onChange={(e) => {
             setSlugTouched(true);

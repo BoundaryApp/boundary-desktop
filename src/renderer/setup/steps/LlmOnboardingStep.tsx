@@ -4,6 +4,7 @@ import { OpenAiCredentialsForm } from '../../onboarding/OpenAiCredentialsForm';
 import { OAuthModelPickView } from '../../onboarding/OAuthModelPickView';
 import { SharedModelSetupView } from '../../onboarding/SharedModelSetupView';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
+import { adoptLocalLlm, useOAuthSignIn } from '../../onboarding/modelConnection';
 import type {
   DiscoveredLocalLlm,
   InferenceProvidersStatus,
@@ -66,15 +67,18 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
   const [localLlmError, setLocalLlmError] = useState<string | null>(null);
   const [oauthProviders, setOauthProviders] = useState<OAuthConnectionProviderSummary[]>([]);
   const [oauthLoading, setOauthLoading] = useState(true);
-  const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthCredentials, setOauthCredentials] = useState<OAuthPkceCredentialsBundle | null>(null);
   const didAutoResumeOauth = useRef(false);
-  const oauthCancelled = useRef(false);
   const stackLifecycle = useAssistantStackLifecycle();
   const backgroundEnsureStarted = useRef(false);
 
   const primaryOauthProvider = oauthProviders[0] ?? null;
+  const {
+    connecting: oauthConnecting,
+    signIn: signInToOauth,
+    cancel: cancelOauthSignIn,
+  } = useOAuthSignIn(primaryOauthProvider?.id);
   const pendingOauth = pendingOAuthCredentialsFromStatus(status);
 
   useEffect(() => {
@@ -145,11 +149,7 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
 
   const handleUseLocalLlm = async (endpoint: DiscoveredLocalLlm, modelId: string) => {
     setLocalLlmError(null);
-    const result = await window.electronAPI.onboarding.adoptLocalLlm({
-      runtime: endpoint.runtime,
-      endpointUrl: endpoint.baseUrl,
-      modelId,
-    });
+    const result = await adoptLocalLlm(endpoint, modelId);
     if (!result.success) {
       setLocalLlmError(result.error ?? 'Unable to use this local endpoint.');
       return;
@@ -159,27 +159,16 @@ export const LlmOnboardingStep: React.FC<Partial<SetupStepProps>> = ({
 
   const handleOauthSignIn = async () => {
     if (!primaryOauthProvider) return;
-    setOauthConnecting(true);
     setOauthError(null);
     setOauthCredentials(null);
-    oauthCancelled.current = false;
-    try {
-      const result = await window.electronAPI.onboarding.startOAuthPkce({ providerId: primaryOauthProvider.id });
-      if (oauthCancelled.current) return;
-      if (!result.success || !result.credentials) {
-        setOauthError(result.error ?? 'OAuth sign-in failed.');
-        return;
-      }
-      setOauthCredentials(result.credentials);
-      setView('oauth-model');
-    } finally {
-      setOauthConnecting(false);
+    const outcome = await signInToOauth();
+    if (!outcome || outcome.kind === 'cancelled') return;
+    if (outcome.kind === 'failed') {
+      setOauthError(outcome.error ?? 'OAuth sign-in failed.');
+      return;
     }
-  };
-
-  const cancelOauthSignIn = () => {
-    oauthCancelled.current = true;
-    void window.electronAPI.onboarding.cancelOAuthPkce();
+    setOauthCredentials(outcome.credentials);
+    setView('oauth-model');
   };
 
   const goHome = () => {

@@ -52,7 +52,7 @@ describe('Hermes in channels (ADR 0023 §9)', () => {
     const picks = screen.getAllByRole('button', { pressed: undefined }).filter((b) =>
       b.hasAttribute('aria-pressed')
     );
-    expect(picks.map((b) => b.textContent?.replace('✓ ', ''))).toEqual(['Hermes', 'Ana']);
+    expect(picks.map((b) => b.textContent)).toEqual(['Hermes', 'Ana']);
     expect(picks[0].getAttribute('aria-pressed')).toBe('true');
     expect(picks[1].getAttribute('aria-pressed')).toBe('false');
 

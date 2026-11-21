@@ -7,10 +7,13 @@ const memoryStores: Record<string, Record<string, unknown>> = {};
 vi.mock('electron-store', () => ({
   default: vi.fn().mockImplementation(function (options?: { name?: string; defaults?: Record<string, unknown> }) {
     const name = options?.name ?? 'default';
-    if (!memoryStores[name]) {
-      memoryStores[name] = { ...(options?.defaults ?? {}) };
-    }
+    memoryStores[name] ??= {};
     const data = memoryStores[name];
+    // Like electron-store, each new store fills in the defaults the data lacks and keeps the
+    // values it holds, so opening a store without defaults first doesn't hide them from later ones.
+    for (const [key, value] of Object.entries(options?.defaults ?? {})) {
+      if (data[key] === undefined) data[key] = value;
+    }
     return {
       get: (key: string) => data[key],
       has: (key: string) => data[key] !== undefined,

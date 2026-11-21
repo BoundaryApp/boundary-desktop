@@ -15,6 +15,8 @@ import {
   type BuiltinAddonId,
   type BuiltinAddonInstaller,
 } from '../builtinAddons';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
+import { localStackFiles } from '../../stackHost/localStackHost';
 
 // A fake of `addon.sh` for n8n and LightRAG, from the stack at v0.3.14: scripts/addon.sh cmd_enable
 // runs `apply_flags` (step flags, builtin.flag=1), each one-shot (step start, target n8n-import),
@@ -39,34 +41,35 @@ const writeEnv = (contents: string) => fs.writeFileSync(path.join(root, '.env'),
 const readEnv = () => fs.readFileSync(path.join(root, '.env'), 'utf8');
 
 describe('builtinAddonAvailable', () => {
-  const read = (files: Record<string, string>) => (p: string) => files[path.relative(root, p)] ?? null;
+  const read = (files: Record<string, string>) =>
+    createFakeStackFiles(Object.fromEntries(Object.entries(files).map(([p, v]) => [`stack:${p}`, v])));
 
-  it('needs addon.sh and a manifest whose builtin block names the flag Boundary reads', () => {
+  it('needs addon.sh and a manifest whose builtin block names the flag Boundary reads', async () => {
     const manifest = JSON.stringify({ builtin: { flag: 'AUTOMATION_ENABLED', profile: 'automation', seed: true } });
-    expect(builtinAddonAvailable(root, 'n8n', read({ 'scripts/addon.sh': '', 'addons/n8n/addon.json': manifest }))).toBe(true);
-    expect(builtinAddonAvailable(root, 'n8n', read({ 'addons/n8n/addon.json': manifest }))).toBe(false);
-    expect(builtinAddonAvailable(root, 'n8n', read({ 'scripts/addon.sh': '' }))).toBe(false);
-    expect(builtinAddonAvailable(root, 'lightrag', read({ 'scripts/addon.sh': '', 'addons/lightrag/addon.json': manifest }))).toBe(false);
-    expect(builtinAddonAvailable(root, 'n8n', read({ 'scripts/addon.sh': '', 'addons/n8n/addon.json': '{' }))).toBe(false);
+    expect(await builtinAddonAvailable(read({ 'scripts/addon.sh': '', 'addons/n8n/addon.json': manifest }), 'n8n')).toBe(true);
+    expect(await builtinAddonAvailable(read({ 'addons/n8n/addon.json': manifest }), 'n8n')).toBe(false);
+    expect(await builtinAddonAvailable(read({ 'scripts/addon.sh': '' }), 'n8n')).toBe(false);
+    expect(await builtinAddonAvailable(read({ 'scripts/addon.sh': '', 'addons/lightrag/addon.json': manifest }), 'lightrag')).toBe(false);
+    expect(await builtinAddonAvailable(read({ 'scripts/addon.sh': '', 'addons/n8n/addon.json': '{' }), 'n8n')).toBe(false);
   });
 });
 
 describe('readBuiltinEnabled', () => {
-  it('reads each flag from the stack’s .env, off when missing', () => {
+  it('reads each flag from the stack’s .env, off when missing', async () => {
+    const files = localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') });
     writeEnv('AUTOMATION_ENABLED=1\nLIGHTRAG_MCP_ENABLED=0\n');
-    expect(readBuiltinEnabled(root, 'n8n')).toBe(true);
-    expect(readBuiltinEnabled(root, 'lightrag')).toBe(false);
+    expect(await readBuiltinEnabled(files, 'n8n')).toBe(true);
+    expect(await readBuiltinEnabled(files, 'lightrag')).toBe(false);
     writeEnv('');
-    expect(readBuiltinEnabled(root, 'n8n')).toBe(false);
+    expect(await readBuiltinEnabled(files, 'n8n')).toBe(false);
   });
 });
 
 describe('moveBuiltinSwitchesToEnv', () => {
   let moved: string[];
   let stored: Record<BuiltinAddonId, boolean>;
+  const files = () => localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') });
   const deps = () => ({
-    readFile: (p: string) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null),
-    writeFile: (p: string, contents: string) => fs.writeFileSync(p, contents),
     stored: () => stored,
     moved: (r: string) => moved.includes(r),
     markMoved: (r: string): void => void moved.push(r),
@@ -77,29 +80,29 @@ describe('moveBuiltinSwitchesToEnv', () => {
     stored = { n8n: false, lightrag: false };
   });
 
-  it('overwrites what setup.sh and sync-profiles.sh seeded with this Mac’s switches, once', () => {
+  it('overwrites what setup.sh and sync-profiles.sh seeded with this Mac’s switches, once', async () => {
     writeEnv('COMPOSE_PROFILES=core,automation\nAUTOMATION_ENABLED=1\nLIGHTRAG_MCP_ENABLED=1\nOTHER=x\n');
     stored = { n8n: false, lightrag: true };
-    expect(moveBuiltinSwitchesToEnv(root, deps())).toEqual({ AUTOMATION_ENABLED: '0', LIGHTRAG_MCP_ENABLED: '1' });
+    expect(await moveBuiltinSwitchesToEnv(files(), root, deps())).toEqual({ AUTOMATION_ENABLED: '0', LIGHTRAG_MCP_ENABLED: '1' });
     expect(readEnv()).toBe('COMPOSE_PROFILES=core,automation\nAUTOMATION_ENABLED=0\nLIGHTRAG_MCP_ENABLED=1\nOTHER=x\n');
     expect(moved).toEqual([root]);
 
     // addon.sh owns the flags from now on: a later start leaves them as they are.
     writeEnv('AUTOMATION_ENABLED=1\nLIGHTRAG_MCP_ENABLED=0\n');
     stored = { n8n: false, lightrag: true };
-    expect(moveBuiltinSwitchesToEnv(root, deps())).toEqual({});
+    expect(await moveBuiltinSwitchesToEnv(files(), root, deps())).toEqual({});
     expect(readEnv()).toBe('AUTOMATION_ENABLED=1\nLIGHTRAG_MCP_ENABLED=0\n');
   });
 
-  it('writes a flag missing after the move as off, so sync-profiles.sh doesn’t seed n8n on', () => {
+  it('writes a flag missing after the move as off, so sync-profiles.sh doesn’t seed n8n on', async () => {
     moved = [root];
     writeEnv('LIGHTRAG_MCP_ENABLED=1\n');
-    expect(moveBuiltinSwitchesToEnv(root, deps())).toEqual({ AUTOMATION_ENABLED: '0' });
+    expect(await moveBuiltinSwitchesToEnv(files(), root, deps())).toEqual({ AUTOMATION_ENABLED: '0' });
     expect(readEnv()).toBe('LIGHTRAG_MCP_ENABLED=1\nAUTOMATION_ENABLED=0\n');
   });
 
-  it('does nothing, and records nothing, without a .env', () => {
-    expect(moveBuiltinSwitchesToEnv(root, deps())).toEqual({});
+  it('does nothing, and records nothing, without a .env', async () => {
+    expect(await moveBuiltinSwitchesToEnv(files(), root, deps())).toEqual({});
     expect(moved).toEqual([]);
     expect(fs.existsSync(path.join(root, '.env'))).toBe(false);
   });

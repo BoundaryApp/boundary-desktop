@@ -14,6 +14,7 @@ describe('measureSampleText', () => {
   it('leaves out frontmatter and fenced code when counting words', () => {
     const text = '---\ntitle: x\n---\none two\n```\ncode here\n```\nthree';
     expect(measureSampleText(text).words).toBe(3);
+    expect(measureSampleText(text.replace(/\n/g, '\r\n')).words).toBe(3);
   });
 
   it('calls a file list-heavy when headers and list lines are more than half', () => {

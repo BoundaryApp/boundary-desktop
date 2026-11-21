@@ -1,5 +1,6 @@
 import React from 'react';
 import { SetupShell, SetupSpinner } from './SetupShell';
+import { SetupPreparing } from './SetupPreparing';
 import { useSetup } from './SetupContext';
 import { DebugLogCopy } from '../components/settings/DebugLogCopy';
 import { Callout } from '../components/ui/alert';
@@ -7,8 +8,17 @@ import { Button } from '../components/ui/button';
 import { APP_NAME } from '../../shared/buildIdentity';
 
 export const SetupFlowShell: React.FC = () => {
-  const { loading, activeStep, capabilityError, capabilityAssessment, capabilityStatus, loadCapability } =
-    useSetup();
+  const {
+    loading,
+    activeStep,
+    capabilityError,
+    capabilityAssessment,
+    capabilityStatus,
+    capabilityLoading,
+    loadCapability,
+    provisionProgress,
+    provisionStage,
+  } = useSetup();
 
   if (capabilityError && !capabilityAssessment) {
     return (
@@ -25,6 +35,18 @@ export const SetupFlowShell: React.FC = () => {
         <Callout variant="destructive">{capabilityError}</Callout>
         <DebugLogCopy path={capabilityStatus?.debugLogPath} />
       </SetupShell>
+    );
+  }
+
+  // The Machine check is resolving the container runtime, which can take minutes on a first
+  // launch: show its steps. A launch that only reads the stored result keeps the spinner.
+  if (capabilityLoading && provisionStage) {
+    return (
+      <SetupPreparing
+        stage={provisionStage}
+        message={provisionProgress}
+        debugLogPath={capabilityStatus?.debugLogPath}
+      />
     );
   }
 

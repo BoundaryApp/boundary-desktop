@@ -3,6 +3,7 @@ import type {
   ListedModelAaBenchmarks,
   ListedModelPricing,
 } from './types/onboarding';
+import { formatTokenCount } from './utils/format';
 
 const TOKENS_PER_MILLION = 1_000_000;
 
@@ -62,26 +63,12 @@ export function formatModelPricing(pricing: ListedModelPricing | undefined): str
   return promptLabel ?? completionLabel;
 }
 
-/** Compact context window label (e.g. `128K`, `1M`). */
+/** Compact context window label (e.g. `128K`, `1M`); undefined for a missing or bad length. */
 export function formatContextLength(contextLength: number | undefined): string | undefined {
   if (contextLength === undefined || !Number.isFinite(contextLength) || contextLength <= 0) {
     return undefined;
   }
-
-  if (contextLength >= 1_000_000) {
-    const millions = contextLength / 1_000_000;
-    const rounded = Math.round(millions * 10) / 10;
-    const label = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-    return `${label}M`;
-  }
-
-  if (contextLength >= 1_000) {
-    const thousands = contextLength / 1_000;
-    const rounded = Math.round(thousands);
-    return `${rounded}K`;
-  }
-
-  return String(Math.round(contextLength));
+  return formatTokenCount(contextLength);
 }
 
 /**

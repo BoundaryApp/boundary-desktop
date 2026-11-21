@@ -10,7 +10,7 @@ import { ADDON_FACTS, bytesGB, memGB, wholeGB, type PillTone } from './addonCopy
 import { EngineMemoryBar } from './EngineMemoryBar';
 import { Panel } from './AddonPanel';
 import { reloadAddons, startAddonInstall, startAddonRemoval } from './useAddons';
-import { TypeDeleteField } from './addonFormParts';
+import { DeleteImagesOption, TypeDeleteField } from './addonFormParts';
 import { StoppedAddonCallout } from './AddonStoppedAlert';
 
 // Pieces every add-on's detail page shares: the breadcrumb, the fit check and what it runs.
@@ -62,7 +62,7 @@ const CheckRow: React.FC<{
   </li>
 );
 
-export const FitChecks: React.FC<{ listing: AddonListing }> = ({ listing }) => {
+const FitChecks: React.FC<{ listing: AddonListing }> = ({ listing }) => {
   const { entry, fit, facts } = listing;
   const reserve = memGB(entry.reserveMiB);
   const free = memGB(fit.freeMiB);
@@ -240,7 +240,7 @@ export const AddonPageTop: React.FC<
 );
 
 /** Remove and delete data, with why it's unavailable in a local stack. */
-export const RemoveDataButton: React.FC<{ listing: AddonListing; busy: boolean; onClick(): void }> = ({
+const RemoveDataButton: React.FC<{ listing: AddonListing; busy: boolean; onClick(): void }> = ({
   listing,
   busy,
   onClick,
@@ -251,7 +251,7 @@ export const RemoveDataButton: React.FC<{ listing: AddonListing; busy: boolean; 
 );
 
 /** The line under the page's buttons when Remove and delete data can't run here. */
-export const LocalRemoveNote: React.FC<{ listing: AddonListing }> = ({ listing }) =>
+const LocalRemoveNote: React.FC<{ listing: AddonListing }> = ({ listing }) =>
   listing.canRemoveData ? null : <p className="text-xs text-fg-faint">{ADDON_LOCAL_REMOVE_MESSAGE}</p>;
 
 /** The fit check before anything is set up, or a line saying the stack must run to check it. */
@@ -285,8 +285,8 @@ export const ConfirmSheet: React.FC<{
 );
 
 /**
- * The add-on's own panel: Turn off (after a yes-or-no sheet) or Turn on, and Remove and delete
- * data, with why removal can't run in a local stack.
+ * The add-on's own panel: `actions`, then Turn off (after a yes-or-no sheet) or Turn on, and Remove
+ * and delete data, with `children` and why removal can't run in a local stack under them.
  */
 export const AddonSwitchPanel: React.FC<{
   listing: AddonListing;
@@ -294,7 +294,8 @@ export const AddonSwitchPanel: React.FC<{
   lead: string;
   /** Another action or a run is under way. */
   locked: boolean;
-  canTurnOn: boolean;
+  /** False while Turn on can't run, as when the add-on doesn't fit. */
+  canTurnOn?: boolean;
   offOpen: boolean;
   /** The Turn off sheet's action is running. */
   busy: boolean;
@@ -304,23 +305,47 @@ export const AddonSwitchPanel: React.FC<{
   /** Opens the Turn off sheet or the page's removal sheet, or closes the Turn off sheet (null). */
   onDialog(next: 'off' | 'remove' | null): void;
   onTurnOff(): void;
-  onTurnOn(): void;
+  /** Without it the panel offers no Turn on, for a page that turns the add-on on elsewhere. */
+  onTurnOn?(): void;
   /** False for an add-on whose removal would delete nothing worth offering. */
   removable?: boolean;
-}> = ({ listing, title, lead, locked, canTurnOn, offOpen, busy, offTitleId, offTitle, offText, onDialog, onTurnOff, onTurnOn, removable = true }) => (
+  /** Buttons before Turn off, such as Open. */
+  actions?: React.ReactNode;
+  /** A note under the buttons. */
+  children?: React.ReactNode;
+}> = ({
+  listing,
+  title,
+  lead,
+  locked,
+  canTurnOn = true,
+  offOpen,
+  busy,
+  offTitleId,
+  offTitle,
+  offText,
+  onDialog,
+  onTurnOff,
+  onTurnOn,
+  removable = true,
+  actions,
+  children,
+}) => (
   <Panel title={title} lead={lead}>
     <div className="flex flex-wrap gap-2">
+      {actions}
       {listing.installed ? (
         <Button type="button" variant="secondary" disabled={locked} onClick={() => onDialog('off')}>
           Turn off
         </Button>
-      ) : (
+      ) : onTurnOn ? (
         <Button type="button" disabled={locked || !canTurnOn} onClick={onTurnOn}>
           Turn on
         </Button>
-      )}
+      ) : null}
       {removable ? <RemoveDataButton listing={listing} busy={locked} onClick={() => onDialog('remove')} /> : null}
     </div>
+    {children}
     {removable ? <LocalRemoveNote listing={listing} /> : null}
     <ConfirmSheet
       open={offOpen}
@@ -338,18 +363,21 @@ export const AddonSwitchPanel: React.FC<{
 );
 
 /**
- * Remove and delete data for a script add-on: the confirm button waits for "delete", then starts
- * the removal and closes. `children` is the lede.
+ * Remove and delete data: the confirm button waits for "delete", then starts the removal and
+ * closes. `children` is the lede. With `images`, a checkbox (on to start with) also deletes the
+ * downloaded images.
  */
 export const RemoveDataSheet: React.FC<{
   id: AddonId;
   installed: boolean;
   title: string;
+  images?: { downloadBytes: number; again: string };
   onClose(): void;
   onStarted(): void;
   children: React.ReactNode;
-}> = ({ id, installed, title, onClose, onStarted, children }) => {
+}> = ({ id, installed, title, images, onClose, onStarted, children }) => {
   const [typed, setTyped] = useState('');
+  const [deleteImages, setDeleteImages] = useState(true);
   return (
     <Sheet
       open
@@ -363,7 +391,7 @@ export const RemoveDataSheet: React.FC<{
           confirmLabel="Remove and delete data"
           confirmDisabled={typed.trim().toLowerCase() !== 'delete'}
           onConfirm={() => {
-            startAddonRemoval(id, installed, false);
+            startAddonRemoval(id, installed, Boolean(images) && deleteImages);
             onClose();
             onStarted();
           }}
@@ -371,6 +399,14 @@ export const RemoveDataSheet: React.FC<{
       }
     >
       <p className="wb-sheet-lede">{children}</p>
+      {images ? (
+        <DeleteImagesOption
+          checked={deleteImages}
+          downloadBytes={images.downloadBytes}
+          again={images.again}
+          onChange={setDeleteImages}
+        />
+      ) : null}
       <TypeDeleteField id={`${id}-remove-confirm`} value={typed} onChange={setTyped} />
     </Sheet>
   );

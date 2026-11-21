@@ -35,6 +35,7 @@ beforeAll(async () => {
   });
   await postedType('circles-ready');
   const created = await request({ op: 'create', name: 'Allotment' });
+  expect(Object.keys(created).sort()).toEqual(['id', 'ok', 'secrets', 'type']);
   key = (created.secrets as { key: string }).key;
 });
 
@@ -43,6 +44,23 @@ afterAll(async () => {
   await postedType('stopped');
   await restore();
   fs.rmSync(storageDir, { recursive: true, force: true });
+});
+
+describe('circles-reply fields', () => {
+  it('names each result by its field: secrets, invite, records, or none', async () => {
+    const created = await request({ op: 'create', name: 'Orchard' });
+    expect(Object.keys(created).sort()).toEqual(['id', 'ok', 'secrets', 'type']);
+    const orchard = (created.secrets as { key: string }).key;
+    const invite = await request({ op: 'invite', key: orchard, expiresAt: Date.now() + 60_000 });
+    expect(invite).toMatchObject({ ok: true, invite: { id: expect.any(String), code: expect.any(String), expires: expect.any(Number) } });
+    expect(invite).not.toHaveProperty('secrets');
+    const set = await request({ op: 'record-set', key: orchard, app: 'test', scope: 'circle', record: 'r1', value: { n: 1 } });
+    expect(set).toEqual({ type: 'circles-reply', id: expect.any(Number), ok: true });
+    const records = await request({ op: 'records-list', key: orchard, app: 'test' });
+    expect(records).toMatchObject({ ok: true, records: [{ app: 'test', key: 'r1' }] });
+    const empty = await request({ op: 'records-list', key: orchard, app: 'none' });
+    expect(empty).toEqual({ type: 'circles-reply', id: expect.any(Number), ok: true, records: [] });
+  });
 });
 
 describe('Circle chat in the network process', () => {
@@ -105,6 +123,23 @@ describe('replies in the network process', () => {
     expect(found).toMatchObject({ ok: true, chat: { message: { id, text: 'Find me', reply: null } } });
     const none = await request({ op: 'chat-message', key, channel: 'general', ref: { author, id: 'c'.repeat(32) } });
     expect(none).toMatchObject({ ok: true, chat: { message: null } });
+  });
+});
+
+describe('circles-reply fields', () => {
+  it('puts each result under its own field, and nothing for a request with no result', async () => {
+    const invite = await request({ op: 'invite', key, expiresAt: Date.now() + 60_000 });
+    expect(Object.keys(invite).sort()).toEqual(['id', 'invite', 'ok', 'type']);
+    expect(invite.invite).toMatchObject({ id: expect.any(String), code: expect.any(String), expires: expect.any(Number) });
+
+    const records = await request({ op: 'records-list', key, app: 'notes' });
+    expect(records).toEqual({ type: 'circles-reply', id: expect.any(Number), ok: true, records: [] });
+
+    const address = await request({ op: 'public-address' });
+    expect(Object.keys(address).sort()).toEqual(['address', 'id', 'ok', 'type']);
+
+    const renamed = await request({ op: 'set-name', name: 'Ada L.' });
+    expect(renamed).toEqual({ type: 'circles-reply', id: expect.any(Number), ok: true });
   });
 });
 

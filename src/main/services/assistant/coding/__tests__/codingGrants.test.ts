@@ -8,10 +8,7 @@ import {
   upsertStoredHermesProject,
 } from '../../hermes/hermesProjectStore';
 import {
-  checkNewCodingFolder,
-  createCodingFolder,
   grantCoding,
-  newCodingFolderDefaults,
   listCodingGrants,
   resetCodingRemountQueueForTests,
   retryCodingMounts,
@@ -24,7 +21,13 @@ import {
   type CodingGrantDeps,
 } from '../codingGrants';
 import { recordHermesCodingRoots, resetCodingGrantStoreForTests } from '../codingGrantStore';
-import { fakeCodingDeps, makeFolder } from './codingDeps';
+import { checkNewCodingFolder, createCodingFolder, newCodingFolderDefaults } from '../codingNewFolder';
+import {
+  fakeCodingDeps,
+  makeFolder,
+  resetCodingDepsForTests,
+  type CodingDepOverrides,
+} from './codingDeps';
 
 let home: string;
 
@@ -51,7 +54,7 @@ function fakeDepsSnapshot(): CodingGrantDeps {
   return codingGrantDeps();
 }
 
-function fakeDeps(overrides: Partial<CodingGrantDeps> = {}) {
+function fakeDeps(overrides: CodingDepOverrides = {}) {
   return fakeCodingDeps({ home, overrides });
 }
 
@@ -65,7 +68,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setCodingGrantDepsForTests(null);
+  resetCodingDepsForTests();
   fs.rmSync(home, { recursive: true, force: true });
 });
 

@@ -5,6 +5,7 @@ const runComposeStreaming = vi.fn();
 const runCompose = vi.fn();
 const runCli = vi.fn();
 
+vi.mock('../../addons/addonComposeState', async () => (await import('./addonComposeStateStub')).addonComposeStateStub());
 vi.mock('../../containerRuntime', async () => {
   const actual = await vi.importActual<typeof import('../../containerRuntime')>('../../containerRuntime');
   return {

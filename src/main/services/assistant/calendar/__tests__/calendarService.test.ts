@@ -38,6 +38,13 @@ vi.mock('electron-store', () => ({
 
 vi.mock('../../../../persistDebugLog', () => ({ persistDebugLog: vi.fn() }));
 
+vi.mock('../../../stackHost/activeStack', async () => {
+  const { localStackFiles } = await import('../../../stackHost/localStackHost');
+  return {
+    getStackFiles: () => localStackFiles({ stackRoot: path.dirname(h.dataRoot), userContentRoot: () => h.dataRoot }),
+  };
+});
+
 vi.mock('../../AssistantStackService', () => ({
   isAssistantStackReady: async () => true,
   getAssistantStackAccess: () => ({
@@ -74,11 +81,11 @@ import {
   replaceCalendarPassword,
   resetCalendarServiceForTests,
   runDailyCalendarCheck,
-  serial,
   setCalendarAccess,
   syncMacCalendarTokensAtLaunch,
   testCalendarSignIn,
 } from '../calendarService';
+import { serial } from '../calendarCommon';
 import { persistDebugLog } from '../../../../persistDebugLog';
 import { CALDAV_CHANGE_TOOLS, CALDAV_READ_TOOLS } from '../calendarModel';
 import { HERMES_CONFIG_SECRET_ENV } from '../../hermesConfigSetExec';
@@ -117,7 +124,7 @@ function connect(access: Record<string, 'off' | 'read' | 'change'>) {
 }
 
 beforeEach(() => {
-  h.dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calendar-svc-'));
+  h.dataRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'calendar-svc-')), 'data');
   fs.mkdirSync(path.join(h.dataRoot, 'hermes', 'profiles', 'researcher'), { recursive: true });
   fs.writeFileSync(path.join(h.dataRoot, 'hermes', '.env'), 'OPENAI_API_KEY=x\n');
   h.storeData.accounts = [];
@@ -135,7 +142,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(h.dataRoot, { recursive: true, force: true });
+  fs.rmSync(path.dirname(h.dataRoot), { recursive: true, force: true });
 });
 
 describe('testCalendarSignIn', () => {

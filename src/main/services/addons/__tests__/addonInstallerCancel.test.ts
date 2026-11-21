@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pendingChanges } from '../pendingRestart';
-import { FOUR, OFF, fakeDeps, pending, statuses } from './addonInstallerFakes';
+import { FOUR, OFF, ON, fakeDeps, pending, scriptRuns, statuses, type HoldAt } from './addonInstallerFakes';
 
 vi.mock('../../assistant/AssistantStackService', async () => (await import('./addonInstallerFakes')).assistantStackServiceMock());
 vi.mock('../../assistant/AssistantStackStore', async () => (await import('./addonInstallerFakes')).storeMock());
@@ -11,9 +11,9 @@ vi.mock('../../assistant/resolveAssistantRoot', async () => (await import('./add
 vi.mock('../../assistant/localStackMode', async () => (await import('./addonInstallerFakes')).localStackModeMock());
 vi.mock('../addonHostFacts', async () => (await import('./addonInstallerFakes')).addonHostFactsMock());
 
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
 import { createAddonInstaller } from '../addonInstaller';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { LOCAL_SETTINGS, WORK_SETTINGS, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { LOCAL_SETTINGS, WORK_SETTINGS, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
 
 /** A promise and the function that settles it, for holding a fake call open. */
 function held<T>() {
@@ -23,10 +23,6 @@ function held<T>() {
   });
   return { promise, release };
 }
-
-/** Resolves with `value` once `signal` aborts. */
-const onAbort = <T>(signal: AbortSignal | undefined, value: T) =>
-  new Promise<T>((resolve) => signal?.addEventListener('abort', () => resolve(value), { once: true }));
 
 const RM_ALL = ['--profile', 'crm', 'rm', '-s', '-f', ...FOUR];
 
@@ -39,23 +35,32 @@ describe('cancelling an install', () => {
     vi.useRealTimers();
   });
 
-  it('during the download stops the pull and changes nothing else', async () => {
-    let pullSignal: AbortSignal | undefined;
-    const { deps, calls } = fakeDeps({
-      composeStreaming: vi.fn((_args: string[], _onLine: (l: string) => void, _env?: NodeJS.ProcessEnv, signal?: AbortSignal) => {
-        pullSignal = signal;
-        return onAbort(signal, { code: 130 });
-      }),
+  /** Starts an install whose `enable` waits at `at`, and cancels it there. */
+  async function cancelAt(at: HoldAt) {
+    const fake = fakeDeps();
+    const signals: Array<AbortSignal | undefined> = [];
+    const script = vi.mocked(fake.deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation((args, opts) => {
+      signals.push(opts?.signal);
+      return base(args, opts);
     });
-    const installer = createAddonInstaller(deps);
+    fake.sh.holdAt = at;
+    const installer = createAddonInstaller(fake.deps);
     const done = installer.install('twenty');
     await vi.advanceTimersByTimeAsync(0);
-    expect(statuses(installer.snapshot()).download).toBe('running');
-
+    const running = installer.snapshot()?.steps.find((s) => s.status === 'running')?.id;
+    fake.sh.holdAt = null;
     installer.cancel('twenty');
     expect(installer.snapshot()?.cancelling).toBe(true);
-    expect(pullSignal?.aborted).toBe(true);
     await done;
+    return { ...fake, installer, running, enableSignal: signals[1] };
+  }
+
+  it('during the download stops enable, then turns the local instance off again', async () => {
+    const { installer, running, enableSignal, sh, calls, deps } = await cancelAt('pull');
+    expect(running).toBe('download');
+    expect(enableSignal?.aborted).toBe(true);
 
     const snap = installer.snapshot();
     expect(snap?.cancelled).toBe(true);
@@ -63,91 +68,46 @@ describe('cancelling an install', () => {
     expect(snap?.cancelling).toBe(false);
     expect(snap?.error).toBeUndefined();
     expect(statuses(snap)).toMatchObject({ check: 'done', download: 'cancelled', start: 'pending' });
-    expect(calls).toEqual([]);
-    expect(deps.setInstalled).not.toHaveBeenCalled();
-    expect(deps.syncStackFlags).not.toHaveBeenCalled();
+    expect(scriptRuns(sh)).toEqual(['configure:true', 'enable', 'configure:false', 'disable']);
+    expect(sh.flags).toEqual(OFF);
+    expect(sh.local).toBe(false);
+    expect(calls.at(-1)?.args).toEqual(RM_ALL);
+    expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
-  it('while waiting for health stops polling at once and removes the containers', async () => {
-    const { deps, calls, state } = fakeDeps();
-    state.serverHealth = 'starting';
-    const installer = createAddonInstaller(deps);
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(statuses(installer.snapshot()).answer).toBe('running');
-
-    installer.cancel('twenty');
-    // No timers advance: the 2 s pause between polls ends on the cancel.
-    await done;
-
-    const snap = installer.snapshot();
-    expect(snap?.cancelled).toBe(true);
-    expect(statuses(snap)).toMatchObject({ start: 'done', answer: 'cancelled', setup: 'pending' });
+  it('while the services start stops enable and removes the containers', async () => {
+    const { installer, running, sh, calls, deps } = await cancelAt('start');
+    expect(running).toBe('answer');
+    expect(installer.snapshot()?.cancelled).toBe(true);
+    expect(statuses(installer.snapshot())).toMatchObject({ start: 'done', answer: 'cancelled', setup: 'pending' });
+    expect(sh.flags).toEqual(OFF);
     expect(calls.at(-1)?.args).toEqual(RM_ALL);
-    expect(deps.runSetup).not.toHaveBeenCalled();
     expect(deps.setInstalled).toHaveBeenCalledWith('twenty', false);
     expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
-    expect(deps.syncStackFlags).toHaveBeenCalledWith('twenty', OFF);
     expect(deps.reloadHermes).not.toHaveBeenCalled();
   });
 
-  it('during compose up aborts it and removes whatever it created', async () => {
-    const { deps, calls } = fakeDeps();
-    const compose = vi.mocked(deps.compose);
-    const base = compose.getMockImplementation()!;
-    let upSignal: AbortSignal | undefined;
-    compose.mockImplementation(async (args: string[], opts?: { env?: NodeJS.ProcessEnv; signal?: AbortSignal }) => {
-      if (args.includes('up')) {
-        upSignal = opts?.signal;
-        calls.push({ args });
-        await onAbort(opts?.signal, null);
-        throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
-      }
-      return base(args, opts);
-    });
-    const installer = createAddonInstaller(deps);
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(0);
-    expect(statuses(installer.snapshot()).start).toBe('running');
-
-    installer.cancel('twenty');
-    await done;
-    expect(upSignal?.aborted).toBe(true);
-    expect(installer.snapshot()?.cancelled).toBe(true);
-    expect(statuses(installer.snapshot()).start).toBe('cancelled');
-    expect(calls.at(-1)?.args).toEqual(RM_ALL);
-  });
-
-  it('during setup stops crm.sh and removes the containers', async () => {
-    let setupSignal: AbortSignal | undefined;
-    const { deps, calls } = fakeDeps({
-      runSetup: vi.fn((_onLine: (l: string) => void, opts: { signal?: AbortSignal }) => {
-        setupSignal = opts.signal;
-        return onAbort(opts.signal, { code: 130 });
-      }),
-    });
-    const installer = createAddonInstaller(deps);
-    const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(0);
-    expect(statuses(installer.snapshot()).setup).toBe('running');
-
-    installer.cancel('twenty');
-    await done;
-    expect(setupSignal?.aborted).toBe(true);
+  it('during setup stops crm.sh init and removes the containers', async () => {
+    const { installer, running, sh, calls, deps } = await cancelAt('init');
+    expect(running).toBe('setup');
     const snap = installer.snapshot();
     expect(snap?.cancelled).toBe(true);
     expect(snap?.error).toBeUndefined();
     expect(statuses(snap)).toMatchObject({ setup: 'cancelled', restart: 'pending' });
+    expect(sh.flags).toEqual(OFF);
     expect(calls.at(-1)?.args).toEqual(RM_ALL);
     expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
-  it('while the flags are written after setup still rolls back and writes them off again', async () => {
+  it('after enable finished still turns the local instance off again', async () => {
     const ref: { installer?: ReturnType<typeof createAddonInstaller> } = {};
-    const { deps, calls } = fakeDeps({
-      syncStackFlags: vi.fn(async (_id: string, flags: Record<string, string>) => {
-        if (flags.TWENTY_LOCAL_ENABLED === '1') ref.installer?.cancel('twenty');
-      }),
+    const { deps, calls, sh } = fakeDeps();
+    const script = vi.mocked(deps.addonScript);
+    const base = script.getMockImplementation()!;
+    script.mockImplementation(async (args, opts) => {
+      const outcome = await base(args, opts);
+      if (args[0] === 'enable' && outcome.kind === 'done') ref.installer?.cancel('twenty');
+      return outcome;
     });
     const installer = createAddonInstaller(deps);
     ref.installer = installer;
@@ -156,22 +116,21 @@ describe('cancelling an install', () => {
     expect(installer.snapshot()?.cancelled).toBe(true);
     expect(statuses(installer.snapshot()).restart).toBe('pending');
     expect(calls.at(-1)?.args).toEqual(RM_ALL);
-    expect(deps.syncStackFlags).toHaveBeenLastCalledWith('twenty', OFF);
+    expect(sh.flags).toEqual(OFF);
     expect(deps.setInstalled).not.toHaveBeenCalledWith('twenty', true);
   });
 
   it('records a failure with Undo install still to do when the containers can’t be removed', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
-    const compose = vi.mocked(deps.compose);
-    const base = compose.getMockImplementation()!;
-    compose.mockImplementation(async (args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
+    const fake = fakeDeps();
+    const compose = vi.mocked(fake.deps.compose);
+    compose.mockImplementation(async (args: string[]) => {
       if (args.includes('rm')) throw Object.assign(new Error('rm failed'), { stderr: 'Error response from daemon' });
-      return base(args, opts);
+      return { stdout: '', stderr: '' };
     });
-    const installer = createAddonInstaller(deps);
+    fake.sh.holdAt = 'start';
+    const installer = createAddonInstaller(fake.deps);
     const done = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(0);
     installer.cancel('twenty');
     await done;
 
@@ -180,7 +139,7 @@ describe('cancelling an install', () => {
     expect(snap?.cancelling).toBe(false);
     expect(snap?.error).toEqual({
       step: 'answer',
-      message: "Cancelled, but Twenty CRM's containers couldn't be removed.",
+      message: "Cancelled, but Twenty CRM couldn't be turned off again.",
       logTail: ['Error response from daemon'],
     });
     expect(statuses(snap).answer).toBe('error');
@@ -196,18 +155,12 @@ describe('cancelling an install', () => {
   });
 
   it('frees the installer for the next run', async () => {
-    const { deps, state } = fakeDeps();
-    state.serverHealth = 'starting';
-    const installer = createAddonInstaller(deps);
-    const first = installer.install('twenty');
-    await vi.advanceTimersByTimeAsync(3_000);
-    installer.cancel('twenty');
-    await first;
-
-    state.serverHealth = 'healthy';
+    const { installer, sh } = await cancelAt('start');
+    sh.holdAt = null;
     await installer.install('twenty');
     expect(installer.snapshot()?.cancelled).toBeUndefined();
     expect(statuses(installer.snapshot()).restart).toBe('waiting');
+    expect(sh.flags).toEqual(ON);
   });
 });
 
@@ -222,7 +175,7 @@ describe('stopping a removal', () => {
     pending.list = [];
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-remove-cancel-'));
     root = path.join(tmp, 'root');
-    dataRoot = path.join(tmp, 'data');
+    dataRoot = path.join(root, 'data');
     wsDir = twentyWorkspacesDir(root);
     fs.mkdirSync(path.join(dataRoot, 'twenty', 'db'), { recursive: true });
     fs.writeFileSync(path.join(dataRoot, 'twenty', 'db', 'f'), 'x');
@@ -237,7 +190,7 @@ describe('stopping a removal', () => {
 
   it('lets the running stop finish, then ends before deleting, with the Turn off pending line', async () => {
     const stop = held<{ stdout: string; stderr: string }>();
-    const { deps, calls } = fakeDeps({ stackPaths: () => ({ root, dataRoot }), isInstalled: vi.fn(() => true) });
+    const { deps, calls } = fakeDeps({ stackRoot: root, isInstalled: vi.fn(async () => true) });
     const compose = vi.mocked(deps.compose);
     const base = compose.getMockImplementation()!;
     compose.mockImplementation(async (args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
@@ -278,7 +231,9 @@ describe('stopping a removal', () => {
   it('is refused once a delete step has started', async () => {
     const images = held<{ removed: string[]; kept: string[] }>();
     const { deps, state } = fakeDeps({
-      stackPaths: () => ({ root, dataRoot }),
+      stackRoot: root,
+      // In memory: real file I/O doesn't advance with the fake timers this test steps by.
+      files: createFakeStackFiles(),
       removeImages: vi.fn(() => images.promise),
     });
     state.config = JSON.stringify({ services: { 'twenty-server': { image: 'twentycrm/twenty:v2.55.0' } } });

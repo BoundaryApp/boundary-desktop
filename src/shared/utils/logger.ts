@@ -30,27 +30,17 @@ enableDebugFromArgv(typeof process !== 'undefined' && Array.isArray(process.argv
 
 /**
  * Creates a debug logger named `boundary:<name>`. The name is `customNamespace` when given
- * (a leading `boundary:` in it is not repeated), else the file path with colons for slashes.
+ * (a leading `boundary:` in it is not repeated), else the file's name without its extension,
+ * e.g. `boundary:mainWindow`, or `boundary:index` in a bundled build.
  *
- * @param filePath - The file path (usually __filename or import.meta.url)
- * @param customNamespace - Optional name to use instead of the file path
+ * @param fileName - The file's name without its extension, from `extractPathFromUrl`
+ * @param customNamespace - Optional name to use instead of the file's name
  * @returns A debug logger function
  */
-function createLogger(filePath: string | undefined, customNamespace?: string): debug.Debugger {
-  let name: string;
-  if (customNamespace) {
-    name = customNamespace.replace(new RegExp(`^${NAMESPACE_ROOT}:`), '');
-  } else if (filePath) {
-    name = filePath
-      // Remove the project root path
-      .replace(/^.*\/boundary-desktop\//, '')
-      // Remove file extension
-      .replace(/\.[^/.]+$/, '')
-      // Replace path separators with colons
-      .replace(/\//g, ':');
-  } else {
-    name = 'unknown';
-  }
+function createLogger(fileName: string | undefined, customNamespace?: string): debug.Debugger {
+  const name = customNamespace
+    ? customNamespace.replace(new RegExp(`^${NAMESPACE_ROOT}:`), '')
+    : (fileName ?? 'unknown');
   return debug(`${NAMESPACE_ROOT}:${name}`);
 }
 

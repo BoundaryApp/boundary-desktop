@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AddonId, AddonInstallSnapshot, AddonListing } from '../../../shared/types/addons';
 import { addonPill, engineDown, inProgress } from './addonCopy';
+import { errorText } from '../../components/ui/use-sheet-action';
 import { forgetAddonInstall, reloadAddons } from './useAddons';
 
-// What the script add-ons' pages (Actual, Bitwarden, Email) share: an IPC call that answers with a line to show, one
-// action at a time with a busy flag and an error or note, and reading the add-on's state again
-// when the page opens, when a run ends and when the stack becomes ready.
+// What the add-on pages share: an IPC call that answers with a line to show, one action at a
+// time with a busy flag and an error or note, and reading the add-on's state again when the page
+// opens, when a run ends and when the stack becomes ready.
 
-/** Runs an IPC call; a failure comes back as the line to show. */
+/**
+ * Runs an IPC call. Resolves to its result when it worked, else to the line to show: the call's
+ * `error`, `fallback` when it gave none, or what it threw.
+ */
 export async function callIpc<T extends { success: boolean; error?: string }>(
   work: () => Promise<T>,
   fallback: string
@@ -16,8 +20,17 @@ export async function callIpc<T extends { success: boolean; error?: string }>(
     const result = await work();
     return result.success ? result : (result.error ?? fallback);
   } catch (e) {
-    return e instanceof Error ? e.message : String(e);
+    return errorText(e);
   }
+}
+
+/** Runs an IPC call whose result needs no reading. Resolves to the line to show, or null when it worked. */
+export async function lineFromIpc(
+  work: () => Promise<{ success: boolean; error?: string }>,
+  fallback: string
+): Promise<string | null> {
+  const result = await callIpc(work, fallback);
+  return typeof result === 'string' ? result : null;
 }
 
 /**
@@ -36,7 +49,7 @@ export function useAddonActions(id: AddonId, refresh: () => Promise<void>, settl
     try {
       failure = await work();
     } catch (e) {
-      failure = e instanceof Error ? e.message : String(e);
+      failure = errorText(e);
     }
     setBusy(false);
     settled();
@@ -97,12 +110,11 @@ export function addonPageState(listing: AddonListing, install: AddonInstallSnaps
  */
 export function switchAddon(id: AddonId, name: string, on: boolean, done: () => void): () => Promise<string | null> {
   return async () => {
-    const result = await callIpc(
+    const failure = await lineFromIpc(
       () => (on ? window.electronAPI.addons.start(id) : window.electronAPI.addons.turnOff(id)),
       `Couldn’t turn ${on ? 'on' : 'off'} ${name}.`
     );
-    if (typeof result === 'string') return result;
-    done();
-    return null;
+    if (!failure) done();
+    return failure;
   };
 }

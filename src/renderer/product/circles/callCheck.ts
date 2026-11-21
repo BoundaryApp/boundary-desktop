@@ -15,6 +15,7 @@ import {
   type CallTunnelStats,
 } from '../../../shared/callCheck';
 import { CallPartAssembler, isCallPart, packCallMessage, type CallPart } from '../../../shared/callSignalParts';
+import { readConnectStats, readMediaStats, selectedPairId, statsList, tunnelCandidate, type StatsList } from './calls/callStats';
 
 /** Load runs open this many connections to one person, each with video both ways: a six-way mesh. */
 export const LOAD_STREAMS = 5;
@@ -89,14 +90,6 @@ export function stripCandidates(sdp: string): string {
     .join('\r\n');
 }
 
-/**
- * This Mac's tunnel endpoint as a remote candidate. Its priority is below any real candidate's,
- * so ICE uses it only when no direct pair works.
- */
-export function tunnelCandidate(port: number, sdpMid: string | null): RTCIceCandidateInit {
-  return { candidate: `candidate:tunnel 1 udp 1000 127.0.0.1 ${port} typ host`, sdpMid, sdpMLineIndex: 0 };
-}
-
 /** The tunnel's counts as result fields. */
 export function tunnelFields(stats: CallTunnelStats): Partial<CallCheckResult> {
   return {
@@ -133,44 +126,6 @@ export function addSwarmCandidates(sdp: string, publicHost: string): string {
   return out.join('\r\n');
 }
 
-type StatsList = Array<Record<string, unknown> & { id: string; type: string }>;
-
-function statsList(report: RTCStatsReport | StatsList): StatsList {
-  return Array.isArray(report) ? report : ([...report.values()] as StatsList);
-}
-
-type CandidateType = NonNullable<CallCheckResult['localType']>;
-
-/**
- * The selected pair's candidate types and round trip, and the audio delay, from one stats report.
- * With `tunnelPort`, also whether the pair runs through the tunnel endpoint.
- */
-export function readConnectStats(report: RTCStatsReport | StatsList, tunnelPort?: number): Partial<CallCheckResult> {
-  const stats = statsList(report);
-  const byId = new Map(stats.map((entry) => [entry.id, entry]));
-  const transport = stats.find((entry) => entry.type === 'transport');
-  const pair =
-    (transport?.selectedCandidatePairId ? byId.get(String(transport.selectedCandidatePairId)) : undefined) ??
-    stats.find((entry) => entry.type === 'candidate-pair' && entry.nominated === true && entry.state === 'succeeded');
-  const out: Partial<CallCheckResult> = {};
-  if (pair) {
-    const local = byId.get(String(pair.localCandidateId));
-    const remote = byId.get(String(pair.remoteCandidateId));
-    if (local?.candidateType) out.localType = local.candidateType as CandidateType;
-    if (remote?.candidateType) out.remoteType = remote.candidateType as CandidateType;
-    if (typeof pair.currentRoundTripTime === 'number') out.rttMs = pair.currentRoundTripTime * 1000;
-    if (tunnelPort !== undefined && remote) {
-      out.path = remote.address === '127.0.0.1' && remote.port === tunnelPort ? 'tunnel' : 'direct';
-    }
-  }
-  const audio = stats.find((entry) => entry.type === 'inbound-rtp' && entry.kind === 'audio');
-  const emitted = Number(audio?.jitterBufferEmittedCount ?? 0);
-  if (audio && emitted > 0 && out.rttMs !== undefined) {
-    out.audioDelayMs = out.rttMs / 2 + (Number(audio.jitterBufferDelay) / emitted) * 1000;
-  }
-  return out;
-}
-
 /** Frames a second sent and received over a window, and why sending was held back. */
 export function readLoadStats(
   before: RTCStatsReport | StatsList,
@@ -190,15 +145,6 @@ export function readLoadStats(
     receivedFps: (frames(b, 'inbound-rtp', 'framesDecoded') - frames(a, 'inbound-rtp', 'framesDecoded')) / seconds,
     limitedBy: (['none', 'cpu', 'bandwidth'].includes(reason) ? reason : 'other') as CallCheckResult['limitedBy'],
   };
-}
-
-/** The selected candidate pair's id, to notice the connection switching paths. */
-export function selectedPairId(report: RTCStatsReport | StatsList): string | null {
-  const stats = statsList(report);
-  const transport = stats.find((entry) => entry.type === 'transport');
-  if (transport?.selectedCandidatePairId) return String(transport.selectedCandidatePairId);
-  const nominated = stats.find((entry) => entry.type === 'candidate-pair' && entry.nominated === true && entry.state === 'succeeded');
-  return nominated ? nominated.id : null;
 }
 
 /**
@@ -257,44 +203,6 @@ export function watchIce(
       clearInterval(timer);
     },
   };
-}
-
-/** Loss, jitter, bitrates and video trouble over a window between two stats reports. */
-export function readMediaStats(
-  before: RTCStatsReport | StatsList,
-  after: RTCStatsReport | StatsList,
-  seconds: number
-): CallCheckMedia {
-  const a = statsList(before);
-  const b = statsList(after);
-  const total = (report: StatsList, type: string, field: string, kind?: string) =>
-    report
-      .filter((entry) => entry.type === type && (kind === undefined || entry.kind === kind))
-      .reduce((sum, entry) => sum + Number(entry[field] ?? 0), 0);
-  const delta = (type: string, field: string, kind?: string) => total(b, type, field, kind) - total(a, type, field, kind);
-  const out: CallCheckMedia = {};
-  const received = delta('inbound-rtp', 'packetsReceived');
-  const lost = delta('inbound-rtp', 'packetsLost');
-  if (received + lost > 0) out.lossInPct = (Math.max(0, lost) / (received + lost)) * 100;
-  const audio = b.find((entry) => entry.type === 'inbound-rtp' && entry.kind === 'audio');
-  if (typeof audio?.jitter === 'number') out.jitterMs = audio.jitter * 1000;
-  if (seconds > 0) {
-    out.kbpsOut = (delta('transport', 'bytesSent') * 8) / 1000 / seconds;
-    out.kbpsIn = (delta('transport', 'bytesReceived') * 8) / 1000 / seconds;
-  }
-  const pairId = selectedPairId(b);
-  const pair = pairId ? b.find((entry) => entry.id === pairId) : undefined;
-  if (typeof pair?.availableOutgoingBitrate === 'number') out.availableKbps = pair.availableOutgoingBitrate / 1000;
-  if (b.some((entry) => entry.type === 'inbound-rtp' && entry.kind === 'video')) {
-    out.framesDropped = delta('inbound-rtp', 'framesDropped', 'video');
-    out.freezes = delta('inbound-rtp', 'freezeCount', 'video');
-    out.freezeMs = delta('inbound-rtp', 'totalFreezesDuration', 'video') * 1000;
-    out.plis = delta('inbound-rtp', 'pliCount', 'video');
-  }
-  out.nacks = delta('inbound-rtp', 'nackCount');
-  const samples = delta('inbound-rtp', 'totalSamplesReceived', 'audio');
-  if (samples > 0) out.concealedPct = (delta('inbound-rtp', 'concealedSamples', 'audio') / samples) * 100;
-  return out;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

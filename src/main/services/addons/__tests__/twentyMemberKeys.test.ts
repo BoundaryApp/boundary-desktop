@@ -3,8 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mintMemberKeys, revokeMemberKeys, TwentyKeyError, TWENTY_ROLE_LABELS } from '../twentyMemberKeys';
-import { twentyWorkspacesDir } from '../twentyWorkspaces';
-import { signedInLocalSettings, writeTwentyWorkspace } from './twentyStoreFixtures';
+import { signedInLocalSettings, writeTwentyWorkspace, twentyWorkspacesDir } from './twentyStoreFixtures';
+
+import { localStackEndpoints } from '../../stackHost/localStackHost';
+import { DEFAULT_ASSISTANT_STACK_PORTS } from '../../../../shared/assistantStackConstants';
+
+const endpoints = localStackEndpoints(() => DEFAULT_ASSISTANT_STACK_PORTS);
 
 const PASSWORD = 'pw-s3cret-value';
 const LOGIN_TOKEN = 'login-tok';
@@ -70,7 +74,7 @@ function fakeTwenty(overrides: Partial<Record<string, (variables: Record<string,
 describe('mintMemberKeys', () => {
   it('mints one read key against the read-only role, signed in as the owner', async () => {
     const twenty = fakeTwenty();
-    const keys = await mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam · Book club', 'read');
+    const keys = await mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam · Book club', 'read');
 
     expect(keys).toEqual({ read: { id: 'key-1', token: 'token-for-key-1' } });
     expect(twenty.ops()).toEqual(['signIn', 'getAuthTokensFromLoginToken', 'getRoles', 'createApiKey', 'generateApiKeyToken']);
@@ -84,7 +88,7 @@ describe('mintMemberKeys', () => {
 
   it('mints a read key and a write key for a write grant', async () => {
     const twenty = fakeTwenty();
-    const keys = await mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam · Book club', 'write');
+    const keys = await mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam · Book club', 'write');
 
     expect(keys).toEqual({
       read: { id: 'key-1', token: 'token-for-key-1' },
@@ -99,7 +103,7 @@ describe('mintMemberKeys', () => {
     const twenty = fakeTwenty({
       createApiKey: () => (++created === 1 ? { data: { createApiKey: { id: 'key-1' } } } : { errors: [{ message: 'boom Sam', extensions: { code: 'FORBIDDEN' } }] }),
     });
-    const failure = mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'write');
+    const failure = mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'write');
 
     await expect(failure).rejects.toMatchObject({ reason: 'rejected', message: 'Twenty refused the request (FORBIDDEN).' });
     const revoked = twenty.calls.filter((c) => c.query.includes('revokeApiKey')).map((c) => c.variables.i);
@@ -108,7 +112,7 @@ describe('mintMemberKeys', () => {
 
   it('revokes a created key whose token never came', async () => {
     const twenty = fakeTwenty({ generateApiKeyToken: () => ({ data: { generateApiKeyToken: null } }) });
-    await expect(mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
+    await expect(mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
       reason: 'unexpected',
     });
     expect(twenty.calls.filter((c) => c.query.includes('revokeApiKey')).map((c) => c.variables.i)).toEqual([{ id: 'key-1' }]);
@@ -116,7 +120,7 @@ describe('mintMemberKeys', () => {
 
   it('says the roles are missing instead of minting against another role', async () => {
     const twenty = fakeTwenty({ getRoles: () => ({ data: { getRoles: [{ id: 'role-admin', label: 'Admin' }] } }) });
-    await expect(mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
+    await expect(mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
       reason: 'no-role',
     });
     expect(twenty.ops()).not.toContain('createApiKey');
@@ -125,7 +129,7 @@ describe('mintMemberKeys', () => {
   it('refuses without an owner login, before calling Twenty', async () => {
     fs.writeFileSync(path.join(root, '.env'), 'TWENTY_USERNAME=owner@example.com\n');
     const twenty = fakeTwenty();
-    await expect(mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
+    await expect(mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
       reason: 'no-login',
     });
     expect(twenty.calls).toHaveLength(0);
@@ -135,7 +139,7 @@ describe('mintMemberKeys', () => {
     const twenty = fakeTwenty({
       signIn: () => ({ data: { signIn: { availableWorkspaces: { availableWorkspacesForSignIn: [{ id: 'other', loginToken: 'x' }] } } } }),
     });
-    await expect(mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
+    await expect(mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
       reason: 'rejected',
     });
   });
@@ -144,7 +148,7 @@ describe('mintMemberKeys', () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError(`fetch failed for ${PASSWORD}`);
     }) as unknown as typeof fetch;
-    const error = await mintMemberKeys({ root, port: 3000, fetchImpl }, 'Sam', 'read').catch((e: unknown) => e);
+    const error = await mintMemberKeys({ root, port: 3000, endpoints, fetchImpl }, 'Sam', 'read').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(TwentyKeyError);
     expect((error as TwentyKeyError).reason).toBe('down');
     expect(String((error as Error).message)).not.toContain(PASSWORD);
@@ -152,13 +156,13 @@ describe('mintMemberKeys', () => {
 
   it('keeps only the GraphQL code from an error, never its message', async () => {
     const twenty = fakeTwenty({ signIn: () => ({ errors: [{ message: `Wrong password ${PASSWORD}` }] }) });
-    const error = (await mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read').catch((e: unknown) => e)) as Error;
+    const error = (await mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read').catch((e: unknown) => e)) as Error;
     expect(error.message).toBe('Twenty refused the request.');
   });
 
   it('treats a 401 as refused', async () => {
     const twenty = fakeTwenty({ signIn: () => new Response('{}', { status: 401 }) });
-    await expect(mintMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
+    await expect(mintMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, 'Sam', 'read')).rejects.toMatchObject({
       reason: 'rejected',
     });
   });
@@ -167,14 +171,14 @@ describe('mintMemberKeys', () => {
 describe('revokeMemberKeys', () => {
   it('revokes each id with one owner session', async () => {
     const twenty = fakeTwenty();
-    await revokeMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, ['key-a', 'key-b']);
+    await revokeMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, ['key-a', 'key-b']);
     expect(twenty.ops()).toEqual(['signIn', 'getAuthTokensFromLoginToken', 'revokeApiKey', 'revokeApiKey']);
     expect(twenty.calls.slice(2).map((c) => c.variables.i)).toEqual([{ id: 'key-a' }, { id: 'key-b' }]);
   });
 
   it('does nothing for no ids', async () => {
     const twenty = fakeTwenty();
-    await revokeMemberKeys({ root, port: 3000, fetchImpl: twenty.fetchImpl }, []);
+    await revokeMemberKeys({ root, port: 3000, endpoints, fetchImpl: twenty.fetchImpl }, []);
     expect(twenty.calls).toHaveLength(0);
   });
 });

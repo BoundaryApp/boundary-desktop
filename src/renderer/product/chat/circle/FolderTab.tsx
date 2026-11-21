@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { CircleSnapshot } from '../../../../shared/types/circles';
 import type { SharedFolderListing, SharedFolderRole } from '../../../../shared/types/sharedFolders';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
@@ -8,6 +8,11 @@ import { OnlineDot } from './CircleTab';
 import { SharedFolderIcon } from './FolderView';
 import { accessLine, defaultRole, personName, quorumLine, sizeLine } from './sharedFolderView';
 import { Button } from '../../../components/ui/button';
+import { ChoiceGroup } from '../../../components/ui/choice-group';
+import { ChoiceRow } from '../../../components/ui/choice-row';
+import { Radio } from '../../../components/ui/radio';
+import { NativeSelect } from '../../../components/ui/native-select';
+import { useAction } from '../../circles/useCircles';
 
 const api = () => window.electronAPI.circles;
 
@@ -20,9 +25,9 @@ export const RemoveSharedFolderSheet: React.FC<{
   onClose: () => void;
   onRemoved: () => void;
 }> = ({ folder, circle, onClose, onRemoved }) => {
+  const filesName = useId();
   const [trash, setTrash] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
   useEffect(() => {
     setTrash(false);
     setError(null);
@@ -31,19 +36,10 @@ export const RemoveSharedFolderSheet: React.FC<{
   const root = displayHostPath(folder.local.root);
 
   const remove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api().folderRemove({ key: folder.key, trash });
-      if (result.success === false) {
-        setError(result.error);
-        return;
-      }
-      onClose();
-      onRemoved();
-    } finally {
-      setBusy(false);
-    }
+    const result = await run(() => api().folderRemove({ key: folder.key, trash }));
+    if (!result || result.success === false) return;
+    onClose();
+    onRemoved();
   };
 
   return (
@@ -65,22 +61,20 @@ export const RemoveSharedFolderSheet: React.FC<{
       }
     >
       <p className="wb-sheet-lede">It stops syncing here. {circle.name} keeps the folder, and you can add it again.</p>
-      <div className="wb-choices" role="radiogroup" aria-label="Files on this Mac">
-        <button type="button" role="radio" aria-checked={!trash} className={`wb-choice${!trash ? ' is-sel' : ''}`} onClick={() => setTrash(false)}>
-          <span className="wb-radio" aria-hidden="true" />
-          <span className="wb-choice-copy">
-            <b>Keep the files</b>
-            <span>{root} stays as an ordinary folder.</span>
-          </span>
-        </button>
-        <button type="button" role="radio" aria-checked={trash} className={`wb-choice${trash ? ' is-sel' : ''}`} onClick={() => setTrash(true)}>
-          <span className="wb-radio" aria-hidden="true" />
-          <span className="wb-choice-copy">
-            <b>Move the files to the Trash</b>
-            <span>You can put them back from the Trash in Finder.</span>
-          </span>
-        </button>
-      </div>
+      <ChoiceGroup kind="radio" aria-label="Files on this Mac">
+        <ChoiceRow
+          variant="card"
+          control={<Radio name={filesName} checked={!trash} onChange={() => setTrash(false)} />}
+          title="Keep the files"
+          description={`${root} stays as an ordinary folder.`}
+        />
+        <ChoiceRow
+          variant="card"
+          control={<Radio name={filesName} checked={trash} onChange={() => setTrash(true)} />}
+          title="Move the files to the Trash"
+          description="You can put them back from the Trash in Finder."
+        />
+      </ChoiceGroup>
     </Sheet>
   );
 };
@@ -90,11 +84,13 @@ export const RemoveSharedFolderSheet: React.FC<{
  * people in it with their roles, how many managers confirm changes, and removing it.
  */
 export const FolderTab: React.FC<{
+  /** The aside's id, for the button that opens it. */
+  id?: string;
   folder: SharedFolderListing;
   circle: CircleSnapshot;
   onClose: () => void;
   onRemove: () => void;
-}> = ({ folder, circle, onClose, onRemove }) => {
+}> = ({ id, folder, circle, onClose, onRemove }) => {
   const summary = folder.local?.summary ?? null;
   const online = new Map(circle.members.map((member) => [member.identity, member.online]));
   const role = defaultRole(folder);
@@ -125,12 +121,12 @@ export const FolderTab: React.FC<{
     }
   };
   return (
-    <aside className="wb-right wb-circle-insp" aria-label={`${folder.name} details`}>
+    <aside id={id} className="wb-right wb-circle-insp" aria-label={`${folder.name} details`}>
       <nav className="wb-insp-tabs" aria-label="Inspector">
         <span className="wb-insp-tab is-on">Folder</span>
-        <button type="button" className="wb-act wb-circle-insp-close" aria-label="Close folder details" onClick={onClose}>
+        <Button type="button" variant="quiet" size="icon-xs" className="wb-circle-insp-close" aria-label="Close folder details" onClick={onClose}>
           ✕
-        </button>
+        </Button>
       </nav>
       <div className="wb-insp-pane">
         <div className="wb-circle-insp-ident">
@@ -173,8 +169,8 @@ export const FolderTab: React.FC<{
                     </small>
                   </span>
                   {editing && !circle.members.find((member) => member.identity === person.identity)?.isMe ? (
-                    <select
-                      className="wb-folder-role"
+                    <NativeSelect
+                      size="sm"
                       aria-label={`${personName(circle, person.identity)}’s role`}
                       value={person.role}
                       disabled={saving !== null || (person.role === 'manager' && managers.length === 1)}
@@ -183,7 +179,7 @@ export const FolderTab: React.FC<{
                       <option value="manager">Manager</option>
                       <option value="editor">Editor</option>
                       <option value="reader">Reader</option>
-                    </select>
+                    </NativeSelect>
                   ) : null}
                   {online.has(person.identity) ? <OnlineDot online={online.get(person.identity) ?? false} /> : null}
                 </li>

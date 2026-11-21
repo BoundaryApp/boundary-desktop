@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspector closed by default — Boundary inspector study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-prose: "IBM Plex Serif", Georgia, serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+      --bg: #0d0d0f;
+      --rail: #111113;
+      --panel: #161618;
+      --hover: #1d1d22;
+      --line: #2a2a30;
+      --text: #f5f5f7;
+      --muted: #c4c4cc;
+      --faint: #9e9ea8;
+      --accent: #8b87f8;
+      --accent-dim: #26244a;
+      --user: #1c1c22;
+      --ok: #86c089;
+      --warn: #e0b36a;
+      --warn-line: #5a4a2a;
+      --warn-bg: #1c1912;
+      --scrim: rgba(0, 0, 0, 0.45);
+      --shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    html.light {
+      color-scheme: light;
+      --bg: #f3f1ea;
+      --rail: #fffcf6;
+      --panel: #fffcf6;
+      --hover: #ece8dc;
+      --line: #e3dfd3;
+      --text: #1c1b17;
+      --muted: #5c594f;
+      --faint: #7a766c;
+      --accent: #1c1b17;
+      --accent-dim: #ece8dc;
+      --user: #fffcf6;
+      --ok: #3d6b40;
+      --warn: #8a5a1a;
+      --warn-line: #d4c4a0;
+      --warn-bg: #f3eee4;
+      --scrim: rgba(28, 27, 23, 0.18);
+      --shadow: 0 12px 40px rgba(28, 27, 23, 0.18);
+    }
+
+    /* Base chrome, same as ../chat-ux-study/study.css, inlined so the file opens on its own. */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    [hidden] { display: none !important; }
+    html { color-scheme: dark; }
+    body { font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+    .study-bar { display: flex; align-items: center; gap: 16px; min-height: 36px; padding: 4px 14px; background: #111113; color: #c8c8ce; border-bottom: 1px solid #2a2a30; flex-wrap: wrap; }
+    .study-bar a { text-decoration: none; color: #f2f2f4; font-weight: 580; }
+    .study-bar .spacer { flex: 1; }
+    .study-bar label { display: flex; align-items: center; gap: 6px; color: #9a9aa3; cursor: pointer; user-select: none; }
+    .study-bar input { accent-color: #8b87f8; }
+    html.embed .study-bar { display: none; }
+    .app-stage { height: calc(100vh - 37px); display: flex; flex-direction: column; overflow: hidden; }
+    html.embed .app-stage { height: 100vh; }
+    .titlebar { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 12px; flex-shrink: 0; }
+    .lights { display: flex; gap: 6px; }
+    .lights i { width: 10px; height: 10px; border-radius: 50%; background: #3a3a40; }
+    html.light .lights i { background: #d4d0c4; }
+    .titlebar .win-title { opacity: 0.55; font-size: 12px; }
+    .note { display: none; position: absolute; z-index: 9; width: 18px; height: 18px; border-radius: 50%; background: #8b87f8; color: #0d0d10; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; }
+    .note[data-tip]::after { content: attr(data-tip); display: none; position: absolute; right: 0; top: 24px; width: 240px; padding: 8px 10px; border-radius: 6px; background: #111113; color: #ececf0; border: 1px solid #3a3a44; font-size: 11px; font-weight: 500; line-height: 1.4; text-align: left; }
+    .note:hover::after { display: block; }
+    html.notes-on .note { display: block; }
+    html.notes-on .note.inline { display: inline-block; }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--font-ui); }
+
+    /* Study bar additions ------------------------------------------------- */
+    .seg { display: flex; border: 1px solid #2a2a30; border-radius: 999px; overflow: hidden; }
+    .seg button { padding: 3px 10px; color: #9a9aa3; font-size: 12px; }
+    .seg button.is-on { background: #26244a; color: #f2f2f4; }
+
+    /* Stage --------------------------------------------------------------- */
+    .app-stage { background: var(--bg); position: relative; margin: 0 auto; transition: max-width 0.2s; max-width: 100%; }
+    body[data-width="narrow"] .app-stage { max-width: 940px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+    .titlebar { background: var(--rail); border-bottom: 1px solid var(--line); color: var(--muted); }
+    .states { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+    .states .grp { display: flex; gap: 4px; }
+    .states .sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+    .states button { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .states button.is-on { color: var(--text); background: var(--hover); }
+
+    .shell { display: flex; flex: 1; min-height: 0; position: relative; }
+
+    .icon-rail { width: 48px; background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 4px; flex-shrink: 0; }
+    .icon-rail .mark { width: 22px; height: 22px; margin: 2px 0 10px; border: 1px solid var(--line); border-radius: 6px; }
+    .icon-rail i { width: 32px; height: 32px; border-radius: 8px; display: block; }
+    .icon-rail i.is-on { background: var(--accent-dim); }
+
+    .left { width: 232px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+    .sect { padding: 14px 12px 4px; font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .row { display: flex; align-items: center; gap: 8px; margin: 1px 8px; padding: 7px 8px; border-radius: 7px; color: var(--muted); text-align: left; }
+    .row:hover, .row.is-on { background: var(--hover); color: var(--text); }
+    .mini { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 9px; font-weight: 650; color: #fff; flex-shrink: 0; }
+
+    /* Center -------------------------------------------------------------- */
+    .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+    .thread-head { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); position: relative; flex-shrink: 0; }
+    .thread-head .title { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; }
+    .thread-head strong { color: var(--text); font-weight: 580; }
+    .thread-head .role { color: var(--faint); font-size: 12px; }
+    .head-tools { display: flex; align-items: center; gap: 6px; position: relative; }
+
+    .hbtn { height: 28px; min-width: 28px; padding: 0 8px; border-radius: 7px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); border: 1px solid transparent; position: relative; font-size: 12px; }
+    .hbtn:hover, .hbtn.is-on { background: var(--hover); color: var(--text); }
+    .hbtn.chip { border-color: var(--line); }
+    .hbtn.chip.warn { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn); }
+    .hbtn svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); display: inline-block; }
+    .hbtn .badge { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+    .glyph-proj { width: 14px; height: 14px; border-radius: 4px; background: #c4a574; }
+
+    .faces { display: flex; padding-left: 4px; }
+    .faces .mini { width: 20px; height: 20px; margin-left: -5px; box-shadow: 0 0 0 2px var(--bg); border-radius: 50%; }
+    .faces-count { color: var(--faint); font-size: 11px; margin-left: 2px; }
+
+    .kbd { font-family: var(--font-mono); font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+    .menu { display: none; position: absolute; top: 34px; right: 0; z-index: 8; min-width: 220px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+    .menu.is-open { display: block; }
+    .menu button { display: flex; width: 100%; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--text); text-align: left; }
+    .menu button:hover { background: var(--hover); }
+    .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+    .menu .new { font-size: 10px; color: var(--accent); }
+
+    .log { flex: 1; overflow: auto; padding: 24px 32px; }
+    .column { max-width: 720px; margin: 0 auto; }
+    .who { color: var(--faint); font-size: 11px; margin-bottom: 6px; }
+    .bubble { background: var(--user); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 18px auto; width: fit-content; max-width: 80%; }
+    .prose { font-family: var(--font-prose); font-size: 15px; line-height: 1.6; margin-bottom: 8px; }
+    .msg-actions { display: flex; gap: 4px; margin-bottom: 22px; }
+    .msg-actions button { font-size: 12px; color: var(--faint); padding: 3px 8px; border-radius: 6px; }
+    .msg-actions button:hover { background: var(--hover); color: var(--text); }
+
+    .composer { padding: 10px 32px 16px; }
+    .composer .box { max-width: 720px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--faint); min-height: 64px; }
+
+    /* Inspector ----------------------------------------------------------- */
+    .right { width: 304px; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; z-index: 6; }
+    body[data-open="false"] .right { display: none; }
+    body[data-width="narrow"] .right { position: absolute; top: 0; right: 0; bottom: 0; box-shadow: var(--shadow); }
+    .scrim { display: none; position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
+    body[data-width="narrow"][data-open="true"] .scrim { display: block; }
+
+    .tabs { display: flex; align-items: center; gap: 2px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--line); height: 44px; flex-shrink: 0; }
+    .tab { padding: 12px 10px 11px; color: var(--faint); font-size: 13px; font-weight: 550; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab:hover { color: var(--muted); }
+    .tab.is-on { color: var(--text); border-bottom-color: var(--text); }
+    .tab .dot { margin-left: 5px; vertical-align: 1px; }
+    .tabs .close { margin-left: auto; }
+    body[data-mode="before"] .tabs .close { display: none; }
+
+    .pane { display: none; flex: 1; overflow: auto; padding: 16px 14px 24px; }
+    .pane.is-on { display: block; }
+    .pane h4 { margin: 14px 0 6px; font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .pane h4:first-child { margin-top: 0; }
+    .ident { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .ident .mini { width: 32px; height: 32px; border-radius: 9px; font-size: 12px; }
+    .ident b { display: block; font-weight: 600; }
+    .ident span { color: var(--muted); font-size: 12px; }
+    .soul { font-family: var(--font-prose); color: var(--muted); font-size: 13px; line-height: 1.55; border-left: 2px solid var(--line); padding-left: 10px; }
+    .btn { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: 12px; margin-top: 10px; }
+    .btn:hover { background: var(--hover); }
+    .btn.block { display: flex; width: 100%; justify-content: center; margin-top: 8px; }
+    .member { display: flex; align-items: center; gap: 8px; padding: 6px 0; color: var(--text); }
+    .member .mini { border-radius: 50%; }
+    .member span { color: var(--faint); font-size: 12px; margin-left: auto; }
+    .src { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .src b { font-weight: 550; }
+    .src small { display: block; color: var(--faint); font-family: var(--font-mono); font-size: 11px; }
+    .src .open { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .banner { display: none; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--warn-line); background: var(--warn-bg); color: var(--warn); font-size: 12px; margin-bottom: 12px; }
+    body[data-src="unmounted"] .banner.unmounted,
+    body[data-src="writable"] .banner.writable,
+    body[data-src="stale"] .banner.stale { display: block; }
+    .banner button { text-decoration: underline; color: inherit; margin-left: 4px; }
+    .check-item { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+    .check-item b { color: var(--text); font-weight: 550; }
+
+    /* Things that only exist in one mode ---------------------------------- */
+    body[data-mode="before"] .after-only { display: none !important; }
+    body[data-mode="after"] .before-only { display: none !important; }
+    .for-channel, .for-leftover, .for-dm { display: none !important; }
+    body[data-view="channel"] .for-channel,
+    body[data-view="leftover"] .for-leftover,
+    body[data-view="dm"] .for-dm { display: revert !important; }
+    body[data-view="channel"] .hbtn.for-channel,
+    body[data-view="dm"] .hbtn.for-dm { display: inline-flex !important; }
+    body[data-view="leftover"] .menu button.for-leftover { display: flex !important; }
+    .hbtn.chip .warn-text { display: none; }
+    .hbtn .badge { display: none; }
+    body[data-open="false"]:not([data-src="ready"]) #toggle .badge { display: block; }
+
+    /* Highlight for the tour ---------------------------------------------- */
+    .spot { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; animation: spot 1.4s ease-in-out infinite; }
+    @keyframes spot { 50% { outline-color: transparent; } }
+
+    /* Tour ---------------------------------------------------------------- */
+    .tour { position: absolute; left: 60px; bottom: 16px; z-index: 20; width: 340px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+    .tour .step { font-size: 11px; color: var(--faint); letter-spacing: 0.04em; }
+    .tour h3 { margin: 4px 0 6px; font-size: 14px; font-weight: 600; }
+    .tour p { margin: 0; color: var(--muted); font-size: 12.5px; }
+    .tour nav { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+    .tour nav button { padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); font-size: 12px; }
+    .tour nav button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .tour nav button:disabled { opacity: 0.4; cursor: default; }
+    .tour .hide { border: 0; color: var(--faint); padding: 5px 0; }
+    .tour-pill { display: none; position: absolute; left: 60px; bottom: 16px; z-index: 20; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12px; box-shadow: var(--shadow); }
+    body.tour-off .tour { display: none; }
+    body.tour-off .tour-pill { display: block; }
+
+    .note.inline[data-tip]::after { left: 0; right: auto; }
+  </style>
+</head>
+<body data-mode="after" data-view="dm" data-src="ready" data-open="false" data-width="wide" data-tab="agent">
+  <div class="study-bar">
+    <a class="brand" href="../chat-ux-study/10-inspector.html">Boundary inspector</a>
+    <div class="seg" role="group" aria-label="Compare">
+      <button data-mode-go="before">Before</button>
+      <button data-mode-go="after" class="is-on">After</button>
+    </div>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="theme" /> Light</label>
+    <label><input type="checkbox" id="notes" /> Notes</label>
+  </div>
+
+  <div class="app-stage">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="win-title">Boundary</span>
+      <div class="states">
+        <div class="grp" aria-label="Conversation">
+          <button data-view-go="dm">DM</button>
+          <button data-view-go="channel">Channel</button>
+          <button data-view-go="leftover">Marlow chat</button>
+        </div>
+        <span class="sep"></span>
+        <div class="grp" aria-label="Sources">
+          <button data-src-go="ready">Ready</button>
+          <button data-src-go="unmounted">Not visible</button>
+          <button data-src-go="writable">Writable</button>
+          <button data-src-go="stale">Stale</button>
+        </div>
+        <span class="sep"></span>
+        <div class="grp" aria-label="Window">
+          <button data-width-go="wide">Wide</button>
+          <button data-width-go="narrow">Narrow</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <div class="icon-rail" aria-hidden="true">
+        <span class="mark"></span><i class="is-on"></i><i></i><i></i><i></i>
+      </div>
+
+      <aside class="left">
+        <div class="sect">Direct messages</div>
+        <button class="row" data-row="dm"><span class="mini" style="background:#6f8fa3">W</span>Wren</button>
+        <div class="sect">Channels</div>
+        <button class="row" data-row="channel"><span class="mini" style="background:#6d9470">#</span>launch-notes</button>
+        <div class="sect">Recent</div>
+        <button class="row" data-row="leftover"><span class="mini" style="background:#5a5a66">M</span>Marlow chat</button>
+      </aside>
+
+      <main class="center">
+        <header class="thread-head">
+          <div class="title">
+            <strong class="for-dm">Wren</strong><span class="role for-dm">Research partner</span>
+            <strong class="for-channel">#launch-notes</strong><span class="role for-channel">3 members</span>
+            <strong class="for-leftover">Marlow chat</strong><span class="role for-leftover">One of many chats with Marlow</span>
+          </div>
+
+          <div class="head-tools after-only">
+            <button class="hbtn for-channel" id="faces" title="Members">
+              <span class="faces"><span class="mini" style="background:#6f8fa3">W</span><span class="mini" style="background:#c4a574">H</span><span class="mini" style="background:#8a7aa8">F</span></span>
+            </button>
+            <span class="note" style="top:-4px;left:-6px" data-tip="Channel members move to the header. Clicking the faces opens the Room tab.">1</span>
+
+            <button class="hbtn chip" id="projchip" title="Opens the project page">
+              <span class="glyph-proj"></span>field-notes
+            </button>
+            <span class="note" style="top:-4px;left:96px" data-tip="The project crumb keeps opening the project page, as it does today.">2</span>
+
+            <button class="hbtn" id="more" title="More">
+              <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+            </button>
+            <div class="menu" id="menu">
+              <button class="for-leftover" data-act="channel">Make channel</button>
+              <hr class="for-leftover" />
+              <button data-act="rename">Rename</button>
+              <button data-act="details">Show details <span class="kbd">⌥⌘0</span></button>
+            </div>
+
+            <button class="hbtn" id="toggle" title="Details (⌥⌘0)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/></svg>
+              <span class="badge"></span>
+            </button>
+            <span class="note" style="top:-4px;right:-6px" data-tip="Toggle with ⌥⌘0. Open or closed is remembered across conversations and restarts. An amber dot shows when the Project tab has a warning, and opening the inspector then lands on Project.">3</span>
+          </div>
+        </header>
+
+        <div class="log">
+          <div class="column">
+            <div class="bubble">Can you pull the three strongest quotes from the interview notes?</div>
+            <div class="who">Wren</div>
+            <div class="prose">Here are the three that carry the argument best. The first is about how the team found out the tool was slower than the spreadsheet it replaced; the second names the cost; the third is the one people will repeat.</div>
+            <div class="msg-actions">
+              <button>Copy</button><button>Branch</button>
+              <button id="checkbtn">Check writing</button>
+            </div>
+            <span class="note inline after-only" style="position:relative" data-tip="Actions aimed at the inspector open it on the right tab: Check writing opens Check.">4</span>
+          </div>
+        </div>
+        <div class="composer"><div class="box">Message Wren…</div></div>
+      </main>
+
+      <div class="scrim" id="scrim"></div>
+
+      <aside class="right" aria-label="Details">
+        <div class="tabs">
+          <button class="tab for-dm" data-tab-go="agent">Agent</button>
+          <button class="tab for-channel" data-tab-go="room">Room</button>
+          <button class="tab for-leftover" data-tab-go="session">Session</button>
+          <button class="tab" data-tab-go="project">Project<span class="dot warn-tab" hidden></span></button>
+          <button class="tab" data-tab-go="check" id="checktab" hidden>Check</button>
+          <button class="hbtn close" id="close" title="Hide details (⌥⌘0)">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+        </div>
+
+        <section class="pane" data-pane="agent">
+          <div class="ident"><span class="mini" style="background:#6f8fa3">W</span><div><b>Wren</b><span>Research partner</span></div></div>
+          <h4>Soul</h4>
+          <div class="soul">Reads closely, quotes exactly, and says when a source doesn't support the claim.</div>
+          <button class="btn">Open SOUL.md</button>
+        </section>
+
+        <section class="pane" data-pane="room">
+          <h4>Members</h4>
+          <div class="member"><span class="mini" style="background:#6f8fa3">W</span>Wren<span>Research partner</span></div>
+          <div class="member"><span class="mini" style="background:#c4a574">M</span>Marlow<span>Built in</span></div>
+          <div class="member"><span class="mini" style="background:#8a7aa8">F</span>Fern<span>Editor</span></div>
+          <button class="btn">Add member</button>
+          <h4>Project</h4>
+          <button class="hbtn chip" data-tab-go="project"><span class="glyph-proj"></span>field-notes</button>
+        </section>
+
+        <section class="pane" data-pane="session">
+          <h4>This chat</h4>
+          <p style="color:var(--muted);margin:0 0 4px;font-size:12px">One of many chats with Marlow.</p>
+          <button class="btn block">Make channel</button>
+          <p class="after-only" style="color:var(--faint);font-size:11px;margin-top:10px">Also in the header’s title menu.</p>
+        </section>
+
+        <section class="pane" data-pane="project">
+          <div class="banner unmounted">Reading vault isn’t visible to agents.<button>Remount</button></div>
+          <div class="banner writable">Agents can write to Reading vault.<button>Make read-only</button></div>
+          <div class="banner stale">The index is out of date.<button>Refresh</button></div>
+          <h4>Sources</h4>
+          <div class="src"><span class="glyph-proj"></span><div><b>field-notes</b><small>~/Projects/field-notes</small></div><button class="open">Open</button></div>
+          <div class="src"><span class="glyph-proj" style="background:#6d9470"></span><div><b>Reading vault</b><small>~/Notes/Reading</small></div><button class="open">Open</button></div>
+          <button class="btn">Add folder</button>
+        </section>
+
+        <section class="pane" data-pane="check">
+          <h4>Writing check · 3 notes</h4>
+          <div class="check-item"><b>“the second names the cost”</b><br />Vague: say which cost.</div>
+          <div class="check-item"><b>“the one people will repeat”</b><br />Claim without support.</div>
+          <div class="check-item"><b>Semicolon run-on</b><br />Split into two sentences.</div>
+        </section>
+      </aside>
+
+      <div class="tour" id="tour">
+        <div class="step" id="tour-step"></div>
+        <h3 id="tour-title"></h3>
+        <p id="tour-body"></p>
+        <nav>
+          <button class="hide" id="tour-hide">Hide tour</button>
+          <span>
+            <button id="tour-back">Back</button>
+            <button class="primary" id="tour-next">Next</button>
+          </span>
+        </nav>
+      </div>
+      <button class="tour-pill" id="tour-show">Show tour</button>
+    </div>
+  </div>
+
+  <script>
+    const body = document.body;
+    const params = new URLSearchParams(location.search);
+    if (params.has("embed")) document.documentElement.classList.add("embed");
+
+    const themeBox = document.getElementById("theme");
+    const startLight = params.get("theme") === "light"
+      || (params.get("theme") !== "dark" && (() => { try { return localStorage.getItem("boundary-chat-theme") === "light"; } catch { return false; } })());
+    document.documentElement.classList.toggle("light", startLight);
+    themeBox.checked = startLight;
+    themeBox.addEventListener("change", () => {
+      document.documentElement.classList.toggle("light", themeBox.checked);
+      try { localStorage.setItem("boundary-chat-theme", themeBox.checked ? "light" : "dark"); } catch {}
+    });
+    document.getElementById("notes").addEventListener("change", (e) => {
+      document.documentElement.classList.toggle("notes-on", e.target.checked);
+    });
+
+    // Tabs per conversation follow inspectorTabsFor(); Check is added when a reply is sent to it.
+    const tabsFor = { dm: ["agent", "project"], channel: ["room", "project"], leftover: ["session", "project"] };
+    const defaultTab = { dm: "agent", channel: "room", leftover: "session" };
+    let checkOpen = false;
+    let afterOpen = false; // remembered across conversations in After
+
+    const menu = document.getElementById("menu");
+
+    function render() {
+      const s = body.dataset;
+      const allowed = [...tabsFor[s.view], ...(checkOpen ? ["check"] : [])];
+      if (!allowed.includes(s.tab)) s.tab = defaultTab[s.view];
+      s.open = s.mode === "before" ? "true" : String(afterOpen);
+
+      document.querySelectorAll("[data-mode-go]").forEach((b) => b.classList.toggle("is-on", b.dataset.modeGo === s.mode));
+      document.querySelectorAll("[data-view-go]").forEach((b) => b.classList.toggle("is-on", b.dataset.viewGo === s.view));
+      document.querySelectorAll("[data-src-go]").forEach((b) => b.classList.toggle("is-on", b.dataset.srcGo === s.src));
+      document.querySelectorAll("[data-width-go]").forEach((b) => b.classList.toggle("is-on", b.dataset.widthGo === s.width));
+      document.querySelectorAll(".left .row").forEach((b) => b.classList.toggle("is-on", b.dataset.row === s.view));
+      document.querySelectorAll(".tabs .tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tabGo === s.tab));
+      document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("is-on", p.dataset.pane === s.tab));
+      document.getElementById("checktab").hidden = !checkOpen;
+      document.querySelector(".warn-tab").hidden = s.src === "ready";
+      document.getElementById("toggle").classList.toggle("is-on", s.open === "true");
+      const problem = { unmounted: "Reading vault isn’t visible to agents", writable: "Agents can write to Reading vault", stale: "The index is out of date" }[s.src];
+      document.getElementById("toggle").title = problem ? `Details: ${problem} (⌥⌘0)` : "Details (⌥⌘0)";
+    }
+
+    function openAt(tab) {
+      if (body.dataset.mode === "after") afterOpen = true;
+      if (tab) body.dataset.tab = tab;
+      menu.classList.remove("is-open");
+      render();
+    }
+
+    function setOpen(open) { afterOpen = open; menu.classList.remove("is-open"); render(); }
+
+    document.querySelectorAll("[data-mode-go]").forEach((b) => b.addEventListener("click", () => { body.dataset.mode = b.dataset.modeGo; render(); }));
+    document.querySelectorAll("[data-view-go]").forEach((b) => b.addEventListener("click", () => { body.dataset.view = b.dataset.viewGo; checkOpen = false; body.dataset.tab = defaultTab[b.dataset.viewGo]; render(); }));
+    document.querySelectorAll(".left .row").forEach((b) => b.addEventListener("click", () => { body.dataset.view = b.dataset.row; checkOpen = false; body.dataset.tab = defaultTab[b.dataset.row]; render(); }));
+    document.querySelectorAll("[data-src-go]").forEach((b) => b.addEventListener("click", () => { body.dataset.src = b.dataset.srcGo; render(); }));
+    document.querySelectorAll("[data-width-go]").forEach((b) => b.addEventListener("click", () => { body.dataset.width = b.dataset.widthGo; render(); }));
+    document.querySelectorAll("[data-tab-go]").forEach((b) => b.addEventListener("click", () => { body.dataset.tab = b.dataset.tabGo; render(); }));
+
+    document.getElementById("toggle").addEventListener("click", () => { if (!afterOpen && body.dataset.src !== "ready") openAt("project"); else setOpen(!afterOpen); });
+    document.getElementById("close").addEventListener("click", () => setOpen(false));
+    document.getElementById("scrim").addEventListener("click", () => setOpen(false));
+    document.getElementById("faces").addEventListener("click", () => openAt("room"));
+    document.getElementById("checkbtn").addEventListener("click", () => { checkOpen = true; openAt("check"); });
+    document.getElementById("more").addEventListener("click", (e) => { e.stopPropagation(); menu.classList.toggle("is-open"); });
+    menu.addEventListener("click", (e) => {
+      const act = e.target.closest("button")?.dataset.act;
+      if (act === "details") openAt();
+      else menu.classList.remove("is-open");
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".head-tools")) menu.classList.remove("is-open"); });
+    document.addEventListener("keydown", (e) => {
+      if (e.altKey && e.metaKey && e.code === "Digit0" && body.dataset.mode === "after") { e.preventDefault(); setOpen(!afterOpen); }
+      if (e.key === "Escape" && body.dataset.width === "narrow" && afterOpen) setOpen(false);
+    });
+
+    // Tour ------------------------------------------------------------------
+    const steps = [
+      { title: "Today: always open", body: "The inspector takes 304px in every conversation, and on most windows the transcript never gets wide enough to center.", state: { mode: "before", view: "dm", src: "ready", width: "wide" }, open: true },
+      { title: "After: closed by default", body: "The transcript gets the full width and centers, as ADR 0020 intended. Nothing in the inspector changes turn by turn, so nothing is lost by default.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: false, spot: "toggle" },
+      { title: "Open it from the header", body: "The toggle sits at the right of the conversation header, with ⌥⌘0. Open or closed is remembered across conversations and restarts. Tabs still reset per conversation.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: true, spot: "toggle" },
+      { title: "Channel members move to the header", body: "Who is in a channel is core context, so their faces sit in the header. Clicking them opens the Room tab.", state: { mode: "after", view: "channel", src: "ready", width: "wide" }, open: false, spot: "faces" },
+      { title: "Make channel is already in the header", body: "The Session tab’s one action, Make channel, is already in the header’s title menu, and is a header button while the chat isn’t filed in a project. Nothing has to move for Marlow chats.", state: { mode: "after", view: "leftover", src: "ready", width: "wide" }, open: false, spot: "more", menu: true },
+      { title: "Warnings show on the toggle", body: "When a source is Not visible, Writable or Stale, the toggle gets an amber dot and names the problem in its tooltip. Opening the inspector then lands on the Project tab, where the banner is.", state: { mode: "after", view: "dm", src: "unmounted", width: "wide" }, open: false, spot: "toggle" },
+      { title: "Actions open it on the right tab", body: "Check writing on a reply opens the inspector on Check. Choosing a file to check, from a chat or the project page, does the same.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: true, check: true, spot: "checkbtn" },
+      { title: "Narrow windows overlay", body: "Below 1280px the inspector slides over the transcript instead of squeezing it, and starts closed in each conversation. Click outside or press Escape to close it. Today it can’t be opened at all at this width.", state: { mode: "after", view: "dm", src: "ready", width: "narrow" }, open: true },
+    ];
+    let at = 0;
+    function showStep(i) {
+      at = Math.max(0, Math.min(steps.length - 1, i));
+      const st = steps[at];
+      Object.assign(body.dataset, st.state);
+      checkOpen = Boolean(st.check);
+      body.dataset.tab = st.check ? "check" : defaultTab[st.state.view];
+      if (st.state.src !== "ready") body.dataset.tab = "project";
+      afterOpen = st.open;
+      render();
+      menu.classList.toggle("is-open", Boolean(st.menu));
+      document.querySelectorAll(".spot").forEach((n) => n.classList.remove("spot"));
+      if (st.spot) document.getElementById(st.spot).classList.add("spot");
+      document.getElementById("tour-step").textContent = `Step ${at + 1} of ${steps.length}`;
+      document.getElementById("tour-title").textContent = st.title;
+      document.getElementById("tour-body").textContent = st.body;
+      document.getElementById("tour-back").disabled = at === 0;
+      document.getElementById("tour-next").textContent = at === steps.length - 1 ? "Done" : "Next";
+    }
+    document.getElementById("tour-next").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (at === steps.length - 1) { body.classList.add("tour-off"); document.querySelectorAll(".spot").forEach((n) => n.classList.remove("spot")); }
+      else showStep(at + 1);
+    });
+    document.getElementById("tour-back").addEventListener("click", (e) => { e.stopPropagation(); showStep(at - 1); });
+    document.getElementById("tour-hide").addEventListener("click", () => { body.classList.add("tour-off"); document.querySelectorAll(".spot").forEach((n) => n.classList.remove("spot")); });
+    document.getElementById("tour-show").addEventListener("click", () => { body.classList.remove("tour-off"); showStep(at); });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".tour")) document.querySelectorAll(".spot").forEach((n) => n.classList.remove("spot")); });
+
+    showStep(0);
+  </script>
+</body>
+</html>

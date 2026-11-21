@@ -48,6 +48,25 @@ function withoutExperiments(): Allowance[] {
     { type: 'exports', file: 'src/main/services/onboarding/OpenAiOnboardingStore.ts', symbol: 'clearPendingProviderSetup', reason },
     { type: 'exports', file: 'src/shared/llmConnectionDefaults.ts', symbol: 'INFRASTRUCTURE_LLM_CAPABILITIES', reason },
     { type: 'exports', file: 'src/main/services/assistant/hermes/builtinAgentName.ts', symbol: 'notifyBuiltinAgentNameChanged', reason },
+    // Host API names (src/main/host, src/renderer/host, src/preloadHost.ts) only experiments use.
+    { type: 'files', file: 'src/main/host/experiments.ts', reason },
+    { type: 'files', file: 'src/preloadHost.ts', reason },
+    { type: 'exports', file: 'src/main/host/log.ts', symbol: 'fileStatForLog', reason },
+    { type: 'exports', file: 'src/main/host/log.ts', symbol: 'serializeError', reason },
+    { type: 'exports', file: 'src/main/host/storage.ts', symbol: 'decryptFromBase64', reason },
+    { type: 'exports', file: 'src/main/host/storage.ts', symbol: 'replaceCiphertext', reason },
+    { type: 'exports', file: 'src/main/host/storage.ts', symbol: 'redactSecrets', reason },
+    { type: 'exports', file: 'src/main/host/windows.ts', symbol: 'getMainWindow', reason },
+    { type: 'exports', file: 'src/main/host/windows.ts', symbol: 'showMainWindow', reason },
+    { type: 'exports', file: 'src/main/host/windows.ts', symbol: 'heldNotification', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'BuiltinAgentMarkProps', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'BuiltinAgentPortraitProps', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'HomeRowProps', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'ProviderSetupViewProps', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'RendererExperiment', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'RingFigureProps', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'SetupFlowSnapshot', reason },
+    { type: 'types', file: 'src/renderer/host/experiments.ts', symbol: 'SetupStepProps', reason },
   ];
 }
 
@@ -93,15 +112,17 @@ export default {
     '@electron-forge/shared-types',
     // Run as a CLI against an experiment's drizzle config, which knip does not load (above).
     'drizzle-kit',
+    // Loaded by file path (dist/wasm.js and privatemode.wasm), since its exports map offers neither.
+    'privatemode-ai',
     // Used only by experiments; unused in a tree without them.
     ...(hasExperiments
       ? []
-      : ['better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3']),
+      : ['better-sqlite3', 'drizzle-orm', 'zod', '@types/better-sqlite3', 'phaser']),
   ],
   // The Swift toolchain, used by test:calendar-helper; it ships with Xcode, not npm. ffmpeg
   // encodes the demo in screenshot:ui; the Screenshot workflow installs it with Homebrew.
   // mkfifo is the POSIX tool htmlPreviewFiles.test.ts uses to make a FIFO.
-  ignoreBinaries: ['swift', 'ffmpeg', 'mkfifo'],
+  ignoreBinaries: ['swift', 'ffmpeg', 'mkfifo', 'ssh-keygen'],
   treatConfigHintsAsErrors: true,
   preprocessor: './scripts/knip-allowances.mjs',
   preprocessorOptions: { allow: [...allow, ...allowExperiments] },

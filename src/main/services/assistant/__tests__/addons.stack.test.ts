@@ -8,19 +8,23 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HermesGatewaySession } from '../hermes/hermesGatewaySession';
 import type { JsonRpcGatewayClient } from '../hermes/vendor';
+import { listTwentyWorkspaces } from '../../addons/twentyWorkspaces';
+import { stackFilesAt } from '../../stackHost/activeStack';
 import { readEnvFile } from '../stackEnv';
 import { probeStack, skipNote } from './stackHarness';
 
 const probe = await probeStack();
 
 /**
- * Twenty is on in the stack under test when the stack ships `scripts/crm.sh` and its `.env`
- * sets TWENTY_MCP_ENABLED=1 (`crm.sh init` and Boundary's install both leave it that way).
+ * The case needs a stack whose `.env` sets TWENTY_MCP_ENABLED=1 and whose add-on store holds a
+ * workspace named `main`. From v0.3.16 the stack registers one `crm-<workspace>` server per
+ * workspace in `addons/twenty/instances/`, and the flag alone registers none.
  */
 const twentyEnabled =
   probe.ok &&
   fs.existsSync(path.join(probe.target.root, 'scripts', 'crm.sh')) &&
-  readEnvFile(path.join(probe.target.root, '.env')).TWENTY_MCP_ENABLED === '1';
+  readEnvFile(path.join(probe.target.root, '.env')).TWENTY_MCP_ENABLED === '1' &&
+  (await listTwentyWorkspaces(stackFilesAt(probe.target.root))).some((w) => w.slug === 'main');
 
 describe.skipIf(!probe.ok)(`Twenty add-on over /api/ws${skipNote(probe)}`, () => {
   const session = new HermesGatewaySession();
@@ -33,7 +37,7 @@ describe.skipIf(!probe.ok)(`Twenty add-on over /api/ws${skipNote(probe)}`, () =>
   afterAll(() => session.dispose());
 
   it.skipIf(!twentyEnabled)(
-    `registers crm-main on the default profile when TWENTY_MCP_ENABLED=1${twentyEnabled ? '' : ' (skipped: no scripts/crm.sh, or TWENTY_MCP_ENABLED is not 1 in the stack .env)'}`,
+    `registers crm-main on the default profile when TWENTY_MCP_ENABLED=1${twentyEnabled ? '' : ' (skipped: no scripts/crm.sh, TWENTY_MCP_ENABLED is not 1 in the stack .env, or no Twenty workspace named main is connected)'}`,
     async () => {
       const list = (await client.request('mcp.servers.list', {})) as {
         servers?: Array<{ name?: string; enabled?: boolean }>;

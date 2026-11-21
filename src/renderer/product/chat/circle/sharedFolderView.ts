@@ -48,12 +48,6 @@ export function folderState(folder: SharedFolderListing, circle?: CircleSnapshot
   return { kind: 'up-to-date', unshared: unshared.length };
 }
 
-/** "Maya", "Maya and Sam", "Maya, Sam and Priya". */
-export function namesLine(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-}
-
 /** A person's name as this Circle knows it, "you" for this user. */
 export function personName(circle: CircleSnapshot, identity: string, you = 'you'): string {
   const member = circle.members.find((item) => item.identity === identity);

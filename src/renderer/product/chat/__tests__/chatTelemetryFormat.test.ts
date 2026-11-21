@@ -33,13 +33,11 @@ describe('formatContextGauge', () => {
     const gauge = formatContextGauge({ contextUsed: 100, contextMax: null });
     expect(gauge.label).toBe('context max unknown');
     expect(gauge.showBar).toBe(false);
-    expect(gauge.percentLabel).toBeNull();
     expect(gauge.empty).toBe(false);
   });
 
   it('never renders 0% when max unknown', () => {
     const gauge = formatContextGauge({ contextUsed: 0 });
-    expect(gauge.percentLabel).toBeNull();
     expect(gauge.showBar).toBe(false);
   });
 
@@ -49,9 +47,9 @@ describe('formatContextGauge', () => {
       contextMax: 32000,
       contextPercent: 59,
     });
-    expect(gauge.label).toContain('19k');
-    expect(gauge.label).toContain('32k');
-    expect(gauge.percentLabel).toBe('59%');
+    expect(gauge.label).toContain('19K');
+    expect(gauge.label).toContain('32K');
+    expect(gauge.percent).toBe(59);
     expect(gauge.showBar).toBe(true);
   });
 

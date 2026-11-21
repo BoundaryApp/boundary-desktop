@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AddonScript, AddonScriptLine, AddonScriptOutcome, ScriptJsonOutcome } from '../addonScript';
-import type { BrokerNamespaceCheck } from '../bitwardenBrokerNamespace';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import type { StackFiles } from '../../stackHost/types';
 
 // A fake of the stack's Bitwarden commands, built from what was confirmed in the stack's source on
 // its main (merge a26f93c, unreleased; scripts/vault.sh, scripts/addon.sh, scripts/lib/addon_cli.py,
@@ -35,14 +36,14 @@ import type { BrokerNamespaceCheck } from '../bitwardenBrokerNamespace';
 // - vault.sh requests --json and sync --json: one object, or exit 1 with nothing on stdout while
 //   the broker is down. sync answers `{synced:false, reason:busy}` while busy and the last result
 //   with `reason: recent` within 30 s.
-// - vault.sh follow-hermes (v0.3.14, cmd_follow_hermes): does nothing while BITWARDEN_ENABLED is
-//   off; otherwise `up -d --no-deps bitwarden-broker`, which starts a stopped broker and re-creates
-//   one left in a removed hermes's network namespace.
-// - A broker left in a removed hermes's namespace keeps running, so status, requests and the other
-//   commands read normally (they reach it through `docker compose exec`); status reports
-//   broker_down only while the broker container isn't running (vault.sh broker_running,
-//   docs/bitwarden.md). doctor.sh finds the stale namespace by comparing the broker's
-//   HostConfig.NetworkMode with `container:<running hermes id>`, which `brokerNamespace()` models.
+// - status reports broker_down only while the broker container isn't running (vault.sh
+//   broker_running, docs/bitwarden.md). From v0.3.16 the broker has its own network namespace and
+//   `restart: unless-stopped`; `vault.sh follow-hermes` is gone, and Boundary starts a stopped
+//   broker with `docker compose up -d --no-deps bitwarden-broker`, which `startBroker()` models.
+//
+// From stack 0.3.16 (main 770e34a, scripts/vault.sh cmd_status): status --json ends with one more
+// line, `{"signer":"<state>"}` (`ready`, `busy`, `sandbox_unavailable`, or `down` while the broker
+// isn't running or doesn't answer). `signer` set on the fake turns that line on.
 
 export interface FakeAccount {
   mode: 'cloud' | 'selfhosted' | 'local';
@@ -59,20 +60,14 @@ export interface FakeAccount {
 export interface BitwardenFakeStack {
   root: string;
   dataRoot: string;
+  /** The stack's files over `root`, with `dataRoot` as the user-content folder. */
+  files: StackFiles;
   /** Every call, with its stdin. */
   calls: { script: AddonScript; args: string[]; input?: Record<string, unknown> }[];
   accounts: Map<string, FakeAccount>;
   /** Files the broker refused at start, other than an account with no client_id. */
   refused: { file: string; error: 'bad_file' | 'bad_slug' }[];
   brokerUp: boolean;
-  /**
-   * The broker runs but sits in the network namespace of a hermes that's gone, as after hermes is
-   * recreated. Every `vault.sh` command reads normally; only `brokerNamespace()` reports the
-   * mismatch, until `vault.sh follow-hermes` runs.
-   */
-  brokerStale: boolean;
-  /** How many times `brokerNamespace()` was read. */
-  namespaceReads: number;
   /** What connect's broker sign-in reports next; null signs in. */
   signIn: { error: string; retryAfter?: number } | null;
   /** The pending requests, and the logins Bitwarden refused to move. */
@@ -82,10 +77,12 @@ export interface BitwardenFakeStack {
   syncBusy: boolean;
   /** The next sync is within 30 s of the last. */
   syncRecent: boolean;
+  /** Stack 0.3.16's signer state while the broker answers; null for an older stack (no line). */
+  signer: 'ready' | 'busy' | 'sandbox_unavailable' | null;
   run(script: AddonScript, args: string[], options?: { input?: Record<string, unknown>; onLine?: (line: AddonScriptLine) => void }): Promise<AddonScriptOutcome>;
   runJson(script: AddonScript, args: string[]): Promise<ScriptJsonOutcome>;
-  /** doctor.sh's namespace check: no evidence while the broker is stopped, else whether it's in hermes's. */
-  brokerNamespace(): Promise<BrokerNamespaceCheck>;
+  /** `docker compose up -d --no-deps bitwarden-broker`: starts the broker, which locks manual accounts. */
+  startBroker(): void;
   enabled(): boolean;
   setEnabled(on: boolean): void;
   /** An account added at the terminal: a file with no store entry. */
@@ -221,17 +218,17 @@ export function createBitwardenFakeStack(): BitwardenFakeStack {
   const stack: BitwardenFakeStack = {
     root,
     dataRoot,
+    files: localStackFiles({ stackRoot: root, userContentRoot: () => dataRoot }),
     calls: [],
     accounts: new Map(),
     refused: [],
     brokerUp: false,
-    brokerStale: false,
-    namespaceReads: 0,
     signIn: null,
     pending: [],
     granted: new Set(),
     syncBusy: false,
     syncRecent: false,
+    signer: null,
 
     async run(script, args, options = {}) {
       stack.calls.push({ script, args, ...(options.input ? { input: options.input } : {}) });
@@ -261,14 +258,6 @@ export function createBitwardenFakeStack(): BitwardenFakeStack {
           case 'disconnect':
             return disconnect(slug);
         }
-      }
-      if (script === 'vault.sh' && command === 'follow-hermes') {
-        // v0.3.14: starts or re-creates the broker in hermes's current namespace, which locks manual accounts.
-        if (!stack.enabled()) return { kind: 'exited', code: 0, logTail: [], lines: [] };
-        stack.brokerUp = true;
-        stack.brokerStale = false;
-        for (const a of stack.accounts.values()) if (a.unlock === 'manual') a.state = 'locked';
-        return { kind: 'exited', code: 0, logTail: [], lines: [] };
       }
       if (script === 'vault.sh' && (command === 'unlock' || command === 'lock')) {
         const account = manual(slug);
@@ -304,6 +293,7 @@ export function createBitwardenFakeStack(): BitwardenFakeStack {
         for (const { file, error } of stack.refused) {
           lines.push({ file, slug: error === 'bad_slug' ? null : file.replace(/\.json$/, ''), state: 'refused', error });
         }
+        if (stack.signer) lines.push({ signer: answers() ? stack.signer : 'down' });
         return json(0, lines);
       }
       if (command === 'requests') {
@@ -322,10 +312,9 @@ export function createBitwardenFakeStack(): BitwardenFakeStack {
       return json(1, [], [`fake: no ${script} ${args.join(' ')}`]);
     },
 
-    async brokerNamespace() {
-      stack.namespaceReads += 1;
-      if (!stack.brokerUp) return { ok: false, reason: 'no_broker' };
-      return { ok: true, matches: !stack.brokerStale };
+    startBroker() {
+      stack.brokerUp = true;
+      for (const a of stack.accounts.values()) if (a.unlock === 'manual') a.state = 'locked';
     },
 
     enabled: () => /BITWARDEN_ENABLED=1/.test(fs.readFileSync(path.join(root, '.env'), 'utf8')),

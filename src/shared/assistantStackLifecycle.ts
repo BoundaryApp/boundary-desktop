@@ -106,6 +106,19 @@ function defaultStageForPhase(
   return undefined;
 }
 
+/** What each service card shows in a fresh snapshot for the stack's phase. */
+const PHASE_DEFAULTS: Record<
+  AssistantStackLifecyclePhase,
+  { state: AssistantStackServiceProgressState; text: string; progress: number }
+> = {
+  idle: { state: 'pending', text: 'Idle', progress: 0 },
+  starting: { state: 'pending', text: 'Queued…', progress: 0.05 },
+  ready: { state: 'done', text: 'Ready', progress: 1 },
+  stopping: { state: 'pending', text: 'Stopping…', progress: 0 },
+  stopped: { state: 'done', text: 'Stopped', progress: 1 },
+  error: { state: 'error', text: 'Error', progress: 0 },
+};
+
 export function createLifecycleSnapshot(
   phase: AssistantStackLifecyclePhase,
   options?: {
@@ -116,28 +129,7 @@ export function createLifecycleSnapshot(
     stageStartedAt?: number;
   }
 ): AssistantStackLifecycleSnapshot {
-  const defaultState: AssistantStackServiceProgressState =
-    phase === 'ready' || phase === 'stopped'
-      ? 'done'
-      : phase === 'error'
-        ? 'error'
-        : phase === 'idle'
-          ? 'pending'
-          : 'pending';
-  const defaultText =
-    phase === 'ready'
-      ? 'Ready'
-      : phase === 'stopped'
-        ? 'Stopped'
-        : phase === 'stopping'
-          ? 'Stopping…'
-              : phase === 'starting'
-            ? 'Queued…'
-            : phase === 'error'
-              ? 'Error'
-              : 'Idle';
-  const defaultProgress =
-    phase === 'ready' || phase === 'stopped' ? 1 : phase === 'starting' ? 0.05 : 0;
+  const { state: defaultState, text: defaultText, progress: defaultProgress } = PHASE_DEFAULTS[phase];
 
   const now = Date.now();
   const stage = options?.stage ?? defaultStageForPhase(phase);

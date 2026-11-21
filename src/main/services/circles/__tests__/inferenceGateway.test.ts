@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CircleOffer } from '../circleOps';
+import { GATEWAY_CHUNK_BYTES } from '../gatewayCommon';
 import {
-  GATEWAY_CHUNK_BYTES,
   GATEWAY_MAX_BODY_BYTES,
   InferenceGateway,
   type GatewayRequest,

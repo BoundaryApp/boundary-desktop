@@ -4,11 +4,15 @@ import type {
   ChannelRecord,
   HermesMentionRecord,
 } from '../../../shared/types/hermesChat';
+import { memberMentionSpans } from '../../../shared/hermesMentions';
 import { formatDayAndTime } from '../../../shared/messageTime';
 import { AgentMark } from './ConversationMark';
 import { findRunningTurn, useRunningTurns } from './runningTurns';
 import { WorkingDot } from './WorkingDot';
 import { Button } from '../../components/ui/button';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
+import { TabsList, TabsTrigger } from '../../components/ui/tabs';
 
 interface MentionsPaneProps {
   mentions: HermesMentionRecord[];
@@ -22,26 +26,22 @@ interface MentionsPaneProps {
   onAskAgain: (mention: HermesMentionRecord) => void;
 }
 
-/** Your text with each @name of the mentioned agent highlighted. */
+/** Your text with each @name of the mentioned agent highlighted, longest name first as the parser reads it. */
 function Highlighted({ text, agent }: { text: string; agent: AgentProfile | null }) {
   if (!agent) return <>{text}</>;
-  const names = [agent.displayName, agent.handle, agent.slug]
-    .filter(Boolean)
-    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const parts = text.split(new RegExp(`(@(?:${names.join('|')})(?![\\w-]))`, 'gi'));
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <span key={i} className="wb-mention-at">
-            {part}
-          </span>
-        ) : (
-          <React.Fragment key={i}>{part}</React.Fragment>
-        )
-      )}
-    </>
-  );
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const span of memberMentionSpans(text, [agent])) {
+    if (span.start > at) parts.push(<React.Fragment key={`t${at}`}>{text.slice(at, span.start)}</React.Fragment>);
+    parts.push(
+      <span key={`m${span.start}`} className="wb-mention-at">
+        {text.slice(span.start, span.end)}
+      </span>
+    );
+    at = span.end;
+  }
+  if (at < text.length) parts.push(<React.Fragment key={`t${at}`}>{text.slice(at)}</React.Fragment>);
+  return <>{parts}</>;
 }
 
 /**
@@ -104,75 +104,44 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
       <div className="wb-all-tools">
         <div className="wb-all-filters" role="toolbar" aria-label="Filter mentions">
           {!lockedAgent && agentChips.length > 0 ? (
-            <div className="wb-all-chips" role="radiogroup" aria-label="Agent">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={agentSlug === null}
-                className={`wb-all-chip${agentSlug === null ? ' is-on' : ''}`}
-                onClick={() => setAgentSlug(null)}
-              >
-                All agents
-              </button>
+            <ChipGroup
+              type="single"
+              aria-label="Agent"
+              value={agentSlug ?? ''}
+              onValueChange={(slug) => setAgentSlug(slug === '' ? null : slug)}
+            >
+              <Chip value="">All agents</Chip>
               {agentChips.map((a) => (
-                <button
-                  key={a.slug}
-                  type="button"
-                  role="radio"
-                  aria-checked={agentSlug === a.slug}
-                  className={`wb-all-chip${agentSlug === a.slug ? ' is-on' : ''}`}
-                  onClick={() => setAgentSlug(a.slug)}
-                >
-                  <AgentMark agent={a} size={14} />
+                <Chip key={a.slug} value={a.slug} icon={<AgentMark agent={a} size={14} />}>
                   {a.displayName}
-                </button>
+                </Chip>
               ))}
-            </div>
+            </ChipGroup>
           ) : null}
           {lockedAgent && channelChips.length > 1 ? (
-            <div className="wb-all-chips" role="radiogroup" aria-label="Channel">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={channelId === null}
-                className={`wb-all-chip${channelId === null ? ' is-on' : ''}`}
-                onClick={() => setChannelId(null)}
-              >
-                All channels
-              </button>
+            <ChipGroup
+              type="single"
+              aria-label="Channel"
+              value={channelId ?? ''}
+              onValueChange={(id) => setChannelId(id === '' ? null : id)}
+            >
+              <Chip value="">All channels</Chip>
               {channelChips.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={channelId === c.id}
-                  className={`wb-all-chip mono${channelId === c.id ? ' is-on' : ''}`}
-                  onClick={() => setChannelId(c.id)}
-                >
+                <Chip key={c.id} value={c.id} className="mono">
                   #{c.slug}
-                </button>
+                </Chip>
               ))}
-            </div>
+            </ChipGroup>
           ) : null}
           <span className="wb-all-sep" aria-hidden="true" />
           {!lockedAgent ? (
-            <button
-              type="button"
-              aria-pressed={unseenOnly}
-              className={`wb-all-chip${unseenOnly ? ' is-on' : ''}`}
-              onClick={() => setUnseenOnly((v) => !v)}
-            >
+            <Chip pressed={unseenOnly} onPressedChange={setUnseenOnly}>
               Unseen
-            </button>
+            </Chip>
           ) : null}
-          <button
-            type="button"
-            aria-pressed={waitingOnly}
-            className={`wb-all-chip${waitingOnly ? ' is-on' : ''}`}
-            onClick={() => setWaitingOnly((v) => !v)}
-          >
+          <Chip pressed={waitingOnly} onPressedChange={setWaitingOnly}>
             {lockedAgent ? `Waiting on ${lockedAgent.displayName}` : 'Waiting'}
-          </button>
+          </Chip>
         </div>
       </div>
 
@@ -248,30 +217,15 @@ export const MentionsPane: React.FC<MentionsPaneProps> = ({
 
 export type DmTab = 'messages' | 'channels';
 
-/** The DM header's two lenses on one agent: the private thread, and its @s in rooms. */
-export const DmTabs: React.FC<{
-  active: DmTab;
-  count: number;
-  onChange: (tab: DmTab) => void;
-}> = ({ active, count, onChange }) => (
-  <div className="wb-dm-tabs" role="tablist" aria-label="Direct message views">
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active === 'messages'}
-      className={`wb-dm-tab${active === 'messages' ? ' is-on' : ''}`}
-      onClick={() => onChange('messages')}
-    >
-      Messages
-    </button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active === 'channels'}
-      className={`wb-dm-tab${active === 'channels' ? ' is-on' : ''}`}
-      onClick={() => onChange('channels')}
-    >
-      In channels{count > 0 ? <span className="n">{count}</span> : null}
-    </button>
-  </div>
+/**
+ * The DM header's two lenses on one agent: the private thread, and its @s in rooms. It sits
+ * inside a `Tabs` root whose value is the open `DmTab`; each view's header renders it.
+ */
+export const DmTabs: React.FC<{ count: number }> = ({ count }) => (
+  <TabsList aria-label="Direct message views" variant="bar" className="ml-4">
+    <TabsTrigger value="messages">Messages</TabsTrigger>
+    <TabsTrigger value="channels" count={count > 0 ? count : undefined}>
+      In channels
+    </TabsTrigger>
+  </TabsList>
 );

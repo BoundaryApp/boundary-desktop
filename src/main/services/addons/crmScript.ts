@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import { runScriptProcess } from './scriptProcess';
+import type { StackCommands } from '../stackHost/types';
 import type { TwentyConnectInput, TwentyConnectResult } from '../../../shared/types/addons';
 
 export type { TwentyConnectInput, TwentyConnectResult };
@@ -10,37 +9,32 @@ const CONNECT_TIMEOUT_MS = 120_000;
 const ERROR_PREFIX = '[crm] ERROR: ';
 
 /**
- * Runs `bash scripts/crm.sh <args>` in the stack root with stdin closed and passes each output
+ * Runs `bash scripts/crm.sh <args>` in the stack folder with stdin closed and passes each output
  * line on. Resolves with the exit code and every line: 127 when bash can't start, 124 after
  * the timeout, 130 when `signal` aborted it. Both stops send SIGTERM
  * to bash only; a compose command the script started runs on until it ends.
  */
 export function runCrmScript(options: {
-  root: string;
+  runScript: StackCommands['runScript'];
   args: string[];
   env: NodeJS.ProcessEnv;
   onLine?: (line: string) => void;
-  spawnImpl?: typeof spawn;
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<{ code: number; lines: string[] }> {
-  const spawnImpl = options.spawnImpl ?? spawn;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const lines: string[] = [];
   const onLine = (line: string) => {
     lines.push(line);
     options.onLine?.(line);
   };
-  return runScriptProcess({
-    args: ['scripts/crm.sh', ...options.args],
-    cwd: options.root,
+  return options.runScript('scripts/crm.sh', options.args, {
     env: options.env,
     timeoutMs,
     timeoutLine: `crm.sh ${options.args[0] ?? ''} ran for more than ${Math.round(timeoutMs / 1000)} s and was stopped.`,
     signal: options.signal,
     onStdout: onLine,
     onStderr: onLine,
-    spawnImpl,
   }).then((code) => ({ code, lines }));
 }
 
@@ -64,7 +58,7 @@ function errorMessage(lines: string[]): string | null {
  * variables are always set, so the script never prompts) and are masked in every returned line.
  */
 export async function connectTwentyWorkspace(
-  root: string,
+  runScript: StackCommands['runScript'],
   baseEnv: NodeJS.ProcessEnv,
   input: TwentyConnectInput,
   run: typeof runCrmScript = runCrmScript
@@ -78,7 +72,7 @@ export async function connectTwentyWorkspace(
     TWENTY_ACCESS: input.access,
   };
   const keys = [input.keyRw, input.keyRo];
-  const { code, lines: raw } = await run({ root, args, env, timeoutMs: CONNECT_TIMEOUT_MS });
+  const { code, lines: raw } = await run({ runScript, args, env, timeoutMs: CONNECT_TIMEOUT_MS });
   const lines = raw.map((line) => hideKeys(line, keys));
   const checks = lines.filter((line) => ACCEPTED_LINE.test(line));
   if (code === 0) return { ok: true, checks };
@@ -113,12 +107,12 @@ export async function connectTwentyWorkspace(
 
 /** Deletes a workspace file with `crm.sh remove`. Throws the script's last error line on failure. */
 export async function disconnectTwentyWorkspace(
-  root: string,
+  runScript: StackCommands['runScript'],
   baseEnv: NodeJS.ProcessEnv,
   slug: string,
   run: typeof runCrmScript = runCrmScript
 ): Promise<void> {
-  const { code, lines } = await run({ root, args: ['remove', '--slug', slug], env: baseEnv });
+  const { code, lines } = await run({ runScript, args: ['remove', '--slug', slug], env: baseEnv });
   if (code === 0) return;
   throw new Error(errorMessage(lines) ?? lines.at(-1) ?? `crm.sh remove exited with code ${code}`);
 }

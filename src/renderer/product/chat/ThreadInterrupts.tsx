@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '../../components/ui/button';
 import type { HermesProjectRecord } from '../../../shared/types/hermesChat';
 import { ApprovalInterrupt } from './ApprovalInterrupt';
 import { CodingAccessInterrupt } from './CodingAccessInterrupt';
@@ -118,14 +119,15 @@ export const ThreadInterrupts: React.FC<{
         >
           Manage in Passwords &amp; Logins
         </button>
-        <button
+        <Button
           type="button"
-          className="wb-saved-login-close"
+          variant="quiet"
+          size="icon-xs"
           aria-label="Dismiss"
           onClick={interrupts.dismissSavedLogin}
         >
           ×
-        </button>
+        </Button>
       </div>
     );
   }

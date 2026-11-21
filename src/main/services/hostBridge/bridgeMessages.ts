@@ -18,6 +18,8 @@ export type MainToBridge =
       type: 'start';
       mcpToken: string;
       browserToken: string;
+      /** The credential client's accepted tokens (ADR 0065). */
+      credentialTokens: string[];
       mcpPort?: number;
       browserPort?: number;
       browser: BrowserRelayConfig;
@@ -30,6 +32,8 @@ export type MainToBridge =
   /** Calendar token → agent slug for the `/calendar` route. Replaces the whole map. */
   | { type: 'calendar-tokens'; tokens: Record<string, string> }
   | { type: 'calendar-tool-list-result'; id: number; tools: HostToolDefinition[] }
+  /** The credential client's accepted tokens after a rotation or the end of its grace. Replaces the list. */
+  | { type: 'credential-tokens'; tokens: string[] }
   | { type: 'browser-config'; browser: BrowserRelayConfig }
   | { type: 'tool-listing'; listing: HostToolListing }
   | { type: 'browser-open'; id: number }

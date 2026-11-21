@@ -21,6 +21,7 @@ stubElectronAPI({
 });
 
 import { AddFolderSheet } from '../AddFolderSheet';
+import { setStackCapabilitiesForTests } from '../../stackCapabilities';
 
 function folder(partial: Partial<CodingFolderInspect> = {}): CodingFolderInspect {
   return {
@@ -67,7 +68,7 @@ describe('AddFolderSheet', () => {
   it('preselects Code in it for a git repo and confirms with Give coding access', async () => {
     const { onCode } = renderSheet();
     await pickAndReachAccess();
-    expect(screen.getByRole('radio', { name: /Code in it/ }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('radio', { name: /Code in it/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByText('Give the coding agent access to design-tokens?')).toBeTruthy();
     expect(screen.getByText(/chats in other projects can reach it too/)).toBeTruthy();
@@ -79,9 +80,7 @@ describe('AddFolderSheet', () => {
     pickCodingFolder.mockResolvedValue(folder({ isGit: false, name: 'brand-notes' }));
     const { onReference } = renderSheet();
     await pickAndReachAccess();
-    expect(screen.getByRole('radio', { name: /Use as reference/ }).getAttribute('aria-checked')).toBe(
-      'true'
-    );
+    expect((screen.getByRole('radio', { name: /Use as reference/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add as reference' }));
     expect(onReference).toHaveBeenCalledWith('/Users/ada/Code/design-tokens');
   });
@@ -92,7 +91,7 @@ describe('AddFolderSheet', () => {
     );
     renderSheet();
     await pickAndReachAccess();
-    const code = screen.getByRole('radio', { name: /Code in it/ }) as HTMLButtonElement;
+    const code = screen.getByRole('radio', { name: /Code in it/ }) as HTMLInputElement;
     expect(code.disabled).toBe(true);
     expect(screen.getByText(/System and Library folders/)).toBeTruthy();
   });
@@ -120,7 +119,7 @@ describe('AddFolderSheet', () => {
   it('offers only reference when Boundary uses a developer stack', async () => {
     renderSheet({ managed: false, command: 'make coding-root-add DIR=<absolute path>' });
     await pickAndReachAccess();
-    expect((screen.getByRole('radio', { name: /Code in it/ }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole('radio', { name: /Code in it/ }) as HTMLInputElement).disabled).toBe(
       true
     );
     expect(screen.getByText(/make coding-root-add/)).toBeTruthy();
@@ -150,5 +149,13 @@ describe('AddFolderSheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Use existing folder' }));
     expect(await screen.findByText('What should agents do with design-tokens?')).toBeTruthy();
     expect(inspectCodingFolder).toHaveBeenCalledWith({ hostPath: '/Users/ada/Code/design-tokens' });
+  });
+
+  it('says why no folder can be chosen on a host without hostFolders', () => {
+    setStackCapabilitiesForTests({ hostFolders: false });
+    renderSheet();
+    expect(screen.getByText("Your agent runs on another computer, so it can't use folders on this one.")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Choose folder…' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'New folder…' })).toHaveProperty('disabled', true);
   });
 });

@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
-import { writeEnvValues } from '../stackEnv';
+import type { ProjectEnv } from '../projectEnv';
 import { resolveAssistantStackHome } from '../assistantPaths';
 import { listStoredHermesProjects } from '../hermes/hermesProjectStore';
-import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
 import {
   codingPathAliases,
   codingRootsFromPaths,
   envShadowTargets,
   serializeCodingExtraRoots,
+  stackCheckoutDataDirs,
 } from './codingGrantRules';
 import { listCodingGrantRecords } from './codingGrantStore';
 
@@ -49,6 +49,35 @@ export function ensureCodingShadowSource(source = resolveCodingShadowSource()): 
     fs.writeFileSync(source, '', { mode: 0o444 });
   }
   return source;
+}
+
+/** Stack checkouts' `data/` folders under mounted folders, each hidden behind an empty folder. */
+export interface StackDataMasks {
+  /** Host paths of each checkout's `data/`. */
+  dataDirs: string[];
+  /** The empty read-only folder every mask points at. */
+  source: string;
+}
+
+function resolveStackDataMaskSource(): string {
+  return path.join(resolveAssistantStackHome(), 'coding', 'empty-dir');
+}
+
+export function ensureStackDataMaskSource(source = resolveStackDataMaskSource()): string {
+  fs.mkdirSync(source, { recursive: true });
+  fs.chmodSync(source, 0o555);
+  return source;
+}
+
+/** A fresh scan of every folder the overlay mounts. Rescanned on every overlay write. */
+export function currentStackDataMasks(hostPaths: readonly string[]): StackDataMasks {
+  const unique = [...new Set(hostPaths.map((item) => path.resolve(item)))];
+  return {
+    dataDirs: [...new Set(unique.flatMap((folder) => stackCheckoutDataDirs(folder)))].sort(
+      (left, right) => left.localeCompare(right)
+    ),
+    source: resolveStackDataMaskSource(),
+  };
 }
 
 /** Roots plus a fresh scan for `.env` files to hide. Rescanned on every overlay write. */
@@ -94,13 +123,7 @@ function envValue(value: string): string {
  * Write the coding variables to the stack `.env`, so a compose run outside Boundary sees the
  * same values. Boundary also passes them in the compose environment, which wins.
  */
-export function persistCodingStackEnv(
-  roots?: readonly string[],
-  envRoot = resolveActiveAssistantRoot()
-): void {
+export async function persistCodingStackEnv(projectEnv: ProjectEnv, roots?: readonly string[]): Promise<void> {
   const env = codingStackEnv(listStoredHermesProjects(), roots ?? currentCodingRoots());
-  writeEnvValues(
-    path.join(envRoot, '.env'),
-    Object.fromEntries(Object.entries(env).map(([key, value]) => [key, envValue(value)]))
-  );
+  await projectEnv.set(Object.fromEntries(Object.entries(env).map(([key, value]) => [key, envValue(value)])));
 }

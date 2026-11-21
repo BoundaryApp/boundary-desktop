@@ -1,0 +1,34 @@
+{
+  "slides": [
+    {
+      "title": "Export your chat history",
+      "body": "Settings → General → Chat history has Export history…. Pick a folder and Boundary makes a new one in it with every chat, along with its agent, project and room. The export holds your chats unencrypted, so keep it as you would a backup. Import history… is there too, but not available yet.",
+      "image": "export-history"
+    },
+    {
+      "title": "Remove a project",
+      "body": "Remove project… in a project's ⋯ menu takes it out of Boundary. A folder you added stays where it is, and the agent can no longer read or change it. A folder Boundary made goes to the Trash, after a summary of what's in it and a warning about any commits that exist only on this Mac. The chats stay, under No project.",
+      "image": "remove-project"
+    },
+    {
+      "title": "The details panel starts closed",
+      "body": "Chats open with the details panel on the right closed, so the conversation gets the width. Open it with the button at the right of the chat's header, View → Toggle Details, or Option-Command-0, and it stays open across chats until you close it. Check writing, a project warning or a channel's members open it when they need it.",
+      "image": "inspector-closed"
+    },
+    {
+      "title": "Menus answer the keyboard",
+      "body": "Every ⋯ and pick-one menu now takes arrow keys, Home and End, and typing the start of an item's name, and Escape closes it and returns focus to its button. Popups under a text field, such as @ mentions, move with the arrow keys while you keep typing.",
+      "image": "project-menu"
+    },
+    {
+      "title": "Bitwarden on Boundary's own engine",
+      "body": "Get Bitwarden now starts when Boundary runs its own container engine instead of Docker Desktop. Its page explains how the agent signs in: Bitwarden fills the login in a separate browser, so the password and two-step code never reach the agent.",
+      "image": "bitwarden-page"
+    },
+    {
+      "title": "Smaller changes and fixes",
+      "body": "The Todo lists page has Copy password, for signing in from another browser or device; Boundary marks the copy as concealed and clears the clipboard after 60 seconds. The details panel's Agent tab shows an excerpt of the built-in agent's SOUL.md. What's new on the start-up screen stays clear of its buttons and takes clicks, and upgrading keeps the Todo lists sign-in. The agent stack is now version 0.3.17."
+    }
+  ],
+  "guides": []
+}

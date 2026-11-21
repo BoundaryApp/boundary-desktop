@@ -4,13 +4,14 @@
  * from the Circles' `services` records, the provider's grants and the used-services list; never
  * carries a key or a token.
  */
-import { localDay, usedToday } from '../../../shared/circleUsage';
+import { usedToday } from '../../../shared/circleUsage';
+import { localDay } from '../../../shared/utils/localDay';
 import { parseServiceOffer, SERVICES_APP, type ServiceOfferRecord, type ShareLevel } from '../../../shared/serviceOffers';
 import type { TwentyAccess } from '../../../shared/types/addons';
 import type { CirclesResult } from '../../../shared/types/circles';
 import type { OfferedService, ServiceShareInput, SharedServicesView, SharingCircle } from '../../../shared/types/sharedServices';
-import { persistDebugLog } from '../../persistDebugLog';
-import { broadcast } from '../windows';
+import { persistDebugLog } from '../../host/log';
+import { broadcast } from '../../host/windows';
 import { setAwayBlocker } from './awayMode';
 import {
   getCircleRecords,
@@ -22,6 +23,7 @@ import {
 import { getServedServiceUsage } from './circlesStore';
 import type { CircleRecordEntry } from './networkMessages';
 import { getUsedServices } from './usedServicesRuntime';
+import { circlesSharing } from './sharingConfig';
 
 /** This Mac's own Twenty, the one service this build shares (spec decision 1). */
 const LOCAL_TWENTY = 'twenty.main';
@@ -153,6 +155,8 @@ export async function stopSharingService(circle: string): Promise<void> {
 
 /** **Use in my agent** on. */
 export async function useService(input: { circle: string; provider: string; service: string; access: TwentyAccess }): Promise<{ slug: string }> {
+  // The workspace calls a listener on this machine, which the stack's containers must reach.
+  circlesSharing().requireHostCallbacks();
   const circle = getCirclesState().snapshot.circles.find((candidate) => candidate.key === input.circle);
   const provider = circle?.members.find((member) => member.identity === input.provider);
   if (!circle || !provider) throw new Error('That person or Circle isn’t on this Mac any more.');

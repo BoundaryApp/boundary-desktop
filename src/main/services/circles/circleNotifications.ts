@@ -1,6 +1,6 @@
-import { persistDebugLog } from '../../persistDebugLog';
-import { sendEvent } from '../../ipc';
-import { showWindowNotification } from '../notifications';
+import { persistDebugLog } from '../../host/log';
+import { sendEvent } from '../../host/ipc';
+import { showWindowNotification } from '../../host/windows';
 import type { CirclesResult, CirclesSnapshot, CircleChannel } from '../../../shared/types/circles';
 import { getNotifyGlobal, getNotifyPrefs } from './circlesStore';
 import type { CircleNotifierDeps } from './circleNotifier';

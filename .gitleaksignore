@@ -1,2 +1,4 @@
 # RFC 6455 sample nonce ("the sample nonce") used as a WebSocket handshake test fixture.
 src/main/services/hostBridge/__tests__/bridgeServer.test.ts:generic-api-key:190
+# Self-signed localhost key for the pinned TLS test; trusts nothing outside that test.
+src/main/services/inference/confidential/tinfoil/__tests__/fixtures/tls/localhost-key.pem:private-key:1

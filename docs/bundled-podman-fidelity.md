@@ -29,6 +29,22 @@ Optional scripted smoke (provisions the `boundary` machine and prints `podman in
 ./scripts/smoke-bundled-podman.sh
 ```
 
+### Scripted stack check
+
+`bun run test:podman` runs the app's own start path (`ensureAssistantStackRunning`) with Docker Desktop skipped, in a new temp userData folder. It downloads the pinned stack, runs its setup, brings the managed stack up on the bundled `boundary` machine and passes when Hermes answers its health check and no container has exited non-zero, gone unhealthy or is restarting. Afterwards it runs `compose down --volumes`, stops the machine if the run started it, and deletes the temp folder when the check passed. It never reads or writes the app's real userData or a `../assistant` checkout.
+
+```bash
+BOUNDARY_PODMAN_CHECK=1 bun run test:podman
+```
+
+Without `BOUNDARY_PODMAN_CHECK=1` the check is skipped. A first run creates the machine and pulls every image, so allow up to an hour. It refuses to start while the machine already holds a `boundary-assistant` project, because the app's managed stack on Podman uses that name. Other settings:
+
+- `BOUNDARY_PODMAN_CHECK_KEEP=1` leaves the stack running and the folder in place, for poking at it afterwards.
+- `BOUNDARY_PODMAN_CHECK_REPLACE=1` removes an existing `boundary-assistant` project first, named volumes included. Its bind-mounted data stays on disk.
+- `BOUNDARY_PODMAN_CHECK_DIR=<path>` uses that folder as userData instead of a temp one.
+
+The run prints the userData folder and the debug log path. Both are under `boundary-podman-check` in the system temp directory, which outlasts the run: the log is `$TMPDIR/boundary-podman-check/boundary-desktop-vitest-logs/boundary-debug.log` and collects every run's lines. A failed run keeps its userData folder so its `assistant-stack/project` can be inspected.
+
 ### Fresh-install / no-Docker dev loop
 
 Wipe local Boundary state (userData, logs, prefs) and optionally the `boundary` Podman machine, then launch with Docker Desktop skipped so bundled Podman is used:

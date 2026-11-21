@@ -38,6 +38,33 @@ describe('VikunjaDetail', () => {
     expect(await screen.findByText('Todo lists isn’t running. Start it, then open it.')).toBeTruthy();
   });
 
+  it('shows the account and copies its password through main', async () => {
+    const addons = stubAddons([vikunjaListing(true, true)]);
+    renderPage();
+    expect(await screen.findByText('me')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy password' }));
+    await vi.waitFor(() => expect(addons.vikunja.copyPassword).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/Password copied/)).toBeTruthy();
+  });
+
+  it('shows main’s line when the copy fails', async () => {
+    const addons = stubAddons([vikunjaListing(true, true)]);
+    addons.vikunja.copyPassword.mockResolvedValueOnce({ success: false, error: 'This stack has no saved Todo lists login.' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy password' }));
+    expect(await screen.findByText('This stack has no saved Todo lists login.')).toBeTruthy();
+    expect(screen.queryByText(/Password copied/)).toBeNull();
+  });
+
+  it('offers no copy without an account', async () => {
+    const addons = stubAddons([vikunjaListing(true, true)]);
+    addons.vikunja.account.mockResolvedValue(null);
+    renderPage();
+    await screen.findByRole('button', { name: 'Open todo lists' });
+    await vi.waitFor(() => expect(addons.vikunja.account).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Copy password' })).toBeNull();
+  });
+
   it('offers Turn on and Remove while off with lists left', async () => {
     const addons = stubAddons([vikunjaListing(false, true)]);
     renderPage();

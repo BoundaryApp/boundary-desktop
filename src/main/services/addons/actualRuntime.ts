@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { ActualBudget } from '../../../shared/types/addons';
 import { persistDebugLog } from '../../persistDebugLog';
 import { getAssistantStackAccess } from '../assistant/AssistantStackService';
+import { getStackEndpoints, getStackFiles } from '../stackHost/activeStack';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
 import { actualOpenUrl, createActualService, readActualFlags, readLocalServerPassword, type ActualService } from './actualAddon';
 import type { ActualInstallerDeps } from './actualInstaller';
@@ -10,7 +11,7 @@ import { checkAddonFit } from './addonFitCheck';
 import { runExclusive } from './addonLock';
 import { composeImages, removeImagesOnRuntime } from './addonRemoval';
 import { runOnStack, stackPaths } from './stackScripts';
-import { copyThenClear } from './twentySignIn';
+import { copyThenClear, type SecretClipboard } from './secretClipboard';
 
 // Actual's service and installer on the live stack: scripts run in the stack root with the
 // stack's script environment, which in the managed stack carries Boundary's compose project,
@@ -25,6 +26,7 @@ let shared: ActualService | null = null;
 export function getActualService(): ActualService {
   shared ??= createActualService({
     paths: stackPaths,
+    files: getStackFiles(),
     run: runOnStack,
     exclusive: runExclusive,
     log,
@@ -38,6 +40,7 @@ export function createDefaultActualInstallerDeps(): ActualInstallerDeps {
     service,
     run: runOnStack,
     paths: stackPaths,
+    files: getStackFiles(),
     checkFit: async () => (await checkAddonFit(ACTUAL_ENTRY)).fit,
     isLocalStack: isLocalAssistantStackMode,
     images: async () => {
@@ -49,33 +52,27 @@ export function createDefaultActualInstallerDeps(): ActualInstallerDeps {
     },
     removeImages: removeImagesOnRuntime,
     deleteDir: (dir) => fs.promises.rm(dir, { recursive: true, force: true }),
-    deleteFile: (file) => fs.promises.rm(file, { force: true }),
     exclusive: runExclusive,
     log,
   };
 }
 
 /** Where Open Actual goes for `slug`, or this Mac's server without one. Null when there's nowhere safe to open. */
-export function actualOpenTarget(slug: string | null): string | null {
-  const { root } = getAssistantStackAccess();
-  const { port } = readActualFlags(root);
-  if (!slug) return actualOpenUrl(null, port);
-  const budget: ActualBudget | undefined = getActualService()
-    .overview()
-    .budgets.find((b) => b.slug === slug);
-  return budget ? actualOpenUrl(budget, port) : null;
+export async function actualOpenTarget(slug: string | null): Promise<string | null> {
+  const { port } = await readActualFlags(getStackFiles());
+  const localUrl = getStackEndpoints().portUrl(port, '', 'localhost');
+  if (!slug) return actualOpenUrl(null, localUrl);
+  const budget: ActualBudget | undefined = (await getActualService().overview()).budgets.find((b) => b.slug === slug);
+  return budget ? actualOpenUrl(budget, localUrl) : null;
 }
 
 /**
  * Copies this Mac's server password and clears it from the clipboard after a minute if it's
  * still there. The password stays in main. False when the stack has none stored.
  */
-export function copyActualServerPassword(clipboard: {
-  writeText(text: string): void;
-  readText(): string | Promise<string>;
-}): boolean {
-  const password = readLocalServerPassword(stackPaths().dataRoot);
+export async function copyActualServerPassword(clipboard: SecretClipboard): Promise<boolean> {
+  const password = await readLocalServerPassword(getStackFiles());
   if (!password) return false;
-  copyThenClear(clipboard, password);
+  await copyThenClear(clipboard, password);
   return true;
 }

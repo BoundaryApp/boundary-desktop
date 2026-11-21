@@ -43,7 +43,7 @@ A run starts with `run.start`: app version, whether it's packaged, Electron, mac
 | `peer.connect`, `peer.close`, `peer.error` | A connection. `peer.close` has its length, rtt, bytes and packets each way, and retransmits. |
 | `peer.replicate`, `peer.drop-removed` | Replication started with a device, or a removed device was dropped. |
 | `circle.deleted` | This device's last member deleted a Circle: how many cores were listed and purged. |
-| `removal.notice-sent`, `removal.notice-ignored`, `circle.removed-here` | An admin told a device it was removed, a device ignored a notice from someone who isn't an admin, or this device closed a Circle it was removed from. |
+| `removal.notice-sent`, `removal.notice-dropped`, `removal.notice-ignored`, `circle.removed-here` | An admin told a device it was removed, dropped a notice because the channel had closed or already held 16 unsent notices, a device ignored a notice from someone who isn't an admin, or this device closed a Circle it was removed from. |
 | `link.attach`, `link.open`, `link.close`, `link.refused-unknown` | The inference channel to a device: who opened it, how long until both sides had it, requests made and served. |
 | `offer.published`, `offer.withdrawn`, `share.upstream` | This user's sharing. |
 | `shared.request`, `shared.head`, `shared.end`, `shared.cancel`, `shared.no-link` | The consumer's side of a shared-model call: time to head, time to first chunk, bytes, chunks, outcome. |

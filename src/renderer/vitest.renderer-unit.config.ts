@@ -36,9 +36,6 @@ export default defineConfig({
     alias: {
       // The release notes a build bundles; tests run against an empty folder (ADR 0059).
       '@release-notes': resolve(import.meta.dirname, '../release-notes-empty'),
-      '@': resolve(import.meta.dirname, '..'),
-      '@shared': resolve(import.meta.dirname, '../shared'),
-      '@renderer': resolve(import.meta.dirname, '.'),
     },
   },
 });

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
 import { ProjectPicker } from '../ProjectPicker';
+import { setStackCapabilitiesForTests } from '../../stackCapabilities';
 
 const projects: HermesProjectRecord[] = [
   {
@@ -139,5 +140,92 @@ describe('ProjectPicker', () => {
     expect(list?.contains(screen.getByRole('button', { name: 'New project…' }))).toBe(
       false
     );
+  });
+
+  it('says why there is no New project on a host without hostFolders', () => {
+    setStackCapabilitiesForTests({ hostFolders: false });
+    render(
+      <ProjectPicker
+        variant="rail"
+        projects={projects}
+        activeProjectId="p1"
+        onSelectProject={vi.fn()}
+        onClearProject={vi.fn()}
+        onNewProject={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Current project' }));
+    expect(screen.queryByRole('button', { name: 'New project…' })).toBeNull();
+    expect(screen.getByText("Your agent runs on another computer, so it can't use folders on this one.")).toBeTruthy();
+  });
+
+  it('drives the list from the search field: arrows move the active row, Enter picks', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      ...projects[0],
+      id: `p${i}`,
+      name: `Project ${i}`,
+      slug: `project-${i}`,
+      updatedAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`,
+    }));
+    const onSelectProject = vi.fn();
+    render(
+      <ProjectPicker
+        variant="rail"
+        projects={many}
+        activeProjectId="p8"
+        onSelectProject={onSelectProject}
+        onClearProject={vi.fn()}
+        onNewProject={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Current project' }));
+    const field = screen.getByRole('combobox', { name: 'Search projects' });
+    expect(document.activeElement).toBe(field);
+    const list = screen.getByRole('listbox');
+    expect(field.getAttribute('aria-controls')).toBe(list.id);
+    const options = () => screen.getAllByRole('option');
+    // Newest first, so the current project p8 is the first after No project.
+    expect(field.getAttribute('aria-activedescendant')).toBe(options()[1].id);
+
+    fireEvent.keyDown(field, { key: 'ArrowDown' });
+    expect(field.getAttribute('aria-activedescendant')).toBe(options()[2].id);
+    expect(options()[2].hasAttribute('data-active')).toBe(true);
+    fireEvent.keyDown(field, { key: 'ArrowUp' });
+    fireEvent.keyDown(field, { key: 'ArrowUp' });
+    expect(field.getAttribute('aria-activedescendant')).toBe(options()[0].id);
+
+    fireEvent.change(field, { target: { value: 'Project 3' } });
+    expect(field.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('option', { name: /Project 3/ }).id
+    );
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(onSelectProject).toHaveBeenCalledWith('p3');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('focuses the list when there is no search field, and Enter picks the active row', () => {
+    const onClearProject = vi.fn();
+    render(
+      <ProjectPicker
+        variant="rail"
+        projects={projects}
+        activeProjectId="p1"
+        onSelectProject={vi.fn()}
+        onClearProject={onClearProject}
+        onNewProject={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Current project' }));
+    const list = screen.getByRole('listbox');
+    expect(document.activeElement).toBe(list);
+    expect(list.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('option', { name: /Job Search/ }).id
+    );
+    expect(
+      screen.getByRole('option', { name: /Job Search/ }).getAttribute('aria-selected')
+    ).toBe('true');
+    fireEvent.keyDown(list, { key: 'Home' });
+    fireEvent.keyDown(list, { key: 'Enter' });
+    expect(onClearProject).toHaveBeenCalledTimes(1);
   });
 });

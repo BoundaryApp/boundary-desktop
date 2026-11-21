@@ -37,15 +37,12 @@ describe('workbench transcript type', () => {
   });
 
   it('puts create on 28px section plus buttons', () => {
-    expect(css).toContain('.wb-sect-add {');
-    expect(css).toContain('width: 28px;');
-    expect(css).toContain('height: 28px;');
+    const rail = readFileSync(join(here, '../ChatRail.tsx'), 'utf8');
+    expect(rail.match(/size="icon-sm"/g)?.length).toBe(3);
+    expect(tokens).toContain('--control-height-sm: 28px;');
   });
 
   it('keeps rail titles quieter than transcript ink until hover or selected', () => {
-    expect(css).toMatch(/\.wb-proj-menu-item \{[\s\S]*?color: var\(--text-muted\);/);
-    expect(css).toMatch(/\.wb-proj-menu-item:hover \{[\s\S]*?color: var\(--text\);/);
-    expect(css).toMatch(/\.wb-proj-menu-item\.is-on \{[\s\S]*?color: var\(--text\);/);
     expect(css).toMatch(/\.wb-row \{[\s\S]*?color: var\(--text-muted\);/);
     expect(css).toMatch(
       /\.wb-row:hover,\s*\.wb-row\.is-on \{[\s\S]*?color: var\(--text\);/

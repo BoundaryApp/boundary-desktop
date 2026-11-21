@@ -9,7 +9,7 @@ describe('Switch', () => {
     render(<Switch checked={false} label="Check for updates" onChange={onChange} />);
     const control = screen.getByRole('switch', { name: 'Check for updates' });
     expect(control.getAttribute('aria-checked')).toBe('false');
-    expect(control.className).toBe('wb-switch');
+    expect(control.dataset.slot).toBe('switch');
     fireEvent.click(control);
     expect(onChange).toHaveBeenCalledWith(true);
   });
@@ -19,7 +19,7 @@ describe('Switch', () => {
     render(<Switch checked label="Camera" onChange={onChange} />);
     const control = screen.getByRole('switch', { name: 'Camera' });
     expect(control.getAttribute('aria-checked')).toBe('true');
-    expect(control.className).toBe('wb-switch is-on');
+    expect(control.dataset.slot).toBe('switch');
     fireEvent.click(control);
     expect(onChange).toHaveBeenCalledWith(false);
   });
@@ -48,8 +48,11 @@ describe('Switch', () => {
     expect(screen.getByRole('switch', { name: 'Tools' })).toBeTruthy();
   });
 
-  it('keeps a caller look in place of wb-switch', () => {
-    render(<Switch checked label="Mute" className="wb-circle-switch" onChange={vi.fn()} />);
-    expect(screen.getByRole('switch', { name: 'Mute' }).className).toBe('wb-circle-switch is-on');
+  it('merges a layout class instead of replacing the look', () => {
+    render(<Switch checked label="Mute" className="ml-auto" onChange={vi.fn()} />);
+    const control = screen.getByRole('switch', { name: 'Mute' });
+    expect(control.className).toBe('ml-auto');
+    expect(control.dataset.slot).toBe('switch');
+    expect(control.getAttribute('aria-checked')).toBe('true');
   });
 });

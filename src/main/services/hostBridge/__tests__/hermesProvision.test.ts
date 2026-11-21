@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   hermesProfileEnvPath,
@@ -40,12 +41,14 @@ describe('hostBridgeHermesConfigSets', () => {
 
 describe('writeHostBridgeTokensToProfiles', () => {
   it('writes into existing profiles only, with owner-only permissions', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'host-bridge-provision-'));
-    dirs.push(dataRoot);
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'host-bridge-provision-'));
+    dirs.push(stackRoot);
+    const dataRoot = path.join(stackRoot, 'data');
+    const files = localStackFiles({ stackRoot, userContentRoot: () => dataRoot });
     fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'api-server'), { recursive: true });
     fs.writeFileSync(hermesProfileEnvPath(dataRoot, 'api-server'), 'API_SERVER_KEY=keep\n');
 
-    const first = await writeHostBridgeTokensToProfiles(dataRoot, ['', 'api-server', 'browser'], {
+    const first = await writeHostBridgeTokensToProfiles(files, ['', 'api-server', 'browser'], {
       mcp: 'm',
       browser: 'b',
     });
@@ -59,7 +62,7 @@ describe('writeHostBridgeTokensToProfiles', () => {
     expect(fs.statSync(created).mode & 0o777).toBe(0o600);
     expect(fs.existsSync(path.join(dataRoot, 'hermes', 'profiles', 'browser'))).toBe(false);
 
-    const again = await writeHostBridgeTokensToProfiles(dataRoot, ['', 'api-server'], { mcp: 'm', browser: 'b' });
+    const again = await writeHostBridgeTokensToProfiles(files, ['', 'api-server'], { mcp: 'm', browser: 'b' });
     expect(again.changed).toBe(false);
   });
 });
@@ -84,29 +87,33 @@ describe('browser.cdp_url', () => {
 
 describe('writeEnvValuesToProfiles', () => {
   it('writes into existing profiles only, and reports no change the second time', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-'));
-    dirs.push(dataRoot);
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-'));
+    dirs.push(stackRoot);
+    const dataRoot = path.join(stackRoot, 'data');
+    const files = localStackFiles({ stackRoot, userContentRoot: () => dataRoot });
     fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'hob'), { recursive: true });
     fs.writeFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=old\n');
 
-    const first = await writeEnvValuesToProfiles(dataRoot, ['hob', 'gone'], { TODOS_KEY: 'rw' });
+    const first = await writeEnvValuesToProfiles(files, ['hob', 'gone'], { TODOS_KEY: 'rw' });
     expect(first).toEqual({ changed: true });
     expect(fs.readFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'utf8')).toBe('BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=rw\n');
     expect(fs.existsSync(path.join(dataRoot, 'hermes', 'profiles', 'gone'))).toBe(false);
 
-    expect(await writeEnvValuesToProfiles(dataRoot, ['hob'], { TODOS_KEY: 'rw' })).toEqual({ changed: false });
-    expect(await writeEnvValuesToProfiles(dataRoot, ['hob'], {})).toEqual({ changed: false });
+    expect(await writeEnvValuesToProfiles(files, ['hob'], { TODOS_KEY: 'rw' })).toEqual({ changed: false });
+    expect(await writeEnvValuesToProfiles(files, ['hob'], {})).toEqual({ changed: false });
   });
 });
 
 describe('removeEnvValuesFromProfiles', () => {
   it('drops only the named keys, and reports no change when none are set', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-drop-'));
-    dirs.push(dataRoot);
+    const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-env-drop-'));
+    dirs.push(stackRoot);
+    const dataRoot = path.join(stackRoot, 'data');
+    const files = localStackFiles({ stackRoot, userContentRoot: () => dataRoot });
     fs.mkdirSync(path.join(dataRoot, 'hermes', 'profiles', 'hob'), { recursive: true });
     fs.writeFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'BOUNDARY_BRIDGE_TOKEN=m\nTODOS_KEY=rw\n');
-    expect(await removeEnvValuesFromProfiles(dataRoot, ['hob', 'gone'], ['TODOS_KEY'])).toEqual({ changed: true });
+    expect(await removeEnvValuesFromProfiles(files, ['hob', 'gone'], ['TODOS_KEY'])).toEqual({ changed: true });
     expect(fs.readFileSync(hermesProfileEnvPath(dataRoot, 'hob'), 'utf8')).toBe('BOUNDARY_BRIDGE_TOKEN=m\n');
-    expect(await removeEnvValuesFromProfiles(dataRoot, ['hob'], ['TODOS_KEY'])).toEqual({ changed: false });
+    expect(await removeEnvValuesFromProfiles(files, ['hob'], ['TODOS_KEY'])).toEqual({ changed: false });
   });
 });

@@ -2,20 +2,18 @@ import * as React from "react"
 
 import { cn } from "../../lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
-  return (
-    <input
-      type={type}
-      data-slot="input"
-      className={cn(
-        "placeholder:text-fg-faint selection:bg-brand-dim border-line bg-surface-1 text-fg flex h-8 w-full min-w-0 rounded-md border px-2.5 py-1 text-ui control-transition outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-xs file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        "field-focus",
-        "aria-invalid:border-danger-line",
-        className
-      )}
-      {...props}
-    />
-  )
+import "./control.css"
+
+// A text field drawn by control.css (ADR 0063). `size` picks the height: default is
+// --control-height (34px), `sm` is --control-height-sm (28px) for searches and filters in lists,
+// menus and docks. It replaces the HTML `size` attribute. Mark a wrong value with `aria-invalid`.
+// Put it in a Field for its caption.
+function Input({
+  className,
+  size = "default",
+  ...props
+}: Omit<React.ComponentProps<"input">, "size"> & { size?: "default" | "sm" }) {
+  return <input data-slot="input" data-size={size} className={cn("field-focus", className)} {...props} />
 }
 
 export { Input }

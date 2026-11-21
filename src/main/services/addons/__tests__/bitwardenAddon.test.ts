@@ -7,8 +7,10 @@ import {
   connectStdin,
   createBitwardenService,
   parseRequests,
+  stackHasSignInBrowser,
   type BitwardenService,
 } from '../bitwardenAddon';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
 import { createBitwardenFakeStack, type BitwardenFakeStack } from './bitwardenFake';
 
 let stack: BitwardenFakeStack;
@@ -22,7 +24,7 @@ beforeEach(() => {
   ensureFolders = vi.fn<() => Promise<void>>(async () => undefined);
   service = createBitwardenService({
     ensureFolders,
-    paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+    files: stack.files,
     run: (script, args, options) => stack.run(script, args, options),
     runJson: (script, args) => stack.runJson(script, args),
     exclusive: (work) => work(),
@@ -94,7 +96,7 @@ describe('connect', () => {
     });
     expect(stack.stored()).toEqual(['home']);
     // The row comes from status, read again after connect (decision 27).
-    expect(service.overview().accounts).toEqual([
+    expect((await service.overview()).accounts).toEqual([
       {
         slug: 'home',
         mode: 'cloud',
@@ -125,7 +127,7 @@ describe('connect', () => {
       client_secret: SECRET,
       master_password: MASTER,
     });
-    expect(service.overview().accounts[0]?.state).toBe('unlocked');
+    expect((await service.overview()).accounts[0]?.state).toBe('unlocked');
     expectNoSecretOutsideStdin();
   });
 
@@ -179,24 +181,24 @@ describe('connect', () => {
     await service.connect(home());
     stack.signIn = { error: 'login_refused' };
     expect(await service.connect(home({ replace: true }))).toMatchObject({ ok: false, error: 'login_refused' });
-    expect(service.overview().accounts.map((a) => [a.slug, a.state])).toEqual([['home', 'locked']]);
-    expect(service.overview().accounts[0]?.canDisconnect).toBe(true);
+    expect((await service.overview()).accounts.map((a) => [a.slug, a.state])).toEqual([['home', 'locked']]);
+    expect((await service.overview()).accounts[0]?.canDisconnect).toBe(true);
   });
 
   it('says which manual accounts the broker restart locked, and shows them locked', async () => {
     stack.setEnabled(true);
     await service.connect(home());
     expect(await service.unlock('home', 'right-master')).toEqual({ ok: true });
-    expect(service.overview().accounts[0]?.state).toBe('unlocked');
+    expect((await service.overview()).accounts[0]?.state).toBe('unlocked');
     const result = await service.connect(home({ slug: 'work' }));
     expect(result).toMatchObject({ ok: true, message: expect.stringContaining('The broker restart locked home') });
-    expect(service.overview().accounts.find((a) => a.slug === 'home')?.state).toBe('locked');
+    expect((await service.overview()).accounts.find((a) => a.slug === 'home')?.state).toBe('locked');
   });
 
   it('reports an exit with no done line as command_failed with how it ended', async () => {
     stack.setEnabled(true);
     const crashed = createBitwardenService({
-      paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+      files: stack.files,
       ensureFolders: async () => undefined,
       run: async () => ({ kind: 'exited', code: 3, logTail: ['Traceback: boom'], lines: [] }),
       runJson: (script, args) => stack.runJson(script, args),
@@ -259,9 +261,9 @@ describe('unlock and lock', () => {
 
   it('a wrong master password leaves the account locked; the right one unlocks it', async () => {
     expect(await service.unlock('home', 'wrong-master')).toMatchObject({ ok: false, error: 'login_refused' });
-    expect(service.overview().accounts[0]?.state).toBe('locked');
+    expect((await service.overview()).accounts[0]?.state).toBe('locked');
     expect(await service.unlock('home', 'right-master')).toEqual({ ok: true });
-    expect(service.overview().accounts[0]?.state).toBe('unlocked');
+    expect((await service.overview()).accounts[0]?.state).toBe('unlocked');
     const unlock = stack.calls.filter((c) => c.args[0] === 'unlock');
     expect(unlock.map((c) => c.args)).toEqual([
       ['unlock', '--slug', 'home', '--json'],
@@ -274,7 +276,7 @@ describe('unlock and lock', () => {
   it('locks a manual account, and reports bad_input for a stored one and not_found for none', async () => {
     await service.unlock('home', 'right-master');
     expect(await service.lock('home')).toEqual({ ok: true });
-    expect(service.overview().accounts[0]?.state).toBe('locked');
+    expect((await service.overview()).accounts[0]?.state).toBe('locked');
     await service.connect(home({ slug: 'work', unlock: 'stored', masterPassword: MASTER }));
     expect(await service.lock('work')).toMatchObject({ ok: false, error: 'bad_input' });
     expect(await service.unlock('gone', 'x')).toMatchObject({ ok: false, error: 'not_found' });
@@ -292,7 +294,7 @@ describe('disconnect', () => {
     const result = await service.disconnect('home');
     expect(result).toMatchObject({ ok: true, message: expect.stringContaining('revoke it there') });
     expect(stack.stored()).toEqual([]);
-    expect(service.overview().accounts).toEqual([]);
+    expect((await service.overview()).accounts).toEqual([]);
   });
 
   it('ends with done when the account file is already gone, so a second press clears the row', async () => {
@@ -328,6 +330,19 @@ describe('refresh', () => {
     expect(down.requestsError).toBe('broker_down');
   });
 
+  it('lists no row for the signer line stack 0.3.16 adds to status', async () => {
+    stack.setEnabled(true);
+    stack.signer = 'ready';
+    stack.addTerminalAccount('old', {});
+    stack.refused.push({ file: 'Bad Name.json', error: 'bad_slug' });
+    const listed = await service.refresh();
+    expect(listed.accounts.map((a) => [a.slug, a.state, a.error])).toEqual([
+      ['old', 'locked', null],
+      [null, 'refused', 'bad_slug'],
+    ]);
+    expect(logs.find((l) => l.message === 'status')?.data).toMatchObject({ accounts: 2, signer: 'ready' });
+  });
+
   it('lists an account connected before v0.3.14 as refused with missing_client_id, and a bad file name with no slug', async () => {
     stack.setEnabled(true);
     stack.addPreUpdateAccount('home');
@@ -348,13 +363,13 @@ describe('refresh', () => {
     stack.addPreUpdateAccount('home');
     stack.signIn = { error: 'login_refused' };
     expect(await service.connect(home({ replace: true }))).toMatchObject({ ok: false, error: 'login_refused' });
-    expect(service.overview().accounts[0]).toMatchObject({ slug: 'home', state: 'refused', error: 'missing_client_id' });
+    expect((await service.overview()).accounts[0]).toMatchObject({ slug: 'home', state: 'refused', error: 'missing_client_id' });
     expect(await service.connect(home({ replace: true }))).toMatchObject({ ok: true });
     expect(stack.calls.filter((c) => c.script === 'addon.sh').map((c) => c.args)).toEqual([
       ['connect', 'bitwarden', '--instance', 'home', '--json', '--force'],
       ['connect', 'bitwarden', '--instance', 'home', '--json', '--force'],
     ]);
-    expect(service.overview().accounts[0]).toMatchObject({ slug: 'home', state: 'locked', error: null, canDisconnect: true });
+    expect((await service.overview()).accounts[0]).toMatchObject({ slug: 'home', state: 'locked', error: null, canDisconnect: true });
     expectNoSecretOutsideStdin();
   });
 
@@ -379,29 +394,28 @@ describe('refresh', () => {
 
 describe('repairing a broker that\'s stopped or left in an old hermes namespace', () => {
   let clock: number;
-  let follows: number;
+  let starts: number;
 
   const create = (over: Partial<Parameters<typeof createBitwardenService>[0]> = {}): BitwardenService =>
     createBitwardenService({
-      paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+      files: stack.files,
       run: (script, args, options) => stack.run(script, args, options),
       runJson: (script, args) => stack.runJson(script, args),
       exclusive: (work) => work(),
       ensureFolders: async () => undefined,
       log: (message, data) => logs.push({ message, data }),
       now: () => clock,
-      followHermes: async () => {
-        follows += 1;
-        await stack.run('vault.sh', ['follow-hermes']);
+      startBroker: async () => {
+        starts += 1;
+        stack.startBroker();
       },
-      checkBrokerNamespace: () => stack.brokerNamespace(),
       ...over,
     });
 
   beforeEach(() => {
     vi.useFakeTimers();
     clock = 1_000_000;
-    follows = 0;
+    starts = 0;
     service = create();
   });
 
@@ -413,42 +427,33 @@ describe('repairing a broker that\'s stopped or left in an old hermes namespace'
     stack.addTerminalAccount('work', {});
   };
 
-  /** The broker runs in a removed hermes's namespace: status reads normally. */
-  const staleBroker = (): void => {
-    accounts();
-    stack.brokerStale = true;
-  };
-
   /** The broker container isn't running: status reads broker_down per account. */
   const stoppedBroker = (): void => {
     accounts();
     stack.brokerUp = false;
   };
 
-  it('repairs a broker in an old hermes namespace, which status reads as healthy', async () => {
-    staleBroker();
-    const before = await create({ followHermes: undefined }).refresh();
-    expect(before.accounts.map((a) => [a.slug, a.state, a.error])).toEqual([
-      ['home', 'locked', null],
-      ['work', 'locked', null],
-    ]);
-    await service.refresh();
-    expect(follows).toBe(1);
-    expect(stack.brokerStale).toBe(false);
-    expect(logs.find((l) => l.message === 'repair')?.data).toEqual({ reason: 'namespace', ms: 0 });
-  });
-
   it('repairs a stopped broker once, then shows the accounts', async () => {
     stoppedBroker();
     const overview = await service.refresh();
-    expect(follows).toBe(1);
-    expect(stack.calls.filter((c) => c.args[0] === 'follow-hermes')).toHaveLength(1);
+    expect(starts).toBe(1);
     expect(overview.statusError).toBeNull();
     expect(overview.accounts.map((a) => [a.slug, a.state, a.error])).toEqual([
       ['home', 'locked', null],
       ['work', 'locked', null],
     ]);
     expect(overview.requestsError).toBeNull();
+  });
+
+  it('repairs a stopped broker on stack 0.3.16, whose status ends with a signer line', async () => {
+    stoppedBroker();
+    stack.signer = 'ready';
+    const overview = await service.refresh();
+    expect(starts).toBe(1);
+    expect(overview.accounts.map((a) => [a.slug, a.state, a.error])).toEqual([
+      ['home', 'locked', null],
+      ['work', 'locked', null],
+    ]);
   });
 
   it('repairs when the status read fails with broker_down and lists no accounts', async () => {
@@ -458,74 +463,54 @@ describe('repairing a broker that\'s stopped or left in an old hermes namespace'
     let failing = true;
     service = create({
       runJson: async (script, args) => (failing && args[0] === 'status' ? { code: 1, objects: [], logTail: ['not running'] } : real(script, args)),
-      followHermes: async () => {
-        follows += 1;
+      startBroker: async () => {
+        starts += 1;
         failing = false;
       },
     });
     const overview = await service.refresh();
-    expect(follows).toBe(1);
+    expect(starts).toBe(1);
     expect(overview.statusError).toBeNull();
   });
 
-  it('doesn\'t repair again within a minute, and doesn\'t read the namespace meanwhile', async () => {
-    staleBroker();
+  it('doesn\'t repair again within a minute', async () => {
+    stoppedBroker();
     await service.refresh();
-    expect(follows).toBe(1);
-    const reads = stack.namespaceReads;
-    stack.brokerStale = true;
+    expect(starts).toBe(1);
+    stack.brokerUp = false;
     clock += 59_999;
     await service.refresh();
-    expect(follows).toBe(1);
-    expect(stack.namespaceReads).toBe(reads);
-    stack.brokerUp = false;
-    await service.refresh();
-    expect(follows).toBe(1);
+    expect(starts).toBe(1);
     clock += 1;
     await service.refresh();
-    expect(follows).toBe(2);
+    expect(starts).toBe(2);
   });
 
-  it('doesn\'t repair or read the namespace while Bitwarden is off', async () => {
+  it('doesn\'t repair while Bitwarden is off', async () => {
     stack.addTerminalAccount('home', {});
-    stack.brokerStale = true;
+    stack.brokerUp = false;
     await service.refresh();
-    expect(follows).toBe(0);
-    expect(stack.namespaceReads).toBe(0);
+    expect(starts).toBe(0);
   });
 
-  it('doesn\'t repair a broker in hermes\'s namespace, or when one account answers', async () => {
+  it('doesn\'t repair a running broker, or when one account answers', async () => {
     accounts();
     await service.refresh();
-    expect(service.overview().accounts.map((a) => a.error)).toEqual([null, null]);
-    expect(stack.namespaceReads).toBe(1);
-    expect(follows).toBe(0);
+    expect((await service.overview()).accounts.map((a) => a.error)).toEqual([null, null]);
+    expect(starts).toBe(0);
 
     // An account that answers with its own error keeps the broker from reading as down.
     stack.accounts.get('home')!.error = 'rate_limited';
     stack.accounts.get('work')!.error = 'rate_limited';
     await service.refresh();
-    expect(follows).toBe(0);
-  });
-
-  it('takes a namespace read that gives no evidence as no mismatch, and logs its reason only', async () => {
-    accounts();
-    service = create({ checkBrokerNamespace: async () => ({ ok: false, reason: 'read_failed', error: 'Error' }) });
-    await service.refresh();
-    expect(follows).toBe(0);
-    expect(logs.find((l) => l.message === 'broker namespace')?.data).toEqual({ result: 'unknown', reason: 'read_failed', error: 'Error' });
-
-    service = create({ checkBrokerNamespace: async () => Promise.reject(new RangeError('boom')) });
-    await service.refresh();
-    expect(follows).toBe(0);
-    expect(logs.filter((l) => l.message === 'broker namespace').at(-1)?.data).toEqual({ result: 'unknown', reason: 'read_failed', error: 'RangeError' });
+    expect(starts).toBe(0);
   });
 
   it('repairs when a refused file shows beside accounts that read broker_down', async () => {
     stoppedBroker();
     stack.refused.push({ file: 'broken.json', error: 'bad_file' }, { file: 'Bad Name.json', error: 'bad_slug' });
     const overview = await service.refresh();
-    expect(follows).toBe(1);
+    expect(starts).toBe(1);
     expect(overview.accounts.map((a) => [a.slug, a.state, a.error])).toEqual([
       ['home', 'locked', null],
       ['work', 'locked', null],
@@ -534,23 +519,18 @@ describe('repairing a broker that\'s stopped or left in an old hermes namespace'
     ]);
   });
 
-  it('doesn\'t repair when only refused files are listed and the namespace matches', async () => {
+  it('doesn\'t repair when only refused files are listed', async () => {
     stack.setEnabled(true);
     stack.refused.push({ file: 'broken.json', error: 'bad_file' });
     await service.refresh();
-    expect(follows).toBe(0);
+    expect(starts).toBe(0);
   });
 
-  it('the follower\'s own refresh never repairs or reads the namespace', async () => {
+  it('a refresh with repair: false never repairs', async () => {
     stoppedBroker();
     await service.refresh({ repair: false });
-    expect(follows).toBe(0);
-    expect(service.overview().accounts.every((a) => a.error === 'broker_down')).toBe(true);
-    stack.brokerUp = true;
-    stack.brokerStale = true;
-    await service.refresh({ repair: false });
-    expect(follows).toBe(0);
-    expect(stack.namespaceReads).toBe(0);
+    expect(starts).toBe(0);
+    expect((await service.overview()).accounts.every((a) => a.error === 'broker_down')).toBe(true);
   });
 
   it('logs the repair with metadata only', async () => {
@@ -558,76 +538,6 @@ describe('repairing a broker that\'s stopped or left in an old hermes namespace'
     await service.refresh();
     const line = logs.find((l) => l.message === 'repair');
     expect(line?.data).toEqual({ reason: 'broker_down', ms: 0 });
-  });
-
-  describe('repairIfStranded, for checks nobody asked for', () => {
-    it('repairs a broker in an old hermes namespace without reading status', async () => {
-      staleBroker();
-      await service.repairIfStranded('poll');
-      expect(follows).toBe(1);
-      expect(stack.calls.filter((c) => c.args[0] === 'status')).toHaveLength(0);
-      expect(logs.find((l) => l.message === 'repair')?.data).toEqual({ reason: 'namespace', trigger: 'poll', ms: 0 });
-    });
-
-    it('shares refresh\'s once-a-minute limit both ways', async () => {
-      staleBroker();
-      await service.refresh();
-      expect(follows).toBe(1);
-      stack.brokerStale = true;
-      const reads = stack.namespaceReads;
-      clock += 59_999;
-      await service.repairIfStranded('focus');
-      expect(follows).toBe(1);
-      expect(stack.namespaceReads).toBe(reads);
-      clock += 1;
-      await service.repairIfStranded('focus');
-      expect(follows).toBe(2);
-      stack.brokerStale = true;
-      await service.refresh();
-      expect(follows).toBe(2);
-    });
-
-    it('doesn\'t repair a broker in hermes\'s namespace, or while Bitwarden is off', async () => {
-      accounts();
-      await service.repairIfStranded('poll');
-      expect(follows).toBe(0);
-      expect(stack.namespaceReads).toBe(1);
-      stack.setEnabled(false);
-      stack.brokerStale = true;
-      await service.repairIfStranded('poll');
-      expect(stack.namespaceReads).toBe(1);
-      expect(follows).toBe(0);
-    });
-
-    it('doesn\'t repair a stopped broker: only the page\'s refresh can tell it\'s meant to run', async () => {
-      stoppedBroker();
-      await service.repairIfStranded('poll');
-      expect(follows).toBe(0);
-    });
-
-    it('logs a read with no evidence once per reason, not on every poll', async () => {
-      let check: Awaited<ReturnType<NonNullable<Parameters<typeof create>[0]['checkBrokerNamespace']>>> = { ok: false, reason: 'no_hermes' };
-      accounts();
-      service = create({ checkBrokerNamespace: async () => check });
-      const unknowns = () => logs.filter((l) => l.message === 'broker namespace').map((l) => l.data);
-      await service.repairIfStranded('poll');
-      await service.repairIfStranded('poll');
-      expect(unknowns()).toEqual([{ result: 'unknown', reason: 'no_hermes', trigger: 'poll' }]);
-      check = { ok: true, matches: true };
-      await service.repairIfStranded('poll');
-      check = { ok: false, reason: 'no_hermes' };
-      await service.repairIfStranded('focus');
-      expect(unknowns()).toHaveLength(2);
-      expect(follows).toBe(0);
-    });
-
-    it('logs a follow-hermes that rejects by error name and doesn\'t reject', async () => {
-      staleBroker();
-      service = create({ followHermes: () => Promise.reject(new TypeError('secret')) });
-      await expect(service.repairIfStranded('poll')).resolves.toBeUndefined();
-      expect(logs.find((l) => l.message === 'repair failed')?.data).toEqual({ reason: 'namespace', trigger: 'poll', error: 'TypeError' });
-      expect(JSON.stringify(logs)).not.toContain('secret');
-    });
   });
 });
 
@@ -642,7 +552,7 @@ describe('sync', () => {
   it('clears a request once the login is in the folder, and the next press within 30 s gets that result', async () => {
     stack.granted.add('example.com');
     expect(await service.sync()).toEqual({ ok: true, synced: ['home'], recent: false });
-    expect(service.overview().requests).toEqual([]);
+    expect((await service.overview()).requests).toEqual([]);
     expect(await service.sync()).toEqual({ ok: true, synced: ['home'], recent: true });
   });
 
@@ -667,14 +577,27 @@ describe('parsing', () => {
     expect(parseRequests({ pending: [{ site: 'x' }, null, 'no'] })).toEqual([]);
   });
 
-  it('finds Bitwarden only in a stack with vault.sh, addon.sh and accounts as instances', () => {
-    const files: Record<string, string> = {
-      '/s/scripts/addon.sh': '',
-      '/s/scripts/vault.sh': '',
-      '/s/addons/bitwarden/addon.json': JSON.stringify({ instances: { connect: {}, disconnect: {} } }),
-    };
-    expect(bitwardenOffered('/s', (p) => files[p] ?? null)).toBe(true);
-    files['/s/addons/bitwarden/addon.json'] = JSON.stringify({ builtin: {} });
-    expect(bitwardenOffered('/s', (p) => files[p] ?? null)).toBe(false);
+  it('finds Bitwarden only in a stack with vault.sh, addon.sh and accounts as instances', async () => {
+    const files = createFakeStackFiles({
+      'stack:scripts/addon.sh': '',
+      'stack:scripts/vault.sh': '',
+      'stack:addons/bitwarden/addon.json': JSON.stringify({ instances: { connect: {}, disconnect: {} } }),
+    });
+    expect(await bitwardenOffered(files)).toBe(true);
+    files.files.set('stack:addons/bitwarden/addon.json', JSON.stringify({ builtin: {} }));
+    expect(await bitwardenOffered(files)).toBe(false);
+  });
+
+  it('finds the sign-in browser from the manifest\'s services, as stack v0.3.16 lists it', async () => {
+    const files = createFakeStackFiles({
+      'stack:addons/bitwarden/addon.json': JSON.stringify({
+        services: { broker: { compose: 'bitwarden-broker' }, signin: { compose: 'bitwarden-signin' } },
+      }),
+    });
+    expect(await stackHasSignInBrowser(files)).toBe(true);
+    files.files.set('stack:addons/bitwarden/addon.json', JSON.stringify({ services: { broker: { compose: 'bitwarden-broker' } } }));
+    expect(await stackHasSignInBrowser(files)).toBe(false);
+    files.files.set('stack:addons/bitwarden/addon.json', '{');
+    expect(await stackHasSignInBrowser(files)).toBe(false);
   });
 });

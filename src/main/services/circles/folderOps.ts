@@ -11,6 +11,7 @@
  */
 
 import { type ApplyHost, type ApplyNode, type ApplyView, applyEach } from './autobaseApply';
+import { HEX_KEY_PATTERN, HEX_SIGNATURE_PATTERN } from '../../../shared/hexKeys';
 
 /** The highest folder format this build can apply. New folders start at it. */
 export const FOLDER_FORMAT = 1;
@@ -117,8 +118,6 @@ export interface FolderApplyDeps {
   onSkip?(reason: string): void;
 }
 
-const HEX_KEY = /^[0-9a-f]{64}$/;
-const HEX_SIGNATURE = /^[0-9a-f]{128}$/;
 const MAX_NAME = 80;
 /** The longest path, as UTF-8 (ADR 0049 §6). */
 const MAX_PATH_BYTES = 1024;
@@ -141,10 +140,10 @@ export function folderDeviceProof(device: string, writer: string, blobs: string)
 function folderIntroIsValid(value: unknown, deps: Pick<FolderApplyDeps, 'verify'>): value is FolderDeviceIntro {
   const intro = value as FolderDeviceIntro;
   if (typeof intro !== 'object' || intro === null) return false;
-  if (![intro.identity, intro.device, intro.writer, intro.blobs].every((key) => typeof key === 'string' && HEX_KEY.test(key))) {
+  if (![intro.identity, intro.device, intro.writer, intro.blobs].every((key) => typeof key === 'string' && HEX_KEY_PATTERN.test(key))) {
     return false;
   }
-  if (typeof intro.signature !== 'string' || !HEX_SIGNATURE.test(intro.signature) || !isName(intro.name)) return false;
+  if (typeof intro.signature !== 'string' || !HEX_SIGNATURE_PATTERN.test(intro.signature) || !isName(intro.name)) return false;
   try {
     return deps.verify(
       folderDeviceProof(intro.device, intro.writer, intro.blobs),
@@ -207,7 +206,7 @@ export function conflictPath(path: string, name: string, attempt: number): strin
 
 function cleanBlob(value: unknown, size: number): FolderBlobRef | null {
   const blob = value as FolderBlobRef;
-  if (typeof blob !== 'object' || blob === null || typeof blob.core !== 'string' || !HEX_KEY.test(blob.core)) return null;
+  if (typeof blob !== 'object' || blob === null || typeof blob.core !== 'string' || !HEX_KEY_PATTERN.test(blob.core)) return null;
   const { blockOffset, blockLength, byteOffset, byteLength } = blob;
   if (![blockOffset, blockLength, byteOffset, byteLength].every(isCount)) return null;
   if (byteLength !== size || (size > 0 && blockLength === 0)) return null;
@@ -289,7 +288,7 @@ async function applyOne(node: FolderNode, view: FolderView, host: FolderHost, de
     }
     case 'set-role': {
       if (author.role !== 'manager') return 'only managers change roles';
-      if (!isRole(op.role) || typeof op.identity !== 'string' || !HEX_KEY.test(op.identity)) return 'bad role';
+      if (!isRole(op.role) || typeof op.identity !== 'string' || !HEX_KEY_PATTERN.test(op.identity)) return 'bad role';
       const target = await read<FolderPerson>(view, personKey(op.identity));
       // Someone who never wrote can still be given a role, so a reader can be made an editor.
       if (!target && !isName(op.name)) return 'a new person needs a name';
@@ -313,7 +312,7 @@ async function applyOne(node: FolderNode, view: FolderView, host: FolderHost, de
       return null;
     }
     case 'remove-person': {
-      if (typeof op.identity !== 'string' || !HEX_KEY.test(op.identity)) return 'bad identity';
+      if (typeof op.identity !== 'string' || !HEX_KEY_PATTERN.test(op.identity)) return 'bad identity';
       // Managers remove anyone; anyone may remove themselves.
       if (author.role !== 'manager' && author.identity !== op.identity) return 'only managers remove others';
       const target = await read<FolderPerson>(view, personKey(op.identity));
@@ -349,7 +348,7 @@ async function applyPut(
   if (!path) return 'bad path';
   if (isNeverShared(path)) return 'path is never shared';
   if (!isCount(op.size) || op.size > MAX_FILE_BYTES) return 'bad size';
-  if (typeof op.hash !== 'string' || !HEX_KEY.test(op.hash)) return 'bad hash';
+  if (typeof op.hash !== 'string' || !HEX_KEY_PATTERN.test(op.hash)) return 'bad hash';
   if (!isCount(op.at)) return 'bad time';
   if (op.base !== null && (!Number.isSafeInteger(op.base) || op.base < 1)) return 'bad base';
   const blob = cleanBlob(op.blob, op.size);

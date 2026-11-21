@@ -2,14 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAUTH_LLM_CAPABILITIES } from '../../../../../shared/llmConnectionDefaults';
 import type { PeerModelRef } from '../../../../../shared/types/inferenceChain';
 import { clearLastAppliedLlm, setLastAppliedLlm } from '../../AssistantStackStore';
+import { clearOpenAiConfig, saveLlmConnection } from '../../../onboarding/OpenAiOnboardingStore';
 import {
-  clearOpenAiConfig,
   dropAppEntries,
-  saveLlmConnection,
   setAppDefault,
   setAppFallbacks,
   setAppSharedModel,
-} from '../../../onboarding/OpenAiOnboardingStore';
+} from '../../../inference/appInferenceChoice';
 import { resetHermesAgentsStoreForTests } from '../hermesAgentStore';
 import { resetRunningTurnsForTests } from '../hermesRunningTurns';
 

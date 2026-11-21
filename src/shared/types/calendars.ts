@@ -42,11 +42,9 @@ export interface CalendarCheck {
   error?: string;
 }
 
-export interface CalendarListResult {
-  success: boolean;
+export type CalendarListResult = IpcResult<{
   accounts: CalendarAccountView[];
-  error?: string;
-}
+}>;
 
 export type CalendarPrepareResult = IpcResult;
 
@@ -82,11 +80,9 @@ export interface CalendarReplacePasswordPayload {
   password: string;
 }
 
-export interface CalendarActionResult {
-  success: boolean;
-  error?: string;
+export type CalendarActionResult = IpcResult<{
   account?: CalendarAccountView;
-}
+}>;
 
 /** Steps of a connect or access change, sent to the window while it runs. */
 export type CalendarProgressStep = 'saving' | 'access' | 'checking' | 'done';

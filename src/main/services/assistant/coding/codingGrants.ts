@@ -1,18 +1,10 @@
-import { execFile } from 'node:child_process';
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { app, dialog, shell } from 'electron';
+import { app } from 'electron';
 import { broadcast } from '../../windows';
 import type {
   CodingAgentBusy,
-  CodingCreateFolderPayload,
-  CodingCreateFolderResult,
-  CodingFolderInspect,
   CodingFoldersResult,
-  CodingNewFolderCheck,
-  CodingNewFolderDefaults,
   CodingGrantPayload,
   CodingGrantRow,
   CodingProjectFolderPayload,
@@ -21,6 +13,7 @@ import type {
 import type { HermesProjectRecord } from '../../../../shared/types/hermesChat';
 import { resolveAssistantStackHome } from '../assistantPaths';
 import {
+  getProjectEnv,
   isCodingRootVisible,
   recreateCodingAgentForMounts,
   recreateHermesForProjectMounts,
@@ -42,7 +35,6 @@ import { isLocalAssistantStackMode } from '../localStackMode';
 import { codingAgentBusy } from './codingAgentBusy';
 import {
   codingGrantRefuseMessage,
-  folderFacts,
   refuseCodingGrantReason,
   type CodingGrantRuleOptions,
 } from './codingGrantRules';
@@ -56,8 +48,8 @@ import {
   setCodingGrantState,
 } from './codingGrantStore';
 import { codingGrantPaths, currentCodingRoots, persistCodingStackEnv } from './codingMounts';
-import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { stackCapabilityRefusal } from '../../stackHost/capabilities';
 
 /**
  * Coding grants (ADR 0028): record a grant, mount it on the coding agent, restart only the
@@ -66,23 +58,15 @@ import { APP_NAME } from '../../../../shared/buildIdentity';
  * grants made while a coding remount is waiting share its restart.
  */
 
-const execFileAsync = promisify(execFile);
-
 export interface CodingGrantDeps {
   isLocalStack: () => boolean;
   busy: () => Promise<CodingAgentBusy>;
-  writeOverlay: () => void;
-  persistEnv: (roots: readonly string[]) => void;
+  writeOverlay: () => void | Promise<void>;
+  persistEnv: (roots: readonly string[]) => void | Promise<void>;
   recreate: (onProgress: (message: string) => void) => Promise<{ success: boolean; error?: string }>;
   verify: (hostPath: string) => Promise<boolean>;
   restartHermes: () => Promise<{ success: boolean; error?: string }>;
   ruleOptions: () => CodingGrantRuleOptions;
-  runGit: (cwd: string, args: string[]) => Promise<void>;
-  /** Run git and return trimmed stdout. */
-  gitOutput: (cwd: string, args: string[]) => Promise<string>;
-  gitAvailable: () => Promise<boolean>;
-  /** Move a path to the macOS Trash. Never deletes permanently. */
-  trash: (hostPath: string) => Promise<void>;
   progress: (message: string) => void;
   /** Append to the host bridge's audit log (ADR 0027 §7). */
   audit: (entry: AuditEntry) => void;
@@ -96,10 +80,10 @@ function broadcastProgress(message: string): void {
 const defaultDeps: CodingGrantDeps = {
   isLocalStack: isLocalAssistantStackMode,
   busy: () => codingAgentBusy(),
-  writeOverlay: () => {
-    writeHermesProjectsOverlay(listStoredHermesProjects());
+  writeOverlay: async () => {
+    await writeHermesProjectsOverlay(listStoredHermesProjects());
   },
-  persistEnv: (roots) => persistCodingStackEnv(roots),
+  persistEnv: (roots) => persistCodingStackEnv(getProjectEnv(), roots),
   recreate: recreateCodingAgentForMounts,
   verify: isCodingRootVisible,
   restartHermes: recreateHermesForProjectMounts,
@@ -107,22 +91,6 @@ const defaultDeps: CodingGrantDeps = {
     home: os.homedir(),
     boundaryDataPaths: [app.getPath('userData'), resolveAssistantStackHome()],
   }),
-  runGit: async (cwd, args) => {
-    await execFileAsync('git', args, { cwd, timeout: 30_000 });
-  },
-  gitOutput: async (cwd, args) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: 30_000 });
-    return String(stdout).trim();
-  },
-  trash: (hostPath) => shell.trashItem(hostPath),
-  gitAvailable: async () => {
-    try {
-      await execFileAsync('git', ['--version'], { timeout: 10_000 });
-      return true;
-    } catch {
-      return false;
-    }
-  },
   progress: broadcastProgress,
   audit: (entry) => appendAudit({ ...entry, args: trimForAudit(entry.args) }),
 };
@@ -182,6 +150,12 @@ function unmanaged(): CodingFoldersResult {
   };
 }
 
+/** The refusal when this stack can't share host folders, or null when it can. */
+export function hostFoldersUnavailable(): CodingFoldersResult | null {
+  const refusal = stackCapabilityRefusal('hostFolders');
+  return refusal ? { success: false, managed: true, grants: [], error: refusal } : null;
+}
+
 function failure(error: string, partial: Partial<CodingFoldersResult> = {}): CodingFoldersResult {
   return result({ success: false, error, ...partial });
 }
@@ -217,8 +191,8 @@ async function remountNow(): Promise<RemountOutcome> {
   const roots = currentCodingRoots();
   deps.progress('Saving coding folders…');
   try {
-    deps.writeOverlay();
-    deps.persistEnv(roots);
+    await deps.writeOverlay();
+    await deps.persistEnv(roots);
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -266,6 +240,12 @@ function grantStateOutcome(hostPath: string): string {
   return getCodingGrantStates()[path.resolve(hostPath)] === 'not-visible' ? 'not visible' : 'ready';
 }
 
+/** Check the coding agent can open a folder that needed no restart, record that and audit the grant. */
+async function recordGrantState(hostPath: string, auditArgs: Record<string, unknown>): Promise<void> {
+  setCodingGrantState(hostPath, (await deps.verify(hostPath)) ? 'ready' : 'not-visible');
+  auditCodingChange('coding_grant', auditArgs, grantStateOutcome(hostPath));
+}
+
 function remountError(outcome: RemountOutcome): string | undefined {
   return outcome.success ? undefined : (outcome.error ?? 'The coding agent couldn’t be updated.');
 }
@@ -295,6 +275,8 @@ export function listCodingGrants(): CodingFoldersResult {
 }
 
 export async function grantCoding(payload: CodingGrantPayload): Promise<CodingFoldersResult> {
+  const unavailable = hostFoldersUnavailable();
+  if (unavailable) return unavailable;
   if (deps.isLocalStack()) return unmanaged();
   const hostPath = path.resolve(payload.hostPath);
   const reason = refuseCodingGrantReason(hostPath, deps.ruleOptions());
@@ -305,7 +287,7 @@ export async function grantCoding(payload: CodingGrantPayload): Promise<CodingFo
   if (findCodingGrant(hostPath)) return result();
 
   // Under an existing root, the mount and allowlist already cover it.
-  const covered = currentCodingRoots().some((root) => isPathUnder(hostPath, root));
+  const covered = isCodingMounted(hostPath);
   if (!covered) {
     const busy = await busyBlocks(payload.stopRunningTask);
     if (busy) return failure('A coding task is running.', { busy });
@@ -318,8 +300,7 @@ export async function grantCoding(payload: CodingGrantPayload): Promise<CodingFo
   });
   const auditArgs = { path: hostPath, projectId: payload.projectId, origin: payload.origin };
   if (covered) {
-    setCodingGrantState(hostPath, (await deps.verify(hostPath)) ? 'ready' : 'not-visible');
-    auditCodingChange('coding_grant', auditArgs, grantStateOutcome(hostPath));
+    await recordGrantState(hostPath, auditArgs);
     return result();
   }
   const outcome = await scheduleCodingRemount();
@@ -334,6 +315,8 @@ export async function grantCoding(payload: CodingGrantPayload): Promise<CodingFo
 export async function setProjectFolderCoding(
   payload: CodingProjectFolderPayload
 ): Promise<CodingFoldersResult> {
+  const unavailable = hostFoldersUnavailable();
+  if (unavailable) return unavailable;
   if (deps.isLocalStack()) return unmanaged();
   const project = getStoredHermesProject(payload.projectId);
   if (!project) return failure('Project not found.');
@@ -407,8 +390,7 @@ export async function finishProjectFolderGrant(
     auditCodingChange('coding_grant', args, 'not added', failure);
     return null;
   }
-  setCodingGrantState(hostPath, (await deps.verify(hostPath)) ? 'ready' : 'not-visible');
-  auditCodingChange('coding_grant', args, grantStateOutcome(hostPath));
+  await recordGrantState(hostPath, args);
   return getCodingGrantStates()[hostPath] === 'not-visible' ? notVisibleMessage(hostPath) : null;
 }
 
@@ -471,211 +453,37 @@ export async function retryCodingMounts(): Promise<CodingFoldersResult> {
   return outcome.success ? result() : remountFailure(outcome);
 }
 
-/** Facts the add sheet shows before the user picks an access level. */
-export function inspectCodingFolder(hostPath: string): CodingFolderInspect {
-  const resolved = path.resolve(hostPath);
-  const { isDirectory, isGit } = folderFacts(resolved);
-  if (!isDirectory) return { success: false, error: `Folder not found: ${resolved}` };
-  const reason = refuseCodingGrantReason(resolved, deps.ruleOptions());
-  return {
-    success: true,
-    hostPath: resolved,
-    name: path.basename(resolved),
-    isGit,
-    refuseMessage: reason ? codingGrantRefuseMessage(reason) : null,
-    managed: !deps.isLocalStack(),
-  };
-}
-
-/** The add sheet's native picker, with New Folder available. */
-export async function pickCodingFolder(): Promise<CodingFolderInspect> {
-  const picked = await dialog.showOpenDialog({
-    properties: ['openDirectory', 'createDirectory'],
-    title: 'Add a folder',
-    message: 'Choose a repo for the coding agent, or a folder of notes for Hermes to read',
-    defaultPath: dialogStartFolder(),
-  });
-  if (picked.canceled || picked.filePaths.length === 0) {
-    return { success: false, canceled: true };
-  }
-  rememberDialogPick(picked.filePaths[0]);
-  return inspectCodingFolder(picked.filePaths[0]);
-}
-
-const FOLDER_NAME_RE = /^[^/\\:\n\r]+$/;
-const ENTRY_COUNT_CAP = 10_000;
-
-function folderNameError(name: string): string | null {
-  if (!name) return 'Give the folder a name.';
-  if (!FOLDER_NAME_RE.test(name) || name === '.' || name === '..' || name.startsWith('.')) {
-    return 'Use a folder name without slashes or colons, not starting with a dot.';
-  }
-  return null;
-}
-
-function parentError(parent: string): string | null {
-  // The parent may be home itself (for ~/new-repo): the new folder is what gets granted.
-  const reason = refuseCodingGrantReason(parent, deps.ruleOptions());
-  if (!reason || reason === 'home') return null;
-  return reason === 'missing'
-    ? `${parent} doesn’t exist. Choose a folder that does.`
-    : codingGrantRefuseMessage(reason);
-}
-
-function countEntries(dir: string): number {
-  try {
-    return Math.min(fs.readdirSync(dir).length, ENTRY_COUNT_CAP);
-  } catch {
-    return 0;
-  }
-}
-
 /**
- * Validate a New folder… form as the user types (ADR 0028 §8): the name, the parent, and
- * whether the folder already exists, with what's in it when it does.
+ * The grant half of New folder… (ADR 0028 §8): give the coding agent access to a folder
+ * Boundary just created, restarting it unless another grant's mount already holds the folder.
  */
-export function checkNewCodingFolder(input: { parent: string; name: string }): CodingNewFolderCheck {
-  const name = input.name.trim();
-  const parent = path.resolve(input.parent);
-  const nameError = folderNameError(name);
-  if (nameError) return { success: false, error: nameError };
-  const badParent = parentError(parent);
-  if (badParent) return { success: false, error: badParent };
-  const hostPath = path.join(parent, name);
-  if (!fs.existsSync(hostPath)) return { success: true, hostPath, exists: false };
-  const { isDirectory, isGit } = folderFacts(hostPath);
-  return {
-    success: true,
-    hostPath,
-    exists: true,
-    isDirectory,
-    isGit,
-    entries: isDirectory ? countEntries(hostPath) : 0,
-  };
-}
-
-function mostRecentGrantParent(): string | null {
-  const grants = [...listCodingGrantRecords()].sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt)
-  );
-  for (const grant of grants) {
-    const parent = path.dirname(grant.resource);
-    if (!parentError(parent)) return parent;
-  }
-  return null;
-}
-
-/** Where New folder… starts, and whether git can start a repo there. */
-export async function newCodingFolderDefaults(): Promise<CodingNewFolderDefaults> {
-  const home = deps.ruleOptions().home;
-  const code = path.join(home, 'Code');
-  const defaultParent =
-    mostRecentGrantParent() ?? (!parentError(code) ? code : home);
-  return {
-    defaultParent,
-    gitAvailable: await deps.gitAvailable(),
-    managed: !deps.isLocalStack(),
-  };
-}
-
-/** Choose the parent for a new folder; the picker can make one too. */
-export async function pickCodingParent(defaultPath?: string): Promise<{
-  success: boolean;
-  canceled?: boolean;
-  hostPath?: string;
-  error?: string;
-}> {
-  const picked = await dialog.showOpenDialog({
-    properties: ['openDirectory', 'createDirectory'],
-    title: 'Choose where to create the folder',
-    defaultPath: defaultPath ?? dialogStartFolder(),
-  });
-  if (picked.canceled || picked.filePaths.length === 0) return { success: false, canceled: true };
-  rememberDialogPick(picked.filePaths[0]);
-  const parent = path.resolve(picked.filePaths[0]);
-  const error = parentError(parent);
-  return error ? { success: false, error } : { success: true, hostPath: parent };
-}
-
-async function startGitRepo(hostPath: string): Promise<void> {
-  await deps.runGit(hostPath, ['init']);
-  await deps.runGit(hostPath, ['commit', '--allow-empty', '-m', 'Start']).catch(() =>
-    // No git identity configured: commit as Boundary rather than leave no first commit.
-    deps.runGit(hostPath, [
-      '-c',
-      'user.name=Boundary',
-      '-c',
-      'user.email=boundary@localhost',
-      'commit',
-      '--allow-empty',
-      '-m',
-      'Start',
-    ])
-  );
-}
-
-/**
- * Create a new, empty folder (ADR 0028 §8) and, unless `grant` is false, give the coding
- * agent access to it. Never creates over an existing path and never creates missing parents.
- * With `grant: false` the folder is for read-only reference, so it works on any stack.
- */
-export async function createCodingFolder(
-  payload: CodingCreateFolderPayload
-): Promise<CodingCreateFolderResult> {
-  const grant = payload.grant !== false;
-  if (grant && deps.isLocalStack()) return unmanaged();
-  const check = checkNewCodingFolder(payload);
-  if (!check.success || !check.hostPath) return failure(check.error ?? 'That folder can’t be created.');
-  const hostPath = check.hostPath;
-  if (check.exists) {
-    return { ...failure(`${hostPath} already exists.`), exists: true, hostPath };
-  }
-  if (payload.projectId && !getStoredHermesProject(payload.projectId)) {
-    return failure('Project not found.');
-  }
-  if (grant) {
-    const busy = await busyBlocks(payload.stopRunningTask);
-    if (busy) return { ...failure('A coding task is running.', { busy }), hostPath };
-  }
-
-  try {
-    fs.mkdirSync(hostPath);
-  } catch (error) {
-    return failure(error instanceof Error ? error.message : String(error));
-  }
-  if (payload.initGit) {
-    try {
-      await startGitRepo(hostPath);
-    } catch (error) {
-      return {
-        ...failure(
-          `Created ${hostPath}, but git didn’t start a repo there: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        ),
-        hostPath,
-      };
-    }
-  }
-  if (!grant) return { ...result(), hostPath };
-
+export async function grantNewCodingFolder(
+  hostPath: string,
+  projectId: string | null | undefined
+): Promise<CodingFoldersResult> {
   addCodingGrantRecord({
     hostPath,
-    projectId: payload.projectId,
+    projectId,
     origin: 'new-folder',
     createdByBoundary: true,
   });
-  const auditArgs = { path: hostPath, projectId: payload.projectId, origin: 'new-folder' };
+  const auditArgs = { path: hostPath, projectId, origin: 'new-folder' };
   if (isCoveredByOtherGrant(hostPath)) {
-    setCodingGrantState(hostPath, (await deps.verify(hostPath)) ? 'ready' : 'not-visible');
-    auditCodingChange('coding_grant', auditArgs, grantStateOutcome(hostPath));
-    return { ...result(), hostPath };
+    await recordGrantState(hostPath, auditArgs);
+    return result();
   }
   const outcome = await scheduleCodingRemount();
   auditCodingChange('coding_grant', auditArgs, grantStateOutcome(hostPath), remountError(outcome));
-  if (!outcome.success) return { ...remountFailure(outcome), hostPath };
-  return { ...result(), hostPath };
+  return outcome.success ? result() : remountFailure(outcome);
 }
+
+/** The result shapes and busy check that New folder… shares with grants. */
+export {
+  busyBlocks as codingAgentBusyBlocks,
+  failure as codingFoldersFailure,
+  result as codingFoldersResult,
+  unmanaged as unmanagedCodingFolders,
+};
 
 /** Test-only: forget queued remounts. */
 export function resetCodingRemountQueueForTests(): void {

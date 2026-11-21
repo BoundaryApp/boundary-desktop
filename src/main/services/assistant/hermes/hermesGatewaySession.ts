@@ -795,6 +795,12 @@ export class HermesGatewaySession {
     };
   }
 
+  /** Delete the project's database row. Files under /opt/projects stay (ADR 0067 §2.5). */
+  async deleteProject(id: string): Promise<void> {
+    const client = await this.ensureConnected();
+    await client.request('projects.delete', { id });
+  }
+
   async setActiveProject(id: string | null): Promise<void> {
     const client = await this.ensureConnected();
     await client.request('projects.set_active', { id });

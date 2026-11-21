@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Store from 'electron-store';
 import type { FakeBrowserWindow } from './fakeWindow';
 
@@ -133,6 +133,8 @@ vi.mock('../services/hostBridge/ipcHandlers', () => ({ registerHostBridgeHandler
 vi.mock('../services/hostBridge/hostBridgeService', () => ({
   ensureHostBridgeStarted: vi.fn(async () => undefined),
   stopHostBridge: h.services.stopHostBridge,
+  currentCredentialClientTokens: vi.fn(async () => []),
+  setCredentialClientFolder: vi.fn(),
 }));
 vi.mock('../services/assistant/AssistantStackService', () => ({
   announceAssistantStackStopping: vi.fn(),
@@ -228,6 +230,19 @@ function closeEvent(win: FakeBrowserWindow) {
 
 const config = () => new Store<Record<string, unknown>>({ name: 'boundary-config' });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// The first import of main loads its whole module graph: about a second alone, and past the 5s
+// test timeout during a busy full run. Each test's fresh copy after that takes milliseconds, so
+// the cold load happens here, under the hook's own timeout.
+beforeAll(async () => {
+  const exit = vi.spyOn(process, 'exit').mockImplementation(((): void => undefined) as never);
+  try {
+    await loadMain();
+  } finally {
+    exit.mockRestore();
+    Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
+  }
+}, 60_000);
 
 beforeEach(() => {
   vi.clearAllMocks();

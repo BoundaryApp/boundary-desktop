@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bearerToken, checkBridgeRequest, hostAllowed, queryToken, tokenMatches } from '../requestGuard';
+import { bearerToken, checkBridgeRequest, checkBrowserRequest, hostAllowed, queryToken, tokenMatches } from '../requestGuard';
 
 const PORT = 47123;
 const TOKEN = 'secret-token-abc';
@@ -67,5 +67,28 @@ describe('query token', () => {
     expect(checkBridgeRequest(headers, { port: PORT, token: TOKEN, url })).toBeNull();
     // The MCP listener never passes the URL, so a query token does nothing there.
     expect(checkBridgeRequest(headers, { port: PORT, token: TOKEN })?.status).toBe(401);
+  });
+});
+
+describe('checkBrowserRequest', () => {
+  const PORT = 4321;
+  const head = (extra: Record<string, string | undefined> = {}) => ({ host: `host.docker.internal:${PORT}`, ...extra });
+  const check = (url: string, extra: Record<string, string | undefined> = {}) =>
+    checkBrowserRequest(head(extra), { port: PORT, url, agentToken: 'agent-tok', credentialTokens: ['cred-now', 'cred-before'] });
+
+  it('picks the client by token, each on its own path', () => {
+    expect(check('/devtools/browser/boundary?token=agent-tok')).toEqual({ role: 'agent' });
+    expect(check('/devtools/browser/credentials?token=cred-now')).toEqual({ role: 'credentials' });
+    // The previous token still works during a rotation's grace.
+    expect(check('/devtools/browser/credentials?token=cred-before')).toEqual({ role: 'credentials' });
+    expect(check('/devtools/browser/credentials', { authorization: 'Bearer cred-now' })).toEqual({ role: 'credentials' });
+  });
+
+  it('refuses a token on the other client\'s path, an unknown token, and web pages', () => {
+    expect(check('/devtools/browser/credentials?token=agent-tok')).toMatchObject({ status: 401 });
+    expect(check('/devtools/browser/boundary?token=cred-now')).toMatchObject({ status: 401 });
+    expect(check('/devtools/browser/credentials?token=nope')).toMatchObject({ status: 401 });
+    expect(check('/devtools/browser/credentials?token=cred-now', { origin: 'https://evil.example' })).toMatchObject({ status: 403 });
+    expect(check('/devtools/browser/credentials?token=cred-now', { host: 'evil.example:4321' })).toMatchObject({ status: 421 });
   });
 });

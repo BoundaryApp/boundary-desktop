@@ -29,6 +29,7 @@ import type { LocalSharedFolder } from './circlesStore';
 import type { FolderDeviceIntro, FolderRole } from './folderOps';
 import type { FolderSummary } from './folderRuntime';
 import type { CircleRecordChange, FolderReply, FolderRequest } from './networkMessages';
+import { HEX_KEY_PATTERN, HEX_SIGNATURE_PATTERN } from '../../../shared/hexKeys';
 
 export const FOLDER_OFFERS_APP = 'folders';
 export const FOLDER_JOINS_APP = 'folder-joins';
@@ -71,15 +72,14 @@ export interface SharedFolderDeps {
   now?: () => number;
 }
 
-const HEX_KEY = /^[0-9a-f]{64}$/;
 const MAX_NAME = 80;
 
 function parseFolderOffer(value: unknown): FolderOffer | null {
   const offer = value as FolderOffer;
   if (typeof offer !== 'object' || offer === null) return null;
   if (typeof offer.name !== 'string' || !offer.name.trim() || offer.name.length > MAX_NAME) return null;
-  if (typeof offer.key !== 'string' || !HEX_KEY.test(offer.key)) return null;
-  if (typeof offer.encryptionKey !== 'string' || !HEX_KEY.test(offer.encryptionKey)) return null;
+  if (typeof offer.key !== 'string' || !HEX_KEY_PATTERN.test(offer.key)) return null;
+  if (typeof offer.encryptionKey !== 'string' || !HEX_KEY_PATTERN.test(offer.encryptionKey)) return null;
   return { name: offer.name.trim(), key: offer.key, encryptionKey: offer.encryptionKey };
 }
 
@@ -97,8 +97,8 @@ function parseIntro(value: unknown): FolderDeviceIntro | null {
   const intro = value as FolderDeviceIntro;
   if (typeof intro !== 'object' || intro === null) return null;
   const keys = [intro.identity, intro.device, intro.writer, intro.blobs];
-  if (!keys.every((key) => typeof key === 'string' && HEX_KEY.test(key))) return null;
-  if (typeof intro.signature !== 'string' || !/^[0-9a-f]{128}$/.test(intro.signature)) return null;
+  if (!keys.every((key) => typeof key === 'string' && HEX_KEY_PATTERN.test(key))) return null;
+  if (typeof intro.signature !== 'string' || !HEX_SIGNATURE_PATTERN.test(intro.signature)) return null;
   if (typeof intro.name !== 'string' || !intro.name.trim() || intro.name.length > MAX_NAME) return null;
   return intro;
 }

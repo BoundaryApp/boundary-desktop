@@ -6,6 +6,7 @@ import type {
 import { InterruptCard } from '../../components/ui/interrupt-card';
 import { credentialKicker, credentialNote, credentialWhy } from './credentialCopy';
 import { CredentialNote } from './CredentialInterrupt';
+import { Input } from '../../components/ui/input';
 
 interface CreateLoginInterruptProps {
   request: HermesChatCredentialRequestEvent;
@@ -79,12 +80,12 @@ export const CreateLoginInterrupt: React.FC<CreateLoginInterruptProps> = ({
         <div className="wb-credential-fields">
           <label className="wb-field">
             <span>Password</span>
-            <input
+            <Input
               ref={passwordRef}
               type="password"
               autoComplete="off"
               spellCheck={false}
-              className="mono"
+              className="font-mono"
               value={password}
               disabled={busy}
               onChange={(event) => setPassword(event.target.value)}

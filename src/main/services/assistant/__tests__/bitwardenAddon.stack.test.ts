@@ -21,18 +21,17 @@ import { bitwardenOffered, createBitwardenService, readBitwardenEnabled, type Bi
 import { ensureBitwardenFolders } from '../../addons/bitwardenFolders';
 import { HermesGatewaySession } from '../hermes/hermesGatewaySession';
 import { defaultStackRoot, probeStack, skipNote } from './stackHarness';
+import { localRunScript } from '../../stackHost/localScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
 
 const stackRoot = process.env.BOUNDARY_ASSISTANT_ROOT?.trim() || defaultStackRoot() || '';
-const hasTree = Boolean(stackRoot) && bitwardenOffered(stackRoot);
+const hasTree = Boolean(stackRoot) && (await bitwardenOffered(localStackFiles({ stackRoot, userContentRoot: () => `${stackRoot}/data` })));
 const hasPython = spawnSync('python3', ['-c', 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)']).status === 0;
 const treeNote = !hasTree
   ? ' (skipped: the stack tree has no Bitwarden accounts as instances, CR 0028)'
   : !hasPython
     ? ' (skipped: needs python3 3.9 or later on the host)'
     : '';
-
-/** The stack's files the two scripts need, as its own connect test copies them. */
-const LIB = ['env.sh', 'data-root.sh', 'python.sh', 'addon-events.sh', 'addon_cli.py', 'addon_manifest.py', 'addon_store.py'];
 
 const DOCKER_STUB = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB/log"
@@ -64,7 +63,9 @@ describe.skipIf(!hasTree || !hasPython)(`Bitwarden accounts against a stub broke
       fs.mkdirSync(dir, { recursive: true });
     }
     for (const script of ['addon.sh', 'vault.sh']) fs.copyFileSync(path.join(stackRoot, 'scripts', script), path.join(root, 'scripts', script));
-    for (const lib of LIB) fs.copyFileSync(path.join(stackRoot, 'scripts', 'lib', lib), path.join(root, 'scripts', 'lib', lib));
+    // All of scripts/lib, not a list of files: the two scripts source more of it with each
+    // stack version (v0.3.16's addon.sh added stack-lock.sh).
+    fs.cpSync(path.join(stackRoot, 'scripts', 'lib'), path.join(root, 'scripts', 'lib'), { recursive: true });
     fs.cpSync(path.join(stackRoot, 'addons'), path.join(root, 'addons'), { recursive: true });
     fs.copyFileSync(path.join(stackRoot, 'docker-compose.yml'), path.join(root, 'docker-compose.yml'));
     fs.writeFileSync(path.join(root, '.env'), 'COMPOSE_PROJECT_NAME=bwboundary\nBITWARDEN_ENABLED=1\n');
@@ -80,9 +81,9 @@ describe.skipIf(!hasTree || !hasPython)(`Bitwarden accounts against a stub broke
       VAULT_BROKER_WAIT: '0',
     };
     service = createBitwardenService({
-      paths: () => ({ root, dataRoot: path.join(root, 'data') }),
-      run: (script, args, options = {}) => runAddonScript({ root, env, script, args, timeoutMs: 120_000, ...options }),
-      runJson: (script, args) => runScriptJson({ root, env, script, args, timeoutMs: 60_000 }),
+      files: localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') }),
+      run: (script, args, options = {}) => runAddonScript({ runScript: localRunScript(root), env, script, args, timeoutMs: 120_000, ...options }),
+      runJson: (script, args) => runScriptJson({ runScript: localRunScript(root), env, script, args, timeoutMs: 60_000 }),
       exclusive: (work) => work(),
       ensureFolders: () => ensureBitwardenFolders({ root, dataRoot: path.join(root, 'data') }, { ...process.env, BITWARDEN_HOST_DATA_DIR: '' }),
       log: () => undefined,
@@ -149,7 +150,8 @@ describe.skipIf(!hasTree || !hasPython)(`Bitwarden accounts against a stub broke
 
 const probe = await probeStack();
 const liveRoot = probe.ok ? probe.target.root : '';
-const liveOn = probe.ok && bitwardenOffered(liveRoot) && readBitwardenEnabled(liveRoot);
+const liveFiles = localStackFiles({ stackRoot: liveRoot, userContentRoot: () => `${liveRoot}/data` });
+const liveOn = probe.ok && (await bitwardenOffered(liveFiles)) && (await readBitwardenEnabled(liveFiles));
 
 describe.skipIf(!probe.ok)(`Bitwarden tools in a new chat${skipNote(probe)}`, () => {
   const session = new HermesGatewaySession();

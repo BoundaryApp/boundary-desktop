@@ -9,10 +9,13 @@
  * Kept free of native modules so it can be tested on its own. Logs carry metadata only: who,
  * which model, status and timings, never prompt or reply text (§6).
  */
-import { addUsage, limitFor, localDay, usedToday } from '../../../shared/circleUsage';
+import { addUsage, limitFor, usedToday } from '../../../shared/circleUsage';
+import { localDay } from '../../../shared/utils/localDay';
 import type { CircleDayUsage, CircleLimit, CircleLimits, CircleServing, CircleUsageCount } from '../../../shared/types/circles';
 import type { CircleOffer } from './circleOps';
+import { errorName, pipeBody, refuse, type GatewaySink, type MemberGatewayDeps } from './gatewayCommon';
 import { UsageTail } from './usageTail';
+import { endpointPath } from '../../../shared/utils/endpointUrl';
 
 /** What a consumer asks for. `id` is unique per connection and direction. */
 export interface GatewayRequest {
@@ -25,31 +28,11 @@ export interface GatewayRequest {
   body?: string;
 }
 
-/** Where a request's answer goes: one head, any number of chunks, then one end. */
-export interface GatewaySink {
-  head(status: number, contentType: string): void;
-  chunk(data: Buffer): void;
-  /** `error` when the reply stopped after its head. */
-  end(error?: string): void;
-}
-
 /** The provider's model server, as seen from this Mac. */
 export interface GatewayUpstream {
   /** OpenAI-compatible base URL, ending before `/models` and `/chat/completions`. */
   baseUrl: string;
   apiKey?: string;
-}
-
-/** What every gateway a provider runs for their Circle needs from main. */
-export interface MemberGatewayDeps {
-  /** The identity of the current member using `device` in `circle`, or null. */
-  memberFor(circle: string, device: string): string | null;
-  fetchImpl?: typeof fetch;
-  log?(message: string, data?: Record<string, unknown>): void;
-  /** Diagnostics events (metadata only): every request's path through the gateway. */
-  diag?(event: string, data: Record<string, unknown>): void;
-  /** What today's counts started from, kept by main across restarts. */
-  usage?: CircleDayUsage;
 }
 
 export interface InferenceGatewayDeps extends MemberGatewayDeps {
@@ -62,9 +45,6 @@ export interface InferenceGatewayDeps extends MemberGatewayDeps {
 
 /** Larger than any chat request Boundary sends, and well under secret-stream's 16 MB frame. */
 export const GATEWAY_MAX_BODY_BYTES = 8 * 1024 * 1024;
-/** Reply bytes go out in pieces no larger than this, so one big read can't hog the stream. */
-export const GATEWAY_CHUNK_BYTES = 64 * 1024;
-
 interface Job {
   device: string;
   request: GatewayRequest;
@@ -73,13 +53,6 @@ interface Job {
   sink: GatewaySink;
   abort: AbortController;
   queuedAt: number;
-}
-
-/** An error's class and code, never its message, which for fetch can echo a URL. */
-export function errorName(err: unknown): string {
-  if (!(err instanceof Error)) return typeof err;
-  const cause = (err as Error & { cause?: { code?: string } }).cause;
-  return [err.name, cause?.code].filter(Boolean).join(':');
 }
 
 /** Why `limit` stops a member from starting another request, or null. */
@@ -94,44 +67,11 @@ function normalizePath(path: string): string {
   return path.split('?')[0].replace(/\/+$/, '');
 }
 
-function errorBody(message: string): Buffer {
-  return Buffer.from(JSON.stringify({ error: { message, type: 'boundary_gateway_error' } }));
-}
-
-/** Answers a request with an error before any reply started. */
-export function refuse(sink: GatewaySink, status: number, message: string): void {
-  sink.head(status, 'application/json');
-  sink.chunk(errorBody(message));
-  sink.end();
-}
-
-function upstreamUrl(upstream: GatewayUpstream, path: string): string {
-  return `${upstream.baseUrl.replace(/\/+$/, '')}${path}`;
-}
-
 function upstreamHeaders(upstream: GatewayUpstream): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     ...(upstream.apiKey ? { Authorization: `Bearer ${upstream.apiKey}` } : {}),
   };
-}
-
-/**
- * Sends an upstream reply's body to `sink` in pieces of at most `GATEWAY_CHUNK_BYTES`, calling
- * `onPiece` with each piece as read. Returns how many chunks went out. Throws what the body throws.
- */
-export async function pipeBody(response: Response, sink: GatewaySink, onPiece?: (data: Buffer) => void): Promise<number> {
-  let chunks = 0;
-  if (!response.body) return chunks;
-  for await (const piece of response.body as AsyncIterable<Uint8Array>) {
-    const data = Buffer.from(piece);
-    onPiece?.(data);
-    for (let at = 0; at < data.length; at += GATEWAY_CHUNK_BYTES) {
-      chunks++;
-      sink.chunk(data.subarray(at, at + GATEWAY_CHUNK_BYTES));
-    }
-  }
-  return chunks;
 }
 
 export class InferenceGateway {
@@ -185,43 +125,43 @@ export class InferenceGateway {
     device: string,
     request: GatewayRequest,
     sink: GatewaySink,
-    refuse: (status: number, message: string, reason: string) => void
+    refuseWith: (status: number, message: string, reason: string) => void
   ): void {
-    if (this.closed) return refuse(503, 'This provider has stopped sharing.', 'closed');
+    if (this.closed) return refuseWith(503, 'This provider has stopped sharing.', 'closed');
     const path = normalizePath(request.path);
     const isModels = request.method === 'GET' && path === '/v1/models';
     const isChat = request.method === 'POST' && path === '/v1/chat/completions';
-    if (!isModels && !isChat) return refuse(404, 'Not found.', 'path');
+    if (!isModels && !isChat) return refuseWith(404, 'Not found.', 'path');
 
     const identity = this.deps.memberFor(request.circle, device);
-    if (!identity) return refuse(403, 'Not a member of that Circle.', 'not-member');
+    if (!identity) return refuseWith(403, 'Not a member of that Circle.', 'not-member');
     const offer = this.deps.offerFor(request.circle);
-    if (!offer) return refuse(503, 'This provider isn’t sharing a model now.', 'no-offer');
-    if (!offer.available) return refuse(503, 'This provider isn’t sharing a model now.', 'paused');
+    if (!offer) return refuseWith(503, 'This provider isn’t sharing a model now.', 'no-offer');
+    if (!offer.available) return refuseWith(503, 'This provider isn’t sharing a model now.', 'paused');
     const upstream = this.deps.upstream();
-    if (!upstream) return refuse(503, 'This provider’s model server isn’t set up.', 'no-upstream');
+    if (!upstream) return refuseWith(503, 'This provider’s model server isn’t set up.', 'no-upstream');
 
     if (isModels) {
       void this.models(upstream, offer, sink);
       return;
     }
     if (Buffer.byteLength(request.body ?? '') > GATEWAY_MAX_BODY_BYTES) {
-      return refuse(413, 'Request body is too large.', 'too-large');
+      return refuseWith(413, 'Request body is too large.', 'too-large');
     }
     let body: { model?: unknown; stream?: unknown; messages?: unknown; tools?: unknown };
     try {
       body = JSON.parse(request.body ?? '') as typeof body;
     } catch {
-      return refuse(400, 'Request body is not JSON.', 'not-json');
+      return refuseWith(400, 'Request body is not JSON.', 'not-json');
     }
-    if (typeof body !== 'object' || body === null) return refuse(400, 'Request body is not a JSON object.', 'not-object');
+    if (typeof body !== 'object' || body === null) return refuseWith(400, 'Request body is not a JSON object.', 'not-object');
     const model = typeof body.model === 'string' ? body.model : '';
     if (!offer.models.some((offered) => offered.id === model)) {
-      return refuse(404, 'That model isn’t shared.', 'model-not-offered');
+      return refuseWith(404, 'That model isn’t shared.', 'model-not-offered');
     }
     const active = this.queue.filter((job) => job.identity === identity).length + (this.running?.identity === identity ? 1 : 0);
     const over = overLimit(limitFor(this.limits, identity), usedToday(this.served, identity, localDay(new Date())), active);
-    if (over) return refuse(429, over, 'over-limit');
+    if (over) return refuseWith(429, over, 'over-limit');
     // Shape only: counts, never content.
     this.deps.diag?.('gateway.queued', {
       device: device.slice(0, 8),
@@ -293,7 +233,7 @@ export class InferenceGateway {
     // The server's own list, cut to the offer, so a model that isn't loaded doesn't show.
     const started = Date.now();
     try {
-      const response = await this.fetchImpl(upstreamUrl(upstream, '/models'), { headers: upstreamHeaders(upstream) });
+      const response = await this.fetchImpl(endpointPath(upstream.baseUrl, 'models'), { headers: upstreamHeaders(upstream) });
       if (!response.ok) {
         this.deps.diag?.('gateway.models', { upstreamStatus: response.status, ms: Date.now() - started });
         return refuse(sink, 502, `The model server answered ${response.status}.`);
@@ -348,7 +288,7 @@ export class InferenceGateway {
     let firstChunkMs: number | null = null;
     const tail = new UsageTail();
     try {
-      const response = await this.fetchImpl(upstreamUrl(upstream, '/chat/completions'), {
+      const response = await this.fetchImpl(endpointPath(upstream.baseUrl, 'chat/completions'), {
         method: 'POST',
         headers: upstreamHeaders(upstream),
         body: job.request.body,

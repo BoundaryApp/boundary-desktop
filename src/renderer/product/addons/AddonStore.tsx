@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Compass, Network, Package, Search, Users, Wallet, Workflow, X } from 'lucide-react';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Callout } from '../../components/ui/alert';
 import { Pill } from '../../components/ui/badge';
 import { Sheet } from '../../components/ui/sheet';
@@ -151,6 +154,20 @@ function stateLine(item: StoreItem): { text: string; tone: string } {
   }
 }
 
+/**
+ * Keyboard open for a card or row that holds its own action button: Enter or Space opens the
+ * page only when the row itself has focus, so the key reaches a focused button inside it.
+ */
+function openOnKey(onOpen: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpen();
+    }
+  };
+}
+
 const StoreCard: React.FC<{ item: StoreItem; handlers: Handlers; onOpen(item: StoreItem): void }> = ({
   item,
   handlers,
@@ -163,12 +180,7 @@ const StoreCard: React.FC<{ item: StoreItem; handlers: Handlers; onOpen(item: St
       tabIndex={0}
       aria-label={item.name}
       onClick={() => onOpen(item)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen(item);
-        }
-      }}
+      onKeyDown={openOnKey(() => onOpen(item))}
       className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface-1 p-3.5 text-left outline-none transition-colors duration-(--dur-fast) hover:border-line-strong focus-visible:shadow-(--focus-ring)"
     >
       <span className="row-span-2 self-start">
@@ -483,9 +495,7 @@ const Installed: React.FC<PageProps> = ({ items, handlers, onOpen, go }) => {
                     tabIndex={0}
                     aria-label={item.name}
                     onClick={() => onOpen(item)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') onOpen(item);
-                    }}
+                    onKeyDown={openOnKey(() => onOpen(item))}
                     className="grid cursor-pointer grid-cols-[auto_1fr_auto_auto] items-center gap-4 px-4 py-3 outline-none hover:bg-surface-2 focus-visible:shadow-(--focus-ring)"
                   >
                     <StoreTile item={item} size="sm" />
@@ -571,7 +581,7 @@ const SearchField: React.FC<{ query: string; onChange(q: string): void }> = ({ q
   return (
     <label className="relative flex min-w-0 flex-1 items-center sm:max-w-[520px]">
       <Search className="pointer-events-none absolute left-2.5 size-4 text-fg-faint" aria-hidden />
-      <input
+      <Input
         ref={input}
         type="text"
         value={query}
@@ -587,20 +597,22 @@ const SearchField: React.FC<{ query: string; onChange(q: string): void }> = ({ q
             onChange('');
           }
         }}
-        className="h-9 w-full rounded-md border border-line-strong bg-surface-1 pr-9 pl-8 text-ui text-fg outline-none placeholder:text-fg-faint field-focus"
+        className="pr-9 pl-8"
       />
       {query ? (
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-xs"
           aria-label="Clear search"
-          className="absolute right-1.5 grid size-6 cursor-pointer place-items-center rounded text-fg-faint hover:text-fg"
+          className="absolute right-1.5"
           onClick={() => {
             onChange('');
             input.current?.focus();
           }}
         >
           <X className="size-3.5" aria-hidden />
-        </button>
+        </Button>
       ) : (
         <kbd className="pointer-events-none absolute right-2 rounded border border-line bg-surface-2 px-1.5 font-mono text-2xs text-fg-faint">
           /
@@ -611,24 +623,13 @@ const SearchField: React.FC<{ query: string; onChange(q: string): void }> = ({ q
 };
 
 const FilterChips: React.FC<{ filters: StoreFilters; onChange(f: StoreFilters): void }> = ({ filters, onChange }) => (
-  <div role="group" aria-label="Filters" className="flex flex-wrap gap-1.5">
+  <ChipGroup type="multiple" aria-label="Filters">
     {FILTER_LABELS.map(([key, label]) => (
-      <button
-        key={key}
-        type="button"
-        aria-pressed={filters[key]}
-        onClick={() => onChange({ ...filters, [key]: !filters[key] })}
-        className={cn(
-          'h-7 cursor-pointer rounded-full border px-3 text-xs outline-none focus-visible:shadow-(--focus-ring)',
-          filters[key]
-            ? 'border-solid-bg bg-solid-bg text-solid-fg'
-            : 'border-line-strong bg-surface-1 text-fg-muted hover:bg-surface-hover'
-        )}
-      >
+      <Chip key={key} pressed={filters[key]} onPressedChange={() => onChange({ ...filters, [key]: !filters[key] })}>
         {label}
-      </button>
+      </Chip>
     ))}
-  </div>
+  </ChipGroup>
 );
 
 /** Results for a query: matching add-ons, then what Boundary already runs (spec decision 6). */
@@ -810,7 +811,7 @@ export const AddonStore: React.FC<{ page: StorePage; go(next: StorePage): void; 
             />
           ))}
         </nav>
-        {facts && facts.engineMiB > 0 ? (
+        {facts && (facts.engineMiB > 0 || facts.measured === false) ? (
           <div className="m-2 rounded-lg border border-line bg-surface-1 p-3">
             <EngineMemoryBar facts={facts} compact />
           </div>

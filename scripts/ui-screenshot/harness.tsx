@@ -14,7 +14,7 @@ import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AddonCatalogEntry, AddonListing } from '../../src/shared/types/addons';
+import type { AddonCatalogEntry, AddonListing, BitwardenOverview } from '../../src/shared/types/addons';
 import type { AssistantStackStatus } from '../../src/shared/types/assistantStack';
 import type {
   CircleChannel,
@@ -29,12 +29,13 @@ import type {
   HermesChatMessage,
   HermesChatThreadSummary,
   HermesProjectRecord,
+  HermesProjectRemoveInspect,
 } from '../../src/shared/types/hermesChat';
 import { BUILTIN_ASSISTANT_SLUG } from '../../src/shared/types/hermesChat';
 import { BUILTIN_AGENT_FALLBACK } from '../../src/shared/hermesAgentIdentity';
 import { circleMember, circleSnapshot, runningCircles } from '../../src/renderer/__tests__/circleFixtures';
 import { ProductReadyShell } from '../../src/renderer/product/ProductReadyShell';
-import type { ProductDestination } from '../../src/renderer/product/ProductIconRail';
+import type { ProductDestination } from '../../src/renderer/product/destinations';
 import './harness.css';
 
 const params = new URLSearchParams(window.location.search);
@@ -76,7 +77,16 @@ const chat = (id: string, title: string, minutes: number, projectId: string | nu
   createdAt: ago(minutes + 30),
   updatedAt: ago(minutes),
 });
+/**
+ * `?chat=dm-builtin` opens a direct chat with the built-in agent, for the Agent tab scene. Only
+ * that scene lists it, so the other shots keep their rail.
+ */
+const BUILTIN_DM = 'dm-builtin';
+const builtinDmShown = params.get('chat') === BUILTIN_DM;
 const threads: HermesChatThreadSummary[] = [
+  ...(builtinDmShown
+    ? [{ ...chat(BUILTIN_DM, BUILTIN_AGENT_FALLBACK.displayName, 2, 'garden'), kind: 'dm' as const }]
+    : []),
   chat(OPEN_CHAT, 'Plan the watering rota', 4, 'garden'),
   chat('chat-grant', 'Draft the seed grant letter', 90, 'garden'),
   chat('chat-soil', 'Compare soil test results', 60 * 26, 'garden'),
@@ -155,7 +165,7 @@ const grantHistory: HermesChatMessage[] = [
   { role: 'user', content: GRANT_QUESTION, timestamp: agoSeconds(92) },
   { role: 'assistant', agentSlug: BUILTIN_ASSISTANT_SLUG, timestamp: agoSeconds(90), content: GRANT_REPLY },
 ];
-const openChat = params.get('chat') === GRANT_CHAT ? GRANT_CHAT : OPEN_CHAT;
+const openChat = params.get('chat') === GRANT_CHAT ? GRANT_CHAT : builtinDmShown ? BUILTIN_DM : OPEN_CHAT;
 
 /** Listeners the app registers through hermesChat.on*, so the demo turn can call them. */
 const listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -193,15 +203,23 @@ function playTurn(requestId: string): void {
 }
 
 /** An on* subscription that never fires, with its unsubscribe. */
-const subscribe = () => () => undefined;
+const subscribe = (): (() => void) => () => undefined;
 const isSubscription = (key: string | symbol) => typeof key === 'string' && /^on[A-Z]/.test(key);
 /** Every other bridge call resolves to null and every on* subscription is a no-op. */
 const inert = (): unknown =>
-  new Proxy(() => undefined, {
-    get: (_target, key) => (isSubscription(key) ? subscribe : inert()),
+  new Proxy<() => undefined>(() => undefined, {
+    get: (_target, key): unknown => (isSubscription(key) ? subscribe : inert()),
     apply: () => Promise.resolve(null),
   });
 const ok = <T,>(value: T) => () => Promise.resolve(value);
+/** A nested namespace (addons.vikunja) that answers these calls and is inert for the rest. */
+const withInert = (calls: Record<string, unknown>): unknown =>
+  new Proxy(calls, {
+    get: (target, name) => {
+      if (typeof name === 'string' && name in target) return target[name];
+      return isSubscription(name) ? subscribe : inert();
+    },
+  });
 
 /**
  * A stack that is up, and the add-on store, for the Services scenes (ADR 0059). The add-ons are
@@ -219,7 +237,7 @@ const stackStatus: AssistantStackStatus = {
   dataDir: '/userData/project/data',
   overlayPath: null,
   ports: stackPorts,
-  isolationMode: 'container',
+  isolationMode: 'default-ports',
   apiBaseUrl: 'http://127.0.0.1:8746',
   healthUrl: 'http://127.0.0.1:8746/healthz',
   setupComplete: true,
@@ -230,6 +248,7 @@ const stackStatus: AssistantStackStatus = {
     { id: 'gpt-researcher', title: 'Research', description: 'Longer reports with sources.', portKey: 'gptResearcher', path: '/', url: 'http://127.0.0.1:8754/' },
     { id: 'opencode', title: 'Coding', description: 'The coding agent’s own workspace.', portKey: 'opencode', path: '/', url: 'http://127.0.0.1:8753/' },
   ] as AssistantStackStatus['uiServices'],
+  addonServices: [],
 };
 
 const addonFacts = {
@@ -248,7 +267,7 @@ const fits = (verdict: 'ok' | 'tight') => ({
   disk: 'ok' as const,
   port: 'ok' as const,
   freeMiB: 9_088,
-  suggestedEngineMiB: null,
+  suggestedEngineMiB: null as number | null,
 });
 
 const addon = (
@@ -277,14 +296,75 @@ const addon = (
   facts: addonFacts,
 });
 
+/**
+ * `?addon=vikunja` or `?addon=bitwarden` turns that add-on on, for its page's scene. Without it
+ * the store reads as it did when the published store shots were taken.
+ */
+const addonOn = params.get('addon');
+
+/**
+ * `?history=exported` shows Settings → Chat history after an export finished, for its scene.
+ * Without it the harness has no chatHistory API and the section reads as idle.
+ */
+const historyExported = params.get('history') === 'exported';
+const chatHistory = {
+  status: ok({
+    unavailable: null,
+    state: {
+      phase: 'exported',
+      folder: '/Users/ada/Documents/Boundary history 2026-11-09',
+      sessions: 148,
+      messages: 3912,
+      profiles: [
+        { profile: 'default', label: BUILTIN_AGENT_FALLBACK.displayName, sessions: 121, messages: 3307 },
+        { profile: 'researcher', label: 'Researcher', sessions: 19, messages: 448 },
+        { profile: 'editor', label: 'Editor', sessions: 8, messages: 157 },
+      ],
+    },
+  }),
+  onChanged: () => (): void => undefined,
+};
+
 const addons: AddonListing[] = [
   addon({ id: 'twenty', name: 'Twenty CRM', summary: 'Contacts, companies and deals that your agents can look up and keep current.', reserveMiB: 2208 }, false, 'tight'),
   addon({ id: 'actual', name: 'Actual Budget', summary: 'Your budgets and accounts, so an agent can answer where the money went.', reserveMiB: 640 }, true),
   addon({ id: 'email', name: 'Email', summary: 'Read and draft mail from an account you connect.', reserveMiB: 512 }, true),
-  addon({ id: 'vikunja', name: 'Todo lists', summary: 'Lists and tasks an agent can add to, tick off and look back over.', reserveMiB: 512 }, false),
+  addon({ id: 'vikunja', name: 'Todo lists', summary: 'Lists and tasks an agent can add to, tick off and look back over.', reserveMiB: 512 }, addonOn === 'vikunja'),
   addon({ id: 'n8n', name: 'Automations', summary: 'Flows that run on a schedule or when something happens.', reserveMiB: 768 }, false),
   addon({ id: 'lightrag', name: 'Knowledge base', summary: 'A searchable index of the documents you point it at.', reserveMiB: 1024 }, false),
+  ...(addonOn === 'bitwarden'
+    ? [addon({ id: 'bitwarden', name: 'Bitwarden', summary: 'Logins your agents can sign in with, without seeing the password.', reserveMiB: 1280 }, true)]
+    : []),
 ];
+
+/** One connected bitwarden.com account, for the Bitwarden page's scene. */
+const bitwardenOverview: BitwardenOverview = {
+  enabled: true,
+  accounts: [
+    { slug: 'garden', mode: 'cloud', scope: 'folder:Garden club', unlock: 'stored', state: 'unlocked', error: null, retryAfter: null, file: null, canDisconnect: true },
+  ],
+  requests: [],
+  statusError: null,
+  requestsError: null,
+  signInBrowser: true,
+};
+
+/** A Boundary-made project with two commits only on this Mac, for the Remove project sheet. */
+const removeFacts: HermesProjectRemoveInspect = {
+  success: true,
+  projectId: 'garden',
+  name: 'Community Garden',
+  kind: 'empty',
+  hostPath: '/Users/ada/Documents/Community Garden',
+  files: 48,
+  bytes: 2_400_000,
+  lastChanged: ago(60 * 3),
+  isGit: true,
+  unpushed: 2,
+  onlyStartCommit: false,
+  dirtyCount: 0,
+  requiresTypedName: true,
+};
 
 /** Two calibrated writing voices, for the Settings scene (ADR 0056). Both are invented. */
 const writingVoices = [
@@ -306,7 +386,7 @@ const writingVoices = [
       calibrated: '2026-11-11',
     },
     samplesChanged: false,
-    step: null,
+    step: null as string | null,
   },
   {
     id: 'letter',
@@ -444,9 +524,9 @@ const circlesShown = params.get('view') === 'circles';
 const stoppedCircles = {
   status: 'stopped',
   displayName: '',
-  snapshot: { identity: '', circles: [] },
+  snapshot: { identity: '', circles: [] as unknown[] },
   providers: {},
-  sharing: { models: [], circles: [], paused: false, away: false },
+  sharing: { models: [] as unknown[], circles: [] as unknown[], paused: false, away: false },
 };
 
 const withState = <T extends object>(value: T) => () => Promise.resolve({ success: true, state: circleState, ...value });
@@ -479,14 +559,22 @@ const bridge: Record<string, Record<string, unknown>> = {
     onChatChunk: listen('onChatChunk'),
     onChatEnd: listen('onChatEnd'),
   },
+  ...(historyExported ? { chatHistory } : {}),
   agents: {
-    list: ok({ success: true, agents, standingDmByAgent: { [BUILTIN_ASSISTANT_SLUG]: null, researcher: 'dm-researcher', editor: 'dm-editor' } }),
+    list: ok({ success: true, agents, standingDmByAgent: { [BUILTIN_ASSISTANT_SLUG]: builtinDmShown ? BUILTIN_DM : null, researcher: 'dm-researcher', editor: 'dm-editor' } }),
+    // The Agent tab's Soul section shows when the excerpt isn't the start of the role.
+    getSoul: ok({
+      success: true,
+      canOpen: true,
+      excerpt: 'Warm and plain-spoken. Asks before it acts on anything shared, keeps the garden’s rota and notes tidy, and says so when it isn’t sure.',
+    }),
   },
   channels: {
     list: ok({ success: true, channels, lastOpened: { kind: 'hermes', id: openChat } }),
   },
   projects: {
     list: ok({ success: true, projects, activeId: 'garden', rpcAvailable: true }),
+    inspectRemove: ok(removeFacts),
     inspectSources: ok({
       success: true,
       inspect: {
@@ -533,6 +621,15 @@ const bridge: Record<string, Record<string, unknown>> = {
     twentyWorkspaces: ok({ success: true, workspaces: [] }),
     actualOverview: ok(null),
     bitwardenOverview: ok(null),
+    bitwarden: withInert({
+      overview: ok(addonOn === 'bitwarden' ? bitwardenOverview : null),
+      refresh: ok(addonOn === 'bitwarden' ? bitwardenOverview : null),
+    }),
+    vikunja: withInert({
+      account: ok({ username: 'ada' }),
+      copyPassword: ok({ success: true }),
+      open: ok({ success: true }),
+    }),
     emailOverview: ok(null),
   },
   // Release notes (ADR 0059): a launch that upgraded, with nothing read yet.

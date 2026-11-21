@@ -2,15 +2,13 @@ import React, { useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Callout } from '../../components/ui/alert';
 import { Pill } from '../../components/ui/badge';
-import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import {
   isActualFailure,
   type AddonId,
   type BitwardenAccount,
   type BitwardenRequest,
 } from '../../../shared/types/addons';
-import { TypeDeleteField } from './addonFormParts';
-import { AddonPageColumns, AddonPageTop, AddonSwitchPanel, ConfirmSheet } from './AddonDetailParts';
+import { AddonPageColumns, AddonPageTop, AddonSwitchPanel, ConfirmSheet, RemoveDataSheet } from './AddonDetailParts';
 import { addonPageState, callIpc, switchAddon, useAddonActions, useRefreshOnOpen } from './addonPageActions';
 import { Panel } from './AddonPanel';
 import { BitwardenConnectSheet } from './BitwardenConnectSheet';
@@ -31,7 +29,6 @@ import {
 } from './useBitwarden';
 import {
   startAddonInstall,
-  startAddonRemoval,
   useAddonInstall,
   useAddonListing,
 } from './useAddons';
@@ -42,6 +39,12 @@ import {
 
 const WHERE_IT_WORKS =
   'The logins work in chats on your own profile and in the browser. Scheduled jobs and the API profile never get them.';
+
+const SIGN_IN_BROWSER =
+  'Bitwarden fills a login in a separate browser, so the password and two-step code never reach the agent. The agent’s browser then gets the site’s session.';
+
+const IN_PAGE_FILL =
+  'To have a login filled into the agent’s own page instead, add a custom field to that item in Bitwarden: name it agent-in-page-fill, choose Boolean, and check it.';
 
 /** `created` (Unix seconds) as a short time for the request list. */
 const when = (created: number): string =>
@@ -123,43 +126,14 @@ const RequestRow: React.FC<{ request: BitwardenRequest; folderOf(account: string
   </li>
 );
 
-const RemoveSheet: React.FC<{ accounts: BitwardenAccount[]; onClose(): void; onStarted(): void; installed: boolean }> = ({
-  accounts,
-  onClose,
-  onStarted,
-  installed,
-}) => {
-  const [typed, setTyped] = useState('');
+/** The removal sheet's lede: the accounts the stack deletes, and those added at the terminal that stay. */
+function removeLede(accounts: BitwardenAccount[]): string {
   const ours = accounts.filter((a) => a.canDisconnect);
   const kept = accounts.filter((a) => !a.canDisconnect && a.slug);
-  return (
-    <Sheet
-      open
-      onClose={onClose}
-      titleId="bitwarden-remove-title"
-      title="Remove Bitwarden and disconnect every account?"
-      actions={
-        <SheetConfirmActions
-          tone="danger"
-          onCancel={onClose}
-          confirmLabel="Remove and delete data"
-          confirmDisabled={typed.trim().toLowerCase() !== 'delete'}
-          onConfirm={() => {
-            startAddonRemoval('bitwarden', installed, false);
-            onClose();
-            onStarted();
-          }}
-        />
-      }
-    >
-      <p className="wb-sheet-lede">
-        {`The stack deletes ${ours.length ? `${ours.map(accountName).join(', ')} with ${ours.length === 1 ? 'its' : 'their'}` : 'the'} API keys, stored master passwords and Bitwarden data, then the broker’s data. Nothing in Bitwarden itself changes. Revoke the API keys there if you’re done with them.`}
-        {kept.length ? ` ${kept.map(accountName).join(', ')} was added at the terminal and stays.` : ''}
-      </p>
-      <TypeDeleteField id="bitwarden-remove-confirm" value={typed} onChange={setTyped} />
-    </Sheet>
-  );
-};
+  return `The stack deletes ${ours.length ? `${ours.map(accountName).join(', ')} with ${ours.length === 1 ? 'its' : 'their'}` : 'the'} API keys, stored master passwords and Bitwarden data, then the broker’s data. Nothing in Bitwarden itself changes. Revoke the API keys there if you’re done with them.${
+    kept.length ? ` ${kept.map(accountName).join(', ')} was added at the terminal and stays.` : ''
+  }`;
+}
 
 type Dialog = { kind: 'off' } | { kind: 'remove' } | { kind: 'disconnect'; account: BitwardenAccount } | null;
 
@@ -290,6 +264,12 @@ export const BitwardenDetail: React.FC<{
             </Panel>
           ) : null}
 
+          {overview?.signInBrowser && (accounts.length || on) ? (
+            <Panel title="How the agent signs in" lead={SIGN_IN_BROWSER}>
+              <p className="text-xs text-fg-muted">{IN_PAGE_FILL}</p>
+            </Panel>
+          ) : null}
+
           {accounts.length || on ? (
             <Panel title="Accounts" lead={WHERE_IT_WORKS}>
               {accounts.length ? (
@@ -372,7 +352,15 @@ export const BitwardenDetail: React.FC<{
       </ConfirmSheet>
 
       {dialog?.kind === 'remove' ? (
-        <RemoveSheet accounts={accounts} installed={on} onClose={() => setDialog(null)} onStarted={onInstallStarted} />
+        <RemoveDataSheet
+          id="bitwarden"
+          installed={on}
+          title="Remove Bitwarden and disconnect every account?"
+          onClose={() => setDialog(null)}
+          onStarted={onInstallStarted}
+        >
+          {removeLede(accounts)}
+        </RemoveDataSheet>
       ) : null}
 
       <BitwardenConnectSheet

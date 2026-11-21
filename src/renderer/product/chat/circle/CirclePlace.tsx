@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CircleChannel, CircleSnapshot, CirclesState } from '../../../../shared/types/circles';
 import type { SharedFolderListing } from '../../../../shared/types/sharedFolders';
@@ -7,9 +7,8 @@ import { directPeer, directSlot, openCircleAction, openDirect, takeCircleAction,
 import { InviteSheet, useInviteHints } from '../../circles/InviteSheet';
 import { useCallCheck } from '../../circles/useCallCheck';
 import { getCallService } from '../../circles/calls/callService';
-import { openCallViewOnJoin } from '../../circles/calls/callViewState';
-import { JoinCallSheet } from '../../circles/calls/JoinCallSheet';
-import { LeaveCallSheet, useCallWith } from '../../circles/calls/LeaveCallSheet';
+import { useCallWith } from '../../circles/calls/LeaveCallSheet';
+import { useCallEntry } from '../../circles/calls/useCallEntry';
 import { onNotifyPrefs, useCircleChat } from '../../circles/useCircleChat';
 import { useCircleViewing } from '../../circles/useCircleViewing';
 import { useScrollToTopOn } from '../../circles/useScrollToTopOn';
@@ -75,11 +74,11 @@ function PanelIcon() {
 
 /** A rail section's + button. */
 const SectionAdd: React.FC<{ label: string; disabled?: boolean; onClick: () => void }> = ({ label, disabled, onClick }) => (
-  <button type="button" className="wb-sect-add" title={label} aria-label={label} disabled={disabled} onClick={onClick}>
+  <Button type="button" variant="quiet" size="icon-sm" title={label} aria-label={label} disabled={disabled} onClick={onClick}>
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path d="M7 2.75v8.5M2.75 7h8.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
-  </button>
+  </Button>
 );
 
 export interface CirclePlaceProps {
@@ -138,20 +137,20 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
   const channelMentions = useChannelMentions(circle.key);
   // Closed until asked for, as in the study; choosing a person opens it.
   const [inspector, setInspector] = useState(false);
+  /** The open side panel's id, for the toggles' aria-controls. */
+  const inspectorId = useId();
   const [person, setPerson] = useState<string | null>(null);
   const [channelSheet, setChannelSheet] = useState<ChannelSheet | null>(null);
   const callCheck = useCallCheck();
   const [callCheckOpen, setCallCheckOpen] = useState(false);
-  // The person being called, while the join sheet before the call is open.
-  const [calling, setCalling] = useState<string | null>(null);
-  const callingName = calling ? (circle.members.find((item) => item.identity === calling)?.name ?? '') : '';
   // Calling during a call asks before leaving it; nobody is offered a call with the person already in this one.
   const callWith = useCallWith();
-  const [leaveFor, setLeaveFor] = useState<string | null>(null);
-  const askToCall = (identity: string) => {
-    if (getCallService().current) setLeaveFor(identity);
-    else setCalling(identity);
-  };
+  const { enter: askToCall, sheets: callSheets } = useCallEntry<string>({
+    then: 'call',
+    title: (identity) => `Call ${circle.members.find((item) => item.identity === identity)?.name ?? ''}`,
+    // A call nobody answers ends the view and shows in the bar.
+    join: (identity, options) => getCallService().call(circle.key, identity, options),
+  });
   const [inviting, setInviting] = useState(false);
   const [confirm, setConfirm] = useState<CircleConfirm | null>(null);
   const shared = useSharedFolders(circle.key);
@@ -350,16 +349,18 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
             onFile={openFile}
             onResolve={setResolving}
             headerEnd={
-              <button
+              <Button
                 type="button"
-                className="wb-act wb-circle-panel-btn"
-                aria-label={inspector ? 'Close folder details' : 'Open folder details'}
-                aria-pressed={inspector}
+                variant="quiet"
+                size="icon-xs"
+                aria-label="Folder details"
+                aria-expanded={inspector}
+                aria-controls={inspector ? inspectorId : undefined}
                 title="Folder details"
                 onClick={() => setInspector((was) => !was)}
               >
                 <PanelIcon />
-              </button>
+              </Button>
             }
           />
         ) : directPending ? null : peer ? (
@@ -383,16 +384,18 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
                     Call
                   </Button>
                 ) : null}
-                <button
+                <Button
                   type="button"
-                  className="wb-act wb-circle-panel-btn"
-                  aria-label={inspector ? 'Close Circle details' : 'Open Circle details'}
-                  aria-pressed={inspector}
+                  variant="quiet"
+                  size="icon-xs"
+                  aria-label="Circle details"
+                  aria-expanded={inspector}
+                  aria-controls={inspector ? inspectorId : undefined}
                   title="Circle details"
                   onClick={() => setInspector((was) => !was)}
                 >
                   <PanelIcon />
-                </button>
+                </Button>
               </>
             }
           />
@@ -406,16 +409,18 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
           selecting={selecting}
           onStopSelecting={stopSelecting}
           headerEnd={
-            <button
+            <Button
               type="button"
-              className="wb-act wb-circle-panel-btn"
-              aria-label={inspector ? 'Close Circle details' : 'Open Circle details'}
-              aria-pressed={inspector}
+              variant="quiet"
+              size="icon-xs"
+              aria-label="Circle details"
+              aria-expanded={inspector}
+              aria-controls={inspector ? inspectorId : undefined}
               title="Circle details"
               onClick={() => setInspector((was) => !was)}
             >
               <PanelIcon />
-            </button>
+            </Button>
           }
         />
         )}
@@ -436,6 +441,7 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
 
       {inspector && folder && filePath ? (
         <FileHistory
+          id={inspectorId}
           folder={folder}
           circle={circle}
           path={filePath}
@@ -443,9 +449,10 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
           onClose={() => setInspector(false)}
         />
       ) : inspector && folder ? (
-        <FolderTab folder={folder} circle={circle} onClose={() => setInspector(false)} onRemove={() => setRemoving(folder)} />
+        <FolderTab id={inspectorId} folder={folder} circle={circle} onClose={() => setInspector(false)} onRemove={() => setRemoving(folder)} />
       ) : inspector ? (
         <CircleTab
+          id={inspectorId}
           circle={circle}
           circles={circles}
           channels={channels}
@@ -464,27 +471,7 @@ export const CirclePlace: React.FC<CirclePlaceProps> = ({
         />
       ) : null}
 
-      <LeaveCallSheet
-        open={leaveFor !== null}
-        then="call"
-        onLeave={() => {
-          setCalling(leaveFor);
-          setLeaveFor(null);
-        }}
-        onCancel={() => setLeaveFor(null)}
-      />
-      {calling ? (
-        <JoinCallSheet
-          title={`Call ${callingName}`}
-          onJoin={(options) => {
-            setCalling(null);
-            // The call opens in the call view. A call that fails to start leaves nothing to show;
-            // one nobody answers ends the view and shows in the bar.
-            openCallViewOnJoin(getCallService().call(circle.key, calling, options));
-          }}
-          onCancel={() => setCalling(null)}
-        />
-      ) : null}
+      {callSheets}
 
       {callCheck ? (
         <CallCheckSheet check={callCheck} circle={circle} open={callCheckOpen} onClose={() => setCallCheckOpen(false)} />

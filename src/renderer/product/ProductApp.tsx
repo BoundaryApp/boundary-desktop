@@ -5,7 +5,7 @@ import { AssistantStackStartingScreen } from './AssistantStackStartingScreen';
 import { AssistantStackQuitOverlay } from './AssistantStackQuitOverlay';
 import { WhatsNewLayer } from './whatsNew/WhatsNewLayer';
 import { ProductReadyShell } from './ProductReadyShell';
-import type { ProductDestination } from './ProductIconRail';
+import { DESTINATIONS, type ProductDestination } from './destinations';
 import { useAssistantStackLifecycle, useAssistantStackStatus } from './assistantStack';
 import { probeLog } from '../debug/lagProbe';
 import { BugReportLayer } from './bugReport/BugReportLayer';
@@ -14,10 +14,8 @@ import { useBugReportRequests } from './bugReport/bugReportEvents';
 const SCREEN_NAMES: Record<string, string> = {
   setup: 'Setup',
   starting: 'Start-up',
-  'ready:chat': 'Chat',
-  'ready:inference': 'Inference',
-  'ready:services': 'Services',
-  'ready:resources': 'Resources',
+  ...Object.fromEntries(DESTINATIONS.map(({ id, reportName }) => [`ready:${id}`, reportName])),
+  'ready:whats-new': 'What’s new',
   'ready:settings': 'Settings',
 };
 

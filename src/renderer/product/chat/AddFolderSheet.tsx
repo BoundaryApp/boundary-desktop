@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { CodingFolderInspect } from '../../../shared/types/codingFolders';
 import { Sheet } from '../../components/ui/sheet';
 import { displayHostPath } from './chatTelemetryFormat';
@@ -8,6 +8,10 @@ import { useCodingGrant } from './useCodingGrant';
 import { CodingBusyButtons, CodingBusyWarning } from './CodingBusyChoice';
 import { APP_NAME } from '../../../shared/buildIdentity';
 import { Button } from '../../components/ui/button';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
+import { StackCapabilityNote, useStackCapability } from '../stackCapabilities';
 
 /**
  * Add a folder to a project (ADR 0028, mock flow 1): pick it, choose Code in it or Use as
@@ -43,11 +47,13 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
   onCode,
   onCreateFolder,
 }) => {
+  const accessName = useId();
   const [step, setStep] = useState<Step>('pick');
   const [folder, setFolder] = useState<CodingFolderInspect | null>(null);
   const [access, setAccess] = useState<FolderAccess>('reference');
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+  const hostFolders = useStackCapability('hostFolders');
   const { agent, check, reset } = useCodingGrant();
 
   useEffect(() => {
@@ -138,13 +144,14 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
             empty folder, ready for a repo.
           </p>
           {pickError ? <p className="wb-sheet-error">{pickError}</p> : null}
+          {hostFolders ? null : <StackCapabilityNote capability="hostFolders" />}
           <div className="wb-sheet-actions">
             <Button
               variant="secondary"
               block
               type="button"
               className="is-start"
-              disabled={picking}
+              disabled={picking || !hostFolders}
               onClick={() => setStep('new')}
             >
               New folder…
@@ -156,7 +163,7 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
               variant="primary"
               block
               type="button"
-              disabled={picking}
+              disabled={picking || !hostFolders}
               onClick={() => void pick()}
             >
               {picking ? 'Choosing…' : 'Choose folder…'}
@@ -187,49 +194,53 @@ export const AddFolderSheet: React.FC<AddFolderSheetProps> = ({
               {folder?.isGit ? 'git repo' : 'not a git repo'}
             </span>
           </div>
-          <div className="wb-choices" role="radiogroup" aria-label="Access">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={access === 'code'}
-              className={`wb-choice${access === 'code' ? ' is-sel' : ''}`}
-              disabled={codeBlocked}
-              onClick={() => setAccess('code')}
-            >
-              <span className="wb-radio" aria-hidden="true" />
-              <span className="wb-choice-copy">
-                <b>Code in it</b>
-                <span>
+          <ChoiceGroup kind="radio" aria-label="Access">
+            <ChoiceRow
+              variant="card"
+              control={
+                <Radio
+                  name={accessName}
+                  checked={access === 'code'}
+                  disabled={codeBlocked}
+                  onChange={() => setAccess('code')}
+                />
+              }
+              title="Code in it"
+              description={
+                <>
                   {codeReason ??
                     (folder?.isGit
                       ? 'For repos. Recommended because this is a git repo.'
                       : 'For repos. This isn’t a git repo, so the coding agent’s changes can’t be rolled back with git.')}
-                </span>
-                <ul>
-                  <li>The coding agent edits files and runs commands</li>
-                  <li>Hermes can read and edit</li>
-                </ul>
-              </span>
-              <span className="wb-src-pill code">Coding</span>
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={access === 'reference'}
-              className={`wb-choice${access === 'reference' ? ' is-sel' : ''}`}
-              onClick={() => setAccess('reference')}
-            >
-              <span className="wb-radio" aria-hidden="true" />
-              <span className="wb-choice-copy">
-                <b>Use as reference</b>
-                <span>For notes and research. Nothing writes to it.</span>
-                <ul>
-                  <li>Hermes reads it and lists it in the project index</li>
-                </ul>
-              </span>
-              <span className="wb-src-pill ok">Read-only</span>
-            </button>
-          </div>
+                  <ul>
+                    <li>The coding agent edits files and runs commands</li>
+                    <li>Hermes can read and edit</li>
+                  </ul>
+                </>
+              }
+              aside={<span className="wb-src-pill code">Coding</span>}
+            />
+            <ChoiceRow
+              variant="card"
+              control={
+                <Radio
+                  name={accessName}
+                  checked={access === 'reference'}
+                  onChange={() => setAccess('reference')}
+                />
+              }
+              title="Use as reference"
+              description={
+                <>
+                  For notes and research. Nothing writes to it.
+                  <ul>
+                    <li>Hermes reads it and lists it in the project index</li>
+                  </ul>
+                </>
+              }
+              aside={<span className="wb-src-pill ok">Read-only</span>}
+            />
+          </ChoiceGroup>
           {error ? <p className="wb-sheet-error">{error}</p> : null}
           <div className="wb-sheet-actions">
             <Button

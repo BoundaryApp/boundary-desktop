@@ -8,15 +8,9 @@ import type {
   CodingRevokePayload,
 } from '../../../../shared/types/codingFolders';
 import {
-  checkNewCodingFolder,
   codingFoldersBusy,
-  createCodingFolder,
   grantCoding,
-  inspectCodingFolder,
   listCodingGrants,
-  newCodingFolderDefaults,
-  pickCodingFolder,
-  pickCodingParent,
   restartHermesForCodingGrants,
   retryCodingMounts,
   revokeCoding,
@@ -29,6 +23,14 @@ import {
   removeCodingFolder,
   showTrash,
 } from './codingFolderActions';
+import {
+  checkNewCodingFolder,
+  createCodingFolder,
+  inspectCodingFolder,
+  newCodingFolderDefaults,
+  pickCodingFolder,
+  pickCodingParent,
+} from './codingNewFolder';
 
 /** Coding folders (ADR 0028). */
 export function registerCodingFolderHandlers(): void {

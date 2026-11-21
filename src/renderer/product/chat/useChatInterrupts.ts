@@ -9,7 +9,7 @@ import { isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 import { useHostBridgeApprovals } from './useHostBridgeApprovals';
 import { useHostToolsState } from './useHostToolsState';
 import { useCodingAccessRequests } from './useCodingAccessRequests';
-import { useOnChatSwitch } from './useLiveTurn';
+import { useOnChatSwitch } from './useOnChatSwitch';
 import { leftMain, usePendingQueue } from './usePendingQueue';
 
 type SameChat = (a: string, b: string) => boolean;
@@ -28,11 +28,14 @@ export function useChatInterrupts({
   sessionId,
   sameChat,
   speakerSlug,
+  knownProjectIds,
 }: {
   sessionId: string | null;
   sameChat?: SameChat;
   /** Whose logins a saved login lands in: the live speaker, else the chat's agent. */
   speakerSlug: string;
+  /** The listed projects' ids; a coding-access request for one that's gone is dropped. */
+  knownProjectIds?: ReadonlySet<string>;
 }) {
   const approvalQueue = usePendingQueue({
     subscribe: ({ add }) => window.electronAPI.hermesChat.onChatApproval(add),
@@ -70,9 +73,8 @@ export function useChatInterrupts({
   const runningTurns = useRunningTurns();
   const hostApprovals = useHostBridgeApprovals();
   const hostTools = useHostToolsState();
-  const codingAccess = useCodingAccessRequests(sessionId, sameChat);
+  const codingAccess = useCodingAccessRequests(sessionId, sameChat, knownProjectIds);
 
-  useOnChatSwitch(sessionId, sameChat, credentialQueue.clearError);
 
   // Approvals reach every window for every chat; keep them all (the chat waits on its answer)
   // and show only the open chat's. A new chat has no id yet, so it takes its own turn's.
@@ -124,9 +126,11 @@ export function useChatInterrupts({
     [credentialRequest, respondToCredential, speakerSlug]
   );
 
-  useEffect(() => {
+  // A new chat's first send adopting its id keeps the saved-login notice that send led to.
+  useOnChatSwitch(sessionId, sameChat, () => {
+    credentialQueue.clearError();
     setSavedLogin(null);
-  }, [sessionId]);
+  });
 
   const dismissSavedLogin = useCallback(() => setSavedLogin(null), []);
 

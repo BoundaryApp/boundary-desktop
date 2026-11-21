@@ -36,7 +36,7 @@ describe('addonStoreItem', () => {
   it('marks leftover containers, hosted workspaces and a parked local one', () => {
     expect(state(listing({}, false, true, true), null, [])).toMatchObject({ line: 'Install didn’t finish' });
     expect(state(listing(), null, [hostedWorkspace()])).toMatchObject({ line: 'Connected', tone: 'ok' });
-    expect(state(listing(), null, [localWorkspace({ parked: true })])).toEqual({ kind: 'off-data' });
+    expect(state(listing(), null, [localWorkspace()])).toEqual({ kind: 'off-data' });
   });
 
   it('carries the store facts the catalog doesn’t', () => {
@@ -74,7 +74,7 @@ describe('onServicesHome', () => {
     expect(home(addonStoreItem(listing({}, true, true, false, true), null, [localWorkspace()]))).toBe(true);
     expect(home(addonStoreItem(listing(), snapshot('download', 'running'), []))).toBe(true);
     expect(home(addonStoreItem(listing(), null, [hostedWorkspace()]))).toBe(true);
-    expect(home(addonStoreItem(listing(), null, [localWorkspace({ parked: true })]))).toBe(true);
+    expect(home(addonStoreItem(listing(), null, [localWorkspace()]))).toBe(true);
     expect(home(addonStoreItem(listing({}, false, true, true), null, []))).toBe(true);
     const failed = snapshot('setup', 'error', { error: { step: 'setup', message: 'x', logTail: [] } });
     expect(home(addonStoreItem(listing(), failed, []))).toBe(true);

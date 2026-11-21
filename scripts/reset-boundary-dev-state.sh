@@ -73,7 +73,12 @@ SUPPORT="${HOME}/Library/Application Support/Boundary"
 # a root other than the managed install. BOUNDARY_LOCAL_STACK=1 alone leaves it managed.
 # Prints the local root, or nothing for the managed stack.
 canonical_dir() {
-  if [[ -d "$1" ]]; then (cd "$1" && pwd -P); else printf '%s\n' "$1"; fi
+  local p="$1"
+  if [[ -d "${p}" ]]; then (cd "${p}" && pwd -P); return; fi
+  # path.resolve: absolute, no trailing slash.
+  [[ "${p}" == /* ]] || p="${PWD}/${p}"
+  while [[ "${p}" == */ && "${p}" != "/" ]]; do p="${p%/}"; done
+  printf '%s\n' "${p}"
 }
 trim() {
   local v="$1"

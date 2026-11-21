@@ -60,7 +60,7 @@ export function CircleSwitch({
   onToggle: () => void;
 }) {
   return (
-    <Switch checked={on} label={label} disabled={disabled} onChange={onToggle} className="wb-circle-switch" />
+    <Switch checked={on} label={label} disabled={disabled} onChange={onToggle} />
   );
 }
 

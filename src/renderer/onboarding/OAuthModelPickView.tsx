@@ -3,6 +3,7 @@ import type { ListedModel, OAuthPkceCredentialsBundle } from '../../shared/types
 import { Button } from '../components/ui/button';
 import { Callout } from '../components/ui/alert';
 import { takeInferenceStatus } from './inferenceStatus';
+import { connectionFromCredentials } from './modelConnection';
 import { ModelPicker } from './ModelPicker';
 
 interface OAuthModelPickViewProps {
@@ -52,17 +53,10 @@ export const OAuthModelPickView: React.FC<OAuthModelPickViewProps> = ({ credenti
     setSaving(true);
     setError(null);
     try {
-      const result = await window.electronAPI.onboarding.saveLlmConnection({
-        endpointUrl: credentials.endpointUrl,
-        // Prefer the securely stored key from the OAuth exchange; allow a fresh key if present.
-        apiKey: credentials.apiKey,
-        modelId: selectedModelId,
-        provider: credentials.providerId,
-        providerDisplayName: credentials.providerDisplayName,
-        authScheme: credentials.authScheme,
-        capabilities: credentials.capabilities,
-        extraHeaders: credentials.extraHeaders,
-      });
+      // Prefer the securely stored key from the OAuth exchange; allow a fresh key if present.
+      const result = await window.electronAPI.onboarding.saveLlmConnection(
+        connectionFromCredentials(credentials, selectedModelId, { withApiKey: true })
+      );
       if (!result.success) {
         setError(result.error ?? 'Unable to save LLM connection.');
         return;

@@ -1,12 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type {
   KanbanTaskAction,
   KanbanTaskRun,
   KanbanTaskSummary,
 } from '../../../shared/types/hermesKanban';
 import { WAIT_REASON_TEXT, type WaitReason } from './kanbanActivity';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { Button } from '../../components/ui/button';
+import { Textarea } from '../../components/ui/textarea';
 
 // What you can do to a kanban task from its page (docs/kanban-activity-ux-study, Phase 3):
 // steer it with a note, answer it when it waits on you, and stop or retry its run. Every
@@ -126,8 +127,8 @@ export const NeedsYouCard: React.FC<{
       </p>
       {mode === 'failed' && reason ? <pre className="cmd mono">{reason}</pre> : null}
       {mode !== 'stopped' && mode !== 'failed' && mode !== 'triage' ? (
-        <textarea
-          className="wb-task-reply"
+        <Textarea
+          className="mt-2.5 min-h-[60px]"
           aria-label={mode === 'review' ? 'Notes for the worker' : 'Your reply'}
           placeholder={
             mode === 'review'
@@ -256,7 +257,8 @@ export const TaskComposer: React.FC<{
         void send();
       }}
     >
-      <textarea
+      <Textarea
+        className="min-h-[60px]"
         aria-label={running ? 'Note for the worker' : 'Comment'}
         placeholder={
           running ? 'Add a note for the worker. It reads it at its next step.' : 'Add a comment to the task.'
@@ -300,7 +302,6 @@ export const RunMenu: React.FC<{
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const { busy, error, run: act } = useTaskAction(task.id, onActed);
-  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setOpen(false);
     setConfirming(false);
@@ -310,69 +311,24 @@ export const RunMenu: React.FC<{
   const canRetry = task.status === 'running' || task.status === 'blocked';
   const canArchive = task.status !== 'running';
   return (
-    <div className="wb-task-runmenu" ref={ref}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger>
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            disabled={busy}
-            onClick={() => setConfirming(false)}
-          >
+    <div className="wb-task-runmenu">
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger>
+          <Button variant="secondary" size="sm" type="button" disabled={busy} onClick={() => setConfirming(false)}>
             Run ▾
           </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          className="wb-approve-menu"
-          role="menu"
-          side="bottom"
-          align="end"
-          keepOpenWithin={ref}
-        >
-          {live ? (
-            <button type="button" role="menuitem" onClick={() => setConfirming(true)}>
-              Stop run…
-            </button>
-          ) : null}
+        </MenuTrigger>
+        <MenuContent side="bottom" align="end">
+          {live ? <MenuItem onSelect={() => setConfirming(true)}>Stop run…</MenuItem> : null}
           {canRetry ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void act({ kind: 'retry' });
-              }}
-            >
+            <MenuItem onSelect={() => void act({ kind: 'retry' })}>
               {task.status === 'running' ? 'Retry with a fresh run' : 'Retry'}
-            </button>
+            </MenuItem>
           ) : null}
-          {canArchive ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void act({ kind: 'archive' });
-              }}
-            >
-              Archive task
-            </button>
-          ) : null}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onOpenBoard();
-            }}
-          >
-            Open in board ↗
-          </button>
-        </PopoverContent>
-      </Popover>
+          {canArchive ? <MenuItem onSelect={() => void act({ kind: 'archive' })}>Archive task</MenuItem> : null}
+          <MenuItem onSelect={onOpenBoard}>Open in board ↗</MenuItem>
+        </MenuContent>
+      </Menu>
       {confirming && live && run ? (
         <div className="wb-approve-confirm wb-task-confirm" role="dialog" aria-labelledby="wb-task-stop-title">
           <h3 id="wb-task-stop-title">Stop this run?</h3>

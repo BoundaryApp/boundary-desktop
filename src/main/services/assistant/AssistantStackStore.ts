@@ -44,6 +44,8 @@ interface AssistantStackStoreShape {
   lightragEnabled?: boolean;
   /** Stack roots whose `.env` got the two switches above. */
   builtinSwitchesMovedRoots?: string[];
+  /** Stack roots whose `.env` got Twenty's two flags from the installed list (`moveTwentyFlagsToEnv`). */
+  twentyFlagsMovedRoots?: string[];
   /** Who answers Hermes's web searches and page reads. Absent means private. */
   webSearchMode?: string;
   /**
@@ -54,6 +56,11 @@ interface AssistantStackStoreShape {
   installedAddonsByRoot?: Record<string, string[]>;
   /** Add-on changes waiting for an assistant restart, per resolved stack root. Display text. */
   pendingAddonChangesByRoot?: Record<string, string[]>;
+  /**
+   * Where the stack runs (`StackHostLocation`). Absent means this computer. Kept as read, since
+   * another build may have written it; `stackHost/stackHostLocation.ts` checks it.
+   */
+  stackHostLocation?: unknown;
 }
 
 // Read from memory: every Hermes record lookup checks the root override here.
@@ -170,6 +177,11 @@ export function getStoredIsolationMode(): AssistantStackIsolationMode {
   return store.get('isolationMode') ?? 'default-ports';
 }
 
+/** The stored stack location as written, unchecked. Read it through `readStackHostLocation`. */
+export function getStoredStackHostLocation(): unknown {
+  return store.get('stackHostLocation');
+}
+
 export function getAssistantRootOverride(): string | null {
   const value = store.get('assistantRootOverride')?.trim();
   return value || null;
@@ -200,6 +212,16 @@ export function builtinSwitchesMoved(root: string): boolean {
 export function markBuiltinSwitchesMoved(root: string): void {
   const roots = store.get('builtinSwitchesMovedRoots') ?? [];
   if (!roots.includes(root)) store.set('builtinSwitchesMovedRoots', [...roots, root]);
+}
+
+/** Whether Twenty's flags were written into this stack root's `.env`. */
+export function twentyFlagsMoved(root: string): boolean {
+  return (store.get('twentyFlagsMovedRoots') ?? []).includes(root);
+}
+
+export function markTwentyFlagsMoved(root: string): void {
+  const roots = store.get('twentyFlagsMovedRoots') ?? [];
+  if (!roots.includes(root)) store.set('twentyFlagsMovedRoots', [...roots, root]);
 }
 
 export function getWebSearchMode(): WebSearchMode {

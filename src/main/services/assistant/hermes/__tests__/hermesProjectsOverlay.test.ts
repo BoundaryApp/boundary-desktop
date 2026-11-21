@@ -11,6 +11,7 @@ import {
   uniqueProjectSlug,
 } from '../hermesProjectsOverlay';
 import type { HermesProjectRecord } from '../../../../../shared/types/hermesChat';
+import { localStackFiles } from '../../../stackHost/localStackHost';
 import { mapUsageSnapshot } from '../hermesUsageMap';
 
 function project(
@@ -93,18 +94,19 @@ describe('hermesProjectsOverlay', () => {
     expect(load(buildHermesProjectsOverlayYaml([]))).toEqual({ services: {} });
   });
 
-  it('creates mount points under data/projects for host-folder projects only', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mounts-'));
-    ensureProjectMountPoints(
+  it('creates mount points under data/projects for host-folder projects only', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mounts-'));
+    const dir = path.join(root, 'projects');
+    await ensureProjectMountPoints(
       [
         jobSearch(),
         project({ id: '2', name: 'Scratch', slug: 'scratch', kind: 'empty' }),
         project({ id: '3', name: 'Odd', slug: 'odd', containerPath: '/opt/projects/../escape' }),
       ],
-      dir
+      localStackFiles({ stackRoot: root, userContentRoot: () => root })
     );
     expect(fs.readdirSync(dir)).toEqual(['job-search']);
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   it('is a valid empty overlay with no host-folder projects', () => {
@@ -211,6 +213,67 @@ describe('hermesProjectsOverlay', () => {
       expect(doc.services['hermes-webui'].volumes).toEqual([
         '/Users/me/Documents/Job Search:/opt/projects/job-search',
       ]);
+    });
+
+    describe('stack checkout data masks (CR 0040 stack reply)', () => {
+      const source = '/Users/me/Library/Application Support/Boundary/assistant-stack/coding/empty-dir';
+      const masks = {
+        dataDirs: ['/Users/me/Code/design tokens/stack/data', '/Users/me/Documents/Job Search/data'],
+        source,
+      };
+      const mask = (target: string) => `${source}:${target}:ro`;
+
+      it('hides each checkout data/ at the path every service sees it', () => {
+        const doc = load(
+          buildHermesProjectsOverlayYaml(
+            [jobSearch()],
+            ['/Users/me/Code/design tokens/stack'],
+            coding,
+            masks
+          )
+        ) as Overlay;
+        expect(doc.services.hermes.volumes).toEqual([
+          '/Users/me/Documents/Job Search:/opt/projects/job-search:ro',
+          mask('/opt/projects/job-search/data'),
+        ]);
+        expect(doc.services['hermes-webui'].volumes).toEqual([
+          '/Users/me/Documents/Job Search:/opt/projects/job-search',
+          mask('/opt/projects/job-search/data'),
+        ]);
+        expect(doc.services.opencode.volumes).toEqual([
+          ...expected,
+          mask('/Users/me/Code/design tokens/stack/data'),
+          mask('/Users/me/Documents/Job Search/data'),
+        ]);
+        // The context root and the coding root show the same checkout: one mask, not two.
+        expect(doc.services['hermes-worker'].volumes).toEqual([
+          '/Users/me/Documents/Job Search:/opt/projects/job-search',
+          '/Users/me/Code/design tokens/stack:/Users/me/Code/design tokens/stack:ro',
+          ...expected,
+          mask('/opt/projects/job-search/data'),
+          mask('/Users/me/Code/design tokens/stack/data'),
+          mask('/Users/me/Documents/Job Search/data'),
+        ]);
+      });
+
+      it('masks a checkout under a read-only context root', () => {
+        const doc = load(
+          buildHermesProjectsOverlayYaml([], ['/Users/me/Code/design tokens'], null, masks)
+        ) as Overlay;
+        expect(doc.services['hermes-worker'].volumes).toEqual([
+          '/Users/me/Code/design tokens:/Users/me/Code/design tokens:ro',
+          mask('/Users/me/Code/design tokens/stack/data'),
+        ]);
+      });
+
+      it('adds nothing when no mounted folder holds a checkout', () => {
+        const doc = load(
+          buildHermesProjectsOverlayYaml([jobSearch()], [], null, { dataDirs: [], source })
+        ) as Overlay;
+        expect(doc.services.hermes.volumes).toEqual([
+          '/Users/me/Documents/Job Search:/opt/projects/job-search:ro',
+        ]);
+      });
     });
 
     it('adds no opencode block without grants', () => {

@@ -69,6 +69,14 @@ describe('createAppMenu', () => {
     expect(menuItem('New Chat').accelerator).toBeTruthy();
   });
 
+  it('View → Toggle Details sends the inspector command on ⌥⌘0 (ADR 0069)', () => {
+    h.mainWindow = { webContents: { send: vi.fn(), isDestroyed: () => false } };
+    createAppMenu();
+    expect(menuItem('Toggle Details')).toMatchObject({ accelerator: 'CmdOrCtrl+Alt+0' });
+    menuItem('Toggle Details').click();
+    expect(h.mainWindow.webContents.send).toHaveBeenCalledWith('app:menu-command', 'toggle-inspector');
+  });
+
   it('sends a command straight to an open window', () => {
     h.mainWindow = { webContents: { send: vi.fn(), isDestroyed: () => false } };
     createAppMenu();

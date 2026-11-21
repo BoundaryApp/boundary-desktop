@@ -1,4 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { Button } from '../../components/ui/button';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
 import type { Category } from '../../../shared/writingCheck/rules';
 import { formatDayAndTime } from '../../../shared/messageTime';
 import { cachedCheck, checkedBlocks } from './writingCheckView';
@@ -91,9 +94,9 @@ export const WritingCheckPane: React.FC<{
             )}
           </span>
         </span>
-        <button type="button" className="wb-check-close" aria-label="Close check" onClick={onClose}>
+        <Button type="button" variant="quiet" size="icon-xs" className="shrink-0" aria-label="Close check" onClick={onClose}>
           ×
-        </button>
+        </Button>
       </div>
 
       {check.error ? (
@@ -147,19 +150,13 @@ const CheckResults: React.FC<{
 
       {counts.size > 0 ? (
         <>
-          <div className="wb-check-filters" role="group" aria-label="Show categories">
+          <ChipGroup type="multiple" aria-label="Show categories" className="wb-check-filters">
             {CATEGORY_ORDER.filter((c) => counts.has(c)).map((category) => (
-              <button
-                key={category}
-                type="button"
-                className="wb-check-filter"
-                aria-pressed={!hidden.has(category)}
-                onClick={() => toggle(category)}
-              >
+              <Chip key={category} pressed={!hidden.has(category)} onPressedChange={() => toggle(category)}>
                 {CATEGORY_LABELS[category]} {counts.get(category)}
-              </button>
+              </Chip>
             ))}
-          </div>
+          </ChipGroup>
           <div className="wb-check-detail" data-testid="check-detail" aria-live="polite">
             {focusedFlags.length === 0 ? (
               <span className="wb-check-hint">Point at or focus a highlight to see why it’s flagged.</span>

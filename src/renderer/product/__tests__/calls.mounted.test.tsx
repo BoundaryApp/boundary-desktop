@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CIRCLE_KEY as KEY, ME, circleMember, circleSnapshot, runningCircles } from '../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import { ProductReadyShell } from '../ProductReadyShell';
-import type { ProductDestination } from '../ProductIconRail';
+import type { ProductDestination } from '../destinations';
 import { getCallService, resetCallServiceForTests } from '../circles/calls/callService';
 import { closeCallView } from '../circles/calls/callViewState';
 import { installCallFakes, type CallFakes } from '../circles/calls/__tests__/callFakes';
@@ -131,7 +131,7 @@ async function joinInSheet(title: string) {
 
 async function openPeople() {
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: 'Open Circle details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Circle details' }));
 }
 
 describe('calls with one person in the app', () => {
@@ -451,7 +451,7 @@ describe('calls with one person in the app', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Circle list' })).getByRole('button', { name: /^Book club/ }));
     await settle();
     expect(screen.queryByRole('region', { name: 'Sam' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Open Circle details' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Circle details' })).toBeTruthy();
     expect(getCallService().current).not.toBeNull();
 
     fireEvent.click(within(callBars()[0]).getByRole('button', { name: /Sam/ }));

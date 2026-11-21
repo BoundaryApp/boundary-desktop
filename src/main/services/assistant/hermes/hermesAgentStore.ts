@@ -30,7 +30,7 @@ import {
 import { readStoreFromMemory } from '../../storeMemoryCache';
 import { withBuiltinAgentName } from './builtinAgentName';
 
-interface SessionMeta {
+export interface SessionMeta {
   agentSlug: string;
   channelId?: string;
   inference?: SessionInferenceOverride;
@@ -46,12 +46,12 @@ interface SessionMeta {
 }
 
 /** Assistant-message ordinal → agent that spoke it (per session). */
-interface SpeakerEntry {
+export interface SpeakerEntry {
   ordinal: number;
   agentSlug: string;
 }
 
-interface HermesAgentsStoreShape {
+export interface HermesAgentsStoreShape {
   /** The stack root these records belong to (informational; the file name is the key). */
   stackRoot?: string;
   agents: AgentProfile[];
@@ -951,6 +951,15 @@ export function setRoomVoiceSent(roomKey: string, agentSlug: string, hash: strin
   const all = { ...(store().get('roomVoicesSent') ?? {}) };
   all[roomKey] = { ...(all[roomKey] ?? {}), [agentSlug]: hash };
   store().set('roomVoicesSent', all);
+}
+
+/**
+ * A copy of every record for the stack this session talks to, for writing an export (ADR 0070
+ * §3). Changing it changes nothing stored.
+ */
+export function readHermesAgentStoreSnapshot(): HermesAgentsStoreShape {
+  ensureBuiltin();
+  return structuredClone({ ...STORE_DEFAULTS, ...store().store });
 }
 
 /** Test helper — wipe store state. */

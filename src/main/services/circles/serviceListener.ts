@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import type { ShareLevel } from '../../../shared/serviceOffers';
-import { checkAgentRequest, readLimitedBody } from '../hostBridge/requestGuard';
+import type { AgentRequestGuard } from './sharingConfig';
 import type { ServiceCall } from './networkMessages';
 import { SERVICE_MAX_BODY_BYTES } from './serviceGateway';
 
@@ -22,6 +22,8 @@ import { SERVICE_MAX_BODY_BYTES } from './serviceGateway';
 const SERVER_ERROR = -32000;
 
 export interface ServiceListenerOptions {
+  /** Checks each call's caller and token, and reads its body. */
+  guard: AgentRequestGuard;
   /** The kept port; 0 picks a free one. Rejects with `EADDRINUSE` when it is taken. */
   port: number;
   /** Random tokens the stack holds as the workspace's `key_ro` and `key_rw`. */
@@ -93,7 +95,7 @@ export function startServiceListener(options: ServiceListenerOptions): Promise<S
   });
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const checked = checkAgentRequest(req.headers, { port, tokens });
+    const checked = options.guard.check(req.headers, { port, tokens });
     if ('status' in checked) {
       req.resume();
       answer(res, checked.status, null, checked.reason);
@@ -127,7 +129,7 @@ export function startServiceListener(options: ServiceListenerOptions): Promise<S
       answer(res, 413, null, 'Request body is too large.');
       return;
     }
-    const raw = await readLimitedBody(req, SERVICE_MAX_BODY_BYTES);
+    const raw = await options.guard.readBody(req, SERVICE_MAX_BODY_BYTES);
     if (raw === null) {
       answer(res, 413, null, 'Request body is too large.');
       return;

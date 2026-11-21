@@ -7,38 +7,22 @@ import type {
   HermesChatUsageSnapshot,
   HermesHistoryWindow,
 } from '../../../shared/types/hermesChat';
-import {
-  formatTurnStatsLine,
-  toHostRelativePath,
-  uniquePreserveOrder,
-} from '../../../shared/hermesToolPaths';
+import { formatTurnStatsLine } from '../../../shared/hermesToolPaths';
 import { isOwnedRunningTurn, useRunningTurns } from './runningTurns';
 import { clearSetupOffer, recordSetupOffer, setupOfferKind } from './setupOffers';
-import { projectPathsOf } from './MessageActions';
-import { withToolEvent, type ToolCardState } from './ToolCards';
+import { withContextFiles, withToolEvent, type ToolCardState } from './ToolCards';
+import { useOnChatSwitch } from './useOnChatSwitch';
 
 type SameChat = (a: string, b: string) => boolean;
 
-/**
- * Runs `onSwitch` on mount and whenever the thread shows another chat. The open chat getting
- * its real session id (a DM placeholder's first send) is the same chat, so it does not count.
- */
-export function useOnChatSwitch(
-  sessionId: string | null,
-  sameChat: SameChat | undefined,
-  onSwitch: () => void
-): void {
-  const shownChatRef = useRef(sessionId);
-  const onSwitchRef = useRef(onSwitch);
-  onSwitchRef.current = onSwitch;
-  const sameChatRef = useRef(sameChat);
-  sameChatRef.current = sameChat;
-  useEffect(() => {
-    const prev = shownChatRef.current;
-    shownChatRef.current = sessionId;
-    if (prev && sessionId && prev !== sessionId && sameChatRef.current?.(prev, sessionId)) return;
-    onSwitchRef.current();
-  }, [sessionId]);
+/** The chat's context breakdown, or null when it can't be read (a failure draws nothing). */
+async function loadBreakdown(sessionId: string): Promise<HermesChatContextBreakdown | null> {
+  try {
+    const result = await window.electronAPI.hermesChat.getContextBreakdown({ sessionId });
+    return result.success ? (result.breakdown ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface LiveTurn {
@@ -122,14 +106,11 @@ export function useLiveTurn({
     setContextCategories(null);
     if (!isDm || !sessionId || !hasMessages) return undefined;
     let live = true;
-    void window.electronAPI.hermesChat
-      .getContextBreakdown({ sessionId })
-      .then((result) => {
-        if (!live || !result.success) return;
-        setHistoryWindow(result.breakdown?.history ?? null);
-        setContextCategories(result.breakdown?.categories ?? null);
-      })
-      .catch((): void => undefined);
+    void loadBreakdown(sessionId).then((breakdown) => {
+      if (!live || !breakdown) return;
+      setHistoryWindow(breakdown.history ?? null);
+      setContextCategories(breakdown.categories ?? null);
+    });
     return () => {
       live = false;
     };
@@ -157,43 +138,22 @@ export function useLiveTurn({
         }
       }
       if (event.phase === 'done' && event.sessionId) {
-        void window.electronAPI.hermesChat
-          .getContextBreakdown({ sessionId: event.sessionId })
-          .then((result) => {
-            if (!result.success || !result.breakdown) return;
-            setHistoryWindow(result.breakdown.history ?? null);
-            setContextCategories(result.breakdown.categories);
-            setUsage((prev) => ({
-              ...prev,
-              contextUsed: result.breakdown!.contextUsed,
-              contextMax: result.breakdown!.contextMax,
-              contextPercent: result.breakdown!.contextPercent,
-              contextEstimated: result.breakdown!.contextEstimated,
-            }));
-            // Finished cards with no paths take the context files. They show again if the
-            // model restarts for an inference switch, which keeps the live turn's cards.
-            const rawFilePaths = (result.breakdown.contextFiles ?? [])
-              .map((f) => f.path)
-              .filter(Boolean);
-            const filePaths = rawFilePaths.map((p) => toHostRelativePath(p, containerPath));
-            const fileProjectPaths = projectPathsOf(rawFilePaths, containerPath);
-            if (filePaths.length > 0) {
-              setToolCards((prev) =>
-                prev.map((card) =>
-                  card.status === 'done' && (!card.paths || card.paths.length === 0)
-                    ? {
-                        ...card,
-                        paths: uniquePreserveOrder([...(card.paths ?? []), ...filePaths]),
-                        projectPaths: uniquePreserveOrder([
-                          ...(card.projectPaths ?? []),
-                          ...fileProjectPaths,
-                        ]),
-                      }
-                    : card
-                )
-              );
-            }
-          });
+        void loadBreakdown(event.sessionId).then((breakdown) => {
+          if (!breakdown) return;
+          setHistoryWindow(breakdown.history ?? null);
+          setContextCategories(breakdown.categories);
+          setUsage((prev) => ({
+            ...prev,
+            contextUsed: breakdown.contextUsed,
+            contextMax: breakdown.contextMax,
+            contextPercent: breakdown.contextPercent,
+            contextEstimated: breakdown.contextEstimated,
+          }));
+          // Finished cards with no paths take the context files. They show again if the
+          // model restarts for an inference switch, which keeps the live turn's cards.
+          const rawFilePaths = (breakdown.contextFiles ?? []).map((f) => f.path).filter(Boolean);
+          setToolCards((prev) => withContextFiles(prev, rawFilePaths, containerPath));
+        });
       }
     });
 

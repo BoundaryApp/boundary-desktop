@@ -7,6 +7,7 @@ import type {
   HermesMentionsListResult,
 } from '../../../../shared/types/hermesChat';
 import { parseMemberMentions } from '../../../../shared/hermesMentions';
+import type { IpcResult } from '../../../../shared/ipc/result';
 import { getHermesGatewaySession } from './hermesGatewaySession';
 import {
   getMentionsSeenAt,
@@ -152,7 +153,7 @@ export async function listHermesMentions(): Promise<HermesMentionsListResult> {
   }
 }
 
-export function markHermesMentionsSeen(): { success: boolean } {
+export function markHermesMentionsSeen(): IpcResult {
   setMentionsSeenAt(new Date().toISOString());
   return { success: true };
 }

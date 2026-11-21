@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/types/hermesChat';
 import type { KanbanFiledTask } from '../../../shared/types/hermesKanban';
 import type { SpeakerSegment } from './speakerSegments';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 /**
  * What Boundary keeps on a transcript message's `metadata.custom`. History writes it in
@@ -59,9 +60,6 @@ const NO_REPLY_REASONS: ReadonlySet<string> = new Set<HermesNoReplyReason>([
   'withdrawn',
   'unknown',
 ]);
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function noReplyOf(value: unknown): HermesNoReply | undefined {
   if (!isRecord(value) || typeof value.reason !== 'string') return undefined;

@@ -4,7 +4,6 @@ import {
   clearLlmSlot,
   clearOpenAiConfig,
   forgetSavedOpenRouterKey,
-  getAppDefaultSlot,
   getOpenAiOnboardingStatus,
   getSlotApiKey,
   getSlotLlmConnection,
@@ -13,6 +12,7 @@ import {
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
 } from '../OpenAiOnboardingStore';
+import { getAppDefaultSlot } from '../../inference/appInferenceChoice';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1';
 const MODEL = 'anthropic/claude-sonnet-4';

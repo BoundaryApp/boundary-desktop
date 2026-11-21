@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type {
   WritingVoiceProgress,
   WritingVoiceRecord,
@@ -8,11 +6,10 @@ import type {
 import { persistDebugLog } from '../../../persistDebugLog';
 import { checkWritingVoiceStyle } from './writingVoiceStyle';
 import { listWritingVoiceRecords, upsertWritingVoiceRecord } from './writingVoiceStore';
-import { hashWritingVoiceSamples, writingVoiceDir } from './writingVoicePaths';
+import { hashWritingVoiceSamples, writingVoiceFiles, writingVoiceRel } from './writingVoicePaths';
 import { createSerialQueue } from '../../../../shared/utils/serialQueue';
+import { TURN_QUIET_MS } from '../hermes/turnQuiet';
 
-/** Quiet time before asking Hermes whether the turn still runs, as chat does (TURN_QUIET_MS). */
-const QUIET_MS = 3 * 60 * 1000;
 /** A calibration still running after this is stopped. */
 const CAP_MS = 20 * 60 * 1000;
 const SESSION_TITLE = 'Writing voice calibration';
@@ -143,7 +140,7 @@ function waitForTurnEnd(
           if (status === null || status === 'idle') finish('idle');
           else arm();
         });
-    }, QUIET_MS);
+    }, TURN_QUIET_MS);
   };
   const mine = (event: GatewayEvent) => event.session_id === sessionId;
   unsubs.push(
@@ -197,10 +194,11 @@ async function run(
     };
     // What calibration reads, taken before the turn: a STYLE.md left from an earlier run must
     // not pass for a new one, and samples added meanwhile must still show as changed.
-    const dir = writingVoiceDir(id, deps.contentRoot);
-    const styleFile = path.join(dir, 'STYLE.md');
-    const styleBefore = await fs.promises.readFile(styleFile, 'utf8').catch((): null => null);
-    const sampleHash = await hashWritingVoiceSamples(path.join(dir, 'samples'));
+    const files = writingVoiceFiles(deps.contentRoot);
+    const rel = writingVoiceRel(id);
+    const styleFile = `${rel}/STYLE.md`;
+    const styleBefore = await files.readText('userContent', styleFile).catch((): null => null);
+    const sampleHash = await hashWritingVoiceSamples(files, `${rel}/samples`);
     turn = waitForTurnEnd(gateway, session.id, (name) =>
       advance(name === 'write_file' || name === 'patch' ? 'writing' : 'reading')
     );
@@ -212,9 +210,9 @@ async function run(
     }
     if (end === 'error') return fail(ERRORS.failed, 'turn-error', turn.tools());
     advance('checking');
-    const check = await checkWritingVoiceStyle(dir);
+    const check = await checkWritingVoiceStyle(files, rel);
     if ('reason' in check) return fail(ERRORS.noStyle, check.reason, turn.tools());
-    const styleAfter = await fs.promises.readFile(styleFile, 'utf8').catch((): null => null);
+    const styleAfter = await files.readText('userContent', styleFile).catch((): null => null);
     if (styleAfter === styleBefore) return fail(ERRORS.noStyle, 'unchanged', turn.tools());
     record = update(id, {
       status: 'ready',

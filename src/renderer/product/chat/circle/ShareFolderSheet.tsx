@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { CircleSnapshot } from '../../../../shared/types/circles';
 import type { FolderScan, SharedFolderProblem } from '../../../../shared/types/sharedFolders';
 import { Callout } from '../../../components/ui/alert';
@@ -7,6 +7,12 @@ import { Sheet } from '../../../components/ui/sheet';
 import { displayHostPath } from '../chatTelemetryFormat';
 import { quorumLine, sizeLine, unsharedReason } from './sharedFolderView';
 import { Button } from '../../../components/ui/button';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { ChoiceGroup } from '../../../components/ui/choice-group';
+import { ChoiceRow } from '../../../components/ui/choice-row';
+import { Radio } from '../../../components/ui/radio';
+import { Input } from '../../../components/ui/input';
+import { useAction } from '../../circles/useCircles';
 
 const api = () => window.electronAPI.circles;
 
@@ -25,14 +31,14 @@ const STEP_NUMBER: Record<Step, string> = { how: '1 of 3', review: '2 of 3', peo
 
 const basename = (hostPath: string): string => hostPath.replace(/\/+$/, '').split('/').pop() || hostPath;
 
-const Choice: React.FC<{ on: boolean; title: string; detail: React.ReactNode; onPick: () => void }> = ({ on, title, detail, onPick }) => (
-  <button type="button" role="radio" aria-checked={on} className={`wb-choice${on ? ' is-sel' : ''}`} onClick={onPick}>
-    <span className="wb-radio" aria-hidden="true" />
-    <span className="wb-choice-copy">
-      <b>{title}</b>
-      <span>{detail}</span>
-    </span>
-  </button>
+const Choice: React.FC<{ name: string; on: boolean; title: string; detail: React.ReactNode; onPick: () => void }> = ({
+  name,
+  on,
+  title,
+  detail,
+  onPick,
+}) => (
+  <ChoiceRow variant="card" control={<Radio name={name} checked={on} onChange={onPick} />} title={title} description={detail} />
 );
 
 /**
@@ -45,6 +51,8 @@ export const ShareFolderSheet: React.FC<{
   onClose: () => void;
   onShared: (key: string) => void;
 }> = ({ circle, open, onClose, onShared }) => {
+  const folderName = useId();
+  const roleName = useId();
   const [step, setStep] = useState<Step>('how');
   const [source, setSource] = useState<Source>('pick');
   const [newName, setNewName] = useState('');
@@ -52,8 +60,7 @@ export const ShareFolderSheet: React.FC<{
   const [role, setRole] = useState<Role>('editor');
   /** Other members chosen as managers, by identity. */
   const [managers, setManagers] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
 
   useEffect(() => {
     if (!open) return;
@@ -72,31 +79,21 @@ export const ShareFolderSheet: React.FC<{
   const blocked = picked?.problem && picked.problem.kind !== 'sync-tool' ? picked.problem : null;
   const name = source === 'new' ? newName.trim() : (picked?.name ?? '');
 
-  const pick = async () => {
-    setBusy(true);
-    setError(null);
-    try {
+  const pick = () =>
+    run(async () => {
       const chosen = await window.electronAPI.projects.pickFolder();
-      if (!chosen.success) {
-        setError(chosen.error ?? 'Couldn’t open the folder picker.');
-        return;
-      }
-      if (chosen.canceled || !chosen.hostPath) return;
+      if (!chosen.success || chosen.canceled || !chosen.hostPath) return chosen;
       const hostPath = chosen.hostPath;
       const { problem } = await api().folderCheck({ path: hostPath });
       const scan = problem && problem.kind !== 'sync-tool' ? null : await api().folderScan({ path: hostPath });
       setPicked({ path: hostPath, name: basename(hostPath), problem, scan: scan ?? { files: 0, bytes: 0, unshared: [], unsharedCount: 0, partial: false } });
       setStep('review');
-    } finally {
-      setBusy(false);
-    }
-  };
+      return chosen;
+    }, 'Couldn’t open the folder picker.');
 
   const share = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api().folderShare({
+    const result = await run(() =>
+      api().folderShare({
         key: circle.key,
         name,
         source: source === 'pick' ? (picked?.path ?? null) : null,
@@ -105,16 +102,11 @@ export const ShareFolderSheet: React.FC<{
         ...(managers.length
           ? { managers: circle.members.filter((member) => managers.includes(member.identity)).map(({ identity, name }) => ({ identity, name })) }
           : {}),
-      });
-      if (result.success === false) {
-        setError(result.error);
-        return;
-      }
-      onClose();
-      onShared(result.key);
-    } finally {
-      setBusy(false);
-    }
+      })
+    );
+    if (!result || result.success === false) return;
+    onClose();
+    onShared(result.key);
   };
 
   const kicker = (
@@ -142,13 +134,13 @@ export const ShareFolderSheet: React.FC<{
             Every member can add it to their Mac. Each copy is a normal folder that people and their agents work in, and
             changes sync between Macs.
           </p>
-          <div className="wb-choices" role="radiogroup" aria-label="Folder">
-            <Choice on={source === 'pick'} title="Share a folder from this Mac" detail="The folder stays where it is and becomes your copy." onPick={() => setSource('pick')} />
-            <Choice on={source === 'new'} title="Start an empty folder" detail={`Made in ~/Circles/${circle.name}/`} onPick={() => setSource('new')} />
-          </div>
+          <ChoiceGroup kind="radio" aria-label="Folder">
+            <Choice name={folderName} on={source === 'pick'} title="Share a folder from this Mac" detail="The folder stays where it is and becomes your copy." onPick={() => setSource('pick')} />
+            <Choice name={folderName} on={source === 'new'} title="Start an empty folder" detail={`Made in ~/Circles/${circle.name}/`} onPick={() => setSource('new')} />
+          </ChoiceGroup>
           {source === 'new' ? (
             <Field label="Name" htmlFor="wb-share-folder-name">
-              <input
+              <Input
                 id="wb-share-folder-name"
                 type="text"
                 value={newName}
@@ -244,10 +236,10 @@ export const ShareFolderSheet: React.FC<{
         <>
           <h2 id="wb-share-folder-title">Who can change {name}?</h2>
           <p className="wb-sheet-lede">Everyone in {circle.name} can add it and read it.</p>
-          <div className="wb-choices" role="radiogroup" aria-label="Who can change it">
-            <Choice on={role === 'editor'} title="Everyone can edit" detail="Members change files in their own copy and the change syncs." onPick={() => setRole('editor')} />
-            <Choice on={role === 'reader'} title="Only managers edit" detail="Everyone else gets a read-only copy." onPick={() => setRole('reader')} />
-          </div>
+          <ChoiceGroup kind="radio" aria-label="Who can change it">
+            <Choice name={roleName} on={role === 'editor'} title="Everyone can edit" detail="Members change files in their own copy and the change syncs." onPick={() => setRole('editor')} />
+            <Choice name={roleName} on={role === 'reader'} title="Only managers edit" detail="Everyone else gets a read-only copy." onPick={() => setRole('reader')} />
+          </ChoiceGroup>
           <h3 className="wb-folder-sect">Managers</h3>
           <ul className="wb-share-managers" aria-label="Managers">
             {[...circle.members]
@@ -257,8 +249,7 @@ export const ShareFolderSheet: React.FC<{
                 return (
                   <li key={member.identity}>
                     <label>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={on}
                         disabled={member.isMe}
                         onChange={() =>

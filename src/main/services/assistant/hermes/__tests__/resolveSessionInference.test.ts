@@ -8,9 +8,8 @@ import {
   clearOpenAiConfig,
   saveLlmConnection,
   saveLocalLlmEndpoint,
-  setAppFallbacks,
-  setAppSharedModel,
 } from '../../../onboarding/OpenAiOnboardingStore';
+import { setAppFallbacks, setAppSharedModel } from '../../../inference/appInferenceChoice';
 import {
   resetHermesAgentsStoreForTests,
   setSessionInference,

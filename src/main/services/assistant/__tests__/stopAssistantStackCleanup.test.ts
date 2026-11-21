@@ -29,7 +29,6 @@ vi.mock('../assistantPaths', async () => ({
   resolveAssistantUserContentRoot: () => '/tmp/assistant-data',
   resolveAssistantProjectRoot: () => '/tmp/fake-assistant',
   resolveAssistantStackHome: () => '/tmp/assistant-stack-home',
-  isBoundaryOwnedAssistantRoot: () => false,
   ensureAssistantDataDirs: async (): Promise<void> => undefined,
   ensureAddonMountSources: async (): Promise<void> => undefined,
   ensureAssistantWorkspaceDir: async (): Promise<void> => undefined,

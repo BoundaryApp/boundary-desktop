@@ -15,7 +15,8 @@ import type {
   TurnWindow,
 } from '../../../../shared/types/hermesChat';
 import { probeSlotHealth } from '../../onboarding/probeSlotHealth';
-import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
+import { getSlotLlmConnection } from '../../onboarding/OpenAiOnboardingStore';
+import { keepChainFallbacks } from '../../inference/appInferenceChoice';
 import { applyLlmConnectionToHermes, settleHermesApply } from '../AssistantStackService';
 import { getLastAppliedLlm, llmFingerprintsMatch } from '../AssistantStackStore';
 import { sharedModelFacts, sharedProviderNames } from '../../circles/circlesService';

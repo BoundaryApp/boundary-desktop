@@ -5,6 +5,8 @@
  * inside an add / replace / unlock payload, and never comes back.
  */
 
+import type { IpcResult } from '../ipc/result';
+
 export type VaultIdentifierType = 'email' | 'username' | 'phone';
 
 export const VAULT_IDENTIFIER_TYPES: readonly VaultIdentifierType[] = [
@@ -33,24 +35,18 @@ export interface VaultSourceStatus {
   installed: boolean;
 }
 
-export interface VaultListResult {
-  success: boolean;
+export type VaultListResult = IpcResult<{
   logins: VaultLogin[];
-  error?: string;
-}
+}>;
 
-export interface VaultSourcesResult {
-  success: boolean;
+export type VaultSourcesResult = IpcResult<{
   sources: VaultSourceStatus[];
-  error?: string;
-}
+}>;
 
-export interface VaultActionResult {
-  success: boolean;
+export type VaultActionResult = IpcResult<{
   /** The new item's id after an add or replace. */
   id?: string;
-  error?: string;
-}
+}>;
 
 interface AgentScoped {
   /** Boundary agent slug; main maps it to the Hermes profile. */

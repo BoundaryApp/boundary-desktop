@@ -34,6 +34,7 @@ import type {
   DirectMessage,
 } from '../types/circles';
 import type { AppCommand } from '../appCommands';
+import type { StackHostCapabilities } from '../stackCapabilities';
 import type { PoolSettings, TrustLevel } from '../types/confidential';
 import type { AddProviderResult, ConfidentialSpend, ConfidentialState, PoolRanking } from '../types/confidentialState';
 import type {
@@ -57,6 +58,7 @@ import type {
 } from '../types/sharedFolders';
 import type { ReportContext } from '../bugReport';
 import type { WhatsNewSnapshot } from '../types/whatsNew';
+import type { ChatHistoryExportStart, ChatHistoryState, ChatHistoryStatus } from '../types/chatHistory';
 import type { ThemePreference } from '../theme';
 import type { MediaAccess, MediaAccessStatus, MediaDevice } from '../types/media';
 import type { IpcResult } from './result';
@@ -116,6 +118,7 @@ import type {
   AcknowledgeCapabilityResult,
   CapabilityAssessment,
   CapabilityStatus,
+  RuntimeProvisionSnapshot,
 } from '../types/capability';
 import type {
   CodingAccessRequestEvent,
@@ -189,6 +192,9 @@ import type {
   HermesOpenAgentDmPayload,
   HermesOpenAgentDmResult,
   HermesProjectChangeFolderPayload,
+  HermesProjectRemoveInspect,
+  HermesProjectRemovePayload,
+  HermesProjectRemoveResult,
   HermesProjectCreateEmptyPayload,
   HermesProjectCreateHostPayload,
   HermesProjectPatchPayload,
@@ -353,6 +359,10 @@ export interface IpcInvokeChannels {
   'addons:actual-copy-password': () => IpcResult;
   /** Opens Todo lists' signed-in web app at the `web.url` `addon.sh list --json` reports, while it's on. */
   'addons:vikunja-open': () => IpcResult;
+  /** The account Todo lists' web app signs in as, while it's on; null before `init` or while off. Never the password. */
+  'addons:vikunja-account': () => { username: string } | null;
+  /** Copies that account's password to the clipboard, which clears after 60 s. It stays in main. */
+  'addons:vikunja-copy-password': () => IpcResult;
   /** Bitwarden's accounts and requests as main last read them. */
   'addons:bitwarden-overview': () => BitwardenOverview;
   /** Runs `vault.sh status --json` and `requests --json`, then answers as `bitwarden-overview`. */
@@ -545,7 +555,7 @@ export interface IpcInvokeChannels {
   'circles:call-check-export': (input: {
     label: string;
     results: CallCheckResult[];
-  }) => { success: true; path: string } | { success: false; canceled?: boolean; error?: string };
+  }) => IpcResult<{ path?: string; canceled?: boolean }>;
   /** The unread count on the app's icon; main ignores a malformed badge. */
   'app-badge:set': (badge: AppBadge) => void;
   /** **Keep the agent button on the desktop** (ADR 0058 §17): whether this platform has it, and its position. */
@@ -619,12 +629,13 @@ export interface IpcInvokeChannels {
   'setup:apply-folders': () => ApplyFirstRunFoldersResult;
 
   'assistant-stack:get-status': () => AssistantStackStatus;
+  'stack-host:capabilities': () => StackHostCapabilities;
   'assistant-stack:get-lifecycle': () => AssistantStackLifecycleSnapshot;
   'assistant-stack:ensure-running': () => EnsureAssistantStackResult;
   'assistant-stack:ensure-running-background': () => { started: boolean };
   'assistant-stack:ensure-and-apply-llm': () => EnsureAssistantStackResult;
   'assistant-stack:get-web-search-mode': () => WebSearchModeState;
-  'assistant-stack:set-web-search-mode': (mode: WebSearchMode) => { success: boolean; error?: string };
+  'assistant-stack:set-web-search-mode': (mode: WebSearchMode) => IpcResult;
 
   'whats-new:get-state': () => WhatsNewSnapshot | null;
   'whats-new:mark-seen': (version: string) => void;
@@ -646,8 +657,8 @@ export interface IpcInvokeChannels {
 
   'resources:get-snapshot': () => HostResourceSnapshot;
   'resources:get-compose-inventory': () => ComposeInventorySnapshot;
-  'resources:subscribe-compose-inventory': () => { success: boolean };
-  'resources:unsubscribe-compose-inventory': () => { success: boolean };
+  'resources:subscribe-compose-inventory': () => IpcResult;
+  'resources:unsubscribe-compose-inventory': () => IpcResult;
 
   'host-bridge:approval-respond': (
     payload: HostBridgeApprovalRespondPayload
@@ -709,11 +720,11 @@ export interface IpcInvokeChannels {
   ) => HermesMoveToProjectResult;
   'hermes-chat:project-marks': (payload: { sessionId: string }) => SessionProjectMark[];
   'hermes-chat:list-mentions': () => HermesMentionsListResult;
-  'hermes-chat:mark-mentions-seen': () => { success: boolean };
+  'hermes-chat:mark-mentions-seen': () => IpcResult;
   'hermes-chat:running-list': () => HermesRunningTurn[];
   'hermes-chat:open-agent-dm': (payload: HermesOpenAgentDmPayload) => HermesOpenAgentDmResult;
   'hermes-chat:branch': (payload: HermesChatBranchPayload) => HermesChatBranchResult;
-  'hermes-chat:delete-failed-chat': (payload: HermesChatHistoryPayload) => { success: boolean };
+  'hermes-chat:delete-failed-chat': (payload: HermesChatHistoryPayload) => IpcResult;
   'hermes-chat:save-reply': (payload: HermesSaveReplyPayload) => HermesSaveReplyResult;
   'hermes-chat:reveal-project-file': (
     payload: HermesRevealProjectFilePayload
@@ -731,9 +742,9 @@ export interface IpcInvokeChannels {
   ) => HermesSessionInferenceResult;
   'hermes-chat:context-breakdown': (payload: HermesChatHistoryPayload) => HermesChatBreakdownResult;
   'hermes-chat:start': (payload: HermesChatStartPayload) => HermesChatStartResult;
-  'hermes-chat:cancel': (payload: HermesChatCancelPayload) => { success: boolean };
+  'hermes-chat:cancel': (payload: HermesChatCancelPayload) => IpcResult;
   /** **Run now** on a turn held for its local model server. */
-  'hermes-chat:run-now': (payload: { requestId: string }) => { success: boolean };
+  'hermes-chat:run-now': (payload: { requestId: string }) => IpcResult;
   'workload:replies-at-once': () => RepliesAtOnce | null;
   'workload:set-replies-at-once': (payload: { value: number | null }) => RepliesAtOnce | null;
   'hermes-chat:approval-respond': (
@@ -764,7 +775,7 @@ export interface IpcInvokeChannels {
   'hermes-agents:set-writing-voices': (
     slug: string,
     voices: AgentWritingVoices
-  ) => { success: true; agent: AgentProfile } | { success: false; error: string };
+  ) => IpcResult<{ agent?: AgentProfile }>;
 
   'hermes-channels:list': () => HermesChannelsListResult;
   'hermes-channels:create': (payload: HermesChannelCreatePayload) => HermesChannelCreateResult;
@@ -787,6 +798,9 @@ export interface IpcInvokeChannels {
   'hermes-projects:create-empty': (payload: HermesProjectCreateEmptyPayload) => HermesProjectResult;
   'hermes-projects:select': (payload: HermesProjectSelectPayload) => HermesProjectResult;
   'hermes-projects:change-folder': (payload: HermesProjectChangeFolderPayload) => HermesProjectResult;
+  /** What the Remove project sheet shows (ADR 0067). */
+  'hermes-projects:remove-inspect': (payload: { projectId: string }) => HermesProjectRemoveInspect;
+  'hermes-projects:remove': (payload: HermesProjectRemovePayload) => HermesProjectRemoveResult;
   'hermes-projects:patch': (payload: HermesProjectPatchPayload) => HermesProjectResult;
   'hermes-projects:reveal': (payload: { projectId: string }) => IpcResult;
   'hermes-projects:complete-path': (payload: HermesCompletePathPayload) => HermesCompletePathResult;
@@ -806,10 +820,18 @@ export interface IpcInvokeChannels {
     payload: HermesProjectSourcesInspectPayload
   ) => HermesProjectSourcesResult;
 
+  /** Moving chat history (ADR 0070): the one history action's state, and whether it can run here. */
+  'chat-history:status': () => ChatHistoryStatus;
+  /** Asks for a parent folder, then starts the export; progress comes as `chat-history:changed`. */
+  'chat-history:export': () => ChatHistoryExportStart;
+  /** Stops the running history action. False when none was running. */
+  'chat-history:cancel': () => boolean;
+  /** Shows the last export's folder in the file manager. */
+  'chat-history:reveal': (folder: string) => IpcResult;
   'writing-voices:list': () => WritingVoiceListResult;
   'writing-check:detector-status': () => DetectorStatus;
   'writing-check:detector-check': (payload: { text: string }) => DetectorCheckResult;
-  'writing-check:detector-agree': (payload: { provider: DetectorProvider }) => { success: boolean };
+  'writing-check:detector-agree': (payload: { provider: DetectorProvider }) => IpcResult;
   'writing-check:file-read': (payload: WritingCheckFilePayload) => WritingCheckFileResult;
   'writing-check:file-pick': (payload: WritingCheckPickPayload) => WritingCheckFileResult;
   'writing-voices:check': (sources: WritingVoiceSource[]) => WritingVoiceCheckSummary;
@@ -825,11 +847,11 @@ export interface IpcInvokeChannels {
   'writing-voices:users': (id: string) => WritingVoiceUsersResult;
   'writing-voices:chat-get': (
     sessionId: string
-  ) => { success: true; voice: HermesSessionWritingVoice } | { success: false; error: string };
+  ) => IpcResult<{ voice?: HermesSessionWritingVoice }>;
   'writing-voices:chat-set': (
     sessionId: string,
     voiceId: string | null
-  ) => { success: true; voice: HermesSessionWritingVoice } | { success: false; error: string };
+  ) => IpcResult<{ voice?: HermesSessionWritingVoice }>;
   'writing-voices:open-style': (id: string) => WritingVoiceActionResult;
   'writing-voices:reveal': (id: string) => WritingVoiceActionResult;
 
@@ -901,6 +923,8 @@ export interface IpcEventChannels {
   'app:menu-command': AppCommand;
   'local-llm:changed': LocalLlmChangedPayload;
   'capability:progress': string;
+  /** The container runtime resolve entered a stage (setup's Preparing screen). */
+  'capability:provision-stage': RuntimeProvisionSnapshot;
   'assistant-stack:lifecycle': AssistantStackLifecycleSnapshot;
   /** The stack's health check passed or stopped passing. */
   'assistant-stack:ready': boolean;
@@ -935,6 +959,7 @@ export interface IpcEventChannels {
   'hermes-kanban:open-task': string;
   'coding-folders:progress': string;
   'writing-voices:progress': WritingVoiceProgress;
+  'chat-history:changed': ChatHistoryState;
   /** A voice was created, deleted, renamed or edited. */
   'writing-voices:changed': void;
   'hermes-projects:create-progress': ProjectCreateProgressEvent;

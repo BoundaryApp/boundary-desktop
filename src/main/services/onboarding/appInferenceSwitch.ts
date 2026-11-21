@@ -9,13 +9,12 @@ import type {
 import { persistDebugLog } from '../../persistDebugLog';
 import { broadcast } from '../windows';
 import { getLastAppliedLlm } from '../assistant/AssistantStackStore';
+import { getOpenAiOnboardingStatus, getSlotLlmConnection } from './OpenAiOnboardingStore';
 import {
   type AppInferenceChoice,
-  getOpenAiOnboardingStatus,
-  getSlotLlmConnection,
   readAppInferenceChoice,
   restoreAppInferenceChoice,
-} from './OpenAiOnboardingStore';
+} from '../inference/appInferenceChoice';
 
 /**
  * One change of the app default at a time, from Settings. The store changes first, then the stack

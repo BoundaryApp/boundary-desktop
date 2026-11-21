@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import importX from 'eslint-plugin-import-x';
@@ -35,6 +37,90 @@ const rawIpcMessage =
   'Use the typed IPC helpers: handle/handleResult/sendEvent (src/main/ipc.ts), broadcast ' +
   '(src/main/services/windows.ts), or invoker/listen (src/preloadIpc.ts).';
 
+/**
+ * Code that reaches the agent stack goes through the stack host (ADR 0062, remote stack plan
+ * 1e): `getStackFiles` or `stackFilesAt` for its files, `StackCommands` for its processes and
+ * `getStackEndpoints` for its URLs. These folders may not import `fs` or `child_process`, or
+ * write a `127.0.0.1` literal, outside `stackHost/`.
+ */
+const stackGuardFiles = [
+  'src/main/services/assistant/**/*.{ts,tsx}',
+  'src/main/services/addons/**/*.{ts,tsx}',
+  'src/main/services/hostBridge/**/*.{ts,tsx}',
+];
+
+/**
+ * Files in those folders that still act on this machine, each with its reason from the remote
+ * stack plan. Remove an entry when its file moves to the stack host or behind a capability.
+ */
+const stackGuardAllowed = [
+  // Location resolution and local setup: they find the stack folder and its data root.
+  'src/main/services/assistant/assistantPaths.ts',
+  'src/main/services/assistant/resolveAssistantRoot.ts',
+  'src/main/services/assistant/stackEnv.ts',
+  // provision: Boundary installing, upgrading and backing up its own stack. Each checks the
+  // capability before it touches the install.
+  'src/main/services/assistant/provisionSovereignStack.ts',
+  'src/main/services/assistant/runSovereignSetup.ts',
+  'src/main/services/assistant/projectTreeSwap.ts',
+  'src/main/services/assistant/stackDataBackup.ts',
+  // The local host's own compose context; its provisioning and host bridge steps check provision
+  // and hostCallbacks.
+  'src/main/services/assistant/AssistantStackService.ts',
+  // Tools on this machine: ssh-keygen, the Mac calendar helper, `id -F`, Chrome.
+  'src/main/services/assistant/hermesWorkerKey.ts',
+  'src/main/services/assistant/calendar/macCalendarHelper.ts',
+  'src/main/services/addons/addonInstaller.ts',
+  'src/main/services/hostBridge/chromePipe.ts',
+  // engineControl: probes ports on this machine to size and place the engine; measures nothing
+  // without the capability.
+  'src/main/services/addons/addonHostFacts.ts',
+  // hostFolders: folders on this machine bound into containers, and Boundary's own files under
+  // userData beside the stack. Each feature checks the capability before it binds or reads one.
+  'src/main/services/assistant/coding/**',
+  'src/main/services/assistant/hermes/hermesContextRoots.ts',
+  'src/main/services/assistant/hermes/hermesProjects.ts',
+  'src/main/services/assistant/hermes/hermesProjectSources.ts',
+  'src/main/services/assistant/hermes/hermesProjectsOverlay.ts',
+  // The export folder a person picks on this machine (Export history checks hostFolders).
+  'src/main/services/assistant/chatHistory/chatHistoryExport.ts',
+  // Reveals SOUL.md in Finder, which needs a path on this machine (checks hostFolders).
+  'src/main/services/assistant/hermes/hermesAgents.ts',
+  // Sample files a person picks on this machine, and revealing a voice's folder in Finder.
+  'src/main/services/assistant/writingVoices/writingVoiceSamples.ts',
+  'src/main/services/assistant/writingVoices/writingVoicesIpc.ts',
+  // Files in project folders on this machine (checks hostFolders), with operations StackFiles
+  // lacks: modification times, streamed hashes, file handles.
+  'src/main/services/assistant/hermes/projectSourcesModel.ts',
+  'src/main/services/assistant/hermes/htmlPreviewFiles.ts',
+  'src/main/services/assistant/hermes/writingCheckFiles.ts',
+  'src/main/services/assistant/hermes/hermesReplyFiles.ts',
+  // Paths `.env` may set anywhere on this machine (ACTUAL_DATA_DIR, TWENTY_PASSWORD_FILE,
+  // VIKUNJA_FILES_DIR, BITWARDEN_HOST_DATA_DIR).
+  'src/main/services/addons/actualRuntime.ts',
+  'src/main/services/addons/twentySignIn.ts',
+  'src/main/services/addons/vikunjaAddon.ts',
+  'src/main/services/addons/bitwardenFolders.ts',
+  // The relay's credential client files go in BITWARDEN_HOST_DATA_DIR's secrets folder (ADR 0065).
+  'src/main/services/hostBridge/credentialClient.ts',
+  // Loopback checks on a URL someone typed; they build no stack URL.
+  'src/main/services/addons/emailAddon.ts',
+  'src/main/services/assistant/rewriteLlmUrlForContainer.ts',
+  // hostCallbacks: the host bridge listens on this machine and keeps its own files. It doesn't
+  // start without the capability.
+  'src/main/services/hostBridge/auditLog.ts',
+  'src/main/services/hostBridge/bridgeServer.ts',
+  'src/main/services/hostBridge/browserConfig.ts',
+  'src/main/services/hostBridge/hostBridgeService.ts',
+  'src/main/services/hostBridge/requestGuard.ts',
+];
+
+const stackGuardMessage =
+  'Reach the stack through the stack host (src/main/services/stackHost): getStackFiles or ' +
+  'stackFilesAt for files, StackCommands for processes, getStackEndpoints for URLs (ADR 0062).';
+
+const nodeModules = ['fs', 'fs/promises', 'child_process'];
+
 /** Methods that send to a renderer without the channel map's types. */
 const rawSendMethods = new Set(['send', 'sendToFrame', 'postMessage']);
 
@@ -67,13 +153,31 @@ const noRawRendererSend = {
   },
 };
 
+/**
+ * Experiments may add folders for lint to skip, under `eslint` in their allowances file. Absent
+ * from the public repository, where the list is empty.
+ */
+const experimentAllowances = join(import.meta.dirname, 'src', 'experiments', 'drift-allowances.json');
+const experimentIgnores = existsSync(experimentAllowances)
+  ? (JSON.parse(readFileSync(experimentAllowances, 'utf8')).eslint ?? [])
+  : [];
+
 export default defineConfig([
   globalIgnores([
     'out/**',
     'dist/**',
     'node_modules/**',
     '.claude/**',
+    ...experimentIgnores,
   ]),
+  {
+    // Build and check scripts run in Node and aren't covered by any tsconfig, so only the
+    // untyped recommended rules apply.
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended],
+    // The Playwright checks pass functions to page.evaluate, which run in the browser.
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -162,6 +266,34 @@ export default defineConfig([
     ignores: testFiles,
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
+  {
+    files: stackGuardFiles,
+    ignores: [
+      ...testFiles,
+      'src/main/services/assistant/hermes/vendor/**',
+      ...stackGuardAllowed,
+    ],
+    rules: {
+      // Replaces the rule's options from the raw IPC block, so it repeats the electron entry.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'electron', importNames: ['ipcMain', 'ipcRenderer'], message: rawIpcMessage },
+            ...nodeModules.flatMap((name) => [
+              { name, message: stackGuardMessage },
+              { name: `node:${name}`, message: stackGuardMessage },
+            ]),
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'Literal[value=/127\\.0\\.0\\.1/]', message: stackGuardMessage },
+        { selector: 'TemplateElement[value.raw=/127\\.0\\.0\\.1/]', message: stackGuardMessage },
+      ],
     },
   },
   {

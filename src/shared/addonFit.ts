@@ -14,6 +14,11 @@ export interface AddonHostFacts {
   engineResizable: boolean;
   /** Memory reserved by what is already turned on (ADR 0055 §1). Absent counts as none. */
   reservedMiB?: number;
+  /**
+   * False when the engine runs on a host Boundary doesn't control, so none of the figures above
+   * were measured and every check passes. Absent counts as measured.
+   */
+  measured?: boolean;
 }
 
 export interface AddonFit {
@@ -31,6 +36,9 @@ const RANK: Record<Level, number> = { ok: 0, tight: 1, over: 2 };
 
 /** Pure function: compares an add-on's footprint with the engine's free memory, disk and port. */
 export function assessAddonFit(entry: AddonCatalogEntry, facts: AddonHostFacts): AddonFit {
+  if (facts.measured === false) {
+    return { verdict: 'ok', memory: 'ok', disk: 'ok', port: 'ok', freeMiB: 0, suggestedEngineMiB: null };
+  }
   const freeMiB = facts.engineMiB - facts.usedMiB;
   const headroomMiB = freeMiB - entry.reserveMiB;
 

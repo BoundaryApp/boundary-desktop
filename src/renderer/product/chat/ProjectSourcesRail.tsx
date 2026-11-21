@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { formatInferenceChipTitle } from '../../../shared/inferenceDisplay';
 import type {
   HermesProjectRecord,
+  HermesProjectRemoveResult,
   HermesProjectSourcesInspect,
   HermesSourceRow,
   ProjectInferencePin,
@@ -16,11 +17,13 @@ import { storedStack } from '../inference/stack';
 import { CONFIDENTIAL_COPY } from '../inference/confidentialCopy';
 import { projectConfidentialFloor } from '../../../shared/types/confidential';
 import { displayHostPath } from './chatTelemetryFormat';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { useDismiss } from '../../components/ui/use-dismiss';
+import { useProjectSourceWarnings } from './projectSourceWarnings';
 import { ProjectGlyph } from './ProjectGlyph';
 import { folderKey, folderRowView } from './codingFolderView';
 import { DeleteFolderSheet } from './DeleteFolderSheet';
+import { RemoveProjectSheet } from './RemoveProjectSheet';
 import {
   dismissCodingError,
   forceQueuedCodingChanges,
@@ -37,6 +40,10 @@ import { APP_NAME } from '../../../shared/buildIdentity';
 import { Callout } from '../../components/ui/alert';
 import { TrashNotice } from '../TrashNotice';
 import { Button } from '../../components/ui/button';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Switch } from '../../components/ui/switch';
+import { StackCapabilityNote, useStackCapability } from '../stackCapabilities';
+import { patchProjectInference, type PatchProjectInference } from './useProjects';
 
 const CHECKLIST = ['Saved', 'Restarting the coding agent', 'Checking it can open the folder'];
 
@@ -61,8 +68,10 @@ export interface ProjectSourcesRailProps {
   onRefreshIndex: () => void;
   onAddFolder: () => void;
   onRemoveSource: (sourceId: string) => void;
-  /** Called after a successful inference patch so the parent can refresh project list. */
-  onProjectsUpdated?: (projects: HermesProjectRecord[]) => void;
+  /** Saves the project's inference pin and updates the project list; defaults to no list. */
+  patchInference?: PatchProjectInference;
+  /** After **Remove project…** (ADR 0067): the list and the active id main now has. */
+  onProjectRemoved?: (result: HermesProjectRemoveResult) => void;
   /** **Check a file…** in the project menu (writing check spec, phase 4); absent hides it. */
   onCheckFile?: () => void;
   /**
@@ -110,18 +119,20 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   onRefreshIndex,
   onAddFolder,
   onRemoveSource,
-  onProjectsUpdated,
+  patchInference = patchProjectInference,
+  onProjectRemoved,
   onCheckFile,
   role,
 }) => {
+  const privateHelpId = React.useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const circles = useCirclesState();
   const { state: confidential } = useConfidentialState();
-  const [keptWritable, setKeptWritable] = useState(false);
   const { status } = useInferenceStatus();
   const [patchError, setPatchError] = useState<string | null>(null);
   const [patching, setPatching] = useState(false);
   const coding = useCodingFolders();
+  const warnings = useProjectSourceWarnings(project, inspect);
   const sharedFolders = useSharedFoldersOnMac();
   const [allowOpen, setAllowOpen] = useState(false);
   const allowGrant = useCodingGrant();
@@ -131,11 +142,8 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
   useDismiss(allowRef, allowOpen, () => setAllowOpen(false), { returnFocusTo: allowTriggerRef });
   const [restartingHermes, setRestartingHermes] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [trashNotice, setTrashNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    setKeptWritable(false);
-  }, [inspect?.projectId, inspect?.sources.map((row) => row.visibility).join(',')]);
 
   const [editingStack, setEditingStack] = useState(false);
 
@@ -145,29 +153,17 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       if (!project || connecting || patching) return null;
       setPatchError(null);
       setPatching(true);
-      try {
-        const result = await window.electronAPI.projects.patch({
-          projectId: project.id,
-          inference,
-        });
-        if (!result.success) {
-          const error = result.error ?? 'Could not update inference.';
-          setPatchError(error);
-          return error;
-        }
-        if (result.projects) {
-          onProjectsUpdated?.(result.projects);
-        }
-        return null;
-      } finally {
-        setPatching(false);
-      }
+      const error = await patchInference(project.id, inference);
+      setPatching(false);
+      setPatchError(error);
+      return error;
     },
-    [connecting, onProjectsUpdated, patching, project]
+    [connecting, patchInference, patching, project]
   );
 
   // Every pool this project's stack could list, inherited or pinned, so the hook runs before the
   // early return below. A private project's pools rank at the floor main plans its chats at.
+  const hostFolders = useStackCapability('hostFolders');
   const pinned = project?.inference;
   const poolFloor =
     pinned?.privacyLocalOnly === true && confidential?.enabled === true
@@ -194,12 +190,14 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
             ? 'No project. Chat still works without a folder. Move it to a project to give it files and sources.'
             : 'No folder bound. Chat still works. Choose a project to attach sources.'}
         </p>
-        {role?.onMove ? null : (
+        {role?.onMove ? null : hostFolders ? (
           <div className="wb-insp-actions">
             <Button variant="secondary" size="sm" type="button" onClick={onChooseFolder}>
               Choose folder…
             </Button>
           </div>
+        ) : (
+          <StackCapabilityNote capability="hostFolders" size="sm" />
         )}
       </div>
     );
@@ -215,10 +213,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     shared: sharedFolderAt(row.hostPath, sharedFolders),
   }));
   const extras = inspect?.sources.filter((row) => !row.isHub) ?? [];
-  const isCodingRow = (row: HermesSourceRow) =>
-    rows.find((item) => item.row === row)?.view.coding ?? false;
-  const unmounted = extras.find((row) => row.visibility === 'unmounted' && !isCodingRow(row));
-  const writable = extras.find((row) => row.visibility === 'writable' && !isCodingRow(row));
+  const { unmounted, showWritable, showStale } = warnings;
   const connectingNow = Object.values(coding.pending).includes('connecting');
   const queuedNow = Object.values(coding.pending).includes('queued');
   const notVisibleRows = rows.filter((item) => item.view.notVisible);
@@ -270,8 +265,6 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       setRestartingHermes(false);
     }
   };
-  const showWritable = Boolean(writable) && !keptWritable && !unmounted;
-  const showStale = Boolean(inspect?.stale && extras.length > 0 && !unmounted);
   const canRefresh = extras.length > 0 && !connecting;
   const mode = pinMode(project);
   const appDefault = status?.appDefault ?? null;
@@ -297,11 +290,19 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
     mode === 'inherit'
       ? storedStack(status)
       : [{ slot: mode, ...(pin?.modelId ? { modelId: pin.modelId } : {}) }, ...(pin?.fallbacks ?? [])];
-  // The first entry decides: a stack that starts on a model that isn't private is refused (ADR 0033 §4).
+  // Main cuts a private project's stack at its first entry that isn't private (applyPrivacyLock,
+  // ADR 0033 §4). A cut at the top leaves nothing to send to. Local, a shared model whose provider
+  // is marked private and a pool a provider at the project's floor serves all count as private;
+  // one of those that can't serve now says so on its own row, not here.
   const firstEntry = projectStack[0];
-  const privateBlocked = privateOn && Boolean(firstEntry) && firstEntry.slot !== 'local';
-  const firstLabel = firstEntry ? describeChainEntry(firstEntry, stackCtx, 'first').label : appLabel;
   const cut = privateOn ? projectStack.findIndex((entry) => !entryIsPrivate(entry, stackCtx)) : -1;
+  // A pool whose private ranking hasn't come back yet isn't judged, so the warning doesn't flash.
+  const firstPoolLoading =
+    firstEntry?.slot === 'confidential' &&
+    stackCtx.pools !== undefined &&
+    !((firstEntry.modelId?.trim() ?? '') in poolPrivacy);
+  const privateBlocked = cut === 0 && !firstPoolLoading;
+  const firstLabel = firstEntry ? describeChainEntry(firstEntry, stackCtx, 'first').label : appLabel;
   const stackRows = projectStack.map((entry, index) => {
     const view = describeChainEntry(entry, stackCtx, index === 0 ? 'first' : 'fallback');
     return {
@@ -388,89 +389,33 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           </button>
         </span>
         <div className="wb-insp-more">
-          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-            <PopoverTrigger>
-              <button
-                type="button"
-                className={`wb-icon-more${menuOpen ? ' is-on' : ''}`}
-                aria-label="Project actions"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-              >
-                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7">
+          <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+            <MenuTrigger>
+              <Button type="button" variant="quiet" size="icon-sm" aria-label="Project actions">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <circle cx="7" cy="3" r="0.9" />
                   <circle cx="7" cy="7" r="0.9" />
                   <circle cx="7" cy="11" r="0.9" />
                 </svg>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="wb-insp-menu"
-              role="menu"
-              side="bottom"
-              align="end"
-              sideOffset={4}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                disabled={connecting}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onChangeFolder();
-                }}
-              >
+              </Button>
+            </MenuTrigger>
+            <MenuContent side="bottom" align="end">
+              <MenuItem disabled={connecting} onSelect={onChangeFolder}>
                 Change folder
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onRevealHub();
-                }}
-              >
-                Open in Finder
-              </button>
-              {onCheckFile ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onCheckFile();
-                  }}
-                >
-                  Check a file…
-                </button>
-              ) : null}
+              </MenuItem>
+              <MenuItem onSelect={onRevealHub}>Open in Finder</MenuItem>
+              {onCheckFile ? <MenuItem onSelect={onCheckFile}>Check a file…</MenuItem> : null}
               {project.codingEnabled && coding.managed ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={connecting}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    turnOffCoding();
-                  }}
-                >
+                <MenuItem disabled={connecting} onSelect={turnOffCoding}>
                   Turn off coding
-                </button>
+                </MenuItem>
               ) : null}
-              {canRefresh ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onRefreshIndex();
-                  }}
-                >
-                  Refresh index
-                </button>
-              ) : null}
-            </PopoverContent>
-          </Popover>
+              {canRefresh ? <MenuItem onSelect={onRefreshIndex}>Refresh index</MenuItem> : null}
+              <MenuItem disabled={connecting} onSelect={() => setRemoveOpen(true)}>
+                Remove project…
+              </MenuItem>
+            </MenuContent>
+          </Menu>
         </div>
       </div>
 
@@ -584,7 +529,7 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
       {showWritable ? (
         <Callout variant="warn" layout="row" size="sm" className="wb-insp-callout" role={undefined}>
           <p>{inspect?.nextStep?.title ?? 'This extra folder is writable.'}</p>
-          <Button variant="secondary" size="sm" type="button" onClick={() => setKeptWritable(true)}>
+          <Button variant="secondary" size="sm" type="button" onClick={warnings.keepWritable}>
             Keep
           </Button>
         </Callout>
@@ -643,32 +588,34 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
           </Button>
         ) : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={privateOn}
-        className={`wb-inf-fallback-switch wb-inference-check${privateOn ? ' is-on' : ''}`}
-        disabled={pinBusy}
-        onClick={() =>
-          void applyPin({
-            mode,
-            ...pin,
-            privacyLocalOnly: !privateOn,
-            // Allow level B belongs to a private project, so Private off clears it.
-            ...(privateOn ? { allowConfidentialLevelB: false } : {}),
-          })
+      <ChoiceRow
+        controlAt="end"
+        className="px-2.5 py-1.5"
+        control={
+          <Switch
+            label="Private"
+            describedBy={privateHelpId}
+            checked={privateOn}
+            disabled={pinBusy}
+            onChange={(next) =>
+              void applyPin({
+                mode,
+                ...pin,
+                privacyLocalOnly: next,
+                // Allow level B belongs to a private project, so Private off clears it.
+                ...(next ? {} : { allowConfidentialLevelB: false }),
+              })
+            }
+          />
         }
-      >
-        <span className="wb-inference-box" aria-hidden="true" />
-        <span>
-          Private
-          <small>
-            {privateOn
-              ? 'Chats here use only your local model and people you allowed in private projects in Inference. Task board and scheduled work aren’t covered.'
-              : 'Keep chats here on your local model and people you allowed in private projects in Inference.'}
-          </small>
-        </span>
-      </button>
+        title="Private"
+        descriptionId={privateHelpId}
+        description={
+          privateOn
+            ? 'Chats here use only your local model and people you allowed in private projects in Inference. Task board and scheduled work aren’t covered.'
+            : 'Keep chats here on your local model and people you allowed in private projects in Inference.'
+        }
+      />
       {levelBAllowed ? (
         <div className="wb-inf-rail-levelb">
           <span>
@@ -805,6 +752,14 @@ export const ProjectSourcesRail: React.FC<ProjectSourcesRailProps> = ({
         onDeleted={(name) => {
           setDeleteTarget(null);
           setTrashNotice(`Moved ${name} to the Trash.`);
+        }}
+      />
+      <RemoveProjectSheet
+        project={removeOpen ? project : null}
+        onClose={() => setRemoveOpen(false)}
+        onRemoved={(result) => {
+          setRemoveOpen(false);
+          onProjectRemoved?.(result);
         }}
       />
     </div>

@@ -10,6 +10,7 @@ const { saved, mode } = vi.hoisted(() => ({
   mode: { attachLive: false },
 }));
 
+vi.mock('../../addons/addonComposeState', async () => (await import('./addonComposeStateStub')).addonComposeStateStub());
 vi.mock('../../containerRuntime', async (importOriginal) =>
   (await import('./stackServiceMocks')).containerRuntimeMock(await importOriginal(), fakes)
 );

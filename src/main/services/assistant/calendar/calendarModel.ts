@@ -1,6 +1,11 @@
 import type { CalendarAccess, CalendarProvider, MacCalendarSummary } from '../../../../shared/types/calendars';
 import { APP_NAME } from '../../../../shared/buildIdentity';
 import { MAC_CHANGE_TOOLS, MAC_READ_TOOLS } from './macCalendarTools';
+import {
+  HERMES_BRIDGE_CONNECT_TIMEOUT_S,
+  HERMES_BRIDGE_KEEPALIVE_S,
+  HERMES_BRIDGE_PARKED_RETRY_S,
+} from '../../hostBridge/hermesProvision';
 
 /**
  * What Boundary writes into Hermes for a connected calendar (docs/calendar-ux-study/spec.md,
@@ -148,17 +153,6 @@ export const MAC_ACCOUNT_NAME = 'This Mac';
 /** Each granted agent's own token for the bridge's `/calendar` route, in that agent's `.env`. */
 export const MAC_TOKEN_ENV = 'BOUNDARY_CALENDAR_MAC_TOKEN';
 
-/**
- * The stack's settings for an MCP server an app hosts (assistant docs/extending.md), the same as
- * the host bridge's own `boundary` entry: Hermes parks a server it can't reach and retries it
- * every `parked_retry_interval` seconds, and a `connect_timeout` below 60 abandons a bridge that
- * is down when Hermes starts instead of parking it where a wake can reach it. A test keeps these
- * equal to the `boundary` entry's (hostBridgeHermesConfigSets).
- */
-const MAC_ENTRY_KEEPALIVE_S = 15;
-const MAC_ENTRY_PARKED_RETRY_S = 15;
-const MAC_ENTRY_CONNECT_TIMEOUT_S = 60;
-
 function macCalendarUrl(mcpPort: number): string {
   return `http://host.docker.internal:${mcpPort}/calendar`;
 }
@@ -178,9 +172,10 @@ export function macCalendarMcpEntry(opts: { mcpPort: number; access: CalendarAcc
   return {
     url: macCalendarUrl(opts.mcpPort),
     timeout: 60,
-    connect_timeout: MAC_ENTRY_CONNECT_TIMEOUT_S,
-    keepalive_interval: MAC_ENTRY_KEEPALIVE_S,
-    parked_retry_interval: MAC_ENTRY_PARKED_RETRY_S,
+    // The host bridge's own reconnect settings: the stack's guidance for a server an app hosts.
+    connect_timeout: HERMES_BRIDGE_CONNECT_TIMEOUT_S,
+    keepalive_interval: HERMES_BRIDGE_KEEPALIVE_S,
+    parked_retry_interval: HERMES_BRIDGE_PARKED_RETRY_S,
     trust: 'untrusted',
     headers: { Authorization: `Bearer \${${MAC_TOKEN_ENV}}` },
     tools: { include: macToolsForAccess(opts.access) },
@@ -198,9 +193,9 @@ export function macCalendarUrlSets(mcpPort: number): Array<[string, string]> {
   const base = `mcp_servers.${MAC_CALENDAR_SERVER}`;
   return [
     [`${base}.url`, macCalendarUrl(mcpPort)],
-    [`${base}.connect_timeout`, String(MAC_ENTRY_CONNECT_TIMEOUT_S)],
-    [`${base}.keepalive_interval`, String(MAC_ENTRY_KEEPALIVE_S)],
-    [`${base}.parked_retry_interval`, String(MAC_ENTRY_PARKED_RETRY_S)],
+    [`${base}.connect_timeout`, String(HERMES_BRIDGE_CONNECT_TIMEOUT_S)],
+    [`${base}.keepalive_interval`, String(HERMES_BRIDGE_KEEPALIVE_S)],
+    [`${base}.parked_retry_interval`, String(HERMES_BRIDGE_PARKED_RETRY_S)],
   ];
 }
 

@@ -20,7 +20,7 @@ const LLM_PROXY_KEEPER_INTERVAL_MS = 30_000;
 export type LlmProxyCheck = 'idle' | 'ok' | 'repushed' | 'unreachable' | 'failed';
 
 interface KeeperState {
-  getTarget: () => LlmProxyTarget | null;
+  getTarget: () => LlmProxyTarget | null | Promise<LlmProxyTarget | null>;
   upstream: LlmProxyUpstream;
   /** The proxy process our last successful push reached. */
   bootId?: string;
@@ -61,7 +61,7 @@ export function proxyNeedsPush(
  * is called on every check, so a changed admin port or token is picked up.
  */
 export function keepLlmProxyUpstream(
-  getTarget: () => LlmProxyTarget | null,
+  getTarget: () => LlmProxyTarget | null | Promise<LlmProxyTarget | null>,
   upstream: LlmProxyUpstream,
   intervalMs = LLM_PROXY_KEEPER_INTERVAL_MS
 ): void {
@@ -99,7 +99,7 @@ export function checkLlmProxyUpstream(): Promise<LlmProxyCheck> {
 
 async function runCheck(): Promise<LlmProxyCheck> {
   const current = state;
-  const target = current?.getTarget();
+  const target = await current?.getTarget();
   if (!current || !target) return 'idle';
   const status = await readLlmProxyStatus(target);
   if (!status.ok || !('status' in status)) return 'unreachable';

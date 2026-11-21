@@ -57,10 +57,11 @@ function open(mode: Mode, email?: EmailOverview, setup?: (addons: ReturnType<typ
   const { rerender } = render(<EmailConnectSheet mode={mode} onClose={onClose} onStarted={onStarted} />);
   const dialog = screen.getByRole('dialog');
   const button = (name: string | RegExp) => within(dialog).getByRole('button', { name }) as HTMLButtonElement;
+  const provider = (name: string) => within(dialog).getByRole('radio', { name }) as HTMLButtonElement;
   const field = (name: string | RegExp) => within(dialog).getByLabelText(name) as HTMLInputElement;
   const type = (name: string | RegExp, value: string) => fireEvent.change(field(name), { target: { value } });
   const checkbox = (name: RegExp) => within(dialog).getByRole('checkbox', { name }) as HTMLInputElement;
-  return { addons, onClose, onStarted, dialog, button, field, type, checkbox, rerender };
+  return { addons, onClose, onStarted, dialog, button, provider, field, type, checkbox, rerender };
 }
 
 /** First account through consent and iCloud, with the password the server refuses. */
@@ -68,7 +69,7 @@ async function refusedICloud() {
   const sheet = open({ kind: 'first' });
   sheet.addons.email.mailboxes.mockResolvedValueOnce(refused);
   fireEvent.click(sheet.button('Choose an account'));
-  fireEvent.click(sheet.button('iCloud'));
+  fireEvent.click(sheet.provider('iCloud'));
   sheet.type('Email address', 'pat@example.com');
   sheet.type('App password', 'wrong-pass');
   fireEvent.click(sheet.button('Next'));
@@ -95,9 +96,9 @@ describe('EmailConnectSheet', () => {
     for (const line of EMAIL_CONSENT) expect(within(sheet.dialog).getByText(line)).toBeTruthy();
     expect(EMAIL_CONSENT).toHaveLength(4);
     fireEvent.click(sheet.button('Choose an account'));
-    for (const name of ['iCloud', 'Gmail', 'Fastmail', 'Yahoo', 'Other']) expect(sheet.button(name)).toBeTruthy();
-    expect(within(sheet.dialog).queryByRole('button', { name: /Outlook/ })).toBeNull();
-    fireEvent.click(sheet.button('iCloud'));
+    for (const name of ['iCloud', 'Gmail', 'Fastmail', 'Yahoo', 'Other']) expect(sheet.provider(name)).toBeTruthy();
+    expect(within(sheet.dialog).queryByRole('radio', { name: /Outlook/ })).toBeNull();
+    fireEvent.click(sheet.provider('iCloud'));
     expect(sheet.field('Name agents use').value).toBe('icloud');
     expect(sheet.field('App password').type).toBe('password');
     expect(sheet.field('App password').getAttribute('autocomplete')).toBe('off');
@@ -125,11 +126,11 @@ describe('EmailConnectSheet', () => {
 
   it('iCloud opens the app-password walkthrough; others show their steps and a help link', async () => {
     const sheet = open({ kind: 'add' });
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     expect(within(sheet.dialog).getByText('Create an app password, then copy it.')).toBeTruthy();
     fireEvent.click(sheet.button(/Gmail’s help page/));
     expect(window.electronAPI.urls.openUrl).toHaveBeenCalledWith('https://support.google.com/accounts/answer/185833');
-    fireEvent.click(sheet.button('iCloud'));
+    fireEvent.click(sheet.provider('iCloud'));
     fireEvent.click(sheet.button('Show me how'));
     expect(within(sheet.dialog).getByRole('region', { name: /app-specific password/ })).toBeTruthy();
   });
@@ -173,7 +174,7 @@ describe('EmailConnectSheet', () => {
     const sheet = open({ kind: 'add' }, empty);
     const { email } = sheet.addons;
     email.mailboxes.mockResolvedValueOnce(listed);
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     sheet.type('Email address', 'sam@example.com');
     sheet.type('App password', 'app-pass');
     fireEvent.click(sheet.button('Next'));
@@ -191,7 +192,7 @@ describe('EmailConnectSheet', () => {
 
     sheet.rerender(<EmailConnectSheet key="again" mode={{ kind: 'add' }} onClose={sheet.onClose} />);
     const again = screen.getByRole('dialog');
-    fireEvent.click(within(again).getByRole('button', { name: 'Gmail' }));
+    fireEvent.click(within(again).getByRole('radio', { name: 'Gmail' }));
     fireEvent.change(within(again).getByLabelText('Email address'), { target: { value: 'sam@example.com' } });
     fireEvent.change(within(again).getByLabelText('App password'), { target: { value: 'app-pass' } });
     expect(within(again).queryByText(/already connected/)).toBeNull();
@@ -200,7 +201,7 @@ describe('EmailConnectSheet', () => {
 
   it('Other offers Plain only for host.docker.internal', () => {
     const sheet = open({ kind: 'add' });
-    fireEvent.click(sheet.button('Other'));
+    fireEvent.click(sheet.provider('Other'));
     expect(sheet.field('Name agents use').value).toBe('mail');
     const options = () => Array.from((sheet.field('Security') as unknown as HTMLSelectElement).options).map((o) => o.value);
     sheet.type('Server', 'imap.example.com');
@@ -213,7 +214,7 @@ describe('EmailConnectSheet', () => {
 
   it('checks the name agents use before sending anything', () => {
     const sheet = open({ kind: 'add' });
-    fireEvent.click(sheet.button('Fastmail'));
+    fireEvent.click(sheet.provider('Fastmail'));
     sheet.type('Email address', 'pat@example.com');
     sheet.type('App password', 'app-pass');
     expect(sheet.button('Next').disabled).toBe(false);
@@ -264,7 +265,7 @@ describe('EmailConnectSheet', () => {
       { kind: 'add' },
       overview({ enabled: true, since: '1970-01-01', accounts: [account({ slug: 'icloud', state: 'indexed' })] })
     );
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     sheet.type('Email address', 'sam@example.com');
     sheet.type('App password', 'app-pass');
     sheet.addons.email.mailboxes.mockResolvedValueOnce(listed);
@@ -283,7 +284,7 @@ describe('EmailConnectSheet', () => {
 
   it('won’t reuse the name of an account already connected', async () => {
     const sheet = open({ kind: 'add' }, overview({ since: '1970-01-01', accounts: [account({ slug: 'gmail' })] }));
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     sheet.type('Email address', 'sam@example.com');
     sheet.type('App password', 'app-pass');
     await within(sheet.dialog).findByText(/An account named gmail is already connected/);
@@ -304,7 +305,7 @@ describe('EmailConnectSheet', () => {
   });
   it('preselects a mailbox the stack marks with its lowercase \\sent', async () => {
     const sheet = open({ kind: 'add' }, overview({ since: '1970-01-01' }));
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     sheet.type('Email address', 'sam@example.com');
     sheet.type('App password', 'app-pass');
     sheet.addons.email.mailboxes.mockResolvedValueOnce({
@@ -324,7 +325,7 @@ describe('EmailConnectSheet', () => {
 
   it('clears the password after saveAccount fails, and after it rejects', async () => {
     const sheet = open({ kind: 'add' });
-    fireEvent.click(sheet.button('Gmail'));
+    fireEvent.click(sheet.provider('Gmail'));
     sheet.type('Email address', 'sam@example.com');
     sheet.addons.email.saveAccount.mockResolvedValueOnce(busyReply);
     sheet.type('App password', 'first-pass');

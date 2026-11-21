@@ -3,6 +3,7 @@ import { EMAIL_ENTRY } from './addonCatalog';
 import { StepFailed } from './addonRunState';
 import { readEmailFlags, type EmailService } from './emailAddon';
 import { SCRIPT_STEP_OF, createScriptAddonOps, type ScriptAddonDeps, type ScriptAddonRuns } from './scriptAddonInstaller';
+import { stackFilesAt } from '../stackHost/activeStack';
 
 // Get, Turn off, Turn on and Remove and delete data for email (stack v0.3.13), through
 // `addon.sh`. The account is already saved when Get runs: the sheet saves it and its mailboxes
@@ -37,7 +38,7 @@ export function createEmailInstaller(deps: EmailInstallerDeps): EmailInstaller {
 
   async function runRemoval(): Promise<void> {
     setStep('stop', { status: 'running' });
-    if (readEmailFlags(deps.paths().root).enabled) await disable('stop');
+    if ((await readEmailFlags(stackFilesAt(deps.paths().root))).enabled) await disable('stop');
     setStep('stop', { status: 'done' });
     setStep('delete-data', { status: 'running' });
     check(await deps.run('addon.sh', ['remove', 'email', '--delete-data', '--json'], { timeoutMs: 600_000 }), 'delete-data');

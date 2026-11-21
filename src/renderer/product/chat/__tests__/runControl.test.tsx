@@ -24,7 +24,7 @@ import { setRunningTurnsForTests } from '../runningTurns';
 import { setValue } from '../../../__tests__/formInput';
 import { clearRunQueuesForTests } from '../runQueue';
 import { resetRunInterruptsForTests } from '../runInterrupts';
-import { BUSY_SEND_STORAGE_KEY } from '../busySendPref';
+import { BUSY_SEND_STORAGE_KEY, resetBusySendPrefForTests } from '../busySendPref';
 
 const researcher: AgentProfile = {
   slug: 'researcher',
@@ -109,6 +109,7 @@ describe('Run control', () => {
     clearRunQueuesForTests();
     resetRunInterruptsForTests();
     window.localStorage.removeItem(BUSY_SEND_STORAGE_KEY);
+    resetBusySendPrefForTests();
     vi.restoreAllMocks();
     expect(bridge.unfaked).toEqual([]);
   });
@@ -296,20 +297,33 @@ describe('Run control', () => {
       await act(async () => setValue(input(), 'second'));
       await enter();
 
-      const menu = screen.getByRole('menu');
-      expect(within(menu).getAllByRole('menuitem').map((b) => b.querySelector('b')?.textContent)).toEqual([
+      const menu = screen.getByRole('listbox', { name: /is still replying/ });
+      expect(
+        within(menu)
+          .getAllByRole('option')
+          .map((b) => b.querySelector('[data-slot="menu-item-label"]')?.textContent)
+      ).toEqual([
         'Send now',
         'Queue',
         'Keep editing',
       ]);
-      expect(within(menu).getByRole('menuitem', { name: /Queue/ }).className).toContain('is-active');
+      const queue = within(menu).getByRole('option', { name: /Queue/ });
+      expect(queue.hasAttribute('data-active')).toBe(true);
+      // The composer names the list and the row Enter will take.
+      expect(input().getAttribute('aria-controls')).toBe(menu.id);
+      expect(input().getAttribute('aria-activedescendant')).toBe(queue.id);
+      await act(async () => fireEvent.keyDown(input(), { key: 'ArrowUp' }));
+      expect(input().getAttribute('aria-activedescendant')).toBe(
+        within(menu).getByRole('option', { name: /Send now/ }).id
+      );
+      await act(async () => fireEvent.keyDown(input(), { key: 'ArrowDown' }));
       expect(chat.startChat).toHaveBeenCalledTimes(1);
       expect(input().value).toBe('second');
 
       // Esc closes the menu only: the reply keeps running.
       later();
       await act(async () => fireEvent.keyDown(input(), { key: 'Escape' }));
-      expect(screen.queryByRole('menu')).toBeNull();
+      expect(screen.queryByRole('listbox')).toBeNull();
       expect(chat.cancelChat).not.toHaveBeenCalled();
       expect(input().value).toBe('second');
       await finish();
@@ -343,10 +357,10 @@ describe('Run control', () => {
       await sendPrompt('first');
       await act(async () => setValue(input(), 'second'));
       await enter();
-      expect(screen.getByRole('menu')).toBeTruthy();
+      expect(screen.getByRole('listbox')).toBeTruthy();
 
       await finish();
-      expect(screen.queryByRole('menu')).toBeNull();
+      expect(screen.queryByRole('listbox')).toBeNull();
       expect(input().value).toBe('second');
     });
 
@@ -407,7 +421,7 @@ describe('Run control', () => {
       await act(async () => setValue(input(), 'second'));
       await enter();
       const listening = nextRunListening();
-      await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Send now/ })));
+      await act(async () => fireEvent.click(screen.getByRole('option', { name: /Send now/ })));
       await act(() => listening);
       expect(chat.cancelChat).toHaveBeenCalledWith(
         expect.objectContaining({ reason: 'interrupted', via: 'send-now-menu-click' })
@@ -422,7 +436,7 @@ describe('Run control', () => {
       await sendPrompt('first');
       await act(async () => setValue(input(), 'second'));
       await enter();
-      expect(screen.queryByRole('menu')).toBeNull();
+      expect(screen.queryByRole('listbox')).toBeNull();
       expect(chipLabels()).toEqual(['Next']);
       expect(within(chips()[0]).getByRole('button', { name: 'Send now' })).toBeTruthy();
       await finishIntoNext();

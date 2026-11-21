@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { persistDebugLog } from '../../persistDebugLog';
+import { hasStackCapability } from '../stackHost/capabilities';
 import { diag } from '../circles/circlesDiagnostics';
 import { fetchSharedModel } from '../circles/circlesService';
 import type { PoolMoveReason } from '../../../shared/types/confidential';
@@ -48,6 +49,15 @@ let pushedPort: number | null = null;
 export interface InferenceRouterEndpoint {
   port: number;
   token: string;
+}
+
+/**
+ * The router for the stack's containers to call, or null when they can't reach this machine
+ * (a host without `hostCallbacks`); llm-proxy then goes to the chain's first model directly.
+ */
+export async function ensureInferenceRouterForStack(): Promise<InferenceRouterEndpoint | null> {
+  if (!hasStackCapability('hostCallbacks')) return null;
+  return ensureInferenceRouter();
 }
 
 export async function ensureInferenceRouter(): Promise<InferenceRouterEndpoint> {

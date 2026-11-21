@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
 import { Field } from '../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import {
   BITWARDEN_COLLECTION,
   bitwardenServerUrl,
@@ -11,6 +12,10 @@ import {
 } from '../../../shared/bitwardenSlug';
 import { isActualFailure, type BitwardenConnectInput, type BitwardenServer, type BitwardenUnlock } from '../../../shared/types/addons';
 import { UNLOCK_LABEL, connectErrorText, hostOf } from './useBitwarden';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
+import { ADDON_SLUG_RULE } from './addonCopy';
 
 // Connect a Bitwarden account (spec decisions 28 and 29). The sheet asks for the server, the
 // account's personal API key, a folder and how it unlocks. The key and a master password live
@@ -57,8 +62,10 @@ const ConnectForm: React.FC<{
   const [masterPassword, setMasterPassword] = useState('');
   const [replace, setReplace] = useState(Boolean(reconnect));
   const [taken, setTaken] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const sheet = useSheetAction();
+  const { busy } = sheet;
+  const [returned, setFailure] = useState<Failure | null>(null);
+  const failure: Failure | null = returned ?? (sheet.error ? { body: sheet.error } : null);
 
   const serverUrl = kind === 'selfhosted' ? bitwardenServerUrl(url) : null;
   const slugOk = isBitwardenSlug(slug);
@@ -75,7 +82,10 @@ const ConnectForm: React.FC<{
     scopeOk &&
     (unlock === 'manual' || masterPassword !== '');
 
-  const edited = () => setFailure(null);
+  const edited = () => {
+    setFailure(null);
+    sheet.setError(null);
+  };
   /** A new name clears what the old one learned: taken, replacing it, and the last failure. */
   const changeSlug = (value: string) => {
     setSlug(value.trim());
@@ -89,7 +99,6 @@ const ConnectForm: React.FC<{
   const mending = Boolean(reconnect) && slug === reconnect;
 
   const connect = async () => {
-    setBusy(true);
     setFailure(null);
     const server: BitwardenServer = kind === 'selfhosted' ? { kind, url: serverUrl ?? '' } : { kind };
     const input: BitwardenConnectInput = {
@@ -102,7 +111,7 @@ const ConnectForm: React.FC<{
       ...(unlock === 'stored' ? { masterPassword } : {}),
       replace: exists && replace,
     };
-    try {
+    await sheet.run(async () => {
       const reply = await window.electronAPI.addons.bitwarden.connect(input);
       if (!reply.success) {
         setFailure({ body: reply.error ?? 'Boundary’s add-on service didn’t answer.' });
@@ -117,11 +126,7 @@ const ConnectForm: React.FC<{
       }
       onConnected(reply.result.message);
       onClose();
-    } catch (e) {
-      setFailure({ body: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const openHelp = (): void => {
@@ -156,24 +161,25 @@ const ConnectForm: React.FC<{
         here.
       </p>
 
-      <div role="radiogroup" aria-label="Server" className="mb-3.5 flex flex-col gap-2">
-        <span className="text-xs font-medium text-fg">Server</span>
+      <ChoiceGroup label="Server" kind="radio">
         {(['us', 'eu', 'selfhosted'] as const).map((option) => (
-          <label key={option} className="flex cursor-pointer items-center gap-2 text-xs">
-            <input
-              type="radio"
-              name="bitwarden-connect-server"
-              checked={kind === option}
-              disabled={busy}
-              onChange={() => {
-                setKind(option);
-                edited();
-              }}
-            />
-            <span className="text-fg">{SERVER_LABEL[option]}</span>
-          </label>
+          <ChoiceRow
+            key={option}
+            control={
+              <Radio
+                name="bitwarden-connect-server"
+                checked={kind === option}
+                disabled={busy}
+                onChange={() => {
+                  setKind(option);
+                  edited();
+                }}
+              />
+            }
+            title={SERVER_LABEL[option]}
+          />
         ))}
-      </div>
+      </ChoiceGroup>
       {kind === 'selfhosted' ? (
         <Field
           label="Server address"
@@ -186,7 +192,7 @@ const ConnectForm: React.FC<{
             )
           }
         >
-          <input
+          <Input
             id="bitwarden-connect-url"
             value={url}
             placeholder="https://vault.example.com"
@@ -209,7 +215,7 @@ const ConnectForm: React.FC<{
             <span className="text-danger">
               {slug === 'local'
                 ? 'local is the stack’s own account. Choose another name.'
-                : 'Start the name with a letter, and use up to 31 lowercase letters, numbers and dashes.'}
+                : ADDON_SLUG_RULE}
             </span>
           ) : mending ? (
             `Connecting replaces the old ${slug}, which stays as it is until the new key signs in.`
@@ -229,12 +235,12 @@ const ConnectForm: React.FC<{
           )
         }
       >
-        <input
+        <Input
           id="bitwarden-connect-slug"
           placeholder="personal"
           value={slug}
           onChange={(e) => changeSlug(e.target.value)}
-          className={cn('font-mono', slug && !slugOk && 'border-danger')}
+          className="font-mono" aria-invalid={Boolean(slug && !slugOk)}
           disabled={busy}
           autoComplete="off"
           spellCheck={false}
@@ -248,7 +254,7 @@ const ConnectForm: React.FC<{
         </button>
       </p>
       <Field label="client_id" htmlFor="bitwarden-connect-client-id">
-        <input
+        <Input
           id="bitwarden-connect-client-id"
           type="password"
           className="font-mono"
@@ -263,7 +269,7 @@ const ConnectForm: React.FC<{
         />
       </Field>
       <Field label="client_secret" htmlFor="bitwarden-connect-client-secret">
-        <input
+        <Input
           id="bitwarden-connect-client-secret"
           type="password"
           className="font-mono"
@@ -290,7 +296,7 @@ const ConnectForm: React.FC<{
             )
           }
         >
-          <input
+          <Input
             id="bitwarden-connect-collection"
             className="font-mono"
             value={collection}
@@ -316,7 +322,7 @@ const ConnectForm: React.FC<{
             )
           }
         >
-          <input
+          <Input
             id="bitwarden-connect-folder"
             value={folder}
             disabled={busy}
@@ -345,32 +351,30 @@ const ConnectForm: React.FC<{
         </button>
       </p>
 
-      <div role="radiogroup" aria-label="How it unlocks" className="mb-3.5 flex flex-col gap-2">
-        <span className="text-xs font-medium text-fg">How it unlocks</span>
+      <ChoiceGroup label="How it unlocks" kind="radio">
         {(['manual', 'stored'] as const).map((option) => (
-          <label key={option} className="flex cursor-pointer items-start gap-2 text-xs">
-            <input
-              type="radio"
-              name="bitwarden-connect-unlock"
-              className="mt-0.5"
-              checked={unlock === option}
-              disabled={busy}
-              onChange={() => {
-                setUnlock(option);
-                if (option === 'manual') setMasterPassword('');
-                edited();
-              }}
-            />
-            <span className="flex flex-col gap-0.5">
-              <b className="font-medium text-fg">{UNLOCK_LABEL[option]}</b>
-              <span className="text-fg-muted">{UNLOCK_HELP[option]}</span>
-            </span>
-          </label>
+          <ChoiceRow
+            key={option}
+            control={
+              <Radio
+                name="bitwarden-connect-unlock"
+                checked={unlock === option}
+                disabled={busy}
+                onChange={() => {
+                  setUnlock(option);
+                  if (option === 'manual') setMasterPassword('');
+                  edited();
+                }}
+              />
+            }
+            title={UNLOCK_LABEL[option]}
+            description={UNLOCK_HELP[option]}
+          />
         ))}
-      </div>
+      </ChoiceGroup>
       {unlock === 'stored' ? (
         <Field label="Master password" htmlFor="bitwarden-connect-master">
-          <input
+          <Input
             id="bitwarden-connect-master"
             type="password"
             value={masterPassword}

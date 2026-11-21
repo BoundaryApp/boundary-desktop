@@ -72,7 +72,7 @@ export async function openBoardInBrowser(taskId: unknown): Promise<void> {
   const board = id ? await currentBoardSlug() : null;
   const next = boardPath({ taskId: id, board, embed: false });
   await shell.openExternal(
-    browserUrlFor(dashboardBaseUrl, next, resolveDashboardHandoffSecret(), Math.floor(Date.now() / 1000))
+    browserUrlFor(dashboardBaseUrl, next, await resolveDashboardHandoffSecret(), Math.floor(Date.now() / 1000))
   );
 }
 
@@ -86,16 +86,18 @@ function openOutside(url: string): void {
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
   const { dashboardBaseUrl } = resolveHermesStackEndpoints();
-  const target =
-    u.origin === new URL(dashboardBaseUrl).origin
-      ? browserUrlFor(
-          dashboardBaseUrl,
-          `${u.pathname}${u.search}`,
-          resolveDashboardHandoffSecret(),
-          Math.floor(Date.now() / 1000)
-        )
-      : url;
-  void shell.openExternal(target).catch((): void => undefined);
+  void (async () => {
+    const target =
+      u.origin === new URL(dashboardBaseUrl).origin
+        ? browserUrlFor(
+            dashboardBaseUrl,
+            `${u.pathname}${u.search}`,
+            await resolveDashboardHandoffSecret(),
+            Math.floor(Date.now() / 1000)
+          )
+        : url;
+    await shell.openExternal(target);
+  })().catch((): void => undefined);
 }
 
 /**

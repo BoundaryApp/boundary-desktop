@@ -9,7 +9,9 @@ import type {
 import type { RunningWorkItem } from '../../../shared/types/updates';
 import { useEffect, useRef, useState } from 'react';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
+import { errorText } from '../../components/ui/use-sheet-action';
 import { removalSteps } from './addonCopy';
+import { lineFromIpc } from './addonPageActions';
 
 // The add-on catalog and the installer's snapshot, shared by the Services list, the detail
 // page and the install view. `addons:install` resolves only when the run ends, and a failed
@@ -27,7 +29,7 @@ export async function reloadAddons(): Promise<void> {
   } catch (error) {
     // Keep the last list; with none, the section stays hidden. Main logs its own failures;
     // this covers a call that never reached it.
-    console.warn('[addons] list failed', error instanceof Error ? error.message : String(error));
+    console.warn('[addons] list failed', errorText(error));
   }
 }
 
@@ -132,7 +134,7 @@ function runInstall(
       if (!result.success) refused(result.error ?? 'The install didn’t start.');
       void reloadAddons();
     },
-    (error: unknown) => refused(error instanceof Error ? error.message : String(error))
+    (error: unknown) => refused(errorText(error))
   );
 }
 
@@ -158,7 +160,7 @@ export function startAddonRemoval(id: AddonId, installed: boolean, deleteImages:
       if (!result.success) refused(result.error ?? 'The removal didn’t start.');
       void reloadAddons();
     },
-    (error: unknown) => refused(error instanceof Error ? error.message : String(error))
+    (error: unknown) => refused(errorText(error))
   );
 }
 
@@ -166,13 +168,8 @@ export function startAddonRemoval(id: AddonId, installed: boolean, deleteImages:
  * Asks main to cancel the running install or removal. Resolves with an error message when main
  * refuses, as when the run has just passed the last step that can be cancelled.
  */
-export async function cancelAddonRun(id: AddonId): Promise<string | null> {
-  try {
-    const result = await window.electronAPI.addons.cancel(id);
-    return result.success ? null : (result.error ?? 'Couldn’t cancel.');
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
-  }
+export function cancelAddonRun(id: AddonId): Promise<string | null> {
+  return lineFromIpc(() => window.electronAPI.addons.cancel(id), 'Couldn’t cancel.');
 }
 
 /** Main drops its snapshot after undo and turn off without sending one. */
@@ -230,14 +227,7 @@ async function runStoppedAction(
 ): Promise<void> {
   if (stoppedActions.get()[id]?.doing) return;
   setAction(id, { doing, error: null });
-  let error: string | null;
-  try {
-    const result = await call();
-    error = result.success ? null : (result.error ?? fallback);
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-  setAction(id, { doing: null, error });
+  setAction(id, { doing: null, error: await lineFromIpc(call, fallback) });
   await reloadAddons();
 }
 

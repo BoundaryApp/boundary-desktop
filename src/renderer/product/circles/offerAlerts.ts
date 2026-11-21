@@ -1,4 +1,5 @@
 import type { CircleOfferView } from '../../../shared/types/circles';
+import { joinNames } from '../../../shared/utils/format';
 
 export type OfferChangeKind = 'shared' | 'resumed' | 'online' | 'paused' | 'offline' | 'stopped';
 
@@ -61,16 +62,13 @@ export function diffOffers(
   return changes;
 }
 
-const joined = (items: string[]): string =>
-  items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-
 /** Names up to two models; a longer list would crowd out the person and the Circle. */
 const modelNames = (models: string[]): string =>
-  models.length > 2 ? `${models[0]} and ${models.length - 1} more` : joined(models);
+  models.length > 2 ? `${models[0]} and ${models.length - 1} more` : joinNames(models);
 
 function sentence(kind: OfferChangeKind, name: string, models: string[], circles: string[]): string {
   const what = modelNames(models);
-  const where = joined(circles);
+  const where = joinNames(circles);
   const it = models.length === 1 ? 'it' : 'them';
   switch (kind) {
     case 'shared':

@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
 import type { WritingVoiceView } from '../../../shared/types/writingVoices';
+import { NativeSelect } from '../../components/ui/native-select';
 import { openSettings } from '../settingsNavigation';
 
 const HINT = {
@@ -28,7 +29,9 @@ export const WritingVoicePicker: React.FC<{
   return (
     <div className="wb-field">
       <label htmlFor={id}>{label}</label>
-      <select
+      <NativeSelect
+        size="sm"
+        className="w-full"
         id={id}
         value={value ?? ''}
         disabled={disabled}
@@ -56,7 +59,7 @@ export const WritingVoicePicker: React.FC<{
         })}
         <option value={NEW}>New voice…</option>
         <option value={MANAGE}>Manage voices…</option>
-      </select>
+      </NativeSelect>
       <small>{HINT[label]}</small>
     </div>
   );

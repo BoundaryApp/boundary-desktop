@@ -10,13 +10,15 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { runAddonScriptPlain } from '../../addons/addonScript';
 import { builtinAddonAvailable, readBuiltinEnabled, type BuiltinAddonId } from '../../addons/builtinAddons';
 import { probeStack, skipNote } from './stackHarness';
+import { isRecord } from '../../../../shared/utils/isRecord';
+import { localRunScript } from '../../stackHost/localScript';
+import { localStackFiles } from '../../stackHost/localStackHost';
 
 const probe = await probeStack();
 const root = probe.ok ? probe.target.root : '';
-const ready = probe.ok && builtinAddonAvailable(root, 'n8n') && builtinAddonAvailable(root, 'lightrag');
+const rootFiles = localStackFiles({ stackRoot: root, userContentRoot: () => `${root}/data` });
+const ready = probe.ok && (await builtinAddonAvailable(rootFiles, 'n8n')) && (await builtinAddonAvailable(rootFiles, 'lightrag'));
 const note = probe.ok && !ready ? ' (skipped: the stack tree has no built-in n8n and LightRAG manifests)' : skipNote(probe);
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 interface Entry {
   enabled: unknown;
@@ -24,7 +26,7 @@ interface Entry {
 }
 
 async function readEntries(): Promise<Record<BuiltinAddonId, Entry>> {
-  const outcome = await runAddonScriptPlain({ root, env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
+  const outcome = await runAddonScriptPlain({ runScript: localRunScript(root), env: process.env, script: 'addon.sh', args: ['list', '--json'], timeoutMs: 60_000 });
   if (outcome.code !== 0) throw new Error(`addon.sh list exited with code ${outcome.code}`);
   let list: unknown;
   try {
@@ -48,9 +50,9 @@ describe.skipIf(!ready)(`n8n and LightRAG add-ons${note}`, () => {
     entries = await readEntries();
   });
 
-  it('reports each as enabled exactly when its .env flag is on', () => {
-    expect(entries.n8n.enabled).toBe(readBuiltinEnabled(root, 'n8n'));
-    expect(entries.lightrag.enabled).toBe(readBuiltinEnabled(root, 'lightrag'));
+  it('reports each as enabled exactly when its .env flag is on', async () => {
+    expect(entries.n8n.enabled).toBe(await readBuiltinEnabled(rootFiles, 'n8n'));
+    expect(entries.lightrag.enabled).toBe(await readBuiltinEnabled(rootFiles, 'lightrag'));
   });
 
   it('names n8n_storage among the volumes n8n’s Remove deletes', () => {

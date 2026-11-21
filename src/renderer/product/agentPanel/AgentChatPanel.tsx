@@ -5,6 +5,7 @@ import { HermesChatRuntimeProvider } from '../chat/HermesChatRuntimeProvider';
 import { WorkbenchThread } from '../chat/WorkbenchThread';
 import { agentChats, landPanelChat, panelChatNow, setPanelChat, usePanelChat } from './agentPanelChat';
 import { Button } from '../../components/ui/button';
+import { NativeSelect } from '../../components/ui/native-select';
 
 const noop = (): void => undefined;
 
@@ -130,7 +131,8 @@ export const AgentChatPanel: React.FC<{
   return (
     <div className="wb-agent-panel">
       <div className="wb-agent-panel-bar">
-        <select
+        <NativeSelect
+          size="sm"
           className="wb-agent-panel-picker"
           aria-label="Chat"
           value={chatId ?? ''}
@@ -143,7 +145,7 @@ export const AgentChatPanel: React.FC<{
               {`${c.title || 'New chat'} · ${projectName(c.projectId)}`}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <Button variant="secondary" size="sm" type="button" onClick={() => void newChat()}>
           New chat
         </Button>

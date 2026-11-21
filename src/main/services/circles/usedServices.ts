@@ -31,11 +31,11 @@ export interface UsedService {
 
 /** The stack's Twenty workspace store, as far as this needs it. */
 export interface WorkspaceStore {
-  slugFree(slug: string): boolean;
-  exists(slug: string): boolean;
-  write(slug: string, values: { url: string; access: TwentyAccess }, keys: { ro: string; rw: string }): void;
-  setUrl(slug: string, url: string): void;
-  remove(slug: string): void;
+  slugFree(slug: string): Promise<boolean>;
+  exists(slug: string): Promise<boolean>;
+  write(slug: string, values: { url: string; access: TwentyAccess }, keys: { ro: string; rw: string }): Promise<void>;
+  setUrl(slug: string, url: string): Promise<void>;
+  remove(slug: string): Promise<void>;
 }
 
 export interface UsedServicesDeps {
@@ -74,7 +74,11 @@ export const listenerUrl = (port: number): string => `http://host.docker.interna
  * A slug from the provider's and Circle's names, unique on this Mac (ADR 0048 §5): letters,
  * digits and `-`, starting with a letter, at most 31 characters, as the stack requires.
  */
-export function sharedWorkspaceSlug(providerName: string, circleName: string, free: (slug: string) => boolean): string {
+export async function sharedWorkspaceSlug(
+  providerName: string,
+  circleName: string,
+  free: (slug: string) => boolean | Promise<boolean>
+): Promise<string> {
   let base =
     [providerName, circleName]
       .map((name) => slugify(name, { stripDiacritics: true }))
@@ -82,10 +86,10 @@ export function sharedWorkspaceSlug(providerName: string, circleName: string, fr
       .join('-') || 'shared';
   if (!/^[a-z]/.test(base)) base = `s-${base}`;
   base = base.slice(0, SLUG_BASE_MAX).replace(/-+$/, '');
-  if (free(base)) return base;
+  if (await free(base)) return base;
   for (let n = 2; n < 1000; n++) {
     const slug = `${base}-${n}`;
-    if (free(slug)) return slug;
+    if (await free(slug)) return slug;
   }
   throw new Error('No free workspace name is left for this service.');
 }
@@ -116,7 +120,7 @@ export function createUsedServices(deps: UsedServicesDeps) {
     }
     const listener = await deps.listen(entry, 0);
     listeners.set(entry.slug, listener);
-    store.setUrl(entry.slug, listenerUrl(listener.port));
+    await store.setUrl(entry.slug, listenerUrl(listener.port));
     deps.pending(`crm-${entry.slug}: moved to a free port`);
     deps.log('shared service port moved', { slug: entry.slug, from: entry.port, to: listener.port });
     return { ...entry, port: listener.port };
@@ -138,7 +142,7 @@ export function createUsedServices(deps: UsedServicesDeps) {
           if (existing) return { slug: existing.slug };
           const store = requireStore();
           const taken = new Set(list.map((entry) => entry.slug));
-          const slug = sharedWorkspaceSlug(input.providerName, input.circleName, (s) => !taken.has(s) && store.slugFree(s));
+          const slug = await sharedWorkspaceSlug(input.providerName, input.circleName, async (s) => !taken.has(s) && (await store.slugFree(s)));
           const draft: UsedService = {
             circle: input.circle,
             provider: input.provider,
@@ -151,10 +155,10 @@ export function createUsedServices(deps: UsedServicesDeps) {
           const entry = { ...draft, port: listener.port };
           listeners.set(slug, listener);
           try {
-            store.write(slug, { url: listenerUrl(entry.port), access: input.access }, { ro: entry.tokens.read, rw: entry.tokens.write });
+            await store.write(slug, { url: listenerUrl(entry.port), access: input.access }, { ro: entry.tokens.read, rw: entry.tokens.write });
             await deps.save([...list, entry]);
           } catch (error) {
-            store.remove(slug);
+            await store.remove(slug);
             await close(slug);
             throw error;
           }
@@ -172,7 +176,7 @@ export function createUsedServices(deps: UsedServicesDeps) {
           const entry = list.find((candidate) => same(candidate, circle, provider, service));
           if (!entry) return;
           await deps.save(list.filter((candidate) => candidate !== entry));
-          deps.store()?.remove(entry.slug);
+          await deps.store()?.remove(entry.slug);
           await close(entry.slug);
           deps.pending(`Disconnect crm-${entry.slug}`);
           deps.log('shared service no longer used', { slug: entry.slug, service });
@@ -195,7 +199,7 @@ export function createUsedServices(deps: UsedServicesDeps) {
             kept.push(entry);
             continue;
           }
-          if (!store.exists(entry.slug)) {
+          if (!(await store.exists(entry.slug))) {
             changed = true;
             deps.log('shared service workspace gone', { slug: entry.slug });
             continue;

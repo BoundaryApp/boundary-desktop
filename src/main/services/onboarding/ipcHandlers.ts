@@ -3,7 +3,6 @@ import {
   classifyInferenceSlot,
   clearLlmSlot,
   forgetSavedOpenRouterKey,
-  getAppDefaultSlot,
   getLlmConnection,
   getOpenAiOnboardingStatus,
   getSlotApiKey,
@@ -13,11 +12,14 @@ import {
   saveLlmConnection,
   saveLocalLlmEndpoint,
   saveOAuthCredentials,
+  updateLlmModel,
+} from './OpenAiOnboardingStore';
+import {
+  getAppDefaultSlot,
   setAppDefault,
   setAppFallbacks,
   setAppSharedModel,
-  updateLlmModel,
-} from './OpenAiOnboardingStore';
+} from '../inference/appInferenceChoice';
 import { cancelAppSwitch, currentAppSwitch, switchAppInference } from './appInferenceSwitch';
 import { describeAppStack } from '../inference/inferenceChainService';
 import { probeSlotHealth } from './probeSlotHealth';
@@ -158,6 +160,7 @@ async function saveLlmConnectionHandler(
     modelId: input.modelId,
     provider: input.provider,
     authScheme,
+    extraHeaders: stored?.extraHeaders,
   });
   if (!verification.ok) {
     return {

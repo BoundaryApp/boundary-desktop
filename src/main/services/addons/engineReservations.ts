@@ -17,14 +17,14 @@ const ADDON_ENTRIES: Record<AddonId, AddonCatalogEntry> = {
  * Memory reserved by each installed add-on that is turned on (n8n and LightRAG among them), and
  * by each add-on being installed that asked for room, in MiB.
  */
-export function engineReservationsMiB(
+export async function engineReservationsMiB(
   deps: {
-    addons?: () => AddonId[];
+    addons?: () => Promise<AddonId[]>;
     pending?: () => Record<string, number>;
   } = {}
-): Record<string, number> {
+): Promise<Record<string, number>> {
   const reserved: Record<string, number> = {};
-  for (const id of (deps.addons ?? installedAddonsHere)()) {
+  for (const id of await (deps.addons ?? installedAddonsHere)()) {
     const entry = ADDON_ENTRIES[id];
     if (entry) reserved[id] = entry.reserveMiB;
   }

@@ -127,6 +127,10 @@ for (const shot of wanted) {
     await page.goto(`${url}?theme=dark&view=${scene.view}${scene.query ? `&${scene.query}` : ''}`);
     for (const step of scene.steps ?? []) {
       if (step.click) await page.locator(`[data-guide-anchor="${step.click}"]`).first().click();
+      if (step.clickText) await page.getByText(step.clickText, { exact: true }).first().click();
+      if (step.clickLabel) await page.getByLabel(step.clickLabel, { exact: true }).first().click();
+      if (step.press) await page.keyboard.press(step.press);
+      if (step.scrollText) await page.getByText(step.scrollText, { exact: true }).first().scrollIntoViewIfNeeded();
       if (step.hover) await page.locator(`[data-guide-anchor="${step.hover}"]`).first().hover();
       if (step.wait) await page.waitForTimeout(step.wait);
     }

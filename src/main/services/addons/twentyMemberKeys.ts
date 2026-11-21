@@ -8,8 +8,10 @@
  * token or a key.
  */
 import type { ShareLevel } from '../../../shared/serviceOffers';
-import { localWorkspaceId, twentyWorkspacesDir } from './twentyWorkspaces';
+import { localWorkspaceId } from './twentyWorkspaces';
 import { readOwnerLogin } from './twentySignIn';
+import { stackFilesAt } from '../stackHost/activeStack';
+import type { StackEndpoints, StackFiles } from '../stackHost/types';
 
 /** The roles `crm init` makes (`ROLES` in the stack's `twenty_admin.py`). */
 export const TWENTY_ROLE_LABELS: Record<ShareLevel, string> = {
@@ -45,8 +47,13 @@ export class TwentyKeyError extends Error {
 export interface TwentyKeyDeps {
   /** The stack's checkout or tree, holding `.env`; the Twenty add-on store follows from it. */
   root: string;
+  /** Twenty's port as the stack publishes it (`TWENTY_PORT`). */
   port: number;
+  /** Turns `port` into a URL on this machine. */
+  endpoints: Pick<StackEndpoints, 'portUrl'>;
   fetchImpl?: typeof fetch;
+  /** The stack's files; the folder `root` names when omitted. */
+  files?: StackFiles;
 }
 
 export interface MintedKey {
@@ -67,7 +74,7 @@ function graphql(deps: TwentyKeyDeps): Gql {
   return async (query, variables, token) => {
     let response: Response;
     try {
-      response = await fetchImpl(`http://127.0.0.1:${deps.port}/metadata`, {
+      response = await fetchImpl(deps.endpoints.portUrl(deps.port, '/metadata'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -121,8 +128,8 @@ function str(data: unknown, ...path: string[]): string {
 
 /** An access token for the local workspace, signed in as its owner. */
 async function ownerSession(deps: TwentyKeyDeps, gql: Gql): Promise<string> {
-  const login = readOwnerLogin(deps.root);
-  const workspace = localWorkspaceId(twentyWorkspacesDir(deps.root));
+  const login = await readOwnerLogin(deps.root, deps.files);
+  const workspace = await localWorkspaceId(deps.files ?? stackFilesAt(deps.root));
   if (!login || !workspace) {
     throw new TwentyKeyError('no-login', 'This Mac has no Twenty owner login or local workspace.');
   }
@@ -134,7 +141,7 @@ async function ownerSession(deps: TwentyKeyDeps, gql: Gql): Promise<string> {
   if (typeof match?.loginToken !== 'string' || !match.loginToken) {
     throw new TwentyKeyError('rejected', 'The owner account can’t enter this Mac’s workspace.');
   }
-  const origin = (workspace.workspaceUrl || `http://localhost:${deps.port}`).replace(/\/+$/, '');
+  const origin = (workspace.workspaceUrl || deps.endpoints.portUrl(deps.port, '', 'localhost')).replace(/\/+$/, '');
   const access = await gql(ACCESS_FROM_LOGIN, { t: match.loginToken, o: origin });
   return str(access, 'getAuthTokensFromLoginToken', 'tokens', 'accessOrWorkspaceAgnosticToken', 'token');
 }

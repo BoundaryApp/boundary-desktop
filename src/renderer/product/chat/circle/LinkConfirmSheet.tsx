@@ -4,6 +4,7 @@ import type { LinkSafetyConfig, LinkSafetyModalProps } from 'streamdown';
 import { Sheet } from '../../../components/ui/sheet';
 import { useCopyText, useOwnerDocument } from '../../../components/ui/ownerDocument';
 import { Button } from '../../../components/ui/button';
+import { useAction } from '../../circles/useCircles';
 
 /** How long Copy URL reads "Copied" after a copy. */
 const COPIED_MS = 2000;
@@ -18,8 +19,7 @@ const LinkConfirmSheet: React.FC<LinkSafetyModalProps> = ({ isOpen, onClose, url
   const ownerDocument = useOwnerDocument();
   const copyText = useCopyText();
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
 
   useEffect(() => {
     if (isOpen) return;
@@ -45,18 +45,8 @@ const LinkConfirmSheet: React.FC<LinkSafetyModalProps> = ({ isOpen, onClose, url
   };
 
   const open = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await window.electronAPI.urls.openUrl(url);
-      if (result.success === false) {
-        setError(result.error ?? 'Couldn’t open the link.');
-        return;
-      }
-      onClose();
-    } finally {
-      setBusy(false);
-    }
+    const result = await run(() => window.electronAPI.urls.openUrl(url), 'Couldn’t open the link.');
+    if (result && result.success !== false) onClose();
   };
 
   return createPortal(

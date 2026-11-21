@@ -8,10 +8,11 @@
  * Kept free of native modules so it can be tested on its own. Logs carry metadata only: who, which
  * service, the JSON-RPC method and tool name, status and timings, never arguments or results (§13).
  */
-import { addUsage, localDay } from '../../../shared/circleUsage';
+import { addUsage } from '../../../shared/circleUsage';
+import { localDay } from '../../../shared/utils/localDay';
 import type { CircleDayUsage } from '../../../shared/types/circles';
 import type { ShareLevel } from '../../../shared/serviceOffers';
-import { errorName, pipeBody, refuse, type GatewaySink, type MemberGatewayDeps } from './inferenceGateway';
+import { errorName, pipeBody, refuse, type GatewaySink, type MemberGatewayDeps } from './gatewayCommon';
 
 /** What a member's device asks for. `id` is unique per connection and direction. */
 export interface ServiceRequest {

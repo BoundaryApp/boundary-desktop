@@ -78,14 +78,31 @@ function money(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+function unpinnedDetail(name: string): string {
+  return `${name} is running a release Boundary’s provider list doesn’t include yet, so its hardware wasn’t checked. ${name} isn’t added. Nothing was sent. Try again after Boundary updates its list.`;
+}
+
 function keyFailureDetail(name: string, failure: AdapterFailure): string {
   if (failure.kind === 'bad-key') return `${name} didn’t accept this key. Check you copied all of it.`;
   if (failure.kind === 'rate-limited') return `${name} is rate-limiting this key. Try again in a minute.`;
+  // Privatemode checks the key with its attestation call, which it refuses for an account without credit.
+  if (failure.kind === 'no-balance') return `${name} says this account has no credit, so the hardware couldn’t be checked. Add credit at ${name}, then try again.`;
+  // Privatemode refuses a manifest Boundary's catalog doesn't pin before anything is checked.
+  if (failure.kind === 'attestation-failed' && failure.detail === 'manifest-unpinned') return unpinnedDetail(name);
   // NEAR checks the key with a chat, which runs the hardware check first.
   if (failure.kind === 'attestation-failed') {
     return `${name}’s hardware check failed, so the key wasn’t checked. ${name} isn’t added. Nothing was sent.`;
   }
   return `Boundary couldn’t reach ${name}. Check your connection and try again.`;
+}
+
+/** Closes an adapter the service no longer uses. A close that throws changes nothing. */
+function closeAdapter(adapter: ConfidentialAdapter): void {
+  try {
+    adapter.close?.();
+  } catch {
+    // Its text could quote a URL; nothing depends on the close.
+  }
 }
 
 export class ConfidentialService {
@@ -175,8 +192,23 @@ export class ConfidentialService {
         checks: [{ step: 'key', ok: false, detail: 'This provider isn’t in Boundary’s provider list.' }],
       };
     }
-    const name = provider.name;
+    // The checks' adapter isn't the one chats use, so it is closed once they finish.
     const adapter = this.deps.adapterFor(id, apiKey);
+    try {
+      return await this.checkAndAdd(id, apiKey, catalog, provider, adapter);
+    } finally {
+      closeAdapter(adapter);
+    }
+  }
+
+  private async checkAndAdd(
+    id: string,
+    apiKey: string,
+    catalog: ConfidentialCatalog,
+    provider: ConfidentialCatalog['providers'][number],
+    adapter: ConfidentialAdapter
+  ): Promise<AddProviderResult> {
+    const name = provider.name;
     const checks: AddProviderCheck[] = [];
 
     const keyResult = await this.safely<Awaited<ReturnType<ConfidentialAdapter['checkKey']>>>(
@@ -201,7 +233,9 @@ export class ConfidentialService {
         detail:
           attestation.unreachable === true
             ? `Boundary couldn’t reach ${name}’s hardware check. ${name} isn’t added. Nothing was sent.`
-            : `${name}’s enclave didn’t pass. ${name} isn’t added. Nothing was sent.`,
+            : attestation.detail === 'manifest-unpinned'
+              ? unpinnedDetail(name)
+              : `${name}’s enclave didn’t pass. ${name} isn’t added. Nothing was sent.`,
       });
       return { added: false, checks };
     }
@@ -397,17 +431,26 @@ export class ConfidentialService {
       return null;
     }
     // The key changed or went while it was being read: this adapter may hold the old one.
-    if ((this.keyGenerations.get(providerId) ?? 0) !== generation) return this.adapter(providerId);
+    if ((this.keyGenerations.get(providerId) ?? 0) !== generation) {
+      closeAdapter(adapter);
+      return this.adapter(providerId);
+    }
     if (!this.store.addedProviders().includes(providerId) || this.adapters.has(providerId)) {
+      closeAdapter(adapter);
       return this.adapters.get(providerId) ?? null;
     }
     this.adapters.set(providerId, adapter);
     return adapter;
   }
 
-  /** Drops the provider's cached adapter and any adapter still being built from its old key. */
+  /**
+   * Drops and closes the provider's cached adapter, and any adapter still being built from its
+   * old key. A chat already running on the dropped adapter finishes.
+   */
   private keyChanged(providerId: string): void {
+    const cached = this.adapters.get(providerId);
     this.adapters.delete(providerId);
+    if (cached) closeAdapter(cached);
     this.keyGenerations.set(providerId, (this.keyGenerations.get(providerId) ?? 0) + 1);
   }
 
@@ -491,7 +534,7 @@ export class ConfidentialService {
     const [balance, attestation] = await Promise.all([
       this.safely(() => adapter.readBalance(AbortSignal.timeout(CALL_TIMEOUT_MS)), null),
       this.safely<AttestationResult | null>(() => adapter.verifyAttestation(null, AbortSignal.timeout(CALL_TIMEOUT_MS)), null),
-    ]);
+    ]).finally(() => closeAdapter(adapter));
     // A check that couldn't run keeps the last result, so a network blip doesn't mark the hardware failed.
     if (attestation === null || (attestation.ok === false && attestation.unreachable === true)) {
       return { next: { ...previous, balance, keyUnavailable: false, healthy: false }, outcome: 'attestation-unreachable' };

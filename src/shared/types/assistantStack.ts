@@ -1,6 +1,7 @@
 import type { StartupDownload } from '../startupDownload';
 import type { StartTiming } from '../startupTiming';
 import type { IpcResult } from '../ipc/result';
+
 export type AssistantStackIsolationMode = 'default-ports' | 'offset-ports';
 
 export interface AssistantStackPorts {
@@ -58,13 +59,13 @@ export interface AssistantStackStatus {
    * their add-on pages instead.
    */
   uiServices: AssistantUiServiceCard[];
+  /** n8n, LightRAG and Neo4j, which open from their add-on pages. */
+  addonServices: AssistantUiServiceCard[];
 }
 
-export interface EnsureAssistantStackResult {
-  success: boolean;
+export type EnsureAssistantStackResult = IpcResult<{
   status: AssistantStackStatus;
-  error?: string;
-}
+}>;
 
 export interface LastAppliedLlm {
   slot: import('./inferenceChain').InferenceChainSlot;

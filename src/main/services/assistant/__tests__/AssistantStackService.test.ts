@@ -13,9 +13,11 @@ import {
 } from '../../../../shared/assistantStackConstants';
 import {
   buildAssistantUiServiceCards,
-  buildServiceUrl,
 } from '../../../../shared/assistantUiServices';
 import { __test } from '../AssistantStackService';
+import { buildEngineOverlayYaml } from '../engineOverlay';
+import { V0316_COMPOSE } from './engineOverlayFixture';
+import { localStackEndpoints, localStackFiles } from '../../stackHost/localStackHost';
 
 const calDav = vi.hoisted(() => ({
   connected: false,
@@ -111,20 +113,20 @@ describe('AssistantStackService helpers', () => {
     it('writes the detector port into the stack .env, replacing an earlier value', async () => {
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
       fs.writeFileSync(path.join(root, '.env'), 'FOO=1\nDETECTOR_PORT=8790\n');
-      await __test.pinHostPortsInProjectEnv(root, portsForIsolationMode('offset-ports', 20_000));
+      await __test.pinHostPortsInProjectEnv(localStackFiles({ stackRoot: root, userContentRoot: () => root }), portsForIsolationMode('offset-ports', 20_000));
       expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('FOO=1\nDETECTOR_PORT=28790\n');
     });
 
     it('adds the default when .env has no detector port', async () => {
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
       fs.writeFileSync(path.join(root, '.env'), 'FOO=1\n');
-      await __test.pinHostPortsInProjectEnv(root, DEFAULT_ASSISTANT_STACK_PORTS);
+      await __test.pinHostPortsInProjectEnv(localStackFiles({ stackRoot: root, userContentRoot: () => root }), DEFAULT_ASSISTANT_STACK_PORTS);
       expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).toBe('FOO=1\nDETECTOR_PORT=8790\n');
     });
 
     it('leaves a stack without .env alone', async () => {
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-ports-'));
-      await __test.pinHostPortsInProjectEnv(root, DEFAULT_ASSISTANT_STACK_PORTS);
+      await __test.pinHostPortsInProjectEnv(localStackFiles({ stackRoot: root, userContentRoot: () => root }), DEFAULT_ASSISTANT_STACK_PORTS);
       expect(fs.existsSync(path.join(root, '.env'))).toBe(false);
     });
   });
@@ -139,6 +141,39 @@ describe('AssistantStackService helpers', () => {
       '-f',
       '/tmp/docker-compose.boundary.yml',
     ]);
+  });
+
+  describe('syncEngineOverlay', () => {
+    let dir = '';
+    afterEach(() => {
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    });
+    const setUp = (compose: string | null) => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-overlay-'));
+      const root = path.join(dir, 'project');
+      fs.mkdirSync(root);
+      if (compose !== null) fs.writeFileSync(path.join(root, 'docker-compose.yml'), compose);
+      return { root, overlay: path.join(dir, 'docker-compose.engine.yml') };
+    };
+
+    it('writes the overlay on Podman and removes it again on Docker', () => {
+      const { root, overlay } = setUp(V0316_COMPOSE);
+      expect(__test.syncEngineOverlay('podman', root, overlay)).toBe(overlay);
+      expect(fs.readFileSync(overlay, 'utf8')).toBe(buildEngineOverlayYaml('podman', V0316_COMPOSE));
+      expect(__test.syncEngineOverlay('docker', root, overlay)).toBeNull();
+      expect(fs.existsSync(overlay)).toBe(false);
+    });
+
+    it('writes nothing on Podman when the stack has no compose file', () => {
+      const { root, overlay } = setUp(null);
+      expect(__test.syncEngineOverlay('podman', root, overlay)).toBeNull();
+      expect(fs.existsSync(overlay)).toBe(false);
+    });
+  });
+
+  it('adds the engine overlay last when there is one', () => {
+    const args = __test.buildProjectArgs('/tmp/docker-compose.boundary.yml', '/tmp/docker-compose.engine.yml');
+    expect(args.slice(-2)).toEqual(['-f', '/tmp/docker-compose.engine.yml']);
   });
 
   it('builds multi-profile compose args for core+automation+coding+db+research, leaving rag to the LightRAG switch', () => {
@@ -171,14 +206,14 @@ describe('AssistantStackService helpers', () => {
 
 describe('assistantUiServices', () => {
   it('builds LightRAG URL with /webui/ path', () => {
-    expect(buildServiceUrl(DEFAULT_ASSISTANT_STACK_PORTS, 'lightrag', '/webui/')).toBe(
-      'http://127.0.0.1:9621/webui/'
-    );
+    const endpoints = localStackEndpoints(() => DEFAULT_ASSISTANT_STACK_PORTS);
+    const lightrag = buildAssistantUiServiceCards(endpoints.url).find((c) => c.id === 'lightrag');
+    expect(lightrag?.url).toBe('http://127.0.0.1:9621/webui/');
   });
 
   it('resolves all seven product cards including offset ports', () => {
     const offset = portsForIsolationMode('offset-ports');
-    const cards = buildAssistantUiServiceCards(offset);
+    const cards = buildAssistantUiServiceCards(localStackEndpoints(() => offset).url);
     expect(cards).toHaveLength(7);
     expect(cards.map((c) => c.id)).toEqual([
       'hermes-webui',
@@ -280,15 +315,15 @@ describe('desiredHermesConfig and the Mac calendar entry', () => {
 });
 
 describe('the calendar compose profile', () => {
-  const profiles = () => __test.boundaryComposeProfilesCsv().split(',');
+  const profiles = async () => (await __test.boundaryComposeProfilesCsv()).split(',');
 
-  it('is left out while only the Mac account is connected', () => {
+  it('is left out while only the Mac account is connected', async () => {
     calDav.connected = false;
-    expect(profiles()).not.toContain('calendar');
+    expect(await profiles()).not.toContain('calendar');
   });
 
-  it('is included once a CalDAV account is connected', () => {
+  it('is included once a CalDAV account is connected', async () => {
     calDav.connected = true;
-    expect(profiles()).toContain('calendar');
+    expect(await profiles()).toContain('calendar');
   });
 });

@@ -6,9 +6,14 @@ import { BOUNDARY_PLATFORM_HINT, BOUNDARY_PLATFORM_HINT_KEY } from '../hermesPla
 
 const runCompose = vi.fn();
 const runComposeStreaming = vi.fn();
-const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-llm-proxy-'));
+const stackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-llm-proxy-'));
+const dataRoot = path.join(stackRoot, 'data');
+fs.mkdirSync(dataRoot);
+
+function writeStackEnv(contents: string): void {
+  fs.writeFileSync(path.join(stackRoot, '.env'), contents);
+}
 const applyLlmConnectionToProjectFiles = vi.fn();
-const readAssistantEnvFile = vi.fn();
 
 vi.mock('../../containerRuntime', async () => {
   const actual =
@@ -18,6 +23,15 @@ vi.mock('../../containerRuntime', async () => {
     getContainerRuntime: async () => ({ kind: 'docker', env: {} }),
     runCompose: (...args: unknown[]) => runCompose(...args),
     runComposeStreaming: (...args: unknown[]) => runComposeStreaming(...args),
+  };
+});
+
+vi.mock('../../stackHost/activeStack', async (importOriginal) => {
+  const { localStackFiles } = await import('../../stackHost/localStackHost');
+  return {
+    ...(await importOriginal<typeof import('../../stackHost/activeStack')>()),
+    getStackFiles: () => localStackFiles({ stackRoot, userContentRoot: () => dataRoot }),
+    stackFilesAt: () => localStackFiles({ stackRoot, userContentRoot: () => dataRoot }),
   };
 });
 
@@ -32,7 +46,6 @@ vi.mock('../assistantPaths', async (importOriginal) => ({
   resolveAssistantDataRoot: () => dataRoot,
   resolveAssistantWorkspaceRoot: () => '/tmp/assistant-workspace',
   ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
-  readAssistantEnvFile: (...args: unknown[]) => readAssistantEnvFile(...args),
 }));
 
 vi.mock('../applyLlmToProjectEnv', () => ({
@@ -69,7 +82,8 @@ import {
   type ChainPlan,
 } from '../../inference/inferenceChainService';
 import { DEFAULT_POOL_SETTINGS } from '../../../../shared/types/confidential';
-import { clearOpenAiConfig, setAppSharedModel } from '../../onboarding/OpenAiOnboardingStore';
+import { clearOpenAiConfig } from '../../onboarding/OpenAiOnboardingStore';
+import { setAppSharedModel } from '../../inference/appInferenceChoice';
 
 const REAL_KEY = 'sk-or-v1-real-secret';
 const connection = {
@@ -161,13 +175,13 @@ beforeEach(() => {
   fs.rmSync(path.join(dataRoot, 'hermes'), { recursive: true, force: true });
   for (const profile of ['', 'api-server', 'browser', 'orchestrator']) writeProfileConfig(profile, '');
   applyLlmConnectionToProjectFiles.mockReset().mockResolvedValue(undefined);
-  readAssistantEnvFile.mockReset().mockReturnValue({ LLM_PROXY_ADMIN_TOKEN: 'admin-token' });
+  writeStackEnv('LLM_PROXY_ADMIN_TOKEN=admin-token\n');
   fetchMock.mockClear();
   vi.stubGlobal('fetch', fetchMock);
 });
 
 afterAll(() => {
-  fs.rmSync(dataRoot, { recursive: true, force: true });
+  fs.rmSync(stackRoot, { recursive: true, force: true });
 });
 
 afterEach(async () => {
@@ -238,7 +252,7 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
   });
 
   it('follows HERMES_MAX_TOKENS from the stack .env, and 0 writes none', async () => {
-    readAssistantEnvFile.mockReturnValue({ LLM_PROXY_ADMIN_TOKEN: 'admin-token', HERMES_MAX_TOKENS: '0' });
+    writeStackEnv('LLM_PROXY_ADMIN_TOKEN=admin-token\nHERMES_MAX_TOKENS=0\n');
     await applyLlmConnectionToHermes(connection);
     expect(configSets('').map(([key]) => key)).not.toContain('model.max_tokens');
     // No context length reported, so none is written.
@@ -307,7 +321,7 @@ describe('applyLlmConnectionToHermes through llm-proxy', () => {
   });
 
   it('recreates the proxy when the stack .env has no admin token', async () => {
-    readAssistantEnvFile.mockReturnValue({});
+    writeStackEnv('');
     await applyLlmConnectionToHermes(connection);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/admin/upstreams'))).toBe(
       false

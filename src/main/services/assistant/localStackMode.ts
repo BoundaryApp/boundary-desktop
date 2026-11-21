@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { getAssistantRootOverride } from './AssistantStackStore';
 import { resolveAssistantProjectRoot } from './assistantPaths';
 import { canonicalPath } from '../hostPaths';
@@ -7,8 +8,9 @@ import { APP_NAME } from '../../../shared/buildIdentity';
 export type StackRootSource = 'BOUNDARY_ASSISTANT_ROOT' | 'stored-override' | 'managed';
 
 /**
- * The stack this session talks to. Every "is this a local stack?" question reads this one
- * descriptor, so provisioning, stop, reset, profile cleanup and the agent records agree.
+ * The stack this session talks to. The only reader of BOUNDARY_ASSISTANT_ROOT and the stored
+ * override; resolveAssistantRoot checks the root it picks. Every "is this a local stack?"
+ * question reads this one descriptor, so provisioning, stop, reset, profile cleanup and the agent records agree.
  */
 export interface StackMode {
   /**
@@ -17,9 +19,13 @@ export interface StackMode {
    * through to the managed stack. An override that names the managed install is `managed`.
    */
   kind: 'managed' | 'local';
-  /** Canonical path of the stack's compose directory. Not checked for docker-compose.yml. */
+  /**
+   * The stack's compose directory as configured, made absolute but not canonical: compose runs
+   * a local stack from here, and its project name can come from the folder name. `kind`
+   * compares canonical paths. Not checked for docker-compose.yml.
+   */
   root: string;
-  /** BOUNDARY_ASSISTANT_ROOT wins over the stored override (as in resolveAssistantRoot). */
+  /** BOUNDARY_ASSISTANT_ROOT wins over the stored override. */
   source: StackRootSource;
   /**
    * Attach to a stack already answering on the default ports (a developer's `make up`)
@@ -38,10 +44,10 @@ export function stackMode(): StackMode {
   const inputs = `${fromEnv}\0${fromStore}\0${liveFlag ? '1' : ''}`;
   if (cached?.inputs === inputs) return cached.mode;
 
-  const managed = canonicalPath(resolveAssistantProjectRoot());
+  const managedRoot = resolveAssistantProjectRoot();
   const raw = fromEnv || fromStore;
-  const root = raw ? canonicalPath(raw) : managed;
-  const kind = root === managed ? 'managed' : 'local';
+  const root = path.resolve(raw || managedRoot);
+  const kind = canonicalPath(root) === canonicalPath(managedRoot) ? 'managed' : 'local';
   const mode: StackMode = {
     kind,
     root,

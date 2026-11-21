@@ -41,6 +41,7 @@ vi.mock('../InferenceChip', () => ({ InferenceChip: (): null => null }));
 vi.mock('../ProjectPicker', () => ({ ProjectPicker: (): null => null }));
 
 import { WorkbenchThread } from '../WorkbenchThread';
+import { openMenu } from '../../../__tests__/openMenu';
 import { setValue } from '../../../__tests__/formInput';
 
 const project = {
@@ -82,8 +83,8 @@ async function reply(text: string) {
 const writeText = vi.fn(async () => undefined);
 const lastSent = () => chat.startChat.mock.calls.at(-1)?.[0].messages.at(-1)?.content;
 
-const openMenu = async () => {
-  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'More' })));
+const openMore = async () => {
+  await act(async () => openMenu(screen.getByRole('button', { name: 'More' })));
 };
 
 describe('Reply extras', () => {
@@ -102,13 +103,13 @@ describe('Reply extras', () => {
     const share = vi.fn();
     await renderChat({ onShareToCircle: share });
     const [promptMore, replyMore] = screen.getAllByRole('button', { name: 'More' });
-    await act(async () => fireEvent.click(promptMore));
+    await act(async () => openMenu(promptMore));
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       'Share to Circle…everyone in the Circle gets a copy',
     ]);
     await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Share to Circle/ })));
     expect(share).toHaveBeenLastCalledWith({ text: expect.any(String), role: 'user' });
-    await act(async () => fireEvent.click(replyMore));
+    await act(async () => openMenu(replyMore));
     await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Share to Circle/ })));
     expect(share).toHaveBeenLastCalledWith(expect.objectContaining({ text: '## Plan\n\n- **Mon:** write', role: 'assistant' }));
   });
@@ -116,13 +117,13 @@ describe('Reply extras', () => {
   it('offers no Share outside Circles, and no More on prompts', async () => {
     await renderChat();
     expect(screen.getAllByRole('button', { name: 'More' })).toHaveLength(1);
-    await openMenu();
+    await openMore();
     expect(screen.queryByRole('menuitem', { name: /Share to Circle/ })).toBeNull();
   });
 
   it('copies a reply as plain text', async () => {
     await renderChat();
-    await openMenu();
+    await openMore();
     await act(async () =>
       fireEvent.click(screen.getByRole('menuitem', { name: /Copy as plain text/ }))
     );
@@ -132,7 +133,7 @@ describe('Reply extras', () => {
 
   it('quotes a reply above what you type, and the quote can be removed', async () => {
     await renderChat();
-    await openMenu();
+    await openMore();
     await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Quote in reply/ })));
     expect(document.querySelector('.wb-quote p')?.textContent).toBe('## Plan\n\n- **Mon:** write');
 
@@ -140,7 +141,7 @@ describe('Reply extras', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Remove quote' })));
     expect(document.querySelector('.wb-quote')).toBeNull();
 
-    await openMenu();
+    await openMore();
     await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: /Quote in reply/ })));
     const input = screen.getByPlaceholderText('Message Hermes…') as HTMLTextAreaElement;
     await act(async () => setValue(input, 'Make Monday lighter.'));
@@ -160,7 +161,7 @@ describe('Reply extras', () => {
 
   it('saves a reply to the project and says where', async () => {
     await renderChat();
-    await openMenu();
+    await openMore();
     await act(async () =>
       fireEvent.click(screen.getByRole('menuitem', { name: /Save to Job Search/ }))
     );
@@ -174,7 +175,7 @@ describe('Reply extras', () => {
 
   it('offers no Save without a project', async () => {
     await renderChat({ withProject: false });
-    await openMenu();
+    await openMore();
     expect(screen.queryByRole('menuitem', { name: /Save to/ })).toBeNull();
   });
 

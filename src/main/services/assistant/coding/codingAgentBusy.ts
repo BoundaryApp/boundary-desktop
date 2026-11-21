@@ -1,7 +1,6 @@
 import type { CodingAgentBusy } from '../../../../shared/types/codingFolders';
-import { readAssistantEnvFile } from '../assistantPaths';
-import { getStoredAssistantPorts } from '../AssistantStackStore';
-import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
+import { getStackEndpoints, getStackFiles } from '../../stackHost/activeStack';
+import { readStackEnv } from '../stackEnv';
 import { runningTurnToolNames } from '../hermes/hermesRunningTurns';
 
 /**
@@ -78,14 +77,14 @@ async function getJson(fetchFn: FetchFn, url: string, auth: string, timeoutMs: n
 export async function codingAgentBusy(
   options: CodingAgentBusyOptions = {}
 ): Promise<CodingAgentBusy> {
-  const env = options.password === undefined ? readAssistantEnvFile(resolveActiveAssistantRoot()) : {};
+  const env = options.password === undefined ? await readStackEnv(getStackFiles(), 'stack', '.env') : {};
   const username = options.username ?? env.OPENCODE_SERVER_USERNAME ?? 'opencode';
   const password = options.password ?? env.OPENCODE_SERVER_PASSWORD ?? '';
-  const port = options.port ?? getStoredAssistantPorts().opencode;
+  const endpoints = getStackEndpoints();
   const fetchFn = options.fetchFn ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
   const auth = Buffer.from(`${username}:${password}`).toString('base64');
-  const base = `http://127.0.0.1:${port}`;
+  const base = options.port === undefined ? endpoints.url('opencode') : endpoints.portUrl(options.port);
   const chat = (options.runningToolNames ?? runningTurnToolNames)().some(isCodingAgentTool)
     ? [CHAT_CODING_TASK]
     : [];

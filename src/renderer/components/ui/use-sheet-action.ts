@@ -1,9 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react"
+import { errorText } from "../../lib/errorText"
 
-/** The message to show for a thrown value. */
-export function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
+export { errorText }
 
 export interface SheetAction {
   busy: boolean

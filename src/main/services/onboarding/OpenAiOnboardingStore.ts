@@ -2,6 +2,7 @@ import Store from 'electron-store';
 import { LOCAL_LLM_CAPABILITIES } from '../../../shared/llmConnectionDefaults';
 import type {
   InferenceProvidersStatus,
+  InferenceStatusResult,
   InferenceSlotId,
   LlmConnectionCapabilities,
   LlmSlotHealth,
@@ -12,20 +13,16 @@ import type {
   SaveLlmConnectionResult,
   SaveOpenAiConfigResult,
   ClearOpenAiConfigResult,
-  SetAppDefaultResult,
-  SetAppFallbacksResult,
-  SetAppSharedModelResult,
   UpdateLlmModelResult,
 } from '../../../shared/types/onboarding';
 import type { InferenceChainEntry } from '../../../shared/types/inferenceChain';
-import { isVisibleChatProvider } from '../../../shared/inferenceDisplay';
+import type { ChainSlots } from '../inference/appInferenceChoice';
 import { encryptToBase64, isOsEncryptionAvailable, tryDecryptFromBase64 } from '../secrets/osEncryption';
 import { isLoopbackHostname } from '../assistant/rewriteLlmUrlForContainer';
 import { secretPreview } from '../secrets/secretPreview';
 import { dummyApiKeyForLocalLlm } from './LocalLlmDiscovery';
 import { notifyConnectionSaved } from './onboardingExtensions';
 import { isOpenRouterUrl, sameEndpoint } from '../../../shared/utils/endpointUrl';
-import { APP_NAME } from '../../../shared/buildIdentity';
 
 const INFERENCE_SCHEMA_VERSION = 2;
 
@@ -129,6 +126,33 @@ function deleteStoreKey(key: keyof OpenAiOnboardingStoreShape): void {
   store.set(key, undefined as never);
 }
 
+/**
+ * Run a change to the connections and report it with the status after it. A thrown error becomes
+ * the result's error. With `needsEncryption`, nothing runs while OS encryption is unavailable.
+ */
+async function withStatus(
+  { needsEncryption = false }: { needsEncryption?: boolean },
+  change: () => Promise<void>
+): Promise<InferenceStatusResult> {
+  if (needsEncryption && !(await isOsEncryptionAvailable())) {
+    return {
+      success: false,
+      error: 'OS encryption is not available for storing API keys.',
+      status: await getOpenAiOnboardingStatus(),
+    };
+  }
+  try {
+    await change();
+    return { success: true, status: await getOpenAiOnboardingStatus() };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      status: await getOpenAiOnboardingStatus(),
+    };
+  }
+}
+
 /** Kept for the deploy experiment, which still imports it; Boundary code calls isOsEncryptionAvailable. */
 export function isOpenAiConfigEncryptionAvailable(): Promise<boolean> {
   return isOsEncryptionAvailable();
@@ -186,18 +210,32 @@ function removeSlot(slot: InferenceSlotId): void {
   ephemeralHealth.delete(slot);
 }
 
-export function getAppDefaultSlot(): InferenceSlotId | null {
+/** Raw reads and writes of the app inference choice. appInferenceChoice owns the rules for it. */
+export const appChoiceStorage = {
+  appDefault: (): InferenceSlotId | null => store.get('appDefault') ?? null,
+  setAppDefault: (slot: InferenceSlotId | null): void => store.set('appDefault', slot),
+  shared: (): InferenceChainEntry | null => store.get('appSharedModel') ?? null,
+  setShared: (entry: InferenceChainEntry | null): void => {
+    if (entry) store.set('appSharedModel', entry);
+    else deleteStoreKey('appSharedModel');
+  },
+  fallbacks: (): InferenceChainEntry[] => store.get('appFallbacks') ?? [],
+  setFallbacks: (entries: InferenceChainEntry[]): void => store.set('appFallbacks', entries),
+};
+
+function storedAppDefault(): InferenceSlotId | null {
   ensureV2Document();
-  return store.get('appDefault') ?? null;
+  return appChoiceStorage.appDefault();
 }
 
-function setStoredAppDefault(slot: InferenceSlotId | null): void {
-  store.set('appDefault', slot);
-}
-
-export function getAppSharedModel(): InferenceChainEntry | null {
+/** The slots as the chain rules see them, read once. */
+export function storedChainSlots(): ChainSlots {
   ensureV2Document();
-  return store.get('appSharedModel') ?? null;
+  const slots = readSlots();
+  return {
+    modelId: (slot) => slots[slot]?.modelId?.trim() || undefined,
+    configured: (slot) => slotIsConfigured(slots[slot]),
+  };
 }
 
 async function decryptApiKey(encrypted: string | undefined): Promise<string | null> {
@@ -252,14 +290,14 @@ export function ensureV2Document(): void {
   if (v1 && (!existingSlots || Object.keys(existingSlots).length === 0)) {
     const slot = classifyInferenceSlot(v1);
     writeSlots({ [slot]: v1 });
-    setStoredAppDefault(slot);
+    appChoiceStorage.setAppDefault(slot);
   } else if (!existingSlots) {
     writeSlots({});
     if (store.get('appDefault') === undefined) {
-      setStoredAppDefault(null);
+      appChoiceStorage.setAppDefault(null);
     }
   } else if (store.get('appDefault') === undefined) {
-    setStoredAppDefault(null);
+    appChoiceStorage.setAppDefault(null);
   }
 
   store.set('schemaVersion', INFERENCE_SCHEMA_VERSION);
@@ -307,14 +345,14 @@ export async function getOpenAiOnboardingStatus(): Promise<InferenceProvidersSta
   const appDefault = store.get('appDefault') ?? null;
   const encryptionAvailable = await isOsEncryptionAvailable();
   const defaultConnection = appDefault ? slots[appDefault] : undefined;
-  const appSharedModel = getAppSharedModel();
+  const appSharedModel = appChoiceStorage.shared();
   const status: InferenceProvidersStatus = {
     // A shared model counts even while it can't serve: a send says why, and Settings offers others.
     configured: Boolean(appSharedModel) || (await slotIsConfigured(defaultConnection)),
     encryptionAvailable,
     appDefault,
     ...(appSharedModel ? { appSharedModel } : {}),
-    appFallbacks: getAppFallbacks(),
+    appFallbacks: appChoiceStorage.fallbacks(),
     slots: {},
   };
 
@@ -399,7 +437,7 @@ export function getSlotConnectionMaterial(
 export async function getStoredLlmConnectionMaterial(): Promise<(Omit<LlmConnection, 'modelId'> & {
   modelId?: string;
 }) | null> {
-  const slot = getAppDefaultSlot();
+  const slot = storedAppDefault();
   if (!slot) return null;
   return getSlotConnectionMaterial(slot);
 }
@@ -420,14 +458,14 @@ export async function getSlotLlmConnection(slot: InferenceSlotId): Promise<LlmCo
 }
 
 export async function getLlmConnection(): Promise<LlmConnection | null> {
-  const slot = getAppDefaultSlot();
+  const slot = storedAppDefault();
   if (!slot) return null;
   return getSlotLlmConnection(slot);
 }
 
 function assignAppDefaultIfEmpty(slot: InferenceSlotId): void {
-  if (!getAppDefaultSlot() && !getAppSharedModel()) {
-    setStoredAppDefault(slot);
+  if (!storedAppDefault() && !appChoiceStorage.shared()) {
+    appChoiceStorage.setAppDefault(slot);
   }
 }
 
@@ -491,15 +529,7 @@ export async function saveOAuthCredentials(input: {
   capabilities: LlmConnectionCapabilities;
   extraHeaders?: Record<string, string>;
 }): Promise<SaveLlmConnectionResult> {
-  if (!(await isOsEncryptionAvailable())) {
-    return {
-      success: false,
-      error: 'OS encryption is not available for storing API keys.',
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-
-  try {
+  return withStatus({ needsEncryption: true }, async () => {
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const apiKey = requireApiKey(input.apiKey);
     const encryptedApiKey = await encryptToBase64(apiKey);
@@ -513,30 +543,11 @@ export async function saveOAuthCredentials(input: {
       capabilities: input.capabilities,
       extraHeaders: input.extraHeaders,
     });
-
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
+  });
 }
 
 export async function saveLlmConnection(input: SaveLlmConnectionInput): Promise<SaveLlmConnectionResult> {
-  if (!(await isOsEncryptionAvailable())) {
-    return {
-      success: false,
-      error: 'OS encryption is not available for storing API keys.',
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-
-  try {
+  return withStatus({ needsEncryption: true }, async () => {
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const slot =
       input.slot ??
@@ -568,23 +579,12 @@ export async function saveLlmConnection(input: SaveLlmConnectionInput): Promise<
       capabilities: input.capabilities,
       extraHeaders: input.extraHeaders,
     });
-
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
+  });
 }
 
 export async function updateLlmModel(modelId: string, slot?: InferenceSlotId): Promise<UpdateLlmModelResult> {
   ensureV2Document();
-  const target = slot ?? getAppDefaultSlot();
+  const target = slot ?? storedAppDefault();
   if (!target) {
     return {
       success: false,
@@ -602,20 +602,10 @@ export async function updateLlmModel(modelId: string, slot?: InferenceSlotId): P
     };
   }
 
-  try {
+  return withStatus({}, async () => {
     const normalizedModelId = requireModelId(modelId);
     writeSlot(target, { ...connection, modelId: normalizedModelId });
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
+  });
 }
 
 export function getPendingProviderSetup(): PendingProviderSetup | undefined {
@@ -639,15 +629,7 @@ export async function saveLocalLlmEndpoint(input: {
   endpointUrl: string;
   modelId: string;
 }): Promise<SaveOpenAiConfigResult> {
-  if (!(await isOsEncryptionAvailable())) {
-    return {
-      success: false,
-      error: 'OS encryption is not available for storing API keys.',
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-
-  try {
+  return withStatus({ needsEncryption: true }, async () => {
     const endpointUrl = normalizeEndpointUrl(input.endpointUrl);
     const modelId = requireModelId(input.modelId);
     const apiKey = dummyApiKeyForLocalLlm(input.runtime);
@@ -663,18 +645,7 @@ export async function saveLocalLlmEndpoint(input: {
       authScheme: 'bearer',
       capabilities: LOCAL_LLM_CAPABILITIES,
     });
-
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
+  });
 }
 
 async function nextDefaultAfterClear(cleared: InferenceSlotId): Promise<InferenceSlotId | null> {
@@ -692,8 +663,8 @@ async function nextDefaultAfterClear(cleared: InferenceSlotId): Promise<Inferenc
 
 export async function clearLlmSlot(slot: InferenceSlotId): Promise<ClearOpenAiConfigResult> {
   ensureV2Document();
-  try {
-    const wasDefault = getAppDefaultSlot() === slot;
+  return withStatus({}, async () => {
+    const wasDefault = storedAppDefault() === slot;
     const connection = readSlots()[slot];
     removeSlot(slot);
     // OpenRouter's key cost the user a sign-in, so disconnecting keeps it for a later reconnect.
@@ -701,19 +672,9 @@ export async function clearLlmSlot(slot: InferenceSlotId): Promise<ClearOpenAiCo
       store.set('savedOpenRouterConnection', connection);
     }
     if (wasDefault) {
-      setStoredAppDefault(await nextDefaultAfterClear(slot));
+      appChoiceStorage.setAppDefault(await nextDefaultAfterClear(slot));
     }
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
+  });
 }
 
 /** Put a disconnected OpenRouter connection back, key and model included, with no sign-in. */
@@ -743,214 +704,14 @@ export async function forgetSavedOpenRouterKey(): Promise<ClearOpenAiConfigResul
 
 export async function clearOpenAiConfig(): Promise<ClearOpenAiConfigResult> {
   ensureV2Document();
-  try {
+  return withStatus({}, async () => {
     writeSlots({});
-    setStoredAppDefault(null);
+    appChoiceStorage.setAppDefault(null);
     deleteStoreKey('appSharedModel');
     deleteStoreKey('pendingProviderSetup');
     deleteStoreKey('savedOpenRouterConnection');
     ephemeralHealth.clear();
-    return {
-      success: true,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-}
-
-export async function setAppDefault(slot: InferenceSlotId): Promise<SetAppDefaultResult> {
-  ensureV2Document();
-  const connection = readSlots()[slot];
-  if (!(await slotIsConfigured(connection))) {
-    return {
-      success: false,
-      error: 'Connect that provider before making it the app default.',
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-  setStoredAppDefault(slot);
-  deleteStoreKey('appSharedModel');
-  return {
-    success: true,
-    status: await getOpenAiOnboardingStatus(),
-  };
-}
-
-/**
- * Make a shared model or a confidential pool the app default, in place of any slot (ADR 0036,
- * ADR 0047 §8). The caller has checked that it can serve now. Fallbacks stay; one naming this
- * model goes, as it is now the first entry.
- */
-export async function setAppSharedModel(entry: InferenceChainEntry): Promise<SetAppSharedModelResult> {
-  ensureV2Document();
-  const shared = entry.slot === 'confidential' ? wellFormedPoolEntry(entry) : wellFormedSharedEntry(entry);
-  if (!shared) {
-    return {
-      success: false,
-      error:
-        entry.slot === 'confidential'
-          ? 'That confidential pool doesn’t name a model.'
-          : `That shared model isn’t one ${APP_NAME} knows.`,
-      status: await getOpenAiOnboardingStatus(),
-    };
-  }
-  store.set('appSharedModel', shared);
-  setStoredAppDefault(null);
-  store.set(
-    'appFallbacks',
-    getAppFallbacks().filter((fallback) => chainPeerKey(fallback) !== chainPeerKey(shared))
-  );
-  return { success: true, status: await getOpenAiOnboardingStatus() };
-}
-
-/** Everything choosing a default can change, so a cancelled switch can put it back. */
-export interface AppInferenceChoice {
-  appDefault: InferenceSlotId | null;
-  shared: InferenceChainEntry | null;
-  fallbacks: InferenceChainEntry[];
-}
-
-export function readAppInferenceChoice(): AppInferenceChoice {
-  return { appDefault: getAppDefaultSlot(), shared: getAppSharedModel(), fallbacks: getAppFallbacks() };
-}
-
-export function restoreAppInferenceChoice({ appDefault, shared, fallbacks }: AppInferenceChoice): void {
-  ensureV2Document();
-  setStoredAppDefault(appDefault);
-  if (shared) store.set('appSharedModel', shared);
-  else deleteStoreKey('appSharedModel');
-  store.set('appFallbacks', fallbacks);
-}
-
-export function getAppFallbacks(): InferenceChainEntry[] {
-  ensureV2Document();
-  return store.get('appFallbacks') ?? [];
-}
-
-/**
- * Remove the app default's entries for Circles that can never come back (ADR 0039 §2). When that
- * was the default, the first fallback that may serve takes its place, then a connected provider,
- * as when the default is empty. With neither, nothing is chosen and Settings says so.
- */
-export function dropAppEntries(
-  isGone: (entry: InferenceChainEntry) => boolean,
-  providerTrusted: (providerId: string) => boolean
-): void {
-  ensureV2Document();
-  const shared = getAppSharedModel();
-  const fallbacks = getAppFallbacks().filter((entry) => !isGone(entry));
-  if (!shared || !isGone(shared)) {
-    store.set('appFallbacks', fallbacks);
-    return;
-  }
-  deleteStoreKey('appSharedModel');
-  const slots = readSlots();
-  const connected = (slot: InferenceSlotId) => Boolean(slots[slot]?.modelId?.trim());
-  // Whether a pool has a provider is the confidential service's to say, which this can't ask, so a pool never takes over.
-  const next = fallbacks.find((entry) =>
-    entry.slot === 'confidential'
-      ? false
-      : entry.slot === 'peer'
-        ? providerTrusted(entry.peer?.providerId ?? '')
-        : connected(entry.slot)
-  );
-  if (next?.slot === 'peer') store.set('appSharedModel', next);
-  else if (next && next.slot !== 'confidential') setStoredAppDefault(next.slot);
-  else setStoredAppDefault((['local', 'openrouter', 'infrastructure'] as const).find(connected) ?? null);
-  store.set('appFallbacks', fallbacks.filter((entry) => entry !== next));
-}
-
-const HEX_KEY = /^[0-9a-f]{64}$/;
-
-function wellFormedSharedEntry(entry: InferenceChainEntry): InferenceChainEntry | null {
-  const modelId = entry.modelId?.trim() ?? '';
-  const { circleId, providerId } = entry.peer ?? { circleId: '', providerId: '' };
-  if (entry.slot !== 'peer' || !HEX_KEY.test(circleId) || !HEX_KEY.test(providerId)) return null;
-  if (!modelId || modelId.length > 200) return null;
-  return { slot: 'peer', modelId, peer: { circleId, providerId } };
-}
-
-function wellFormedPoolEntry(entry: InferenceChainEntry): InferenceChainEntry | null {
-  const modelId = entry.modelId?.trim() ?? '';
-  if (entry.slot !== 'confidential' || !modelId || modelId.length > 200) return null;
-  return { slot: 'confidential', modelId };
-}
-
-/** The key of an entry that names its model outright: a shared model or a confidential pool. */
-function chainPeerKey(entry: InferenceChainEntry): string | null {
-  if (entry.slot === 'confidential') return `confidential:${entry.modelId?.trim() ?? ''}`;
-  return entry.slot === 'peer' ? `peer:${entry.peer?.circleId}:${entry.peer?.providerId}:${entry.modelId?.trim()}` : null;
-}
-
-/**
- * Check a chain's fallbacks against its first entry. Only connected chat providers and
- * well-formed shared models are accepted, each slot and model once, and never the first
- * entry's own slot and model. A shared model is kept even while it is stale, so the user
- * sees it (ADR 0033 §10). A confidential pool is kept when it names a model and dropped
- * when it doesn't.
- */
-export async function keepChainFallbacks(
-  primary: InferenceChainEntry | null,
-  entries: InferenceChainEntry[]
-): Promise<{ ok: true; fallbacks: InferenceChainEntry[] } | { ok: false; error: string }> {
-  ensureV2Document();
-  const slots = readSlots();
-  const modelFor = (entry: InferenceChainEntry) =>
-    entry.modelId?.trim() ||
-    (entry.slot === 'peer' || entry.slot === 'confidential' ? '' : slots[entry.slot]?.modelId?.trim()) ||
-    '';
-  const seen = new Set<string>(primary ? [chainPeerKey(primary) ?? `${primary.slot}:${modelFor(primary)}`] : []);
-  const fallbacks: InferenceChainEntry[] = [];
-  for (const entry of entries) {
-    if (entry.slot === 'confidential') {
-      const modelId = entry.modelId?.trim();
-      const key = chainPeerKey(entry);
-      if (!modelId || seen.has(key)) continue;
-      seen.add(key);
-      fallbacks.push({ slot: 'confidential', modelId });
-      continue;
-    }
-    if (entry.slot === 'peer') {
-      const shared = wellFormedSharedEntry(entry);
-      const key = shared && chainPeerKey(shared);
-      if (!shared || !key) return { ok: false, error: `That shared model isn’t one ${APP_NAME} knows.` };
-      if (seen.has(key)) continue;
-      seen.add(key);
-      fallbacks.push(shared);
-      continue;
-    }
-    // Fallbacks are the providers a chat can switch to; infrastructure stays hidden (ADR 0015 §3).
-    if (!isVisibleChatProvider(entry.slot) || !(await slotIsConfigured(slots[entry.slot]))) {
-      return { ok: false, error: 'Connect that provider before adding it as a fallback.' };
-    }
-    const key = `${entry.slot}:${modelFor(entry)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    // A blank model follows the slot's own model when that changes later.
-    const picked = entry.modelId?.trim();
-    fallbacks.push({ slot: entry.slot, ...(picked ? { modelId: picked } : {}) });
-  }
-  return { ok: true, fallbacks };
-}
-
-/**
- * Store the app default's fallbacks (see keepChainFallbacks). Saving doesn't restart Hermes;
- * the next send pushes the chain to the router (ADR 0033 §9).
- */
-export async function setAppFallbacks(entries: InferenceChainEntry[]): Promise<SetAppFallbacksResult> {
-  ensureV2Document();
-  const appDefault = store.get('appDefault') ?? null;
-  const kept = await keepChainFallbacks(getAppSharedModel() ?? (appDefault ? { slot: appDefault } : null), entries);
-  if (kept.ok === false) {
-    return { success: false, error: kept.error, status: await getOpenAiOnboardingStatus() };
-  }
-  store.set('appFallbacks', kept.fallbacks);
-  return { success: true, status: await getOpenAiOnboardingStatus() };
+  });
 }
 
 export function setSlotHealth(slot: InferenceSlotId, health: LlmSlotHealth): void {

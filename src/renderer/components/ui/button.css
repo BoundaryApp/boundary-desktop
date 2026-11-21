@@ -136,9 +136,24 @@
   font-size: var(--size-xs);
 }
 
-:where(.wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(.is-icon) {
+/* Icon buttons are squares in every look: 34px, 28px (icon-sm) or 24px (icon-xs). min-height
+   and min-width undo the bordered looks' minimums, which sit in the components layer. */
+:where(.wb-btn.is-icon) {
   width: var(--control-height);
+  min-width: 0;
   padding: 0;
+}
+
+:where(.wb-btn.is-icon-sm) {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+}
+
+:where(.wb-btn.is-icon-xs) {
+  width: var(--control-height-xs);
+  height: var(--control-height-xs);
+  min-height: var(--control-height-xs);
 }
 
 :where(.wb-btn-quiet) {
@@ -167,6 +182,13 @@
 :where(.wb-btn-link:hover) {
   color: var(--text);
   text-decoration-line: underline;
+}
+
+/* A button whose menu or panel is open (aria-expanded, or Radix's data-state on a trigger). It comes after
+   the looks: every rule here has zero specificity, so the later rule wins. */
+:where(.wb-btn.is-icon):where([aria-expanded='true'], [data-state='open']) {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 :where(.wb-btn-solid, .wb-btn-ghost, .wb-btn-tiny, .wb-btn-danger, .wb-btn-quiet, .wb-btn-brand, .wb-btn-link):where(:disabled) {

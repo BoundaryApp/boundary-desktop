@@ -5,7 +5,7 @@ vi.mock('../../assistant/AssistantStackService', () => ({ getAssistantStackAcces
 vi.mock('../addonHostFacts', () => ({ readAddonHostFacts: vi.fn() }));
 
 import { checkAddonFit, type AddonFitCheckDeps } from '../addonFitCheck';
-import { ACTUAL_ENTRY, TWENTY_ENTRY } from '../addonCatalog';
+import { ACTUAL_ENTRY, BITWARDEN_ENTRY, TWENTY_ENTRY } from '../addonCatalog';
 
 const FOUR = ['twenty-server', 'twenty-worker', 'twenty-db', 'twenty-redis'];
 const INSTALL_ENV = { TWENTY_LOCAL_ENABLED: '1', TWENTY_MCP_ENABLED: '1' };
@@ -25,7 +25,7 @@ const row = (service: string) => JSON.stringify({ Service: service, State: 'runn
 /** readFacts reports the port free and Twenty's memory left out when asked for leftovers, as readAddonHostFacts does. */
 function deps(overrides: Partial<AddonFitCheckDeps> = {}) {
   const d: AddonFitCheckDeps = {
-    isInstalled: vi.fn(() => false),
+    isInstalled: vi.fn(async () => false),
     readFacts: vi.fn(async (_entry, { leftover }) =>
       leftover ? { ...facts, portInUse: false, usedMiB: 0 } : { ...facts }
     ),
@@ -44,10 +44,30 @@ describe('checkAddonFit', () => {
       ACTUAL_LOCAL_ENABLED: '1',
       ACTUAL_MCP_ENABLED: '1',
     });
-    const installed = deps({ isInstalled: vi.fn(() => true), ps: vi.fn(async () => ({ stdout: row('actual-server'), stderr: '' })) });
+    const installed = deps({ isInstalled: vi.fn(async () => true), ps: vi.fn(async () => ({ stdout: row('actual-server'), stderr: '' })) });
     expect((await checkAddonFit(ACTUAL_ENTRY, installed)).stopped).toBe(false);
-    const down = deps({ isInstalled: vi.fn(() => true) });
+    const down = deps({ isInstalled: vi.fn(async () => true) });
     expect((await checkAddonFit(ACTUAL_ENTRY, down)).stopped).toBe(true);
+  });
+
+  it('counts the Bitwarden signer as the add-on’s but reads stopped from the broker', async () => {
+    const env = { BITWARDEN_ENABLED: '1' };
+    const signerOnly = deps({ ps: vi.fn(async () => ({ stdout: row('bitwarden-signin'), stderr: '' })) });
+    expect((await checkAddonFit(BITWARDEN_ENTRY, signerOnly)).leftover).toBe(true);
+    expect(signerOnly.ps).toHaveBeenCalledWith(
+      ['--profile', 'bitwarden', 'ps', '--format', 'json', 'bitwarden-broker', 'bitwarden-signin'],
+      env
+    );
+    const brokerDown = deps({
+      isInstalled: vi.fn(async () => true),
+      ps: vi.fn(async () => ({ stdout: row('bitwarden-signin'), stderr: '' })),
+    });
+    expect((await checkAddonFit(BITWARDEN_ENTRY, brokerDown)).stopped).toBe(true);
+    const up = deps({
+      isInstalled: vi.fn(async () => true),
+      ps: vi.fn(async () => ({ stdout: `${row('bitwarden-broker')}\n${row('bitwarden-signin')}`, stderr: '' })),
+    });
+    expect((await checkAddonFit(BITWARDEN_ENTRY, up)).stopped).toBe(false);
   });
 
   it('finds leftover containers when ps lists one of the four services', async () => {
@@ -93,7 +113,7 @@ describe('checkAddonFit', () => {
 
   it('reads an installed add-on whose server runs as neither leftover nor stopped', async () => {
     const d = deps({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       ps: vi.fn(async () => ({ stdout: [row('twenty-db'), row('twenty-server')].join('\n'), stderr: '' })),
     });
     const check = await checkAddonFit(TWENTY_ENTRY, d);
@@ -102,18 +122,18 @@ describe('checkAddonFit', () => {
   });
 
   it('reads an installed add-on with no running server as stopped', async () => {
-    const d = deps({ isInstalled: vi.fn(() => true) });
+    const d = deps({ isInstalled: vi.fn(async () => true) });
     expect(await checkAddonFit(TWENTY_ENTRY, d)).toMatchObject({ leftover: false, stopped: true });
 
     const dbOnly = deps({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       ps: vi.fn(async () => ({ stdout: row('twenty-db'), stderr: '' })),
     });
     expect((await checkAddonFit(TWENTY_ENTRY, dbOnly)).stopped).toBe(true);
   });
 
   it("doesn't ask compose about an installed add-on while the stack is still starting", async () => {
-    const d = deps({ isInstalled: vi.fn(() => true), stackReady: vi.fn(() => false) });
+    const d = deps({ isInstalled: vi.fn(async () => true), stackReady: vi.fn(() => false) });
     const check = await checkAddonFit(TWENTY_ENTRY, d);
     expect(check).toMatchObject({ leftover: false, stopped: false });
     expect(d.ps).not.toHaveBeenCalled();
@@ -121,7 +141,7 @@ describe('checkAddonFit', () => {
 
   it('reads a failed ps on an installed add-on as not stopped', async () => {
     const d = deps({
-      isInstalled: vi.fn(() => true),
+      isInstalled: vi.fn(async () => true),
       ps: vi.fn(async () => {
         throw new Error('Cannot connect to the Docker daemon');
       }),

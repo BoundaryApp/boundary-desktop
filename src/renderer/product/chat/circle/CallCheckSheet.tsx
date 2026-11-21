@@ -8,6 +8,8 @@ import { CallStage } from '../../circles/calls/CallStage';
 import { getCallService } from '../../circles/calls/callService';
 import { useCircleCall } from '../../circles/calls/useCircleCall';
 import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { NativeSelect } from '../../../components/ui/native-select';
 import './circleChat.css';
 
 const MODE_LABEL: Record<CallCheckMode, string> = {
@@ -35,7 +37,7 @@ const TEST_ROOM = 'check';
 
 /**
  * A real call in one room, with the camera and microphone, between members who join it from the
- * check. It tries the call service before the call screens exist.
+ * check. It runs through the same call service as the call screens, without a ring.
  */
 function TestCall({ circle }: { circle: CircleSnapshot }) {
   const { call, join } = useCircleCall(circle.key);
@@ -160,9 +162,8 @@ export const CallCheckSheet: React.FC<{
             disabled={running !== null}
             onClick={() =>
               void window.electronAPI.circles.callCheckExport({ label, results }).then((saved) => {
-                const failed = saved as { success: boolean; canceled?: boolean; error?: string };
-                if (failed.success) setExported('Saved');
-                else setExported(failed.canceled ? null : `Not saved: ${failed.error ?? 'unknown error'}`);
+                if (saved.success) setExported('Saved');
+                else setExported(saved.canceled ? null : `Not saved: ${saved.error ?? 'unknown error'}`);
               })
             }
           >
@@ -180,7 +181,7 @@ export const CallCheckSheet: React.FC<{
         them with this launch’s diagnostics and this Mac’s details, to send after a run.
       </p>
       <Field label="This Mac’s network" htmlFor="call-check-network">
-        <input
+        <Input
           id="call-check-network"
           type="text"
           value={label}
@@ -198,7 +199,7 @@ export const CallCheckSheet: React.FC<{
         <div className="wb-circle-check">
           <div className="wb-fields-inline">
             <Field label="Member" htmlFor="call-check-member">
-              <select
+              <NativeSelect
                 id="call-check-member"
                 value={to}
                 disabled={running !== null}
@@ -209,10 +210,10 @@ export const CallCheckSheet: React.FC<{
                     {member.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
             <Field label="Mode for video runs" htmlFor="call-check-mode">
-              <select
+              <NativeSelect
                 id="call-check-mode"
                 value={loadMode}
                 disabled={running !== null}
@@ -223,7 +224,7 @@ export const CallCheckSheet: React.FC<{
                     {MODE_LABEL[mode]}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
           </div>
           <div className="wb-circle-check-actions">

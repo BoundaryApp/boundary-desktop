@@ -16,9 +16,20 @@ import {
   snapshot,
   stubAddons,
 } from './addonFixtures';
+import { buildAssistantUiServiceCards } from '../../../../shared/assistantUiServices';
+import type { AssistantUiServiceCard } from '../../../../shared/types/assistantStack';
 
-const stack: { status: { ready: boolean; uiServices: never[]; ports: Record<string, number> } } = {
-  status: { ready: true, uiServices: [], ports: {} },
+/** n8n, LightRAG and Neo4j as main sends them in the status. */
+function addonServices(ports: Record<string, number>): AssistantUiServiceCard[] {
+  return buildAssistantUiServiceCards((key, path) => `http://127.0.0.1:${ports[key]}${path}`).filter((card) =>
+    ['n8n', 'lightrag', 'neo4j'].includes(card.id)
+  );
+}
+
+const stack: {
+  status: { ready: boolean; uiServices: never[]; addonServices: AssistantUiServiceCard[]; ports: Record<string, number> };
+} = {
+  status: { ready: true, uiServices: [], addonServices: [], ports: {} },
 };
 
 vi.mock('../../assistantStack', () => ({
@@ -27,7 +38,8 @@ vi.mock('../../assistantStack', () => ({
 }));
 
 beforeEach(() => {
-  stack.status = { ready: true, uiServices: [], ports: { n8n: 5678, lightrag: 9621, neo4jHttp: 7474 } };
+  const ports = { n8n: 5678, lightrag: 9621, neo4jHttp: 7474 };
+  stack.status = { ready: true, uiServices: [], addonServices: addonServices(ports), ports };
 });
 
 /** The store with its own page state, as the Services screen holds it. */
@@ -170,6 +182,19 @@ describe('store cards', () => {
     await vi.waitFor(() => expect(addons.twenty.open).toHaveBeenCalled());
   });
 
+  it('leaves Enter and Space on the card’s action to the action, and opens the page from the card itself', async () => {
+    stubAddons([listing()]);
+    render(<Store start={{ view: 'category', category: 'work' }} />);
+    const twenty = await card('Twenty CRM');
+    const get = within(twenty).getByRole('button', { name: 'Get Twenty CRM' });
+    // fireEvent returns false when a handler called preventDefault, which would stop the button's click.
+    expect(fireEvent.keyDown(get, { key: 'Enter' })).toBe(true);
+    expect(fireEvent.keyDown(get, { key: ' ' })).toBe(true);
+    expect(screen.queryByRole('heading', { name: 'Twenty CRM', level: 1 })).toBeNull();
+    expect(fireEvent.keyDown(twenty, { key: ' ' })).toBe(false);
+    expect(await screen.findByRole('heading', { name: 'Twenty CRM', level: 1 })).toBeTruthy();
+  });
+
   it('offers Start for an installed Twenty that isn’t running', async () => {
     const addons = stubAddons([listing({}, true, true, false, true)], { workspaces: [localWorkspace()] });
     render(<Store start={{ view: 'category', category: 'work' }} />);
@@ -180,7 +205,7 @@ describe('store cards', () => {
   });
 
   it('turns a parked Twenty back on without asking for access again', async () => {
-    const addons = stubAddons([listing()], { workspaces: [localWorkspace({ parked: true })] });
+    const addons = stubAddons([listing()], { workspaces: [localWorkspace()] });
     addons.install.mockReturnValue(new Promise(() => undefined));
     render(<Store start={{ view: 'category', category: 'work' }} />);
     const twenty = await card('Twenty CRM');
@@ -301,6 +326,18 @@ describe('Installed page', () => {
     expect(screen.getByText('3.2 GB of engine memory reserved')).toBeTruthy();
     const installedNav = screen.getByRole('button', { name: /Installed/ , current: 'page' });
     expect(within(installedNav).getByText('2')).toBeTruthy();
+  });
+
+  it('opens a row on Enter or Space, and leaves those keys to the row’s action', async () => {
+    stubAddons([listing({}, true)], { workspaces: [localWorkspace()] });
+    render(<Store start={{ view: 'installed' }} />);
+    const list = await screen.findByRole('list', { name: 'Installed add-ons' });
+    const row = within(list).getByRole('button', { name: 'Twenty CRM' });
+    const open = within(row).getByRole('button', { name: 'Open Twenty CRM' });
+    expect(fireEvent.keyDown(open, { key: 'Enter' })).toBe(true);
+    expect(screen.queryByRole('heading', { name: 'Twenty CRM', level: 1 })).toBeNull();
+    expect(fireEvent.keyDown(row, { key: ' ' })).toBe(false);
+    expect(await screen.findByRole('heading', { name: 'Twenty CRM', level: 1 })).toBeTruthy();
   });
 
   it('points to Discover when nothing is installed', async () => {

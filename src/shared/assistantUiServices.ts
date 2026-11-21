@@ -1,6 +1,5 @@
 import type {
   AssistantStackPortKey,
-  AssistantStackPorts,
   AssistantUiServiceCard,
 } from './types/assistantStack';
 
@@ -69,18 +68,9 @@ export const ASSISTANT_UI_SERVICES: readonly AssistantUiServiceDefinition[] = [
   },
 ] as const;
 
-export function buildServiceUrl(
-  ports: AssistantStackPorts,
-  portKey: AssistantStackPortKey,
-  path = '/'
-): string {
-  const port = ports[portKey];
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `http://127.0.0.1:${port}${normalizedPath === '/' ? '/' : normalizedPath}`;
-}
-
+/** Each UI service with its URL, from `urlFor` (main's stack endpoints). */
 export function buildAssistantUiServiceCards(
-  ports: AssistantStackPorts
+  urlFor: (portKey: AssistantStackPortKey, path: string) => string
 ): AssistantUiServiceCard[] {
   return ASSISTANT_UI_SERVICES.map((service) => ({
     id: service.id,
@@ -88,6 +78,6 @@ export function buildAssistantUiServiceCards(
     description: service.description,
     portKey: service.portKey,
     path: service.path,
-    url: buildServiceUrl(ports, service.portKey, service.path),
+    url: urlFor(service.portKey, service.path.startsWith('/') ? service.path : `/${service.path}`),
   }));
 }

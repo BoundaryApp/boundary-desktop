@@ -38,37 +38,6 @@
   box-sizing: content-box;
 }
 
-/* Switches */
-
-.wb-circle-switch {
-  display: flex;
-  flex-shrink: 0;
-  width: 34px;
-  height: 20px;
-  padding: var(--space-0-5);
-  border: 0;
-  border-radius: var(--radius-full);
-  background: var(--line-strong);
-  cursor: pointer;
-}
-
-.wb-circle-switch.is-on {
-  justify-content: flex-end;
-  background: var(--brand);
-}
-
-.wb-circle-switch:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.wb-circle-switch i {
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-full);
-  background: #fff;
-}
-
 /* Sections */
 
 .wb-circle-box {

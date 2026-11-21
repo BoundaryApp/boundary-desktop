@@ -17,8 +17,9 @@ import type {
   ProjectInferencePin,
 } from '../../../../shared/types/hermesChat';
 import type { FirstRunFolder } from '../../../../shared/types/setupProgress';
-import { getSlotLlmConnection, keepChainFallbacks } from '../../onboarding/OpenAiOnboardingStore';
-import { recreateHermesForProjectMounts } from '../AssistantStackService';
+import { getSlotLlmConnection } from '../../onboarding/OpenAiOnboardingStore';
+import { keepChainFallbacks } from '../../inference/appInferenceChoice';
+import { getProjectEnv, recreateHermesForProjectMounts } from '../AssistantStackService';
 import { resolveAssistantUserContentRoot } from '../assistantPaths';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
 import { isLocalAssistantStackMode } from '../localStackMode';
@@ -61,6 +62,8 @@ import {
 import { persistCodingStackEnv } from '../coding/codingMounts';
 import { dialogStartFolder, rememberDialogPick } from '../../dialogFolders';
 import { APP_NAME } from '../../../../shared/buildIdentity';
+import { stackCapabilityRefusal } from '../../stackHost/capabilities';
+import { hostFolderProject } from './hostFolderProject';
 
 let connecting = false;
 
@@ -81,6 +84,8 @@ function formatMountError(hostPath: string, raw: string): string {
  * without being mounted. Null when Boundary runs its own stack.
  */
 function localStackHostFolderError(): string | null {
+  const refusal = stackCapabilityRefusal('hostFolders');
+  if (refusal) return refusal;
   if (!isLocalAssistantStackMode()) return null;
   return (
     `${APP_NAME} is running against a local agent stack, which doesn’t read ${APP_NAME}’s project ` +
@@ -94,15 +99,15 @@ function resolveDataRoot(): string {
 }
 
 /** The overlay from the stored projects. Only remount jobs call this, one at a time. */
-function writeStoredProjectsOverlay(extraRoots?: readonly string[]): void {
+async function writeStoredProjectsOverlay(extraRoots?: readonly string[]): Promise<void> {
   const projects = listStoredHermesProjects();
-  writeHermesProjectsOverlay(projects, extraRoots);
+  await writeHermesProjectsOverlay(projects, extraRoots);
   // Only Boundary's own stack uses the generated overlay. In local-stack mode the data
   // root is the developer checkout, so leave it alone.
   if (!isLocalAssistantStackMode()) {
-    ensureProjectMountPoints(projects, path.join(resolveDataRoot(), 'projects'));
+    await ensureProjectMountPoints(projects);
     // Project aliases follow the project list (change request 0003 R2).
-    persistCodingStackEnv();
+    await persistCodingStackEnv(getProjectEnv());
   }
 }
 
@@ -112,20 +117,20 @@ export interface ProjectRemountOptions {
    * Store or `.env` changes to make when this remount's turn starts. Returns the context
    * roots for the overlay, or nothing to collect them from the stack `.env` and sources.
    */
-  prepare?: () => readonly string[] | void;
+  prepare?: () => readonly string[] | void | Promise<readonly string[] | void>;
   /** Undo `prepare` when the recreate fails, so the failing bind isn't kept (G09-7). */
-  rollback?: () => void;
+  rollback?: () => void | Promise<void>;
   /** Recreate the coding agent too, for a folder that gets coding in the same change. */
   codingAgent?: boolean;
   /** Called when the containers are up and the health wait starts. */
   onHealthWait?: () => void;
 }
 
-function undoProjectRemount(options: ProjectRemountOptions | undefined): void {
+async function undoProjectRemount(options: ProjectRemountOptions | undefined): Promise<void> {
   if (!options?.rollback) return;
-  options.rollback();
+  await options.rollback();
   try {
-    writeStoredProjectsOverlay();
+    await writeStoredProjectsOverlay();
   } catch {
     /* the next remount writes it again */
   }
@@ -136,10 +141,10 @@ async function remountProjectsNow(
 ): Promise<{ success: boolean; error?: string }> {
   let extraRoots: readonly string[] | undefined;
   try {
-    extraRoots = options?.prepare?.() || undefined;
-    writeStoredProjectsOverlay(extraRoots);
+    extraRoots = (await options?.prepare?.()) || undefined;
+    await writeStoredProjectsOverlay(extraRoots);
   } catch (error) {
-    undoProjectRemount(options);
+    await undoProjectRemount(options);
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
   const projects = listStoredHermesProjects();
@@ -154,7 +159,7 @@ async function remountProjectsNow(
       onHealthWait: options?.onHealthWait,
     });
     if (!result.success) {
-      undoProjectRemount(options);
+      await undoProjectRemount(options);
       return {
         success: false,
         error: formatMountError(
@@ -185,7 +190,7 @@ export function syncOverlayAndRecreate(
 /** Rewrite the overlay with no recreate, after any remount that is already queued. */
 function scheduleOverlayWrite(): Promise<{ success: boolean; error?: string }> {
   return enqueueFolderRemount(async () => {
-    writeHermesProjectsOverlay(listStoredHermesProjects());
+    await writeHermesProjectsOverlay(listStoredHermesProjects());
     return { success: true };
   });
 }
@@ -226,7 +231,7 @@ async function activateOnGateway(
   }
 }
 
-function listResult(extra?: Partial<HermesProjectsListResult>): HermesProjectsListResult {
+export function listResult(extra?: Partial<HermesProjectsListResult>): HermesProjectsListResult {
   return {
     success: true,
     projects: listStoredHermesProjects(),
@@ -454,6 +459,8 @@ export async function createHostFolderHermesProject(
 export async function createEmptyHermesProject(
   payload: HermesProjectCreateEmptyPayload
 ): Promise<HermesProjectResult> {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   const name = payload.name.trim();
   if (!name) {
     return { success: false, error: 'Name is required.' };
@@ -680,7 +687,8 @@ async function normalizeProjectInference(
   };
 }
 
-function projectTurnRunning(projectId: string): boolean {
+/** True while a reply runs in one of the project's chats. */
+export function projectTurnRunning(projectId: string): boolean {
   return listRunningTurns().some((turn) =>
     turn.sessionIds.some((id) => conversationProjectId(id) === projectId)
   );
@@ -852,10 +860,8 @@ export async function changeHermesProjectFolder(
 export async function revealHermesProjectInFinder(
   projectId: string
 ): Promise<{ success: boolean; error?: string }> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, error: 'Project not found.' };
-  }
+  const { project, error: projectError } = hostFolderProject(projectId);
+  if (!project) return { success: false, error: projectError };
   const error = await shell.openPath(project.hostPath);
   if (error) {
     return { success: false, error };

@@ -8,14 +8,13 @@ import {
   replaceStoredHermesProjects,
   resetHermesProjectsStoreForTests,
 } from '../services/assistant/hermes/hermesProjectStore';
+import { clearOpenAiConfig, saveLlmConnection } from '../services/onboarding/OpenAiOnboardingStore';
 import {
-  clearOpenAiConfig,
   getAppDefaultSlot,
   getAppFallbacks,
   getAppSharedModel,
   restoreAppInferenceChoice,
-  saveLlmConnection,
-} from '../services/onboarding/OpenAiOnboardingStore';
+} from '../services/inference/appInferenceChoice';
 import { dropWipedCircleReferences } from '../migrations/circleReferences';
 import { runMigrations } from '../migrations/runner';
 

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -44,6 +45,14 @@ describe('loadDevCatalog', () => {
       'Your Mac checks Prem’s hardware, but the key your prompt is encrypted to isn’t part of that check. Whoever runs Prem’s key service could swap it without the check noticing.'
     );
     expect(Object.values(prem?.offers ?? {}).map((o) => o.providerModelId)).toEqual(['qwen38-27b', 'deepseek-v4.1-flash-1017']);
+  });
+
+  it('lists Privatemode at level A, pinned to the recorded v1.64.0 manifest', () => {
+    const privatemode = catalog().providers.find((p) => p.id === 'privatemode');
+    expect(privatemode?.level).toBe('A');
+    const recorded = fs.readFileSync(path.join(__dirname, '..', 'privatemode', '__tests__', 'fixtures', 'manifest.json'));
+    expect(privatemode?.manifestSha256).toEqual([createHash('sha256').update(recorded).digest('hex')]);
+    expect(privatemode?.levelReason).toContain('only a release Boundary’s list names by its fingerprint');
   });
 
   it('lists NEAR’s models by their NEAR ids, at fp8, with cached prices', () => {

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
 import type { CodingGrantRow } from '../../../shared/types/codingFolders';
+import { BUILTIN_AGENT_FALLBACK } from '../../../shared/hermesAgentIdentity';
 
 const listCodingFolders = vi.fn();
 const verifyCodingFolders = vi.fn();
@@ -12,6 +13,9 @@ const codingAgentBusy = vi.fn();
 const inspectFolderForDelete = vi.fn();
 
 stubElectronAPI({
+  agents: {
+    list: async () => ({ success: true, agents: [{ ...BUILTIN_AGENT_FALLBACK, displayName: 'Marlow' }] }),
+  },
   codingFolders: {
     list: (...args: unknown[]) => listCodingFolders(...args),
     verify: (...args: unknown[]) => verifyCodingFolders(...args),
@@ -45,6 +49,7 @@ stubElectronAPI({
 
 import { CodingFoldersPanel, sortGrants } from '../CodingFoldersPanel';
 import { resetCodingFoldersStoreForTests } from '../chat/codingFoldersStore';
+import { setStackCapabilitiesForTests } from '../stackCapabilities';
 
 function grant(partial: Partial<CodingGrantRow>): CodingGrantRow {
   return {
@@ -93,15 +98,28 @@ describe('CodingFoldersPanel', () => {
     expect(screen.getByText(/never shared whole/)).toBeTruthy();
   });
 
+  it('names the built-in agent by its stored name under the settings-coding heading', async () => {
+    const pending = [grant({ resource: '/Users/ada/Code/later', hermesPending: true }), ...grants];
+    listCodingFolders.mockResolvedValue({ success: true, managed: true, grants: pending });
+    verifyCodingFolders.mockResolvedValue({ success: true, managed: true, grants: pending });
+    render(<CodingFoldersPanel />);
+    expect((await screen.findAllByText('Marlow can edit')).length).toBe(2);
+    expect(screen.getByText('Marlow after restart')).toBeTruthy();
+    expect(screen.queryByText(/Hermes/)).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Folders the coding agent can reach' }).id).toBe(
+      'settings-coding'
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove…' })[0]);
+    expect(screen.getByText('Marlow can still read it in Portfolio chats')).toBeTruthy();
+  });
+
   it('removes access but keeps the folder as reference by default', async () => {
     render(<CodingFoldersPanel />);
     const buttons = await screen.findAllByRole('button', { name: 'Remove…' });
     fireEvent.click(buttons[0]);
     expect(
-      screen
-        .getByRole('radio', { name: /Keep as read-only reference/ })
-        .getAttribute('aria-checked')
-    ).toBe('true');
+      (screen.getByRole('radio', { name: /Keep as read-only reference/ }) as HTMLInputElement).checked
+    ).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Remove access' }));
     await waitFor(() =>
       expect(removeCodingFolder).toHaveBeenCalledWith({
@@ -173,5 +191,12 @@ describe('sortGrants', () => {
       '/Users/ada/Code/contact-api',
       '/Volumes/Work/client-api',
     ]);
+  });
+
+  it('says why there are no coding folders on a host without hostFolders', async () => {
+    setStackCapabilitiesForTests({ hostFolders: false });
+    render(<CodingFoldersPanel />);
+    expect(screen.getByText("Your agent runs on another computer, so it can't use folders on this one.")).toBeTruthy();
+    expect(screen.queryByText('/Users/ada/Code/contact-api')).toBeNull();
   });
 });

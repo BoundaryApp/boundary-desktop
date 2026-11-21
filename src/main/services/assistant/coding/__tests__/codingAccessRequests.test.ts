@@ -8,13 +8,13 @@ import {
   isCodingTaskTool,
   needsAccessPath,
 } from '../codingAccessRequests';
-import { resetCodingRemountQueueForTests, setCodingGrantDepsForTests } from '../codingGrants';
+import { resetCodingRemountQueueForTests } from '../codingGrants';
 import { addCodingGrantRecord, resetCodingGrantStoreForTests } from '../codingGrantStore';
 import {
   resetHermesProjectsStoreForTests,
   upsertStoredHermesProject,
 } from '../../hermes/hermesProjectStore';
-import { fakeCodingDeps, makeFolder } from './codingDeps';
+import { fakeCodingDeps, makeFolder, resetCodingDepsForTests } from './codingDeps';
 
 let home: string;
 
@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setCodingGrantDepsForTests(null);
+  resetCodingDepsForTests();
   fs.rmSync(home, { recursive: true, force: true });
 });
 

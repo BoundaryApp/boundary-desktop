@@ -1,10 +1,10 @@
 import React from 'react';
 import { Button } from '../../components/ui/button';
+import { formatTokenCount } from '../../../shared/utils/format';
 import { Sheet } from '../../components/ui/sheet';
 import {
   CONFIDENTIAL_COPY,
   formatSpendCost,
-  formatTokens,
   formatUsd,
 } from './confidentialCopy';
 import { LevelBadge } from './LevelBadge';
@@ -52,8 +52,8 @@ export const ConfidentialSpendSheet: React.FC<{
                     <LevelBadge level={row.level} /> {row.name}
                   </td>
                   <td>{row.turns}</td>
-                  <td>{formatTokens(row.inputTokens)}</td>
-                  <td>{formatTokens(row.outputTokens)}</td>
+                  <td>{formatTokenCount(row.inputTokens)}</td>
+                  <td>{formatTokenCount(row.outputTokens)}</td>
                   <td>{formatSpendCost(row.cost)}</td>
                   <td>
                     {row.removed

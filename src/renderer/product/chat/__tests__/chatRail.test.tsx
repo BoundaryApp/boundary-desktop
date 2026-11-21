@@ -304,7 +304,7 @@ describe('Tasks row (kanban tasks)', () => {
     setKanbanSnapshotForTests({ available: true, checkedAt: nowS, tasks: [] });
     renderRail({ centerMode: 'tasks' });
     const row = screen.getByRole('button', { name: 'Tasks' });
-    expect(row.getAttribute('aria-pressed')).toBe('true');
+    expect(row.getAttribute('aria-current')).toBe('page');
     expect(row.textContent).toBe('Tasks');
   });
 });

@@ -78,7 +78,7 @@ export function registerHermesChatHandlers(): void {
 
   handleResult('hermes-chat:list-mentions', async () => listHermesMentions());
 
-  handle('hermes-chat:mark-mentions-seen', async () => markHermesMentionsSeen());
+  handleResult('hermes-chat:mark-mentions-seen', async () => markHermesMentionsSeen());
 
   handle('hermes-chat:running-list', async () => listRunningTurns());
 
@@ -107,7 +107,7 @@ export function registerHermesChatHandlers(): void {
     async (_event, payload: HermesChatBranchPayload) => branchHermesChat(payload)
   );
 
-  handle('hermes-chat:delete-failed-chat', async (_event, payload: HermesChatHistoryPayload) =>
+  handleResult('hermes-chat:delete-failed-chat', async (_event, payload: HermesChatHistoryPayload) =>
     deleteHermesFailedChat(payload.sessionId)
   );
 
@@ -147,12 +147,12 @@ export function registerHermesChatHandlers(): void {
       startHermesChatStream(event.sender, payload)
   );
 
-  handle(
+  handleResult(
     'hermes-chat:cancel',
     async (_event, payload: HermesChatCancelPayload) => handleHermesChatCancel(payload)
   );
 
-  handle('hermes-chat:run-now', async (_event, payload: { requestId: string }) => runHermesHeldTurnNow(payload));
+  handleResult('hermes-chat:run-now', async (_event, payload: { requestId: string }) => runHermesHeldTurnNow(payload));
 
   // Replies at once for the local model server (workload plan Phase 1a); null with no local model.
   handle('workload:replies-at-once', async () => {

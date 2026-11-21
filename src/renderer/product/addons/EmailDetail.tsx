@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Callout } from '../../components/ui/alert';
 import { sinceFor, windowChoiceOf, type EmailWindowChoice } from '../../../shared/emailAccount';
 import {
@@ -18,6 +20,8 @@ import { StoppedAddonCallout } from './AddonStoppedAlert';
 import { EMAIL_ATTACHMENTS_LABEL, EMAIL_CONSENT, EMAIL_EVERYTHING_HINT, EMAIL_OFF_ROW, EMAIL_WINDOW_LABEL } from './emailCopy';
 import { useAddonInstall, useAddonListing } from './useAddons';
 import { clockTime, listingErrorText, refreshEmail, rowMessage, useEmailOverview } from './useEmail';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
 
 // Email's page (spec decisions 37 and 38): one row per account with the indexer's last word on
 // it, the settings every account shares, Turn off, and Remove and delete data. `enable` and
@@ -122,20 +126,20 @@ const SettingsCard: React.FC<{
     <Panel title="Settings" lead="These apply to every account.">
       <label className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
         How far back
-        <select aria-label="How far back" value={choice} disabled={busy} onChange={(e) => pick(e.target.value as WindowChoice)}>
+        <NativeSelect className="w-auto" aria-label="How far back" value={choice} disabled={busy} onChange={(e) => pick(e.target.value as WindowChoice)}>
           {WINDOW_CHOICES.map((c) => (
             <option key={c} value={c}>
               {EMAIL_WINDOW_LABEL[c]}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       {choice === 'all' ? <p className="text-xs text-fg-faint">{EMAIL_EVERYTHING_HINT}</p> : null}
       {choice === 'date' ? (
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-fg-muted">
             Starting from
-            <input type="date" aria-label="Starting from" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
+            <Input className="w-auto" type="date" aria-label="Starting from" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} />
           </label>
           <Button
             type="button"
@@ -148,25 +152,27 @@ const SettingsCard: React.FC<{
           </Button>
         </div>
       ) : null}
-      <label className="flex cursor-pointer items-center gap-2 text-xs">
-        <input
-          type="checkbox"
-          checked={overview.attachments}
-          disabled={busy}
-          onChange={(e) => save({ attachments: e.target.checked })}
-        />
-        <span className="text-fg">{EMAIL_ATTACHMENTS_LABEL}</span>
-      </label>
-      <label className="flex cursor-pointer items-center gap-2 text-xs">
-        {/* The stack writes the drafts flag only while Email is on, so the switch waits for it. */}
-        <input
-          type="checkbox"
-          checked={overview.drafts}
-          disabled={busy || !overview.enabled}
-          onChange={(e) => save({ drafts: e.target.checked })}
-        />
-        <span className="text-fg">{DRAFTS_LABEL}</span>
-      </label>
+      <ChoiceRow
+        control={
+          <Checkbox
+            checked={overview.attachments}
+            disabled={busy}
+            onChange={(e) => save({ attachments: e.target.checked })}
+          />
+        }
+        title={EMAIL_ATTACHMENTS_LABEL}
+      />
+      {/* The stack writes the drafts flag only while Email is on, so the switch waits for it. */}
+      <ChoiceRow
+        control={
+          <Checkbox
+            checked={overview.drafts}
+            disabled={busy || !overview.enabled}
+            onChange={(e) => save({ drafts: e.target.checked })}
+          />
+        }
+        title={DRAFTS_LABEL}
+      />
       <p className="text-xs text-fg-faint">
         A new window or attachment setting restarts the indexer. Agents save drafts to each account’s Drafts mailbox and never send them.
       </p>
@@ -329,7 +335,7 @@ export const EmailDetail: React.FC<{
         </RemoveDataSheet>
       ) : null}
 
-      {sheet ? <EmailConnectSheet mode={sheet} onClose={() => setSheet(null)} /> : null}
+      {sheet ? <EmailConnectSheet mode={sheet} onClose={() => setSheet(null)} onStarted={onInstallStarted} /> : null}
     </div>
   );
 };

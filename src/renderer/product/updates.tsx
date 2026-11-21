@@ -1,83 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunningWorkItem, UpdateSnapshot } from '../../shared/types/updates';
 import { Sheet } from '../components/ui/sheet';
 import { WorkingDot } from './chat/WorkingDot';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { Button } from '../components/ui/button';
+import { describeUpdate, remainingTasks, type UpdateActionId, type UpdateStage } from './updateModel';
+import { cardOpenedStore, updatesStore, useCardOpened, useUpdates } from './updatesStore';
 
 const UPDATED_CARD_MS = 10_000;
 
-let current: UpdateSnapshot | null = null;
-const listeners = new Set<() => void>();
-let stopListening: (() => void) | null = null;
-/** The rail button opened the card by hand, whatever `showCard` says. */
-let opened = false;
-
-function emit(): void {
-  listeners.forEach((listener) => listener());
-}
-
-function publish(next: UpdateSnapshot): void {
-  current = next;
-  emit();
-}
-
-function setOpened(next: boolean): void {
-  opened = next;
-  emit();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  const api = window.electronAPI?.updates;
-  if (api && !stopListening) {
-    stopListening = api.onState(publish);
-    void api.getState().then(publish);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) {
-      stopListening?.();
-      stopListening = null;
-    }
-  };
-}
-
-/** The update state from main, shared by the card, the rail and the Updates tab. */
-export function useUpdates(): UpdateSnapshot | null {
-  return useSyncExternalStore(subscribe, () => current);
-}
-
-function useCardOpened(): boolean {
-  return useSyncExternalStore(subscribe, () => opened);
-}
-
-export function resetUpdatesForTests(): void {
-  current = null;
-  opened = false;
-  stopListening = null;
-  listeners.clear();
-}
-
-export function formatSize(bytes: number): string {
-  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
-}
-
-/** At 100 every byte is in, and Squirrel is checking the update and unpacking it. */
-export function downloadTitle(state: UpdateSnapshot): string {
-  const verb = state.downloadPercent === 100 ? 'Checking' : 'Downloading';
-  return `${verb} ${APP_NAME} ${state.version}`;
-}
-
-/** The percent while one is known, otherwise the size alone. */
-export function downloadDetail({ downloadPercent: percent, size }: UpdateSnapshot): string | null {
-  if (percent === null || percent === 100) return size ? formatSize(size) : null;
-  return size ? `${percent}% of ${formatSize(size)}` : `${percent}%`;
-}
-
-export function waitingTitle(remaining: number): string {
-  return `Restarting when ${remaining === 1 ? '1 task finishes' : `${remaining} tasks finish`}`;
-}
+export { useUpdates } from './updatesStore';
 
 export const UpdateTasks: React.FC<{ state: UpdateSnapshot }> = ({ state }) => (
   <ul className="wb-update-tasks">
@@ -193,27 +125,59 @@ export function useRestartToInstall(): { restart: () => void; sheet: React.React
   return { restart, sheet };
 }
 
-type RailStage = 'available' | 'failed' | 'downloading' | 'ready' | 'waiting';
-
-function railStage(state: UpdateSnapshot): RailStage {
-  if (state.restartIn !== null || state.waiting.length > 0) return 'waiting';
-  if (state.phase === 'ready') return 'ready';
-  if (state.phase === 'downloading') return 'downloading';
-  return state.error === 'download' ? 'failed' : 'available';
+/**
+ * Runs an action from the update description against the bridge. **See what changed** belongs
+ * to the card, which handles it before this.
+ */
+export function runUpdateAction(id: UpdateActionId, restartToUpdate: () => void): void {
+  const api = window.electronAPI?.updates;
+  switch (id) {
+    case 'move-to-applications':
+      void api?.moveToApplications();
+      return;
+    case 'restart-now':
+      void api?.restart({ force: true });
+      return;
+    case 'cancel-waiting':
+      void api?.cancelWaiting();
+      return;
+    case 'restart-to-update':
+      restartToUpdate();
+      return;
+    case 'download':
+      void api?.download();
+      return;
+    case 'skip':
+      void api?.skipVersion();
+      return;
+    case 'check':
+      void api?.check();
+      return;
+    case 'see-what-changed':
+      return;
+  }
 }
 
-function railLabel(state: UpdateSnapshot, stage: RailStage): string {
+type RailStage = 'available' | 'failed' | 'downloading' | 'ready' | 'waiting';
+
+function railStage(stage: UpdateStage): RailStage {
   switch (stage) {
+    case 'last-call':
     case 'waiting':
-      return state.restartIn === null ? 'Restarting when work finishes' : 'Restarting soon';
+      return 'waiting';
     case 'ready':
-      return `${APP_NAME} ${state.version} is ready`;
     case 'downloading':
-      return downloadTitle(state);
     case 'failed':
-      return `${APP_NAME} ${state.version} didn’t download`;
+      return stage;
+    case 'blocked-folder':
+    case 'needs-key':
+    case 'key-rejected':
+    case 'no-feed':
+    case 'updated':
     case 'available':
-      return `${APP_NAME} ${state.version} is available`;
+    case 'check-failed':
+    case 'current':
+      return 'available';
   }
 }
 
@@ -230,12 +194,19 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
   const state = useUpdates();
   const cardOpened = useCardOpened();
   if (!state) return null;
-  const stage = railStage(state);
-  const remaining = state.waiting.filter((item) => !item.finished).length;
+  const description = describeUpdate(state);
+  const stage = railStage(description.stage);
+  const remaining = remainingTasks(state);
   const done = state.restartIn === null
     ? 1 - remaining / Math.max(1, state.waiting.length)
     : 1 - state.restartIn / 30;
-  const label = railLabel(state, stage);
+  // The rail's waiting label is shorter than the card's title, which counts the tasks.
+  const label =
+    stage === 'waiting'
+      ? state.restartIn === null
+        ? 'Restarting when work finishes'
+        : 'Restarting soon'
+      : description.title;
   const isOpen = cardOpened || state.showCard || state.showUpdated;
   const measured = state.downloadPercent !== null && state.downloadPercent < 100;
   return (
@@ -248,7 +219,7 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
       onClick={() => {
         // Closing what opened by itself counts as closing it, so it doesn't reopen.
         const api = window.electronAPI?.updates;
-        setOpened(!isOpen);
+        cardOpenedStore.set(!isOpen);
         if (state.showUpdated) void api?.closeUpdated();
         else if (state.showCard) void api?.closeCard();
       }}
@@ -297,21 +268,6 @@ export const UpdateRailButton: React.FC<{ className?: string }> = ({ className =
 };
 
 /** Fills with the download, and loops when the total is unknown or Squirrel has the zip. */
-/** Restart now and its way out, while installs wait or the restart counts down. */
-export function RestartActions({ counting }: { counting: boolean }) {
-  const api = window.electronAPI?.updates;
-  return (
-    <>
-      <Button variant={counting ? 'primary' : 'secondary'} block type="button" onClick={() => void api?.restart({ force: true })}>
-        Restart now
-      </Button>
-      <Button variant="secondary" block type="button" onClick={() => void api?.cancelWaiting()}>
-        {counting ? 'Not now' : 'Cancel restart'}
-      </Button>
-    </>
-  );
-}
-
 function DownloadBar({ percent }: { percent: number | null }) {
   if (percent === null || percent === 100) {
     return (
@@ -345,6 +301,15 @@ function Lines({ lines }: { lines: string[] }) {
   );
 }
 
+/** How the card closes itself at each stage; a restart in progress can't be put away. */
+const CARD_DISMISS: Partial<Record<UpdateStage, { label: string; link: boolean }>> = {
+  updated: { label: 'Close', link: true },
+  ready: { label: 'Later', link: false },
+  downloading: { label: 'Hide', link: true },
+  failed: { label: 'Later', link: false },
+  available: { label: 'Later', link: false },
+};
+
 /** The update card beside the rail button (ADR 0037). It never takes focus. */
 export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpdates }) => {
   const state = useUpdates();
@@ -358,7 +323,8 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
   const open = Boolean(state) && (lastCall || Boolean(updated) || cardOpened || Boolean(state?.showCard));
 
   const collapse = useCallback(() => {
-    setOpened(false);
+    cardOpenedStore.set(false);
+    const current = updatesStore.get();
     if (current?.showUpdated) void api?.closeUpdated();
     else if (current?.showCard) void api?.closeCard();
   }, [api]);
@@ -385,130 +351,87 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
 
   if (!state || !api) return null;
 
-  const body = (): React.ReactNode => {
-    if (state.restartIn !== null) {
-      return (
-        <>
-          <h3>Restarting in {state.restartIn} seconds</h3>
-          <p>Everything has finished. Restarting installs {APP_NAME} {state.version}.</p>
-          <div className="wb-update-bar" aria-hidden="true">
-            <i className="is-drain" style={{ width: `${(state.restartIn / 30) * 100}%` }} />
-          </div>
-          <div className="wb-update-actions">
-            <RestartActions counting={true} />
-          </div>
-        </>
-      );
+  const description = describeUpdate(state, { confirmUpdated: true });
+  const { stage } = description;
+  const dismiss = CARD_DISMISS[stage];
+  const skip = description.actions.find((action) => action.id === 'skip');
+  const run = (id: UpdateActionId) => {
+    if (id === 'see-what-changed') {
+      collapse();
+      onOpenUpdates();
+    } else {
+      runUpdateAction(id, restart);
     }
-    if (state.waiting.length > 0) {
-      return (
-        <>
-          <h3>{waitingTitle(state.waiting.filter((item) => !item.finished).length)}</h3>
-          <UpdateTasks state={state} />
-          <div className="wb-update-actions">
-            <RestartActions counting={false} />
-          </div>
-        </>
-      );
-    }
-    if (updated) {
-      return (
-        <>
-          <h3>{APP_NAME} is now {updated.version}</h3>
-          <Lines lines={updated.summary} />
-          <div className="wb-update-actions">
-            <Button
-              variant="secondary"
-              block
-              type="button"
-              onClick={() => {
-                collapse();
-                onOpenUpdates();
-              }}
-            >
-              See what changed
-            </Button>
-            <button type="button" className="wb-update-link" onClick={collapse}>
-              Close
-            </button>
-          </div>
-        </>
-      );
-    }
-    if (state.phase === 'ready') {
-      return (
-        <>
-          <h3>{APP_NAME} {state.version} is ready</h3>
-          <p>It installs when you quit. Restart now to get it sooner.</p>
-          {state.stackChanges ? <p>The next start takes a few minutes while your tools update.</p> : null}
-          <div className="wb-update-actions">
-            <Button variant="primary" block type="button" onClick={restart}>
-              Restart to update
-            </Button>
-            <Button variant="secondary" block type="button" onClick={collapse}>
-              Later
-            </Button>
-          </div>
-        </>
-      );
-    }
-    const size = state.size ? <span className="wb-update-size">{formatSize(state.size)}</span> : null;
-    if (state.phase === 'downloading') {
-      const detail = downloadDetail(state);
-      return (
-        <>
-          <div className="wb-update-card-head">
-            <h3>{downloadTitle(state)}</h3>
-            {/* The card is a live region, so the changing number stays out of it. */}
-            {detail ? <span className="wb-update-size" aria-hidden={state.downloadPercent !== null}>{detail}</span> : null}
-          </div>
-          <p>Keep working. {APP_NAME} tells you when it’s ready.</p>
-          <DownloadBar percent={state.downloadPercent} />
-          <div className="wb-update-actions">
-            <button type="button" className="wb-update-link" onClick={collapse}>
-              Hide
-            </button>
-          </div>
-        </>
-      );
-    }
-    if (state.error === 'download') {
-      return (
-        <>
-          <h3>{APP_NAME} {state.version} didn’t download</h3>
-          <p>Nothing changed. You’re still on {state.currentVersion}.</p>
-          <div className="wb-update-actions">
-            <Button variant="primary" block type="button" onClick={() => void api.download()}>
-              Try again
-            </Button>
-            <Button variant="secondary" block type="button" onClick={collapse}>
-              Later
-            </Button>
-          </div>
-        </>
-      );
-    }
-    return (
-      <>
-        <div className="wb-update-card-head">
-          <h3>{APP_NAME} {state.version} is available</h3>
-          {size}
-        </div>
-        <Lines lines={state.summary} />
-        <div className="wb-update-actions">
-          <Button variant="primary" block type="button" onClick={() => void api.download()}>
-            Download
-          </Button>
-          <Button variant="secondary" block type="button" onClick={collapse}>
-            Later
-          </Button>
-          <button type="button" className="wb-update-link" onClick={() => void api.skipVersion()}>
-            Skip this version
-          </button>
-        </div>
-      </>
-    );
   };
+
+  const body = (
+    <>
+      {stage === 'downloading' || stage === 'available' ? (
+        <div className="wb-update-card-head">
+          <h3>{description.title}</h3>
+          {/* The card is a live region, so the changing number stays out of it. */}
+          {description.detail ? (
+            <span
+              className="wb-update-size"
+              aria-hidden={stage === 'downloading' ? state.downloadPercent !== null : undefined}
+            >
+              {description.detail}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <h3>{description.title}</h3>
+      )}
+      {stage === 'waiting' ? (
+        <UpdateTasks state={state} />
+      ) : stage === 'updated' || stage === 'available' ? (
+        <Lines lines={description.lines} />
+      ) : (
+        <p>{description.body}</p>
+      )}
+      {description.note ? <p>{description.note}</p> : null}
+      {state.restartIn !== null && stage === 'last-call' ? (
+        <div className="wb-update-bar" aria-hidden="true">
+          <i className="is-drain" style={{ width: `${(state.restartIn / 30) * 100}%` }} />
+        </div>
+      ) : null}
+      {stage === 'downloading' ? <DownloadBar percent={state.downloadPercent} /> : null}
+      {description.actions.length > 0 || dismiss ? (
+        <div className="wb-update-actions">
+          {description.actions
+            .filter((action) => action.id !== 'skip')
+            .map((action) => (
+              <Button
+                key={action.id}
+                variant={action.primary ? 'primary' : 'secondary'}
+                block
+                type="button"
+                disabled={action.disabled}
+                onClick={() => run(action.id)}
+              >
+                {action.label}
+              </Button>
+            ))}
+          {dismiss ? (
+            dismiss.link ? (
+              <button type="button" className="wb-update-link" onClick={collapse}>
+                {dismiss.label}
+              </button>
+            ) : (
+              <Button variant="secondary" block type="button" onClick={collapse}>
+                {dismiss.label}
+              </Button>
+            )
+          ) : null}
+          {skip ? (
+            <button type="button" className="wb-update-link" onClick={() => run('skip')}>
+              {skip.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
 
   return (
     <>
@@ -522,7 +445,7 @@ export const UpdateCard: React.FC<{ onOpenUpdates: () => void }> = ({ onOpenUpda
             if (event.key === 'Escape' && !lastCall) collapse();
           }}
         >
-          {body()}
+          {body}
         </section>
       ) : null}
       {sheet}

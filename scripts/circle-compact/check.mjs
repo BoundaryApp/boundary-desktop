@@ -21,6 +21,8 @@ await build({
   root,
   configFile: false,
   logLevel: 'warn',
+  // The harness bundles no release notes; the alias still has to resolve (ADR 0059).
+  resolve: { alias: { '@release-notes': path.resolve(root, '..', '..', 'src', 'release-notes-empty') } },
   plugins: [react(), tailwindcss()],
   define: { __BOUNDARY_APP_NAME__: '""', __BOUNDARY_INSTANCE__: '""', global: 'globalThis' },
   build: { outDir: path.join(outDir, 'site'), emptyOutDir: true },
@@ -65,7 +67,8 @@ const toolbarProblem = (line) => {
 
 /**
  * Every reaction pill row's pills must sit inside the thread horizontally, and each pill's text
- * must reach 4.5:1 against its own fill (the pill's fill is opaque, so no backdrop walk).
+ * must reach 4.5:1 against what shows behind it: the pill's own fill (transparent, or tinted when
+ * it's yours) blended over the backgrounds under it.
  */
 const pillProblems = () => {
   const thread = document.querySelector('.wb-circle-thread').getBoundingClientRect();
@@ -76,6 +79,20 @@ const pillProblems = () => {
     const parts = getComputedStyle(probe).color.match(/[\d.]+/g).map(Number);
     probe.remove();
     return parts.slice(0, 3);
+  };
+  /** The color behind an element's text: its background and its ancestors', blended from the
+   *  first opaque one up. */
+  const backdrop = (el) => {
+    const layers = [];
+    for (let up = el; up; up = up.parentElement) {
+      const [r, g, b, a = 1] = getComputedStyle(up).backgroundColor.match(/[\d.]+/g).map(Number);
+      if (a > 0) layers.push([r, g, b, a]);
+      if (a >= 1) break;
+    }
+    return layers.reduceRight(
+      (under, [r, g, b, a]) => [r, g, b].map((c, i) => c * a + under[i] * (1 - a)),
+      rgb(getComputedStyle(document.documentElement).getPropertyValue('--bg') || 'white')
+    );
   };
   const lum = ([r, g, b]) =>
     [r, g, b].map((c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
@@ -91,7 +108,7 @@ const pillProblems = () => {
     }
     for (const pill of row.children) {
       const style = getComputedStyle(pill);
-      const contrast = ratio(rgb(style.color), rgb(style.backgroundColor));
+      const contrast = ratio(rgb(style.color), backdrop(pill));
       if (contrast < 4.5) problems.push(`row ${r + 1} pill ${pill.textContent} text ${contrast.toFixed(2)}:1`);
     }
   });
@@ -101,7 +118,7 @@ const pillProblems = () => {
 /** The open React popover and the thread it must stay inside; popover items must stay inside the popover. */
 const popoverProblems = () => {
   const thread = document.querySelector('.wb-circle-thread').getBoundingClientRect();
-  const pop = document.querySelector('.wb-react-pop');
+  const pop = document.querySelector('.wb-react-wrap [data-slot="menu-content"]');
   if (!pop) return { problems: ['popover did not open'], items: 0 };
   const box = pop.getBoundingClientRect();
   const problems = [];
@@ -180,7 +197,7 @@ try {
     const requests = [];
     const onRequest = (request) => requests.push(request.url());
     page.on('request', onRequest);
-    await page.locator('.wb-react-pop button[aria-label="More emoji"]').click();
+    await page.locator('.wb-react-wrap [data-slot="menu-content"] [role="menuitem"]:has-text("More emoji")').click();
     await page.waitForSelector('.wb-emoji-item', { state: 'attached' });
     const sheet = await page.$eval('.wb-emoji-sheet', (el) => {
       const r = el.getBoundingClientRect();

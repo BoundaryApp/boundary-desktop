@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { createValueStore } from '../../lib/valueStore';
 
 // Messages typed while an agent replies, waiting to be sent (run-control spec, Phase 2).
 // Hermes's own queue can't be listed or edited, and Stop wipes it, so Boundary keeps the
@@ -21,22 +22,18 @@ export interface RunQueue {
 }
 
 const EMPTY: RunQueue = { items: [], paused: false };
-const queues = new Map<string, RunQueue>();
-const listeners = new Set<() => void>();
-
-function emit(): void {
-  for (const listener of listeners) listener();
-}
+const queues = createValueStore<ReadonlyMap<string, RunQueue>>(new Map());
 
 function write(key: string, next: RunQueue): void {
+  const map = new Map(queues.get());
   // An empty queue has nothing to pause; dropping it means the next one starts unpaused.
-  if (next.items.length === 0) queues.delete(key);
-  else queues.set(key, next);
-  emit();
+  if (next.items.length === 0) map.delete(key);
+  else map.set(key, next);
+  queues.set(map);
 }
 
 export function getRunQueue(key: string): RunQueue {
-  return queues.get(key) ?? EMPTY;
+  return queues.get().get(key) ?? EMPTY;
 }
 
 export function enqueuePrompt(key: string, text: string, voiceId?: string | null): QueuedPrompt | null {
@@ -80,11 +77,13 @@ export function resumeRunQueue(key: string): void {
 /** A new chat got its id: its queue follows, after anything already queued there. */
 export function rekeyRunQueue(from: string, to: string): void {
   if (from === to) return;
-  const moving = queues.get(from);
+  const moving = queues.get().get(from);
   if (!moving) return;
-  queues.delete(from);
   const there = getRunQueue(to);
-  write(to, { items: [...there.items, ...moving.items], paused: there.paused || moving.paused });
+  const map = new Map(queues.get());
+  map.delete(from);
+  map.set(to, { items: [...there.items, ...moving.items], paused: there.paused || moving.paused });
+  queues.set(map);
 }
 
 export function queueChipLabel(index: number, paused: boolean): string {
@@ -92,17 +91,11 @@ export function queueChipLabel(index: number, paused: boolean): string {
   return index === 0 ? 'Next' : `Queued ${index + 1}`;
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 export function useRunQueue(key: string): RunQueue {
-  return useSyncExternalStore(subscribe, () => getRunQueue(key));
+  return useSyncExternalStore(queues.subscribe, () => getRunQueue(key));
 }
 
 /** @internal Vitest only. */
 export function clearRunQueuesForTests(): void {
-  queues.clear();
-  emit();
+  queues.set(new Map());
 }

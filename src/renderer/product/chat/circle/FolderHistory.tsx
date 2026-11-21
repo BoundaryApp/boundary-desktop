@@ -9,6 +9,7 @@ import { ClockIcon } from './FolderView';
 import { useFolderReload } from './useSharedFolders';
 import { changedLines, personName, whenLine } from './sharedFolderView';
 import { Button } from '../../../components/ui/button';
+import { useAction } from '../../circles/useCircles';
 
 const api = () => window.electronAPI.circles;
 
@@ -26,12 +27,14 @@ function availability(change: SharedFolderChange, circle: CircleSnapshot): { res
  * Restore writes an old version back as a new change.
  */
 export const FileHistory: React.FC<{
+  /** The aside's id, for the button that opens it. */
+  id?: string;
   folder: SharedFolderListing;
   circle: CircleSnapshot;
   path: string;
   onBack: () => void;
   onClose: () => void;
-}> = ({ folder, circle, path, onBack, onClose }) => {
+}> = ({ id, folder, circle, path, onBack, onClose }) => {
   const [versions, setVersions] = useState<SharedFolderChange[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,14 +69,14 @@ export const FileHistory: React.FC<{
   };
 
   return (
-    <aside className="wb-right wb-circle-insp" aria-label={`${path} history`}>
+    <aside id={id} className="wb-right wb-circle-insp" aria-label={`${path} history`}>
       <nav className="wb-insp-tabs" aria-label="Inspector">
         <button type="button" className="wb-insp-tab wb-circle-insp-back" aria-label={`Back to ${folder.name}`} onClick={onBack}>
           ← {folder.name}
         </button>
-        <button type="button" className="wb-act wb-circle-insp-close" aria-label="Close file history" onClick={onClose}>
+        <Button type="button" variant="quiet" size="icon-xs" className="wb-circle-insp-close" aria-label="Close file history" onClick={onClose}>
           ✕
-        </button>
+        </Button>
       </nav>
       <div className="wb-insp-pane">
         <div className="wb-circle-insp-ident">
@@ -173,8 +176,7 @@ export const ResolveConflictSheet: React.FC<{
   onClose: () => void;
 }> = ({ folder, circle, copy, onClose }) => {
   const [conflict, setConflict] = useState<SharedFolderConflict | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
   useEffect(() => {
     setConflict(null);
     setError(null);
@@ -194,15 +196,8 @@ export const ResolveConflictSheet: React.FC<{
   if (!copy) return null;
 
   const keep = async (choice: 'original' | 'copy' | 'both') => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api().folderResolve({ key: folder.key, copy, keep: choice });
-      if (result.success === false) setError(result.error);
-      else onClose();
-    } finally {
-      setBusy(false);
-    }
+    const result = await run(() => api().folderResolve({ key: folder.key, copy, keep: choice }));
+    if (result && result.success !== false) onClose();
   };
 
   const original = conflict?.original.path ?? copy.replace(/ \(conflict, [^)]*\)/, '');

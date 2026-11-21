@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/button';
 import { Sheet } from '../../components/ui/sheet';
 import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { useMacStatus, type MacStatusState } from '../useCalendarAccounts';
+import { Checkbox } from '../../components/ui/checkbox';
 
 /** Calendars on this Mac: the allow and choose steps of the connect sheet, the card body and Edit calendars. */
 
@@ -168,7 +169,7 @@ export function MacChooseStep({
           <legend>{source}</legend>
           {items.map((calendar) => (
             <label key={calendar.id} className="wb-cal-mac-row">
-              <input type="checkbox" checked={ticked.includes(calendar.id)} onChange={() => toggle(calendar.id)} />
+              <Checkbox checked={ticked.includes(calendar.id)} onChange={() => toggle(calendar.id)} />
               <span className="wb-cal-mac-swatch" style={{ background: calendar.color }} aria-hidden="true" />
               <span className="wb-cal-mac-title">{calendar.title}</span>
               {calendar.writable ? null : <span className="wb-cal-tag">Read only</span>}

@@ -1,4 +1,5 @@
 import { persistDebugLog, serializeError } from '../../persistDebugLog';
+import { requireStackCapability } from '../stackHost/capabilities';
 
 /**
  * Reservations of add-ons being installed that asked for room (ADR 0055 §3). They count towards
@@ -56,6 +57,7 @@ export async function makeRoomFor(
   deps: MakeRoomDeps,
   signal?: AbortSignal
 ): Promise<void> {
+  requireStackCapability('engineControl');
   if (!(await deps.engineResizable())) {
     throw new Error(`${name} needs more memory than the container engine has, and Boundary can't resize this engine.`);
   }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '../../components/ui/button';
 import type {
   AgentProfile,
   ChannelRecord,
@@ -21,6 +22,8 @@ import {
   useNowSeconds,
 } from './kanbanActivity';
 import { PlacedCallBar } from '../circles/calls/PlacedCallBar';
+import { StackCapabilityNote, useStackCapability } from '../stackCapabilities';
+import type { CenterMode } from './centerMode';
 
 function SectAddIcon() {
   return (
@@ -112,9 +115,6 @@ export function railOrder(input: {
       .filter((id): id is string => Boolean(id)),
   ];
 }
-
-/** What the center pane shows. */
-export type CenterMode = 'conversation' | 'all-chats' | 'mentions' | 'project' | 'task' | 'tasks';
 
 export interface ChatRailProps {
   projects: HermesProjectRecord[];
@@ -220,10 +220,12 @@ export const ChatRail: React.FC<ChatRailProps> = ({
   const kanbanByAgent = runningTaskByAssignee(kanban.tasks);
   const boardCounts = taskCounts(kanban.tasks);
   const nowS = useNowSeconds(5000);
+  const hostFolders = useStackCapability('hostFolders');
   return (
     <aside className="wb-left">
       <div className="wb-titlebar-spacer" aria-hidden="true" />
       {projects.length === 0 ? (
+        hostFolders ? (
         <div className="wb-proj-empty">
           Choose a folder on this Mac, or chat without one.
           <div className="wb-empty-actions">
@@ -245,6 +247,11 @@ export const ChatRail: React.FC<ChatRailProps> = ({
             </button>
           </div>
         </div>
+        ) : (
+          <div className="wb-proj-empty">
+            <StackCapabilityNote capability="hostFolders" size="sm" />
+          </div>
+        )
       ) : (
         <ProjectPicker
           variant="rail"
@@ -268,7 +275,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                 type="button"
                 className={`wb-row${centerMode === 'project' ? ' is-on' : ''}`}
                 onClick={onOpenProjectPage}
-                aria-pressed={centerMode === 'project'}
+                aria-current={centerMode === 'project' ? 'page' : undefined}
               >
                 <ProjectPageIcon />
                 <span className="wb-row-title">
@@ -280,7 +287,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               type="button"
               className={`wb-row${centerMode === 'all-chats' ? ' is-on' : ''}`}
               onClick={() => onOpenAllChats()}
-              aria-pressed={centerMode === 'all-chats'}
+              aria-current={centerMode === 'all-chats' ? 'page' : undefined}
             >
               <AllChatsIcon />
               <span className="wb-row-title">All chats</span>
@@ -294,7 +301,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               type="button"
               className={`wb-row${centerMode === 'mentions' ? ' is-on' : ''}`}
               onClick={onOpenMentions}
-              aria-pressed={centerMode === 'mentions'}
+              aria-current={centerMode === 'mentions' ? 'page' : undefined}
               aria-label={mentionsUnseen > 0 ? `Mentions, ${mentionsUnseen} new` : 'Mentions'}
             >
               <MentionsIcon />
@@ -306,7 +313,7 @@ export const ChatRail: React.FC<ChatRailProps> = ({
                 type="button"
                 className={`wb-row${centerMode === 'tasks' ? ' is-on' : ''}`}
                 onClick={onOpenTasks}
-                aria-pressed={centerMode === 'tasks'}
+                aria-current={centerMode === 'tasks' ? 'page' : undefined}
                 aria-label={[
                   'Tasks',
                   boardCounts.needs > 0 ? needsYouLabel(boardCounts.needs) : '',
@@ -343,15 +350,16 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               </span>
               <span className="wb-sect-kbd">⌘N</span>
             </span>
-            <button
+            <Button
               type="button"
-              className="wb-sect-add"
+              variant="quiet"
+              size="icon-sm"
               title={`New ${hermesName} chat (⌘N)`}
               aria-label={`New ${hermesName} chat`}
               onClick={onNewHermesChat}
             >
               <SectAddIcon />
-            </button>
+            </Button>
           </div>
           {hermesChats.length === 0 && !loadingThreads ? (
             <p className="wb-rail-empty">
@@ -401,15 +409,16 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               <ConversationMark kind="channel" size={14} />
               Channels
             </span>
-            <button
+            <Button
               type="button"
-              className="wb-sect-add"
+              variant="quiet"
+              size="icon-sm"
               title="New channel"
               aria-label="New channel"
               onClick={onNewChannel}
             >
               <SectAddIcon />
-            </button>
+            </Button>
           </div>
           {channels.length === 0 ? (
             <p className="wb-rail-empty">
@@ -445,15 +454,16 @@ export const ChatRail: React.FC<ChatRailProps> = ({
               <ConversationMark kind="dm" size={14} className="is-neutral" />
               Direct messages
             </span>
-            <button
+            <Button
               type="button"
-              className="wb-sect-add"
+              variant="quiet"
+              size="icon-sm"
               title="Message an agent…"
               aria-label="Message an agent"
               onClick={onMessageAgent}
             >
               <SectAddIcon />
-            </button>
+            </Button>
           </div>
           {loadingThreads && personalities.length === 0 ? (
             <p className="wb-empty">Loading…</p>

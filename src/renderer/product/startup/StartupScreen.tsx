@@ -21,13 +21,14 @@ import type {
 import { Button } from '../../components/ui/button';
 import { useDismiss, useEscapeToClose } from '../../components/ui/use-dismiss';
 import { Stepper, type StepperStep } from '../../components/ui/stepper';
+import { useRovingRadio } from '../../components/ui/use-roving-radio';
 import { useWhatsNew } from '../whatsNew/state';
 import { WhatsNewCard } from './WhatsNewCard';
 import { ServiceProgressCards } from '../ServiceProgressCards';
 import { describeStartupError } from '../../../shared/startupErrors';
 import type { StartupDownload } from '../../../shared/startupDownload';
 import type { StartTiming } from '../../../shared/startupTiming';
-import { formatBytes } from '../../../shared/utils/format';
+import { formatBytes, joinNames } from '../../../shared/utils/format';
 import {
   SLOW_STAGE_MS,
   slowStageHint,
@@ -234,8 +235,9 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
           onPick={showStory && !notes ? setCard : undefined}
         />
 
-        {/* Fixed height, so a hint, story card or error never moves the ring or footer. */}
-        <div className="su-stage">
+        {/* Fixed height, so a hint, story card or error never moves the ring or footer. Release
+            notes take a taller card, so the slot is sized for them while there are any. */}
+        <div className="su-stage" data-story={notes ? 'notes' : undefined}>
           <div className="su-heading">
             <h1>{headline}</h1>
             <p role="status" aria-live="polite">
@@ -279,7 +281,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
         </div>
 
         <div className="su-footer">
-          {!isError && !isReady && <WhyPopover firstRun={variant === 'first-run'} />}
+          {!isError && !isReady && <WhyPopover firstRun={variant === 'first-run'} tools={tools} />}
           {!isReady && (
             <StartupDetails open={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)}>
               {error ? <RawError text={error} /> : message && <p className="su-log">{message}</p>}
@@ -388,15 +390,16 @@ export const StartupDetails: React.FC<{
         <aside id={panelId} className="su-panel" aria-label="Details">
           <header className="su-panel-head">
             <h2>Details</h2>
-            <button
+            <Button
               ref={closeRef}
               type="button"
-              className="su-panel-close"
+              variant="quiet"
+              size="icon-sm"
               aria-label="Close details"
               onClick={onToggle}
             >
               <X aria-hidden="true" />
-            </button>
+            </Button>
           </header>
           <div className="su-details-body">{children}</div>
         </aside>
@@ -405,8 +408,31 @@ export const StartupDetails: React.FC<{
   );
 };
 
+/** How each tool reads in the popover's sentence; the assistant and model link aren't listed. */
+const WHY_PHRASES: Partial<Record<StartupToolId, string>> = {
+  search: 'web search',
+  research: 'deep research',
+  memory: 'long-term memory',
+  automations: 'automations',
+  database: 'a shared database',
+  coding: 'a coding agent',
+};
+
+/** ": web search, deep research and a coding agent" for the tools that are starting. */
+function whyList(tools: StartupTool[]): string {
+  const phrases: string[] = [];
+  for (const tool of tools) {
+    const phrase = WHY_PHRASES[tool.id];
+    if (phrase) phrases.push(phrase);
+  }
+  return phrases.length === 0 ? '' : `: ${joinNames(phrases)}`;
+}
+
 /** Why start-up is slow, as a popover that opens up over the story card. */
-const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
+const WhyPopover: React.FC<{ firstRun: boolean; tools: StartupTool[] }> = ({
+  firstRun,
+  tools,
+}) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -431,8 +457,7 @@ const WhyPopover: React.FC<{ firstRun: boolean }> = ({ firstRun }) => {
           {firstRun ? (
             <p>
               {APP_NAME} is installing open-source AI tools that usually take a software developer to
-              set up: web search, deep research, long-term memory, automations and a coding agent.
-              It downloads them once, connects them to each other and runs each one in its own
+              set up{whyList(tools)}. It downloads them once, connects them to each other and runs each one in its own
               container on this Mac. You don’t need to do anything. Later launches skip the
               download.
             </p>
@@ -471,13 +496,19 @@ export const ToolRing: React.FC<{
   words?: Record<StartupToolState, string>;
 }> = ({ tools, states, fills, highlighted, lookAt, mood, onPick, words = START_WORDS }) => {
   const step = 360 / tools.length;
+  // A pickable ring is a radio group: one Tab stop, and arrows move round the wheel and pick.
+  const { itemProps } = useRovingRadio({
+    values: tools.map((tool) => tool.id),
+    value: tools[highlighted]?.id ?? null,
+    onChange: (id) => onPick?.(tools.findIndex((tool) => tool.id === id)),
+  });
   return (
     <div className="su-ring">
       <svg className="su-boundary" viewBox="0 0 300 300" aria-hidden="true">
         <circle cx="150" cy="150" r="140" />
       </svg>
       <Figure mood={mood} angle={lookAt >= 0 ? lookAt * step : null} />
-      <ul className="su-tiles" aria-label="Your tools">
+      <ul className="su-tiles" aria-label="Your tools" role={onPick ? 'radiogroup' : undefined}>
         {tools.map((tool, index) => {
           const Icon = TOOL_ICONS[tool.id];
           const state = states[index];
@@ -494,6 +525,7 @@ export const ToolRing: React.FC<{
           return (
             <li
               key={tool.id}
+              role={onPick ? 'none' : undefined}
               className="su-tile"
               data-state={state}
               data-filled={fill !== undefined || undefined}
@@ -503,8 +535,10 @@ export const ToolRing: React.FC<{
               {onPick ? (
                 <button
                   type="button"
+                  role="radio"
                   aria-label={label}
-                  aria-pressed={index === highlighted}
+                  aria-checked={index === highlighted}
+                  {...itemProps(tool.id)}
                   onClick={() => onPick(index)}
                 >
                   {box}

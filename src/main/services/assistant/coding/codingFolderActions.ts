@@ -26,6 +26,7 @@ import {
   revokeCoding,
   scheduleCodingRemount,
 } from './codingGrants';
+import { codingFolderDeps } from './codingFolderDeps';
 import { codingGrantRefuseMessage, folderFacts, refuseCodingGrantReason } from './codingGrantRules';
 import { findCodingGrant, removeCodingGrantRecord } from './codingGrantStore';
 import { APP_NAME } from '../../../../shared/buildIdentity';
@@ -122,8 +123,9 @@ function isProjectFolder(hostPath: string): boolean {
   );
 }
 
-async function gitFacts(hostPath: string) {
-  const deps = codingGrantDeps();
+/** Git facts the delete review and the typed-name rule use. */
+export async function gitFacts(hostPath: string) {
+  const deps = codingFolderDeps();
   const facts = {
     isGit: folderFacts(hostPath).isGit,
     hasRemote: false,
@@ -321,7 +323,7 @@ export async function deleteCodingFolder(
     );
   }
   try {
-    await deps.trash(hostPath);
+    await codingFolderDeps().trash(hostPath);
   } catch (error) {
     return failAudited(
       `Coding access was removed, but ${name} couldn’t be moved to the Trash: ${

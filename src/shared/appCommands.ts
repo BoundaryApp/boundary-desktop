@@ -11,7 +11,8 @@ export type AppCommand =
   | 'go-settings'
   | 'prev-thread'
   | 'next-thread'
-  | 'report-bug';
+  | 'report-bug'
+  | 'toggle-inspector';
 
 export interface AppCommandDefinition {
   id: AppCommand;
@@ -32,17 +33,20 @@ export const APP_COMMANDS: AppCommandDefinition[] = [
   { id: 'prev-thread', label: 'Previous Conversation', accelerator: 'CmdOrCtrl+[' },
   { id: 'next-thread', label: 'Next Conversation', accelerator: 'CmdOrCtrl+]' },
   { id: 'report-bug', label: 'Report a Bug…', accelerator: 'CmdOrCtrl+Shift+B' },
+  // ⌥⌘I is Toggle Developer Tools in the View menu (ADR 0069 §1).
+  { id: 'toggle-inspector', label: 'Toggle Details', accelerator: 'CmdOrCtrl+Alt+0' },
 ];
 
-/** Human label for a command's shortcut, e.g. "⌘N" or "⇧⌘B" on macOS, "Ctrl+Shift+B" elsewhere. */
+/** Human label for a command's shortcut, e.g. "⌘N", "⇧⌘B" or "⌥⌘0" on macOS, "Ctrl+Shift+B" elsewhere. */
 export function formatShortcut(id: AppCommand, isMac: boolean): string {
   const def = APP_COMMANDS.find((command) => command.id === id);
   if (!def) return '';
   const parts = def.accelerator.split('+');
   const key = parts[parts.length - 1];
   const shift = parts.includes('Shift');
-  if (isMac) return `${shift ? '⇧' : ''}⌘${key}`;
-  return `Ctrl+${shift ? 'Shift+' : ''}${key}`;
+  const alt = parts.includes('Alt');
+  if (isMac) return `${alt ? '⌥' : ''}${shift ? '⇧' : ''}⌘${key}`;
+  return `Ctrl+${alt ? 'Alt+' : ''}${shift ? 'Shift+' : ''}${key}`;
 }
 
 /** The shortcut in `aria-keyshortcuts` form, e.g. "Meta+Shift+B". */

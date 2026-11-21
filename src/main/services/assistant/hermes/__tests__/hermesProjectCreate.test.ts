@@ -42,10 +42,9 @@ vi.mock('../../resolveAssistantRoot', async (importOriginal) => ({
 
 import {
   resetCodingRemountQueueForTests,
-  setCodingGrantDepsForTests,
 } from '../../coding/codingGrants';
 import { getCodingGrantStates, resetCodingGrantStoreForTests } from '../../coding/codingGrantStore';
-import { fakeCodingDeps, makeFolder } from '../../coding/__tests__/codingDeps';
+import { fakeCodingDeps, makeFolder, resetCodingDepsForTests } from '../../coding/__tests__/codingDeps';
 import { CODING_TASK_POLL_MS, createHostFolderHermesProject } from '../hermesProjects';
 import { listStoredHermesProjects, resetHermesProjectsStoreForTests } from '../hermesProjectStore';
 import { setProjectCreateEmitForTests } from '../projectCreateSteps';
@@ -94,7 +93,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  setCodingGrantDepsForTests(null);
+  resetCodingDepsForTests();
   setProjectCreateEmitForTests(null);
   fs.rmSync(tmp, { recursive: true, force: true });
 });

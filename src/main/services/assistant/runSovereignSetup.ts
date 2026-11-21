@@ -5,9 +5,13 @@ import {
   BOUNDARY_SETUP_WEBUI_TITLE,
   BOUNDARY_SETUP_WORKSPACE,
 } from '../../../shared/assistantStackConstants';
+import { SCRIPT_TIMED_OUT } from '../stackHost/localScript';
+import { localStackFiles } from '../stackHost/localStackHost';
+import type { StackCommands } from '../stackHost/types';
 import { writeN8nDemoCredentials } from './n8nCredentials';
 import { parseEnv } from './stackEnv';
 import { persistDebugLog } from '../../persistDebugLog';
+import { hasStackCapability, requireStackCapability } from '../stackHost/capabilities';
 
 export interface RunSovereignSetupOptions {
   projectRoot: string;
@@ -15,8 +19,8 @@ export interface RunSovereignSetupOptions {
   workspace?: string;
   webuiTitle?: string;
   onProgress?: (message: string) => void;
-  /** Override spawn for tests. */
-  spawnImpl?: typeof spawn;
+  /** The stack host's `runScript`, for the stack folder `projectRoot`. */
+  runScript: StackCommands['runScript'];
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }
@@ -143,6 +147,8 @@ export async function ensureDockerCompatibleCliOnPath(
   env: NodeJS.ProcessEnv,
   shimDir: string
 ): Promise<NodeJS.ProcessEnv> {
+  // The shim is written into Boundary's own install, which only a provisioning host has.
+  if (!hasStackCapability('provision')) return env;
   if (findBinaryOnPath('docker', env)) {
     return env;
   }
@@ -236,7 +242,12 @@ export async function regenerateN8nCredentialsFromEnv(options: {
   }
 
   options.onProgress?.('Regenerating n8n demo credentials from project .env…');
-  await writeN8nDemoCredentials(options.projectRoot, {
+  // Only the stack folder is written, so the user content folder is not looked up.
+  const files = localStackFiles({
+    stackRoot: options.projectRoot,
+    userContentRoot: () => path.join(options.projectRoot, 'data'),
+  });
+  await writeN8nDemoCredentials(files, {
     N8N_ENCRYPTION_KEY: keys.N8N_ENCRYPTION_KEY,
     LIGHTRAG_API_KEY: keys.LIGHTRAG_API_KEY,
     NEO4J_PASSWORD: keys.NEO4J_PASSWORD,
@@ -250,6 +261,7 @@ export async function regenerateN8nCredentialsFromEnv(options: {
 export async function runSovereignSetup(
   options: RunSovereignSetupOptions
 ): Promise<void> {
+  requireStackCapability('provision');
   const setupScript = path.join(options.projectRoot, 'scripts', 'setup.sh');
   if (!fs.existsSync(setupScript)) {
     throw new Error(`Missing setup.sh at ${setupScript}`);
@@ -267,7 +279,6 @@ export async function runSovereignSetup(
     'Running sovereign-agent-stack setup.sh (secrets, data/, profiles)…'
   );
 
-  const spawnImpl = options.spawnImpl ?? spawn;
   const timeoutMs = options.timeoutMs ?? 300_000;
   const shimDir = path.join(options.projectRoot, '.boundary-bin');
   let env = buildSovereignSetupEnv(options.env ?? process.env);
@@ -301,55 +312,41 @@ export async function runSovereignSetup(
     throw new Error(python3SetupError(pythonProblem));
   }
 
-  const { code, stdout, stderr } = await new Promise<{
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }>((resolve, reject) => {
-    const child = spawnImpl('bash', args, {
-      cwd: options.projectRoot,
+  let stdout = '';
+  let stderr = '';
+  let lastProgressAt = Date.now();
+  let lastNonSetupEmit = 0;
+  const setupStartedAt = Date.now();
+
+  const heartbeat = setInterval(() => {
+    if (Date.now() - lastProgressAt < 2_500) return;
+    const elapsedSec = Math.floor((Date.now() - setupStartedAt) / 1000);
+    options.onProgress?.(`Running sovereign-agent-stack setup.sh… ${elapsedSec}s`);
+  }, 2_500);
+
+  const noteProgress = (message: string): void => {
+    lastProgressAt = Date.now();
+    options.onProgress?.(message);
+  };
+  /** Other output that looks like progress, at most one line every three seconds. */
+  const noteOtherProgress = (line: string): void => {
+    const now = Date.now();
+    if (now - lastNonSetupEmit < 3_000) return;
+    lastNonSetupEmit = now;
+    noteProgress(line.slice(0, 120));
+  };
+
+  const timeoutLine = `setup.sh timed out after ${timeoutMs}ms`;
+  let code: number;
+  try {
+    const [script, ...scriptArgs] = args;
+    code = await options.runScript(script, scriptArgs, {
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdoutBuf = '';
-    let stderrBuf = '';
-    let lastProgressAt = Date.now();
-    let lastNonSetupEmit = 0;
-    const setupStartedAt = Date.now();
-
-    const heartbeat = setInterval(() => {
-      if (Date.now() - lastProgressAt < 2_500) return;
-      const elapsedSec = Math.floor((Date.now() - setupStartedAt) / 1000);
-      options.onProgress?.(
-        `Running sovereign-agent-stack setup.sh… ${elapsedSec}s`
-      );
-    }, 2_500);
-
-    const timer = setTimeout(() => {
-      clearInterval(heartbeat);
-      child.kill('SIGTERM');
-      reject(new Error(`setup.sh timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    const noteProgress = (message: string): void => {
-      lastProgressAt = Date.now();
-      options.onProgress?.(message);
-    };
-    /** Other output that looks like progress, at most one line every three seconds. */
-    const noteOtherProgress = (line: string): void => {
-      const now = Date.now();
-      if (now - lastNonSetupEmit < 3_000) return;
-      lastNonSetupEmit = now;
-      noteProgress(line.slice(0, 120));
-    };
-
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      const text = String(chunk);
-      stdoutBuf += text;
-      for (const line of text.split(/\r?\n/)) {
+      timeoutMs,
+      timeoutLine,
+      onStdout: (line) => {
+        stdout += `${line}\n`;
         const trimmed = line.trim();
-        if (!trimmed) continue;
         if (trimmed.startsWith('[setup]')) {
           noteProgress(trimmed);
         } else if (
@@ -358,12 +355,9 @@ export async function runSovereignSetup(
         ) {
           noteOtherProgress(trimmed);
         }
-      }
-    });
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      const text = String(chunk);
-      stderrBuf += text;
-      for (const line of text.split(/\r?\n/)) {
+      },
+      onStderr: (line) => {
+        stderr += `${line}\n`;
         const trimmed = line.trim();
         if (
           trimmed &&
@@ -372,20 +366,12 @@ export async function runSovereignSetup(
         ) {
           noteOtherProgress(trimmed);
         }
-      }
+      },
     });
-
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      clearInterval(heartbeat);
-      reject(error);
-    });
-    child.on('close', (exitCode) => {
-      clearTimeout(timer);
-      clearInterval(heartbeat);
-      resolve({ code: exitCode, stdout: stdoutBuf, stderr: stderrBuf });
-    });
-  });
+  } finally {
+    clearInterval(heartbeat);
+  }
+  if (code === SCRIPT_TIMED_OUT) throw new Error(timeoutLine);
 
   const combined = `${stderr}\n${stdout}`;
   const n8nCredError = isN8nCredentialsEnvError(combined);

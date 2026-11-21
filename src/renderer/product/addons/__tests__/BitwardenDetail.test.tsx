@@ -27,7 +27,7 @@ const account = (extra: Partial<BitwardenAccount> = {}): BitwardenAccount => ({
 });
 
 function overviewWith(extra: Partial<BitwardenOverview> = {}): BitwardenOverview {
-  return { enabled: true, accounts: [], requests: [], statusError: null, requestsError: null, ...extra };
+  return { enabled: true, accounts: [], requests: [], statusError: null, requestsError: null, signInBrowser: false, ...extra };
 }
 
 const fail = (error: string, extra: Record<string, unknown> = {}) => ({ success: true, result: { ok: false, error, message: '', ...extra } });
@@ -43,6 +43,22 @@ async function openSheet() {
   const confirm = () => within(dialog).getByRole('button', { name: /Connect$/ }) as HTMLButtonElement;
   return { dialog, field, confirm };
 }
+
+describe('BitwardenDetail sign-in note', () => {
+  it('says how the agent signs in, and how to keep in-page fill for an item, on a stack with the sign-in browser', async () => {
+    stubAddons([bitwardenListing(true)], { bitwarden: overviewWith({ accounts: [account()], signInBrowser: true }) });
+    renderPage();
+    expect(await screen.findByText('How the agent signs in')).toBeTruthy();
+    expect(screen.getByText(/name it agent-in-page-fill, choose Boolean, and check it/)).toBeTruthy();
+  });
+
+  it('says nothing about it on an older stack', async () => {
+    stubAddons([bitwardenListing(true)], { bitwarden: overviewWith({ accounts: [account()] }) });
+    renderPage();
+    await screen.findByText('Accounts');
+    expect(screen.queryByText('How the agent signs in')).toBeNull();
+  });
+});
 
 describe('BitwardenDetail connect sheet', () => {
   it('asks for the server, the API key hidden, a folder and Ask me each time, and sends them once', async () => {

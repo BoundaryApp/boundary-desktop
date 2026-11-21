@@ -6,6 +6,12 @@ import {
   applyLlmConnectionToProjectFiles,
   clearLlmKeysFromProjectEnv,
 } from '../applyLlmToProjectEnv';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import { projectEnvViaFiles } from '../projectEnv';
+
+function filesOf(root: string) {
+  return localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') });
+}
 
 describe('applyLlmToProjectEnv', () => {
   let tmpRoot: string | null = null;
@@ -25,21 +31,22 @@ describe('applyLlmToProjectEnv', () => {
       'LLM_BINDING_API_KEY=sk-real\nLIGHTRAG_LLM_BINDING_API_KEY=sk-real\n' +
         'EMBEDDING_BINDING_API_KEY=embed-key\n'
     );
-    expect(await clearLlmKeysFromProjectEnv(tmpRoot)).toBe(true);
+    expect(await clearLlmKeysFromProjectEnv(filesOf(tmpRoot), projectEnvViaFiles(filesOf(tmpRoot)))).toBe(true);
     const env = fs.readFileSync(envPath, 'utf8');
     expect(env).not.toContain('sk-real');
     expect(env).toMatch(/^LLM_BINDING_API_KEY=$/m);
     expect(env).toMatch(/^LIGHTRAG_LLM_BINDING_API_KEY=$/m);
     expect(env).toMatch(/^EMBEDDING_BINDING_API_KEY=embed-key$/m);
     // Already blank: nothing to do, so no proxy recreate.
-    expect(await clearLlmKeysFromProjectEnv(tmpRoot)).toBe(false);
+    expect(await clearLlmKeysFromProjectEnv(filesOf(tmpRoot), projectEnvViaFiles(filesOf(tmpRoot)))).toBe(false);
   });
 
   it('writes the key and keeps retired lines in a local stack checkout', async () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-llm-env-'));
     fs.writeFileSync(path.join(tmpRoot, '.env'), 'OPENAI_API_KEY=keep-me\nFAST_LLM=openai:x\n');
     await applyLlmConnectionToProjectFiles(
-      tmpRoot,
+      filesOf(tmpRoot),
+      projectEnvViaFiles(filesOf(tmpRoot)),
       { endpointUrl: 'http://127.0.0.1:1234/v1', apiKey: 'k', modelId: 'm' },
       { localStack: true }
     );
@@ -72,7 +79,7 @@ describe('applyLlmToProjectEnv', () => {
       })
     );
 
-    await applyLlmConnectionToProjectFiles(tmpRoot, {
+    await applyLlmConnectionToProjectFiles(filesOf(tmpRoot), projectEnvViaFiles(filesOf(tmpRoot)), {
       endpointUrl: 'http://127.0.0.1:1234/v1',
       apiKey: 'test-key',
       modelId: 'gpt-test',

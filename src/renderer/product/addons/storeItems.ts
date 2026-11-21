@@ -114,12 +114,12 @@ const FACTS: Record<
   },
 };
 
-/** Installed here or set to run: what the Installed page lists and counts. */
 /** n8n and LightRAG: built into the stack, turned on and off by `addon.sh` like the rest. */
 export function isBuiltinAddon(id: AddonId): id is 'n8n' | 'lightrag' {
   return id === 'n8n' || id === 'lightrag';
 }
 
+/** Installed here or set to run: what the Installed page lists and counts. */
 export function isInstalled(state: StoreState): boolean {
   return ['installing', 'removing', 'restart', 'start', 'on', 'off-data'].includes(state.kind);
 }

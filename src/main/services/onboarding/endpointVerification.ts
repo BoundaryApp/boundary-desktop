@@ -1,5 +1,5 @@
 import { endpointPath } from '../../../shared/utils/endpointUrl';
-import { llmAuthorizationHeader } from './llmEndpoint';
+import { llmRequestHeaders } from './llmEndpoint';
 
 const VERIFY_TIMEOUT_MS = 180_000;
 
@@ -25,34 +25,29 @@ function extractMessageContent(body: unknown): string {
   return '';
 }
 
-export async function verifyChatCompletionEndpoint(options: {
-  baseUrl: string;
-  apiKey?: string;
-  modelId: string;
-  provider?: string;
-  authScheme?: 'bearer' | 'api-key';
-}): Promise<EndpointVerificationResult> {
-  const modelId = options.modelId?.trim();
-  if (!modelId) {
-    return { ok: false, error: 'Select a model before verifying the endpoint.' };
-  }
-
-  const url = endpointPath(options.baseUrl, 'chat/completions');
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  };
-  const authorization = llmAuthorizationHeader(options);
-  if (authorization) headers.Authorization = authorization;
-
+/**
+ * One non-streaming chat completion against a connection, with the headers it is verified
+ * with. The reply is `content`, or `reasoning_content` when a reasoning model left `content`
+ * empty. Verification and the test message both go through here.
+ */
+export async function postChatCompletion(
+  connection: {
+    baseUrl: string;
+    apiKey?: string | null;
+    authScheme?: 'bearer' | 'api-key';
+    provider?: string;
+    extraHeaders?: Record<string, string>;
+  },
+  options: { modelId: string; message: string }
+): Promise<EndpointVerificationResult> {
   try {
-    const res = await fetch(url, {
+    const res = await fetch(endpointPath(connection.baseUrl, 'chat/completions'), {
       method: 'POST',
-      headers,
+      headers: { Accept: 'application/json', ...llmRequestHeaders(connection) },
       signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: 'user', content: 'Reply with the word ready.' }],
+        model: options.modelId,
+        messages: [{ role: 'user', content: options.message }],
         max_tokens: 64,
         stream: false,
       }),
@@ -91,4 +86,19 @@ export async function verifyChatCompletionEndpoint(options: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+export async function verifyChatCompletionEndpoint(options: {
+  baseUrl: string;
+  apiKey?: string;
+  modelId: string;
+  provider?: string;
+  authScheme?: 'bearer' | 'api-key';
+  extraHeaders?: Record<string, string>;
+}): Promise<EndpointVerificationResult> {
+  const modelId = options.modelId?.trim();
+  if (!modelId) {
+    return { ok: false, error: 'Select a model before verifying the endpoint.' };
+  }
+  return postChatCompletion(options, { modelId, message: 'Reply with the word ready.' });
 }

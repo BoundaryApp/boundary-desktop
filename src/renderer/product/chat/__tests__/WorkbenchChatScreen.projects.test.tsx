@@ -1,11 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { openMenu } from '../../../__tests__/openMenu';
 import {
   countProjectSources,
+  inspectRemoveProject,
   inspectSources,
   listProjects,
   listThreads,
   moveToProject,
+  removeProject,
   renderScreen,
   selectProject,
   setUpScreen,
@@ -120,7 +123,7 @@ describe('WorkbenchChatScreen chrome', () => {
       // The sheet reads a source count, never the full inspect that reads every file.
       await waitFor(() => expect(countProjectSources).toHaveBeenCalledWith({ projectId: 'p1' }));
       const inspectsBefore = inspectSources.mock.calls.length;
-      fireEvent.click(within(dialog).getByRole('radio', { name: /No project/ }));
+      fireEvent.click(within(dialog).getByRole('option', { name: /No project/ }));
       expect(within(dialog).getByText(/works without a project folder/)).toBeTruthy();
       expect(inspectSources.mock.calls.length).toBe(inspectsBefore);
       fireEvent.click(within(dialog).getByRole('button', { name: 'Move to No project' }));
@@ -136,6 +139,58 @@ describe('WorkbenchChatScreen chrome', () => {
         })
       );
       expect(await screen.findByText('Move undone')).toBeTruthy();
+    });
+  });
+
+  describe('removing a project (ADR 0067)', () => {
+    it('removing the active project leaves the picker on No project', async () => {
+      inspectRemoveProject.mockResolvedValue({
+        success: true,
+        projectId: 'p1',
+        name: 'Job Search',
+        kind: 'host-folder',
+        hostPath: '/Users/ada/Documents/Job Search',
+        requiresTypedName: false,
+      });
+      // A second project keeps the picker on screen; with none left the rail shows its empty state.
+      const site = {
+        id: 'p2',
+        name: 'Landing site',
+        hostPath: '/Users/ada/code/site',
+        containerPath: '/opt/projects/site',
+        slug: 'site',
+        kind: 'host-folder',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+      const listed = await listProjects.getMockImplementation()?.();
+      listProjects.mockResolvedValue({
+        success: true,
+        activeId: 'p1',
+        projects: [...(listed?.projects ?? []), site],
+      });
+      removeProject.mockResolvedValue({
+        success: true,
+        removed: true,
+        projects: [site],
+        activeId: null,
+      });
+      await renderScreen();
+      await screen.findByText('thread:Plan the launch');
+      const picker = screen.getByRole('button', { name: 'Go to project' });
+      expect(picker.textContent).toContain('Job Search');
+
+      openMenu(screen.getByRole('button', { name: 'Project actions' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Remove project…' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Remove project' }));
+
+      await waitFor(() => expect(removeProject).toHaveBeenCalledWith({ projectId: 'p1' }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Go to project' }).textContent).toContain(
+          'No project'
+        )
+      );
+      expect(screen.queryByRole('heading', { name: 'Remove Job Search?' })).toBeNull();
     });
   });
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type {
   DiscoveredLocalLlm,
   InferenceSlotId,
@@ -10,10 +10,17 @@ import { InfoTip } from '../../components/ui/info-tip';
 import { ModelPicker } from '../../onboarding/ModelPicker';
 import { takeInferenceStatus, useInferenceStatus } from '../../onboarding/inferenceStatus';
 import { useAppSwitch } from '../../onboarding/appSwitch';
+import {
+  adoptLocalLlm,
+  connectionFromCredentials,
+  keepOrFirstModel,
+  testSlot,
+  useOAuthSignIn,
+} from '../../onboarding/modelConnection';
 import { cloudInferenceNotice, cloudKeyLimitTip } from '../cloudInferenceCopy';
 import { CircleSharingLine } from '../circles/CircleSharingPanel';
 import { useCirclesState } from '../circles/useCircles';
-import { Callout } from '../../components/ui/alert';
+import { Callout, LoadingBlock } from '../../components/ui/alert';
 import { ConfidentialProviders } from './ConfidentialProviders';
 import { RepliesAtOnceRow } from './RepliesAtOnce';
 import { Button } from '../../components/ui/button';
@@ -79,9 +86,12 @@ export const ModelConnections: React.FC<{
   // A switch runs in main and outlives this screen, so it holds the buttons from its own state.
   const busy = working || appSwitch !== null;
   const circles = useCirclesState();
-  // True while main waits for the browser to return from OpenRouter sign-in.
-  const [openRouterSigningIn, setOpenRouterSigningIn] = useState(false);
-  const openRouterSignInCancelled = useRef(false);
+  // `connecting` is true while main waits for the browser to return from OpenRouter sign-in.
+  const {
+    connecting: openRouterSigningIn,
+    signIn: signInToOpenRouter,
+    cancel: handleCancelOpenRouterSignIn,
+  } = useOAuthSignIn('openrouter');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Save model feedback shows beside the picker; the page-level banner is out of view below it.
@@ -169,11 +179,7 @@ export const ModelConnections: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      const result = await window.electronAPI.onboarding.adoptLocalLlm({
-        runtime: endpoint.runtime,
-        endpointUrl: endpoint.baseUrl,
-        modelId,
-      });
+      const result = await adoptLocalLlm(endpoint, modelId);
       if (!result.success) {
         setError(result.error ?? 'Unable to use this local endpoint.');
         return;
@@ -189,40 +195,29 @@ export const ModelConnections: React.FC<{
   const handleConnectOpenRouter = async () => {
     setBusy(true);
     setError(null);
-    openRouterSignInCancelled.current = false;
-    setOpenRouterSigningIn(true);
     try {
-      const result = await window.electronAPI.onboarding.startOAuthPkce({ providerId: 'openrouter' });
-      setOpenRouterSigningIn(false);
-      if (openRouterSignInCancelled.current) return;
-      if (!result.success || !result.credentials) {
-        setError(result.error ?? 'OpenRouter sign-in failed.');
+      const signedIn = await signInToOpenRouter();
+      if (!signedIn || signedIn.kind === 'cancelled') return;
+      if (signedIn.kind === 'failed') {
+        setError(signedIn.error ?? 'OpenRouter sign-in failed.');
         return;
       }
+      const { credentials } = signedIn;
       const listed = await window.electronAPI.onboarding.listEndpointModels({
-        baseUrl: result.credentials.endpointUrl,
-        authScheme: result.credentials.authScheme,
-        provider: result.credentials.providerId,
-        extraHeaders: result.credentials.extraHeaders,
+        baseUrl: credentials.endpointUrl,
+        authScheme: credentials.authScheme,
+        provider: credentials.providerId,
+        extraHeaders: credentials.extraHeaders,
       });
       const keep = selectedOpenRouterModel || status?.savedOpenRouterKey?.modelId;
-      const modelId =
-        (keep && listed.models.some((model) => model.id === keep) && keep) ||
-        listed.models[0]?.id;
+      const modelId = keepOrFirstModel(listed.models, keep);
       if (!modelId) {
         setError('No models available after connect.');
         return;
       }
-      const saved = await window.electronAPI.onboarding.saveLlmConnection({
-        endpointUrl: result.credentials.endpointUrl,
-        modelId,
-        provider: result.credentials.providerId,
-        providerDisplayName: result.credentials.providerDisplayName,
-        authScheme: result.credentials.authScheme,
-        capabilities: result.credentials.capabilities,
-        extraHeaders: result.credentials.extraHeaders,
-        slot: 'openrouter',
-      });
+      const saved = await window.electronAPI.onboarding.saveLlmConnection(
+        connectionFromCredentials(credentials, modelId, { slot: 'openrouter' })
+      );
       if (!saved.success) {
         setError(saved.error ?? 'Unable to save OpenRouter.');
         return;
@@ -232,14 +227,8 @@ export const ModelConnections: React.FC<{
       setSelectedOpenRouterModel(modelId);
       setNotice('OpenRouter connected. The assistant restarts only if this is the app default.');
     } finally {
-      setOpenRouterSigningIn(false);
       setBusy(false);
     }
-  };
-
-  const handleCancelOpenRouterSignIn = () => {
-    openRouterSignInCancelled.current = true;
-    void window.electronAPI.onboarding.cancelOAuthPkce();
   };
 
   const handleSaveModel = async (slot: 'local' | 'openrouter', modelId: string) => {
@@ -292,10 +281,7 @@ export const ModelConnections: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      const result = await window.electronAPI.onboarding.sendLlmTestMessage({
-        slot,
-        message: 'Reply with the word ready.',
-      });
+      const result = await testSlot(slot);
       if (!result.success) {
         setError(result.error ?? 'Test message failed.');
         return;
@@ -408,9 +394,7 @@ export const ModelConnections: React.FC<{
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="size-8 animate-spin rounded-full border-2 border-line border-t-brand" />
-            </div>
+            <LoadingBlock />
           ) : (
               <div className="wb-inference-cards">
                 <article className="wb-inference-card">

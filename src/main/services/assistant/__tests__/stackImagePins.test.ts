@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import { projectEnvViaFiles } from '../projectEnv';
 import { readImagePins, syncImagePinsFromExample, syncStackImagePins } from '../stackImagePins';
 
 // Shaped like the stack's .env at v0.3.1 and .env.example at v0.3.3.
@@ -73,8 +75,9 @@ describe('stackImagePins', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-pins-'));
     fs.writeFileSync(path.join(dir, '.env'), OLD_ENV);
     fs.writeFileSync(path.join(dir, '.env.example'), NEW_EXAMPLE);
-    expect(await syncStackImagePins(dir)).toBe(true);
+    const files = localStackFiles({ stackRoot: dir, userContentRoot: () => dir });
+    expect(await syncStackImagePins(files, projectEnvViaFiles(files))).toBe(true);
     expect(fs.readFileSync(path.join(dir, '.env'), 'utf8')).toContain('HERMES_AGENT_IMAGE_TAG=v0.22.2');
-    expect(await syncStackImagePins(dir)).toBe(false);
+    expect(await syncStackImagePins(files, projectEnvViaFiles(files))).toBe(false);
   });
 });

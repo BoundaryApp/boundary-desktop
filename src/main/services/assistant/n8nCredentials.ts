@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
+import type { StackFiles } from '../stackHost/types';
 
 export type N8nCredentialSecrets = {
   N8N_ENCRYPTION_KEY: string;
@@ -29,15 +28,16 @@ export function encryptN8nCredentialData(
 }
 
 /**
- * Write n8n/demo-data/credentials/*.json, as the stack's generate-n8n-credentials.js does,
- * so first run doesn't need Node on the host. Returns the files written.
+ * Write n8n/demo-data/credentials/*.json in the stack folder, as the stack's
+ * generate-n8n-credentials.js does, so first run doesn't need Node on the host. Returns the
+ * files written, relative to the stack folder.
  */
 export async function writeN8nDemoCredentials(
-  projectRoot: string,
+  files: StackFiles,
   secrets: N8nCredentialSecrets,
   now: Date = new Date()
 ): Promise<string[]> {
-  const outDir = path.join(projectRoot, 'n8n', 'demo-data', 'credentials');
+  const outDir = 'n8n/demo-data/credentials';
   const timestamp = now.toISOString();
   const encrypt = (value: unknown) =>
     encryptN8nCredentialData(secrets.N8N_ENCRYPTION_KEY, JSON.stringify(value));
@@ -59,10 +59,9 @@ export async function writeN8nDemoCredentials(
     },
   ];
 
-  await fs.promises.mkdir(outDir, { recursive: true });
   const written: string[] = [];
   for (const doc of docs) {
-    const filePath = path.join(outDir, `${doc.id}.json`);
+    const filePath = `${outDir}/${doc.id}.json`;
     const payload = {
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -72,7 +71,7 @@ export async function writeN8nDemoCredentials(
       type: doc.type,
       nodesAccess: [{ nodeType: 'n8n-nodes-base.httpRequest', date: timestamp }],
     };
-    await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+    await files.writeText('stack', filePath, `${JSON.stringify(payload, null, 2)}\n`);
     written.push(filePath);
   }
   return written;

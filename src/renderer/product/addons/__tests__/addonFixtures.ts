@@ -56,9 +56,9 @@ const bitwarden: AddonCatalogEntry = {
   version: '1.0.0',
   profile: 'bitwarden',
   flags: ['BITWARDEN_ENABLED'],
-  services: ['bitwarden-broker'],
-  reserveMiB: 256,
-  limitMiB: 512,
+  services: ['bitwarden-broker', 'bitwarden-signin'],
+  reserveMiB: 320,
+  limitMiB: 1280,
   downloadBytes: 300_000_000,
   port: null,
   restartsHermes: false,
@@ -225,7 +225,6 @@ export function localWorkspace(extra: Partial<TwentyWorkspace> = {}): TwentyWork
     skippedReason: null,
     hasReadKey: true,
     hasWriteKey: true,
-    parked: false,
     ...extra,
   };
 }
@@ -241,7 +240,6 @@ export function hostedWorkspace(slug = 'work', extra: Partial<TwentyWorkspace> =
     skippedReason: null,
     hasReadKey: true,
     hasWriteKey: true,
-    parked: false,
     ...extra,
   };
 }
@@ -273,7 +271,7 @@ export interface AddonsFake {
     | 'onChanged',
     ReturnType<typeof vi.fn>
   >;
-  vikunja: Record<'open', ReturnType<typeof vi.fn>>;
+  vikunja: Record<'open' | 'account' | 'copyPassword', ReturnType<typeof vi.fn>>;
   pending: ReturnType<typeof vi.fn>;
   applyPending: ReturnType<typeof vi.fn>;
   /** Sends the pending list as main's `addons:pending-changed` would. */
@@ -341,6 +339,7 @@ export function stubAddons(
     requests: [],
     statusError: null,
     requestsError: null,
+    signInBrowser: false,
   };
   const bitwardenFake = {
     overview: vi.fn(async () => bitwardenOverview),
@@ -382,7 +381,7 @@ export function stubAddons(
     email: emailFake,
     actual,
     bitwarden: bitwardenFake,
-    vikunja: { open: vi.fn(ok) },
+    vikunja: { open: vi.fn(ok), account: vi.fn(async () => ({ username: 'me' })), copyPassword: vi.fn(ok) },
     snapshot: vi.fn(async () => options.current ?? null),
     install: vi.fn(ok),
     undo: vi.fn(ok),

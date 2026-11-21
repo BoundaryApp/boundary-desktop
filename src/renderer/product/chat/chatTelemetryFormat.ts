@@ -3,12 +3,11 @@ import type {
   HermesRecoveryWait,
   SessionInferenceMark,
 } from '../../../shared/types/hermesChat';
-import { formatTokenCount } from '../../../shared/utils/format';
+import { abbreviateHome, formatTokenCount } from '../../../shared/utils/format';
 
 /** Format context gauge labels per ADR 0004 — never show 0% when max is unknown. */
 export function formatContextGauge(usage?: HermesChatUsageSnapshot | null): {
   label: string;
-  percentLabel: string | null;
   showBar: boolean;
   percent: number | null;
   empty: boolean;
@@ -16,7 +15,6 @@ export function formatContextGauge(usage?: HermesChatUsageSnapshot | null): {
   if (!usage) {
     return {
       label: '— / —',
-      percentLabel: null,
       showBar: false,
       percent: null,
       empty: true,
@@ -28,7 +26,6 @@ export function formatContextGauge(usage?: HermesChatUsageSnapshot | null): {
   if (max == null || max <= 0) {
     return {
       label: 'context max unknown',
-      percentLabel: null,
       showBar: false,
       percent: null,
       empty: false,
@@ -48,7 +45,6 @@ export function formatContextGauge(usage?: HermesChatUsageSnapshot | null): {
 
   return {
     label: `${prefix}${usedLabel} / ${maxLabel}`,
-    percentLabel: percent != null ? `${Math.round(percent)}%` : null,
     showBar: percent != null,
     percent,
     empty: false,
@@ -157,22 +153,9 @@ export function formatPhaseLine(opts: {
   }
 }
 
+/** A host path with the home folder read as `~`, the same way Resources shows it. */
 export function displayHostPath(hostPath: string): string {
-  // Renderer has no os.homedir reliably across platforms via Node; use a simple heuristic.
-  const home =
-    typeof window !== 'undefined'
-      ? // Electron preload could expose home; fall back to common prefixes.
-        (window as unknown as { __boundaryHome?: string }).__boundaryHome
-      : undefined;
-  if (home && (hostPath === home || hostPath.startsWith(`${home}/`))) {
-    return hostPath === home ? '~' : `~${hostPath.slice(home.length)}`;
-  }
-  // macOS / Linux heuristic when home is unknown: replace /Users/<name>
-  const m = hostPath.match(/^\/Users\/[^/]+(\/.*)?$/);
-  if (m) {
-    return m[1] ? `~${m[1]}` : '~';
-  }
-  return hostPath;
+  return abbreviateHome(hostPath);
 }
 
 export function projectGlyph(name: string): string {

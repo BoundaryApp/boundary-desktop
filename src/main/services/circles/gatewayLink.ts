@@ -12,7 +12,7 @@ import { Readable } from 'node:stream';
 import { buffer, json, uint, type Encoding, type State } from 'compact-encoding';
 import Protomux, { type ProtomuxChannel, type ProtomuxMessage } from 'protomux';
 import type { SecretStream } from 'hyperswarm';
-import type { GatewaySink } from './inferenceGateway';
+import type { GatewaySink } from './gatewayCommon';
 
 /** What a consumer gets back: the provider's status and a stream of its reply bytes. */
 export interface LinkResponse {

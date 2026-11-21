@@ -22,7 +22,9 @@ import {
 } from '../containerRuntime';
 import {
   getRuntimeProvisionProgress,
+  getRuntimeProvisionStage,
   onRuntimeProvisionProgress,
+  onRuntimeProvisionStage,
 } from '../containerRuntime/provisionProgress';
 import { getDebugLogPath, persistDebugLog, serializeError } from '../../persistDebugLog';
 import { isLocalAssistantStackMode } from '../assistant/localStackMode';
@@ -278,6 +280,9 @@ function attachProgressBridge(): void {
   onRuntimeProvisionProgress((message) => {
     broadcastProvisionProgress(message);
   });
+  onRuntimeProvisionStage((snapshot) => {
+    broadcast('capability:provision-stage', snapshot);
+  });
 }
 
 export async function assessHostCapability(
@@ -328,6 +333,7 @@ export function getHostCapabilityStatus() {
   return {
     ...getCapabilityStatus(),
     provisionProgress: getRuntimeProvisionProgress(),
+    provisionStage: getRuntimeProvisionStage(),
     debugLogPath: getDebugLogPath(),
   };
 }

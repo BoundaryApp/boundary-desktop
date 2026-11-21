@@ -6,6 +6,8 @@
  * Which stack:
  *   BOUNDARY_ASSISTANT_ROOT  the stack's compose folder (default: `assistant` beside this checkout)
  *   BOUNDARY_STACK_PORTS     `default-ports` (default) or `offset-ports`
+ *   BOUNDARY_STACK_PORT_OFFSET the offset in `offset-ports` mode (default 10000; Boundary picks
+ *                            20000 or 30000 when the lower set is busy)
  *   BOUNDARY_STACK_CONTAINER the Hermes container (default: the running `hermes` service of that
  *                            compose folder)
  *   BOUNDARY_STACK_DOCKER    the container CLI (default `docker`)
@@ -13,28 +15,35 @@
  * Credentials come from the stack's own files, read by Boundary's helpers
  * (resolveDashboardCredentials, resolveApiServerKey).
  */
-import { execFileSync, spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
-import { portsForIsolationMode } from '../../../../shared/assistantStackConstants';
+import { execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { portsForIsolationMode } from "../../../../shared/assistantStackConstants";
 import type {
   AssistantStackIsolationMode,
   AssistantStackPorts,
-} from '../../../../shared/types/assistantStack';
+} from "../../../../shared/types/assistantStack";
 
 export interface StackTarget {
   root: string;
   isolation: AssistantStackIsolationMode;
   ports: AssistantStackPorts;
+  /** The offset in `offset-ports` mode; undefined for Boundary's default. */
+  portOffset?: number;
   container: string;
   docker: string;
 }
 
-export type StackProbe = { ok: true; target: StackTarget } | { ok: false; reason: string };
+export type StackProbe =
+  { ok: true; target: StackTarget } | { ok: false; reason: string };
 
 function quietExec(file: string, args: string[]): string | null {
   try {
-    return execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000 });
+    return execFileSync(file, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    });
   } catch {
     return null;
   }
@@ -42,54 +51,91 @@ function quietExec(file: string, args: string[]): string | null {
 
 /** `assistant` beside the main checkout, found from git so a worktree resolves it too. */
 export function defaultStackRoot(): string | null {
-  const common = quietExec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'])?.trim();
-  return common ? path.resolve(path.dirname(common), '..', 'assistant') : null;
+  const common = quietExec("git", [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ])?.trim();
+  return common ? path.resolve(path.dirname(common), "..", "assistant") : null;
 }
 
 function findHermesContainer(docker: string, root: string): string | null {
   const out = quietExec(docker, [
-    'ps',
-    '--filter',
-    'label=com.docker.compose.service=hermes',
-    '--filter',
+    "ps",
+    "--filter",
+    "label=com.docker.compose.service=hermes",
+    "--filter",
     `label=com.docker.compose.project.working_dir=${root}`,
-    '--format',
-    '{{.Names}}',
+    "--format",
+    "{{.Names}}",
   ]);
-  return out?.split('\n').map((l) => l.trim()).find(Boolean) ?? null;
+  return (
+    out
+      ?.split("\n")
+      .map((l) => l.trim())
+      .find(Boolean) ?? null
+  );
 }
 
 /** Resolve the stack from the environment, without contacting it. */
 export function resolveStackTarget(): StackProbe {
-  const root = process.env.BOUNDARY_ASSISTANT_ROOT?.trim() || defaultStackRoot();
-  if (!root || !fs.existsSync(path.join(root, 'docker-compose.yml'))) {
+  const root =
+    process.env.BOUNDARY_ASSISTANT_ROOT?.trim() || defaultStackRoot();
+  if (!root || !fs.existsSync(path.join(root, "docker-compose.yml"))) {
     return {
       ok: false,
-      reason: `no stack folder (set BOUNDARY_ASSISTANT_ROOT; looked at ${root ?? 'nothing'})`,
+      reason: `no stack folder (set BOUNDARY_ASSISTANT_ROOT; looked at ${root ?? "nothing"})`,
     };
   }
   const isolation: AssistantStackIsolationMode =
-    process.env.BOUNDARY_STACK_PORTS === 'offset-ports' ? 'offset-ports' : 'default-ports';
-  const docker = process.env.BOUNDARY_STACK_DOCKER?.trim() || 'docker';
-  const container =
-    process.env.BOUNDARY_STACK_CONTAINER?.trim() || findHermesContainer(docker, root);
-  if (!container) {
-    return { ok: false, reason: `no running hermes container for ${root} (set BOUNDARY_STACK_CONTAINER)` };
+    process.env.BOUNDARY_STACK_PORTS === "offset-ports"
+      ? "offset-ports"
+      : "default-ports";
+  const offsetText = process.env.BOUNDARY_STACK_PORT_OFFSET?.trim();
+  const offset = offsetText ? Number(offsetText) : undefined;
+  if (offset !== undefined && !Number.isInteger(offset)) {
+    return {
+      ok: false,
+      reason: `BOUNDARY_STACK_PORT_OFFSET isn't a whole number: ${offsetText}`,
+    };
   }
-  const running = quietExec(docker, ['inspect', '-f', '{{.State.Running}}', container])?.trim();
-  if (running !== 'true') {
+  const docker = process.env.BOUNDARY_STACK_DOCKER?.trim() || "docker";
+  const container =
+    process.env.BOUNDARY_STACK_CONTAINER?.trim() ||
+    findHermesContainer(docker, root);
+  if (!container) {
+    return {
+      ok: false,
+      reason: `no running hermes container for ${root} (set BOUNDARY_STACK_CONTAINER)`,
+    };
+  }
+  const running = quietExec(docker, [
+    "inspect",
+    "-f",
+    "{{.State.Running}}",
+    container,
+  ])?.trim();
+  if (running !== "true") {
     return { ok: false, reason: `container ${container} isn't running` };
   }
   return {
     ok: true,
-    target: { root, isolation, ports: portsForIsolationMode(isolation), container, docker },
+    target: {
+      root,
+      isolation,
+      ports: portsForIsolationMode(isolation, offset),
+      portOffset: offset,
+      container,
+      docker,
+    },
   };
 }
 
 /** The resolved stack, once its dashboard answers HTTP. Says why when it isn't reachable. */
 export async function probeStack(): Promise<StackProbe> {
   const probe = await reachStack();
-  if (probe.ok === false) console.warn(`[test:stack] skipping: ${probe.reason}`);
+  if (probe.ok === false)
+    console.warn(`[test:stack] skipping: ${probe.reason}`);
   return probe;
 }
 
@@ -107,7 +153,7 @@ async function reachStack(): Promise<StackProbe> {
 
 /** Title suffix that says why a file's checks were skipped. */
 export function skipNote(probe: StackProbe): string {
-  return probe.ok === false ? ` (skipped: ${probe.reason})` : '';
+  return probe.ok === false ? ` (skipped: ${probe.reason})` : "";
 }
 
 export interface ExecResult {
@@ -123,24 +169,38 @@ export interface ExecResult {
 export function execInHermes(
   target: StackTarget,
   command: string[],
-  options: { input?: string; env?: Record<string, string>; timeoutMs?: number } = {}
+  options: {
+    input?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  } = {},
 ): Promise<ExecResult> {
-  const envArgs = Object.entries(options.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
-  const child = spawn(target.docker, ['exec', '-i', ...envArgs, target.container, ...command], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
-  child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
-  child.stdin.end(options.input ?? '');
+  const envArgs = Object.entries(options.env ?? {}).flatMap(([k, v]) => [
+    "-e",
+    `${k}=${v}`,
+  ]);
+  const child = spawn(
+    target.docker,
+    ["exec", "-i", ...envArgs, target.container, ...command],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+  child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+  child.stdin.end(options.input ?? "");
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => child.kill('SIGTERM'), options.timeoutMs ?? 60_000);
-    child.on('error', (error) => {
+    const timer = setTimeout(
+      () => child.kill("SIGTERM"),
+      options.timeoutMs ?? 60_000,
+    );
+    child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });
-    child.on('close', (code) => {
+    child.on("close", (code) => {
       clearTimeout(timer);
       resolve({ stdout, stderr, code });
     });
@@ -151,14 +211,19 @@ export function execInHermes(
 export async function pythonJsonInHermes<T>(
   target: StackTarget,
   program: string,
-  options: { env?: Record<string, string> } = {}
+  options: { env?: Record<string, string> } = {},
 ): Promise<T> {
-  const out = await execInHermes(target, ['python3', '-'], { input: program, env: options.env });
-  const last = out.stdout.trim().split('\n').at(-1) ?? '';
+  const out = await execInHermes(target, ["python3", "-"], {
+    input: program,
+    env: options.env,
+  });
+  const last = out.stdout.trim().split("\n").at(-1) ?? "";
   try {
     return JSON.parse(last) as T;
   } catch {
-    const errLine = out.stderr.trim().split('\n').at(-1) ?? '';
-    throw new Error(`python in ${target.container} exited ${out.code} without a result: ${errLine}`);
+    const errLine = out.stderr.trim().split("\n").at(-1) ?? "";
+    throw new Error(
+      `python in ${target.container} exited ${out.code} without a result: ${errLine}`,
+    );
   }
 }

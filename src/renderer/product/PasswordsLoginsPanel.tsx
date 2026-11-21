@@ -26,15 +26,20 @@ import {
   suggestSignInSites,
 } from '../../shared/vaultSites';
 import { InfoTip } from '../components/ui/info-tip';
+import { Segmented } from '../components/ui/segmented';
 import { Sheet } from '../components/ui/sheet';
 import { useSheetAction } from '../components/ui/use-sheet-action';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../components/ui/menu';
 import { APP_NAME } from '../../shared/buildIdentity';
 import { RetryCallout } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Field } from '../components/ui/field';
 import { InlineConfirm } from '../components/ui/inline-confirm';
 import { PasswordField } from '../components/ui/password-field';
+import { NativeSelect } from '../components/ui/native-select';
+import { Input } from '../components/ui/input';
+import { Listbox, ListboxOption } from '../components/ui/listbox';
+import { useListNavigation } from '../components/ui/use-list-navigation';
 
 /** Passwords & Logins (docs/passwords-logins-study). */
 
@@ -152,7 +157,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
       <div className="wb-vault-toolbar">
         <label className="wb-vault-agent">
           Logins for
-          <select value={agentSlug} onChange={(e) => setAgentSlug(e.target.value)}>
+          <NativeSelect size="sm" value={agentSlug} onChange={(e) => setAgentSlug(e.target.value)}>
             {(agents.length
               ? agents
               : [builtinAgent(agents)]
@@ -161,7 +166,7 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
                 {a.displayName}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <span className="wb-vault-grow" />
         <Button
@@ -226,59 +231,43 @@ export const PasswordsLoginsPanel: React.FC<{ initialAgentSlug?: string }> = ({
                   <span className="wb-vault-date">{local ? addedOn(login.createdAt) : ''}</span>
                   {local ? (
                     <div className="wb-vault-menu-wrap">
-                      <Popover
+                      <Menu
                         open={menuId === login.id}
                         onOpenChange={(open) => {
                           if (open) setConfirmId(null);
                           setMenuId(open ? login.id : null);
                         }}
                       >
-                        <PopoverTrigger>
+                        <MenuTrigger>
                           <Button
                             type="button"
                             variant="secondary"
                             size="icon"
                             className="wb-vault-more"
                             aria-label={`More for ${login.label}`}
-                            aria-expanded={menuId === login.id}
-                            aria-haspopup="menu"
                           >
                             <MoreHorizontal size={16} aria-hidden="true" />
                           </Button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          className="wb-vault-menu"
-                          role="menu"
-                          side="bottom"
-                          align="end"
-                          sideOffset={4}
-                        >
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setMenuId(null);
-                              setSheet({ mode: 'replace', login });
-                            }}
+                        </MenuTrigger>
+                        <MenuContent side="bottom" align="end">
+                          <MenuItem
+                            icon={<RefreshCw size={14} />}
+                            onSelect={() => setSheet({ mode: 'replace', login })}
                           >
-                            <RefreshCw size={14} aria-hidden="true" />
                             Replace password
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="is-danger"
-                            onClick={() => {
-                              setMenuId(null);
+                          </MenuItem>
+                          <MenuItem
+                            variant="danger"
+                            icon={<Trash2 size={14} />}
+                            onSelect={() => {
                               setRowError(null);
                               setConfirmId(login.id);
                             }}
                           >
-                            <Trash2 size={14} aria-hidden="true" />
                             Remove
-                          </button>
-                        </PopoverContent>
-                      </Popover>
+                          </MenuItem>
+                        </MenuContent>
+                      </Menu>
                     </div>
                   ) : (
                     <span
@@ -474,8 +463,9 @@ function SourceRow({
           <label htmlFor={inputId} className="sr-only">
             {source.displayName} master password
           </label>
-          <input
+          <Input
             id={inputId}
+            className="min-w-[160px] flex-1"
             type="password"
             autoComplete="off"
             autoFocus
@@ -538,6 +528,22 @@ function LoginSheet({
     setKeepTyped(false);
     window.setTimeout(() => (identifier.trim() ? passwordRef : identifierRef).current?.focus(), 0);
   };
+
+  // Known sites under the Site field: arrows move the active row from the field, Enter picks
+  // it. No row is active until an arrow is pressed, so Enter still submits the form.
+  const sitesId = useId();
+  const [activeSite, setActiveSite] = useState(-1);
+  const sitesNav = useListNavigation({
+    id: sitesId,
+    open: suggestions.length > 0,
+    count: suggestions.length,
+    active: activeSite,
+    onActiveChange: setActiveSite,
+    onPick: (index) => {
+      const chosen = suggestions[index];
+      if (chosen) pick(chosen.origin);
+    },
+  });
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -603,34 +609,36 @@ function LoginSheet({
             : undefined
         }
       >
-        <input
+        <Input
           id="wb-vault-site"
           value={site}
           disabled={Boolean(replacing) || busy}
           autoFocus={!replacing}
           autoComplete="off"
           placeholder="LinkedIn, or paste the sign-in page URL"
+          {...sitesNav.fieldProps}
           onChange={(e) => {
             setSite(e.target.value);
             setPickedOrigin(null);
             setKeepTyped(false);
+            setActiveSite(-1);
           }}
         />
         {suggestions.length > 0 ? (
-          <div className="wb-vault-suggest" role="listbox" aria-label="Known sites">
-            {suggestions.map((s) => (
-              <button
+          <Listbox id={sitesId} className="wb-vault-suggest" aria-label="Known sites">
+            {suggestions.map((s, i) => (
+              <ListboxOption
                 key={s.origin}
-                type="button"
-                role="option"
-                aria-selected="false"
-                onClick={() => pick(s.origin)}
+                id={sitesNav.optionId(i)}
+                active={i === activeSite}
+                selected={i === activeSite}
+                onPick={() => pick(s.origin)}
+                hint={<span className="mono">{s.origin}</span>}
               >
-                <span>{s.name}</span>
-                <span className="mono">{s.origin}</span>
-              </button>
+                {s.name}
+              </ListboxOption>
             ))}
-          </div>
+          </Listbox>
         ) : null}
         {origin && !mismatch ? (
           <p className="wb-vault-origin">
@@ -668,23 +676,17 @@ function LoginSheet({
         <span className="wb-field-label" id="wb-vault-idtype">
           Signs in with
         </span>
-        <div className="wb-vault-seg" role="group" aria-labelledby="wb-vault-idtype">
-          {ID_TYPES.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              aria-pressed={idType === t.value}
-              disabled={Boolean(replacing) || busy}
-              onClick={() => setIdType(t.value)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <Segmented<VaultIdentifierType>
+          aria-labelledby="wb-vault-idtype"
+          options={ID_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+          value={idType}
+          disabled={Boolean(replacing) || busy}
+          onChange={setIdType}
+        />
       </div>
 
       <Field label={idMeta.label} htmlFor="wb-vault-identifier">
-        <input
+        <Input
           id="wb-vault-identifier"
           ref={identifierRef}
           value={identifier}

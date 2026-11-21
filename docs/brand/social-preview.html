@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- Source for social-preview.png (1280 x 640), the GitHub social preview for the public repo
+     (Settings > General > Social preview). It promotes Boundary Desktop: the app icon and product
+     name lead, and boundary.sh's mark and wordmark sit small in the corner. Background, wordmark
+     font and colours match boundary.sh's og.png.
+     Render with headless Chrome from this folder:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars --allow-file-access-from-files \
+       --window-size=1280,640 --virtual-time-budget=5000 --screenshot=social-preview.png social-preview.html -->
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@700&family=IBM+Plex+Sans:wght@400&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1280px; height: 640px; background: #15111E; overflow: hidden }
+  body { position: relative; display: flex; align-items: center; justify-content: center; gap: 44px;
+    padding-bottom: 24px; box-sizing: border-box }
+  .glow { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(460px 360px at 270px 300px, rgba(139,135,248,.14), rgba(139,135,248,0) 70%) }
+  /* icon.svg has a 100-unit margin on its 1024 grid; the negative margins trim it. */
+  img.icon { position: relative; width: 320px; height: 320px; margin: -31px -31px -31px -31px; display: block }
+  .text { position: relative; display: flex; flex-direction: column }
+  .name { font: 700 104px/1 'Darker Grotesque', sans-serif; color: #E9E5DB; letter-spacing: -.005em; margin-top: -18px }
+  .tag { font: 400 33px/1.25 'IBM Plex Sans', sans-serif; color: #A9A4B6; margin: 14px 0 0 4px }
+  .byline { position: absolute; left: 125px; bottom: 48px; display: flex; align-items: center; gap: 10px; opacity: .7 }
+  .byline svg { width: 30px; height: 30px; display: block }
+  .byline span { font: 700 34px/1 'Darker Grotesque', sans-serif; color: #E9E5DB; margin-top: -6px }
+</style></head>
+<body>
+  <div class="glow"></div>
+  <img class="icon" src="../../src/assets/icon.svg" alt="">
+  <div class="text">
+    <span class="name">Boundary Desktop</span>
+    <span class="tag">Your setup and data outlive your agent</span>
+  </div>
+  <div class="byline">
+    <svg viewBox="0 0 100 100">
+      <path d="M 88.97 31.83 A 43 43 0 1 1 74.66 14.78" fill="none" stroke="#E9E5DB" stroke-width="7"/>
+      <path d="M 80.07 39.06 A 32 32 0 1 1 66 22.29" fill="none" stroke="#E9E5DB" stroke-width="7"/>
+      <circle cx="50" cy="50" r="14" fill="#B3B0FF"/><circle cx="50" cy="50" r="5.32" fill="#FFFFFF"/>
+      <circle cx="89.07" cy="17.22" r="6" fill="#D7B455"/>
+    </svg>
+    <span>boundary</span>
+  </div>
+</body></html>

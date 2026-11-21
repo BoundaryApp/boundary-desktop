@@ -182,6 +182,16 @@ describe('process error handlers (G15-11)', () => {
     expect(h.steps.dockerDestroy).toHaveBeenCalled();
   });
 
+  it('stops writing to the console once the fatal exit has started', async () => {
+    await loadQuit();
+    h.processHandlers.uncaughtException(new Error('boom'));
+    expect(console.error).toHaveBeenCalledTimes(1);
+    // Writing to a closed stdout throws EPIPE back into this handler; logging it again loops.
+    for (let i = 0; i < 50; i += 1) h.processHandlers.uncaughtException(new Error('write EPIPE'));
+    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(h.persistDebugLog.mock.calls.filter(([, kind]) => kind === 'uncaughtException').length).toBeLessThanOrEqual(11);
+  });
+
   it('quits the app on SIGTERM once ready, and exits on a second signal', async () => {
     await loadQuit();
     h.processHandlers.SIGTERM();
@@ -269,5 +279,21 @@ describe('installing an update', () => {
     expect(h.app.exit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(30_000);
     expect(h.app.exit).toHaveBeenCalledWith(0);
+  });
+});
+
+describe('ignoreStdioWriteErrors', () => {
+  it('keeps a broken stdout or stderr from raising an uncaught exception', async () => {
+    const { EventEmitter } = await import('node:events');
+    const quit = await loadQuit();
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    quit.ignoreStdioWriteErrors([stdout, stderr]);
+    const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+    expect(() => stdout.emit('error', epipe)).not.toThrow();
+    expect(() => stderr.emit('error', epipe)).not.toThrow();
+    expect(() => stdout.emit('error', epipe)).not.toThrow();
+    expect(h.persistDebugLog).toHaveBeenCalledTimes(1);
+    expect(h.persistDebugLog).toHaveBeenCalledWith('startup', 'stdio write failed; ignoring further errors', expect.objectContaining({ code: 'EPIPE' }));
   });
 });

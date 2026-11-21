@@ -1,4 +1,5 @@
 import type { InferenceSlotId } from '../../../../shared/types/onboarding';
+import { chainEntryKey } from '../../../../shared/inferenceChainKey';
 import type {
   InferenceChain,
   InferenceChainEntry,
@@ -52,14 +53,6 @@ export function pickInferenceChain(levels: InferenceChainLevels): PickedInferenc
   if (levels.project?.length) return { chain: levels.project, provenance: 'project-default' };
   if (levels.app?.length) return { chain: levels.app, provenance: 'app-default' };
   return null;
-}
-
-function chainEntryKey(entry: InferenceChainEntry): string {
-  const model = entry.modelId?.trim() ?? '';
-  if (entry.slot === 'peer') {
-    return `peer:${entry.peer?.circleId ?? ''}:${entry.peer?.providerId ?? ''}:${model}`;
-  }
-  return `${entry.slot}:${model}`;
 }
 
 function staleReason(

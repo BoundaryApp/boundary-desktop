@@ -6,6 +6,11 @@ import { APP_NAME } from '../../shared/buildIdentity';
 import { WebSearchModeSection } from './WebSearchModeSection';
 import { Button } from '../components/ui/button';
 import { Switch } from '../components/ui/switch';
+import { Textarea } from '../components/ui/textarea';
+import { useBuiltinAgentName } from './settingsPanelHooks';
+import { StackCapabilityNote, useStackCapability } from './stackCapabilities';
+import { errorText } from '../lib/errorText';
+import { Callout, LoadingBlock } from '../components/ui/alert';
 
 /** Settings → Agent browser: Boundary's Chrome for Hermes (ADR 0027 §4, §6). */
 
@@ -18,14 +23,15 @@ function linesToSites(text: string): string[] {
     .filter(Boolean);
 }
 
-function statusText(state: BoundaryBrowserState): string {
+function statusText(state: BoundaryBrowserState, agentName: string): string {
   if (!state.chromeInstalled) return 'Needs Google Chrome, which isn’t installed.';
   if (!state.running) return 'Not open.';
-  if (state.clients > 0) return 'Open. Hermes is using it now.';
+  if (state.clients > 0) return `Open. ${agentName} is using it now.`;
   return 'Open.';
 }
 
 export const AgentBrowserPanel: React.FC = () => {
+  const agentName = useBuiltinAgentName();
   const [state, setState] = useState<BoundaryBrowserState | null>(null);
   const [blockedText, setBlockedText] = useState('');
   const [allowedText, setAllowedText] = useState('');
@@ -65,7 +71,7 @@ export const AgentBrowserPanel: React.FC = () => {
             : { tone: 'ok', text: savedText }
         );
       } catch (error) {
-        setNotice({ tone: 'warn', text: error instanceof Error ? error.message : String(error) });
+        setNotice({ tone: 'warn', text: errorText(error) });
       } finally {
         setBusy(false);
       }
@@ -85,11 +91,18 @@ export const AgentBrowserPanel: React.FC = () => {
     }
   }, [adopt]);
 
+  const hostCallbacks = useStackCapability('hostCallbacks');
+  if (!hostCallbacks) {
+    return (
+      <SettingsSection id="settings-agent-browser" className="wb-agent-browser" title={`${APP_NAME}’s browser`}>
+        <StackCapabilityNote capability="hostCallbacks" />
+      </SettingsSection>
+    );
+  }
+
   if (!state) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="size-8 animate-spin rounded-full border-2 border-line border-t-brand" />
-      </div>
+      <LoadingBlock />
     );
   }
 
@@ -106,43 +119,43 @@ export const AgentBrowserPanel: React.FC = () => {
             <InfoTip label={`${APP_NAME}’s browser`}>
               <p>
                 A Chrome window {APP_NAME} runs on this computer, with its own profile. Sign in there to the
-                sites you want Hermes to use. Your own Chrome and its logins aren’t touched.
+                sites you want {agentName} to use. Your own Chrome and its logins aren’t touched.
               </p>
               <p>
-                Hermes can’t read this browser’s cookies or stored site data, or open files on your computer.
-                It can see and act on any page it opens. Sites limit automated use, so ask Hermes to go at a
+                {agentName} can’t read this browser’s cookies or stored site data, or open files on your computer.
+                It can see and act on any page it opens. Sites limit automated use, so ask {agentName} to go at a
                 human pace.
               </p>
             </InfoTip>
         </>
       }
     >
-      <p className="wb-inference-lead">Hermes browses here, with the logins you add.</p>
+      <p className="wb-inference-lead">{agentName} browses here, with the logins you add.</p>
 
       <SettingsRow
         label={
           <>
-            Let Hermes use {APP_NAME}’s browser
+            Let {agentName} use {APP_NAME}’s browser
             <InfoTip label="this setting">
-              When off, Hermes browses in its own browser inside Docker, with no logins.
+              When off, {agentName} browses in its own browser inside Docker, with no logins.
             </InfoTip>
           </>
         }
       >
         <Switch
           checked={settings.enabled}
-          label={`Let Hermes use ${APP_NAME}’s browser`}
+          label={`Let ${agentName} use ${APP_NAME}’s browser`}
           disabled={busy || !state.chromeInstalled}
           onChange={(enabled) =>
             void save(
               { ...settings, enabled },
-              enabled ? `Hermes now browses in ${APP_NAME}’s browser.` : 'Hermes is back on its own browser.'
+              enabled ? `${agentName} now browses in ${APP_NAME}’s browser.` : `${agentName} is back on its own browser.`
             )
           }
         />
       </SettingsRow>
 
-      <SettingsRow label="Sign in to sites" hint={statusText(state)}>
+      <SettingsRow label="Sign in to sites" hint={statusText(state, agentName)}>
         <Button
           variant="secondary"
           type="button"
@@ -154,21 +167,21 @@ export const AgentBrowserPanel: React.FC = () => {
       </SettingsRow>
 
       {notice ? (
-        <p className={`wb-agent-browser-notice is-${notice.tone}`} role="status">
-          {notice.text}
-        </p>
+        <Callout variant={notice.tone} size="sm" role="status">
+          <p>{notice.text}</p>
+        </Callout>
       ) : null}
 
       <h3 className="wb-agent-browser-h3">
         Blocked sites
         <InfoTip label="blocked sites">
-          Hermes can’t open these sites or their subdomains. {APP_NAME}’s default list covers email,
-          password managers, payments and banks. Keep sensitive sites here: Hermes can act on any page it
+          {agentName} can’t open these sites or their subdomains. {APP_NAME}’s default list covers email,
+          password managers, payments and banks. Keep sensitive sites here: {agentName} can act on any page it
           opens.
         </InfoTip>
       </h3>
-      <textarea
-        className="wb-agent-browser-sites mono"
+      <Textarea
+        className="mt-2 font-mono"
         aria-label="Blocked sites"
         value={blockedText}
         onChange={(event) => setBlockedText(event.target.value)}
@@ -203,12 +216,12 @@ export const AgentBrowserPanel: React.FC = () => {
       <h3 className="wb-agent-browser-h3">
         Allowed sites
         <InfoTip label="allowed sites">
-          Leave empty to let Hermes open any site that isn’t blocked. If you list sites here, Hermes can
+          Leave empty to let {agentName} open any site that isn’t blocked. If you list sites here, {agentName} can
           open only those. One site per line.
         </InfoTip>
       </h3>
-      <textarea
-        className="wb-agent-browser-sites mono"
+      <Textarea
+        className="mt-2 font-mono"
         aria-label="Allowed sites"
         value={allowedText}
         onChange={(event) => setAllowedText(event.target.value)}

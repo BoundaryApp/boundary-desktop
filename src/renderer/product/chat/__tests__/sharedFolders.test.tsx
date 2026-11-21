@@ -7,6 +7,7 @@ import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { CirclesRail } from '../../circles/CirclesRail';
 import { CirclePlace } from '../circle/CirclePlace';
 import { COVER, SAM, STUDIO, added, change, circle, offered } from './sharedFolderFixtures';
+import { setStackCapabilitiesForTests } from '../../stackCapabilities';
 
 const NEW = 'ee'.repeat(32);
 
@@ -169,7 +170,7 @@ describe('adding a folder to this Mac', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to this Mac…' }));
     const sheet = screen.getByRole('dialog', { name: 'Add Cover art to this Mac' });
     await waitFor(() => expect((within(sheet).getByLabelText('Location') as HTMLInputElement).value).toContain('Circles/Studio/Cover art'));
-    expect(within(sheet).getByRole('radio', { name: /A new project named Cover art/ }).getAttribute('aria-checked')).toBe('true');
+    expect((within(sheet).getByRole('radio', { name: /A new project named Cover art/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(within(sheet).getByRole('button', { name: 'Add and download 2 KB' }));
     await waitFor(() => expect(createHost).toHaveBeenCalledWith({ hostPath: '/Users/jordan/Circles/Studio/Cover art', name: 'Cover art' }));
     expect(folderAdd).toHaveBeenCalledWith({ circle: STUDIO, key: COVER, root: '/Users/jordan/Circles/Studio/Cover art' });
@@ -190,6 +191,23 @@ describe('adding a folder to this Mac', () => {
     expect(createHost).not.toHaveBeenCalled();
     expect(await screen.findByText(/Cover art is on this Mac/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Open project' })).toBeNull();
+  });
+
+  it('adds only the folder, and says why, on a host without hostFolders', async () => {
+    setStackCapabilitiesForTests({ hostFolders: false });
+    listing = [offered];
+    mount();
+    fireEvent.click(await within(rail()).findByRole('button', { name: /Cover art/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to this Mac…' }));
+    const sheet = screen.getByRole('dialog', { name: 'Add Cover art to this Mac' });
+    expect(within(sheet).getByText("Your agent runs on another computer, so it can't use folders on this one.")).toBeTruthy();
+    expect(within(sheet).queryByRole('radio', { name: /A new project/ })).toBeNull();
+    expect(within(sheet).queryByRole('radio', { name: /An existing project/ })).toBeNull();
+    expect((within(sheet).getByRole('radio', { name: /No project for now/ }) as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => expect(within(sheet).getByRole('button', { name: /Add and download/ }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(within(sheet).getByRole('button', { name: /Add and download/ }));
+    await waitFor(() => expect(folderAdd).toHaveBeenCalled());
+    expect(createHost).not.toHaveBeenCalled();
   });
 });
 
@@ -267,6 +285,23 @@ describe('sharing a folder', () => {
     await waitFor(() => expect(folderShare).toHaveBeenCalledWith({ key: STUDIO, name: 'Spring catalogue', source: null, role: 'editor' }));
     expect(pickFolder).not.toHaveBeenCalled();
   });
+
+  it('keeps the folder source checked after choosing a role and coming back', async () => {
+    const sheet = await openShare();
+    const folderRadio = within(sheet).getByRole('radio', { name: /Start an empty folder/ }) as HTMLInputElement;
+    fireEvent.click(folderRadio);
+    const folderGroup = folderRadio.name;
+    fireEvent.change(within(sheet).getByLabelText('Name'), { target: { value: 'Spring catalogue' } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Next' }));
+    const roleRadio = within(sheet).getByRole('radio', { name: /Only managers edit/ }) as HTMLInputElement;
+    fireEvent.click(roleRadio);
+    expect(roleRadio.checked).toBe(true);
+    // Each group has its own radio name, so picking a role can't uncheck the folder source.
+    expect(roleRadio.name).not.toBe(folderGroup);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Back' }));
+    expect((within(sheet).getByRole('radio', { name: /Start an empty folder/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(sheet).getByRole('radio', { name: /Share a folder from this Mac/ }) as HTMLInputElement).checked).toBe(false);
+  });
 });
 
 describe('a folder on this Mac', () => {
@@ -297,7 +332,7 @@ describe('a folder on this Mac', () => {
     listing = [added()];
     mount();
     fireEvent.click(await within(rail()).findByRole('button', { name: /Cover art/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open folder details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Folder details' }));
     const details = screen.getByRole('complementary', { name: 'Cover art details' });
     expect(within(details).getByText('Changes confirm when Sam is online. New members join as editors.')).toBeTruthy();
     fireEvent.click(within(details).getByRole('button', { name: 'Remove from this Mac…' }));
@@ -384,7 +419,7 @@ describe('roles', () => {
     ];
     mount();
     fireEvent.click(await within(rail()).findByRole('button', { name: /Cover art/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open folder details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Folder details' }));
     const details = screen.getByRole('complementary', { name: 'Cover art details' });
     fireEvent.click(within(details).getByRole('button', { name: 'Change roles' }));
     expect(within(details).getByText(/Hasn’t added it/)).toBeTruthy();
@@ -392,11 +427,28 @@ describe('roles', () => {
     await waitFor(() => expect(folderSetRole).toHaveBeenCalledWith({ key: COVER, identity: SAM, role: 'manager', name: 'Sam' }));
   });
 
+  it('opens the folder details as a disclosure: aria-expanded and aria-controls, one fixed label', async () => {
+    listing = [added()];
+    mount();
+    fireEvent.click(await within(rail()).findByRole('button', { name: /Cover art/ }));
+    const toggle = screen.getByRole('button', { name: 'Folder details' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.hasAttribute('aria-pressed')).toBe(false);
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const details = screen.getByRole('complementary', { name: 'Cover art details' });
+    expect(toggle.getAttribute('aria-controls')).toBe(details.id);
+    expect(details.id).not.toBe('');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('complementary', { name: 'Cover art details' })).toBeNull();
+  });
+
   it('doesn’t offer Change roles to an editor', async () => {
     listing = [added()];
     mount();
     fireEvent.click(await within(rail()).findByRole('button', { name: /Cover art/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open folder details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Folder details' }));
     expect(within(screen.getByRole('complementary', { name: 'Cover art details' })).queryByRole('button', { name: 'Change roles' })).toBeNull();
   });
 

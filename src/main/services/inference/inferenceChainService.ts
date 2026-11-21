@@ -1,3 +1,4 @@
+import { shortChainKey } from '../../../shared/inferenceChainKey';
 import { sharedModelLabel } from '../../../shared/inferenceDisplay';
 import type { PoolSettings, TrustLevel } from '../../../shared/types/confidential';
 import type { PoolStop } from '../../../shared/types/confidentialState';
@@ -13,13 +14,8 @@ import { lookupModelContextLength } from '../assistant/hermesProfileLimits';
 import { upstreamIsLocal } from '../assistant/hermesStreamTimeout';
 import { diag } from '../circles/circlesDiagnostics';
 import { ensureCirclesStarted, sharedModelFacts } from '../circles/circlesService';
-import {
-  getAppDefaultSlot,
-  getAppFallbacks,
-  getAppSharedModel,
-  getSlotLlmConnection,
-  type LlmConnection,
-} from '../onboarding/OpenAiOnboardingStore';
+import { getSlotLlmConnection, type LlmConnection } from '../onboarding/OpenAiOnboardingStore';
+import { getAppDefaultSlot, getAppFallbacks, getAppSharedModel } from './appInferenceChoice';
 import {
   applyPrivacyLock,
   chainContextLength,
@@ -199,6 +195,9 @@ function chainUpstream(
       baseUrl: connection.endpointUrl,
       url: connection.endpointUrl,
       apiKey: connection.apiKey,
+      authScheme: connection.authScheme,
+      provider: connection.provider,
+      extraHeaders: connection.extraHeaders,
       modelId: entry.modelId?.trim() || connection.modelId,
     };
   };
@@ -341,7 +340,6 @@ export async function planInferenceChain(
   // A shared model or a pool has no direct endpoint, so a chain that starts with one always
   // routes (ADR 0036, ADR 0047 §8).
   const startsRouted = primary.slot === 'peer' || primary.slot === 'confidential';
-  const shortKey = (key: string) => key.replace(/[0-9a-f]{64}/g, (hex) => hex.slice(0, 8));
   const usableStates = locked.ok ? locked.entries.filter((state) => !state.stale) : [];
   // A pool is reached only through the router, so a chain that can use one routes even alone.
   const mustRoute = startsRouted || usableStates.some((state) => state.entry.slot === 'confidential');
@@ -349,7 +347,7 @@ export async function planInferenceChain(
   diag('chain.plan', {
     privacyLocked: options.privacyLocked === true,
     entries: described.map((state) => ({
-      key: shortKey(state.key),
+      key: shortChainKey(state.key),
       stale: state.stale,
       private: state.private,
       context: state.contextLength ?? null,

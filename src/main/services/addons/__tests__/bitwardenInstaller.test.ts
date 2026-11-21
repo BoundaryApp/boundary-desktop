@@ -19,6 +19,7 @@ beforeEach(() => {
   snapshots = [];
   const deps = {
     paths: () => ({ root: stack.root, dataRoot: stack.dataRoot }),
+    files: stack.files,
     run: stack.run,
     exclusive: <T,>(work: () => Promise<T>): Promise<T> => work(),
     ensureFolders: async (): Promise<void> => undefined,

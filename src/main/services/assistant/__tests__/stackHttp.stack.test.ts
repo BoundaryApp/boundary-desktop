@@ -27,9 +27,9 @@ describe.skipIf(!probe.ok)(`stack HTTP endpoints${skipNote(probe)}`, () => {
   // The dashboard allows 10 password logins a minute per address, so the suite reuses this one.
   let login: Awaited<ReturnType<typeof loginToDashboard>> | null = null;
 
-  it('finds the dashboard password and API key where Boundary reads them', () => {
-    expect(resolveDashboardCredentials()).not.toBeNull();
-    expect(resolveApiServerKey()).toBeTruthy();
+  it('finds the dashboard password and API key where Boundary reads them', async () => {
+    expect(await resolveDashboardCredentials()).not.toBeNull();
+    expect(await resolveApiServerKey()).toBeTruthy();
   });
 
   it('API /health answers 2xx (waitUntilAssistantHealthy)', async () => {
@@ -49,7 +49,7 @@ describe.skipIf(!probe.ok)(`stack HTTP endpoints${skipNote(probe)}`, () => {
 
   it('POST /v1/mcp/servers/{name}/reconnect answers 202 or 404, and 404 names a missing server', async () => {
     const { apiBaseUrl } = resolveHermesStackEndpoints();
-    const apiKey = resolveApiServerKey();
+    const apiKey = await resolveApiServerKey();
     const woken = await wakeHermesBridgeServer({ apiBaseUrl, apiKey });
     expect(['woken', 'unsupported']).toContain(woken.outcome);
 

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
 import { Field } from '../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import { slugFromName } from '../../../shared/actualSlug';
 import { ADDON_SLUG } from '../../../shared/utils/slug';
 import {
@@ -14,6 +15,10 @@ import {
 import { AccessRadios, ChangeWayLink, STILL_SHEET } from './addonFormParts';
 import { connectErrorText, refreshActual } from './useActual';
 import { startActualRemoteInstall } from './useAddons';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
+import { ADDON_SLUG_RULE } from './addonCopy';
 
 // Connect a budget (spec decision 20). The sheet asks for a server address and its password,
 // lists the budgets that password opens, and connects the one picked with the name agents use.
@@ -66,8 +71,15 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
   const [askEncryption, setAskEncryption] = useState(false);
   const [replace, setReplace] = useState(Boolean(preset.signInAgain));
   const [taken, setTaken] = useState(false);
-  const [busy, setBusy] = useState<'listing' | 'connecting' | null>(null);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const sheet = useSheetAction();
+  const [phase, setPhase] = useState<'listing' | 'connecting'>('listing');
+  const busy = sheet.busy ? phase : null;
+  const [returned, setFailure] = useState<Failure | null>(null);
+  const failure: Failure | null =
+    returned ??
+    (sheet.error
+      ? { title: phase === 'listing' ? 'Couldn’t list the budgets' : 'The connection didn’t finish', body: sheet.error }
+      : null);
 
   const serverValue = local ? 'local' : server;
   const credential = useToken ? { sessionToken: token } : { password };
@@ -86,16 +98,19 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
     !(exists && !replace) &&
     !(needsEncryption && encryption === '');
 
-  const edited = () => setFailure(null);
+  const edited = () => {
+    setFailure(null);
+    sheet.setError(null);
+  };
   const credentialsChanged = () => {
     setBudgets(null);
     edited();
   };
 
   const listBudgets = async () => {
-    setBusy('listing');
+    setPhase('listing');
     setFailure(null);
-    try {
+    await sheet.run(async () => {
       const reply = await window.electronAPI.addons.actual.serverBudgets({ server: serverValue, ...credential });
       if (!reply.success) {
         setFailure({ title: 'Couldn’t list the budgets', body: reply.error ?? 'Boundary’s add-on service didn’t answer.' });
@@ -110,11 +125,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
       const keep = list.find((b) => b.syncId === syncId) ?? (list.length === 1 ? list[0] : undefined);
       if (keep) choose(keep);
       else if (!list.length) setFailure({ title: 'No budgets', body: 'This account can’t open any budget on that server.' });
-    } catch (e) {
-      setFailure({ title: 'Couldn’t list the budgets', body: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   const choose = (b: ActualServerBudget) => {
@@ -129,7 +140,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
 
   const connect = async () => {
     if (!picked) return;
-    setBusy('connecting');
+    setPhase('connecting');
     setFailure(null);
     const input: ActualConnectInput = {
       server: serverValue,
@@ -143,12 +154,11 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
     if (!addonOn) {
       // Turning Actual on the first time takes minutes, so the install view shows the steps.
       startActualRemoteInstall(input);
-      setBusy(null);
       onInstallStarted();
       onClose();
       return;
     }
-    try {
+    await sheet.run(async () => {
       const reply = await window.electronAPI.addons.actual.connect(input);
       if (!reply.success) {
         setFailure({ title: 'The connection didn’t finish', body: reply.error ?? 'Boundary’s add-on service didn’t answer.' });
@@ -164,11 +174,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
       }
       void refreshActual();
       onClose();
-    } catch (e) {
-      setFailure({ title: 'The connection didn’t finish', body: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   const listed = budgets !== null;
@@ -210,7 +216,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
       {local ? null : (
         <>
           <Field label="Server address" htmlFor="actual-connect-server" hint="The address you open Actual at.">
-            <input
+            <Input
               id="actual-connect-server"
               value={server}
               placeholder="https://budget.example.com"
@@ -229,7 +235,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
               htmlFor="actual-connect-token"
               hint="For a server that signs in through OpenID. Sign in to Actual in your browser, open the developer tools, and under Application → IndexedDB → actual → asyncStorage copy the value of user-token. It isn’t a cookie."
             >
-              <input
+              <Input
                 id="actual-connect-token"
                 type="password"
                 className="font-mono"
@@ -245,7 +251,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
             </Field>
           ) : (
             <Field label="Server password" htmlFor="actual-connect-password">
-              <input
+              <Input
                 id="actual-connect-password"
                 type="password"
                 value={password}
@@ -275,22 +281,27 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
       )}
 
       {listed && budgets.length ? (
-        <div role="radiogroup" aria-label="Budget" className="mb-3.5 flex flex-col gap-2">
-          <span className="text-xs font-medium text-fg">Budget</span>
+        <ChoiceGroup label="Budget" kind="radio">
           {budgets.map((b) => (
-            <label key={b.syncId} className="flex cursor-pointer items-center gap-2 text-xs">
-              <input
-                type="radio"
-                name="actual-connect-budget"
-                checked={syncId === b.syncId}
-                disabled={busy !== null}
-                onChange={() => choose(b)}
-              />
-              <span className="text-fg">{b.name}</span>
-              {b.encrypted ? <span className="text-fg-faint">Encrypted</span> : null}
-            </label>
+            <ChoiceRow
+              key={b.syncId}
+              control={
+                <Radio
+                  name="actual-connect-budget"
+                  checked={syncId === b.syncId}
+                  disabled={busy !== null}
+                  onChange={() => choose(b)}
+                />
+              }
+              title={
+                <>
+                  {b.name}
+                  {b.encrypted ? <span className="ms-2 font-normal text-fg-faint">Encrypted</span> : null}
+                </>
+              }
+            />
           ))}
-        </div>
+        </ChoiceGroup>
       ) : null}
 
       {listed && picked ? (
@@ -300,7 +311,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
             htmlFor="actual-connect-slug"
             hint={
               slug && !slugOk ? (
-                <span className="text-danger">Use lowercase letters, numbers and dashes for the name.</span>
+                <span className="text-danger">{ADDON_SLUG_RULE}</span>
               ) : exists ? (
                 <span className="text-danger">
                   {`budget-${slug} is already connected. `}
@@ -317,9 +328,9 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
               )
             }
           >
-            <input
+            <Input
               id="actual-connect-slug"
-              className={cn('font-mono', slug && !slugOk && 'border-danger')}
+              className="font-mono" aria-invalid={Boolean(slug && !slugOk)}
               value={slug}
               disabled={busy !== null || Boolean(preset.signInAgain)}
               autoComplete="off"
@@ -334,7 +345,7 @@ const ConnectForm: React.FC<FormProps> = ({ preset, existing, addonOn, onClose, 
           </Field>
           {needsEncryption ? (
             <Field label="Encryption password" htmlFor="actual-connect-encryption" hint="The password this budget’s end-to-end encryption uses.">
-              <input
+              <Input
                 id="actual-connect-encryption"
                 type="password"
                 value={encryption}

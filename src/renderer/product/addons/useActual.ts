@@ -1,6 +1,7 @@
 import type { ActualBudget, ActualBudgetState, ActualOverview } from '../../../shared/types/addons';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
-import { useWhenStackReady } from './addonPageActions';
+import { lineFromIpc, useWhenStackReady } from './addonPageActions';
+import { ADDON_SLUG_RULE } from './addonCopy';
 
 // Actual Budget's connected budgets, shared by the detail page, the store card and the Services
 // rail dot. Main reads the stack's index rows, which carry no password or token, and keeps the
@@ -97,7 +98,7 @@ export function hostOf(server: string): string {
 export function connectErrorText(error: string, slug: string, server: string): string {
   switch (error) {
     case 'bad_slug':
-      return 'Use lowercase letters, numbers and dashes for the name.';
+      return ADDON_SLUG_RULE;
     case 'exists':
       return `budget-${slug} is already connected. Choose another name, or replace it.`;
     case 'login_refused':
@@ -118,11 +119,6 @@ export function connectErrorText(error: string, slug: string, server: string): s
 }
 
 /** Opens a budget's server, or this Mac's with `null`. Resolves to a line to show, or null. */
-export async function openActual(slug: string | null): Promise<string | null> {
-  try {
-    const result = await window.electronAPI.addons.actual.open(slug);
-    return result.success ? null : (result.error ?? 'Couldn’t open Actual.');
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+export function openActual(slug: string | null): Promise<string | null> {
+  return lineFromIpc(() => window.electronAPI.addons.actual.open(slug), 'Couldn’t open Actual.');
 }

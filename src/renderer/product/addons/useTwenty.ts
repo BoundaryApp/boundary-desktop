@@ -1,5 +1,7 @@
 import type { TwentyWorkspace } from '../../../shared/types/addons';
 import { createIpcStore, useIpcStore } from '../../lib/ipcStore';
+import { errorText } from '../../components/ui/use-sheet-action';
+import { callIpc } from './addonPageActions';
 
 // Twenty's workspace files and the changes that wait for an assistant restart, shared by the
 // detail page and the catalog card. The files never carry a key: main reports only whether
@@ -17,7 +19,7 @@ export async function reloadTwenty(): Promise<void> {
     readError.set(null);
   } catch (error) {
     // Keep the last list; the page says the read failed.
-    readError.set(error instanceof Error ? error.message : String(error));
+    readError.set(errorText(error));
   }
 }
 
@@ -70,11 +72,6 @@ export const agentName = (workspace: Pick<TwentyWorkspace, 'slug'>): string => `
 
 /** Opens the local Twenty signed in as its owner. Resolves to a line to show, or null. */
 export async function openLocalTwenty(): Promise<string | null> {
-  try {
-    const result = await window.electronAPI.addons.twenty.open();
-    if (!result.success) return result.error ?? 'Couldn’t open Twenty.';
-    return result.warning ?? null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+  const result = await callIpc(() => window.electronAPI.addons.twenty.open(), 'Couldn’t open Twenty.');
+  return typeof result === 'string' ? result : (result.warning ?? null);
 }

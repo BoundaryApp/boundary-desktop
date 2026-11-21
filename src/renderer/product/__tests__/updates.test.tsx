@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateSnapshot } from '../../../shared/types/updates';
 import { stubElectronAPI } from '../../__tests__/electronApiFake';
-import { resetUpdatesForTests, UpdateCard, UpdateRailButton, useUpdates } from '../updates';
+import { UpdateCard, UpdateRailButton, useUpdates } from '../updates';
 import { UpdatesPanel } from '../UpdatesPanel';
 
 const base: UpdateSnapshot = {
@@ -79,7 +79,6 @@ const Rail: React.FC = () => (useUpdates()?.version ? <UpdateRailButton /> : nul
 
 describe('updates', () => {
   beforeEach(() => {
-    resetUpdatesForTests();
     openUpdates.mockClear();
   });
   afterEach(() => {
@@ -139,7 +138,7 @@ describe('updates', () => {
   it('shows the percent on the Updates page', async () => {
     mockApi({ ...base, phase: 'downloading', downloadPercent: 42, showCard: false });
     await mount(<UpdatesPanel />);
-    expect(screen.getByText('42% of 324 MB. Keep working.')).toBeTruthy();
+    expect(screen.getByText('42% of 324 MB. Keep working. Boundary tells you when it’s ready.')).toBeTruthy();
   });
 
   it('warns about a slow next start when the update moves the stack', async () => {
@@ -205,6 +204,7 @@ describe('updates', () => {
     await mount(card);
     expect(screen.getByText(/didn’t download/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Skip this version' })).toBeTruthy();
   });
 
   it('ticks off waited-for work', async () => {

@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type {
   ActualScriptFailure,
   BitwardenAccount,
@@ -12,9 +10,10 @@ import type {
   BitwardenSyncResult,
 } from '../../../shared/types/addons';
 import { bitwardenServerUrl, isBitwardenScope, isBitwardenSlug } from '../../../shared/bitwardenSlug';
-import { readEnvFile } from '../assistant/stackEnv';
-import type { BrokerNamespaceCheck } from './bitwardenBrokerNamespace';
-import { enableAddon, readStackFile, scriptFailure, type AddonScript, type AddonScriptLine, type AddonScriptOutcome, type ScriptJsonOutcome } from './addonScript';
+import { readStackEnv } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
+import { enableAddon, flagOn, readStackFile, scriptFailure, type AddonScript, type AddonScriptLine, type AddonScriptOutcome, type ScriptJsonOutcome } from './addonScript';
+import { isRecord } from '../../../shared/utils/isRecord';
 
 // Bitwarden's connected accounts and the agent's access requests (spec decisions 26–32, CR 0028).
 // The stack keeps everything: `addon.sh connect bitwarden` writes the account file and its
@@ -33,19 +32,28 @@ const BROKER_REPAIR_INTERVAL_MS = 60_000;
 /** The first `enable` pulls the broker's image. */
 const ENABLE_TIMEOUT_MS = 1_800_000;
 
+/** Whether the add-on's manifest runs `bitwarden-signin` (stack v0.3.16's `services.signin`). */
+export async function stackHasSignInBrowser(files: StackFiles): Promise<boolean> {
+  const manifest = await readStackFile(files, 'addons/bitwarden/addon.json');
+  if (!manifest) return false;
+  try {
+    const services = (JSON.parse(manifest) as { services?: Record<string, { compose?: unknown }> }).services ?? {};
+    return Object.values(services).some((service) => service?.compose === 'bitwarden-signin');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Boundary lists Bitwarden in the add-on store, and gives compose the `bitwarden` profile while
  * `BITWARDEN_ENABLED=1`, when the stack tree can run it: `addon.sh`, `vault.sh`, and a manifest
- * with accounts as instances. Boundary keeps the broker following `hermes` through
- * `vault.sh follow-hermes` after each restart or recreate.
+ * with accounts as instances. From stack v0.3.16 the broker has its own network namespace, so a
+ * restart or recreate of `hermes` leaves it running.
  */
-export function bitwardenOffered(
-  root: string,
-  read: (p: string) => string | null = readStackFile
-): boolean {
-  if (read(path.join(root, 'scripts', 'addon.sh')) === null) return false;
-  if (read(path.join(root, 'scripts', 'vault.sh')) === null) return false;
-  const manifest = read(path.join(root, 'addons', 'bitwarden', 'addon.json'));
+export async function bitwardenOffered(files: StackFiles): Promise<boolean> {
+  if ((await readStackFile(files, 'scripts/addon.sh')) === null) return false;
+  if ((await readStackFile(files, 'scripts/vault.sh')) === null) return false;
+  const manifest = await readStackFile(files, 'addons/bitwarden/addon.json');
   if (!manifest) return false;
   try {
     const m = JSON.parse(manifest) as { instances?: { connect?: unknown; disconnect?: unknown } };
@@ -55,25 +63,16 @@ export function bitwardenOffered(
   }
 }
 
-const on = (value: string | undefined): boolean => /^(1|true|yes|on)$/i.test((value ?? '').trim());
-
 /** `BITWARDEN_ENABLED` in the stack's `.env`, which `addon.sh enable` and `disable` write. */
-export function readBitwardenEnabled(root: string): boolean {
-  return on(readEnvFile(path.join(root, '.env')).BITWARDEN_ENABLED);
+export async function readBitwardenEnabled(files: StackFiles): Promise<boolean> {
+  return flagOn((await readStackEnv(files, 'stack', '.env')).BITWARDEN_ENABLED);
 }
 
-/** `<data root>/addons/bitwarden`, the add-on store. */
-const storeDir = (dataRoot: string): string => path.join(dataRoot, 'addons', 'bitwarden');
-
-/** Accounts the add-on store has an entry for, which `addon.sh disconnect` can remove. */
-function readStoredAccounts(dataRoot: string): Set<string> {
+/** Accounts the add-on store (`addons/bitwarden` under the user-content location) has an entry for, which `addon.sh disconnect` can remove. */
+async function readStoredAccounts(files: StackFiles): Promise<Set<string>> {
   try {
-    return new Set(
-      fs
-        .readdirSync(path.join(storeDir(dataRoot), 'instances'))
-        .filter((n) => n.endsWith('.json'))
-        .map((n) => n.slice(0, -'.json'.length))
-    );
+    const names = (await files.list('userContent', 'addons/bitwarden/instances')) ?? [];
+    return new Set(names.filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -'.json'.length)));
   } catch {
     return new Set();
   }
@@ -145,6 +144,14 @@ const failure = scriptFailure;
 
 const str = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
+/**
+ * Stack 0.3.16's last `status --json` line, `{"signer":"<state>"}`, which describes the sign-in
+ * signer rather than an account. Account lines, refused ones included, always carry `state`.
+ */
+function isSignerLine(line: Record<string, unknown>): boolean {
+  return 'signer' in line && !('state' in line);
+}
+
 /** One `status --json` line as an account row. */
 export function accountFromStatus(line: Record<string, unknown>, stored: Set<string>): BitwardenAccount {
   const slug = str(line.slug);
@@ -166,7 +173,7 @@ export function accountFromStatus(line: Record<string, unknown>, stored: Set<str
 /** `requests --json`'s `pending` list; entries without an id or account are left out. */
 export function parseRequests(reply: Record<string, unknown>): BitwardenRequest[] {
   const list = (value: unknown): Record<string, unknown>[] =>
-    Array.isArray(value) ? value.filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === 'object') : [];
+    Array.isArray(value) ? value.filter(isRecord) : [];
   const requests: BitwardenRequest[] = [];
   for (const p of list(reply.pending)) {
     const requestId = str(p.request_id);
@@ -196,7 +203,8 @@ const readFailureName = (code: number): string => (code === 1 ? 'broker_down' : 
 type RunOptions = { input?: Record<string, unknown>; timeoutMs?: number; onLine?: (line: AddonScriptLine) => void };
 
 export interface BitwardenServiceDeps {
-  paths(): { root: string; dataRoot: string };
+  /** The stack's files: its `.env` and the add-on's store. */
+  files: StackFiles;
   /** Runs a stack script that prints `phase` lines, with the stack's script environment. */
   run(script: AddonScript, args: string[], options?: RunOptions): Promise<AddonScriptOutcome>;
   /** Runs a `vault.sh` command that prints plain JSON objects. */
@@ -204,15 +212,11 @@ export interface BitwardenServiceDeps {
   /** The add-on lock every install, removal and connect shares. */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /**
-   * Runs `vault.sh follow-hermes` and reads the status again; `refresh()` calls it when the broker
-   * is stopped or left in the namespace of a hermes that has gone. Without it, `refresh()` never repairs.
+   * Starts a stopped broker (`docker compose up -d --no-deps bitwarden-broker`); `refresh()` calls
+   * it when the status reads `broker_down`, then reads the status again. Without it, `refresh()`
+   * never repairs.
    */
-  followHermes?: () => Promise<void>;
-  /**
-   * Whether the running broker shares the running hermes's network namespace, as doctor.sh
-   * checks. Status can't tell: it reads normally from a broker in a removed hermes's namespace.
-   */
-  checkBrokerNamespace?: () => Promise<BrokerNamespaceCheck>;
+  startBroker?: () => Promise<void>;
   /** Creates the folders the broker mounts; `enable` runs it first because `addon.sh enable` doesn't. */
   ensureFolders: () => Promise<void>;
   /** Milliseconds, for the repair's throttle. Defaults to `Date.now`. */
@@ -221,27 +225,16 @@ export interface BitwardenServiceDeps {
   log(message: string, data: Record<string, unknown>): void;
 }
 
-/** What asked for a background broker check. */
-export type BrokerCheckTrigger = 'focus' | 'poll';
-
 export interface BitwardenService {
-  overview(): BitwardenOverview;
+  overview(): Promise<BitwardenOverview>;
   /**
    * Runs `status --json` and `requests --json`, then answers with the new overview. When the
-   * broker reads `broker_down`, or runs outside the running hermes's network namespace, it first
-   * runs `followHermes` and reads the status again, at most once a minute. The hermes follower
-   * passes `repair: false`.
+   * broker reads `broker_down`, it first runs `startBroker` and reads the status again, at most
+   * once a minute. `repair: false` skips that.
    */
   refresh(options?: { repair?: boolean }): Promise<BitwardenOverview>;
   /** Runs `requests --json` only, after a chat turn that asked for a login. */
   refreshRequests(): Promise<BitwardenOverview>;
-  /**
-   * Checks the broker's network namespace without reading the status, and runs `followHermes` on
-   * a mismatch. Shares `refresh`'s once-a-minute repair limit. For checks nobody asked for (window
-   * focus, the background poll), so a read that gives no evidence is logged only when its reason
-   * changes. Never rejects.
-   */
-  repairIfStranded(trigger: BrokerCheckTrigger): Promise<void>;
   /** Turns the add-on on when it's off, then `addon.sh connect bitwarden`, under the add-on lock. */
   connect(input: BitwardenConnectInput): Promise<BitwardenConnectResult>;
   disconnect(slug: string): Promise<{ ok: true; message: string } | ActualScriptFailure>;
@@ -261,21 +254,24 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
   let accounts: BitwardenAccount[] = [];
   let requests: BitwardenRequest[] = [];
   let statusError: string | null = null;
+  /** The signer state from stack 0.3.16's status line, for the log; null on older stacks. */
+  let signer: string | null = null;
   /** The last status read exited 1, which is how the stack reports a broker that doesn't answer. */
   let statusFailedExit1 = false;
   let requestsError: string | null = null;
   const listeners = new Set<(o: BitwardenOverview) => void>();
 
-  const overview = (): BitwardenOverview => ({
-    enabled: readBitwardenEnabled(deps.paths().root),
+  const overview = async (): Promise<BitwardenOverview> => ({
+    enabled: await readBitwardenEnabled(deps.files),
     accounts,
     requests,
     statusError,
     requestsError,
+    signInBrowser: await stackHasSignInBrowser(deps.files),
   });
 
-  const changed = (): BitwardenOverview => {
-    const next = overview();
+  const changed = async (): Promise<BitwardenOverview> => {
+    const next = await overview();
     for (const cb of listeners) cb(next);
     return next;
   };
@@ -283,8 +279,9 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
   const readStatus = async (): Promise<void> => {
     const outcome = await deps.runJson('vault.sh', ['status', '--json'], { timeoutMs: READ_TIMEOUT_MS });
     if (outcome.code === 0) {
-      const stored = readStoredAccounts(deps.paths().dataRoot);
-      accounts = outcome.objects.map((line) => accountFromStatus(line, stored));
+      const stored = await readStoredAccounts(deps.files);
+      accounts = outcome.objects.filter((line) => !isSignerLine(line)).map((line) => accountFromStatus(line, stored));
+      signer = str(outcome.objects.find(isSignerLine)?.signer);
       statusError = null;
       statusFailedExit1 = false;
     } else {
@@ -295,6 +292,7 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
       code: outcome.code,
       accounts: accounts.length,
       states: accounts.map((a) => (a.error ? `${a.state}/${a.error}` : a.state)),
+      ...(signer ? { signer } : {}),
     });
   };
 
@@ -309,71 +307,20 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
     return read.length > 0 && read.every((a) => a.error === 'broker_down');
   };
 
-  const readNamespace = async (check: () => Promise<BrokerNamespaceCheck>): Promise<BrokerNamespaceCheck> => {
-    try {
-      return await check();
-    } catch (error) {
-      return { ok: false, reason: 'read_failed', error: error instanceof Error ? error.name : typeof error };
-    }
-  };
-
-  /** A namespace read that fails or finds a container missing is no evidence of a mismatch. */
-  const brokerOutsideHermes = async (): Promise<boolean> => {
-    if (!deps.checkBrokerNamespace) return false;
-    const check = await readNamespace(deps.checkBrokerNamespace);
-    if (check.ok === false) {
-      deps.log('broker namespace', { result: 'unknown', reason: check.reason, ...(check.error ? { error: check.error } : {}) });
-      return false;
-    }
-    if (!check.matches) deps.log('broker namespace', { result: 'mismatch' });
-    return !check.matches;
-  };
-
-  const repairAllowed = (at: number): boolean =>
-    !!deps.followHermes && readBitwardenEnabled(deps.paths().root) && (lastRepair === null || at - lastRepair >= BROKER_REPAIR_INTERVAL_MS);
+  const repairAllowed = async (at: number): Promise<boolean> =>
+    !!deps.startBroker && (lastRepair === null || at - lastRepair >= BROKER_REPAIR_INTERVAL_MS) && (await readBitwardenEnabled(deps.files));
 
   const repairBroker = async (): Promise<void> => {
     const started = now();
-    if (!repairAllowed(started) || !deps.followHermes) return;
-    const reason = brokerDown() ? 'broker_down' : (await brokerOutsideHermes()) ? 'namespace' : null;
-    if (!reason) return;
+    if (!deps.startBroker || !brokerDown() || !(await repairAllowed(started))) return;
     lastRepair = started;
-    await deps.followHermes();
-    deps.log('repair', { reason, ms: now() - started });
+    await deps.startBroker();
+    deps.log('repair', { reason: 'broker_down', ms: now() - started });
     await readStatus();
   };
 
-  /** The last reason a background check found no evidence for, so a stopped stack logs once, not every poll. */
-  let lastUnknownReason: string | null = null;
-
-  const repairIfStranded = async (trigger: BrokerCheckTrigger): Promise<void> => {
-    const started = now();
-    if (!repairAllowed(started) || !deps.followHermes || !deps.checkBrokerNamespace) return;
-    const check = await readNamespace(deps.checkBrokerNamespace);
-    if (check.ok === false) {
-      if (check.reason !== lastUnknownReason) {
-        deps.log('broker namespace', { result: 'unknown', reason: check.reason, trigger, ...(check.error ? { error: check.error } : {}) });
-      }
-      lastUnknownReason = check.reason;
-      return;
-    }
-    lastUnknownReason = null;
-    if (check.matches) return;
-    // A refresh may have repaired while the namespace was being read.
-    if (!repairAllowed(now())) return;
-    deps.log('broker namespace', { result: 'mismatch', trigger });
-    lastRepair = now();
-    try {
-      await deps.followHermes();
-    } catch (error) {
-      deps.log('repair failed', { reason: 'namespace', trigger, error: error instanceof Error ? error.name : 'unknown' });
-      return;
-    }
-    deps.log('repair', { reason: 'namespace', trigger, ms: now() - started });
-  };
-
   const readRequests = async (): Promise<void> => {
-    if (!readBitwardenEnabled(deps.paths().root)) {
+    if (!(await readBitwardenEnabled(deps.files))) {
       requests = [];
       requestsError = null;
       return;
@@ -414,7 +361,7 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
     });
     deps.log('disconnect', { outcome: outcome.kind, error: outcome.kind === 'error' ? outcome.error : null });
     await readStatus();
-    changed();
+    await changed();
     if (outcome.kind !== 'done') return failure(outcome);
     return { ok: true, message: text(outcome.done.message) };
   };
@@ -428,7 +375,7 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
     const outcome = await deps.run('vault.sh', [command, '--slug', slug, '--json'], { input, timeoutMs: UNLOCK_TIMEOUT_MS });
     deps.log(command, { outcome: outcome.kind, error: outcome.kind === 'error' ? outcome.error : null });
     await readStatus();
-    changed();
+    await changed();
     return outcome.kind === 'done' ? { ok: true } : failure(outcome);
   };
 
@@ -447,12 +394,10 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
       return changed();
     },
 
-    repairIfStranded,
-
     connect: (input) =>
       deps.exclusive(async (): Promise<BitwardenConnectResult> => {
         // With the broker down connect writes nothing and fails with broker_down, so turn it on first.
-        const enabled = readBitwardenEnabled(deps.paths().root) ? null : await enable();
+        const enabled = (await readBitwardenEnabled(deps.files)) ? null : await enable();
         if (enabled && enabled.kind !== 'done') return failure(enabled);
         // --force replaces an account already connected under this name; the stack keeps
         // the old one until the new key signs in, and puts it back if it doesn't.
@@ -472,7 +417,7 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
         });
         // The broker restarted: other manual accounts are locked now (decision 29).
         await readStatus();
-        changed();
+        await changed();
         if (outcome.kind === 'done') return { ok: true, message: text(outcome.done.message) };
         const failed = failure(outcome);
         return outcome.kind === 'error' && outcome.retryAfter !== undefined ? { ...failed, retryAfter: outcome.retryAfter } : failed;
@@ -500,7 +445,7 @@ export function createBitwardenService(deps: BitwardenServiceDeps): BitwardenSer
       }
       deps.log('sync', { code: outcome.code, ok: result.ok, recent: result.ok ? result.recent : null, error: 'error' in result ? result.error : null });
       if (result.ok) await readRequests();
-      changed();
+      await changed();
       return result;
     },
 

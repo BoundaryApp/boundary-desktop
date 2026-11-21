@@ -1,14 +1,26 @@
 import React from 'react';
 import { replyQuoteText } from '../../../../shared/circleReplies';
 import type { CircleMessage } from '../../../../shared/types/circles';
+import { Button } from '../../../components/ui/button';
 import { keyHue } from '../../circles/CircleControls';
 
+/** What a quote needs of its original: a Circle message, or a direct message with the other person's name. */
+export interface QuoteTarget {
+  author: string;
+  name: string;
+  mine: boolean;
+  agent?: CircleMessage['agent'];
+  text: string;
+  deleted: boolean | string | null;
+  call?: CircleMessage['call'];
+}
+
 /** The rule takes the original author's avatar colour; an original that can't be found has none. */
-const ruleStyle = (target: CircleMessage | null | undefined): React.CSSProperties | undefined =>
+const ruleStyle = (target: QuoteTarget | null | undefined): React.CSSProperties | undefined =>
   target ? ({ '--quote-rule': keyHue(target.author) } as React.CSSProperties) : undefined;
 
 /** The original's author as the quote names them: "You" for the user's own message. */
-const quoteName = (target: CircleMessage): string => (target.mine && !target.agent ? 'You' : target.name);
+const quoteName = (target: QuoteTarget): string => (target.mine && !target.agent ? 'You' : target.name);
 
 /**
  * The strip above a reply's text (ADR 0053 §4, §5): the original's author and first line, as a
@@ -16,7 +28,7 @@ const quoteName = (target: CircleMessage): string => (target.mine && !target.age
  * isn't a button. `target` is `undefined` while the original is being looked up.
  */
 export const ReplyQuote: React.FC<{
-  target: CircleMessage | null | undefined;
+  target: QuoteTarget | null | undefined;
   /** The original couldn't be reached when the user went to it. */
   unavailable: boolean;
   /** Null in select mode, where the quote is shown but doesn't go anywhere. */
@@ -53,7 +65,7 @@ export const ReplyQuote: React.FC<{
 };
 
 /** Above the composer while a reply is being written: who it answers, the quote and Cancel reply. */
-export const ReplyStrip: React.FC<{ target: CircleMessage; onCancel: () => void }> = ({ target, onCancel }) => {
+export const ReplyStrip: React.FC<{ target: QuoteTarget; onCancel: () => void }> = ({ target, onCancel }) => {
   const quote = replyQuoteText(target);
   return (
     <div className="wb-circle-reply-strip" role="group" aria-label="Reply" style={ruleStyle(target)}>
@@ -63,11 +75,11 @@ export const ReplyStrip: React.FC<{ target: CircleMessage; onCancel: () => void 
         </span>
         <span className={`wb-circle-quote-text${quote.state === 'found' ? '' : ' is-na'}`}>{quote.text}</span>
       </div>
-      <button type="button" className="wb-act" aria-label="Cancel reply" data-tip="Cancel reply" onClick={onCancel}>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <Button type="button" variant="quiet" size="icon-xs" aria-label="Cancel reply" title="Cancel reply" onClick={onCancel}>
+        <svg className="size-3" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
           <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
-      </button>
+      </Button>
     </div>
   );
 };

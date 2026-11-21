@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
 import { formatInferenceChipTitle } from '../../../shared/inferenceDisplay';
+import { poolTitle, useConfidentialState } from '../inference/useConfidentialState';
 import { useInferenceStatus } from '../../onboarding/inferenceStatus';
 import type {
   WritingVoiceCheckSummary,
@@ -10,8 +11,14 @@ import type {
   WritingVoiceSource,
 } from '../../../shared/types/writingVoices';
 import { Button } from '../../components/ui/button';
+import { Textarea } from '../../components/ui/textarea';
+import { Input } from '../../components/ui/input';
+import { WRITING_VOICE_ENOUGH_LONG_PIECES, WRITING_VOICE_LONG_PIECE_WORDS } from '../../../shared/writingVoiceLimits';
 
-const ENOUGH_LONG_PIECES = 5;
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+/** Spelled out under ten, as the rest of the copy does. */
+const countWord = (n: number) => NUMBER_WORDS[n] ?? n.toLocaleString('en-US');
+const LONG_WORDS = WRITING_VOICE_LONG_PIECE_WORDS.toLocaleString('en-US');
 
 const REFUSAL_TEXT: Record<Exclude<WritingVoiceSampleCheck['refused'], null>, string> = {
   type: '',
@@ -34,8 +41,8 @@ function meterText(summary: WritingVoiceCheckSummary): string {
   const parts = [
     summary.enough
       ? 'Enough to calibrate.'
-      : `Calibration works best from five or more pieces of 500 words or more. Add ${
-          ENOUGH_LONG_PIECES - summary.longPieces
+      : `Calibration works best from ${countWord(WRITING_VOICE_ENOUGH_LONG_PIECES)} or more pieces of ${LONG_WORDS} words or more. Add ${
+          WRITING_VOICE_ENOUGH_LONG_PIECES - summary.longPieces
         } more for a steadier voice.`,
   ];
   if (summary.listHeavy > 0) {
@@ -52,8 +59,9 @@ function meterText(summary: WritingVoiceCheckSummary): string {
 /** The model the built-in agent calibrates with: the app default, as chat names it. */
 function useCalibratingModel(): string {
   const { status } = useInferenceStatus();
+  const { state: confidential } = useConfidentialState();
   const first = status?.appSharedModel;
-  if (first?.slot === 'confidential') return formatInferenceChipTitle('confidential', first.modelId ?? '');
+  if (first?.slot === 'confidential') return poolTitle(confidential, first.modelId ?? '');
   if (first) return 'a model shared with you';
   const slot = status?.appDefault ? status.slots[status.appDefault] : undefined;
   return status?.appDefault && slot?.configured && slot.modelId
@@ -164,7 +172,7 @@ export const NewWritingVoiceSheet: React.FC<{
       </p>
       <label className="wb-field">
         <span>Name</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
       </label>
       <div
         className="wb-voice-drop"
@@ -185,7 +193,7 @@ export const NewWritingVoiceSheet: React.FC<{
         <div className="wb-voice-paste">
           <label className="wb-field">
             <span>Pasted text</span>
-            <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={5} />
+            <Textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={5} />
           </label>
           <Button variant="secondary" size="sm" type="button" onClick={addPasted}>
             Add
@@ -206,14 +214,15 @@ export const NewWritingVoiceSheet: React.FC<{
                   <small className="is-warn">Mostly headers and lists</small>
                 ) : null}
                 {!refused ? <small>{file.words.toLocaleString('en-US')} words</small> : null}
-                <button
+                <Button
                   type="button"
-                  className="wb-voice-file-remove"
+                  variant="quiet"
+                  size="icon-xs"
                   aria-label={`Remove ${file.label}`}
                   onClick={() => setSources((current) => current.filter((s) => !sameSource(s, file.source)))}
                 >
                   <X aria-hidden="true" />
-                </button>
+                </Button>
               </li>
             );
           })}
@@ -225,11 +234,11 @@ export const NewWritingVoiceSheet: React.FC<{
             <span>{summary.pieces} pieces</span>
             <span>{summary.words.toLocaleString('en-US')} words</span>
             <span>
-              {summary.longPieces} of {summary.pieces} over 500 words
+              {summary.longPieces} of {summary.pieces} over {LONG_WORDS} words
             </span>
           </div>
           <div className="wb-voice-meter-bar" aria-hidden="true">
-            <i style={{ width: `${Math.min(summary.longPieces / ENOUGH_LONG_PIECES, 1) * 100}%` }} />
+            <i style={{ width: `${Math.min(summary.longPieces / WRITING_VOICE_ENOUGH_LONG_PIECES, 1) * 100}%` }} />
           </div>
           <p>{meterText(summary)}</p>
         </div>

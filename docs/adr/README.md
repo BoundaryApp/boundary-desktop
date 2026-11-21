@@ -19,6 +19,7 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    ├── 0013 Project sources inspector (H + I)
     │    │    └── 0028 Coding folders (L)
  │    │    ├── 0014 Tabbed inspector (J)
+ │    │    │    └── 0069 Inspector starts closed (proposed, amends 0014)
  │    │    ├── 0020 Centered transcript column
  │    │    │    ├── 0021 Right-aligned user turns and message hover rows
  │    │    │    └── 0030 Hermes's board is a view of Tasks
@@ -27,7 +28,11 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │         │    └── 0029 A full-window start-up screen (supersedes 0019 §6)
  │    │         │         └── 0059 Release notes shown on an upgrade, with generated guide screenshots (proposed)
  │    │         ├── 0060 App stylesheets in cascade layers (proposed)
- │    │         └── 0061 One Button (proposed, amends 0018 §5)
+ │    │         ├── 0061 One Button (proposed, amends 0018 §5)
+ │    │         ├── 0063 One text field and select (proposed, amends 0018 §5)
+ │    │         ├── 0064 One checkbox, radio and switch (proposed, amends 0018 §5)
+ │    │         ├── 0066 Choice cards, chips and segments (proposed, amends 0018 §5 and 0064 §3)
+ │    │         └── 0068 Menus and listboxes (proposed, amends 0018 §5 and 0066)
  │    ├── 0004 Instrument composer (steal C)
  │    │    └── 0022 Run control in the composer
  │    ├── 0005 Folder-first create flow (D)
@@ -38,14 +43,19 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
  │    │    └── 0010 Durable attribution and room lifecycle
  │    ├── 0023 Chat types: Hermes home, one-thread DMs, side chats, Mentions (supersedes 0007 §1–3)
  │    ├── 0024 Chats belong to projects (amends 0003, 0017 §3, 0023)
- │    │    └── 0025 WebUI chats are filed by their workspace (amends 0024 §9)
+ │    │    ├── 0025 WebUI chats are filed by their workspace (amends 0024 §9)
+ │    │    └── 0067 Removing a project (proposed, amends 0024)
+ │    ├── 0070 Moving chat history between installs (proposed)
  │    └── 0011 Resources is an icon-rail destination
  │         └── 0012 Host Compose inventory lives on Resources
  ├── 0026 The model key lives in the proxy's memory, not on disk
  ├── 0027 A host bridge gives Hermes the host's browser and capabilities
  │    ├── 0040 Developer-only agent access to app state
- │    └── 0045 The Mac's calendars reach agents through the host bridge (proposed)
+ │    ├── 0045 The Mac's calendars reach agents through the host bridge (proposed)
+ │    └── 0065 The browser relay has a second client for the credential backend (proposed, amends 0027)
  ├── 0031 Checks on the stack contract and on drift
+ │    ├── 0062 The stack runs on a stack host, local or reached over SSH (proposed)
+ │    └── 0071 Import boundaries between areas (proposed)
  ├── 0046 Long-running actions can be cancelled or undone
  │    └── 0055 The container engine is sized to what is turned on (proposed)
  └── 0032 Circles: invite-only groups that network peer to peer
@@ -130,6 +140,16 @@ Format is [Nygard](https://cognitect.com/blog/2011/11/15/documenting-architectur
 | [0059](0059-release-notes-on-upgrade.md) | Proposed | Release notes shown on an upgrade, with generated guide screenshots |
 | [0060](0060-css-cascade-layers.md) | Proposed | App stylesheets in cascade layers |
 | [0061](0061-one-button.md) | Proposed | One Button |
+| [0062](0062-the-stack-runs-on-a-stack-host.md) | Proposed | The stack runs on a stack host, local or reached over SSH |
+| [0063](0063-one-text-field-and-select.md) | Proposed | One text field and select |
+| [0064](0064-one-checkbox-radio-and-switch.md) | Proposed | One checkbox, radio and switch |
+| [0065](0065-relay-credential-client.md) | Proposed | The browser relay has a second client for the credential backend |
+| [0066](0066-choice-cards-chips-and-segments.md) | Proposed | Choice cards, chips and segments |
+| [0067](0067-removing-a-project.md) | Proposed | Removing a project |
+| [0068](0068-menus-and-listboxes.md) | Proposed | Menus and listboxes |
+| [0069](0069-inspector-closed-by-default.md) | Proposed | The inspector starts closed and opens on request |
+| [0070](0070-moving-chat-history-between-installs.md) | Proposed | Moving chat history between installs |
+| [0071](0071-import-boundaries-between-areas.md) | Proposed | Import boundaries between areas |
 
 ## Host bridge research
 
@@ -157,6 +177,7 @@ These mocks are the visual record of the chat ADRs.
 | [09-add-source.html](../chat-ux-study/09-add-source.html) | Source for the 0013 add-folder honesty flow |
 | [10-inspector.html](../chat-ux-study/10-inspector.html) | Living chrome spec for 0014 (tabs, quieter copy, contrast) |
 | [phase-2.md](../chat-ux-study/phase-2.md) | Phase 2 remount shipped; leftover forbidden list |
+| [01-closed-by-default.html](../inspector-ux-study/01-closed-by-default.html) | Click-through for 0069 (closed by default, toggle, warnings, narrow overlay) |
 
 ## Resources reference mocks
 

@@ -1,0 +1,19 @@
+{
+  "slides": [
+    {
+      "title": "The longest slide title a release has carried so far",
+      "body": "A body as long as the longest a release has shipped. Settings has a new page with a list of choices, a button that opens a folder picker and a line that says where the file went. It stays open across chats until you close it, and a warning or a channel's members open it when they need it, so the card has to hold all of this text.",
+      "image": "shot"
+    },
+    {
+      "title": "Fixes",
+      "body": "A slide with no screenshot. Sheets that open over the start-up screen take clicks again. Upgrading no longer loses a sign-in, which stopped the agent from starting after the last update. The agent stack is a new version."
+    },
+    {
+      "title": "Short",
+      "body": "One line.",
+      "image": "shot"
+    }
+  ],
+  "guides": []
+}

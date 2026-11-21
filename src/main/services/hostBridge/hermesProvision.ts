@@ -1,8 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { HOST_TOOLS } from './toolCatalog';
 import { removeEnvLines, upsertEnvLines } from '../assistant/stackEnv';
+import type { StackFiles } from '../stackHost/types';
 
 /**
  * What Boundary writes into Hermes so it can reach the host bridge (ADR 0027 §3), in every
@@ -32,7 +32,7 @@ const HERMES_BRIDGE_CALL_TIMEOUT_S = 180;
  */
 export const HERMES_BRIDGE_KEEPALIVE_S = 15;
 export const HERMES_BRIDGE_PARKED_RETRY_S = 15;
-const HERMES_BRIDGE_CONNECT_TIMEOUT_S = 60;
+export const HERMES_BRIDGE_CONNECT_TIMEOUT_S = 60;
 
 /**
  * Fingerprint of the tool list, sent as a header Hermes ignores. Hermes keeps the tool list it
@@ -70,9 +70,14 @@ export function hermesProfileEnvPath(dataRoot: string, profile: string): string 
     : path.join(dataRoot, 'hermes', 'profiles', profile, '.env');
 }
 
-/** Host path of a profile's `config.yaml` under the stack data root. `''` is the default profile. */
-export function hermesProfileConfigPath(dataRoot: string, profile: string): string {
-  return path.join(path.dirname(hermesProfileEnvPath(dataRoot, profile)), 'config.yaml');
+/** A profile's `.env` relative to the stack's `data` location. `''` is the default profile. */
+export function hermesProfileEnvRel(profile: string): string {
+  return profile === '' ? 'hermes/.env' : `hermes/profiles/${profile}/.env`;
+}
+
+/** A profile's `config.yaml` relative to the stack's `data` location. `''` is the default profile. */
+export function hermesProfileConfigRel(profile: string): string {
+  return profile === '' ? 'hermes/config.yaml' : `hermes/profiles/${profile}/config.yaml`;
 }
 
 /** Path Hermes's CDP driver connects to on the browser listener; also how Boundary's URL is recognised. */
@@ -107,11 +112,11 @@ export function isBoundaryCdpUrl(value: unknown): boolean {
  * actually changed.
  */
 export async function writeHostBridgeTokensToProfiles(
-  dataRoot: string,
+  files: StackFiles,
   profiles: readonly string[],
   tokens: { mcp: string; browser: string }
 ): Promise<{ written: string[]; changed: boolean }> {
-  return editProfileEnvs(dataRoot, profiles, (current) =>
+  return editProfileEnvs(files, profiles, (current) =>
     upsertEnvLines(current, { [BRIDGE_TOKEN_ENV]: tokens.mcp, [BROWSER_TOKEN_ENV]: tokens.browser })
   );
 }
@@ -122,46 +127,41 @@ export async function writeHostBridgeTokensToProfiles(
  * changed; nothing with values is logged.
  */
 export async function writeEnvValuesToProfiles(
-  dataRoot: string,
+  files: StackFiles,
   profiles: readonly string[],
   values: Record<string, string>
 ): Promise<{ changed: boolean }> {
   if (Object.keys(values).length === 0) return { changed: false };
-  const { changed } = await editProfileEnvs(dataRoot, profiles, (current) => upsertEnvLines(current, values));
+  const { changed } = await editProfileEnvs(files, profiles, (current) => upsertEnvLines(current, values));
   return { changed };
 }
 
 /** Drop the lines that set `names` from each profile's `.env`. Returns whether any file changed. */
 export async function removeEnvValuesFromProfiles(
-  dataRoot: string,
+  files: StackFiles,
   profiles: readonly string[],
   names: readonly string[]
 ): Promise<{ changed: boolean }> {
   if (names.length === 0) return { changed: false };
-  const { changed } = await editProfileEnvs(dataRoot, profiles, (current) => removeEnvLines(current, names));
+  const { changed } = await editProfileEnvs(files, profiles, (current) => removeEnvLines(current, names));
   return { changed };
 }
 
 /** Apply `edit` to each existing profile's `.env`. Returns the profiles it read and whether a file changed. */
-async function editProfileEnvs(
-  dataRoot: string,
+export async function editProfileEnvs(
+  files: StackFiles,
   profiles: readonly string[],
   edit: (current: string) => string
 ): Promise<{ written: string[]; changed: boolean }> {
   const written: string[] = [];
   let changed = false;
   for (const profile of profiles) {
-    const envPath = hermesProfileEnvPath(dataRoot, profile);
-    if (!fs.existsSync(path.dirname(envPath))) continue;
-    let current = '';
-    try {
-      current = await fs.promises.readFile(envPath, 'utf8');
-    } catch {
-      /* new file */
-    }
+    const envRel = hermesProfileEnvRel(profile);
+    if (!(await files.exists('data', path.posix.dirname(envRel)))) continue;
+    const current = (await files.readText('data', envRel)) ?? '';
     const next = edit(current);
     if (next !== current) {
-      await fs.promises.writeFile(envPath, next, { encoding: 'utf8', mode: 0o600 });
+      await files.writeText('data', envRel, next, { mode: 0o600 });
       changed = true;
     }
     written.push(profile);

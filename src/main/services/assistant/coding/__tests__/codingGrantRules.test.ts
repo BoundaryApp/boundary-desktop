@@ -9,6 +9,8 @@ import {
   folderFacts,
   refuseCodingGrantReason,
   serializeCodingExtraRoots,
+  stackCheckoutDataDirs,
+  stackDataMaskTargets,
   type CodingGrantRuleOptions,
 } from '../codingGrantRules';
 
@@ -140,6 +142,82 @@ describe('envShadowTargets', () => {
 
   it('returns nothing for an unreadable folder', () => {
     expect(envShadowTargets('/definitely/not/here')).toEqual([]);
+  });
+});
+
+describe('stackCheckoutDataDirs', () => {
+  const temps: string[] = [];
+  afterEach(() => {
+    for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function checkout(dir: string): void {
+    fs.mkdirSync(path.join(dir, 'data', 'hermes'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), 'services: {}\n');
+  }
+
+  function tempRoot(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-stack-'));
+    temps.push(dir);
+    return dir;
+  }
+
+  it('finds checkouts at the root and up to two levels below it', () => {
+    const root = tempRoot();
+    checkout(root);
+    checkout(path.join(root, 'assistant'));
+    checkout(path.join(root, 'work', 'stack'));
+    checkout(path.join(root, 'a', 'b', 'too-deep'));
+    expect(stackCheckoutDataDirs(root)).toEqual(
+      [
+        path.join(root, 'assistant', 'data'),
+        path.join(root, 'data'),
+        path.join(root, 'work', 'stack', 'data'),
+      ].sort((a, b) => a.localeCompare(b))
+    );
+  });
+
+  it('needs both docker-compose.yml and data/hermes', () => {
+    const root = tempRoot();
+    fs.mkdirSync(path.join(root, 'compose-only'));
+    fs.writeFileSync(path.join(root, 'compose-only', 'docker-compose.yml'), '');
+    fs.mkdirSync(path.join(root, 'data-only', 'data', 'hermes'), { recursive: true });
+    expect(stackCheckoutDataDirs(root)).toEqual([]);
+  });
+
+  it('skips node_modules, .git and worktrees folders, as make doctor does', () => {
+    const root = tempRoot();
+    checkout(path.join(root, 'node_modules', 'pkg'));
+    checkout(path.join(root, '.git', 'x'));
+    checkout(path.join(root, 'worktrees', 'branch'));
+    expect(stackCheckoutDataDirs(root)).toEqual([]);
+  });
+
+  it('returns nothing for an unreadable folder', () => {
+    expect(stackCheckoutDataDirs('/definitely/not/here')).toEqual([]);
+  });
+});
+
+describe('stackDataMaskTargets', () => {
+  const dirs = ['/Users/me/Code/assistant/data', '/Users/me/Other/stack/data'];
+
+  it('maps a checkout under an identity bind to its host path', () => {
+    expect(stackDataMaskTargets('/Users/me/Code', '/Users/me/Code', dirs)).toEqual([
+      '/Users/me/Code/assistant/data',
+    ]);
+  });
+
+  it('maps a checkout under a project bind to the container path', () => {
+    expect(
+      stackDataMaskTargets('/Users/me/Code/assistant', '/opt/projects/assistant', dirs)
+    ).toEqual(['/opt/projects/assistant/data']);
+  });
+
+  it('ignores checkouts outside the bind and a bind of the data folder itself', () => {
+    expect(stackDataMaskTargets('/Users/me/Elsewhere', '/x', dirs)).toEqual([]);
+    expect(
+      stackDataMaskTargets('/Users/me/Code/assistant/data', '/x', dirs)
+    ).toEqual([]);
   });
 });
 

@@ -197,7 +197,11 @@ export function useConversationNav({
   const deleteFailedChat = useCallback(
     async (threadId: string) => {
       try {
-        await window.electronAPI.hermesChat.deleteFailedChat({ sessionId: threadId });
+        const result = await window.electronAPI.hermesChat.deleteFailedChat({ sessionId: threadId });
+        if (!result.success) {
+          setThreadError(result.error ?? 'The chat could not be deleted.');
+          return;
+        }
       } catch (err) {
         setThreadError(errorText(err));
         return;

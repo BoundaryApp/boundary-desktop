@@ -5,13 +5,6 @@ import type { CircleDayUsage, CircleLimit, CircleLimits, CircleUsageCount } from
 const NO_LIMIT: CircleLimit = {};
 const NOTHING_USED: CircleUsageCount = { requests: 0, tokens: 0 };
 
-/** The calendar day on this device, which is when daily limits start over. */
-export function localDay(now: Date): string {
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 /** What one person has used today; yesterday's counts read as nothing. */
 export function usedToday(usage: CircleDayUsage | undefined, identity: string, today: string): CircleUsageCount {
   return usage?.day === today ? (usage.counts[identity] ?? NOTHING_USED) : NOTHING_USED;

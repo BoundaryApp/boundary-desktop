@@ -6,35 +6,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const access = vi.hoisted(() => ({
   root: '',
   dataRoot: '',
-  scriptEnv: async (profiles: string[]): Promise<NodeJS.ProcessEnv> => ({ COMPOSE_PROFILES: ['core', ...profiles].join(','), COMPOSE_PROJECT_NAME: 'proj' }),
+  scriptCompose: vi.fn(async () => ({ stdout: 'compose-out\n', stderr: '' })),
+  scriptCli: vi.fn(async () => ({ stdout: 'cli-out\n', stderr: '' })),
 }));
-const runtime = vi.hoisted(() => ({ cliPath: '/bin/docker', composeArgv: ['compose'], env: {} }));
-const runCompose = vi.hoisted(() => vi.fn(async () => ({ stdout: 'compose-out\n', stderr: '' })));
-const runCli = vi.hoisted(() => vi.fn(async () => ({ stdout: 'cli-out\n', stderr: '' })));
 
 vi.mock('../../assistant/AssistantStackService', () => ({
   getAssistantStackAccess: () => access,
+  getLocalStackPaths: () => ({ root: access.root, dataRoot: access.dataRoot }),
 }));
-vi.mock('../../containerRuntime', () => ({ getContainerRuntime: async () => runtime, runCompose, runCli }));
 
+import { localStackFiles } from '../../stackHost/localStackHost';
 import { readActualRows } from '../actualAddon';
 import { cliOnStack, composeOnStack, stackPaths } from '../stackScripts';
 
 describe('composeOnStack and cliOnStack', () => {
-  it('run in the stack root with the environment vault.sh gets, plus the named profiles', async () => {
-    access.root = '/stack';
+  it('run through the stack’s script commands with the named profiles, and give stdout', async () => {
     expect(await composeOnStack(['ps', '-q', 'hermes'], { profiles: ['bitwarden'], timeoutMs: 5_000 })).toBe('compose-out\n');
-    expect(runCompose).toHaveBeenCalledWith(runtime, ['ps', '-q', 'hermes'], {
-      cwd: '/stack',
-      env: { COMPOSE_PROFILES: 'core,bitwarden', COMPOSE_PROJECT_NAME: 'proj' },
-      timeout: 5_000,
-    });
+    expect(access.scriptCompose).toHaveBeenCalledWith(['ps', '-q', 'hermes'], { profiles: ['bitwarden'], timeout: 5_000 });
     expect(await cliOnStack(['inspect', 'x'], { timeoutMs: 5_000 })).toBe('cli-out\n');
-    expect(runCli).toHaveBeenCalledWith(runtime, ['inspect', 'x'], {
-      cwd: '/stack',
-      env: { COMPOSE_PROFILES: 'core', COMPOSE_PROJECT_NAME: 'proj' },
-      timeout: 5_000,
-    });
+    expect(access.scriptCli).toHaveBeenCalledWith(['inspect', 'x'], { timeout: 5_000 });
   });
 });
 
@@ -60,7 +50,7 @@ describe('stackPaths', () => {
     expect(stackPaths()).toEqual({ root: access.root, dataRoot: path.join(access.root, 'data') });
   });
 
-  it('follows ASSISTANT_DATA_ROOT outside the stack root, where the stack writes Actual rows', () => {
+  it('follows ASSISTANT_DATA_ROOT outside the stack root, where the stack writes Actual rows', async () => {
     const relocated = path.join(tmp, 'AssistantData');
     fs.writeFileSync(path.join(access.root, '.env'), `ASSISTANT_DATA_ROOT=${relocated}\nACTUAL_MCP_ENABLED=1\n`);
     const instances = path.join(relocated, 'addons', 'actual', 'instances');
@@ -72,9 +62,10 @@ describe('stackPaths', () => {
 
     const { dataRoot } = stackPaths();
     expect(dataRoot).toBe(relocated);
-    expect(readActualRows(dataRoot).map((r) => [r.slug, r.local])).toEqual([['my-finances', false]]);
+    const files = (userContent: string) => localStackFiles({ stackRoot: access.root, userContentRoot: () => userContent });
+    expect((await readActualRows(files(dataRoot))).map((r) => [r.slug, r.local])).toEqual([['my-finances', false]]);
     // The old reading of <stack root>/data found nothing.
-    expect(readActualRows(access.dataRoot)).toEqual([]);
+    expect(await readActualRows(files(access.dataRoot))).toEqual([]);
   });
 
   it('resolves a relative ASSISTANT_DATA_ROOT against the stack root', () => {

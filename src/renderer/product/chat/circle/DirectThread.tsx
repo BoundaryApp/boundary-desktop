@@ -9,6 +9,7 @@ import {
 import { useAuiState } from '@assistant-ui/store';
 import { Streamdown } from 'streamdown';
 import type { CircleMessageRef, CircleSnapshot, DirectMessage } from '../../../../shared/types/circles';
+import { messageRowSelector, refKey, sameRef } from '../../../../shared/circleMessageRef';
 import { Avatar } from '../../circles/CircleControls';
 import { useOwnerDocument } from '../../../components/ui/ownerDocument';
 import { MAX_DIRECT_TEXT_BYTES, directTextBytes } from '../../../../shared/circleDirect';
@@ -30,6 +31,9 @@ import {
   useTextRuntime,
 } from './threadParts';
 import { CIRCLE_LINK_SAFETY } from './LinkConfirmSheet';
+import { Button } from '../../../components/ui/button';
+import { ReplyQuote, ReplyStrip } from './ReplyQuote';
+import { Textarea } from '../../../components/ui/textarea';
 import './circleChat.css';
 import './direct.css';
 
@@ -49,16 +53,9 @@ const LockMark: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </svg>
 );
 
-const sameRef = (a: CircleMessageRef, b: CircleMessageRef): boolean => a.author === b.author && a.id === b.id;
 
 /** The message each conversation's composer is replying to, kept across switching away. */
 const replyTargets = rememberedStore<CircleMessageRef>();
-
-/** The first line of the text with Markdown marks removed, cut to 120 characters (ADR 0053 §4). */
-export function quoteLine(text: string): string {
-  const line = (text.split('\n').find((part) => part.trim()) ?? '').replace(/[*_`>#~[\]]/g, '').trim();
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
-}
 
 /** The time as ISO 8601, or undefined for one a Date can't hold (main drops those; older files may keep one). */
 function isoTime(at: number): string | undefined {
@@ -116,7 +113,7 @@ const directOf = (message: { metadata?: { custom?: Record<string, unknown> } } |
 
 function toThreadMessage(message: DirectMessage): ThreadMessageLike {
   return {
-    id: `${message.author}/${message.id}`,
+    id: refKey(message),
     role: message.mine ? 'user' : 'assistant',
     content: [{ type: 'text', text: message.text }],
     createdAt: new Date(message.at),
@@ -128,15 +125,7 @@ function toThreadMessage(message: DirectMessage): ThreadMessageLike {
 const Quote: React.FC<{ reply: CircleMessageRef }> = ({ reply }) => {
   const { messages, name, onGoTo } = useDirect();
   const target = messages.find((item) => sameRef(item, reply));
-  if (!target) return <p className="wb-direct-quote is-missing">Original message not available</p>;
-  if (target.deleted) return <p className="wb-direct-quote is-missing">Original message deleted</p>;
-  const who = target.mine ? 'You' : name;
-  return (
-    <button type="button" className="wb-direct-quote" aria-label={`Go to ${target.mine ? 'your' : `${name}’s`} message`} onClick={() => onGoTo(reply)}>
-      <span className="wb-direct-quote-name">{who}</span>
-      <span className="wb-direct-quote-text">{quoteLine(target.text)}</span>
-    </button>
-  );
+  return <ReplyQuote target={target ? { ...target, name } : null} unavailable={!target} onGo={() => onGoTo(reply)} />;
 };
 
 const MessageEditBox: React.FC<{ message: DirectMessage }> = ({ message }) => {
@@ -181,18 +170,18 @@ const Actions: React.FC<{ message: DirectMessage }> = ({ message }) => {
     <ActionBarPrimitive.Root className="wb-circle-bar" role="toolbar" aria-label="Message actions">
       <CopyAction />
       {ended ? null : (
-        <button type="button" className="wb-act" aria-label="Reply" data-tip="Reply" onClick={() => onReply(message)}>
+        <Button type="button" variant="quiet" size="icon-xs" aria-label="Reply" title="Reply" onClick={() => onReply(message)}>
           <ReplyIcon />
-        </button>
+        </Button>
       )}
       {message.mine && !ended ? (
         <>
-          <button type="button" className="wb-act" aria-label="Edit" data-tip="Edit" onClick={() => setEditing(message.id)}>
+          <Button type="button" variant="quiet" size="icon-xs" aria-label="Edit" title="Edit" onClick={() => setEditing(message.id)}>
             <EditIcon />
-          </button>
-          <button type="button" className="wb-act" aria-label="Delete" data-tip="Delete" onClick={() => onDelete(message)}>
+          </Button>
+          <Button type="button" variant="quiet" size="icon-xs" aria-label="Delete" title="Delete" onClick={() => onDelete(message)}>
             <DeleteIcon />
-          </button>
+          </Button>
         </>
       ) : null}
     </ActionBarPrimitive.Root>
@@ -204,7 +193,7 @@ const MessageRow: React.FC = () => {
   const message = useAuiState((s) => directOf(s.message));
   const previous = useAuiState((s) => directOf(s.thread.messages[s.message.index - 1]));
   if (!message) return null;
-  const key = `${message.author}/${message.id}`;
+  const key = refKey(message);
   const lit = highlight === key ? ' is-highlighted' : '';
   const sameDay = previous && new Date(previous.at).toDateString() === new Date(message.at).toDateString();
   const grouped = previous && sameDay && previous.author === message.author && message.at - previous.at < GROUP_MS;
@@ -303,19 +292,11 @@ const Composer: React.FC<{
       ) : null}
       <div className="wb-input-box">
         {replyTo ? (
-          <div className="wb-direct-replying">
-            <span className="wb-direct-replying-copy">
-              <span className="wb-direct-replying-label">
-                Replying to <b>{replyTo.mine ? 'yourself' : name}</b>
-              </span>
-              <span className="wb-direct-quote-text">{quoteLine(replyTo.text)}</span>
-            </span>
-            <button type="button" className="wb-act" aria-label="Cancel reply" onClick={onCancelReply}>
-              ✕
-            </button>
-          </div>
+          <ReplyStrip target={{ ...replyTo, name }} onCancel={onCancelReply} />
         ) : null}
-        <textarea
+        <Textarea
+          variant="bare"
+          className="wb-circle-composer-input"
           ref={boxRef}
           aria-label={`Message ${name}`}
           rows={1}
@@ -405,12 +386,12 @@ export const DirectThread: React.FC<DirectThreadProps> = ({ circle, peer, name, 
     const ref = pendingFocus.current;
     if (!ref) return;
     pendingFocus.current = null;
-    if (chat.messages.some((item) => sameRef(item, ref))) setHighlight(`${ref.author}/${ref.id}`);
+    if (chat.messages.some((item) => sameRef(item, ref))) setHighlight(refKey(ref));
   }, [focusVersion, chat.loading, chat.messages, circle.key, peer]);
   // The highlighted row may render a beat after the state that names it.
   useEffect(() => {
     if (!highlight) return;
-    const selector = `[data-message="${highlight}"]`;
+    const selector = messageRowSelector(highlight);
     const row = doc.querySelector(selector);
     if (row) {
       row.scrollIntoView({ block: 'center' });
@@ -447,7 +428,7 @@ export const DirectThread: React.FC<DirectThreadProps> = ({ circle, peer, name, 
         setDeleting(message);
       },
       onReply: (message) => setReply(draftKey, { author: message.author, id: message.id }),
-      onGoTo: (ref) => setHighlight(`${ref.author}/${ref.id}`),
+      onGoTo: (ref) => setHighlight(refKey(ref)),
       highlight,
     }),
     [name, ended, chat, newestMine, editing, draftKey, highlight]
@@ -520,9 +501,9 @@ export const DirectThread: React.FC<DirectThreadProps> = ({ circle, peer, name, 
           ) : notice ? (
             <p className="wb-circle-status" role="status">
               {notice}
-              <button type="button" className="wb-act" onClick={() => setNotice(null)}>
+              <Button type="button" variant="quiet" size="sm" onClick={() => setNotice(null)}>
                 Dismiss
-              </button>
+              </Button>
             </p>
           ) : chat.typing && !ended ? (
             <p className="wb-circle-status is-typing" role="status">

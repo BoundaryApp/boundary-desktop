@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { Chip } from '../../components/ui/chip';
+import { ChipGroup } from '../../components/ui/chip-group';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Button } from '../../components/ui/button';
 import { Field } from '../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import {
   EMAIL_PROVIDERS,
   OTHER_DEFAULT_SLUG,
@@ -34,11 +38,15 @@ import {
   EMAIL_PROVIDER_LABEL,
   EMAIL_SECURITY_LABEL,
   EMAIL_SETTINGS_SET,
-  EMAIL_SLUG_RULE,
   EMAIL_WINDOW_LABEL,
 } from './emailCopy';
+import { ADDON_SLUG_RULE } from './addonCopy';
 import { startEmailInstall } from './useAddons';
 import { listingErrorText, refreshEmail, useEmailOverview } from './useEmail';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Checkbox } from '../../components/ui/checkbox';
+import { Radio } from '../../components/ui/radio';
 
 // Connect an email account (spec decisions 33 to 36): consent before the first account, a
 // provider, the account with its login checked by listing mailboxes, then mailboxes and how far
@@ -103,8 +111,10 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
   const [windowChoice, setWindowChoice] = useState<WindowChoice>('90d');
   const [date, setDate] = useState('');
   const [attachments, setAttachments] = useState(false);
-  const [busy, setBusy] = useState<'listing' | 'connecting' | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const sheet = useSheetAction();
+  const { error: failure, setError: setFailure } = sheet;
+  const [phase, setPhase] = useState<'listing' | 'connecting'>('listing');
+  const busy = sheet.busy ? phase : null;
 
   const known = provider !== null && provider !== 'other' ? EMAIL_PROVIDERS[provider] : null;
   const hostValue = known ? known.host : host.trim();
@@ -161,19 +171,15 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
   const listHost = mode.kind === 'mailboxes' ? mode.account.host : '';
   const listStored = () => {
     if (!listSlug) return;
-    setBusy('listing');
-    setFailure(null);
-    listMailboxes(listSlug, listHost)
-      .catch((e: unknown) => setFailure(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusy(null));
+    setPhase('listing');
+    void sheet.run(() => listMailboxes(listSlug, listHost));
   };
   useEffect(listStored, [listSlug]);
 
   const next = async () => {
     if (!accountReady) return;
-    setBusy('listing');
-    setFailure(null);
-    try {
+    setPhase('listing');
+    await sheet.run(async () => {
       if (!existing && savedSlug !== null && savedSlug !== slug) {
         // A new name: the account stored under the old one has no mailboxes, so it goes.
         await window.electronAPI.addons.email.cancelAccount(savedSlug).catch((): void => undefined);
@@ -201,20 +207,15 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
       }
       if (!existing) setSavedSlug(slug);
       await listMailboxes(slug, hostValue);
-    } catch (e) {
-      setFailure(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   const connect = async () => {
     if (!mailboxes || !mailboxesReady) return;
-    setBusy('connecting');
-    setFailure(null);
+    setPhase('connecting');
     const account = existing?.slug ?? slug;
     const at = existing?.host ?? hostValue;
-    try {
+    await sheet.run(async () => {
       const picked = mailboxes.filter((m) => chosen.includes(m.name)).map((m) => m.name);
       let failed = replyFailure(await window.electronAPI.addons.email.setMailboxes(account, picked), at);
       if (!failed && !existing) setMailboxesStored(true);
@@ -233,11 +234,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
         startEmailInstall(account);
         onStarted?.();
       } else void refreshEmail();
-    } catch (e) {
-      setFailure(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   /**
@@ -263,7 +260,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
   /** The address field: Email address for a known provider, From address for Other. */
   const addressField = (label: string) => (
     <Field label={label} htmlFor="email-connect-address">
-      <input
+      <Input
         id="email-connect-address"
         type="email"
         value={address}
@@ -340,19 +337,19 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
         </ul>
       ) : step === 'account' ? (
         <>
-          <div role="group" aria-label="Provider" className="mb-3.5 flex flex-wrap gap-2">
+          <ChipGroup
+            type="single"
+            aria-label="Provider"
+            className="mb-3.5"
+            value={provider ?? ''}
+            onValueChange={(id) => pickProvider(id as EmailProviderId)}
+          >
             {PROVIDER_IDS.map((id) => (
-              <Button
-                key={id}
-                variant={provider === id ? 'primary' : 'secondary'}
-                aria-pressed={provider === id}
-                disabled={busy !== null || (existing !== null && provider !== id)}
-                onClick={() => pickProvider(id)}
-              >
+              <Chip key={id} value={id} disabled={busy !== null || (existing !== null && provider !== id)}>
                 {EMAIL_PROVIDER_LABEL[id]}
-              </Button>
+              </Chip>
             ))}
-          </div>
+          </ChipGroup>
 
           {known && provider ? (
             <>
@@ -381,7 +378,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
           ) : provider === 'other' ? (
             <>
               <Field label="Server" htmlFor="email-connect-host">
-                <input
+                <Input
                   id="email-connect-host"
                   value={host}
                   placeholder="imap.example.com"
@@ -396,7 +393,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
               </Field>
               <div className="wb-fields-inline">
                 <Field label="Port" htmlFor="email-connect-port">
-                  <input
+                  <Input
                     id="email-connect-port"
                     inputMode="numeric"
                     value={port}
@@ -409,7 +406,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                   />
                 </Field>
                 <Field label="Security" htmlFor="email-connect-security">
-                  <select
+                  <NativeSelect
                     id="email-connect-security"
                     value={securityValue}
                     disabled={busy !== null}
@@ -423,12 +420,12 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                         {EMAIL_SECURITY_LABEL[s]}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </Field>
               </div>
               {plainAllowed(hostValue) ? <p className="mb-3 text-xs text-fg-muted">{EMAIL_PROTON_UNTESTED}</p> : null}
               <Field label="User name" htmlFor="email-connect-user">
-                <input
+                <Input
                   id="email-connect-user"
                   value={user}
                   disabled={busy !== null}
@@ -451,7 +448,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                 htmlFor="email-connect-password"
                 hint={passwordKept && password === '' ? 'Leave it empty to keep the password the stack has.' : undefined}
               >
-                <input
+                <Input
                   id="email-connect-password"
                   type="password"
                   value={password}
@@ -468,7 +465,7 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                 htmlFor="email-connect-slug"
                 hint={
                   slug && !slugOk ? (
-                    <span className="text-danger">{EMAIL_SLUG_RULE}</span>
+                    <span className="text-danger">{ADDON_SLUG_RULE}</span>
                   ) : taken ? (
                     <span className="text-danger">{`An account named ${slug} is already connected. Choose another name.`}</span>
                   ) : (
@@ -476,9 +473,9 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                   )
                 }
               >
-                <input
+                <Input
                   id="email-connect-slug"
-                  className={cn('font-mono', slug && !slugOk && 'border-danger')}
+                  className="font-mono" aria-invalid={Boolean(slug && !slugOk)}
                   value={slug}
                   disabled={busy !== null || existing !== null}
                   autoComplete="off"
@@ -494,24 +491,31 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
         </>
       ) : mailboxes ? (
         <>
-          <div role="group" aria-label="Mailboxes" className="mb-3.5 flex flex-col gap-2">
-            <span className="text-xs font-medium text-fg">Mailboxes</span>
+          <ChoiceGroup label="Mailboxes" kind="checkbox">
             {mailboxes.map((m) => (
-              <label key={m.name} className="flex cursor-pointer items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={chosen.includes(m.name)}
-                  disabled={busy !== null}
-                  onChange={(e) => {
-                    setChosen(e.target.checked ? [...chosen, m.name] : chosen.filter((n) => n !== m.name));
-                    edited();
-                  }}
-                />
-                <span className="text-fg">{displayName(m.name)}</span>
-                {m.messages !== null ? <span className="text-fg-faint">{m.messages.toLocaleString('en-US')}</span> : null}
-              </label>
+              <ChoiceRow
+                key={m.name}
+                control={
+                  <Checkbox
+                    checked={chosen.includes(m.name)}
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      setChosen(e.target.checked ? [...chosen, m.name] : chosen.filter((n) => n !== m.name));
+                      edited();
+                    }}
+                  />
+                }
+                title={
+                  <>
+                    {displayName(m.name)}
+                    {m.messages !== null ? (
+                      <span className="ms-2 font-normal text-fg-faint">{m.messages.toLocaleString('en-US')}</span>
+                    ) : null}
+                  </>
+                }
+              />
             ))}
-          </div>
+          </ChoiceGroup>
 
           {windowSet && overview?.since ? (
             <div className="mb-3.5 flex flex-col gap-1 text-xs">
@@ -526,31 +530,29 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
             </div>
           ) : (
             <>
-              <div role="radiogroup" aria-label="How far back" className="mb-3.5 flex flex-col gap-2">
-                <span className="text-xs font-medium text-fg">How far back</span>
+              <ChoiceGroup label="How far back" kind="radio">
                 {WINDOW_CHOICES.map((choice) => (
-                  <label key={choice} className="flex cursor-pointer items-start gap-2 text-xs">
-                    <input
-                      type="radio"
-                      name="email-connect-window"
-                      className="mt-0.5"
-                      checked={windowChoice === choice}
-                      disabled={busy !== null}
-                      onChange={() => {
-                        setWindowChoice(choice);
-                        edited();
-                      }}
-                    />
-                    <span className="flex flex-col gap-0.5">
-                      <span className="text-fg">{EMAIL_WINDOW_LABEL[choice]}</span>
-                      {choice === 'all' && windowChoice === 'all' ? <span className="text-fg-muted">{EMAIL_EVERYTHING_HINT}</span> : null}
-                    </span>
-                  </label>
+                  <ChoiceRow
+                    key={choice}
+                    control={
+                      <Radio
+                        name="email-connect-window"
+                        checked={windowChoice === choice}
+                        disabled={busy !== null}
+                        onChange={() => {
+                          setWindowChoice(choice);
+                          edited();
+                        }}
+                      />
+                    }
+                    title={EMAIL_WINDOW_LABEL[choice]}
+                    description={choice === 'all' && windowChoice === 'all' ? EMAIL_EVERYTHING_HINT : undefined}
+                  />
                 ))}
-              </div>
+              </ChoiceGroup>
               {windowChoice === 'date' ? (
                 <Field label="Starting from" htmlFor="email-connect-since">
-                  <input
+                  <Input
                     id="email-connect-since"
                     type="date"
                     value={date}
@@ -562,18 +564,20 @@ const ConnectForm: React.FC<{ mode: EmailConnectMode; onClose(): void; onStarted
                   />
                 </Field>
               ) : null}
-              <label className="mb-3.5 flex cursor-pointer items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={attachments}
-                  disabled={busy !== null}
-                  onChange={(e) => {
-                    setAttachments(e.target.checked);
-                    edited();
-                  }}
-                />
-                <span className="text-fg">{EMAIL_ATTACHMENTS_LABEL}</span>
-              </label>
+              <ChoiceRow
+                className="mb-3.5"
+                control={
+                  <Checkbox
+                    checked={attachments}
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      setAttachments(e.target.checked);
+                      edited();
+                    }}
+                  />
+                }
+                title={EMAIL_ATTACHMENTS_LABEL}
+              />
             </>
           )}
         </>

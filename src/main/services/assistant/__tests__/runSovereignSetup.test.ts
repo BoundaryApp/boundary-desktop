@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,8 +15,10 @@ import {
   ensureDockerCompatibleCliOnPath,
   python3SetupError,
   regenerateN8nCredentialsFromEnv,
+  runSovereignSetup,
   __test,
 } from '../runSovereignSetup';
+import type { StackCommands } from '../../stackHost/types';
 
 /** A spawn stand-in whose child exits with `code`, or errors when code is 'ENOENT'. */
 function fakeSpawn(code: number | 'ENOENT'): typeof spawn {
@@ -132,5 +134,74 @@ describe('checkPython3ForSetup', () => {
   it('flags a python3 older than 3.9', async () => {
     expect(await checkPython3ForSetup({}, fakeSpawn(3))).toBe('too-old');
     expect(python3SetupError('too-old')).toMatch(/3\.9 or newer/);
+  });
+});
+
+describe('runSovereignSetup', () => {
+  let projectRoot: string;
+  let workspaceRoot: string;
+
+  beforeEach(() => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sovereign-setup-'));
+    projectRoot = path.join(tmp, 'stack');
+    workspaceRoot = path.join(tmp, 'workspace');
+    fs.mkdirSync(path.join(projectRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'scripts', 'setup.sh'), '');
+  });
+  afterEach(() => {
+    fs.rmSync(path.dirname(projectRoot), { recursive: true, force: true });
+  });
+
+  type Opts = Parameters<StackCommands['runScript']>[2];
+  function run(behave: (o: Opts) => number, progress: string[] = []) {
+    const calls: { script: string; args: string[]; options: Opts }[] = [];
+    const runScript: StackCommands['runScript'] = async (script, args, options) => {
+      calls.push({ script, args, options });
+      return behave(options);
+    };
+    const done = runSovereignSetup({
+      projectRoot,
+      workspaceRoot,
+      env: process.env,
+      timeoutMs: 1234,
+      onProgress: (m) => progress.push(m),
+      runScript,
+    });
+    return { done, calls };
+  }
+
+  it('runs scripts/setup.sh with the setup arguments and reports [setup] lines as progress', async () => {
+    const progress: string[] = [];
+    const { done, calls } = run((o) => {
+      o.onStdout('[setup] Generating secrets');
+      return 0;
+    }, progress);
+    await done;
+    expect(calls).toHaveLength(1);
+    expect(calls[0].script).toBe('scripts/setup.sh');
+    expect(calls[0].args).toEqual(buildSovereignSetupArgs({ workspaceRoot }).slice(1));
+    expect(calls[0].options.timeoutMs).toBe(1234);
+    expect(calls[0].options.input).toBeUndefined();
+    expect(progress).toContain('[setup] Generating secrets');
+  });
+
+  it('throws with the exit code and the combined output when setup.sh fails', async () => {
+    const { done } = run((o) => {
+      o.onStdout('out line');
+      o.onStderr('err line');
+      return 2;
+    });
+    await expect(done).rejects.toThrow('setup.sh exited with code 2.\nerr line\n\nout line');
+  });
+
+  it('throws the timeout message when the host reports 124', async () => {
+    const { done } = run(() => 124);
+    await expect(done).rejects.toThrow('setup.sh timed out after 1234ms');
+  });
+
+  it('asks the host for the timeout line it reports on stderr', async () => {
+    const { done, calls } = run(() => 0);
+    await done;
+    expect(calls[0].options.timeoutLine).toBe('setup.sh timed out after 1234ms');
   });
 });

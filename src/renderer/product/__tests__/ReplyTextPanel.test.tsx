@@ -29,6 +29,7 @@ describe('reply text', () => {
   beforeEach(() => {
     memory = useMemoryStorage();
     document.documentElement.removeAttribute('style');
+    initReplyText();
   });
 
   afterEach(() => {
@@ -55,6 +56,15 @@ describe('reply text', () => {
     memory.set(REPLY_TEXT_STORAGE_KEY, '{not json');
     initReplyText();
     expect(rootVar('--size-prose')).toBe('15.5px');
+  });
+
+  it('loads a choice saved as JSON by earlier builds, clamping values out of range', () => {
+    memory.set(REPLY_TEXT_STORAGE_KEY, '{"face":"sans","size":30,"lineHeight":1.5,"paragraphGap":1,"listGap":0.3,"weight":450}');
+    initReplyText();
+    expect(rootVar('--font-reply')).toBe('var(--font-ui)');
+    expect(rootVar('--size-prose')).toBe('18px');
+    expect(rootVar('--leading-prose')).toBe('1.5');
+    expect(rootVar('--weight-prose')).toBe('450');
   });
 
   it('stores and applies each change, and resets to the default', () => {

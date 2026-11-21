@@ -245,10 +245,6 @@
   gap: var(--space-2);
 }
 
-.wb-add-shared-root input {
-  flex: 1;
-}
-
 .wb-folder-strip.is-warn {
   border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
 }
@@ -280,33 +276,9 @@
   margin-left: var(--space-1);
 }
 
-.wb-folder-tabs {
-  display: flex;
-  gap: var(--space-4);
-  margin: var(--space-3) 0 var(--space-2);
-  border-bottom: 1px solid var(--line);
-}
 
-.wb-folder-tabs button {
-  padding: var(--space-1-5) 0;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--size-xs);
-  cursor: pointer;
-}
 
-.wb-folder-tabs button[aria-selected='true'] {
-  border-bottom-color: var(--text);
-  color: var(--text);
-}
 
-.wb-folder-count {
-  margin-left: var(--space-1-5);
-  color: var(--text-faint);
-}
 
 .wb-folder-activity {
   margin: 0;
@@ -378,10 +350,6 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.wb-folder-role {
-  font-size: var(--size-2xs);
 }
 
 .wb-folder-diff {

@@ -135,6 +135,7 @@ function installBridge() {
       capability: {
         getStatus: async () => ({ acknowledged: true, lastAssessment: null }),
         onProgress: bridge.listen('capability:progress'),
+        onProvisionStage: bridge.listen('capability:provision-stage'),
       },
       onboarding: { onLocalLlmChanged: bridge.listen('local-llm:changed') },
       updates: {
@@ -149,7 +150,9 @@ function installBridge() {
 }
 
 const workbench = () => screen.queryByRole('main', { name: 'Workbench' });
-const startupScreen = () => screen.queryByRole('list', { name: 'Your tools' });
+// The ring is a list of tools, or a radio group while its tiles pick the story card.
+const startupScreen = () =>
+  screen.queryByRole('list', { name: 'Your tools' }) ?? screen.queryByRole('radiogroup', { name: 'Your tools' });
 
 /** Launches the app on a stack that start-up has already brought to ready. */
 async function launchReady() {

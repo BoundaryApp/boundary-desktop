@@ -1,16 +1,22 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlainOutcome } from '../addonScript';
 import {
+  copyVikunjaPassword,
   createVikunjaService,
   loopbackWebUrl,
   parseVikunjaListing,
   readVikunjaEnabled,
+  readVikunjaLogin,
+  vikunjaAccount,
   vikunjaAvailable,
   vikunjaDataLeft,
 } from '../vikunjaAddon';
+import { createFakeStackFiles } from '../../stackHost/fakeStackFiles';
+import { localStackFiles } from '../../stackHost/localStackHost';
+import { fakeSecretClipboard } from './secretClipboardFake';
 
 // `addon.sh list --json` as the stack's main (c1bb98a) prints it: an array of listings
 // (scripts/lib/addon_store.py `listing`), with `web` from `web_view`: url
@@ -29,51 +35,56 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('vikunjaAvailable', () => {
-  const files = (manifest: unknown, addonSh = true) => (p: string) =>
-    p.endsWith('addon.json') ? (manifest === null ? null : JSON.stringify(manifest)) : addonSh ? '#!/bin/bash' : null;
+  const files = (manifest: unknown, addonSh = true) =>
+    createFakeStackFiles({
+      ...(manifest === null ? {} : { 'stack:addons/vikunja/addon.json': typeof manifest === 'string' ? manifest : JSON.stringify(manifest) }),
+      ...(addonSh ? { 'stack:scripts/addon.sh': '#!/bin/bash' } : {}),
+    });
 
-  it('needs the manifest with the prepare hook (stack 0.3.15)', () => {
-    expect(vikunjaAvailable('/s', files({ hooks: { prepare: { script: ['scripts/todo.sh', 'prepare'] }, init: {} } }))).toBe(true);
-    expect(vikunjaAvailable('/s', files({ hooks: { init: {} } }))).toBe(false);
-    expect(vikunjaAvailable('/s', files(null))).toBe(false);
-    expect(vikunjaAvailable('/s', files({ hooks: { prepare: {} } }, false))).toBe(false);
-    expect(vikunjaAvailable('/s', () => 'not json')).toBe(false);
+  it('needs the manifest with the prepare hook (stack 0.3.15)', async () => {
+    expect(await vikunjaAvailable(files({ hooks: { prepare: { script: ['scripts/todo.sh', 'prepare'] }, init: {} } }))).toBe(true);
+    expect(await vikunjaAvailable(files({ hooks: { init: {} } }))).toBe(false);
+    expect(await vikunjaAvailable(files(null))).toBe(false);
+    expect(await vikunjaAvailable(files({ hooks: { prepare: {} } }, false))).toBe(false);
+    expect(await vikunjaAvailable(files('not json'))).toBe(false);
   });
 });
 
 describe('readVikunjaEnabled', () => {
-  it('reads VIKUNJA_MCP_ENABLED from the stack .env', () => {
+  it('reads VIKUNJA_MCP_ENABLED from the stack .env', async () => {
+    const stackFiles = localStackFiles({ stackRoot: root, userContentRoot: () => path.join(root, 'data') });
     fs.writeFileSync(path.join(root, '.env'), 'VIKUNJA_MCP_ENABLED=1\n');
-    expect(readVikunjaEnabled(root)).toBe(true);
+    expect(await readVikunjaEnabled(stackFiles)).toBe(true);
     fs.writeFileSync(path.join(root, '.env'), 'VIKUNJA_MCP_ENABLED=0\n');
-    expect(readVikunjaEnabled(root)).toBe(false);
+    expect(await readVikunjaEnabled(stackFiles)).toBe(false);
   });
 });
 
 describe('vikunjaDataLeft', () => {
   const dataRoot = () => path.join(root, 'data');
+  const files = () => localStackFiles({ stackRoot: root, userContentRoot: dataRoot });
   const initDone = () => {
     fs.mkdirSync(path.join(dataRoot(), 'addons', 'vikunja'), { recursive: true });
     fs.writeFileSync(path.join(dataRoot(), 'addons', 'vikunja', 'state.json'), JSON.stringify({ init: { version: '1.0.0', at: 'x' } }));
   };
 
-  it('needs both the files folder and a recorded init', () => {
-    expect(vikunjaDataLeft(root, dataRoot())).toBe(false);
+  it('needs both the files folder and a recorded init', async () => {
+    expect(await vikunjaDataLeft(files(), root)).toBe(false);
     // prepare made the folder, then the first Get failed before init.
     fs.mkdirSync(path.join(root, 'data', 'vikunja', 'files'), { recursive: true });
-    expect(vikunjaDataLeft(root, dataRoot())).toBe(false);
+    expect(await vikunjaDataLeft(files(), root)).toBe(false);
     initDone();
-    expect(vikunjaDataLeft(root, dataRoot())).toBe(true);
+    expect(await vikunjaDataLeft(files(), root)).toBe(true);
     // remove --delete-data deletes the folder and keeps state.json.
     fs.rmSync(path.join(root, 'data', 'vikunja'), { recursive: true });
-    expect(vikunjaDataLeft(root, dataRoot())).toBe(false);
+    expect(await vikunjaDataLeft(files(), root)).toBe(false);
   });
 
-  it('follows VIKUNJA_FILES_DIR', () => {
+  it('follows VIKUNJA_FILES_DIR', async () => {
     initDone();
     fs.writeFileSync(path.join(root, '.env'), 'VIKUNJA_FILES_DIR=./elsewhere/files\n');
     fs.mkdirSync(path.join(root, 'elsewhere', 'files'), { recursive: true });
-    expect(vikunjaDataLeft(root, dataRoot())).toBe(true);
+    expect(await vikunjaDataLeft(files(), root)).toBe(true);
   });
 });
 
@@ -141,5 +152,46 @@ describe('webUrl', () => {
     expect(
       await service(ok(listing({ web: { service: 'proxy', path: '/login-local', url: 'http://10.0.0.2:3456/login-local' } }))).webUrl()
     ).toEqual({ error: expect.stringContaining('outside this Mac') });
+  });
+});
+
+// `todo.sh init` (stack v0.3.15, lines 161-162) writes both keys with upsert_env; `addon.sh remove`
+// leaves them in .env.
+describe('the managed Vikunja login', () => {
+  const env = (lines: string) => createFakeStackFiles({ 'stack:.env': lines });
+  const ON = 'VIKUNJA_MCP_ENABLED=1\nVIKUNJA_USERNAME=me\nVIKUNJA_PASSWORD=s3cret-gen\n';
+
+  it('reads the username and password todo.sh init wrote', async () => {
+    expect(await readVikunjaLogin(env(ON))).toEqual({ username: 'me', password: 's3cret-gen' });
+  });
+
+  it('has none while Todo lists is off, even with the keys left behind', async () => {
+    expect(await readVikunjaLogin(env(ON.replace('ENABLED=1', 'ENABLED=0')))).toBeNull();
+  });
+
+  it('has none before init writes both keys', async () => {
+    expect(await readVikunjaLogin(env('VIKUNJA_MCP_ENABLED=1\nVIKUNJA_USERNAME=me\n'))).toBeNull();
+    expect(await readVikunjaLogin(env('VIKUNJA_MCP_ENABLED=1\nVIKUNJA_PASSWORD=x\n'))).toBeNull();
+    expect(await readVikunjaLogin(createFakeStackFiles({}))).toBeNull();
+  });
+
+  it('gives the renderer the username only', async () => {
+    const account = await vikunjaAccount(env(ON));
+    expect(account).toEqual({ username: 'me' });
+    expect(JSON.stringify(account)).not.toContain('s3cret-gen');
+  });
+
+  it('copies the password, cleared after 60 s', async () => {
+    const clipboard = fakeSecretClipboard();
+    const setTimer = vi.fn();
+    expect(await copyVikunjaPassword({ files: env(ON), clipboard, setTimer })).toBe(true);
+    expect(clipboard.writeSecret).toHaveBeenCalledWith('s3cret-gen');
+    expect(setTimer).toHaveBeenCalledWith(expect.any(Function), 60_000);
+  });
+
+  it('copies nothing without a login', async () => {
+    const clipboard = fakeSecretClipboard();
+    expect(await copyVikunjaPassword({ files: env(''), clipboard })).toBe(false);
+    expect(clipboard.writeSecret).not.toHaveBeenCalled();
   });
 });

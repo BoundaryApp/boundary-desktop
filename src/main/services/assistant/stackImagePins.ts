@@ -1,5 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import type { StackFiles } from '../stackHost/types';
+import type { ProjectEnv } from './projectEnv';
 import { parseEnv, removeEnvLines, upsertEnvLines } from './stackEnv';
 
 /**
@@ -18,34 +18,39 @@ export function readImagePins(contents: string): Map<string, string> {
 }
 
 /**
- * Set each image key `.env.example` pins to its value there, and drop image keys the example
- * no longer lists (stack v0.3.3 retired `CALDAV_MCP_IMAGE`; compose falls back to its own
- * default for any key left unset). Both image tags of Hermes move together this way.
+ * The changes that take every image key `.env.example` pins to its value there, and drop image
+ * keys the example no longer lists (stack v0.3.3 retired `CALDAV_MCP_IMAGE`; compose falls back
+ * to its own default for any key left unset). Both image tags of Hermes move together this way.
  */
-export function syncImagePinsFromExample(envContents: string, exampleContents: string): string {
+function imagePinChanges(
+  envContents: string,
+  exampleContents: string
+): { set: Record<string, string>; unset: string[] } {
   const wanted = readImagePins(exampleContents);
   // An example with no image pins means the file wasn't what we expected: change nothing.
-  if (wanted.size === 0) return envContents;
+  if (wanted.size === 0) return { set: {}, unset: [] };
   const current = readImagePins(envContents);
-  const next = removeEnvLines(
-    envContents,
-    [...current.keys()].filter((key) => !wanted.has(key))
-  );
-  const changed = [...wanted].filter(([key, value]) => current.get(key) !== value);
-  return upsertEnvLines(next, Object.fromEntries(changed));
+  return {
+    set: Object.fromEntries([...wanted].filter(([key, value]) => current.get(key) !== value)),
+    unset: [...current.keys()].filter((key) => !wanted.has(key)),
+  };
 }
 
-/** Apply `syncImagePinsFromExample` to the project's `.env`. True when it changed. */
-export async function syncStackImagePins(projectRoot: string): Promise<boolean> {
-  const envPath = path.join(projectRoot, '.env');
-  const examplePath = path.join(projectRoot, '.env.example');
-  if (!fs.existsSync(envPath) || !fs.existsSync(examplePath)) return false;
+/** `imagePinChanges` applied to dotenv contents. */
+export function syncImagePinsFromExample(envContents: string, exampleContents: string): string {
+  const { set, unset } = imagePinChanges(envContents, exampleContents);
+  return upsertEnvLines(removeEnvLines(envContents, unset), set);
+}
+
+/** Apply `imagePinChanges` to the project's `.env` through `env`. True when it changed. */
+export async function syncStackImagePins(files: StackFiles, env: ProjectEnv): Promise<boolean> {
   const [contents, example] = await Promise.all([
-    fs.promises.readFile(envPath, 'utf8'),
-    fs.promises.readFile(examplePath, 'utf8'),
+    files.readText('stack', '.env'),
+    files.readText('stack', '.env.example'),
   ]);
-  const next = syncImagePinsFromExample(contents, example);
-  if (next === contents) return false;
-  await fs.promises.writeFile(envPath, next, 'utf8');
-  return true;
+  if (contents === null || example === null) return false;
+  const { set, unset } = imagePinChanges(contents, example);
+  const removed = unset.length ? await env.unset(unset) : false;
+  const written = Object.keys(set).length ? await env.set(set) : false;
+  return removed || written;
 }

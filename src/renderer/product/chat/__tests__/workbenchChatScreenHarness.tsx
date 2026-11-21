@@ -4,6 +4,8 @@ import { vi } from 'vitest';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';
 import { clearChatScreenSnapshot } from '../chatScreenCache';
 import { resetCodingFoldersStoreForTests } from '../codingFoldersStore';
+import { INSPECTOR_OPEN_STORAGE_KEY, INSPECTOR_SIDE_QUERY } from '../inspectorOpenPref';
+import { resetKeptWritableForTests } from '../projectSourceWarnings';
 import { WorkbenchChatScreen } from '../WorkbenchChatScreen';
 import * as ipcCalls from './ipcCalls';
 
@@ -26,6 +28,8 @@ const revealSource = vi.fn();
 const refreshIndex = vi.fn();
 const createHostProject = vi.fn();
 const changeFolder = vi.fn();
+const inspectRemoveProject = vi.fn();
+const removeProject = vi.fn();
 const selectProject = vi.fn();
 const listAgents = vi.fn();
 const createHermesChat = vi.fn();
@@ -79,6 +83,8 @@ stubElectronAPI({
     createEmpty: ipcCalls.track((...args: unknown[]) => createEmptyProject(...args)),
     createHost: ipcCalls.track((...args: unknown[]) => createHostProject(...args)),
     changeFolder: ipcCalls.track((...args: unknown[]) => changeFolder(...args)),
+    inspectRemove: ipcCalls.track((...args: unknown[]) => inspectRemoveProject(...args)),
+    remove: ipcCalls.track((...args: unknown[]) => removeProject(...args)),
     reveal: vi.fn(),
     inspectSources: ipcCalls.track((...args: unknown[]) => inspectSources(...args)),
     addSourceFolder: ipcCalls.track((...args: unknown[]) => addSourceFolder(...args)),
@@ -123,6 +129,7 @@ stubElectronAPI({
 const screenMocks = [
   listThreads, listProjects, inspectSources, addSourceFolder, pickCodingFolder,
   grantCodingFolder, removeSource, revealSource, refreshIndex, createHostProject, changeFolder,
+  inspectRemoveProject, removeProject,
   selectProject, listAgents, createHermesChat, openAgentDm, createAgent, updateAgent,
   listChannels, createChannel, addChannelMember, renameChannel, deleteChannel, deleteFailedChat,
   makeChannelFromHermesChat, setLastOpened, createEmptyProject, listMentions, markMentionsSeen,
@@ -138,6 +145,8 @@ export {
   grantCodingFolder,
   createHostProject,
   changeFolder,
+  inspectRemoveProject,
+  removeProject,
   selectProject,
   listAgents,
   createHermesChat,
@@ -167,6 +176,10 @@ export async function renderScreen() {
 /** One project with only its hub, two Hermes chats in it, and the built-in agent. */
 export function setUpScreen() {
   clearChatScreenSnapshot();
+  // Most tests work in the inspector, so they start with it open (ADR 0069 §2). Tests of the
+  // closed default call `startInspectorClosed` after this.
+  window.localStorage.setItem(INSPECTOR_OPEN_STORAGE_KEY, 'open');
+  setInspectorBeside(true);
   listAgents.mockResolvedValue({
     success: true,
     agents: [
@@ -276,4 +289,33 @@ export async function tearDownScreen() {
   for (const mock of screenMocks) mock.mockReset();
   // The coding-folders store is module state; a fresh screen starts from nothing loaded.
   resetCodingFoldersStoreForTests();
+  resetKeptWritableForTests();
+  window.localStorage.removeItem(INSPECTOR_OPEN_STORAGE_KEY);
+}
+
+const realMatchMedia = window.matchMedia;
+
+/**
+ * Whether the window counts as 1280px or wider, where the inspector sits beside the center pane
+ * (ADR 0069 §5). happy-dom's window is 1024px, so the harness says so for every query it answers.
+ */
+export function setInspectorBeside(beside: boolean) {
+  window.matchMedia = ((query: string) =>
+    query === INSPECTOR_SIDE_QUERY
+      ? ({
+          matches: beside,
+          media: query,
+          onchange: null,
+          addEventListener: (): void => undefined,
+          removeEventListener: (): void => undefined,
+          addListener: (): void => undefined,
+          removeListener: (): void => undefined,
+          dispatchEvent: (): boolean => false,
+        } as MediaQueryList)
+      : realMatchMedia.call(window, query)) as typeof window.matchMedia;
+}
+
+/** A fresh install: nothing stored, so the inspector starts closed. */
+export function startInspectorClosed() {
+  window.localStorage.removeItem(INSPECTOR_OPEN_STORAGE_KEY);
 }

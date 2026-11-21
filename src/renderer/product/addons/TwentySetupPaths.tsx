@@ -3,6 +3,9 @@ import { Button } from '../../components/ui/button';
 import type { AddonListing, TwentyAccess } from '../../../shared/types/addons';
 import { ACCESS_LABEL, hereFacts, SETUP_WAYS } from './addonCopy';
 import { Facts, SETUP_WAY_TITLE, SetupPath } from './addonFormParts';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
 
 export const ACCESS_HELP: Record<TwentyAccess, string> = {
   read: 'Search people, companies and deals. Agents can still link a note to a record, but can’t create or change people, companies, deals or notes.',
@@ -29,24 +32,16 @@ export const TwentySetupPaths: React.FC<{
           {SETUP_WAYS.twenty.here}
         </p>
         <Facts items={[...hereFacts(entry), `${entry.services.length} containers`]} />
-        <div role="radiogroup" aria-label="What agents may do" className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-fg">What agents may do</span>
+        <ChoiceGroup label="What agents may do" kind="radio" className="mb-0">
           {(['read', 'write'] as const).map((value) => (
-            <label key={value} className="flex cursor-pointer items-start gap-2 text-xs">
-              <input
-                type="radio"
-                name="twenty-install-access"
-                className="mt-0.5"
-                checked={access === value}
-                onChange={() => setAccess(value)}
-              />
-              <span className="flex flex-col gap-0.5">
-                <b className="font-medium text-fg">{ACCESS_LABEL[value]}</b>
-                <span className="text-fg-muted">{ACCESS_HELP[value]}</span>
-              </span>
-            </label>
+            <ChoiceRow
+              key={value}
+              control={<Radio name="twenty-install-access" checked={access === value} onChange={() => setAccess(value)} />}
+              title={ACCESS_LABEL[value]}
+              description={ACCESS_HELP[value]}
+            />
           ))}
-        </div>
+        </ChoiceGroup>
         <div>
           <Button type="button" disabled={!canInstall} onClick={() => onInstall(access)}>
             {installLabel}

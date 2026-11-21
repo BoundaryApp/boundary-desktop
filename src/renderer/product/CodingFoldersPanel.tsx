@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import type { CodingGrantRow } from '../../shared/types/codingFolders';
 import type { HermesProjectRecord } from '../../shared/types/hermesChat';
 import { Sheet } from '../components/ui/sheet';
@@ -18,6 +18,12 @@ import { APP_NAME } from '../../shared/buildIdentity';
 import { Callout } from '../components/ui/alert';
 import { TrashNotice } from './TrashNotice';
 import { Button } from '../components/ui/button';
+import { ChoiceGroup } from '../components/ui/choice-group';
+import { ChoiceRow } from '../components/ui/choice-row';
+import { Radio } from '../components/ui/radio';
+import { StackCapabilityNote, useStackCapability } from './stackCapabilities';
+import { SettingsSection } from '../components/settings/SettingsSection';
+import { useBuiltinAgentName } from './settingsPanelHooks';
 
 /**
  * Settings › Coding agent (ADR 0028 §2, mock flow 4): every folder the coding agent can reach,
@@ -62,7 +68,9 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
   onRemove,
   onReviewDelete,
 }) => {
+  const agentName = useBuiltinAgentName();
   const [choice, setChoice] = useState<RemoveChoice>('reference');
+  const groupName = useId();
   useEffect(() => {
     setChoice(grant?.projectId ? 'reference' : 'none');
   }, [grant]);
@@ -71,20 +79,19 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
   const project = projectName ?? 'its project';
 
   const option = (value: RemoveChoice, title: string, sub: string, disabled = false) => (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={choice === value}
-      className={`wb-choice${choice === value ? ' is-sel' : ''}`}
-      disabled={disabled}
-      onClick={() => setChoice(value)}
-    >
-      <span className="wb-radio" aria-hidden="true" />
-      <span className="wb-choice-copy">
-        <b>{title}</b>
-        <span>{sub}</span>
-      </span>
-    </button>
+    <ChoiceRow
+      variant="card"
+      control={
+        <Radio
+          name={groupName}
+          checked={choice === value}
+          disabled={disabled}
+          onChange={() => setChoice(value)}
+        />
+      }
+      title={title}
+      description={sub}
+    />
   );
 
   return (
@@ -118,11 +125,11 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
           ? `${project} can keep the folder as read-only reference, or drop it.`
           : 'No project lists it.'}
       </p>
-      <div className="wb-choices" role="radiogroup" aria-label="What to do with the folder">
+      <ChoiceGroup kind="radio" aria-label="What to do with the folder">
         {option(
           'reference',
           'Keep as read-only reference',
-          `Hermes can still read it in ${project} chats`,
+          `${agentName} can still read it in ${project} chats`,
           !grant.projectId
         )}
         {option(
@@ -135,13 +142,20 @@ const RemoveSheet: React.FC<RemoveSheetProps> = ({
           'Delete the folder from this Mac…',
           'Moves it to the Trash after you review what’s in it'
         )}
-      </div>
+      </ChoiceGroup>
     </Sheet>
   );
 };
 
+const CodingSection: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <SettingsSection id="settings-coding" title="Folders the coding agent can reach">
+    {children}
+  </SettingsSection>
+);
+
 export const CodingFoldersPanel: React.FC = () => {
   const coding = useCodingFolders();
+  const agentName = useBuiltinAgentName();
   const [projects, setProjects] = useState<HermesProjectRecord[]>([]);
   const [verifying, setVerifying] = useState(false);
   const [removing, setRemoving] = useState<CodingGrantRow | null>(null);
@@ -187,27 +201,30 @@ export const CodingFoldersPanel: React.FC = () => {
     void runCodingChange([grant.resource], () => window.electronAPI.codingFolders.retry());
   };
 
+  const hostFolders = useStackCapability('hostFolders');
+  if (!hostFolders) {
+    return (
+      <CodingSection>
+        <StackCapabilityNote capability="hostFolders" />
+      </CodingSection>
+    );
+  }
+
   if (coding.loaded && !coding.managed) {
     return (
-      <section className="wb-settings-section wb-coding-settings" aria-labelledby="settings-coding">
-        <h2 id="settings-coding" className="wb-settings-heading">
-          Folders the coding agent can reach
-        </h2>
+      <CodingSection>
         <p className="wb-inference-lead">
           This {APP_NAME} uses your own stack checkout, which manages coding folders itself. Add one
           there with <span className="mono">{coding.command ?? 'make coding-root-add'}</span>.
         </p>
-      </section>
+      </CodingSection>
     );
   }
 
   const grants = sortGrants(coding.grants);
 
   return (
-    <section className="wb-settings-section wb-coding-settings" aria-labelledby="settings-coding">
-      <h2 id="settings-coding" className="wb-settings-heading">
-        Folders the coding agent can reach
-      </h2>
+    <CodingSection>
       <p className="wb-inference-lead">
         Chats in every project can reach these folders.
         <InfoTip label="coding folders">
@@ -261,12 +278,12 @@ export const CodingFoldersPanel: React.FC = () => {
                     <span className="wb-src-pill code">Coding</span>
                   )}
                 </span>
-                <span className="wb-coding-hermes">
+                <span className="wb-coding-agent">
                   {grant.state === 'not-visible'
                     ? '–'
                     : grant.hermesPending
-                      ? 'Hermes after restart'
-                      : 'Hermes can edit'}
+                      ? `${agentName} after restart`
+                      : `${agentName} can edit`}
                 </span>
                 <span className="wb-coding-act">
                   {grant.state === 'not-visible' ? (
@@ -308,7 +325,7 @@ export const CodingFoldersPanel: React.FC = () => {
         </ul>
       )}
 
-      <div className="wb-coding-actions">
+      <div>
         <Button
           variant="secondary"
           size="sm"
@@ -354,6 +371,6 @@ export const CodingFoldersPanel: React.FC = () => {
           setNotice(`Moved ${name} to the Trash.`);
         }}
       />
-    </section>
+    </CodingSection>
   );
 };

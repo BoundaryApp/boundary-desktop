@@ -1,4 +1,11 @@
-import { blockedMethodReason, blockedUrlReason, type SitePolicy } from './cdpPolicy';
+import {
+  blockedCookiesReason,
+  blockedMethodReason,
+  blockedUrlReason,
+  CREDENTIAL_SESSION_METHODS,
+  type CdpClientRole,
+  type SitePolicy,
+} from './cdpPolicy';
 import { APP_NAME } from '../../../shared/buildIdentity';
 
 /**
@@ -12,6 +19,9 @@ import { APP_NAME } from '../../../shared/buildIdentity';
  *   Chrome keeps one setting for the whole pipe, which clients would otherwise fight over.
  * - Policy: blocked methods are refused; navigations, new tabs, attaches and pages that change
  *   to a blocked URL are refused or closed.
+ * - Roles (ADR 0065): the agent's clients get the denylist; the credential client gets an
+ *   allowlist, page methods only on sessions it attached, and cookie writes only for the page
+ *   its session is on. Its label in the log says which it is.
  * - A client's sessions are detached when it disconnects.
  *
  * No I/O here: Chrome and the clients are callbacks, so the routing is testable with fakes.
@@ -35,6 +45,7 @@ interface TargetInfo {
 
 interface ClientState {
   client: CdpClient;
+  role: CdpClientRole;
   label: string;
   autoAttach: boolean;
   discover: boolean;
@@ -84,10 +95,12 @@ export class CdpMux {
     for (const info of (reply.result?.targetInfos ?? []) as TargetInfo[]) this.targets.set(info.targetId, info);
   }
 
-  addClient(client: CdpClient): void {
+  addClient(client: CdpClient, role: CdpClientRole = 'agent'): void {
+    const label = `${role}-${this.nextClientNumber++}`;
     this.clients.set(client, {
       client,
-      label: `client-${this.nextClientNumber++}`,
+      role,
+      label,
       autoAttach: false,
       discover: false,
       sessions: new Set(),
@@ -95,6 +108,7 @@ export class CdpMux {
       methods: new Map(),
       blocked: new Map(),
     });
+    this.options.log('cdp client connected', { client: label });
   }
 
   removeClient(client: CdpClient): void {
@@ -155,10 +169,14 @@ export class CdpMux {
       reply({ error: { code, message: text } });
     };
 
-    const blockedMethod = blockedMethodReason(method, params);
+    const blockedMethod = blockedMethodReason(method, params, state.role);
     if (blockedMethod) return refuse(ERR_BLOCKED, blockedMethod);
     if (sessionId !== undefined && !state.sessions.has(sessionId)) {
       return refuse(ERR_NO_SESSION, `No session with given id`);
+    }
+    if (state.role === 'credentials') {
+      const reason = this.credentialRefusal(method, params, sessionId);
+      if (reason) return refuse(reason.code, reason.text);
     }
 
     const url = method === 'Page.navigate' || method === 'Target.createTarget' ? params.url : undefined;
@@ -299,6 +317,28 @@ export class CdpMux {
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /**
+   * The credential client's checks beyond its allowlist: a page method needs a session it
+   * attached (so the page passed the site policy when it attached), a cookie write must be for
+   * that page, and a page on a blocked site isn't described to it.
+   */
+  private credentialRefusal(method: string, params: Json, sessionId: unknown): { code: number; text: string } | null {
+    if (CREDENTIAL_SESSION_METHODS.has(method) && typeof sessionId !== 'string') {
+      return { code: ERR_NO_SESSION, text: `${method} needs a session on the page.` };
+    }
+    if (method === 'Network.setCookies' && typeof sessionId === 'string') {
+      const targetId = this.sessionTarget.get(sessionId);
+      const pageUrl = targetId ? this.targets.get(targetId)?.url : undefined;
+      const reason = blockedCookiesReason(params.cookies, pageUrl, this.options.policy());
+      if (reason) return { code: ERR_BLOCKED, text: reason };
+    }
+    if (method === 'Target.getTargetInfo' && sessionId === undefined && typeof params.targetId === 'string') {
+      const target = this.targets.get(params.targetId);
+      if (target && !this.visible(target)) return { code: ERR_BLOCKED, text: 'No target with given id found' };
+    }
+    return null;
+  }
 
   private relay(method: string, params: Json = {}, sessionId?: string): Promise<Json> {
     const id = this.nextRelayId++;

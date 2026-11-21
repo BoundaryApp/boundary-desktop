@@ -21,6 +21,7 @@
   --su-h1-lh: 28px;
   --su-hint-lh: calc(var(--size-xs) * var(--leading-ui));
   --su-card-title-lh: 22px;
+  --su-meta-line: calc(var(--size-meta) * var(--leading-ui));
   inset: 0;
   display: flex;
   overflow: hidden; /* everything fits the window; nothing on this screen scrolls it */
@@ -80,11 +81,22 @@
   );
   --su-card-h: calc(2 * var(--space-4) + 2px + var(--su-card-title-lh) + 2px + 3 * var(--su-line));
   --su-story-h: calc(var(--su-card-h) + var(--space-3) + 6px);
+  /* The What's new card: header, two title lines and three body lines, footer. */
+  --su-wn-text-h: calc(2 * var(--su-card-title-lh) + var(--space-0-5) + 3 * var(--su-meta-line));
+  --su-wn-h: calc(
+    2px + var(--space-2-5) + var(--size-2xs) * var(--leading-ui) + var(--space-2-5) + var(--su-wn-text-h) +
+      var(--space-3) + 1px + 2 * var(--space-1-5) + 2 * var(--space-1) + var(--su-line)
+  );
   width: 100%;
   height: calc(var(--su-heading-h) + var(--space-4) + 4px + var(--su-group-gap) + var(--su-story-h));
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* What's new has no dots below its card; the slot is the card's height. */
+.su-stage[data-story='notes'] {
+  --su-story-h: var(--su-wn-h);
 }
 
 /* Tool ring --------------------------------------------------------------- */
@@ -782,35 +794,6 @@
   color: var(--text);
 }
 
-.su-panel-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-
-.su-panel-close:hover {
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-.su-panel-close:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.su-panel-close svg {
-  width: 16px;
-  height: 16px;
-}
-
 /* The panel is the window's full height; only its own body scrolls, and only
    in a window too short for the cards. */
 .su-details-body {
@@ -875,6 +858,26 @@
   }
 }
 
+/* The same, up to a taller window, while What's new takes its taller slot: the column with the
+   full-size ring is about 850px then. */
+@media (min-height: 781px) and (max-height: 860px) {
+  .su-root:has(.su-stage[data-story='notes']) {
+    --su-group-gap: var(--space-5);
+  }
+
+  .su-root:has(.su-stage[data-story='notes']) .su-column {
+    padding: var(--space-6) 0;
+  }
+
+  .su-root:has(.su-stage[data-story='notes']) .su-ring + * {
+    margin-top: var(--space-3);
+  }
+
+  .su-root:has(.su-stage[data-story='notes']) .su-ring {
+    zoom: 0.75;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .su-root *,
   .su-root *::before,
@@ -886,9 +889,14 @@
 
 /* What's new in the story slot (ADR 0059): what this version brought, while it starts. */
 
+/* Fixed height, so slides never resize the card or pass the slot; Read more has the rest. */
 .su-whats-new {
   width: 440px;
   max-width: 100%;
+  height: var(--su-wn-h);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -897,6 +905,7 @@
 }
 
 .su-whats-new > header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -911,6 +920,9 @@
 }
 
 .su-wn-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 132px 1fr;
   gap: var(--space-3);
@@ -918,19 +930,36 @@
   padding: var(--space-2-5) var(--space-4) var(--space-3);
 }
 
+/* A slide without a screenshot gives its text the full width. */
+.su-wn-body:not(:has(> .wn-shot)) {
+  grid-template-columns: 1fr;
+}
+
+.su-wn-body h2,
+.su-wn-body p {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .su-wn-body h2 {
-  margin: 0 0 var(--space-0-5);
+  margin-bottom: var(--space-0-5);
   font-size: var(--size-title);
+  line-height: var(--su-card-title-lh);
   font-weight: var(--weight-strong);
+  -webkit-line-clamp: 2;
 }
 
 .su-wn-body p {
-  margin: 0;
   color: var(--text-muted);
   font-size: var(--size-meta);
+  line-height: var(--su-meta-line);
+  -webkit-line-clamp: 3;
 }
 
 .su-whats-new > footer {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;

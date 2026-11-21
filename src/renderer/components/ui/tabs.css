@@ -1,0 +1,84 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Tabs (ADR 0018 §5), keyed on data-slot and data-variant. One look: labels over a --line rule,
+   the current tab underlined in --brand. Colors, sizes and spacing come from tokens.css. */
+
+[data-slot='tabs-list'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-1);
+  max-width: 100%;
+  border-bottom: 1px solid var(--line);
+}
+
+[data-slot='tabs-trigger'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  box-sizing: border-box;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  /* The underline sits on the list's rule. */
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--size-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+[data-slot='tabs-trigger']:hover {
+  color: var(--text-muted);
+}
+
+[data-slot='tabs-trigger'][aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--brand);
+}
+
+[data-slot='tabs-trigger']:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+[data-slot='tabs-trigger']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-slot='tabs-count'] {
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* In a header bar: no rule of its own, the list takes the bar's height and the underline
+   meets the bar's bottom edge. */
+[data-slot='tabs-list'][data-variant='bar'] {
+  flex-wrap: nowrap;
+  align-self: stretch;
+  border-bottom: 0;
+}
+
+[data-slot='tabs-list'][data-variant='bar'] > [data-slot='tabs-trigger'] {
+  min-height: 0;
+  margin-bottom: 0;
+  padding: 0 var(--space-2-5);
+}
+
+/* An inactive panel stays hidden even where a call site's class sets display. */
+[data-slot='tabs-content'][hidden] {
+  display: none;
+}
+
+}

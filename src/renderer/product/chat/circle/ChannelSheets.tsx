@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import type { CircleChannel, CirclesResult } from '../../../../shared/types/circles';
+import type { CircleChannel } from '../../../../shared/types/circles';
 import { Field } from '../../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../../components/ui/sheet';
 import { CircleFormSheet } from './CircleFormSheet';
+import { Input } from '../../../components/ui/input';
+import { useAction } from '../../circles/useCircles';
 
 /** Which channel sheet is open: adding one, renaming one, or removing one. */
 export type ChannelSheet = { kind: 'add' } | { kind: 'rename'; channel: CircleChannel } | { kind: 'remove'; channel: CircleChannel };
@@ -21,27 +23,11 @@ export const ChannelSheets: React.FC<{
   onAdded: (channelId: string) => void;
 }> = ({ circleKey, circleName, sheet, onClose, onAdded }) => {
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run, setError } = useAction();
   useEffect(() => {
     setName(sheet?.kind === 'rename' ? sheet.channel.name : '');
     setError(null);
   }, [sheet]);
-
-  const run = async <T extends object>(call: () => Promise<CirclesResult<T>>): Promise<CirclesResult<T> | null> => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await call();
-      if (result.success === false) {
-        setError(result.error);
-        return null;
-      }
-      return result;
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const submit = async () => {
     if (!sheet || busy) return;
@@ -51,11 +37,14 @@ export const ChannelSheets: React.FC<{
       if (!result || result.success === false) return;
       onClose();
       onAdded(result.id);
-    } else if (sheet.kind === 'rename') {
-      if (await run(() => api().chatRenameChannel({ key: circleKey, channel: sheet.channel.id, name }))) onClose();
-    } else if (await run(() => api().chatRemoveChannel({ key: circleKey, channel: sheet.channel.id }))) {
-      onClose();
+      return;
     }
+    const result = await run(() =>
+      sheet.kind === 'rename'
+        ? api().chatRenameChannel({ key: circleKey, channel: sheet.channel.id, name })
+        : api().chatRemoveChannel({ key: circleKey, channel: sheet.channel.id })
+    );
+    if (result && result.success !== false) onClose();
   };
 
   if (sheet?.kind === 'remove') {
@@ -102,7 +91,7 @@ export const ChannelSheets: React.FC<{
         htmlFor="circle-channel-name-input"
         hint={adding ? `Everyone in ${circleName} can read it.` : 'Everyone sees the new name.'}
       >
-        <input
+        <Input
           id="circle-channel-name-input"
           value={name}
           maxLength={80}

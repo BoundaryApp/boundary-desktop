@@ -13,6 +13,7 @@ import { rememberDialogPick } from '../../dialogFolders';
 import { isPathUnder } from '../../hostPaths';
 import { getStoredHermesProject } from './hermesProjectStore';
 import { resolveInsideProject } from './hermesReplyFiles';
+import { stackCapabilityRefusal } from '../../stackHost/capabilities';
 
 /**
  * Project files for the writing check (writing check spec, phase 4). A user action on the
@@ -54,6 +55,8 @@ async function realpathOrNull(p: string): Promise<string | null> {
 export async function readProjectFileForCheck(
   payload: WritingCheckFilePayload
 ): Promise<WritingCheckFileResult> {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   const started = Date.now();
   const refuse = (outcome: keyof typeof ERRORS): WritingCheckFileResult => {
     logRead(outcome, payload.relativePath, started);
@@ -98,6 +101,8 @@ export async function pickProjectFileForCheck(
   sender: WebContents,
   payload: WritingCheckPickPayload
 ): Promise<WritingCheckFileResult> {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   const project = getStoredHermesProject(payload.projectId);
   if (!project) return { success: false, error: ERRORS.project };
   const options = {

@@ -12,12 +12,13 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scanCss } from './css-spacing.mjs';
 
 /** @type {Record<string, { spacing: number; duplicates: number }>} */
 const allow = {
-  'src/renderer/product/chat/circle/circleChat.css': { spacing: 9, duplicates: 0 },
-  'src/renderer/product/chat/workbench.css': { spacing: 120, duplicates: 9 },
+  'src/renderer/product/chat/circle/circleChat.css': { spacing: 8, duplicates: 0 },
+  'src/renderer/product/chat/workbench.css': { spacing: 97, duplicates: 8 },
   'src/renderer/product/inference/inference.css': { spacing: 21, duplicates: 0 },
   'src/renderer/product/resources.css': { spacing: 9, duplicates: 0 },
   'src/renderer/product/startup/startup.css': { spacing: 1, duplicates: 0 },
@@ -26,7 +27,7 @@ const allow = {
 /** Tokens are where raw values belong. */
 const skip = new Set(['src/renderer/styles/tokens.css']);
 
-const root = resolve(dirname(new URL(import.meta.url).pathname), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Private experiments keep their own entries, in the same form, beside their code. */
 const experimentAllowances = join(root, 'src', 'experiments', 'drift-allowances.json');

@@ -53,28 +53,6 @@
   background: var(--brand);
 }
 
-.wn-close {
-  width: var(--control-height-sm);
-  height: var(--control-height-sm);
-  margin-left: auto;
-  border-radius: var(--radius-md);
-  display: grid;
-  place-items: center;
-  color: var(--text-faint);
-}
-
-.wn-close:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.wn-close svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-}
-
 .wn-dialog .wn-shot,
 .wn-dialog .wn-slide-title,
 .wn-dialog .wn-slide-body,
@@ -149,6 +127,7 @@
   bottom: var(--space-5);
   transform: translateX(-50%);
   z-index: 60;
+  -webkit-app-region: no-drag; /* the start-up screen under it drags the window */
   max-width: 560px;
   display: flex;
   align-items: center;
@@ -263,34 +242,6 @@
   color: var(--text-muted);
   font-size: var(--size-meta);
   white-space: nowrap;
-}
-
-.wn-switch button {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  border-radius: var(--radius-full);
-  background: var(--line-strong);
-}
-
-.wn-switch button::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-full);
-  background: var(--text);
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.wn-switch button[aria-checked='true'] {
-  background: var(--brand);
-}
-
-.wn-switch button[aria-checked='true']::after {
-  transform: translateX(14px);
 }
 
 .wn-empty {

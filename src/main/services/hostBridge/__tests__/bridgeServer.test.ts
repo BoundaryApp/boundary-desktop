@@ -315,7 +315,7 @@ describe('browser listener', () => {
   function fakeRelay(unavailable: string | null = null) {
     return {
       unavailableReason: vi.fn(() => unavailable),
-      handleUpgrade: vi.fn(async (_req: http.IncomingMessage, socket: import('node:stream').Duplex) => {
+      handleUpgrade: vi.fn(async (_req: http.IncomingMessage, socket: import('node:stream').Duplex, _head?: Buffer, _role?: string) => {
         socket.end('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
       }),
     };
@@ -349,6 +349,38 @@ describe('browser listener', () => {
     expect(await upgrade(port, { path: '/devtools/browser/boundary?token=nope' })).toBe(401);
     expect(await upgrade(port, { path: `/devtools/browser/boundary?token=${BROWSER_TOKEN}`, origin: 'https://evil.example' })).toBe(403);
     expect(await upgrade(port, { path: `/devtools/page/x?token=${BROWSER_TOKEN}` })).toBe(404);
+    expect(relay.handleUpgrade).not.toHaveBeenCalled();
+  });
+
+  it('gives the credential client its own token, on its own path only (ADR 0065)', async () => {
+    const relay = fakeRelay();
+    let accepted = ['credential-now'];
+    servers = await startBridgeServers({
+      mcpToken: MCP_TOKEN,
+      browserToken: BROWSER_TOKEN,
+      callTool: vi.fn(),
+      browserRelay: relay,
+      credentialTokens: () => accepted,
+    });
+    const port = servers.browserPort;
+    expect(await upgrade(port, { path: '/devtools/browser/credentials?token=credential-now' })).toBe(101);
+    expect(relay.handleUpgrade.mock.calls.at(-1)?.[3]).toBe('credentials');
+    expect(await upgrade(port, { path: `/devtools/browser/boundary?token=${BROWSER_TOKEN}` })).toBe(101);
+    expect(relay.handleUpgrade.mock.calls.at(-1)?.[3]).toBe('agent');
+    // Neither token opens the other's path.
+    expect(await upgrade(port, { path: `/devtools/browser/credentials?token=${BROWSER_TOKEN}` })).toBe(401);
+    expect(await upgrade(port, { path: '/devtools/browser/boundary?token=credential-now' })).toBe(401);
+    // Read on every upgrade: a rotated-out token stops working without a restart.
+    accepted = ['credential-next'];
+    expect(await upgrade(port, { path: '/devtools/browser/credentials?token=credential-now' })).toBe(401);
+    expect(await upgrade(port, { path: '/devtools/browser/credentials?token=credential-next' })).toBe(101);
+    expect(relay.handleUpgrade).toHaveBeenCalledTimes(3);
+  });
+
+  it('refuses the credential path when no credential token is set', async () => {
+    const relay = fakeRelay();
+    servers = await startBridgeServers({ mcpToken: MCP_TOKEN, browserToken: BROWSER_TOKEN, callTool: vi.fn(), browserRelay: relay });
+    expect(await upgrade(servers.browserPort, { path: '/devtools/browser/credentials?token=' })).toBe(401);
     expect(relay.handleUpgrade).not.toHaveBeenCalled();
   });
 

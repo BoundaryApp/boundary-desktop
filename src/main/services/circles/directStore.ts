@@ -5,10 +5,10 @@
  */
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { encryptToBase64, tryDecryptFromBase64 } from '../secrets/osEncryption';
+import { encryptToBase64, tryDecryptFromBase64 } from '../../host/storage';
 import type { DirectFile } from './directMessages';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
 
-const CIRCLE_KEY = /^[0-9a-f]{64}$/;
 const SUFFIX = '.dm';
 
 export interface DirectStore {
@@ -21,7 +21,7 @@ export interface DirectStore {
 /** The store under `dir`. Throws on a key that isn't a Circle key, so no path can escape it. */
 export function directStore(dir: string): DirectStore {
   const fileOf = (circleKey: string) => {
-    if (!CIRCLE_KEY.test(circleKey)) throw new Error('That isn’t a Circle key.');
+    if (!HEX_KEY_PATTERN.test(circleKey)) throw new Error('That isn’t a Circle key.');
     return path.join(dir, circleKey + SUFFIX);
   };
   return {
@@ -32,7 +32,7 @@ export function directStore(dir: string): DirectStore {
       } catch {
         return [];
       }
-      return names.filter((name) => name.endsWith(SUFFIX)).map((name) => name.slice(0, -SUFFIX.length)).filter((key) => CIRCLE_KEY.test(key));
+      return names.filter((name) => name.endsWith(SUFFIX)).map((name) => name.slice(0, -SUFFIX.length)).filter((key) => HEX_KEY_PATTERN.test(key));
     },
     async load(circleKey) {
       const file = fileOf(circleKey);

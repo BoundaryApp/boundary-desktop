@@ -19,6 +19,7 @@ import { onServicesHome, type StoreItem } from './addons/storeItems';
 import { startStoppedAddon } from './addons/useAddons';
 import { openBuiltinAddon, openServiceUrl, useStoreItems } from './addons/useStoreItems';
 import { ServiceTile, TileGrid, type TileMenuItem, type TileTone } from './services/ServiceTile';
+import { useStackCapability } from './stackCapabilities';
 
 // The Services screen as a home screen (store spec decision 13): the services that ship with
 // Boundary in one row, everything installed from the store in the next, and the store itself a
@@ -209,6 +210,7 @@ function addonActions(
 /** The installed add-ons as tiles, ending with the way into the store. */
 const AddonsRow: React.FC<{ store(page: StorePage): void; show(line: string | null): void }> = ({ store, show }) => {
   const { items, listings } = useStoreItems();
+  const engineControl = useStackCapability('engineControl');
   if (!items.length) return null;
   const home = items.filter(onServicesHome);
   const more = items.length - home.length;
@@ -230,7 +232,7 @@ const AddonsRow: React.FC<{ store(page: StorePage): void; show(line: string | nu
         aside={
           home.length ? (
             <span className="flex items-center gap-3 text-xs text-fg-faint">
-              {reserved ? <span className="tabular-nums">{`${memGB(reserved)} GB engine memory reserved`}</span> : null}
+              {reserved && engineControl ? <span className="tabular-nums">{`${memGB(reserved)} GB engine memory reserved`}</span> : null}
               <button type="button" className="cursor-pointer font-medium text-brand" onClick={() => store({ view: 'installed' })}>
                 See as a list
               </button>

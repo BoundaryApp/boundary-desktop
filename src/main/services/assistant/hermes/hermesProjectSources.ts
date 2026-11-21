@@ -7,9 +7,13 @@ import type {
   HermesProjectSourcesResult,
   HermesSourceSpec,
 } from '../../../../shared/types/hermesChat';
-import { readAssistantEnvFile, resolveAssistantUserContentRoot } from '../assistantPaths';
+import { resolveAssistantUserContentRoot } from '../assistantPaths';
+import { getStackFiles } from '../../stackHost/activeStack';
+import { getProjectEnv } from '../AssistantStackService';
+import { readStackEnv } from '../stackEnv';
 import { isLocalAssistantStackMode } from '../localStackMode';
 import { resolveActiveAssistantRoot } from '../resolveAssistantRoot';
+import { hostFolderProject } from './hostFolderProject';
 import { getStoredHermesProject, listStoredHermesProjects } from './hermesProjectStore';
 import {
   collectContextExtraRoots,
@@ -36,9 +40,10 @@ import {
   writeSourcesYamlToHub,
 } from './projectSourcesModel';
 import { samePath } from '../../hostPaths';
+import { hasStackCapability, stackCapabilityRefusal } from '../../stackHost/capabilities';
 
-function readMountRoots(): MountRoots {
-  const env = readAssistantEnvFile(resolveActiveAssistantRoot());
+async function readMountRoots(): Promise<MountRoots> {
+  const env = await readStackEnv(getStackFiles(), 'stack', '.env');
   return {
     contextRoots: splitColonPaths(env.CONTEXT_EXTRA_ROOTS),
     codingRoots: readCodingRoots(env),
@@ -57,24 +62,24 @@ async function remountContextRoots(options?: {
   mountLabel?: string;
   undo?: () => void;
 }): Promise<{ success: boolean; error?: string }> {
-  const envRoot = resolveActiveAssistantRoot();
+  const files = getStackFiles();
   let previous: string[] | null = null;
   return syncOverlayAndRecreate({
     mountLabel: options?.mountLabel,
-    prepare: () => {
-      const roots = collectContextExtraRoots({ drop: options?.drop });
+    prepare: async () => {
+      const roots = await collectContextExtraRoots({ drop: options?.drop, files });
       if (isLocalAssistantStackMode()) {
-        upsertHermesContextOverrideBinds(roots, envRoot);
+        await upsertHermesContextOverrideBinds(roots, files);
       }
-      previous = splitColonPaths(readAssistantEnvFile(envRoot).CONTEXT_EXTRA_ROOTS);
-      persistContextExtraRoots(roots, envRoot);
+      previous = splitColonPaths((await readStackEnv(files, 'stack', '.env')).CONTEXT_EXTRA_ROOTS);
+      await persistContextExtraRoots(roots, getProjectEnv());
       return roots;
     },
     rollback: options?.drop
       ? undefined
-      : () => {
+      : async () => {
           options?.undo?.();
-          if (previous) persistContextExtraRoots(previous, envRoot);
+          if (previous) await persistContextExtraRoots(previous, getProjectEnv());
         },
   });
 }
@@ -84,14 +89,14 @@ async function ensureExtraRootMounted(
   hostPath: string,
   undo?: () => void
 ): Promise<HermesProjectSourcesResult> {
-  const mounts = readMountRoots();
+  const mounts = await readMountRoots();
   const codingCovered = pathCoveredByRoots(hostPath, mounts.codingRoots);
   const contextCovered = pathCoveredByRoots(hostPath, mounts.contextRoots);
   if (codingCovered) {
     return { success: true, inspect: await inspectProject(projectId) };
   }
   if (contextCovered) {
-    persistContextExtraRoots(collectContextExtraRoots());
+    await persistContextExtraRoots(await collectContextExtraRoots(), getProjectEnv());
     return { success: true, inspect: await inspectProject(projectId) };
   }
 
@@ -127,7 +132,7 @@ async function inspectProject(projectId: string): Promise<HermesProjectSourcesIn
     throw new Error('Project not found.');
   }
   const loaded = loadSources(project.hostPath);
-  const mounts = readMountRoots();
+  const mounts = await readMountRoots();
   const sources = rowsForSources(loaded.sources, project.hostPath, mounts);
   const stale = loaded.explicit
     ? !(await catalogIsFresh(project.hostPath, loaded.sources))
@@ -145,6 +150,7 @@ async function inspectProject(projectId: string): Promise<HermesProjectSourcesIn
  * needs only this; a full inspect also checks the catalog, which reads every source file.
  */
 export function countHermesProjectExtraSources(projectId: string): number | null {
+  if (!hasStackCapability('hostFolders')) return null;
   const project = getStoredHermesProject(projectId);
   if (!project) return null;
   try {
@@ -157,6 +163,8 @@ export function countHermesProjectExtraSources(projectId: string): number | null
 export async function inspectHermesProjectSources(
   projectId: string
 ): Promise<HermesProjectSourcesResult> {
+  const hostFoldersRefusal = stackCapabilityRefusal('hostFolders');
+  if (hostFoldersRefusal) return { success: false, error: hostFoldersRefusal };
   try {
     return { success: true, inspect: await inspectProject(projectId) };
   } catch (err) {
@@ -175,10 +183,8 @@ export async function addHermesProjectSourceFolder(
   projectId: string,
   chosenPath?: string
 ): Promise<HermesProjectSourcesResult> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, error: 'Project not found.' };
-  }
+  const { project, error: projectError } = hostFolderProject(projectId);
+  if (!project) return { success: false, error: projectError };
   let picked = chosenPath;
   if (!picked) {
     const dialogResult = await dialog.showOpenDialog({
@@ -264,10 +270,8 @@ export async function removeHermesProjectSource(
   projectId: string,
   sourceId: string
 ): Promise<HermesProjectSourcesResult> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, error: 'Project not found.' };
-  }
+  const { project, error: projectError } = hostFolderProject(projectId);
+  if (!project) return { success: false, error: projectError };
   if (sourceId === 'project') {
     return { success: false, error: 'The hub source cannot be removed.' };
   }
@@ -290,7 +294,7 @@ export async function removeHermesProjectSource(
     removed.path === '.' || !removed.path.startsWith('/')
       ? project.hostPath
       : path.resolve(removed.path);
-  const mounts = readMountRoots();
+  const mounts = await readMountRoots();
   const stillListed = listedExtraSourcePaths().some((item) => samePath(item, hostPath));
   if (stillListed || pathCoveredByRoots(hostPath, mounts.codingRoots)) {
     return { success: true, inspect: await inspectProject(project.id) };
@@ -308,10 +312,8 @@ export async function revealHermesProjectSource(
   projectId: string,
   sourceId?: string
 ): Promise<{ success: boolean; error?: string }> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, error: 'Project not found.' };
-  }
+  const { project, error: projectError } = hostFolderProject(projectId);
+  if (!project) return { success: false, error: projectError };
   if (!sourceId || sourceId === 'project') {
     const error = await shell.openPath(project.hostPath);
     if (error) {
@@ -341,10 +343,8 @@ export async function revealHermesProjectSource(
 export async function refreshHermesProjectIndex(
   projectId: string
 ): Promise<HermesProjectSourcesResult> {
-  const project = getStoredHermesProject(projectId);
-  if (!project) {
-    return { success: false, error: 'Project not found.' };
-  }
+  const { project, error: projectError } = hostFolderProject(projectId);
+  if (!project) return { success: false, error: projectError };
   const loaded = loadSources(project.hostPath);
   try {
     await writeIndex(project.hostPath, loaded.sources, loaded.explicit);

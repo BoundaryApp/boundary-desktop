@@ -1,3 +1,5 @@
+import type { IpcResult } from '../ipc/result';
+
 /** How the user left an optional setup step. */
 export type OptionalSetupOutcome = 'done' | 'skipped';
 
@@ -32,16 +34,13 @@ export interface PickFirstRunFoldersResult {
   folders: FirstRunFolderPick[];
 }
 
-export interface SaveFirstRunFoldersResult {
-  success: boolean;
-  error?: string;
+export type SaveFirstRunFoldersResult = IpcResult<{
   progress: SetupProgress;
-}
+}>;
 
-export interface ApplyFirstRunFoldersResult {
-  success: boolean;
+export type ApplyFirstRunFoldersResult = IpcResult<{
   /** The per-project error the chat shows when creating a project failed. */
   error?: string;
   activeId?: string | null;
   progress: SetupProgress;
-}
+}>;

@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { AddonCatalogEntry } from '../../../shared/types/addons';
+import type { StackFiles } from '../stackHost/types';
 import { actualAvailable } from './actualAddon';
 import { bitwardenOffered } from './bitwardenAddon';
 import { builtinAddonAvailable } from './builtinAddons';
@@ -47,10 +46,13 @@ export const ACTUAL_ENTRY: AddonCatalogEntry = {
 };
 
 /**
- * Bitwarden logins (spec decision 26): the broker beside Hermes. Compose gives it no memory
- * reservation and builds its image from the stack's tree (`bitwarden-broker:local`), so the
- * figures are estimates: Python and one `bw` CLI run at a time. It publishes no port; it
- * listens inside Hermes's network namespace.
+ * Bitwarden logins (spec decision 26): the broker beside Hermes, and from stack v0.3.16
+ * `bitwarden-signin`, the Chromium that fills sign-in pages. Both images are built from the
+ * stack's tree, the signer's FROM the Hermes image already on this Mac, so the download is the
+ * broker's. Compose gives neither a memory reservation; it caps the signer at 768 MiB. The
+ * reservation is an estimate (the broker's Python and one `bw` CLI, plus the signer idle between
+ * sign-ins), and the limit adds the signer's cap to the broker's 512 MiB estimate. Neither
+ * publishes a port. The broker stays first: the fit check reads it as the add-on's server.
  */
 export const BITWARDEN_ENTRY: AddonCatalogEntry = {
   id: 'bitwarden',
@@ -59,9 +61,9 @@ export const BITWARDEN_ENTRY: AddonCatalogEntry = {
   version: '1.0.0',
   profile: 'bitwarden',
   flags: ['BITWARDEN_ENABLED'],
-  services: ['bitwarden-broker'],
-  reserveMiB: 256,
-  limitMiB: 512,
+  services: ['bitwarden-broker', 'bitwarden-signin'],
+  reserveMiB: 320,
+  limitMiB: 1280,
   downloadBytes: 300_000_000,
   port: null,
   restartsHermes: false,
@@ -159,29 +161,30 @@ export const LIGHTRAG_ENTRY: AddonCatalogEntry = {
 };
 
 /**
- * Add-ons the stack tree at `stackRoot` can run. Twenty needs `scripts/crm.sh` (stack 0.3.10 and
+ * Add-ons the stack's files can run. Twenty needs `scripts/crm.sh` (stack 0.3.10 and
  * later); Actual needs `scripts/addon.sh` and a manifest with the init and connect hooks (0.3.13); Bitwarden
  * needs `scripts/vault.sh` and a manifest with accounts as instances (CR 0028, after 0.3.12); Email needs `scripts/addon.sh` and a manifest
  * with accounts as instances and a mailboxes command (0.3.13); Todo lists needs `scripts/addon.sh`
  * and a manifest with the `prepare` hook (0.3.15). n8n and LightRAG need `scripts/addon.sh` and
  * their manifests' `builtin` blocks (0.3.13).
  */
-export function availableAddons(
-  stackRoot: string,
-  exists: (p: string) => boolean = fs.existsSync,
-  hasActual: (root: string) => boolean = actualAvailable,
-  hasBitwarden: (root: string) => boolean = bitwardenOffered,
-  hasEmail: (root: string) => boolean = emailAvailable,
-  hasVikunja: (root: string) => boolean = vikunjaAvailable,
-  hasBuiltin: (root: string, id: 'n8n' | 'lightrag') => boolean = builtinAddonAvailable,
-): AddonCatalogEntry[] {
+export async function availableAddons(files: StackFiles): Promise<AddonCatalogEntry[]> {
+  const [twenty, actual, bitwarden, email, vikunja, n8n, lightrag] = await Promise.all([
+    files.exists('stack', 'scripts/crm.sh').catch(() => false),
+    actualAvailable(files),
+    bitwardenOffered(files),
+    emailAvailable(files),
+    vikunjaAvailable(files),
+    builtinAddonAvailable(files, 'n8n'),
+    builtinAddonAvailable(files, 'lightrag'),
+  ]);
   const entries: AddonCatalogEntry[] = [];
-  if (exists(path.join(stackRoot, 'scripts', 'crm.sh'))) entries.push({ ...TWENTY_ENTRY });
-  if (hasActual(stackRoot)) entries.push({ ...ACTUAL_ENTRY });
-  if (hasBitwarden(stackRoot)) entries.push({ ...BITWARDEN_ENTRY });
-  if (hasEmail(stackRoot)) entries.push({ ...EMAIL_ENTRY });
-  if (hasVikunja(stackRoot)) entries.push({ ...VIKUNJA_ENTRY });
-  if (hasBuiltin(stackRoot, 'n8n')) entries.push({ ...N8N_ENTRY });
-  if (hasBuiltin(stackRoot, 'lightrag')) entries.push({ ...LIGHTRAG_ENTRY });
+  if (twenty) entries.push({ ...TWENTY_ENTRY });
+  if (actual) entries.push({ ...ACTUAL_ENTRY });
+  if (bitwarden) entries.push({ ...BITWARDEN_ENTRY });
+  if (email) entries.push({ ...EMAIL_ENTRY });
+  if (vikunja) entries.push({ ...VIKUNJA_ENTRY });
+  if (n8n) entries.push({ ...N8N_ENTRY });
+  if (lightrag) entries.push({ ...LIGHTRAG_ENTRY });
   return entries;
 }

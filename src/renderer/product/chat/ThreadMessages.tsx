@@ -305,8 +305,10 @@ const AssistantMessage: React.FC = () => {
           <ErrorPrimitive.Message />
         </ErrorPrimitive.Root>
         {/* The send never reached Hermes (stack unreachable, decision D3): run it again. */}
-        <ActionBarPrimitive.Reload className="wb-act" aria-label="Retry">
-          Retry
+        <ActionBarPrimitive.Reload asChild>
+          <Button type="button" variant="quiet" size="sm">
+            Retry
+          </Button>
         </ActionBarPrimitive.Reload>
       </MessagePrimitive.Error>
       <AssistantMessageActions />

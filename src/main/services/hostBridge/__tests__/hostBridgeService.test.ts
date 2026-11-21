@@ -6,13 +6,15 @@ import type { StoredCalendarAccount } from '../../assistant/calendar/calendarSto
 /** A fake utilityProcess child that answers `start` with `ready` and exits on `stop`. */
 class FakeChild extends EventEmitter {
   postMessage = vi.fn((message: { type: string }) => {
-    if (message.type === 'start') setImmediate(() => this.emit('message', { type: 'ready', mcpPort: 1, browserPort: 2 }));
+    if (message.type === 'start') setImmediate(() => this.emit('message', { type: 'ready', mcpPort: 1, browserPort: nextBrowserPort }));
     if (message.type === 'stop') setImmediate(() => this.emit('exit', 0));
   });
   kill = vi.fn(() => this.emit('exit', 0));
 }
 
 let lastChild: FakeChild | null = null;
+/** The browser port the next fake bridge reports. */
+let nextBrowserPort = 2;
 const fork = vi.fn(() => (lastChild = new FakeChild()));
 const sent: Array<[string, unknown]> = [];
 
@@ -70,6 +72,10 @@ vi.mock('../../assistant/calendar/calendarStore', async (importOriginal) => ({
     if (calendarStoreFails) throw new Error('store unreadable');
     return calendarAccounts;
   },
+  getMacCalendarAccount: () => {
+    if (calendarStoreFails) throw new Error('store unreadable');
+    return calendarAccounts.find((account) => account.provider === 'mac') ?? null;
+  },
   hasCalendarAccounts: () => calendarAccounts.length > 0,
 }));
 
@@ -107,6 +113,7 @@ beforeEach(() => {
   calendarStoreFails = false;
   debugLog.mockClear();
   helperRequest.mockClear();
+  nextBrowserPort = 2;
 });
 
 describe('host bridge lifecycle', () => {
@@ -494,5 +501,126 @@ describe('calendar route', () => {
     });
     expect(helperRequest).not.toHaveBeenCalled();
     await service.stopHostBridge();
+  });
+});
+
+describe('credential client files (ADR 0065)', () => {
+  let secrets: string;
+
+  beforeEach(() => {
+    secrets = fs.mkdtempSync(`${appDir}/secrets-`);
+  });
+
+  const tokenFile = () => `${secrets}/boundary.token`;
+  const urlFile = () => `${secrets}/boundary.url`;
+  const read = (file: string) => fs.readFileSync(file, 'utf8').trim();
+  const startMessage = (child: FakeChild | null) =>
+    child?.postMessage.mock.calls.map(([message]) => message).find((message) => message.type === 'start') as unknown as {
+      credentialTokens: string[];
+      browserToken: string;
+    };
+  const tokenMessages = (child: FakeChild | null) =>
+    (child?.postMessage.mock.calls.map(([message]) => message) ?? []).filter((message) => message.type === 'credential-tokens') as unknown as Array<{
+      tokens: string[];
+    }>;
+
+  async function startWithFolder(folder: string | null = secrets) {
+    const service = await import('../hostBridgeService');
+    service.setCredentialClientFolder(async () => folder);
+    await service.ensureHostBridgeStarted();
+    // Writes are chained: a refresh resolves once every earlier one has landed.
+    await service.refreshCredentialClientFiles();
+    return service;
+  }
+
+  it('writes the endpoint and a token of its own once the bridge is ready', async () => {
+    const service = await startWithFolder();
+    const start = startMessage(lastChild);
+    expect(start.credentialTokens).toHaveLength(1);
+    expect(read(tokenFile())).toBe(start.credentialTokens[0]);
+    expect(start.credentialTokens[0]).not.toBe(start.browserToken);
+    expect(read(urlFile())).toBe('ws://host.docker.internal:2/devtools/browser/credentials');
+    expect(fs.statSync(tokenFile()).mode & 0o777).toBe(0o600);
+    expect(await service.currentCredentialClientTokens()).toEqual(start.credentialTokens);
+    await service.stopHostBridge();
+  });
+
+  it('rotates the token on its own schedule, without touching the agent token or restarting', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    try {
+      const service = await startWithFolder();
+      const first = read(tokenFile());
+      const agentToken = startMessage(lastChild).browserToken;
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+      await service.refreshCredentialClientFiles();
+      const second = read(tokenFile());
+      expect(second).not.toBe(first);
+      expect(tokenMessages(lastChild).at(-1)?.tokens).toEqual([second, first]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(tokenMessages(lastChild).at(-1)?.tokens).toEqual([second]);
+      expect(fork).toHaveBeenCalledTimes(1);
+      expect(startMessage(lastChild).browserToken).toBe(agentToken);
+      await service.stopHostBridge();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rewrites both files when a new bridge comes up on another port', async () => {
+    const service = await startWithFolder();
+    const first = read(tokenFile());
+    await service.rotateHostBridgeAgentTokens(provisionHermes);
+    // The bridge was replaced; the first one's files went with it.
+    nextBrowserPort = 3;
+    await service.rotateHostBridgeAgentTokens(provisionHermes);
+    await service.refreshCredentialClientFiles();
+    expect(read(urlFile())).toBe('ws://host.docker.internal:3/devtools/browser/credentials');
+    expect(read(tokenFile())).not.toBe(first);
+    expect(read(tokenFile())).toBe(startMessage(lastChild).credentialTokens[0]);
+    await service.stopHostBridge();
+  });
+
+  it('removes both files on quit, on Stop agent and when the bridge exits', async () => {
+    let service = await startWithFolder();
+    await service.stopHostBridge();
+    expect(fs.readdirSync(secrets)).toEqual([]);
+
+    vi.resetModules();
+    service = await startWithFolder();
+    await service.stopHostBridgeAgent(provisionHermes);
+    expect(fs.readdirSync(secrets)).toEqual([]);
+    agentStopped = false;
+
+    vi.resetModules();
+    service = await startWithFolder();
+    expect(fs.readdirSync(secrets)).toHaveLength(2);
+    lastChild?.emit('exit', 1);
+    await service.refreshCredentialClientFiles();
+    expect(fs.readdirSync(secrets)).toEqual([]);
+    expect(await service.currentCredentialClientTokens()).toEqual([]);
+    await service.stopHostBridge();
+  });
+
+  it("writes nothing when the add-on isn't set up or there is no stack", async () => {
+    const missing = `${secrets}/not-there`;
+    let service = await startWithFolder(missing);
+    expect(fs.existsSync(missing)).toBe(false);
+    await service.stopHostBridge();
+    vi.resetModules();
+    service = await startWithFolder(null);
+    await service.stopHostBridge();
+    expect(fs.readdirSync(secrets)).toEqual([]);
+  });
+
+  it('never logs the token or the endpoint', async () => {
+    const service = await startWithFolder();
+    const token = read(tokenFile());
+    const url = read(urlFile());
+    await service.stopHostBridge();
+    const logged = JSON.stringify(debugLog.mock.calls);
+    expect(logged).toContain('credential client files');
+    expect(logged).not.toContain(token);
+    expect(logged).not.toContain(url);
+    expect(logged).not.toContain(secrets);
   });
 });

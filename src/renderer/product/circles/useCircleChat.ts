@@ -6,6 +6,7 @@ import type {
   CircleMessageRef,
   CirclesResult,
 } from '../../../shared/types/circles';
+import { sameRef } from '../../../shared/circleMessageRef';
 import { usePerCircle } from './usePerCircle';
 
 /** A person chosen from the @ menu. */
@@ -43,7 +44,6 @@ export function onNotifyPrefs(listener: (circleKey: string) => void): () => void
 }
 
 const api = () => window.electronAPI.circles;
-const sameRef = (a: CircleMessageRef, b: CircleMessageRef): boolean => a.author === b.author && a.id === b.id;
 
 function errorOf(result: CirclesResult<object>): string | null {
   // `=== false`, not `!`: without strictNullChecks only the literal compare narrows.

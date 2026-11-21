@@ -1,19 +1,23 @@
 import React, { useState } from 'react';
 import { Callout } from '../../components/ui/alert';
+import { Input } from '../../components/ui/input';
 import { Field } from '../../components/ui/field';
 import { Sheet, SheetConfirmActions } from '../../components/ui/sheet';
-import { cn } from '../../lib/utils';
+import { useSheetAction } from '../../components/ui/use-sheet-action';
 import type { TwentyAccess, TwentyConnectInput, TwentyConnectResult } from '../../../shared/types/addons';
-import { ACCESS_LABEL } from './addonCopy';
+import { ACCESS_LABEL, ADDON_SLUG_RULE } from './addonCopy';
 import { ChangeWayLink, STILL_SHEET } from './addonFormParts';
 import { reloadTwenty } from './useTwenty';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
+import { ADDON_SLUG } from '../../../shared/utils/slug';
 
 // The form for connecting a hosted Twenty workspace (docs/addons-ux-study/phase4.html, the
 // connect dialog). Main passes the keys to `crm.sh add`, which checks each one with Twenty
 // before saving. The keys live only in the two controlled inputs, and the form unmounts, and
 // forgets them, when the sheet closes.
 
-const SLUG = /^[a-z0-9-]+$/;
 const URL_START = /^https?:\/\/\S+$/;
 const ACCESS_HELP: Record<TwentyAccess, string> = {
   read: 'Uses the read-only key. What it can still change depends on its role in Twenty.',
@@ -82,12 +86,17 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
   const [ro, setRo] = useState('');
   const [access, setAccess] = useState<TwentyAccess>('write');
   const [replace, setReplace] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [failure, setFailure] = useState<{ title: string; body: string; rows: Row[] } | null>(null);
+  const sheet = useSheetAction();
+  const checking = sheet.busy;
+  const [returned, setFailure] = useState<{ title: string; body: string; rows: Row[] } | null>(null);
+  const failure = returned ?? (sheet.error ? { title: 'The check didn’t finish', body: sheet.error, rows: [] } : null);
   const [taken, setTaken] = useState(false);
 
-  const edited = () => setFailure(null);
-  const slugOk = SLUG.test(slug);
+  const edited = () => {
+    setFailure(null);
+    sheet.setError(null);
+  };
+  const slugOk = ADDON_SLUG.test(slug);
   const isMain = slug === 'main';
   const exists = !isMain && (taken || existing.includes(slug));
   const keyNeeded = access === 'write' ? !rw : !ro;
@@ -95,31 +104,23 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
   const keys = [rw ? 'RW' : null, ro ? 'RO' : null].filter((k): k is 'RW' | 'RO' => k !== null);
 
   const submit = async () => {
-    setChecking(true);
     setFailure(null);
     const input: TwentyConnectInput = { slug, url, keyRw: rw, keyRo: ro, access, replace };
-    let outcome: Failed | null = null;
-    let thrown: string | null = null;
-    try {
+    await sheet.run(async () => {
       const reply = await window.electronAPI.addons.twenty.connect(input);
-      if (!reply.success) thrown = reply.error ?? 'Couldn’t reach Boundary’s add-on service.';
-      const result = reply.success ? reply.result : null;
-      if (result && !result.ok) outcome = result as Failed;
-    } catch (e) {
-      thrown = e instanceof Error ? e.message : String(e);
-    }
-    setChecking(false);
-    if (thrown) {
-      setFailure({ title: 'The check didn’t finish', body: thrown, rows: [] });
-      return;
-    }
-    if (outcome) {
-      if (outcome.reason === 'exists') setTaken(true);
-      setFailure({ ...failureText(outcome, url), rows: checkRows(url, keys, outcome) });
-      return;
-    }
-    void reloadTwenty();
-    onClose();
+      if (!reply.success) {
+        setFailure({ title: 'The check didn’t finish', body: reply.error ?? 'Couldn’t reach Boundary’s add-on service.', rows: [] });
+        return;
+      }
+      if (!reply.result.ok) {
+        const outcome = reply.result as Failed;
+        if (outcome.reason === 'exists') setTaken(true);
+        setFailure({ ...failureText(outcome, url), rows: checkRows(url, keys, outcome) });
+        return;
+      }
+      void reloadTwenty();
+      onClose();
+    });
   };
 
   const rows = checking ? checkRows(url, keys, 'running') : (failure?.rows ?? []);
@@ -148,7 +149,7 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
         records. A second key with a read-only role is optional; unattended runs need it.
       </p>
       <Field label="Twenty address" htmlFor="twenty-connect-url" hint="The instance address. The key picks the workspace.">
-        <input
+        <Input
           id="twenty-connect-url"
           value={url}
           placeholder="https://crm.example.com"
@@ -168,7 +169,7 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
           isMain ? (
             'crm-main is this Mac’s Twenty. Pick another name.'
           ) : slug && !slugOk ? (
-            <span className="text-danger">Lowercase letters, digits and hyphens only.</span>
+            <span className="text-danger">{ADDON_SLUG_RULE}</span>
           ) : exists ? (
             <span className="text-danger">
               {`crm-${slug} already exists. `}
@@ -183,9 +184,9 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
           )
         }
       >
-        <input
+        <Input
           id="twenty-connect-slug"
-          className={cn('font-mono', (isMain || (slug && !slugOk)) && 'border-danger')}
+          className="font-mono" aria-invalid={Boolean(isMain || (slug && !slugOk))}
           value={slug}
           disabled={checking}
           autoComplete="off"
@@ -199,7 +200,7 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
         />
       </Field>
       <Field label="Read-write API key" htmlFor="twenty-connect-rw">
-        <input
+        <Input
           id="twenty-connect-rw"
           type="password"
           className="font-mono"
@@ -218,7 +219,7 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
         htmlFor="twenty-connect-ro"
         hint="Without it, scheduled tasks and other unattended runs don’t get this workspace."
       >
-        <input
+        <Input
           id="twenty-connect-ro"
           type="password"
           className="font-mono"
@@ -232,35 +233,38 @@ const ConnectForm: React.FC<{ existing: string[]; onClose(): void; onChangeWay?(
           }}
         />
       </Field>
-      <div role="radiogroup" aria-label="What agents may do" className="mb-3.5 flex flex-col gap-2">
-        <span className="text-xs font-medium text-fg">What agents may do</span>
-        {(['read', 'write'] as const).map((value) => (
-          <label key={value} className="flex cursor-pointer items-start gap-2 text-xs">
-            <input
-              type="radio"
-              name="twenty-connect-access"
-              className="mt-0.5"
-              checked={access === value}
-              disabled={checking}
-              onChange={() => {
-                setAccess(value);
-                edited();
-              }}
-            />
-            <span className="flex flex-col gap-0.5">
-              <b className="font-medium text-fg">{ACCESS_LABEL[value]}</b>
-              <span className="text-fg-muted">{ACCESS_HELP[value]}</span>
+      <ChoiceGroup
+        label="What agents may do"
+        kind="radio"
+        hint={
+          keyNeeded && (rw || ro) ? (
+            <span className="text-danger">
+              {access === 'write'
+                ? 'Make changes needs the read-write key.'
+                : 'Look things up needs the read-only key.'}
             </span>
-          </label>
+          ) : undefined
+        }
+      >
+        {(['read', 'write'] as const).map((value) => (
+          <ChoiceRow
+            key={value}
+            control={
+              <Radio
+                name="twenty-connect-access"
+                checked={access === value}
+                disabled={checking}
+                onChange={() => {
+                  setAccess(value);
+                  edited();
+                }}
+              />
+            }
+            title={ACCESS_LABEL[value]}
+            description={ACCESS_HELP[value]}
+          />
         ))}
-        {keyNeeded && (rw || ro) ? (
-          <span className="text-xs text-danger">
-            {access === 'write'
-              ? 'Make changes needs the read-write key.'
-              : 'Look things up needs the read-only key.'}
-          </span>
-        ) : null}
-      </div>
+      </ChoiceGroup>
       <p className="mb-3 text-xs text-fg-faint">
         Boundary passes the keys to the agent stack, which checks each one with Twenty before saving. Boundary
         doesn’t keep a copy.

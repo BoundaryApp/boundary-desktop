@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type {
   DetectorCheckResult,
   DetectorErrorCode,
@@ -9,7 +7,8 @@ import type {
   DetectorStatus,
 } from '../../../../shared/types/writingCheck';
 import { persistDebugLog } from '../../../persistDebugLog';
-import { readEnvFile } from '../stackEnv';
+import { readStackEnv } from '../stackEnv';
+import type { StackEndpoints, StackFiles } from '../../stackHost/types';
 
 /**
  * The stack's AI text detector add-on (CR 0030, stack v0.3.14 `docs/detector.md`), for the
@@ -19,10 +18,10 @@ import { readEnvFile } from '../stackEnv';
  */
 
 export interface DetectorDeps {
-  /** The active stack checkout, or null when there is none. */
-  stackRoot(): string | null;
-  /** The stack's data root for a checkout (`ASSISTANT_DATA_ROOT`, default `<root>/data`). */
-  dataRoot(root: string): string;
+  /** The active stack's files. The token is read from `userContent`, the folder `ASSISTANT_DATA_ROOT` names. */
+  files: StackFiles;
+  /** Turns the add-on's port into a URL on this machine. */
+  endpoints: Pick<StackEndpoints, 'portUrl'>;
   fetch: typeof fetch;
   consent: { has(provider: DetectorProvider): boolean; add(provider: DetectorProvider): void };
 }
@@ -51,32 +50,29 @@ const UNREADABLE = 'The detector add-on sent an answer Boundary couldn’t read.
 
 interface Endpoint {
   baseUrl: string;
-  tokenPath: string;
-  manifestPath: string;
 }
 
-function endpoint(deps: DetectorDeps): Endpoint | null {
-  const root = deps.stackRoot();
-  if (!root) return null;
-  const port = readEnvFile(path.join(root, '.env')).DETECTOR_PORT?.trim() || DEFAULT_PORT;
-  return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    tokenPath: path.join(deps.dataRoot(root), 'addons', 'detector', 'secrets', 'http_token'),
-    manifestPath: path.join(root, 'addons', 'detector', 'addon.json'),
-  };
+const TOKEN_REL = 'addons/detector/secrets/http_token';
+const MANIFEST_REL = 'addons/detector/addon.json';
+
+async function endpoint(deps: DetectorDeps): Promise<Endpoint> {
+  const port = (await readStackEnv(deps.files, 'stack', '.env')).DETECTOR_PORT?.trim() || DEFAULT_PORT;
+  return { baseUrl: deps.endpoints.portUrl(Number(port)) };
 }
 
-function readToken(tokenPath: string): string | null {
+async function readToken(files: StackFiles): Promise<string | null> {
   try {
-    return fs.readFileSync(tokenPath, 'utf8').trim() || null;
+    return (await files.readText('userContent', TOKEN_REL))?.trim() || null;
   } catch {
     return null;
   }
 }
 
-function readDataLeaves(manifestPath: string): string | null {
+async function readDataLeaves(files: StackFiles): Promise<string | null> {
   try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+    const raw = await files.readText('stack', MANIFEST_REL);
+    if (raw === null) return null;
+    const manifest = JSON.parse(raw) as {
       store?: { dataLeaves?: unknown };
     };
     const text = manifest.store?.dataLeaves;
@@ -98,11 +94,10 @@ function logStatus(reason: string): void {
 
 /** Available only when the add-on is in this stack, has its token, and answers /health. */
 export async function detectorStatus(deps: DetectorDeps): Promise<DetectorStatus> {
-  const at = endpoint(deps);
-  if (!at) return { available: false };
-  const dataLeaves = readDataLeaves(at.manifestPath);
+  const dataLeaves = await readDataLeaves(deps.files);
   if (!dataLeaves) return { available: false };
-  const token = readToken(at.tokenPath);
+  const at = await endpoint(deps);
+  const token = await readToken(deps.files);
   if (!token) {
     logStatus('no_token');
     return { available: false };
@@ -183,11 +178,10 @@ export async function checkWithDetector(text: string, deps: DetectorDeps): Promi
   const fail = (code: DetectorErrorCode, message: string, status?: number) =>
     finish({ ok: false, error: { code, message } }, status);
 
-  const at = endpoint(deps);
-  if (!at) return fail('unavailable', UNAVAILABLE);
+  const at = await endpoint(deps);
 
   const post = async (): Promise<Response | null> => {
-    const token = readToken(at.tokenPath);
+    const token = await readToken(deps.files);
     if (!token) return null;
     return deps.fetch(`${at.baseUrl}/check`, {
       method: 'POST',

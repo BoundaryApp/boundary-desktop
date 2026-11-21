@@ -3,9 +3,9 @@ import { isReactionEmoji, MAX_REACTIONS_PER_MESSAGE, REACTIONS_APP } from '../..
 import type { CircleMessageRef, CircleReaction } from '../../../shared/types/circles';
 import { isRecordName } from './circleOps';
 import type { CircleRecordEntry } from './networkMessages';
+import { HEX_KEY_PATTERN } from '../../../shared/hexKeys';
+import { MESSAGE_ID_PATTERN } from '../../../shared/circleReplies';
 
-const HEX64 = /^[0-9a-f]{64}$/;
-const MESSAGE_ID = /^[0-9a-f]{16,32}$/;
 const MAX_NAME = 80;
 
 export interface ReactionRecordValue {
@@ -33,8 +33,8 @@ export const parseReactionRecord = (record: CircleRecordEntry): ReactionRecordVa
   const v = record.value;
   if (!v || typeof v !== 'object') return null;
   const { channel, author, id, name, emoji } = v as Record<string, unknown>;
-  if (typeof author !== 'string' || !HEX64.test(author)) return null;
-  if (typeof id !== 'string' || !MESSAGE_ID.test(id)) return null;
+  if (typeof author !== 'string' || !HEX_KEY_PATTERN.test(author)) return null;
+  if (typeof id !== 'string' || !MESSAGE_ID_PATTERN.test(id)) return null;
   if (!isRecordName(channel)) return null;
   if (record.key !== reactionRecordKey(channel, author, id)) return null;
   if (typeof name !== 'string' || !name || name.length > MAX_NAME) return null;

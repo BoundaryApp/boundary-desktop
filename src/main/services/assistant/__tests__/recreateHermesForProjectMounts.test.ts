@@ -9,6 +9,7 @@ const { isLocalAssistantStackMode, checkout } = vi.hoisted(() => ({
   checkout: { root: '' },
 }));
 
+vi.mock('../../addons/addonComposeState', async () => (await import('./addonComposeStateStub')).addonComposeStateStub());
 vi.mock('../../containerRuntime', async (importOriginal) =>
   (await import('./stackServiceMocks')).containerRuntimeMock(await importOriginal(), fakes)
 );

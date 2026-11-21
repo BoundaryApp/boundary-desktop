@@ -1,12 +1,16 @@
 import React from 'react';
 import type { Precision, PoolSettings, TrustLevel } from '../../../shared/types/confidential';
 import { Button } from '../../components/ui/button';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Field } from '../../components/ui/field';
 import { Sheet } from '../../components/ui/sheet';
 import { CONFIDENTIAL_COPY } from './confidentialCopy';
 import { LevelBadge } from './LevelBadge';
 import { useConfidentialState } from './useConfidentialState';
 import { Switch } from '../../components/ui/switch';
+import { ChoiceGroup } from '../../components/ui/choice-group';
+import { ChoiceRow } from '../../components/ui/choice-row';
+import { Radio } from '../../components/ui/radio';
 
 const LEVEL_TITLES: Record<TrustLevel, string> = { A: 'Level A only', B: 'Level B or better', C: 'Any level' };
 const LEVELS: TrustLevel[] = ['A', 'B', 'C'];
@@ -25,20 +29,21 @@ const LevelChoice: React.FC<{
   value: TrustLevel;
   onChange: (level: TrustLevel) => void;
 }> = ({ name, label, value, onChange }) => (
-  <div role="radiogroup" aria-label={label} className="wb-conf-radios">
-    <p className="wb-conf-kicker">{label}</p>
+  <ChoiceGroup label={label} kind="radio">
     {LEVELS.map((level) => (
-      <label key={level} className="wb-conf-radio">
-        <input type="radio" name={name} checked={value === level} onChange={() => onChange(level)} />
-        <span className="wb-inf-row-text">
-          <b>
+      <ChoiceRow
+        key={level}
+        variant="card"
+        control={<Radio name={name} checked={value === level} onChange={() => onChange(level)} />}
+        title={
+          <>
             <LevelBadge level={level} /> {LEVEL_TITLES[level]}
-          </b>
-          <span>{CONFIDENTIAL_COPY.levels[level].text}</span>
-        </span>
-      </label>
+          </>
+        }
+        description={CONFIDENTIAL_COPY.levels[level].text}
+      />
     ))}
-  </div>
+  </ChoiceGroup>
 );
 
 const SwitchRow: React.FC<{
@@ -47,13 +52,14 @@ const SwitchRow: React.FC<{
   onChange: (on: boolean) => void;
   children: React.ReactNode;
 }> = ({ label, on, onChange, children }) => (
-  <div className="wb-conf-switch">
-    <span className="wb-inf-row-text">
-      <b>{label}</b>
-      {children}
-    </span>
-    <Switch checked={on} label={label} onChange={onChange} />
-  </div>
+  <ChoiceRow
+    variant="card"
+    controlAt="end"
+    className="mb-2"
+    control={<Switch checked={on} label={label} onChange={onChange} />}
+    title={label}
+    description={children}
+  />
 );
 
 /**
@@ -107,7 +113,7 @@ export const PoolSettingsSheet: React.FC<{ open: boolean; onClose: () => void; o
         htmlFor="pool-lowest-precision"
         hint="Some providers run smaller copies of a model to cut cost. A pool only uses copies at this precision or higher."
       >
-        <select
+        <NativeSelect
           id="pool-lowest-precision"
           value={settings.lowestPrecision}
           onChange={(event) => save({ lowestPrecision: event.target.value as Precision })}
@@ -117,7 +123,7 @@ export const PoolSettingsSheet: React.FC<{ open: boolean; onClose: () => void; o
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <SwitchRow
         label="Use providers that don’t state their precision"
@@ -136,9 +142,9 @@ export const PoolSettingsSheet: React.FC<{ open: boolean; onClose: () => void; o
           provider fails, or another is cheaper by more than:
         </span>
         {settings.preferOneProvider ? (
-          <select
+          <NativeSelect
             aria-label="Move when another provider is cheaper by more than"
-            className="wb-conf-threshold"
+            className="mt-2 w-auto max-w-[160px]"
             value={settings.preferThresholdPercent}
             onChange={(event) =>
               save({ preferThresholdPercent: Number(event.target.value) as PoolSettings['preferThresholdPercent'] })
@@ -149,7 +155,7 @@ export const PoolSettingsSheet: React.FC<{ open: boolean; onClose: () => void; o
                 {percent}%
               </option>
             ))}
-          </select>
+          </NativeSelect>
         ) : null}
       </SwitchRow>
     </Sheet>

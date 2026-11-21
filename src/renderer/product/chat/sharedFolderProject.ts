@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SharedFolderOnMac } from '../../../shared/types/sharedFolders';
+import { joinNames } from '../../../shared/utils/format';
 import { folderKey } from './codingFolderView';
 
 /**
@@ -28,7 +29,7 @@ const sameDay = (at: number) => new Date(at).toLocaleDateString([], { day: 'nume
 function managerLine(managers: string[]): string {
   if (managers.length === 0) return 'Its managers';
   if (managers.length === 1) return managers[0] === 'you' ? 'You' : managers[0];
-  return `${managers.slice(0, -1).join(', ')} and ${managers[managers.length - 1]}`;
+  return joinNames(managers);
 }
 
 /** The Folders row's tag and the line under it. `coding` is whether the coding agent may edit here. */

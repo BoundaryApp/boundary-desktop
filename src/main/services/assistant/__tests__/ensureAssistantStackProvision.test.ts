@@ -30,7 +30,6 @@ const isHostSetupComplete = vi.fn();
 const markHostSetupComplete = vi.fn();
 const needsImageBuild = vi.fn();
 const markImagesBuilt = vi.fn();
-const isBoundaryOwnedAssistantRoot = vi.fn();
 const ensureAddonMountSources = vi.fn(async (_root: string) => {});
 const httpOk = vi.fn();
 const removeIncompleteHermesProfiles = vi.fn();
@@ -58,8 +57,22 @@ vi.mock('../../addons/builtinAddons', async () => {
     ...actual,
     builtinAddonAvailable: () => true,
     readBuiltinEnabled: (_root: string, id: 'n8n' | 'lightrag') => builtin[id],
-    moveBuiltinSwitchesToEnv: (root: string, deps: { stored(): Record<string, boolean> }) => {
+    moveBuiltinSwitchesToEnv: async (_files: unknown, root: string, deps: { stored(): Record<string, boolean> }) => {
       builtin.moves.push({ root, stored: deps.stored() });
+      return {};
+    },
+  };
+});
+
+/** Calls that carried Twenty's flags into the stack's `.env`, with the installed state they read. */
+const twentyMoves = vi.hoisted(() => [] as Array<{ root: string; installed: boolean }>);
+
+vi.mock('../../addons/addonComposeState', async () => {
+  const actual = await vi.importActual<typeof import('../../addons/addonComposeState')>('../../addons/addonComposeState');
+  return {
+    ...actual,
+    moveTwentyFlagsToEnv: async (_files: unknown, root: string, deps: { installed(root: string): boolean }) => {
+      twentyMoves.push({ root, installed: deps.installed(root) });
       return {};
     },
   };
@@ -103,7 +116,6 @@ vi.mock('../assistantPaths', () => ({
   resolveAssistantUserContentRoot: () => '/tmp/boundary-project/data',
   resolveAssistantProjectRoot: () => '/tmp/boundary-project',
   resolveAssistantStackHome: () => '/tmp/assistant-stack-home',
-  isBoundaryOwnedAssistantRoot: (...args: unknown[]) => isBoundaryOwnedAssistantRoot(...args),
   ensureOpenCodeConfigFile: async () => '/tmp/opencode.json',
   ensureAssistantDataDirs: async () => {},
   ensureAddonMountSources: (root: string) => ensureAddonMountSources(root),
@@ -111,6 +123,16 @@ vi.mock('../assistantPaths', () => ({
   hermesConfigExists: () => true,
   removeIncompleteHermesProfiles: (...args: unknown[]) => removeIncompleteHermesProfiles(...args),
 }));
+
+const caps = vi.hoisted(() => ({ provision: true }));
+vi.mock('../../stackHost/capabilities', async () =>
+  (await import('../../stackHost/fakeStackHost')).fakeCapabilitiesModule(() => ({
+    hostFolders: true,
+    hostCallbacks: true,
+    provision: caps.provision,
+    engineControl: true,
+  }))
+);
 
 vi.mock('../provisionSovereignStack', () => ({
   ensureSovereignProjectProvisioned: (...args: unknown[]) =>
@@ -158,6 +180,8 @@ vi.mock('../AssistantStackStore', async () => {
 
 vi.mock('../../onboarding/OpenAiOnboardingStore', () => ({
   getLlmConnection: (): null => null,
+}));
+vi.mock('../../inference/appInferenceChoice', () => ({
   getAppSharedModel: (): null => null,
 }));
 
@@ -207,7 +231,6 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     runSovereignSetup.mockReset();
     isHostSetupComplete.mockReset();
     markHostSetupComplete.mockReset();
-    isBoundaryOwnedAssistantRoot.mockReset();
     httpOk.mockReset();
     needsImageBuild.mockReset().mockReturnValue(false);
     markImagesBuilt.mockReset().mockResolvedValue(undefined);
@@ -234,6 +257,7 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     builtin.n8n = false;
     builtin.lightrag = false;
     builtin.moves = [];
+    twentyMoves.length = 0;
     runCompose.mockImplementation(async (_runtime: unknown, args: string[]) => ({
       stdout: args.includes('config') ? `${COMPOSE_SERVICES.join('\n')}\n` : '[]',
       stderr: '',
@@ -241,7 +265,6 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     runCli.mockResolvedValue({ stdout: '', stderr: '' });
     ensureSovereignProjectProvisioned.mockResolvedValue('/tmp/boundary-project');
     markHostSetupComplete.mockResolvedValue(undefined);
-    isBoundaryOwnedAssistantRoot.mockReturnValue(true);
 
     vi.stubGlobal(
       'fetch',
@@ -285,6 +308,22 @@ describe('ensureAssistantStackRunning host setup gating', () => {
       (_order, i) => (runComposeStreaming.mock.calls[i][1] as string[]).includes('up')
     );
     expect(ensureAddonMountSources.mock.invocationCallOrder[0]).toBeLessThan(up ?? 0);
+  });
+
+  it('neither provisions nor runs setup.sh on a host without provision, and still starts', async () => {
+    caps.provision = false;
+    try {
+      isHostSetupComplete.mockReturnValue(false);
+      __test.resetLifecycle();
+
+      const result = await ensureAssistantStackRunning();
+      expect(result.success).toBe(true);
+      expect(ensureSovereignProjectProvisioned).not.toHaveBeenCalled();
+      expect(runSovereignSetup).not.toHaveBeenCalled();
+      expect(markHostSetupComplete).not.toHaveBeenCalled();
+    } finally {
+      caps.provision = true;
+    }
   });
 
   it('skips setup.sh when host setup already complete', async () => {
@@ -415,7 +454,7 @@ describe('ensureAssistantStackRunning host setup gating', () => {
 
     const result = await ensureAssistantStackRunning();
     expect(result.success).toBe(true);
-    expect(clearLlmKeysFromProjectEnv).toHaveBeenCalledWith('/tmp/boundary-project');
+    expect(clearLlmKeysFromProjectEnv).toHaveBeenCalledTimes(1);
     const recreate = runCompose.mock.calls.find(([, args]) =>
       (args as string[]).includes('llm-proxy')
     );
@@ -445,7 +484,6 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     it('are left alone in a local checkout that Boundary starts itself', async () => {
       vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', '/tmp/dev-assistant-checkout');
       isHostSetupComplete.mockReturnValue(true);
-      isBoundaryOwnedAssistantRoot.mockReturnValue(false);
       stackComesUpOnCompose();
       __test.resetLifecycle();
 
@@ -619,12 +657,13 @@ describe('ensureAssistantStackRunning host setup gating', () => {
     });
 
     it('leaves the .env alone for a stack Boundary doesn’t own', async () => {
-      isBoundaryOwnedAssistantRoot.mockReturnValue(false);
+      vi.stubEnv('BOUNDARY_ASSISTANT_ROOT', '/tmp/dev-assistant-checkout');
       isHostSetupComplete.mockReturnValue(true);
       stackComesUpOnCompose();
       __test.resetLifecycle();
       await ensureAssistantStackRunning();
       expect(builtin.moves).toEqual([]);
+      expect(twentyMoves).toEqual([]);
     });
 
     it('leaves n8n and the GPT Researcher API off the start-up cards while n8n is off', async () => {
@@ -718,9 +757,11 @@ describe('ensureAssistantStackRunning host setup gating', () => {
         await ensureAssistantStackRunning();
         const { args, env } = upCall();
         expect(args.join(' ')).toContain('--profile crm');
-        expect(env.TWENTY_LOCAL_ENABLED).toBe('1');
-        expect(env.TWENTY_MCP_ENABLED).toBe('1');
+        // The flags come from the stack's .env, which the move below writes before `up`.
+        expect(env.TWENTY_LOCAL_ENABLED).toBeUndefined();
+        expect(env.TWENTY_MCP_ENABLED).toBeUndefined();
         expect(env.COMPOSE_PROFILES?.split(',')).toContain('crm');
+        expect(twentyMoves).toEqual([{ root, installed: true }]);
       } finally {
         setAddonInstalled(root, 'twenty', false);
       }

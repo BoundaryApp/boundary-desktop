@@ -11,10 +11,11 @@ import {
   ComposerPrimitive,
 } from '@assistant-ui/react';
 import { useAui, useAuiState } from '@assistant-ui/store';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Button } from '../../components/ui/button';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/menu';
 import { isElement, useCopyText, useOwnerDocument } from '../../components/ui/ownerDocument';
 import type { HermesChatMessage, HermesProjectRecord } from '../../../shared/types/hermesChat';
-import { projectRelativePath, uniquePreserveOrder } from '../../../shared/hermesToolPaths';
+import { projectPathsOf } from './projectPaths';
 import {
   formatDayAndTime,
   formatDayLabel,
@@ -30,6 +31,7 @@ import { messageCustom } from './messageCustom';
 import { useServerPath } from './HermesChatRuntimeProvider';
 import { CONTINUE_RUN_CONFIG } from './hermesChatModelAdapter';
 import { isReplyInterrupted } from './runInterrupts';
+import { useStackCapability } from '../stackCapabilities';
 
 // Hover row and day dividers for transcript messages (message-actions spec, Phase 1).
 // The row is always mounted and revealed with CSS on hover or focus-within, so Tab
@@ -170,15 +172,16 @@ const BranchAction: React.FC = () => {
   const running = useAuiState((s) => s.thread.isRunning);
   if (!onBranch || running || serverPath?.canRewind() === false) return null;
   return (
-    <button
+    <Button
       type="button"
-      className="wb-act"
+      variant="quiet"
+      size="icon-xs"
       aria-label="Branch to new chat"
-      data-tip="Branch to new chat"
+      title="Branch to new chat"
       onClick={() => onBranch(branchRequestAt(aui.thread.getState().messages, index))}
     >
       <BranchIcon />
-    </button>
+    </Button>
   );
 };
 
@@ -220,69 +223,61 @@ const MoreAction: React.FC = () => {
 
   if (!extras || (isUser && !extras.onShare)) return null;
   const replyText = () => textOf(aui.message.getState());
-  const pick = (action: () => void) => () => {
-    setOpen(false);
-    action();
-  };
 
   return (
     <span className={`wb-more${open ? ' is-open' : ''}`}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger>
-          <button
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger>
+          <Button
             type="button"
-            className="wb-act"
+            variant="quiet"
+            size="icon-xs"
+            className="wb-copy-act"
             aria-label="More"
-            aria-haspopup="menu"
-            aria-expanded={open}
             data-copied={copied ? 'true' : undefined}
           >
             {copied ? <CheckIcon /> : <MoreIcon />}
             <span className="wb-act-label">Copied</span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="wb-menu" role="menu" side="top" align="start">
+          </Button>
+        </MenuTrigger>
+        <MenuContent side="top" align="start">
           {isUser ? null : (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={pick(() => {
+              <MenuItem
+                onSelect={() => {
                   void copyText(markdownToPlainText(replyText())).then((done) => {
                     if (done) setCopied(true);
                   });
-                })}
+                }}
               >
                 Copy as plain text
-              </button>
-              <button type="button" role="menuitem" onClick={pick(() => extras.onQuote(replyText()))}>
+              </MenuItem>
+              <MenuItem
+                description="or select text to quote part of it"
+                onSelect={() => extras.onQuote(replyText())}
+              >
                 Quote in reply
-                <small>or select text to quote part of it</small>
-              </button>
+              </MenuItem>
             </>
           )}
           {extras.onShare ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={pick(() => extras.onShare?.({ text: replyText(), role: isUser ? 'user' : 'assistant' }))}
+            <MenuItem
+              description="everyone in the Circle gets a copy"
+              onSelect={() => extras.onShare?.({ text: replyText(), role: isUser ? 'user' : 'assistant' })}
             >
               Share to Circle…
-              <small>everyone in the Circle gets a copy</small>
-            </button>
+            </MenuItem>
           ) : null}
           {!isUser && extras.saveTo ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={pick(() => extras.saveTo?.onSave(replyText()))}
+            <MenuItem
+              description="writes a .md file into the project folder"
+              onSelect={() => extras.saveTo?.onSave(replyText())}
             >
               Save to {extras.saveTo.projectName}…
-              <small>writes a .md file into the project folder</small>
-            </button>
+            </MenuItem>
           ) : null}
-        </PopoverContent>
-      </Popover>
+        </MenuContent>
+      </Menu>
     </span>
   );
 };
@@ -463,29 +458,34 @@ export const FileActions: React.FC<{
   const hostPath = `${project.hostPath.replace(/\/+$/, '')}/${relativePath}`;
   const containerPath = `${project.containerPath.replace(/\/+$/, '')}/${relativePath}`;
   const copyText = useCopyText();
+  const hostFolders = useStackCapability('hostFolders');
   return (
     <span className="wb-file-acts">
       {onPreview && isPreviewablePath(relativePath) ? (
-        <button type="button" className="wb-act" onClick={() => onPreview(containerPath)}>
+        <Button type="button" variant="quiet" size="sm" onClick={() => onPreview(containerPath)}>
           Preview
-        </button>
+        </Button>
       ) : null}
-      <button
+      {hostFolders ? (
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          onClick={() => {
+            void window.electronAPI.hermesChat
+              .revealProjectFile({ projectId: project.id, relativePath })
+              .then((result) => {
+                if (!result.success) onNotice(result.error ?? 'Could not show the file.');
+              });
+          }}
+        >
+          Reveal
+        </Button>
+      ) : null}
+      <Button
         type="button"
-        className="wb-act"
-        onClick={() => {
-          void window.electronAPI.hermesChat
-            .revealProjectFile({ projectId: project.id, relativePath })
-            .then((result) => {
-              if (!result.success) onNotice(result.error ?? 'Could not show the file.');
-            });
-        }}
-      >
-        Reveal
-      </button>
-      <button
-        type="button"
-        className="wb-act"
+        variant="quiet"
+        size="sm"
         onClick={() => {
           void copyText(hostPath).then((done) => {
             if (done) onNotice('Path copied');
@@ -493,26 +493,17 @@ export const FileActions: React.FC<{
         }}
       >
         Copy path
-      </button>
+      </Button>
       {onCheckFile && isCheckableFile(relativePath) ? (
-        <button type="button" className="wb-act" onClick={() => onCheckFile(project.id, relativePath)}>
+        <Button type="button" variant="quiet" size="sm" onClick={() => onCheckFile(project.id, relativePath)}>
           Check
-        </button>
+        </Button>
       ) : null}
     </span>
   );
 };
 
 const FILES_SHOWN = 4;
-
-/** Raw tool paths → the ones inside this project's mount, relative to it, each once. */
-export function projectPathsOf(paths: string[], containerPath?: string | null): string[] {
-  return uniquePreserveOrder(
-    paths
-      .map((p) => projectRelativePath(p, containerPath))
-      .filter((p): p is string => p != null)
-  );
-}
 
 /** The "Wrote" strip: rows of a label and actions, four shown and the rest behind "+N more". */
 const WroteList: React.FC<{ rows: { key: string; actions: React.ReactNode }[] }> = ({ rows }) => {
@@ -584,9 +575,9 @@ export const ReplyFiles: React.FC = () => {
         key: page.slice(PROJECTS_CONTAINER_ROOT.length + 1),
         actions: (
           <span className="wb-file-acts">
-            <button type="button" className="wb-act" onClick={() => onPreview(page)}>
+            <Button type="button" variant="quiet" size="sm" onClick={() => onPreview(page)}>
               Preview
-            </button>
+            </Button>
           </span>
         ),
       }))}
@@ -656,14 +647,18 @@ const zeroVersion = () => 0;
 /** ‹ n / m › — visible whenever a message has more than one version, not only on hover. */
 const Versions: React.FC = () => (
   <BranchPickerPrimitive.Root hideWhenSingleBranch className="wb-versions">
-    <BranchPickerPrimitive.Previous className="wb-act" aria-label="Previous version">
-      <PrevIcon />
+    <BranchPickerPrimitive.Previous asChild>
+      <Button type="button" variant="quiet" size="icon-xs" aria-label="Previous version">
+        <PrevIcon />
+      </Button>
     </BranchPickerPrimitive.Previous>
     <span className="wb-versions-count">
       <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
     </span>
-    <BranchPickerPrimitive.Next className="wb-act" aria-label="Next version">
-      <NextIcon />
+    <BranchPickerPrimitive.Next asChild>
+      <Button type="button" variant="quiet" size="icon-xs" aria-label="Next version">
+        <NextIcon />
+      </Button>
     </BranchPickerPrimitive.Next>
   </BranchPickerPrimitive.Root>
 );
@@ -725,29 +720,27 @@ const CheckAction: React.FC = () => {
     });
   };
   return (
-    <button
+    <Button
       type="button"
-      className="wb-act"
+      variant="quiet"
+      size="icon-xs"
       aria-label="Check writing"
-      data-tip="Check writing"
+      title="Check writing"
       data-guide-anchor="check-writing"
       onClick={check}
     >
       <CheckWritingIcon />
-    </button>
+    </Button>
   );
 };
 
 export const CopyAction: React.FC = () => (
-  <ActionBarPrimitive.Copy
-    className="wb-act"
-    copiedDuration={1400}
-    aria-label="Copy"
-    data-tip="Copy"
-  >
-    <CopyIcon />
-    <CheckIcon />
-    <span className="wb-act-label">Copied</span>
+  <ActionBarPrimitive.Copy copiedDuration={1400} asChild>
+    <Button type="button" variant="quiet" size="icon-xs" className="wb-copy-act" aria-label="Copy" title="Copy">
+      <CopyIcon />
+      <CheckIcon />
+      <span className="wb-act-label">Copied</span>
+    </Button>
   </ActionBarPrimitive.Copy>
 );
 
@@ -765,8 +758,10 @@ export const UserMessageActions: React.FC = () => {
       <MessageTime />
       <CopyAction />
       {canRewind ? (
-        <ActionBarPrimitive.Edit className="wb-act" aria-label="Edit" data-tip="Edit">
-          <EditIcon />
+        <ActionBarPrimitive.Edit asChild>
+          <Button type="button" variant="quiet" size="icon-xs" aria-label="Edit" title="Edit">
+            <EditIcon />
+          </Button>
         </ActionBarPrimitive.Edit>
       ) : null}
       <BranchAction />
@@ -915,8 +910,10 @@ export const AssistantMessageActions: React.FC = () => {
       <CopyAction />
       <CheckAction />
       {canRewind ? (
-        <ActionBarPrimitive.Reload className="wb-act" aria-label="Retry" data-tip="Retry">
-          <RetryIcon />
+        <ActionBarPrimitive.Reload asChild>
+          <Button type="button" variant="quiet" size="icon-xs" aria-label="Retry" title="Retry">
+            <RetryIcon />
+          </Button>
         </ActionBarPrimitive.Reload>
       ) : null}
       <BranchAction />

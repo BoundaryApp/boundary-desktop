@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { localDay } from '../../../../shared/circleUsage';
+import { localDay } from '../../../../shared/utils/localDay';
 import type { CirclesState } from '../../../../shared/types/circles';
 import { BO, circleMember, circleSharing, circleSnapshot, runningCircles } from '../../../__tests__/circleFixtures';
 import { stubElectronAPI } from '../../../__tests__/electronApiFake';

@@ -1,0 +1,149 @@
+@layer theme, base, components, utilities, markdown;
+
+@layer components {
+
+/* Menu and Listbox (ADR 0068), keyed on data-slot and on Radix's data-highlighted,
+   data-disabled and data-state. One surface and one row look for both. Colors, sizes and radii
+   come from tokens.css. */
+
+[data-slot='menu-content'],
+[data-slot='listbox'] {
+  box-sizing: border-box;
+  z-index: 20;
+  min-width: 14em;
+  max-width: min(26em, calc(100vw - var(--space-4)));
+  padding: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: var(--size-ui);
+  outline: none;
+}
+
+/* A listbox that sits in a sheet rather than floating: no shadow. */
+[data-slot='listbox'][tabindex] {
+  box-shadow: none;
+}
+
+[data-slot='listbox'][tabindex]:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* Rows. A row is at least --control-height-sm; a description makes it taller. */
+[data-slot='menu-item'],
+[data-slot='listbox-option'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-height: var(--control-height-sm);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+/* Where the keyboard or pointer is. Not a selection: the check is the selection. */
+[data-slot='menu-item'][data-highlighted],
+[data-slot='menu-item'][data-state='open'],
+[data-slot='listbox-option'][data-active],
+[data-slot='listbox-option']:hover:where(:not([aria-disabled='true'])) {
+  background: var(--surface-hover);
+}
+
+[data-slot='menu-item'][data-variant='danger'] {
+  color: var(--danger);
+}
+
+[data-slot='menu-item'][data-disabled],
+[data-slot='listbox-option'][aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-slot='menu-item-icon'],
+[data-slot='menu-item-indicator'],
+[data-slot='listbox-option-indicator'],
+[data-slot='menu-item-chevron'] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+/* Checkable items and marked lists keep a check column, so labels line up checked or not. A
+   plain item in a menu that has checkable items is indented by the same column. */
+[data-slot='menu-content']:has(> [data-slot='menu-item'] > [data-slot='menu-item-indicator'], > [data-slot='menu-radio-group'])
+  > :is([data-slot='menu-item']:not(:has(> [data-slot='menu-item-indicator'])), [data-slot='menu-note'])::before {
+  content: '';
+  flex: none;
+  width: 14px;
+}
+
+[data-slot='listbox']:not([data-marks]) [data-slot='listbox-option-indicator'] {
+  display: none;
+}
+
+[data-slot='menu-item-indicator'],
+[data-slot='listbox-option-indicator'] {
+  color: var(--text);
+}
+
+[data-slot='menu-item-text'] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-slot='menu-item-label'] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot='menu-item-description'] {
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+  overflow-wrap: anywhere;
+}
+
+[data-slot='menu-item-hint'] {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+}
+
+[data-slot='menu-label'],
+[data-slot='listbox-group-label'] {
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+}
+
+[data-slot='menu-note'] {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--size-xs);
+}
+
+[data-slot='menu-separator'] {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--line);
+}
+
+}
