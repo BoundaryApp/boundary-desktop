@@ -14,7 +14,7 @@ import { createChatHistoryMover, exportFolderName, type ChatHistoryDeps } from '
 
 const STORE: HermesAgentsStoreShape = {
   agents: [
-    { slug: 'assistant', displayName: 'Hob', handle: 'Hob', role: '', builtIn: true, createdAt: 'c' },
+    { slug: 'assistant', displayName: 'Marlow', handle: 'Marlow', role: '', builtIn: true, createdAt: 'c' },
     { slug: 'coder', displayName: 'Coder', handle: 'Coder', role: '', builtIn: false, createdAt: 'c' },
   ],
   standingDmByAgent: { coder: 's-dm' },
@@ -57,7 +57,7 @@ const exportScript: Script = async (dest, options) => {
 };
 
 function mover(script: Script, overrides: Partial<ChatHistoryDeps> = {}) {
-  const files = createFakeStackFiles({ 'data:hermes/SOUL.md': '# Hob\n', 'data:hermes/profiles/coder/SOUL.md': '# Coder\n' });
+  const files = createFakeStackFiles({ 'data:hermes/SOUL.md': '# Marlow\n', 'data:hermes/profiles/coder/SOUL.md': '# Coder\n' });
   return createChatHistoryMover({
     commands: () => ({
       scriptEnv: async () => ({}),
@@ -67,7 +67,7 @@ function mover(script: Script, overrides: Partial<ChatHistoryDeps> = {}) {
     readStore: () => structuredClone(STORE),
     listProjects: () => [],
     listWritingVoices: () => [],
-    profileLabel: (p) => (p === 'default' ? 'Hob' : p === 'coder' ? 'Coder' : null),
+    profileLabel: (p) => (p === 'default' ? 'Marlow' : p === 'coder' ? 'Coder' : null),
     appVersion: () => '1.2.3',
     source: () => ({ stack: 'local' }),
     unavailable: () => null,
@@ -93,7 +93,7 @@ describe('chat history export', () => {
     const history = JSON.parse(fs.readFileSync(path.join(folder, 'boundary.json'), 'utf8'));
     expect(history).toMatchObject({ format: 'boundary-history/1', appVersion: '1.2.3', source: { stack: 'local' } });
     expect(history.agents.map((a: { slug: string; soul: string }) => [a.slug, a.soul])).toEqual([
-      ['assistant', '# Hob\n'],
+      ['assistant', '# Marlow\n'],
       ['coder', '# Coder\n'],
     ]);
     expect(history.sessions['s-dm']).toEqual({ profile: 'coder', meta: { agentSlug: 'coder' } });
@@ -104,7 +104,7 @@ describe('chat history export', () => {
       sessions: 2,
       messages: 5,
       profiles: [
-        { profile: 'default', label: 'Hob', sessions: 1, messages: 2 },
+        { profile: 'default', label: 'Marlow', sessions: 1, messages: 2 },
         { profile: 'coder', label: 'Coder', sessions: 1, messages: 3 },
       ],
     });
@@ -117,7 +117,7 @@ describe('chat history export', () => {
     const text = JSON.stringify(logs);
     expect(logs.map(([message]) => message)).toEqual(['export started', 'export profile', 'export profile', 'export done']);
     expect(text).not.toContain(parent);
-    expect(text).not.toContain('# Hob');
+    expect(text).not.toContain('# Marlow');
   });
 
   it('adds a number when the day’s folder already exists, and never writes into it', async () => {

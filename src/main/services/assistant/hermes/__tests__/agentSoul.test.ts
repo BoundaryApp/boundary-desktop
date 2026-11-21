@@ -53,7 +53,7 @@ describe('agentSoul', () => {
     const file = resolveSoulFilePath(root, 'assistant');
     expect(file).toBe(path.join(root, 'hermes', 'SOUL.md'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, '# Hob\n\nKeeps the house.\n');
+    fs.writeFileSync(file, '# Marlow\n\nKeeps the house.\n');
     const files = localStackFiles({ stackRoot, userContentRoot: () => root });
     expect(await readSoulFile(files, 'assistant')).toContain('Keeps the house');
   });

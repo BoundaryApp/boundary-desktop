@@ -10,7 +10,7 @@ import { calendarsApi, openSignIn, reportProgress, stubCalendars } from './calen
 
 // ADR 0023 §8: Settings panels name the built-in agent from its stored record, not a literal.
 const agents = [
-  { slug: 'assistant', displayName: 'Hob', handle: 'hob', role: '', builtIn: true, createdAt: '' },
+  { slug: 'assistant', displayName: 'Marlow', handle: 'marlow', role: '', builtIn: true, createdAt: '' },
 ];
 const agentsApi = { list: vi.fn() };
 
@@ -35,8 +35,8 @@ describe('Settings panels name the built-in agent from its record', () => {
       assistantStack: { getWebSearchMode: vi.fn(async () => ({ mode: 'private', canChange: false, overrides: [] })) },
     });
     render(<AgentBrowserPanel />);
-    expect(await screen.findByText('Hob browses here, with the logins you add.')).toBeTruthy();
-    expect(screen.getByText('Open. Hob is using it now.')).toBeTruthy();
+    expect(await screen.findByText('Marlow browses here, with the logins you add.')).toBeTruthy();
+    expect(screen.getByText('Open. Marlow is using it now.')).toBeTruthy();
   });
 
   it('Computer access', async () => {
@@ -48,7 +48,7 @@ describe('Settings panels name the built-in agent from its record', () => {
       },
     });
     render(<ComputerAccessPanel />);
-    expect(await screen.findByText('Nothing is always allowed. Hob asks each time.')).toBeTruthy();
+    expect(await screen.findByText('Nothing is always allowed. Marlow asks each time.')).toBeTruthy();
   });
 
   it('Web search', async () => {
@@ -59,7 +59,7 @@ describe('Settings panels name the built-in agent from its record', () => {
     render(<WebSearchModeSection />);
     await screen.findByRole('radio', { name: /Private only/ });
     fireEvent.click(screen.getByRole('button', { name: /web search/i, description: undefined }));
-    expect(await screen.findByText(/Who answers Hob’s web searches/)).toBeTruthy();
+    expect(await screen.findByText(/Who answers Marlow’s web searches/)).toBeTruthy();
     // The engine's own restart wording stays.
     expect(screen.getByRole('button', { name: 'Save and restart Hermes' })).toBeTruthy();
   });
@@ -76,6 +76,6 @@ describe('Settings panels name the built-in agent from its record', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     act(() => reportProgress({ slug: 'personal', step: 'checking' }));
-    expect(await screen.findByText('Checking Hob can read it')).toBeTruthy();
+    expect(await screen.findByText('Checking Marlow can read it')).toBeTruthy();
   });
 });

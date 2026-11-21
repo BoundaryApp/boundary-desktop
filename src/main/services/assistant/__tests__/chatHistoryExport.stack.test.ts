@@ -106,7 +106,7 @@ for path, sessions in (("/opt/data/state.db", [sess("s-chat", 3), sess("s-room",
   it('exports every profile with counts only, then writes boundary.json beside the files', async () => {
     const store: HermesAgentsStoreShape = {
       agents: [
-        { slug: 'assistant', displayName: 'Hob', handle: 'Hob', role: '', builtIn: true, createdAt: 'c' },
+        { slug: 'assistant', displayName: 'Marlow', handle: 'Marlow', role: '', builtIn: true, createdAt: 'c' },
         { slug: 'coder', displayName: 'Coder', handle: 'Coder', role: '', builtIn: false, createdAt: 'c' },
       ],
       standingDmByAgent: { coder: 's-dm' },

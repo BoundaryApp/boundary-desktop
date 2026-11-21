@@ -91,7 +91,7 @@ describe('buildBoundaryHistory', () => {
   const build = () =>
     buildBoundaryHistory({
       store: fakeStore(),
-      souls: { assistant: '# Hob\n', coder: '# Coder\nWrites code.\n' },
+      souls: { assistant: '# Marlow\n', coder: '# Coder\nWrites code.\n' },
       projects: [project('p-1'), project('p-2'), project('p-unused')],
       writingVoices: [voice('v-agent', 'Agent'), voice('v-kept', 'Kept'), voice('v-prompt', 'Prompt'), voice('v-other', 'By name'), voice('v-none', 'Unused')],
       appVersion: '0.0.1-rc.17',
@@ -108,7 +108,7 @@ describe('buildBoundaryHistory', () => {
       source: { stack: 'managed' },
     });
     expect(history.agents.map((a) => [a.slug, a.soul])).toEqual([
-      ['assistant', '# Hob\n'],
+      ['assistant', '# Marlow\n'],
       ['coder', '# Coder\nWrites code.\n'],
     ]);
   });

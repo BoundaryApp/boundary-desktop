@@ -14,7 +14,7 @@ What it holds, by tab (`inspectorTabsFor`):
 
 - **Room** (channels): members with add and remove, and a project chip that switches to Project.
 - **Agent** (DMs and side chats): role, a Soul excerpt, Open SOUL.md.
-- **Session** (Hob chats): **Make channel**. The header already offers it in its title menu, and as a button while the chat isn't filed in a project (`ThreadHead`).
+- **Session** (Marlow chats): **Make channel**. The header already offers it in its title menu, and as a button while the chat isn't filed in a project (`ThreadHead`).
 - **Project**: source directories with Open, and banners for Not visible, Writable and Stale (ADR 0013). Outside a conversation it is the only tab.
 - **Check**: a writing check result, added when the user presses **Check writing** on a reply or checks a project file.
 

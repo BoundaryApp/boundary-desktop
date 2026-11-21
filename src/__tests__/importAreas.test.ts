@@ -15,7 +15,6 @@ import {
 
 describe('areaOf', () => {
   it('names experiments, services, UI folders and the shared layers', () => {
-    expect(areaOf('src/experiments/demo/main/x.ts')).toBe('exp:demo');
     expect(areaOf('src/main/services/circles/circleOps.ts')).toBe('main:circles');
     expect(areaOf('src/main/services/windows.ts')).toBe('main:services-root');
     expect(areaOf('src/main/ipc.ts')).toBe('main:core');

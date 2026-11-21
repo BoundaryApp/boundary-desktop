@@ -247,7 +247,7 @@
         <div class="grp" aria-label="Conversation">
           <button data-view-go="dm">DM</button>
           <button data-view-go="channel">Channel</button>
-          <button data-view-go="leftover">Hob chat</button>
+          <button data-view-go="leftover">Marlow chat</button>
         </div>
         <span class="sep"></span>
         <div class="grp" aria-label="Sources">
@@ -275,7 +275,7 @@
         <div class="sect">Channels</div>
         <button class="row" data-row="channel"><span class="mini" style="background:#6d9470">#</span>launch-notes</button>
         <div class="sect">Recent</div>
-        <button class="row" data-row="leftover"><span class="mini" style="background:#5a5a66">H</span>Hob chat</button>
+        <button class="row" data-row="leftover"><span class="mini" style="background:#5a5a66">M</span>Marlow chat</button>
       </aside>
 
       <main class="center">
@@ -283,7 +283,7 @@
           <div class="title">
             <strong class="for-dm">Wren</strong><span class="role for-dm">Research partner</span>
             <strong class="for-channel">#launch-notes</strong><span class="role for-channel">3 members</span>
-            <strong class="for-leftover">Hob chat</strong><span class="role for-leftover">One of many chats with Hob</span>
+            <strong class="for-leftover">Marlow chat</strong><span class="role for-leftover">One of many chats with Marlow</span>
           </div>
 
           <div class="head-tools after-only">
@@ -354,7 +354,7 @@
         <section class="pane" data-pane="room">
           <h4>Members</h4>
           <div class="member"><span class="mini" style="background:#6f8fa3">W</span>Wren<span>Research partner</span></div>
-          <div class="member"><span class="mini" style="background:#c4a574">H</span>Hob<span>Built in</span></div>
+          <div class="member"><span class="mini" style="background:#c4a574">M</span>Marlow<span>Built in</span></div>
           <div class="member"><span class="mini" style="background:#8a7aa8">F</span>Fern<span>Editor</span></div>
           <button class="btn">Add member</button>
           <h4>Project</h4>
@@ -363,7 +363,7 @@
 
         <section class="pane" data-pane="session">
           <h4>This chat</h4>
-          <p style="color:var(--muted);margin:0 0 4px;font-size:12px">One of many chats with Hob.</p>
+          <p style="color:var(--muted);margin:0 0 4px;font-size:12px">One of many chats with Marlow.</p>
           <button class="btn block">Make channel</button>
           <p class="after-only" style="color:var(--faint);font-size:11px;margin-top:10px">Also in the header’s title menu.</p>
         </section>
@@ -487,7 +487,7 @@
       { title: "After: closed by default", body: "The transcript gets the full width and centers, as ADR 0020 intended. Nothing in the inspector changes turn by turn, so nothing is lost by default.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: false, spot: "toggle" },
       { title: "Open it from the header", body: "The toggle sits at the right of the conversation header, with ⌥⌘0. Open or closed is remembered across conversations and restarts. Tabs still reset per conversation.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: true, spot: "toggle" },
       { title: "Channel members move to the header", body: "Who is in a channel is core context, so their faces sit in the header. Clicking them opens the Room tab.", state: { mode: "after", view: "channel", src: "ready", width: "wide" }, open: false, spot: "faces" },
-      { title: "Make channel is already in the header", body: "The Session tab’s one action, Make channel, is already in the header’s title menu, and is a header button while the chat isn’t filed in a project. Nothing has to move for Hob chats.", state: { mode: "after", view: "leftover", src: "ready", width: "wide" }, open: false, spot: "more", menu: true },
+      { title: "Make channel is already in the header", body: "The Session tab’s one action, Make channel, is already in the header’s title menu, and is a header button while the chat isn’t filed in a project. Nothing has to move for Marlow chats.", state: { mode: "after", view: "leftover", src: "ready", width: "wide" }, open: false, spot: "more", menu: true },
       { title: "Warnings show on the toggle", body: "When a source is Not visible, Writable or Stale, the toggle gets an amber dot and names the problem in its tooltip. Opening the inspector then lands on the Project tab, where the banner is.", state: { mode: "after", view: "dm", src: "unmounted", width: "wide" }, open: false, spot: "toggle" },
       { title: "Actions open it on the right tab", body: "Check writing on a reply opens the inspector on Check. Choosing a file to check, from a chat or the project page, does the same.", state: { mode: "after", view: "dm", src: "ready", width: "wide" }, open: true, check: true, spot: "checkbtn" },
       { title: "Narrow windows overlay", body: "Below 1280px the inspector slides over the transcript instead of squeezing it, and starts closed in each conversation. Click outside or press Escape to close it. Today it can’t be opened at all at this width.", state: { mode: "after", view: "dm", src: "ready", width: "narrow" }, open: true },

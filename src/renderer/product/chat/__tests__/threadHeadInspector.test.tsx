@@ -6,7 +6,7 @@ import { InspectorToggleProvider, type InspectorToggleState } from '../Inspector
 import { ThreadHead, type ThreadHeadProps } from '../ThreadHead';
 
 const agents = [
-  { slug: 'assistant', displayName: 'Hob', builtIn: true },
+  { slug: 'assistant', displayName: 'Marlow', builtIn: true },
   { slug: 'wren', displayName: 'Wren' },
 ] as AgentProfile[];
 

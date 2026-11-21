@@ -671,18 +671,6 @@ const bridge: Record<string, Record<string, unknown>> = {
     }),
   },
 };
-/**
- * Fake answers an experiment adds, from a `screenshot.ts` beside its renderer entry: the calls
- * its rail button and overlays make on mount, on every scene, and its own release notes scenes.
- * Its default export gets the page's parameters and returns bridge namespaces, merged over the
- * ones above call by call. The public repository has no experiments, so nothing is added there.
- */
-type ExperimentShot = (params: URLSearchParams) => Record<string, Record<string, unknown>>;
-const experimentShots = import.meta.glob<{ default: ExperimentShot }>('../../src/experiments/*/screenshot.ts', { eager: true });
-for (const { default: shot } of Object.values(experimentShots)) {
-  for (const [name, calls] of Object.entries(shot(params))) bridge[name] = { ...bridge[name], ...calls };
-}
-
 (window as unknown as { electronAPI: unknown }).electronAPI = new Proxy(
   {},
   {

@@ -48,7 +48,7 @@ describe('MoveProjectSheet', () => {
       <MoveProjectSheet
         target={{ sessionIds: ['s1'], label: '“Plans”', fromProjectId: 'pinned' }}
         projects={[project('pinned', { mode: 'local', modelId: 'qwen3:14b' }), project('inherits', { mode: 'inherit' })]}
-        agentName="Hob"
+        agentName="Marlow"
         onMove={() => {}}
         onCancel={() => {}}
       />
@@ -78,7 +78,7 @@ function renderSheet(fromProjectId: string | null, onMove = vi.fn()) {
     <MoveProjectSheet
       target={{ sessionIds: ['s1'], label: '“Plan”', fromProjectId }}
       projects={projects}
-      agentName="Hob"
+      agentName="Marlow"
       onMove={onMove}
       onCancel={vi.fn()}
     />

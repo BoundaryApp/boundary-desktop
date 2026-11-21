@@ -14,7 +14,7 @@ const inspectFolderForDelete = vi.fn();
 
 stubElectronAPI({
   agents: {
-    list: async () => ({ success: true, agents: [{ ...BUILTIN_AGENT_FALLBACK, displayName: 'Hob' }] }),
+    list: async () => ({ success: true, agents: [{ ...BUILTIN_AGENT_FALLBACK, displayName: 'Marlow' }] }),
   },
   codingFolders: {
     list: (...args: unknown[]) => listCodingFolders(...args),
@@ -103,14 +103,14 @@ describe('CodingFoldersPanel', () => {
     listCodingFolders.mockResolvedValue({ success: true, managed: true, grants: pending });
     verifyCodingFolders.mockResolvedValue({ success: true, managed: true, grants: pending });
     render(<CodingFoldersPanel />);
-    expect((await screen.findAllByText('Hob can edit')).length).toBe(2);
-    expect(screen.getByText('Hob after restart')).toBeTruthy();
+    expect((await screen.findAllByText('Marlow can edit')).length).toBe(2);
+    expect(screen.getByText('Marlow after restart')).toBeTruthy();
     expect(screen.queryByText(/Hermes/)).toBeNull();
     expect(screen.getByRole('heading', { name: 'Folders the coding agent can reach' }).id).toBe(
       'settings-coding'
     );
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove…' })[0]);
-    expect(screen.getByText('Hob can still read it in Portfolio chats')).toBeTruthy();
+    expect(screen.getByText('Marlow can still read it in Portfolio chats')).toBeTruthy();
   });
 
   it('removes access but keeps the folder as reference by default', async () => {
